@@ -70,6 +70,23 @@ EMPTY_CONTINUITY_STATE: dict[str, object] = {
 MAX_CONTINUITY_BYTES = 4096
 MAX_STATE_LIST_ITEMS = 6
 MAX_STATE_STRING_CHARS = 240
+MAX_EVIDENCE_STRING_CHARS = 512
+MAX_REVISION_SUMMARY_CHARS = 512
+MAX_ARTIFACT_CHARS = 8192
+CAPABILITY_RESPONSE_CONTRACT_DIGEST = digest(
+    {
+        "schema": "zekam-capability-response-contract/v1",
+        "turn_schema": TURN_SCHEMA,
+        "exact_fields": sorted(TURN_FIELDS),
+        "envelopes": ["bare-json", "single-json-fence"],
+        "continuity_max_bytes": MAX_CONTINUITY_BYTES,
+        "continuity_max_items": MAX_STATE_LIST_ITEMS,
+        "continuity_string_max_chars": MAX_STATE_STRING_CHARS,
+        "evidence_string_max_chars": MAX_EVIDENCE_STRING_CHARS,
+        "revision_summary_max_chars": MAX_REVISION_SUMMARY_CHARS,
+        "artifact_max_chars": MAX_ARTIFACT_CHARS,
+    }
+)
 REQUEST_TEMPLATE_SCHEMA = "zekam-capability-request-template/v1"
 REQUEST_DERIVATION_SCHEMA = "zekam-capability-request-derivation/v1"
 REQUEST_DERIVATION_ALGORITHM = "zekam-capability-continuity-derive/v4"
@@ -79,6 +96,21 @@ REQUEST_TEMPLATE_FIELDS = {"schema", "model", "system", "prompt_prefix", "max_to
 class CapabilityEpisodeClassification(StrEnum):
     EVALUATED = "evaluated"
     MODEL_CONTRACT_FAILED = "model-contract-failed"
+
+
+class CapabilityTurnFailureCode(StrEnum):
+    INVALID_JSON_ENVELOPE = "invalid-json-envelope"
+    INVALID_SHAPE = "invalid-shape"
+    INVALID_BINDING = "invalid-binding"
+    INVALID_PROGRESS = "invalid-progress"
+    INVALID_FIELD = "invalid-field"
+    FIELD_OVERSIZED = "field-oversized"
+
+
+class CapabilityTurnValidationFailed(ValidationFailed):
+    def __init__(self, failure_code: CapabilityTurnFailureCode, message: str) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
 
 
 def classify_capability_episode(
@@ -101,6 +133,7 @@ class PreparedCapabilitySlot:
     system_prompt: str
     backend_model: str
     output_cap: int
+    required_checkpoints: tuple[str, ...]
     template_digest: str
     derivation_digest: str
     template_material: Mapping[str, object]
@@ -132,9 +165,11 @@ class PreparedCapabilityLiveManifest:
                         "phase": row.phase,
                         "template_digest": row.template_digest,
                         "derivation_digest": row.derivation_digest,
+                        "required_checkpoints": list(row.required_checkpoints),
                     }
                     for row in self.slots
                 ],
+                "response_contract_digest": CAPABILITY_RESPONSE_CONTRACT_DIGEST,
             }
         )
 
@@ -162,14 +197,33 @@ def _public_prompt_prefix(task: CapabilityTaskSpec, fixture: CapabilityFixture, 
     )
 
 
-def _short(value: object, label: str, *, allow_empty: bool = False) -> str:
-    if (
-        not isinstance(value, str)
-        or (not allow_empty and not value.strip())
-        or len(value) > MAX_STATE_STRING_CHARS
-    ):
-        raise ValidationFailed(f"Capability {label} bounded string olmali")
+def _bounded_string(
+    value: object,
+    label: str,
+    *,
+    max_chars: int,
+    allow_empty: bool = False,
+) -> str:
+    if not isinstance(value, str) or (not allow_empty and not value.strip()):
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_FIELD,
+            f"Capability {label} bounded string olmali",
+        )
+    if len(value) > max_chars:
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.FIELD_OVERSIZED,
+            f"Capability {label} karakter butcesini asti",
+        )
     return value.strip()
+
+
+def _short(value: object, label: str, *, allow_empty: bool = False) -> str:
+    return _bounded_string(
+        value,
+        label,
+        max_chars=MAX_STATE_STRING_CHARS,
+        allow_empty=allow_empty,
+    )
 
 
 def validate_continuity_state(value: object) -> dict[str, object]:
@@ -430,6 +484,7 @@ def prepare_capability_live_manifest(
                         system_prompt=system,
                         backend_model=record.backend_model,
                         output_cap=output_cap,
+                        required_checkpoints=task.required_checkpoints,
                         template_digest=template_digest,
                         derivation_digest=derivation_digest,
                         template_material=template_material,
@@ -456,22 +511,55 @@ class CapabilityLiveTurnResult:
 def _parse_turn(
     text: str, slot: PreparedCapabilitySlot
 ) -> tuple[dict[str, object], dict[str, object]]:
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if (
+            len(lines) < 3
+            or lines[0].strip() != "```json"
+            or lines[-1].strip() != "```"
+            or any("```" in line for line in lines[1:-1])
+        ):
+            raise CapabilityTurnValidationFailed(
+                CapabilityTurnFailureCode.INVALID_JSON_ENVELOPE,
+                "Capability turn tek complete JSON fence olmali",
+            )
+        candidate = "\n".join(lines[1:-1]).strip()
     try:
-        document = json.loads(text)
+        document = json.loads(candidate)
     except json.JSONDecodeError as exc:
-        raise ValidationFailed("Capability turn exact JSON olmali") from exc
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_JSON_ENVELOPE,
+            "Capability turn exact JSON olmali",
+        ) from exc
     if not isinstance(document, dict) or set(document) != TURN_FIELDS:
-        raise ValidationFailed("Capability turn exact shape gecersiz")
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_SHAPE,
+            "Capability turn exact shape gecersiz",
+        )
     if document["schema"] != TURN_SCHEMA or document["phase"] != slot.phase:
-        raise ValidationFailed("Capability turn schema/phase binding drift")
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_BINDING,
+            "Capability turn schema/phase binding drift",
+        )
     progress = document["progress"]
     if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
-        raise ValidationFailed("Capability turn progress 0..100 integer olmali")
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_PROGRESS,
+            "Capability turn progress 0..100 integer olmali",
+        )
     document["checkpoint"] = _short(document["checkpoint"], "checkpoint")
+    if document["checkpoint"] not in slot.required_checkpoints:
+        raise CapabilityTurnValidationFailed(
+            CapabilityTurnFailureCode.INVALID_BINDING,
+            "Capability turn checkpoint binding drift",
+        )
     evidence = document["evidence"]
     if not isinstance(evidence, list) or not 1 <= len(evidence) <= 6:
         raise ValidationFailed("Capability turn evidence bounded list olmali")
-    document["evidence"] = [_short(row, "evidence") for row in evidence]
+    document["evidence"] = [
+        _bounded_string(row, "evidence", max_chars=MAX_EVIDENCE_STRING_CHARS) for row in evidence
+    ]
     revision = document["revision"]
     if (
         not isinstance(revision, dict)
@@ -479,10 +567,15 @@ def _parse_turn(
         or not isinstance(revision["changed"], bool)
     ):
         raise ValidationFailed("Capability turn revision exact shape gecersiz")
-    revision["summary"] = _short(
-        revision["summary"], "revision summary", allow_empty=not revision["changed"]
+    revision["summary"] = _bounded_string(
+        revision["summary"],
+        "revision summary",
+        max_chars=MAX_REVISION_SUMMARY_CHARS,
+        allow_empty=not revision["changed"],
     )
-    document["artifact"] = _short(document["artifact"], "artifact")
+    document["artifact"] = _bounded_string(
+        document["artifact"], "artifact", max_chars=MAX_ARTIFACT_CHARS
+    )
     state = validate_continuity_state(document["continuity_state"])
     document["continuity_state"] = state
     return cast(dict[str, object], document), state
@@ -557,6 +650,11 @@ def execute_capability_episode(
         try:
             document, next_state = _parse_turn(openai_chat_text(turn.response), slot)
         except ValidationFailed as exc:
+            failure_code = (
+                exc.failure_code.value
+                if isinstance(exc, CapabilityTurnValidationFailed)
+                else CapabilityTurnFailureCode.INVALID_FIELD.value
+            )
             duration_ms = max(prior_elapsed + 1, (monotonic_ns() - started_ns) // 1_000_000)
             acceptance_digest = digest(
                 {
@@ -566,6 +664,7 @@ def execute_capability_episode(
                     "task_digest": task.task_digest,
                     "turn_index": slot.turn_index,
                     "response_digest": turn.response_digest,
+                    "failure_code": failure_code,
                     "verifier_provenance_digest": verifier.provenance_digest,
                 }
             )
@@ -573,6 +672,7 @@ def execute_capability_episode(
                 {
                     "acceptance_evidence_digest": acceptance_digest,
                     "failure_type": type(exc).__name__,
+                    "failure_code": failure_code,
                     "classification": CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED.value,
                     "status": CapabilityEpisodeStatus.NOT_COMPARABLE.value,
                 }

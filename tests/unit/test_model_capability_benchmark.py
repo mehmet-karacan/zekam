@@ -23,11 +23,16 @@ from zekam.application.model_capability_benchmark import (
 )
 from zekam.application.model_capability_live import (
     EMPTY_CONTINUITY_STATE,
+    MAX_ARTIFACT_CHARS,
+    MAX_EVIDENCE_STRING_CHARS,
     REQUEST_DERIVATION_ALGORITHM,
     REQUEST_TEMPLATE_SCHEMA,
     TURN_SCHEMA,
     CapabilityEpisodeClassification,
     CapabilityLiveTurnResult,
+    CapabilityTurnFailureCode,
+    CapabilityTurnValidationFailed,
+    _parse_turn,
     capability_derivation_material,
     classify_capability_episode,
     derive_capability_request_body,
@@ -281,6 +286,49 @@ def test_live_manifest_prepares_exact_static_168_slots() -> None:
         for slot in prepared.slots
         if slot.model_id == model_id and slot.task_digest == task.task_digest
     )
+
+    parser_document = {
+        "schema": TURN_SCHEMA,
+        "phase": episode_slots[0].phase,
+        "progress": 10,
+        "checkpoint": task.required_checkpoints[0],
+        "evidence": ["bounded observation"],
+        "revision": {"changed": False, "summary": ""},
+        "continuity_state": dict(EMPTY_CONTINUITY_STATE),
+        "artifact": "x" * MAX_ARTIFACT_CHARS,
+    }
+    bare_text = json.dumps(parser_document)
+    bare, _ = _parse_turn(bare_text, episode_slots[0])
+    fenced, _ = _parse_turn(f"  ```json\n{bare_text}\n```  ", episode_slots[0])
+    assert bare == fenced
+    wrong_checkpoint = {**parser_document, "checkpoint": "not-reviewed"}
+    with pytest.raises(CapabilityTurnValidationFailed) as checkpoint_error:
+        _parse_turn(json.dumps(wrong_checkpoint), episode_slots[0])
+    assert checkpoint_error.value.failure_code is CapabilityTurnFailureCode.INVALID_BINDING
+    for invalid_envelope in (
+        f"prefix {bare_text}",
+        f"{bare_text} suffix",
+        f"```json\n{bare_text}\n```\n```json\n{bare_text}\n```",
+        f"```\n{bare_text}\n```",
+    ):
+        with pytest.raises(CapabilityTurnValidationFailed) as envelope_error:
+            _parse_turn(invalid_envelope, episode_slots[0])
+        assert envelope_error.value.failure_code is CapabilityTurnFailureCode.INVALID_JSON_ENVELOPE
+    extra_document = {**parser_document, "unexpected": True}
+    with pytest.raises(CapabilityTurnValidationFailed) as shape_error:
+        _parse_turn(json.dumps(extra_document), episode_slots[0])
+    assert shape_error.value.failure_code is CapabilityTurnFailureCode.INVALID_SHAPE
+    oversized_artifact = {**parser_document, "artifact": "x" * (MAX_ARTIFACT_CHARS + 1)}
+    with pytest.raises(CapabilityTurnValidationFailed) as artifact_error:
+        _parse_turn(json.dumps(oversized_artifact), episode_slots[0])
+    assert artifact_error.value.failure_code is CapabilityTurnFailureCode.FIELD_OVERSIZED
+    oversized_evidence = {
+        **parser_document,
+        "evidence": ["x" * (MAX_EVIDENCE_STRING_CHARS + 1)],
+    }
+    with pytest.raises(CapabilityTurnValidationFailed) as evidence_error:
+        _parse_turn(json.dumps(oversized_evidence), episode_slots[0])
+    assert evidence_error.value.failure_code is CapabilityTurnFailureCode.FIELD_OVERSIZED
 
     continuity: dict[str, object] = dict(EMPTY_CONTINUITY_STATE)
 
