@@ -270,21 +270,25 @@ def _canonical_acceptance(
             (realm_id, campaign_id),
         )
         row = cursor.fetchone()
-    assert row is not None and row[0] is not None
+    assert row is not None
     parent_campaign_id = row[0]
     work_id = row[1]
     task_plan_id = row[2]
     revision = int(row[3])
     repository = ModelCampaignRepository(connection, realm_id)
-    continuation_runtime = campaign_cli._continuation_runtime(
-        connection,
-        repository,
-        parent_campaign_id=parent_campaign_id,
-        manifest=manifest,
-        work_id=work_id,
-        revision=revision,
-        current_source_revision=current_source_revision,
-        current_policy_digest=policy.policy_digest,
+    continuation_runtime = (
+        None
+        if parent_campaign_id is None
+        else campaign_cli._continuation_runtime(
+            connection,
+            repository,
+            parent_campaign_id=parent_campaign_id,
+            manifest=manifest,
+            work_id=work_id,
+            revision=revision,
+            current_source_revision=current_source_revision,
+            current_policy_digest=policy.policy_digest,
+        )
     )
     expected_campaign = campaign_cli._domain_campaign(
         discovery,
@@ -294,25 +298,27 @@ def _canonical_acceptance(
         task_plan_id=task_plan_id,
         source_revision=current_source_revision,
         policy_digest=policy.policy_digest,
-        continuation=continuation_runtime.continuation,
+        continuation=None if continuation_runtime is None else continuation_runtime.continuation,
     )
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "select task_plan_id, revision, source_revision"
-            " from models.opencode_benchmark_campaign where realm_id=%s and id=%s",
-            (realm_id, parent_campaign_id),
+    expected_parent_campaign = None
+    if parent_campaign_id is not None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select task_plan_id, revision, source_revision"
+                " from models.opencode_benchmark_campaign where realm_id=%s and id=%s",
+                (realm_id, parent_campaign_id),
+            )
+            parent = cursor.fetchone()
+        assert parent is not None
+        expected_parent_campaign = campaign_cli._domain_campaign(
+            discovery,
+            manifest,
+            revision=int(parent[1]),
+            work_id=work_id,
+            task_plan_id=parent[0],
+            source_revision=str(parent[2]),
+            policy_digest=policy.policy_digest,
         )
-        parent = cursor.fetchone()
-    assert parent is not None
-    expected_parent_campaign = campaign_cli._domain_campaign(
-        discovery,
-        manifest,
-        revision=int(parent[1]),
-        work_id=work_id,
-        task_plan_id=parent[0],
-        source_revision=str(parent[2]),
-        policy_digest=policy.policy_digest,
-    )
     return build_provider_acceptance_evidence(
         connection,
         realm_id=realm_id,
@@ -331,8 +337,14 @@ def _canonical_acceptance(
         expected_campaign=expected_campaign,
         expected_parent_campaign=expected_parent_campaign,
         expected_calls={item.call_id: item for item in manifest.calls},
-        expected_current_calls={item.call_id: item for item in continuation_runtime.active_calls},
-        expected_continuation=continuation_runtime.continuation,
+        expected_current_calls=(
+            {item.call_id: item for item in manifest.calls}
+            if continuation_runtime is None
+            else {item.call_id: item for item in continuation_runtime.active_calls}
+        ),
+        expected_continuation=(
+            None if continuation_runtime is None else continuation_runtime.continuation
+        ),
         expected_secret_name=BENCHMARK_SECRET_REF_NAME,
         expected_secret_locator=manifest.credential_locator,
     )
@@ -411,6 +423,24 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
     assert document["receipt_count"] == 290
     assert document["authorization_count_consumed"] == 120
     assert fake.calls == 102
+
+    with connect(migrated_database) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("select id from core.realm where slug=%s", (campaign_realm_flags[1],))
+            realm_id = UUID(str(cursor.fetchone()[0]))
+        realm = RealmRepository(connection).get(realm_id)
+        configure_session(connection, realm_id=realm.id)
+        evidence = _canonical_acceptance(
+            connection,
+            realm_id=realm.id,
+            campaign_id=UUID(str(authorization["campaign_id"])),
+            config=config,
+        )
+    assert evidence["schema"] == "zekam-opencode-benchmark-campaign-acceptance/v3"
+    assert evidence["parent_campaign_id"] is None
+    assert len(evidence["chain"]) == 1
+    assert evidence["actual_provider_call_count"] == 102
+    assert evidence["secret_values_reported"] == 0
 
     inventory = _run(
         campaign_home,
@@ -1064,33 +1094,44 @@ def test_campaign_mixed_member_result_publishes_failed_outcome_and_safe_qualific
     # Guardrail health failure skips its five benchmark calls by policy.
     assert document["provider_calls_made"] == 97
     assert fake.calls == 97
-    with connect(migrated_database) as connection, connection.cursor() as cursor:
+    with connect(migrated_database) as connection:
         realm = RealmRepository(connection).find_by_slug(campaign_realm_flags[1])
         assert realm is not None
         configure_session(connection, realm_id=realm.id)
-        cursor.execute(
-            "select action, count(*) from models.opencode_model_qualification_event"
-            " where campaign_id = %s group by action order by action",
-            (authorization["campaign_id"],),
+        evidence = _canonical_acceptance(
+            connection,
+            realm_id=realm.id,
+            campaign_id=UUID(str(authorization["campaign_id"])),
+            config=config,
         )
-        assert cursor.fetchall() == [("disqualified", 1), ("qualified", 16)]
-        cursor.execute(
-            "select state from runtime.job where work_item_id = %s",
-            (ids["work_id"],),
-        )
-        assert cursor.fetchone()[0] == "completed"
-        cursor.execute(
-            "select count(*) from runtime.lease where job_id in"
-            " (select id from runtime.job where work_item_id = %s)",
-            (ids["work_id"],),
-        )
-        assert int(cursor.fetchone()[0]) == 0
-        cursor.execute(
-            "select count(*) from runtime.resource_lock where job_id in"
-            " (select id from runtime.job where work_item_id = %s)",
-            (ids["work_id"],),
-        )
-        assert int(cursor.fetchone()[0]) == 0
+        assert evidence["outcome_status"] == "failed"
+        assert evidence["parent_campaign_id"] is None
+        assert evidence["actual_provider_call_count"] == 97
+        assert len(evidence["calls"]) == 97
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select action, count(*) from models.opencode_model_qualification_event"
+                " where campaign_id = %s group by action order by action",
+                (authorization["campaign_id"],),
+            )
+            assert cursor.fetchall() == [("disqualified", 1), ("qualified", 16)]
+            cursor.execute(
+                "select state from runtime.job where work_item_id = %s",
+                (ids["work_id"],),
+            )
+            assert cursor.fetchone()[0] == "completed"
+            cursor.execute(
+                "select count(*) from runtime.lease where job_id in"
+                " (select id from runtime.job where work_item_id = %s)",
+                (ids["work_id"],),
+            )
+            assert int(cursor.fetchone()[0]) == 0
+            cursor.execute(
+                "select count(*) from runtime.resource_lock where job_id in"
+                " (select id from runtime.job where work_item_id = %s)",
+                (ids["work_id"],),
+            )
+            assert int(cursor.fetchone()[0]) == 0
 
 
 @pytest.mark.parametrize("failure_point", ["outcome", "qualification", "checkpoint"])

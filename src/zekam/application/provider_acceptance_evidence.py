@@ -51,6 +51,34 @@ def _required(row: dict[str, Any] | None, reason: str) -> dict[str, Any]:
     return row
 
 
+def _validated_executed_call_evidence(
+    *,
+    expected_calls: dict[str, Any],
+    executed_evidence: dict[str, str],
+    health_status_by_model: dict[str, str],
+) -> dict[str, str]:
+    """Reconstruct outcome call evidence, including deterministic health-gated skips."""
+
+    outcome_evidence = dict(executed_evidence)
+    for call_id, planned in expected_calls.items():
+        if call_id in outcome_evidence:
+            continue
+        if (
+            planned.kind.value == "benchmark"
+            and health_status_by_model.get(planned.canonical_model_id) == "failed"
+        ):
+            outcome_evidence[call_id] = digest(
+                {
+                    "status": "not-run-health-failed",
+                    "model_id": planned.canonical_model_id,
+                    "call_id": call_id,
+                }
+            )
+            continue
+        raise PolicyViolation("Campaign expected executed call evidence missing")
+    return outcome_evidence
+
+
 def build_provider_acceptance_evidence(
     connection: Connection[Any],
     *,
@@ -59,14 +87,19 @@ def build_provider_acceptance_evidence(
     expected_source_revision: str,
     expected_bindings: dict[str, str],
     expected_campaign: Any,
-    expected_parent_campaign: Any,
+    expected_parent_campaign: Any | None,
     expected_calls: dict[str, Any],
     expected_current_calls: dict[str, Any],
-    expected_continuation: CampaignContinuation,
+    expected_continuation: CampaignContinuation | None,
     expected_secret_name: str,
     expected_secret_locator: str,
 ) -> dict[str, Any]:
-    """Recompute continuation-aware acceptance evidence from canonical state."""
+    """Recompute terminal full-campaign evidence from canonical state.
+
+    Revision three supports both a standalone terminal campaign and the existing
+    recovery-continuation chain.  A standalone campaign never acquires adoption
+    or recovery provenance merely to make it exportable.
+    """
 
     with connection.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
@@ -90,48 +123,71 @@ def build_provider_acceptance_evidence(
             " where c.realm_id=%s and c.id=%s and c.campaign_key='opencode-aihub'",
             (realm_id, campaign_id),
         )
-        current = _one(cursor.fetchall(), "Canonical terminal continuation campaign bulunamadi")
+        current = _one(cursor.fetchall(), "Canonical terminal campaign bulunamadi")
         parent_id = current["parent_campaign_id"]
-        if parent_id is None or current["outcome_status"] not in {"passed", "failed"}:
-            raise PolicyViolation("Acceptance terminal continuation campaign ister")
-        cursor.execute(
-            "select c.id campaign_id, c.work_item_id, c.task_plan_id, c.revision,"
-            " c.source_revision, c.campaign_digest, o.id outcome_id, o.status outcome_status,"
-            " o.passed_count, o.failed_count, o.recovery_required_count,"
-            " o.actual_tested_call_count, o.actual_provider_call_count,"
-            " o.evidence_digest outcome_evidence_digest, o.outcome_digest"
-            " from models.opencode_benchmark_campaign c"
-            " join models.opencode_benchmark_campaign_outcome o"
-            "   on o.realm_id=c.realm_id and o.campaign_id=c.id"
-            " where c.realm_id=%s and c.id=%s",
-            (realm_id, parent_id),
-        )
-        parent = _one(cursor.fetchall(), "Canonical parent campaign bulunamadi")
-
-        if (
-            parent["outcome_status"] != "recovery-required"
-            or current["work_item_id"] != parent["work_item_id"]
-            or current["revision"] != parent["revision"] + 1
-            or current["parent_source_revision"] != parent["source_revision"]
-            or current["source_revision"] != expected_source_revision
-        ):
-            raise PolicyViolation("Campaign continuation parent/source binding drift")
+        is_continuation = parent_id is not None
+        if current["outcome_status"] not in {"passed", "failed"}:
+            raise PolicyViolation("Acceptance terminal passed/failed campaign ister")
+        parent: dict[str, Any] | None = None
+        if is_continuation:
+            if expected_parent_campaign is None or expected_continuation is None:
+                raise PolicyViolation("Continuation expected provenance eksik")
+            cursor.execute(
+                "select c.id campaign_id, c.work_item_id, c.task_plan_id, c.revision,"
+                " c.source_revision, c.campaign_digest, o.id outcome_id, o.status outcome_status,"
+                " o.passed_count, o.failed_count, o.recovery_required_count,"
+                " o.actual_tested_call_count, o.actual_provider_call_count,"
+                " o.evidence_digest outcome_evidence_digest, o.outcome_digest"
+                " from models.opencode_benchmark_campaign c"
+                " join models.opencode_benchmark_campaign_outcome o"
+                "   on o.realm_id=c.realm_id and o.campaign_id=c.id"
+                " where c.realm_id=%s and c.id=%s",
+                (realm_id, parent_id),
+            )
+            parent = _one(cursor.fetchall(), "Canonical parent campaign bulunamadi")
+            if (
+                parent["outcome_status"] != "recovery-required"
+                or current["work_item_id"] != parent["work_item_id"]
+                or current["revision"] != parent["revision"] + 1
+                or current["parent_source_revision"] != parent["source_revision"]
+            ):
+                raise PolicyViolation("Campaign continuation parent/source binding drift")
+        elif expected_parent_campaign is not None or expected_continuation is not None:
+            raise PolicyViolation("Standalone campaign continuation provenance tasiyamaz")
+        if current["source_revision"] != expected_source_revision:
+            raise PolicyViolation("Campaign current source revision drift")
         for key, value in expected_bindings.items():
             if current.get(key) != value:
                 raise PolicyViolation(f"Campaign current {key} binding drift")
-        if (
-            current["campaign_digest"] != expected_campaign.campaign_digest
-            or parent["campaign_digest"] != expected_parent_campaign.campaign_digest
-            or current["compatibility_evidence_digest"]
-            != expected_continuation.compatibility_evidence_digest
-            or current["continuation_provenance_digest"]
-            != expected_continuation.continuation_provenance_digest
-            or current["continuation_tested_call_budget"]
-            != expected_continuation.maximum_tested_call_count
-            or current["continuation_provider_call_budget"]
-            != expected_continuation.maximum_provider_call_count
+        if current["campaign_digest"] != expected_campaign.campaign_digest:
+            raise PolicyViolation("Campaign canonical digest drift")
+        if is_continuation:
+            assert parent is not None
+            assert expected_parent_campaign is not None
+            assert expected_continuation is not None
+            if (
+                parent["campaign_digest"] != expected_parent_campaign.campaign_digest
+                or current["compatibility_evidence_digest"]
+                != expected_continuation.compatibility_evidence_digest
+                or current["continuation_provenance_digest"]
+                != expected_continuation.continuation_provenance_digest
+                or current["continuation_tested_call_budget"]
+                != expected_continuation.maximum_tested_call_count
+                or current["continuation_provider_call_budget"]
+                != expected_continuation.maximum_provider_call_count
+            ):
+                raise PolicyViolation("Campaign/continuation canonical digest drift")
+        elif any(
+            current[key] is not None
+            for key in (
+                "parent_source_revision",
+                "compatibility_evidence_digest",
+                "continuation_provenance_digest",
+                "continuation_tested_call_budget",
+                "continuation_provider_call_budget",
+            )
         ):
-            raise PolicyViolation("Campaign/continuation canonical digest drift")
+            raise PolicyViolation("Standalone campaign continuation metadata tasiyamaz")
 
         current_outcome = CampaignOutcome(
             status=CampaignOutcomeStatus(str(current["outcome_status"])),
@@ -143,21 +199,21 @@ def build_provider_acceptance_evidence(
             actual_provider_call_count=int(current["actual_provider_call_count"]),
             evidence_digest=str(current["outcome_evidence_digest"]),
         )
-        parent_outcome = CampaignOutcome(
-            status=CampaignOutcomeStatus(str(parent["outcome_status"])),
-            passed_count=int(parent["passed_count"]),
-            failed_count=int(parent["failed_count"]),
-            recovery_required_count=int(parent["recovery_required_count"]),
-            audio_excluded_count=int(current["audio_excluded_count"]),
-            actual_tested_call_count=int(parent["actual_tested_call_count"]),
-            actual_provider_call_count=int(parent["actual_provider_call_count"]),
-            evidence_digest=str(parent["outcome_evidence_digest"]),
-        )
-        if (
-            current_outcome.outcome_digest != current["outcome_digest"]
-            or parent_outcome.outcome_digest != parent["outcome_digest"]
-        ):
+        if current_outcome.outcome_digest != current["outcome_digest"]:
             raise PolicyViolation("Campaign outcome canonical digest drift")
+        if parent is not None:
+            parent_outcome = CampaignOutcome(
+                status=CampaignOutcomeStatus(str(parent["outcome_status"])),
+                passed_count=int(parent["passed_count"]),
+                failed_count=int(parent["failed_count"]),
+                recovery_required_count=int(parent["recovery_required_count"]),
+                audio_excluded_count=int(current["audio_excluded_count"]),
+                actual_tested_call_count=int(parent["actual_tested_call_count"]),
+                actual_provider_call_count=int(parent["actual_provider_call_count"]),
+                evidence_digest=str(parent["outcome_evidence_digest"]),
+            )
+            if parent_outcome.outcome_digest != parent["outcome_digest"]:
+                raise PolicyViolation("Parent campaign outcome canonical digest drift")
         cursor.execute(
             "select count(*) n from models.opencode_benchmark_campaign"
             " where realm_id=%s and campaign_key='opencode-aihub' and revision>%s",
@@ -173,7 +229,11 @@ def build_provider_acceptance_evidence(
         if _required(cursor.fetchone(), "TaskPlan revision count bulunamadi")["n"] != 0:
             raise PolicyViolation("Campaign TaskPlan current degil")
 
-        plan_ids = (parent["task_plan_id"], current["task_plan_id"])
+        plan_ids = (
+            (current["task_plan_id"],)
+            if parent is None
+            else (parent["task_plan_id"], current["task_plan_id"])
+        )
         cursor.execute(
             "select j.id job_id, j.project_id, j.plan_id, j.state job_state, j.max_attempts,"
             " a.id attempt_id, a.outcome attempt_outcome, ec.id campaign_claim_id,"
@@ -334,7 +394,9 @@ def build_provider_acceptance_evidence(
                 {
                     "call_id": call_id,
                     "campaign_id": str(
-                        parent_id if row["plan_id"] == parent["task_plan_id"] else campaign_id
+                        parent_id
+                        if parent is not None and row["plan_id"] == parent["task_plan_id"]
+                        else campaign_id
                     ),
                     "authorization_id": str(row["authorization_id"]),
                     "claim_id": str(row["claim_id"]),
@@ -417,6 +479,8 @@ def build_provider_acceptance_evidence(
                 adopted_id = member_row[f"{stage}_adopted_from"]
                 adoption = None
                 if adopted_id is not None:
+                    if parent is None or expected_continuation is None:
+                        raise PolicyViolation("Standalone campaign adopted result tasiyamaz")
                     if member_row[f"{stage}_adopted_campaign"] != parent_id:
                         raise PolicyViolation("Adopted result parent campaign drift")
                     cursor.execute(
@@ -439,6 +503,8 @@ def build_provider_acceptance_evidence(
                     adoption = ResultAdoption(UUID(str(adopted_id)), expected_adoption)
                 recovery = None
                 if stage == "health" and member_row["recovered_from_claim_id"] is not None:
+                    if expected_continuation is None:
+                        raise PolicyViolation("Standalone campaign recovered result tasiyamaz")
                     cursor.execute(
                         "select operation from runtime.effect_claim where realm_id=%s and id=%s",
                         (realm_id, member_row["recovered_from_claim_id"]),
@@ -671,13 +737,15 @@ def build_provider_acceptance_evidence(
                         f"{str(trial['suite_digest']).removeprefix('sha256:')}"
                     )
                     ledger_resource = f"model-benchmark:{row['model_id']}:campaign-ledger"
+                    if row["benchmark_adopted_from"] is not None:
+                        if expected_parent_campaign is None:
+                            raise PolicyViolation("Standalone campaign adopted benchmark tasiyamaz")
+                        effect_campaign_digest = expected_parent_campaign.campaign_digest
+                    else:
+                        effect_campaign_digest = expected_campaign.campaign_digest
                     expected_member_effect = digest(
                         {
-                            "campaign_digest": (
-                                expected_parent_campaign.campaign_digest
-                                if row["benchmark_adopted_from"] is not None
-                                else expected_campaign.campaign_digest
-                            ),
+                            "campaign_digest": effect_campaign_digest,
                             "member_id": UUID(str(trial["source_member_id"])),
                             "benchmark_plan_digest": benchmark_plan_digest,
                             "effect": "benchmark-ledger-write",
@@ -984,24 +1052,11 @@ def build_provider_acceptance_evidence(
             if row["campaign_id"] == str(campaign_id)
         }
         health_status_by_model = {item["model_id"]: item["health_status"] for item in members}
-        current_call_evidence: dict[str, str] = {}
-        for call_id, planned in expected_current_calls.items():
-            provider_evidence = actual_current_call_evidence.get(call_id)
-            if provider_evidence is not None:
-                current_call_evidence[call_id] = provider_evidence
-            elif (
-                planned.kind.value == "benchmark"
-                and health_status_by_model.get(planned.canonical_model_id) == "failed"
-            ):
-                current_call_evidence[call_id] = digest(
-                    {
-                        "status": "not-run-health-failed",
-                        "model_id": planned.canonical_model_id,
-                        "call_id": call_id,
-                    }
-                )
-            else:
-                raise PolicyViolation("Continuation expected call evidence missing")
+        current_call_evidence = _validated_executed_call_evidence(
+            expected_calls=expected_current_calls,
+            executed_evidence=actual_current_call_evidence,
+            health_status_by_model=health_status_by_model,
+        )
         expected_outcome_evidence = digest(
             {
                 "campaign_digest": expected_campaign.campaign_digest,
@@ -1012,29 +1067,35 @@ def build_provider_acceptance_evidence(
             }
         )
         if expected_outcome_evidence != current["outcome_evidence_digest"]:
-            raise PolicyViolation("Continuation outcome evidence canonical digest drift")
+            raise PolicyViolation("Campaign outcome evidence canonical digest drift")
 
-        parent_call_rows = [row for row in call_rows if row["plan_id"] == parent["task_plan_id"]]
-        parent_job_ids = {UUID(str(row["job_id"])) for row in parent_call_rows}
-        if len(parent_job_ids) != 1:
-            raise PolicyViolation("Parent recovery provider job tekil degil")
-        expected_parent_recovery_evidence = digest(
-            {
-                "campaign_digest": expected_parent_campaign.campaign_digest,
-                "job_id": next(iter(parent_job_ids)),
-                "error_type": "ValidationFailed",
-                "executed_call_ids": sorted(str(row["call_id"]) for row in parent_call_rows),
-            }
-        )
-        if expected_parent_recovery_evidence != parent["outcome_evidence_digest"]:
-            raise PolicyViolation("Parent recovery outcome evidence canonical digest drift")
-
-        cumulative_provider_calls = int(parent["actual_provider_call_count"]) + int(
-            current["actual_provider_call_count"]
-        )
-        cumulative_tested_calls = int(parent["actual_tested_call_count"]) + int(
-            current["actual_tested_call_count"]
-        )
+        if parent is not None:
+            assert expected_parent_campaign is not None
+            parent_call_rows = [
+                row for row in call_rows if row["plan_id"] == parent["task_plan_id"]
+            ]
+            parent_job_ids = {UUID(str(row["job_id"])) for row in parent_call_rows}
+            if len(parent_job_ids) != 1:
+                raise PolicyViolation("Parent recovery provider job tekil degil")
+            expected_parent_recovery_evidence = digest(
+                {
+                    "campaign_digest": expected_parent_campaign.campaign_digest,
+                    "job_id": next(iter(parent_job_ids)),
+                    "error_type": "ValidationFailed",
+                    "executed_call_ids": sorted(str(row["call_id"]) for row in parent_call_rows),
+                }
+            )
+            if expected_parent_recovery_evidence != parent["outcome_evidence_digest"]:
+                raise PolicyViolation("Parent recovery outcome evidence canonical digest drift")
+            cumulative_provider_calls = int(parent["actual_provider_call_count"]) + int(
+                current["actual_provider_call_count"]
+            )
+            cumulative_tested_calls = int(parent["actual_tested_call_count"]) + int(
+                current["actual_tested_call_count"]
+            )
+        else:
+            cumulative_provider_calls = int(current["actual_provider_call_count"])
+            cumulative_tested_calls = int(current["actual_tested_call_count"])
         if (
             len(calls) != cumulative_provider_calls
             or cumulative_provider_calls != 17 + 5 * health_passed
@@ -1065,16 +1126,20 @@ def build_provider_acceptance_evidence(
         if tuple(open_state.values()) != (0, 0, 0):
             raise PolicyViolation("Campaign terminal runtime acik state birakti")
 
-    chain = [
-        {
-            "campaign_id": str(parent_id),
-            "revision": int(parent["revision"]),
-            "outcome_id": str(parent["outcome_id"]),
-            "outcome_status": str(parent["outcome_status"]),
-            "provider_calls": int(parent["actual_provider_call_count"]),
-            "tested_calls": int(parent["actual_tested_call_count"]),
-            "outcome_digest": str(parent["outcome_digest"]),
-        },
+    chain = []
+    if parent is not None:
+        chain.append(
+            {
+                "campaign_id": str(parent_id),
+                "revision": int(parent["revision"]),
+                "outcome_id": str(parent["outcome_id"]),
+                "outcome_status": str(parent["outcome_status"]),
+                "provider_calls": int(parent["actual_provider_call_count"]),
+                "tested_calls": int(parent["actual_tested_call_count"]),
+                "outcome_digest": str(parent["outcome_digest"]),
+            }
+        )
+    chain.append(
         {
             "campaign_id": str(campaign_id),
             "revision": int(current["revision"]),
@@ -1083,8 +1148,8 @@ def build_provider_acceptance_evidence(
             "provider_calls": int(current["actual_provider_call_count"]),
             "tested_calls": int(current["actual_tested_call_count"]),
             "outcome_digest": str(current["outcome_digest"]),
-        },
-    ]
+        }
+    )
     runtime_evidence = {
         "job_id": str(runtime["job_id"]),
         "attempt_id": str(runtime["attempt_id"]),
@@ -1119,7 +1184,7 @@ def build_provider_acceptance_evidence(
         "status": "verified",
         "campaign_key": "opencode-aihub",
         "campaign_id": str(campaign_id),
-        "parent_campaign_id": str(parent_id),
+        "parent_campaign_id": None if parent_id is None else str(parent_id),
         "outcome_id": str(current["outcome_id"]),
         "work_item_id": str(current["work_item_id"]),
         "task_plan_id": str(current["task_plan_id"]),
@@ -1142,8 +1207,16 @@ def build_provider_acceptance_evidence(
         "current_actual_provider_call_count": int(current["actual_provider_call_count"]),
         "qualified_model_count": int(current["passed_count"]),
         "disqualified_model_count": int(current["failed_count"]),
-        "continuation_provenance_digest": str(current["continuation_provenance_digest"]),
-        "compatibility_evidence_digest": str(current["compatibility_evidence_digest"]),
+        "continuation_provenance_digest": (
+            None
+            if current["continuation_provenance_digest"] is None
+            else str(current["continuation_provenance_digest"])
+        ),
+        "compatibility_evidence_digest": (
+            None
+            if current["compatibility_evidence_digest"] is None
+            else str(current["compatibility_evidence_digest"])
+        ),
         "chain": chain,
         "calls": sorted(calls, key=lambda row: row["call_id"]),
         "members": sorted(members, key=lambda row: row["model_id"]),

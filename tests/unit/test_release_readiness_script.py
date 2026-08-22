@@ -181,6 +181,7 @@ def test_v3_canonical_gate_requires_exact_recomputed_projection(monkeypatch: obj
     evidence = {
         "schema": "zekam-opencode-benchmark-campaign-acceptance/v3",
         "campaign_id": str(campaign_id),
+        "parent_campaign_id": None,
         "status": "verified",
     }
     canonical = dict(evidence)
@@ -192,6 +193,25 @@ def test_v3_canonical_gate_requires_exact_recomputed_projection(monkeypatch: obj
 
     assert surum_hazirligi._canonical_provider_acceptance(evidence) == []
     evidence["status"] = "tampered"
+    assert surum_hazirligi._canonical_provider_acceptance(evidence) == [
+        "canonical-terminal-evidence-mismatch"
+    ]
+
+
+def test_v3_continuation_mismatch_keeps_specific_reason(monkeypatch: object) -> None:
+    evidence = {
+        "schema": "zekam-opencode-benchmark-campaign-acceptance/v3",
+        "campaign_id": str(uuid4()),
+        "parent_campaign_id": str(uuid4()),
+        "status": "tampered",
+    }
+    canonical = {**evidence, "status": "verified"}
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        surum_hazirligi,
+        "_build_canonical_provider_acceptance_v3",
+        lambda _: canonical,
+    )
+
     assert surum_hazirligi._canonical_provider_acceptance(evidence) == [
         "canonical-continuation-evidence-mismatch"
     ]

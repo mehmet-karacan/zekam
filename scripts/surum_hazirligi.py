@@ -45,7 +45,7 @@ def _uuid(value: Any) -> UUID | None:
 
 
 def _build_canonical_provider_acceptance_v3(campaign_id: UUID) -> dict[str, Any]:
-    """Build sanitized continuation-aware evidence directly from canonical state."""
+    """Build sanitized terminal full-campaign evidence from canonical state."""
 
     from zekam.application.governance import DEFAULT_POLICY_NAME, GovernanceService
     from zekam.application.opencode_benchmark_campaign import BENCHMARK_SECRET_REF_NAME
@@ -78,22 +78,26 @@ def _build_canonical_provider_acceptance_v3(campaign_id: UUID) -> dict[str, Any]
                 (context.realm.id, campaign_id),
             )
             row = cursor.fetchone()
-        if row is None or row[0] is None:
-            raise RuntimeError("continuation campaign missing")
-        parent_campaign_id = UUID(str(row[0]))
+        if row is None:
+            raise RuntimeError("terminal campaign missing")
+        parent_campaign_id = None if row[0] is None else UUID(str(row[0]))
         work_id = UUID(str(row[1]))
         plan_id = UUID(str(row[2]))
         revision = int(row[3])
         repository = ModelCampaignRepository(context.connection, context.realm.id)
-        continuation_runtime = _continuation_runtime(
-            context.connection,
-            repository,
-            parent_campaign_id=parent_campaign_id,
-            manifest=manifest,
-            work_id=work_id,
-            revision=revision,
-            current_source_revision=current_source_revision,
-            current_policy_digest=policy.policy_digest,
+        continuation_runtime = (
+            None
+            if parent_campaign_id is None
+            else _continuation_runtime(
+                context.connection,
+                repository,
+                parent_campaign_id=parent_campaign_id,
+                manifest=manifest,
+                work_id=work_id,
+                revision=revision,
+                current_source_revision=current_source_revision,
+                current_policy_digest=policy.policy_digest,
+            )
         )
         expected_campaign = _domain_campaign(
             discovery,
@@ -103,26 +107,30 @@ def _build_canonical_provider_acceptance_v3(campaign_id: UUID) -> dict[str, Any]
             task_plan_id=plan_id,
             source_revision=current_source_revision,
             policy_digest=policy.policy_digest,
-            continuation=continuation_runtime.continuation,
+            continuation=(
+                None if continuation_runtime is None else continuation_runtime.continuation
+            ),
         )
-        with context.connection.cursor() as cursor:
-            cursor.execute(
-                "select task_plan_id, revision, source_revision"
-                " from models.opencode_benchmark_campaign where realm_id=%s and id=%s",
-                (context.realm.id, parent_campaign_id),
+        expected_parent_campaign = None
+        if parent_campaign_id is not None:
+            with context.connection.cursor() as cursor:
+                cursor.execute(
+                    "select task_plan_id, revision, source_revision"
+                    " from models.opencode_benchmark_campaign where realm_id=%s and id=%s",
+                    (context.realm.id, parent_campaign_id),
+                )
+                parent_row = cursor.fetchone()
+            if parent_row is None:
+                raise RuntimeError("parent campaign missing")
+            expected_parent_campaign = _domain_campaign(
+                discovery,
+                manifest,
+                revision=int(parent_row[1]),
+                work_id=work_id,
+                task_plan_id=UUID(str(parent_row[0])),
+                source_revision=str(parent_row[2]),
+                policy_digest=policy.policy_digest,
             )
-            parent_row = cursor.fetchone()
-        if parent_row is None:
-            raise RuntimeError("parent campaign missing")
-        expected_parent_campaign = _domain_campaign(
-            discovery,
-            manifest,
-            revision=int(parent_row[1]),
-            work_id=work_id,
-            task_plan_id=UUID(str(parent_row[0])),
-            source_revision=str(parent_row[2]),
-            policy_digest=policy.policy_digest,
-        )
         return build_provider_acceptance_evidence(
             context.connection,
             realm_id=context.realm.id,
@@ -141,10 +149,14 @@ def _build_canonical_provider_acceptance_v3(campaign_id: UUID) -> dict[str, Any]
             expected_campaign=expected_campaign,
             expected_parent_campaign=expected_parent_campaign,
             expected_calls={item.call_id: item for item in manifest.calls},
-            expected_current_calls={
-                item.call_id: item for item in continuation_runtime.active_calls
-            },
-            expected_continuation=continuation_runtime.continuation,
+            expected_current_calls=(
+                {item.call_id: item for item in manifest.calls}
+                if continuation_runtime is None
+                else {item.call_id: item for item in continuation_runtime.active_calls}
+            ),
+            expected_continuation=(
+                None if continuation_runtime is None else continuation_runtime.continuation
+            ),
             expected_secret_name=BENCHMARK_SECRET_REF_NAME,
             expected_secret_locator=manifest.credential_locator,
         )
@@ -165,7 +177,13 @@ def _canonical_provider_acceptance(document: dict[str, Any]) -> list[str]:
             expected = _build_canonical_provider_acceptance_v3(campaign_id)
         except Exception:
             return ["canonical-campaign-verification-unavailable"]
-        return [] if document == expected else ["canonical-continuation-evidence-mismatch"]
+        if document == expected:
+            return []
+        return [
+            "canonical-continuation-evidence-mismatch"
+            if document.get("parent_campaign_id") is not None
+            else "canonical-terminal-evidence-mismatch"
+        ]
 
     required_ids = (
         "campaign_id",
@@ -1243,7 +1261,7 @@ def main() -> int:
         "--provider-evidence",
         type=UUID,
         metavar="CAMPAIGN_UUID",
-        help="Kanonik continuation campaign icin sanitize ZEKAM-DOD-025 kaniti yaz",
+        help="Kanonik terminal full campaign icin sanitize ZEKAM-DOD-025 kaniti yaz",
     )
     arguments = parser.parse_args()
 
