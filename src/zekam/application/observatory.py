@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import os
 import re
+import sqlite3
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -79,6 +81,11 @@ class ObservatoryAgent:
     step_id: str | None = None
     heartbeat_at: dt.datetime | None = None
     lease_expires_at: dt.datetime | None = None
+    task_label: str | None = None
+    model_ref: str | None = None
+    current_tool: str | None = None
+    parent_agent_id: str | None = None
+    started_at: dt.datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -92,6 +99,11 @@ class ObservatoryAgent:
             "step_id": self.step_id,
             "heartbeat_at": _iso(self.heartbeat_at),
             "lease_expires_at": _iso(self.lease_expires_at),
+            "task_label": self.task_label,
+            "model_ref": self.model_ref,
+            "current_tool": self.current_tool,
+            "parent_agent_id": self.parent_agent_id,
+            "started_at": _iso(self.started_at),
         }
 
 
@@ -180,10 +192,15 @@ class OpenCodeLifecycleProjectionReader:
     """Project the sanitized local OpenCode ledger into observatory cards."""
 
     home: Path
+    metadata_path: Path | None = None
 
     def read(self) -> RuntimeProjection:
         projection = resume_projection(self.home, limit=MAX_AGENTS)
         sessions = tuple(item for item in projection["sessions"] if item.get("status") != "closed")
+        metadata = _opencode_session_metadata(
+            self.metadata_path,
+            tuple(str(item["session_id"]) for item in sessions),
+        )
         root = GraphNode(
             node_id="client:opencode",
             kind="client",
@@ -196,17 +213,38 @@ class OpenCodeLifecycleProjectionReader:
         events: list[ObservatoryEvent] = []
         for item in sessions:
             session_id = str(item["session_id"])
+            session_metadata = metadata.get(session_id, {})
             node_id = f"opencode-session:{_short_id(session_id)}"
-            agent_name = str(item.get("agent") or "OpenCode session")
-            model_ref = item.get("model_ref")
-            label = agent_name if model_ref is None else f"{agent_name} · {model_ref}"
+            agent_name = str(
+                item.get("agent") or session_metadata.get("agent") or "OpenCode session"
+            )
+            model_ref = item.get("model_ref") or session_metadata.get("model_ref")
             occurred_at = _parse_timestamp(item.get("updated_at"))
+            if session_metadata.get("updated_at"):
+                occurred_at = max(
+                    occurred_at,
+                    _parse_timestamp(session_metadata["updated_at"]),
+                )
+            started_at = _parse_timestamp(
+                session_metadata.get("created_at") or item.get("created_at")
+            )
+            age = dt.datetime.now(dt.UTC) - occurred_at
+            observed_state = str(item.get("status") or "unknown")
+            if age <= dt.timedelta(seconds=45) and observed_state not in {
+                "failed",
+                "interrupted",
+            }:
+                observed_state = "active"
             canonical_ref = f"runtime:opencode-lifecycle/{session_id}"
+            task_label = sanitize_observatory_label(
+                str(item.get("task_label") or session_metadata.get("title") or agent_name),
+                fallback="OpenCode session",
+            )
             nodes.append(
                 GraphNode(
                     node_id=node_id,
                     kind="agent-session",
-                    label=sanitize_observatory_label(label, fallback="OpenCode session"),
+                    label=task_label,
                     canonical_ref=canonical_ref,
                 )
             )
@@ -214,11 +252,20 @@ class OpenCodeLifecycleProjectionReader:
             agents.append(
                 ObservatoryAgent(
                     agent_id=node_id,
-                    label=sanitize_observatory_label(label, fallback="OpenCode session"),
+                    label=task_label,
                     client="opencode",
-                    state=str(item.get("status") or "unknown"),
+                    state=observed_state,
                     canonical_ref=canonical_ref,
                     heartbeat_at=occurred_at,
+                    task_label=task_label,
+                    model_ref=None if model_ref is None else str(model_ref),
+                    current_tool=None if item.get("last_tool") is None else str(item["last_tool"]),
+                    parent_agent_id=(
+                        None
+                        if item.get("parent_session_id") is None
+                        else f"opencode-session:{_short_id(str(item['parent_session_id']))}"
+                    ),
+                    started_at=started_at,
                 )
             )
         for item in recent_events(self.home, limit=MAX_EVENTS):
@@ -595,6 +642,42 @@ def _parse_timestamp(value: Any) -> dt.datetime:
         except ValueError:
             pass
     return dt.datetime.now(dt.UTC)
+
+
+def _opencode_session_metadata(
+    database: Path | None,
+    session_ids: tuple[str, ...],
+) -> dict[str, dict[str, str]]:
+    if database is None or not database.is_file() or not session_ids:
+        return {}
+    placeholders = ",".join("?" for _ in session_ids)
+    uri = f"file:{database.as_posix()}?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True, timeout=0.2) as connection:
+            connection.execute("pragma query_only = on")
+            rows = connection.execute(
+                "select id, title, agent, model, time_created, time_updated "
+                f"from session where id in ({placeholders})",
+                session_ids,
+            ).fetchall()
+    except sqlite3.Error:
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for session_id, title, agent, model, created_at, updated_at in rows:
+        model_ref = ""
+        try:
+            document = json.loads(str(model))
+            model_ref = f"{document.get('providerID', '')}/{document.get('id', '')}".strip("/")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        result[str(session_id)] = {
+            "title": sanitize_observatory_label(str(title), fallback="OpenCode session"),
+            "agent": sanitize_observatory_label(str(agent), fallback="OpenCode session"),
+            "model_ref": model_ref,
+            "created_at": dt.datetime.fromtimestamp(int(created_at) / 1000, tz=dt.UTC).isoformat(),
+            "updated_at": dt.datetime.fromtimestamp(int(updated_at) / 1000, tz=dt.UTC).isoformat(),
+        }
+    return result
 
 
 def sanitize_observatory_label(

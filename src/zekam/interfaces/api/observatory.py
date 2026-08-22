@@ -46,7 +46,10 @@ def create_app(
     service = ObservatoryService(
         core_path=context.core_path,
         runtime_reader=reader,
-        client_reader=OpenCodeLifecycleProjectionReader(context.home),
+        client_reader=OpenCodeLifecycleProjectionReader(
+            context.home,
+            metadata_path=Path.home() / ".local" / "share" / "opencode" / "opencode.db",
+        ),
     )
     app = FastAPI(
         title="Zekam Neuro Observatory",

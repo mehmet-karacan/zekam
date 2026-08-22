@@ -11,10 +11,12 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
 
     assert "brain-canvas" in index
     assert "client-grid" in index
+    assert "active-session-count" in index
     assert "EventSource" in script
     assert 'label: "OpenCode"' in script
     assert 'label: "Codex"' in script
     assert 'label: "Claude"' in script
+    assert '"agent-session"' in script
     assert "zekam-observatory-snapshot/v1" in script
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index

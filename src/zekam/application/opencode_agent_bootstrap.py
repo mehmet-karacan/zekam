@@ -67,6 +67,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       ["--completed", text(data.completed)],
       ["--pending", text(data.pending)],
       ["--next-action", text(data.nextAction)],
+      ["--task-label", text(data.title) ?? text(data.info?.title)],
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
     try {

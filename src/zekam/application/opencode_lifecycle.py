@@ -93,6 +93,7 @@ class OpenCodeLifecycleEvent:
     completed_summary: str | None
     pending_summary: str | None
     next_action: str | None
+    task_label: str | None
     occurred_at: dt.datetime
 
     def __post_init__(self) -> None:
@@ -113,6 +114,7 @@ class OpenCodeLifecycleEvent:
             ("completed_summary", self.completed_summary),
             ("pending_summary", self.pending_summary),
             ("next_action", self.next_action),
+            ("task_label", self.task_label),
         ):
             _safe_summary(value, label=label)
         if self.occurred_at.tzinfo is None:
@@ -134,6 +136,7 @@ class OpenCodeLifecycleEvent:
             "completed_summary": self.completed_summary,
             "pending_summary": self.pending_summary,
             "next_action": self.next_action,
+            "task_label": self.task_label,
             "occurred_at": self.occurred_at.astimezone(dt.UTC).isoformat(),
             "contains_prompt": False,
             "contains_response": False,
@@ -160,6 +163,7 @@ def record_event(
     completed_summary: str | None = None,
     pending_summary: str | None = None,
     next_action: str | None = None,
+    task_label: str | None = None,
     now: dt.datetime | None = None,
 ) -> OpenCodeLifecycleEvent:
     event = OpenCodeLifecycleEvent(
@@ -176,6 +180,7 @@ def record_event(
         completed_summary=_safe_summary(completed_summary, label="completed_summary"),
         pending_summary=_safe_summary(pending_summary, label="pending_summary"),
         next_action=_safe_summary(next_action, label="next_action"),
+        task_label=_safe_summary(task_label, label="task_label"),
         occurred_at=now or dt.datetime.now(dt.UTC),
     )
     root = lifecycle_root(home)
@@ -216,10 +221,12 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
                 "completed_summary": None,
                 "pending_summary": None,
                 "next_safe_action": None,
+                "task_label": event.get("task_label"),
+                "created_at": event["occurred_at"],
                 "updated_at": event["occurred_at"],
             },
         )
-        for key in ("parent_session_id", "agent", "model_ref"):
+        for key in ("parent_session_id", "agent", "model_ref", "task_label"):
             current[key] = event.get(key) or current.get(key)
         current["last_event"] = event["event_type"]
         current["updated_at"] = event["occurred_at"]

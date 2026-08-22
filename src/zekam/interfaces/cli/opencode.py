@@ -31,6 +31,7 @@ def event_command(
     completed_summary: Annotated[str | None, typer.Option("--completed")] = None,
     pending_summary: Annotated[str | None, typer.Option("--pending")] = None,
     next_action: Annotated[str | None, typer.Option("--next-action")] = None,
+    task_label: Annotated[str | None, typer.Option("--task-label")] = None,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Sanitize lifecycle olayini atomik yerel ledgera yazar."""
@@ -49,6 +50,7 @@ def event_command(
             completed_summary=completed_summary,
             pending_summary=pending_summary,
             next_action=next_action,
+            task_label=task_label,
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from zekam.application.observatory import (
@@ -126,6 +127,7 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
         agent="zekam-builder",
         model_ref="provider/model",
         tool="bash",
+        task_label="Sky 11267 task detaylarini al",
     )
 
     snapshot = ObservatoryService(
@@ -135,6 +137,40 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
 
     assert any(agent.client == "opencode" for agent in snapshot.agents)
     assert any(agent.state == "interrupted" for agent in snapshot.agents)
+    assert any(agent.task_label == "Sky 11267 task detaylarini al" for agent in snapshot.agents)
     assert any(event.source == "opencode" for event in snapshot.events)
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
+
+
+def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    home = tmp_path / "home"
+    database = tmp_path / "opencode.db"
+    _write(root / "README.md", "# Zekam\n")
+    record_event(home, event_type="session.status", session_id="ses_sky", status="busy")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "create table session (id text primary key, title text, agent text, model text, "
+            "time_created integer, time_updated integer)"
+        )
+        connection.execute(
+            "insert into session values (?, ?, ?, ?, ?, ?)",
+            (
+                "ses_sky",
+                "Sky 11267 task details",
+                "zekam-coordinator",
+                '{"providerID":"litellm","id":"Qwen/Qwen3.5-27B-FP8"}',
+                1787437970556,
+                1787438343171,
+            ),
+        )
+
+    snapshot = ObservatoryService(
+        root,
+        client_reader=OpenCodeLifecycleProjectionReader(home, metadata_path=database),
+    ).snapshot()
+
+    session = next(agent for agent in snapshot.agents if agent.client == "opencode")
+    assert session.task_label == "Sky 11267 task details"
+    assert session.model_ref == "litellm/Qwen/Qwen3.5-27B-FP8"

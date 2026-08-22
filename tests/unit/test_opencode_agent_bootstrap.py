@@ -61,6 +61,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert plugin.is_file()
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
     assert "session.error" in plugin.read_text(encoding="utf-8")
+    assert '"--task-label"' in plugin.read_text(encoding="utf-8")
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier

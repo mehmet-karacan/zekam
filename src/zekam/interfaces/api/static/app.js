@@ -38,6 +38,8 @@
     work: "#76ffd0",
     job: "#9fffe0",
     agent: "#ffce73",
+    "agent-session": "#72ddff",
+    client: "#ffffff",
     model: "#8de9ff",
     knowledge: "#62e8ff",
     memory: "#c7a3ff",
@@ -51,6 +53,7 @@
     "runtime-root": [0.50, 0.53],
     work: [0.30, 0.31],
     run: [0.48, 0.27],
+    client: [0.50, 0.22],
     model: [0.70, 0.31],
     knowledge: [0.71, 0.61],
     memory: [0.31, 0.64],
@@ -106,6 +109,15 @@
     return `${Math.round(hours / 24)} gün önce`;
   }
 
+  function elapsedTime(value) {
+    if (!value) return "—";
+    const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+    if (!Number.isFinite(seconds)) return "—";
+    if (seconds < 60) return `${seconds} sn`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} dk ${seconds % 60} sn`;
+    return `${Math.floor(seconds / 3600)} sa ${Math.floor((seconds % 3600) / 60)} dk`;
+  }
+
   function setConnection(mode, label) {
     const status = document.getElementById("live-status");
     const stream = document.getElementById("stream-state");
@@ -134,9 +146,12 @@
 
   function renderAgents(agents) {
     const list = document.getElementById("agent-list");
-    const rows = agents || [];
-    document.getElementById("agent-count").textContent = rows.length.toLocaleString("tr-TR");
-    document.getElementById("agent-badge").textContent = `${rows.length} LIVE`;
+    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const rows = [...(agents || [])].sort((left, right) => Number(activeStates.has(right.state)) - Number(activeStates.has(left.state)));
+    const activeCount = rows.filter((agent) => activeStates.has(agent.state)).length;
+    document.getElementById("agent-count").textContent = activeCount.toLocaleString("tr-TR");
+    document.getElementById("agent-badge").textContent = `${activeCount} LIVE`;
+    document.getElementById("active-session-count").textContent = activeCount.toLocaleString("tr-TR");
     if (!rows.length) {
       list.innerHTML = '<div class="agent-empty">Aktif lease gözlenmiyor.<br>Belge grafı çalışmaya devam ediyor.</div>';
       return;
@@ -144,18 +159,18 @@
     list.innerHTML = rows.map((agent) => {
       const initials = String(agent.client || "zk").slice(0, 2).toUpperCase();
       return `
-        <article class="agent-card" data-agent="${escapeHtml(agent.agent_id)}">
+        <article class="agent-card ${activeStates.has(agent.state) ? "is-active" : ""}" data-agent="${escapeHtml(agent.agent_id)}">
           <div class="agent-top">
             <div class="agent-identity">
               <span class="agent-avatar">${escapeHtml(initials)}</span>
-              <div><strong>${escapeHtml(agent.label)}</strong><small>${escapeHtml(agent.client)}</small></div>
+              <div><strong>${escapeHtml(agent.task_label || agent.label)}</strong><small>${escapeHtml(agent.client)} · ${escapeHtml(agent.model_ref || "model —")}</small></div>
             </div>
             <span class="agent-state">${escapeHtml(agent.state)}</span>
           </div>
           <div class="agent-progress"><span></span></div>
           <div class="agent-meta">
-            <span>${escapeHtml(agent.step_id || "step —")}</span>
-            <span>${relativeTime(agent.heartbeat_at)}</span>
+            <span>${escapeHtml(agent.current_tool ? `tool ${agent.current_tool}` : agent.step_id || "tool bekleniyor")}</span>
+            <span>${elapsedTime(agent.started_at)} · ${relativeTime(agent.heartbeat_at)}</span>
           </div>
         </article>
       `;
@@ -236,6 +251,8 @@
   }
 
   function graphDomain(node) {
+    if (node.kind === "client") return "client";
+    if (node.kind === "agent-session") return "run";
     if (node.node_id.startsWith("runtime:cluster:")) return node.node_id.split(":").at(-1);
     if (node.node_id.startsWith("cluster:docs:")) return node.node_id.split(":").at(-1);
     const kind = node.kind;
@@ -456,7 +473,8 @@
   }
 
   function drawEdges() {
-    const activeIds = new Set((state.snapshot?.agents || []).flatMap((agent) => [agent.agent_id, agent.job_id ? `job:${agent.job_id}` : ""]));
+    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const activeIds = new Set((state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state)).flatMap((agent) => [agent.agent_id, agent.job_id ? `job:${agent.job_id}` : ""]));
     for (const edge of state.edges) {
       const sourceNode = state.nodeMap.get(edge.source);
       const targetNode = state.nodeMap.get(edge.target);
@@ -465,7 +483,7 @@
       const target = pointFor(edge.target);
       if (!source || !target) continue;
       const active = activeIds.has(edge.source) || activeIds.has(edge.target) || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
-      const alpha = active ? 0.26 : edge.kind === "markdown-link" ? 0.08 : 0.12;
+      const alpha = active ? 0.72 : edge.kind === "markdown-link" ? 0.08 : 0.12;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const bend = Math.min(30, Math.hypot(dx, dy) * 0.12);
@@ -476,7 +494,7 @@
       context.moveTo(source.x, source.y);
       context.quadraticCurveTo(controlX, controlY, target.x, target.y);
       context.strokeStyle = active ? `rgba(118,255,208,${alpha})` : `rgba(123,183,165,${alpha})`;
-      context.lineWidth = active ? 1.05 : 0.7;
+      context.lineWidth = active ? 2.1 : 0.7;
       context.stroke();
 
       if (!state.paused && (active || hash(edge.kind) % 7 === 0)) {
@@ -500,12 +518,14 @@
     if (node.kind === "runtime-root") return 7;
     if (node.kind.endsWith("cluster")) return 5.4;
     if (node.kind === "agent") return 5;
+    if (node.kind === "agent-session") return 6.2;
     if (["work", "job", "model"].includes(node.kind)) return 4.1;
     return 3.1;
   }
 
   function drawNodes() {
-    const activeAgents = new Set((state.snapshot?.agents || []).map((agent) => agent.agent_id));
+    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const activeAgents = new Set((state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
     for (const node of state.nodes) {
       if (!nodeVisible(node)) continue;
       const point = pointFor(node.node_id);
@@ -523,6 +543,17 @@
         context.strokeStyle = selected ? "rgba(255,255,255,.52)" : active ? "rgba(118,255,208,.32)" : "rgba(118,255,208,.18)";
         context.lineWidth = selected ? 1.2 : 0.7;
         context.stroke();
+      }
+
+      if (active && !state.paused) {
+        for (let ring = 0; ring < 3; ring += 1) {
+          const expansion = (state.time * 0.035 + ring * 11 + hash(node.node_id) % 17) % 34;
+          context.beginPath();
+          context.arc(point.x, point.y, radius + 7 + expansion, 0, Math.PI * 2);
+          context.strokeStyle = `rgba(114,221,255,${Math.max(0, 0.34 - expansion / 100)})`;
+          context.lineWidth = 1.4;
+          context.stroke();
+        }
       }
 
       context.beginPath();
