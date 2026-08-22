@@ -43,6 +43,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     } <= installed
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
+    assert "webfetch: allow" in coordinator
     assert '"*": deny' in coordinator
     assert '"zekam-builder": allow' in coordinator
     assert "Kendin terminal" in coordinator
