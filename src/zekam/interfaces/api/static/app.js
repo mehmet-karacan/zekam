@@ -313,8 +313,10 @@
         const seed = hash(node.node_id);
         const isRoot = node.kind === "system" || node.kind === "runtime-root";
         const isCluster = node.kind.endsWith("cluster");
-        const angle = ((seed % 10000) / 10000) * Math.PI * 2 + index * 0.31;
-        const radius = isRoot ? 0 : isCluster ? 0.012 : 0.035 + ((seed >>> 8) % 1000) / 1000 * Math.min(0.115, 0.026 + rows.length * 0.0017);
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+        const angle = index * goldenAngle + ((seed % 1000) / 1000 - 0.5) * 0.24;
+        const clusterRadius = Math.min(0.19, 0.055 + Math.sqrt(rows.length) * 0.012);
+        const radius = isRoot ? 0 : isCluster ? 0.012 : 0.028 + Math.sqrt((index + 1) / rows.length) * clusterRadius;
         const x = center[0] + Math.cos(angle) * radius;
         const y = center[1] + Math.sin(angle) * radius * 0.72;
         positions.set(node.node_id, {
@@ -601,22 +603,39 @@
       const sourceNode = state.nodeMap.get(edge.source);
       const targetNode = state.nodeMap.get(edge.target);
       if (!sourceNode || !targetNode || !nodeVisible(sourceNode) || !nodeVisible(targetNode)) continue;
-      const source = pointFor(edge.source);
-      const target = pointFor(edge.target);
-      if (!source || !target) continue;
+      const sourceCenter = pointFor(edge.source);
+      const targetCenter = pointFor(edge.target);
+      if (!sourceCenter || !targetCenter) continue;
+      const centerDx = targetCenter.x - sourceCenter.x;
+      const centerDy = targetCenter.y - sourceCenter.y;
+      const centerDistance = Math.max(1, Math.hypot(centerDx, centerDy));
+      const unitX = centerDx / centerDistance;
+      const unitY = centerDy / centerDistance;
+      const sourcePadding = Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36);
+      const targetPadding = Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36);
+      const source = {
+        x: sourceCenter.x + unitX * sourcePadding,
+        y: sourceCenter.y + unitY * sourcePadding,
+      };
+      const target = {
+        x: targetCenter.x - unitX * targetPadding,
+        y: targetCenter.y - unitY * targetPadding,
+      };
       const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "executes-tool", "reports-observation"].includes(edge.kind);
-      const alpha = active ? 0.82 : edge.kind === "markdown-link" ? 0.12 : 0.18;
+      const alpha = active ? 0.82 : edge.kind === "markdown-link" ? 0.06 : 0.14;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
-      const bend = Math.min(30, Math.hypot(dx, dy) * 0.12);
-      const controlX = (source.x + target.x) / 2 - dy / Math.max(1, Math.hypot(dx, dy)) * bend;
-      const controlY = (source.y + target.y) / 2 + dx / Math.max(1, Math.hypot(dx, dy)) * bend;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const direction = hash(`${edge.source}:${edge.target}:${edge.kind}`) % 2 ? 1 : -1;
+      const bend = Math.min(active ? 72 : 46, distance * (active ? 0.2 : 0.13));
+      const controlX = (source.x + target.x) / 2 - dy / distance * bend * direction;
+      const controlY = (source.y + target.y) / 2 + dx / distance * bend * direction;
 
       context.beginPath();
       context.moveTo(source.x, source.y);
       context.quadraticCurveTo(controlX, controlY, target.x, target.y);
       context.strokeStyle = active ? `rgba(118,255,208,${alpha})` : `rgba(123,183,165,${alpha})`;
-      context.lineWidth = active ? 2.8 : 1;
+      context.lineWidth = active ? 2.6 : edge.kind === "markdown-link" ? 0.55 : 0.85;
       context.stroke();
 
       if (state.liveMode || active) {
@@ -661,7 +680,7 @@
     if (node.kind === "agent-session") return 8.2;
     if (node.kind === "tool") return 7.2;
     if (["work", "job", "model"].includes(node.kind)) return 6.4;
-    return 5.2;
+    return 6.2;
   }
 
   function drawNodes() {
@@ -717,14 +736,20 @@
           { x: point.x + labelWidth / 2 + radius + 7, y: point.y + 4 },
           { x: point.x - labelWidth / 2 - radius - 7, y: point.y + 4 },
         ];
+        let placedBox = null;
         const position = candidates.find((candidate) => {
           const box = { left: candidate.x - labelWidth / 2, right: candidate.x + labelWidth / 2, top: candidate.y - 13, bottom: candidate.y + 4 };
           const inside = box.left >= 8 && box.right <= state.width - 8 && box.top >= 8 && box.bottom <= state.height - 8;
           const clear = labelBoxes.every((other) => box.right < other.left || box.left > other.right || box.bottom < other.top || box.top > other.bottom);
-          if (inside && clear) { labelBoxes.push(box); return true; }
+          if (inside && clear) { placedBox = box; labelBoxes.push(box); return true; }
           return false;
         });
-        if (position) context.fillText(label, position.x, position.y);
+        if (position && placedBox) {
+          context.fillStyle = "rgba(3,12,10,.82)";
+          context.fillRect(placedBox.left - 3, placedBox.top - 2, labelWidth + 6, 20);
+          context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.82)";
+          context.fillText(label, position.x, position.y);
+        }
       }
     }
   }

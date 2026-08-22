@@ -107,6 +107,8 @@ def create_app(
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Any:
         response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
