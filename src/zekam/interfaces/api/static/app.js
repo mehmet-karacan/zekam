@@ -162,6 +162,44 @@
     }).join("");
   }
 
+  function normalizedClient(value) {
+    const client = String(value || "").toLowerCase();
+    if (client.includes("opencode")) return "opencode";
+    if (client.includes("codex")) return "codex";
+    if (client.includes("claude")) return "claude";
+    return client || "zekam";
+  }
+
+  function renderClients(agents, events) {
+    const target = document.getElementById("client-grid");
+    const known = [
+      { key: "opencode", label: "OpenCode", glyph: "OC" },
+      { key: "codex", label: "Codex", glyph: "CX" },
+      { key: "claude", label: "Claude", glyph: "CL" },
+    ];
+    const now = Date.now();
+    target.innerHTML = known.map((client) => {
+      const sessions = (agents || []).filter((agent) => normalizedClient(agent.client) === client.key);
+      const clientEvents = (events || []).filter((event) => {
+        if (normalizedClient(event.source) === client.key) return true;
+        return sessions.some((agent) => agent.agent_id === event.agent_id);
+      });
+      const timestamps = [...sessions.map((item) => item.heartbeat_at), ...clientEvents.map((item) => item.occurred_at)]
+        .map((value) => Date.parse(value || ""))
+        .filter(Number.isFinite);
+      const latest = timestamps.length ? Math.max(...timestamps) : 0;
+      const live = latest > 0 && now - latest < 30000;
+      const status = live ? "CANLI" : sessions.length ? "BEKLEMEDE" : "SİNYAL YOK";
+      return `
+        <article class="client-card client-${client.key} ${live ? "is-live" : ""}">
+          <span class="client-glyph">${client.glyph}</span>
+          <div><strong>${client.label}</strong><small>${sessions.length} oturum · ${latest ? relativeTime(new Date(latest).toISOString()) : "veri yok"}</small></div>
+          <span class="client-status">${status}</span>
+        </article>
+      `;
+    }).join("");
+  }
+
   function renderEvents(events) {
     const list = document.getElementById("event-list");
     const rows = events || [];
@@ -171,12 +209,12 @@
       list.innerHTML = '<div class="empty-copy">Henüz içeriksiz runtime olayı yok.</div>';
       return;
     }
-    list.innerHTML = rows.slice(0, 24).map((event) => `
+    list.innerHTML = rows.slice(0, 40).map((event) => `
       <div class="event-row">
         <time datetime="${escapeHtml(event.occurred_at)}">${fmtTime(event.occurred_at)}</time>
         <span class="event-mark"></span>
         <div><strong>${escapeHtml(event.event_type)}</strong><small>${escapeHtml(event.job_id ? `job ${event.job_id.slice(0, 8)}` : event.canonical_ref)}</small></div>
-        <span class="event-source">${escapeHtml(event.source)}</span>
+        <span class="event-source source-${escapeHtml(normalizedClient(event.source))}">${escapeHtml(normalizedClient(event.source).toUpperCase())}</span>
       </div>
     `).join("");
   }
@@ -252,6 +290,7 @@
     calculatePositions(state.nodes);
 
     renderTiles(snapshot.dashboard?.tiles || []);
+    renderClients(snapshot.agents || [], snapshot.events || []);
     renderAgents(snapshot.agents || []);
     renderEvents(snapshot.events || []);
     renderReports(snapshot.reports || []);

@@ -195,19 +195,7 @@ def record_event(
 
 
 def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
-    root = lifecycle_root(home)
-    if not root.is_dir():
-        return {"source": "opencode-lifecycle", "sessions": [], "interrupted_count": 0}
-    events: list[dict[str, Any]] = []
-    for path in sorted(root.glob("*.json"), reverse=True)[:500]:
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        event_digest = document.pop("event_digest", None)
-        if document.get("schema") != SCHEMA or event_digest != digest(document):
-            continue
-        events.append(document | {"event_digest": event_digest})
+    events = list(recent_events(home, limit=500))
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))
     sessions: dict[str, dict[str, Any]] = {}
     pending_tools: dict[str, str] = {}
@@ -266,3 +254,25 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
         "interrupted_count": sum(item["status"] == "interrupted" for item in selected),
         "failed_count": sum(item["status"] == "failed" for item in selected),
     }
+
+
+def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
+    """Return newest verified, content-free OpenCode lifecycle events."""
+
+    if limit < 1 or limit > 500:
+        raise ValidationFailed("OpenCode lifecycle event limiti 1..500 olmali")
+    root = lifecycle_root(home)
+    if not root.is_dir():
+        return ()
+    events: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json"), reverse=True)[:limit]:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        event_digest = document.pop("event_digest", None)
+        if document.get("schema") != SCHEMA or event_digest != digest(document):
+            continue
+        events.append(document | {"event_digest": event_digest})
+    events.sort(key=lambda item: (item["occurred_at"], item["event_id"]), reverse=True)
+    return tuple(events)

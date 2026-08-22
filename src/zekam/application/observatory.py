@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from zekam.application.opencode_lifecycle import resume_projection
+from zekam.application.opencode_lifecycle import recent_events, resume_projection
 from zekam.domain.canonical import digest
 from zekam.domain.observability import (
     REQUIRED_TILES,
@@ -221,15 +221,19 @@ class OpenCodeLifecycleProjectionReader:
                     heartbeat_at=occurred_at,
                 )
             )
-            event_key = session_id + str(item.get("updated_at"))
+        for item in recent_events(self.home, limit=MAX_EVENTS):
+            session_id = str(item["session_id"])
+            event_type = str(item.get("event_type") or "session.status")
+            if item.get("tool"):
+                event_type = f"{event_type} · {item['tool']}"
             events.append(
                 ObservatoryEvent(
-                    event_id=f"opencode-event:{_short_id(event_key)}",
-                    event_type=str(item.get("last_event") or "session.status"),
-                    source="opencode-lifecycle",
-                    occurred_at=occurred_at,
-                    canonical_ref=canonical_ref,
-                    agent_id=node_id,
+                    event_id=f"opencode-event:{item['event_id']}",
+                    event_type=event_type,
+                    source="opencode",
+                    occurred_at=_parse_timestamp(item.get("occurred_at")),
+                    canonical_ref=f"runtime:opencode-lifecycle/{session_id}",
+                    agent_id=f"opencode-session:{_short_id(session_id)}",
                 )
             )
         source = digest(

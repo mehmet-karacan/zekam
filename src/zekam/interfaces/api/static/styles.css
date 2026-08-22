@@ -198,7 +198,18 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .agent-rail-header { padding-bottom: 17px; border-bottom: 1px solid var(--line); }
 .pulse-badge { position: relative; padding-left: 17px; }
 .pulse-badge::before { content: ""; position: absolute; left: 7px; top: 50%; width: 5px; height: 5px; transform: translateY(-50%); border-radius: 50%; background: var(--mint); box-shadow: 0 0 8px var(--mint); }
-.agent-list { margin-top: 15px; display: grid; gap: 9px; max-height: calc(100vh - 340px); overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(118,255,208,.2) transparent; }
+.client-grid { margin-top: 14px; display: grid; gap: 7px; }
+.client-card { display: grid; grid-template-columns: 31px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px; border: 1px solid rgba(151,255,216,.08); border-radius: 10px; background: rgba(255,255,255,.015); }
+.client-card.is-live { border-color: rgba(118,255,208,.3); box-shadow: inset 0 0 18px rgba(118,255,208,.035); }
+.client-glyph { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: rgba(118,255,208,.06); color: var(--mint); font: 9px var(--mono); }
+.client-card strong { display: block; font-size: 10px; }
+.client-card small { display: block; margin-top: 2px; color: var(--muted); font: 8px var(--mono); }
+.client-status { color: var(--muted); font: 7px var(--mono); }
+.client-card.is-live .client-status { color: var(--mint); }
+.client-opencode .client-glyph, .source-opencode { color: #79d9ff; }
+.client-codex .client-glyph, .source-codex { color: #9dffbf; }
+.client-claude .client-glyph, .source-claude { color: #ffbd85; }
+.agent-list { margin-top: 12px; display: grid; gap: 9px; max-height: calc(100vh - 525px); overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(118,255,208,.2) transparent; }
 .agent-card { position: relative; padding: 12px; border: 1px solid rgba(151,255,216,.09); border-radius: 12px; background: rgba(255,255,255,.018); overflow: hidden; }
 .agent-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--mint); opacity: .7; }
 .agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

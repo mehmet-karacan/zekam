@@ -135,5 +135,6 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
 
     assert any(agent.client == "opencode" for agent in snapshot.agents)
     assert any(agent.state == "interrupted" for agent in snapshot.agents)
-    assert any(event.source == "opencode-lifecycle" for event in snapshot.events)
+    assert any(event.source == "opencode" for event in snapshot.events)
+    assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
