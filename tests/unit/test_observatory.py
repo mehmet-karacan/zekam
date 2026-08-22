@@ -218,3 +218,11 @@ def test_codex_and_claude_file_heartbeats_are_client_scoped(tmp_path: Path) -> N
     assert clients == {"codex", "claude"}
     assert all(agent.state == "active" for agent in snapshot.agents)
     assert {event.source for event in snapshot.events} == {"codex", "claude"}
+
+
+def test_client_without_observed_session_does_not_create_graph_node(tmp_path: Path) -> None:
+    projection = LocalSessionFileProjectionReader("claude", tmp_path / "missing").read()
+
+    assert projection.available is False
+    assert projection.nodes == ()
+    assert projection.agents == ()

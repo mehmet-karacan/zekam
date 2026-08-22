@@ -20,6 +20,7 @@
     focus: "all",
     liveMode: true,
     liveNodeIds: new Set(),
+    activeNodeIds: new Set(),
     query: "",
     paused: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     connected: false,
@@ -329,14 +330,15 @@
     positions.set("client:claude", { x: 0.75, y: 0.12, vx: 0, vy: 0, seed: 3 });
     positions.set("system:zekam", { x: 0.5, y: 0.86, vx: 0, vy: 0, seed: 4 });
     roots.forEach((agent, rootIndex) => {
-      const rootX = 0.5 + (rootIndex - (roots.length - 1) / 2) * 0.36;
+      const rootX = roots.length === 1 ? 0.5 : 0.18 + rootIndex * (0.64 / (roots.length - 1));
       const placeBranch = (parent, x, y, depth) => {
         const safeX = Math.max(0.12, Math.min(0.88, x));
         const safeY = Math.max(0.18, Math.min(0.78, y));
         positions.set(parent.agent_id, { x: safeX, y: safeY, vx: 0, vy: 0, seed: hash(parent.agent_id) });
         if (depth >= 3) return;
         const children = agents.filter((child) => child.parent_agent_id === parent.agent_id);
-        const spread = Math.max(0.14, 0.34 / (depth + 1));
+        const branchWidth = Math.max(0.12, 0.56 / Math.max(1, roots.length));
+        const spread = Math.max(0.1, branchWidth / Math.max(1, children.length));
         children.forEach((child, index) => {
           placeBranch(child, safeX + (index - (children.length - 1) / 2) * spread, safeY + 0.2, depth + 1);
         });
@@ -355,6 +357,7 @@
     state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
     const liveIds = new Set((snapshot.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
+    const activeIds = new Set(liveIds);
     if (!liveIds.size) {
       for (const nodeId of state.liveNodeIds) if (state.nodeMap.has(nodeId)) liveIds.add(nodeId);
     }
@@ -373,7 +376,19 @@
         }
       }
     }
+    for (let pass = 0; pass < 4; pass += 1) {
+      for (const edge of state.edges) {
+        const joinsConversation = edge.kind === "delegates" && activeIds.has(edge.target);
+        const joinsClient = edge.kind === "runs-session" && activeIds.has(edge.target);
+        const joinsSystem = edge.kind === "reports-observation" && activeIds.has(edge.source);
+        if (joinsConversation || joinsClient || joinsSystem) {
+          activeIds.add(edge.source);
+          activeIds.add(edge.target);
+        }
+      }
+    }
     state.liveNodeIds = liveIds;
+    state.activeNodeIds = activeIds;
     calculatePositions(state.nodes);
 
     renderTiles(snapshot.dashboard?.tiles || []);
@@ -555,8 +570,10 @@
       const source = pointFor(edge.source);
       const target = pointFor(edge.target);
       if (!source || !target) continue;
-      const evidencedLiveEdge = state.liveMode && state.liveNodeIds.has(edge.source) && state.liveNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
-      const active = activeIds.has(edge.source) || activeIds.has(edge.target) || evidencedLiveEdge || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
+      const evidencedActiveEdge = state.liveMode && state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
+      const active = state.liveMode
+        ? evidencedActiveEdge
+        : activeIds.has(edge.source) || activeIds.has(edge.target) || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
       const alpha = active ? 0.72 : edge.kind === "markdown-link" ? 0.08 : 0.12;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
@@ -587,13 +604,6 @@
         context.fillStyle = active ? "rgba(190,255,233,.95)" : "rgba(123,183,165,.55)";
         context.fill();
 
-        const relation = { "runs-session": "oturum", delegates: "delege", "reports-observation": "gözlem" }[edge.kind];
-        if (relation) {
-          context.font = `11px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
-          context.fillStyle = "rgba(190,218,210,.82)";
-          context.textAlign = "center";
-          context.fillText(relation, (source.x + target.x) / 2, (source.y + target.y) / 2 - 7);
-        }
       }
 
       if (!state.paused && active) {
@@ -625,7 +635,9 @@
   function drawNodes() {
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
     const activeAgents = new Set((state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
-    for (const node of state.nodes) {
+    const labelBoxes = [];
+    const orderedNodes = [...state.nodes].sort((left, right) => Number(activeAgents.has(right.node_id)) - Number(activeAgents.has(left.node_id)));
+    for (const node of orderedNodes) {
       if (!nodeVisible(node)) continue;
       const point = pointFor(node.node_id);
       if (!point) continue;
@@ -664,11 +676,25 @@
       context.shadowBlur = 0;
 
       if (selected || hovered || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
-        const label = node.label.length > 30 ? `${node.label.slice(0, 29)}…` : node.label;
+        const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
         context.font = `${selected ? 13 : state.liveMode ? 12 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
         context.textAlign = "center";
-        context.fillText(label, point.x, point.y + radius + 14);
+        const labelWidth = context.measureText(label).width + 12;
+        const candidates = [
+          { x: point.x, y: point.y + radius + 17 },
+          { x: point.x, y: point.y - radius - 10 },
+          { x: point.x + labelWidth / 2 + radius + 7, y: point.y + 4 },
+          { x: point.x - labelWidth / 2 - radius - 7, y: point.y + 4 },
+        ];
+        const position = candidates.find((candidate) => {
+          const box = { left: candidate.x - labelWidth / 2, right: candidate.x + labelWidth / 2, top: candidate.y - 13, bottom: candidate.y + 4 };
+          const inside = box.left >= 8 && box.right <= state.width - 8 && box.top >= 8 && box.bottom <= state.height - 8;
+          const clear = labelBoxes.every((other) => box.right < other.left || box.left > other.right || box.bottom < other.top || box.top > other.bottom);
+          if (inside && clear) { labelBoxes.push(box); return true; }
+          return false;
+        });
+        if (position) context.fillText(label, position.x, position.y);
       }
     }
   }

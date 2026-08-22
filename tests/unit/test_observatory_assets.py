@@ -20,6 +20,11 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert 'label: "Claude"' in script
     assert '"agent-session"' in script
     assert '"reports-observation"' in script
+    assert "arrowT" in script
+    assert "labelBoxes" in script
+    assert "hash(edge.kind) % 7" not in script
+    assert "font-size: 15px" in style
+    assert "live-network-mode .report-section" in style
     assert "zekam-observatory-snapshot/v1" in script
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index

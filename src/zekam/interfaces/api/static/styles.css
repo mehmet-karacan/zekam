@@ -142,6 +142,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .brain-stage { position: relative; border-radius: var(--radius); overflow: hidden; }
 .brain-toolbar { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 17px; border-bottom: 1px solid var(--line); }
 .brain-toolbar h3, .panel-title-row h3, .agent-rail-header h3 { margin: 0; font-size: 15px; font-weight: 520; }
+.flow-legend { margin: 7px 0 0; color: var(--muted-bright); font-size: 11px; }
 .brain-controls { display: flex; align-items: center; gap: 8px; }
 .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.02); color: var(--muted-bright); cursor: pointer; }
 .icon-button:hover { color: var(--mint); border-color: var(--line-strong); }
