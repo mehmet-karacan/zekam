@@ -34,6 +34,9 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "font-size: 15px" in style
     assert "live-network-mode .report-section" in style
     assert "liveMode: false" in script
+    assert "runtimeAvailable || Number(tile.value || 0) > 0" in script
+    assert "target.hidden = visibleTiles.length === 0" in script
+    assert "repeat(auto-fit, minmax(220px, 1fr))" in style
     assert "grid-template-columns: minmax(820px, 1fr) 480px" in style
     assert "height: clamp(820px, 82vh, 1120px)" in style
     assert (
@@ -66,8 +69,8 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=6" in index
-    assert "/assets/app.js?v=6" in index
+    assert "/assets/styles.css?v=7" in index
+    assert "/assets/app.js?v=7" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

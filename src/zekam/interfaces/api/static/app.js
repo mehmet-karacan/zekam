@@ -142,7 +142,10 @@
 
   function renderTiles(tiles) {
     const target = document.getElementById("tile-grid");
-    target.innerHTML = (tiles || []).map((tile) => `
+    const runtimeAvailable = Boolean(state.snapshot?.runtime?.available);
+    const visibleTiles = (tiles || []).filter((tile) => runtimeAvailable || Number(tile.value || 0) > 0);
+    target.hidden = visibleTiles.length === 0;
+    target.innerHTML = visibleTiles.map((tile) => `
       <article class="metric-tile" data-key="${escapeHtml(tile.key)}">
         <div class="metric-top"><span>${escapeHtml(tile.title)}</span><span class="metric-glyph">${tileGlyph(tile.key)}</span></div>
         <strong>${Number(tile.value || 0).toLocaleString("tr-TR")}</strong>

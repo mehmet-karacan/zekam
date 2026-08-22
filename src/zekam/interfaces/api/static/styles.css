@@ -129,7 +129,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .clock-block strong { display: block; font-family: var(--mono); font-size: 15px; font-weight: 500; }
 .clock-block span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; white-space: nowrap; }
 
-.tile-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; margin-bottom: 13px; }
+.tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; margin-bottom: 13px; }
 .metric-tile { position: relative; min-height: 82px; padding: 13px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(145deg, rgba(12,29,25,.75), rgba(5,15,13,.55)); box-shadow: inset 0 1px rgba(255,255,255,.025); }
 .metric-tile::after { content: ""; position: absolute; right: -18px; bottom: -23px; width: 66px; height: 66px; border: 1px solid rgba(118,255,208,.08); border-radius: 50%; }
 .metric-tile .metric-top { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
@@ -271,7 +271,6 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 @media (max-width: 1260px) {
   .shell { grid-template-columns: minmax(620px, 1fr) 420px; }
   .agent-rail { width: auto; }
-  .tile-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
 }
 @media (max-width: 1000px) {
   .shell { display: block; }
@@ -286,7 +285,6 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
   .rail-event-panel { min-height: 320px; }
 }
 @media (max-width: 650px) {
-  .tile-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .brain-toolbar { align-items: flex-start; }
   .legend { display: none; }
   .brain-wrap { height: 470px; }
