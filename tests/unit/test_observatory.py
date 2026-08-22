@@ -147,7 +147,8 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     ).snapshot()
 
     assert any(agent.client == "opencode" for agent in snapshot.agents)
-    assert any(agent.state == "interrupted" for agent in snapshot.agents)
+    assert any(agent.state == "active" for agent in snapshot.agents)
+    assert any(agent.active_tool == "bash" for agent in snapshot.agents)
     assert any(agent.task_label == "Sky 11267 task detaylarini al" for agent in snapshot.agents)
     assert any(event.source == "opencode" for event in snapshot.events)
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
@@ -161,8 +162,8 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     )
     tiles = {tile.key: tile.value for tile in snapshot.dashboard.tiles}
     assert tiles["work"] == 1
-    assert tiles["run"] == 1
-    assert tiles["model"] == 1
+    assert tiles["run"] == 2
+    assert tiles["model"] == 2
 
 
 def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: Path) -> None:

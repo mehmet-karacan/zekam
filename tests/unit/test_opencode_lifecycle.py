@@ -24,12 +24,13 @@ def test_interrupted_tool_is_model_independent_resume_evidence(tmp_path) -> None
         now=NOW,
     )
 
-    projection = resume_projection(tmp_path)
+    projection = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=46))
 
     assert event.document()["contains_prompt"] is False
     assert projection["interrupted_count"] == 1
     assert projection["sessions"][0]["status"] == "interrupted"
     assert projection["sessions"][0]["last_tool"] == "bash"
+    assert projection["sessions"][0]["active_tool"] is None
     assert projection["sessions"][0]["last_resource"] == "src/app.py"
     assert "sessiz retry" in projection["sessions"][0]["next_safe_action"]
 
@@ -47,10 +48,94 @@ def test_completed_tool_and_idle_session_are_checkpointed(tmp_path) -> None:
             now=NOW + dt.timedelta(seconds=index),
         )
 
-    projection = resume_projection(tmp_path)
+    projection = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=4))
 
     assert projection["interrupted_count"] == 0
     assert projection["sessions"][0]["status"] == "checkpointed"
+    assert projection["sessions"][0]["active_tool"] is None
+
+
+def test_tool_after_alone_clears_active_tool(tmp_path) -> None:
+    record_event(
+        tmp_path,
+        event_type="tool.execute.before",
+        session_id="ses_1",
+        tool="bash",
+        now=NOW,
+    )
+    record_event(
+        tmp_path,
+        event_type="tool.execute.after",
+        session_id="ses_1",
+        tool="bash",
+        status="completed",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+
+    session = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=2))["sessions"][0]
+
+    assert session["active_tool"] is None
+    assert session["last_tool"] == "bash"
+
+
+def test_recent_pending_tool_is_active_and_sanitized(tmp_path) -> None:
+    record_event(
+        tmp_path,
+        event_type="tool.execute.before",
+        session_id="ses_live",
+        tool="bash",
+        now=NOW,
+    )
+
+    session = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=10))["sessions"][0]
+
+    assert session["status"] == "running"
+    assert session["active_tool"] == "bash"
+
+
+def test_unknown_pending_tool_uses_generic_name(tmp_path) -> None:
+    record_event(
+        tmp_path,
+        event_type="tool.execute.before",
+        session_id="ses_live",
+        tool="private-custom-tool",
+        now=NOW,
+    )
+
+    session = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=10))["sessions"][0]
+
+    assert session["active_tool"] == "tool"
+    assert session["last_tool"] == "tool"
+
+
+@pytest.mark.parametrize(
+    "terminal_event",
+    [
+        "session.error",
+        "session.checkpoint",
+        "session.idle",
+        "session.compacted",
+        "session.deleted",
+    ],
+)
+def test_terminal_session_event_clears_active_tool(tmp_path, terminal_event: str) -> None:
+    record_event(
+        tmp_path,
+        event_type="tool.execute.before",
+        session_id="ses_live",
+        tool="glob",
+        now=NOW,
+    )
+    record_event(
+        tmp_path,
+        event_type=terminal_event,
+        session_id="ses_live",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+
+    session = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=2))["sessions"][0]
+
+    assert session["active_tool"] is None
 
 
 def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path) -> None:

@@ -85,6 +85,7 @@ class ObservatoryAgent:
     task_label: str | None = None
     model_ref: str | None = None
     current_tool: str | None = None
+    active_tool: str | None = None
     parent_agent_id: str | None = None
     started_at: dt.datetime | None = None
 
@@ -103,6 +104,7 @@ class ObservatoryAgent:
             "task_label": self.task_label,
             "model_ref": self.model_ref,
             "current_tool": self.current_tool,
+            "active_tool": self.active_tool,
             "parent_agent_id": self.parent_agent_id,
             "started_at": _iso(self.started_at),
         }
@@ -235,9 +237,13 @@ class OpenCodeLifecycleProjectionReader:
             )
             age = dt.datetime.now(dt.UTC) - occurred_at
             observed_state = str(item.get("status") or "unknown")
-            if age <= dt.timedelta(seconds=45) and observed_state not in {
-                "failed",
-                "interrupted",
+            if age <= dt.timedelta(seconds=45) and observed_state in {
+                "active",
+                "busy",
+                "claimed",
+                "executing",
+                "in_progress",
+                "running",
             }:
                 observed_state = "active"
             canonical_ref = f"runtime:opencode-lifecycle/{session_id}"
@@ -273,6 +279,9 @@ class OpenCodeLifecycleProjectionReader:
                     task_label=task_label,
                     model_ref=None if model_ref is None else str(model_ref),
                     current_tool=None if item.get("last_tool") is None else str(item["last_tool"]),
+                    active_tool=(
+                        None if item.get("active_tool") is None else str(item["active_tool"])
+                    ),
                     parent_agent_id=(
                         None
                         if item.get("parent_session_id") is None

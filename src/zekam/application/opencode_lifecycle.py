@@ -199,11 +199,38 @@ def record_event(
     return event
 
 
-def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
+_ACTIVE_TOOL_TTL = dt.timedelta(seconds=45)
+_KNOWN_TOOLS = frozenset(
+    {
+        "bash",
+        "edit",
+        "glob",
+        "grep",
+        "lsp",
+        "question",
+        "read",
+        "skill",
+        "task",
+        "webfetch",
+        "websearch",
+        "write",
+    }
+)
+
+
+def _safe_tool_name(value: Any) -> str:
+    normalized = str(value or "tool").strip().lower()
+    return normalized if normalized in _KNOWN_TOOLS else "tool"
+
+
+def resume_projection(
+    home: Path, *, limit: int = 20, now: dt.datetime | None = None
+) -> dict[str, Any]:
     events = list(recent_events(home, limit=500))
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))
     sessions: dict[str, dict[str, Any]] = {}
-    pending_tools: dict[str, str] = {}
+    pending_tools: dict[str, tuple[str, dt.datetime]] = {}
+    observed_at = now or dt.datetime.now(dt.UTC)
     for event in events:
         session_id = str(event["session_id"])
         current = sessions.setdefault(
@@ -215,6 +242,7 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
                 "model_ref": event.get("model_ref"),
                 "last_event": event["event_type"],
                 "last_tool": None,
+                "active_tool": None,
                 "last_resource": None,
                 "status": "running",
                 "error_category": None,
@@ -231,29 +259,50 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
         current["last_event"] = event["event_type"]
         current["updated_at"] = event["occurred_at"]
         if event["event_type"] == "tool.execute.before":
-            pending_tools[session_id] = str(event.get("tool") or "unknown")
-            current["last_tool"] = event.get("tool")
+            tool_name = _safe_tool_name(event.get("tool"))
+            pending_tools[session_id] = (
+                tool_name,
+                dt.datetime.fromisoformat(str(event["occurred_at"])),
+            )
+            current["last_tool"] = tool_name
+            current["active_tool"] = tool_name
             current["last_resource"] = event.get("resource")
             current["status"] = "running"
         elif event["event_type"] == "tool.execute.after":
             pending_tools.pop(session_id, None)
-            current["last_tool"] = event.get("tool") or current.get("last_tool")
+            current["active_tool"] = None
+            current["last_tool"] = _safe_tool_name(event.get("tool"))
             current["status"] = event.get("status") or "running"
         elif event["event_type"] == "session.error":
+            pending_tools.pop(session_id, None)
+            current["active_tool"] = None
             current["status"] = "failed"
             current["error_category"] = event.get("error_category") or "session-error"
         elif event["event_type"] == "session.checkpoint":
+            pending_tools.pop(session_id, None)
+            current["active_tool"] = None
             current["status"] = "checkpointed"
             current["completed_summary"] = event.get("completed_summary")
             current["pending_summary"] = event.get("pending_summary")
             current["next_safe_action"] = event.get("next_action")
         elif event["event_type"] in {"session.idle", "session.compacted"}:
+            pending_tools.pop(session_id, None)
+            current["active_tool"] = None
             current["status"] = "checkpointed"
         elif event["event_type"] == "session.deleted":
+            pending_tools.pop(session_id, None)
+            current["active_tool"] = None
             current["status"] = "closed"
-    for session_id, tool in pending_tools.items():
-        sessions[session_id]["status"] = "interrupted"
-        sessions[session_id]["next_safe_action"] = f"{tool} etkisini dogrula; sessiz retry yapma"
+    for session_id, (tool, started_at) in pending_tools.items():
+        if dt.timedelta(0) <= observed_at - started_at <= _ACTIVE_TOOL_TTL:
+            sessions[session_id]["status"] = "running"
+            sessions[session_id]["active_tool"] = tool
+        else:
+            sessions[session_id]["status"] = "interrupted"
+            sessions[session_id]["active_tool"] = None
+            sessions[session_id]["next_safe_action"] = (
+                f"{tool} etkisini dogrula; sessiz retry yapma"
+            )
     selected = sorted(sessions.values(), key=lambda item: item["updated_at"], reverse=True)[:limit]
     return {
         "source": "opencode-lifecycle",

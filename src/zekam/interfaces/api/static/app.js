@@ -196,7 +196,7 @@
           </div>
           <div class="agent-progress"><span></span></div>
           <div class="agent-meta">
-            <span>${escapeHtml(agent.current_tool ? `tool ${agent.current_tool}` : agent.step_id || "tool bekleniyor")}</span>
+            <span>${escapeHtml(agent.active_tool ? `aktif araç ${agent.active_tool}` : agent.current_tool ? `son araç ${agent.current_tool}` : agent.step_id || "araç bekleniyor")}</span>
             <span>${elapsedTime(agent.started_at)} · ${relativeTime(agent.heartbeat_at)}</span>
           </div>
         </article>
@@ -210,6 +210,10 @@
     if (client.includes("codex")) return "codex";
     if (client.includes("claude")) return "claude";
     return client || "zekam";
+  }
+
+  function toolNodeId(agent) {
+    return `tool:${agent.agent_id}:${String(agent.active_tool || "tool").toLowerCase()}`;
   }
 
   function renderClients(agents, events) {
@@ -349,6 +353,18 @@
       };
       placeBranch(agent, rootX, 0.32, 0);
     });
+    agents.filter((agent) => agent.active_tool).forEach((agent) => {
+      const parent = positions.get(agent.agent_id);
+      if (!parent) return;
+      const offset = (hash(toolNodeId(agent)) % 2 ? 1 : -1) * 0.055;
+      positions.set(toolNodeId(agent), {
+        x: Math.max(0.12, Math.min(0.88, parent.x + offset)),
+        y: Math.max(0.22, Math.min(0.8, parent.y + 0.13)),
+        vx: 0,
+        vy: 0,
+        seed: hash(toolNodeId(agent)),
+      });
+    });
     state.positions = positions;
   }
 
@@ -356,10 +372,24 @@
     if (!snapshot || snapshot.schema !== "zekam-observatory-snapshot/v1") return;
     state.snapshot = snapshot;
     document.body.classList.toggle("live-network-mode", state.liveMode);
-    state.nodes = snapshot.graph?.nodes || [];
-    state.edges = snapshot.graph?.edges || [];
-    state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const activeAgents = (snapshot.agents || []).filter((agent) => activeStates.has(agent.state));
+    const toolNodes = activeAgents.filter((agent) => agent.active_tool).map((agent) => ({
+      node_id: toolNodeId(agent),
+      kind: "tool",
+      label: `aktif araç ${agent.active_tool}`,
+      canonical_ref: `runtime:agent/${agent.agent_id}/tool/${String(agent.active_tool).toLowerCase()}`,
+      status: agent.state,
+      source: normalizedClient(agent.client),
+    }));
+    const toolEdges = activeAgents.filter((agent) => agent.active_tool).map((agent) => ({
+      source: agent.agent_id,
+      target: toolNodeId(agent),
+      kind: "executes-tool",
+    }));
+    state.nodes = [...(snapshot.graph?.nodes || []), ...toolNodes];
+    state.edges = [...(snapshot.graph?.edges || []), ...toolEdges];
+    state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
     const liveIds = new Set((snapshot.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
     const activeIds = new Set(liveIds);
     if (!liveIds.size) {
@@ -373,8 +403,9 @@
       for (const edge of state.edges) {
         const joinsConversation = edge.kind === "delegates" && (liveIds.has(edge.source) || liveIds.has(edge.target));
         const joinsClient = edge.kind === "runs-session" && liveIds.has(edge.target);
+        const joinsTool = edge.kind === "executes-tool" && liveIds.has(edge.source);
         const joinsSystem = edge.kind === "reports-observation" && liveIds.has(edge.source);
-        if (joinsConversation || joinsClient || joinsSystem) {
+        if (joinsConversation || joinsClient || joinsTool || joinsSystem) {
           liveIds.add(edge.source);
           liveIds.add(edge.target);
         }
@@ -384,8 +415,9 @@
       for (const edge of state.edges) {
         const joinsConversation = edge.kind === "delegates" && activeIds.has(edge.target);
         const joinsClient = edge.kind === "runs-session" && activeIds.has(edge.target);
+        const joinsTool = edge.kind === "executes-tool" && activeIds.has(edge.source);
         const joinsSystem = edge.kind === "reports-observation" && activeIds.has(edge.source);
-        if (joinsConversation || joinsClient || joinsSystem) {
+        if (joinsConversation || joinsClient || joinsTool || joinsSystem) {
           activeIds.add(edge.source);
           activeIds.add(edge.target);
         }
@@ -572,7 +604,7 @@
       const source = pointFor(edge.source);
       const target = pointFor(edge.target);
       if (!source || !target) continue;
-      const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
+      const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "executes-tool", "reports-observation"].includes(edge.kind);
       const alpha = active ? 0.82 : edge.kind === "markdown-link" ? 0.12 : 0.18;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
@@ -627,8 +659,9 @@
     if (node.kind.endsWith("cluster")) return 7.2;
     if (node.kind === "agent") return 7;
     if (node.kind === "agent-session") return 8.2;
-    if (["work", "job", "model"].includes(node.kind)) return 5.6;
-    return 4.4;
+    if (node.kind === "tool") return 7.2;
+    if (["work", "job", "model"].includes(node.kind)) return 6.4;
+    return 5.2;
   }
 
   function drawNodes() {
@@ -674,7 +707,7 @@
 
       if (selected || hovered || active || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
         const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
-        context.font = `${selected ? 14 : active ? 14 : state.liveMode ? 12 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+        context.font = `${selected ? 17 : active ? 17 : state.liveMode ? 14 : 12}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
         context.textAlign = "center";
         const labelWidth = context.measureText(label).width + 12;
