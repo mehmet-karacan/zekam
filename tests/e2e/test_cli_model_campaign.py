@@ -463,7 +463,7 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
     assert capability.exit_code == 0, f"{capability.stderr} {capability.exception!r}"
     capability_plan = json.loads(capability.stdout)
     assert capability_plan["status"] == "calibration-plan-ready"
-    assert capability_plan["runtime_available"] is False
+    assert capability_plan["runtime_available"] is True
     assert capability_plan["routing_qualification_granted"] is False
     assert capability_plan["model_count"] == 17
     assert capability_plan["task_count"] == 3

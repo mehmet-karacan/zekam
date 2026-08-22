@@ -3,10 +3,17 @@
   "task_id": "code-repair",
   "version": 1,
   "data_classification": "public",
-  "brief": "Uc baglantili hatayi tespit et, yamayi planla, dogrula ve regresyonu acikla.",
+  "brief": "Bir is kuyrugu vakasindaki birbiriyle etkilesen kusurlari tani, uygulanabilir degisiklik ve deneylerle savini sinayarak gelistir.",
+  "scenario": "Python worker icin gozlenen olay kaydi: W1 10:00:00'da /charge istegini gonderiyor; jobs satirindaki durum 10:00:02'de running oluyor. W1 yanit beklerken kaydin sahiplik suresi bitiyor ve W2 10:00:05'te ayni job verisiyle basliyor. Ag gecidi bazen istek islenmis olsa bile istemciye zaman asimi donduruyor; mevcut kod ayni govdeyi uc kez gonderebiliyor. Bir kayitta servis iki basarili islem gorurken uygulama tablosunda tek sonuc var. Baska bir kayitta servis basarili dondukten hemen sonra process kapanmis ve scheduler isi yeniden acmis. Sahiplik kaydi yalniz expires_at ve worker_id tutuyor. Kod, veri modeli ve tekrarlanabilir deney tasarimini birlikte ele al.",
   "required_checkpoints": ["reproduce", "root-cause", "patch", "verify"],
-  "expected_markers": ["ROOT_CAUSE", "PATCH_PLAN", "TEST_EVIDENCE", "REGRESSION_CHECK"],
+  "expected_markers": ["cr-01", "cr-02", "cr-03", "cr-04"],
+  "hidden_acceptance_checks": [
+    {"id": "cr-01", "any_of": ["claim before", "claim-before", "effectten once claim", "claim effectten once"]},
+    {"id": "cr-02", "any_of": ["idempotency", "idempotent", "tek kullanim", "one-shot"]},
+    {"id": "cr-03", "any_of": ["fencing", "fence token", "lease generation", "lease nesli"]},
+    {"id": "cr-04", "any_of": ["failure injection", "fault injection", "crash testi", "hata enjeksiyonu"]}
+  ],
   "forbidden_markers": ["SKIP_TESTS", "DISABLE_GUARD"],
-  "minimum_self_corrections": 0,
+  "minimum_self_corrections": 1,
   "max_tool_calls": 24
 }

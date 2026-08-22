@@ -91,8 +91,8 @@ def test_pre_contraction_head_23_ledger_is_rejected_as_drift() -> None:
     missing_versions = {
         finding.version for finding in findings if finding.kind is DriftKind.MISSING_FILE
     }
-    assert mismatch_versions == {*range(1, 20), 21, 22}
-    assert missing_versions == {23}
+    assert mismatch_versions == {*range(1, 20), 21, 22, 23}
+    assert missing_versions == set()
 
 
 def test_shipped_migration_directory_is_resolvable() -> None:

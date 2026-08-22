@@ -1,0 +1,25 @@
+drop trigger if exists capability_runtime_scorecard_gate
+    on models.capability_benchmark_scorecard;
+drop function if exists models.capability_runtime_derived_digests(uuid,uuid);
+drop table if exists models.capability_runtime_outcome;
+drop table if exists models.capability_runtime_call_outcome;
+drop table if exists models.capability_runtime_slot_authorization;
+alter table if exists models.capability_runtime_continuity_state
+    drop constraint if exists capability_runtime_continuity_checkpoint_exists;
+drop table if exists models.capability_runtime_turn_checkpoint;
+drop table if exists models.capability_runtime_continuity_state;
+drop table if exists models.capability_runtime_approval_slot;
+drop table if exists models.capability_runtime_approval_manifest;
+drop function if exists models.enforce_capability_runtime_scorecard_gate();
+drop function if exists models.enforce_capability_runtime_outcome();
+drop function if exists models.enforce_capability_runtime_call_outcome();
+drop function if exists models.validate_capability_runtime_slot_set();
+drop function if exists models.enforce_capability_runtime_slot();
+drop function if exists models.enforce_capability_runtime_slot_authorization();
+drop function if exists models.enforce_capability_runtime_continuity();
+drop function if exists models.enforce_capability_runtime_turn_checkpoint();
+drop function if exists models.enforce_capability_runtime_manifest();
+drop function if exists models.capability_runtime_continuity_valid(jsonb);
+drop function if exists models.derive_capability_request_body(jsonb,jsonb);
+drop function if exists models.capability_runtime_jsonb_digest(jsonb);
+drop function if exists models.capability_runtime_canonical_json(jsonb);

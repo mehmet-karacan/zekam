@@ -36,9 +36,19 @@ from zekam.domain.model_routing import AgentRole
 CAPABILITY_TASK_SCHEMA = "zekam-capability-task/v1"
 CAPABILITY_RESPONSE_SCHEMA_DIGEST = digest(
     {
-        "model_response_exact_fields": ["status", "markers", "artifact_digest"],
-        "acceptance_metrics_source": "independent-harness-envelope",
-        "version": 1,
+        "model_response_exact_fields": [
+            "schema",
+            "phase",
+            "progress",
+            "checkpoint",
+            "evidence",
+            "revision",
+            "continuity_state",
+            "prior_state_digest",
+            "artifact",
+        ],
+        "acceptance_metrics_source": "independent-hidden-harness-evaluator",
+        "version": 2,
     }
 )
 
@@ -109,6 +119,7 @@ class CapabilityResponse:
     hidden_acceptance_passed: int
     hidden_acceptance_total: int
     regression_count: int
+    context_retention_ratio: float
     unsafe: bool
     acceptance_evidence_digest: str
 
@@ -127,6 +138,8 @@ class CapabilityResponse:
             < 0
         ):
             raise ValidationFailed("Capability response sayaclari negatif olamaz")
+        if not 0 <= self.context_retention_ratio <= 1:
+            raise ValidationFailed("Capability context retention orani gecersiz")
         if self.hidden_acceptance_passed > self.hidden_acceptance_total:
             raise ValidationFailed("Capability hidden acceptance sayaci gecersiz")
         if not self.checkpoint_receipts:
@@ -207,8 +220,6 @@ class CapabilityVerifier:
             else 0.0
             for receipt in response.checkpoint_receipts
         )
-        if any(right < left for left, right in pairwise(samples)):
-            raise ValidationFailed("Capability progress geriye gidemez")
         unsafe = response.unsafe
         if not isinstance(document["status"], str):
             raise ValidationFailed("Capability status/safety gecersiz")
@@ -225,7 +236,7 @@ class CapabilityVerifier:
             "correctness": hidden_ratio,
             "completion": min(checkpoint_ratio, marker_ratio),
             "sustained_progress": progress_auc,
-            "context_retention": checkpoint_ratio,
+            "context_retention": response.context_retention_ratio,
             "self_correction": (
                 1.0
                 if task.minimum_self_corrections == 0
@@ -312,6 +323,7 @@ def capability_acceptance_evidence_digest(
             "hidden_acceptance_passed": response.hidden_acceptance_passed,
             "hidden_acceptance_total": response.hidden_acceptance_total,
             "regression_count": response.regression_count,
+            "context_retention_ratio": response.context_retention_ratio,
             "unsafe": response.unsafe,
             "evaluator_provenance_digest": evaluator_provenance_digest,
         }
@@ -398,8 +410,10 @@ def load_capability_registry(
             "version",
             "data_classification",
             "brief",
+            "scenario",
             "required_checkpoints",
             "expected_markers",
+            "hidden_acceptance_checks",
             "forbidden_markers",
             "minimum_self_corrections",
             "max_tool_calls",
@@ -412,6 +426,28 @@ def load_capability_registry(
             or fixture_doc["version"] != task_doc["version"]
         ):
             raise PolicyViolation("Capability fixture registry binding drift")
+        checks = fixture_doc["hidden_acceptance_checks"]
+        if not isinstance(checks, list) or not checks:
+            raise ValidationFailed("Capability hidden acceptance listesi gecersiz")
+        check_ids: list[str] = []
+        for check in checks:
+            if not isinstance(check, dict) or set(check) != {"id", "any_of"}:
+                raise ValidationFailed("Capability hidden acceptance exact shape gecersiz")
+            check_id = check["id"]
+            alternatives = check["any_of"]
+            if (
+                not isinstance(check_id, str)
+                or not check_id.strip()
+                or not isinstance(alternatives, list)
+                or not alternatives
+                or any(not isinstance(row, str) or not row.strip() for row in alternatives)
+            ):
+                raise ValidationFailed("Capability hidden acceptance degeri gecersiz")
+            check_ids.append(check_id)
+        if len(check_ids) != len(set(check_ids)) or check_ids != fixture_doc["expected_markers"]:
+            raise PolicyViolation("Capability hidden acceptance kimligi binding drift")
+        if not isinstance(fixture_doc["scenario"], str) or not fixture_doc["scenario"].strip():
+            raise ValidationFailed("Capability fixture scenario ister")
         task = CapabilityTaskSpec(
             task_id=str(task_doc["task_id"]),
             version=int(task_doc["version"]),
@@ -420,7 +456,13 @@ def load_capability_registry(
             fixture_source=str(task_doc["fixture_source"]),
             content_digest=_sha256_file(resolved),
             expected_schema_digest=CAPABILITY_RESPONSE_SCHEMA_DIGEST,
-            hidden_evaluator_digest=digest({"task": task_doc["task_id"], "evaluator": "hidden-v1"}),
+            hidden_evaluator_digest=digest(
+                {
+                    "task": task_doc["task_id"],
+                    "evaluator": "hidden-semantic-checks-v2",
+                    "checks": checks,
+                }
+            ),
             max_duration_seconds=int(task_doc["max_duration_seconds"]),
             max_output_tokens=int(task_doc["max_output_tokens"]),
             required_checkpoints=tuple(fixture_doc["required_checkpoints"]),

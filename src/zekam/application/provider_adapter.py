@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -734,11 +734,17 @@ def openai_chat_payload(
     prompt: str,
     *,
     system: str = "Yaniti yalniz istenen formatta ver.",
+    max_output_tokens: int | None = None,
+    output_token_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens",
 ) -> dict[str, Any]:
     """Chat/code endpoint'i icin deterministik OpenAI-compatible payload."""
     if not model.strip() or not prompt.strip() or not system.strip():
         raise ValidationFailed("Chat payload model/system/prompt ister")
-    return {
+    if max_output_tokens is not None and max_output_tokens < 1:
+        raise ValidationFailed("Chat payload output token limiti pozitif olmali")
+    if output_token_field not in {"max_tokens", "max_completion_tokens"}:
+        raise ValidationFailed("Chat payload output token alan sozlesmesi gecersiz")
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
@@ -746,6 +752,9 @@ def openai_chat_payload(
         ],
         "temperature": 0,
     }
+    if max_output_tokens is not None:
+        payload[output_token_field] = max_output_tokens
+    return payload
 
 
 def openai_embedding_payload(model: str, inputs: tuple[str, ...]) -> dict[str, Any]:

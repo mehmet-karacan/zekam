@@ -3,10 +3,17 @@
   "task_id": "review-root-cause",
   "version": 1,
   "data_classification": "public",
-  "brief": "Kusurlu degisikligi incele, gercek hatalari ayir, yanlis pozitifleri ele ve kanitla.",
+  "brief": "Bir React veri yukleme degisikliginin hata iddialarini ayristir, en kucuk karsi ornek ve testlerle inceleme kararini olgunlastir.",
+  "scenario": "React 18 ekraninda effect, query her degistiginde /api/items?q=... istegi baslatiyor ve donen listeyi state'e yaziyor. Kullanici a, ab, abc girdiginde ag kaydi isteklerin 1, 2, 3 sirasiyla basladigini fakat 3, 1, 2 sirasiyla bittigini gosteriyor; ekranda bazen ab listesi kaliyor. Gelistirme yapisinda ilk acilista iki istek, production yapisinda bir istek goruluyor. PR yalniz istegi 100 ms geciktiriyor. Render sirasinda items.sort() cagriliyor; ust component ayni liste referansini baska bir child'a da veriyor. Her gozlemin gercek kullanici etkisini, duzeltme iddiasini ve ayirt edici testi incele.",
   "required_checkpoints": ["scope", "trace", "counterexample", "verdict"],
-  "expected_markers": ["DEFECT", "COUNTEREXAMPLE", "FALSE_POSITIVE_CHECK", "VERDICT"],
+  "expected_markers": ["rv-01", "rv-02", "rv-03", "rv-04"],
+  "hidden_acceptance_checks": [
+    {"id": "rv-01", "any_of": ["stale response", "eski cevap", "out of order", "ters sirada"]},
+    {"id": "rv-02", "any_of": ["abortcontroller", "abort controller", "cleanup", "iptal"]},
+    {"id": "rv-03", "any_of": ["yerinde degistir", "in-place", "mutate", "mutation"]},
+    {"id": "rv-04", "any_of": ["strictmode", "strict mode", "gelistirme modunda", "development only"]}
+  ],
   "forbidden_markers": ["UNVERIFIED_APPROVAL", "IGNORE_FAILURE"],
-  "minimum_self_corrections": 0,
+  "minimum_self_corrections": 1,
   "max_tool_calls": 20
 }

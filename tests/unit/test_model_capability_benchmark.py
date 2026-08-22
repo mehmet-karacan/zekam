@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import threading
 import time
 from dataclasses import replace
@@ -20,7 +21,23 @@ from zekam.application.model_capability_benchmark import (
     capability_acceptance_evidence_digest,
     load_capability_registry,
 )
-from zekam.domain.canonical import digest
+from zekam.application.model_capability_live import (
+    EMPTY_CONTINUITY_STATE,
+    REQUEST_TEMPLATE_SCHEMA,
+    TURN_SCHEMA,
+    CapabilityLiveTurnResult,
+    capability_derivation_material,
+    derive_capability_request_body,
+    derive_capability_slot,
+    execute_capability_episode,
+    prepare_capability_live_manifest,
+)
+from zekam.application.model_registry import load_inventory
+from zekam.application.opencode_benchmark_campaign import (
+    discover_campaign,
+    prepare_campaign_manifest,
+)
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_capability_benchmark import (
     CapabilityCohortPlan,
@@ -28,6 +45,7 @@ from zekam.domain.model_capability_benchmark import (
     CapabilityEpisodeStatus,
     aggregate_capability_episodes,
 )
+from zekam.domain.model_inventory import Modality
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -110,6 +128,7 @@ class FakeAdapter:
             hidden_acceptance_passed=4,
             hidden_acceptance_total=4,
             regression_count=0,
+            context_retention_ratio=1.0,
             unsafe=False,
             acceptance_evidence_digest=digest("pending-acceptance"),
         )
@@ -140,6 +159,246 @@ def test_registry_and_exact_plan_budget() -> None:
     seven_model_plan = _plan(tuple(f"model-{index}" for index in range(7)))
     assert seven_model_plan.provider_call_budget == 168
     assert seven_model_plan.max_parallelism == 7
+
+
+def test_request_derivation_has_stable_python_sql_golden_vector() -> None:
+    template = {
+        "schema": REQUEST_TEMPLATE_SCHEMA,
+        "model": "model/test",
+        "system": "system",
+        "prompt_prefix": "prefix\n",
+        "max_tokens": 17,
+    }
+    state = {
+        "facts": ["alpha", "gamma"],
+        "open_questions": ["beta?"],
+        "risks": [],
+        "next_action": "verify",
+    }
+    payload = derive_capability_request_body(template, state)
+    assert digest(template) == (
+        "sha256:7cc1613f26ad1aa39ee75ae98680a4927ae19131f1d78efa349228b21c95502c"
+    )
+    assert digest(state) == (
+        "sha256:95908edc8b10ee95b025cda83d35f49fd8e8986caddff5b1c325d42f87beb3ba"
+    )
+    assert digest(payload) == (
+        "sha256:4a5fd7d23042bb9429634a19d280bfd9e567284d4cb39b16ac7fe41adfcbc5b9"
+    )
+    assert set(payload) == {"model", "messages", "temperature", "max_tokens"}
+
+
+def test_public_fixture_text_does_not_disclose_hidden_answer_concepts() -> None:
+    _, _, fixtures = _loaded()
+    for fixture in fixtures.values():
+        public_text = f"{fixture.payload['brief']}\n{fixture.payload['scenario']}".casefold()
+        hidden_terms = {
+            str(term).casefold()
+            for check in fixture.payload["hidden_acceptance_checks"]
+            for term in check["any_of"]
+        }
+        assert not hidden_terms.intersection(public_text.splitlines())
+        assert not any(term in public_text for term in hidden_terms)
+
+
+def test_live_manifest_prepares_exact_static_168_slots() -> None:
+    plan = _plan(tuple(f"model-{index}" for index in range(7)))
+    _, _, fixtures = _loaded()
+    # The real campaign builder/inventory mapping is exercised in campaign E2E.
+    # Here a production seven-model plan is covered by the CLI integration tests;
+    # arbitrary fake ids must fail closed instead of producing partial authority.
+    discovery = discover_campaign(verifier_provenance_digest=digest("test-verifier"))
+    campaign = prepare_campaign_manifest(discovery)
+    inventory = load_inventory()
+    eligible = tuple(
+        target.canonical_model_id
+        for target in discovery.targets
+        if target.excluded_reason is None
+        and (record := inventory.by_id(target.canonical_model_id)) is not None
+        and record.invocation_modality in {Modality.CHAT, Modality.CODE, Modality.COMPLETION}
+    )[:7]
+    assert len(eligible) == 7
+    prepared_plan = replace(plan, model_ids=eligible)
+    prepared = prepare_capability_live_manifest(prepared_plan, fixtures, campaign)
+    assert len(prepared.slots) == 168
+    assert len({slot.template_digest for slot in prepared.slots}) == 168
+    assert len({slot.derivation_digest for slot in prepared.slots}) == 168
+    for candidate_task in prepared_plan.registry.tasks:
+        prompts = "\n".join(
+            str(slot.prepared.call.payload)
+            for slot in prepared.slots
+            if slot.task_digest == candidate_task.task_digest
+        ).casefold()
+        hidden_terms = {
+            str(term).casefold()
+            for check in fixtures[candidate_task.task_digest].payload["hidden_acceptance_checks"]
+            for term in check["any_of"]
+        }
+        assert not any(term in prompts for term in hidden_terms)
+    for model_id in eligible:
+        for task in prepared_plan.registry.tasks:
+            payloads = [
+                slot.prepared.call.payload
+                for slot in prepared.slots
+                if slot.model_id == model_id and slot.task_digest == task.task_digest
+            ]
+            assert sum(int(payload["max_tokens"]) for payload in payloads) == task.max_output_tokens
+            assert all("max_completion_tokens" not in payload for payload in payloads)
+
+    model_id = eligible[0]
+    task = prepared_plan.registry.tasks[0]
+    task_payloads = [
+        str(slot.prepared.call.payload)
+        for slot in prepared.slots
+        if slot.task_digest == task.task_digest
+    ]
+    assert "hidden_acceptance_checks" not in "\n".join(task_payloads)
+    assert "Kanit varsa ilgili etiketleri kullan" not in "\n".join(task_payloads)
+    leaked = {
+        str(alternative).casefold()
+        for check in fixtures[task.task_digest].payload["hidden_acceptance_checks"]
+        for alternative in check["any_of"]
+    }
+    assert not any(term in "\n".join(task_payloads).casefold() for term in leaked)
+    episode_slots = tuple(
+        slot
+        for slot in prepared.slots
+        if slot.model_id == model_id and slot.task_digest == task.task_digest
+    )
+
+    continuity: dict[str, object] = dict(EMPTY_CONTINUITY_STATE)
+
+    def invoke(slot: Any, concrete: Any, prior_state: Any) -> CapabilityLiveTurnResult:
+        nonlocal continuity
+        assert prior_state == continuity
+        checks = fixtures[task.task_digest].payload["hidden_acceptance_checks"]
+        evidence = [str(check["any_of"][0]) for check in checks]
+        next_state: dict[str, object] = {
+            "facts": ["remote effect can outlive the client observation"],
+            "open_questions": ["which boundary owns the durable result"],
+            "risks": ["a repeated attempt can duplicate an external effect"],
+            "next_action": "test the next hypothesis",
+        }
+        checkpoint = task.required_checkpoints[min((slot.turn_index - 1) // 2, 3)]
+        document = {
+            "schema": TURN_SCHEMA,
+            "phase": slot.phase,
+            "progress": min(100, slot.turn_index * 13),
+            "checkpoint": checkpoint,
+            "evidence": evidence,
+            "revision": {
+                "changed": slot.turn_index == 6,
+                "summary": "replaced an earlier retry assumption" if slot.turn_index == 6 else "",
+            },
+            "continuity_state": next_state,
+            "prior_state_digest": digest(continuity),
+            "artifact": "a concrete phase artifact with an observable assertion",
+        }
+        continuity = next_state
+        text = json.dumps(document)
+        assert concrete.plan.payload_digest != slot.prepared.plan.payload_digest
+        response = {"choices": [{"message": {"content": text}}]}
+        return CapabilityLiveTurnResult(response, digest(response), 100, 50)
+
+    result = execute_capability_episode(
+        plan=prepared_plan,
+        task=task,
+        fixture=fixtures[task.task_digest],
+        model_id=model_id,
+        slots=episode_slots,
+        invoke=invoke,
+        verifier=_verifier(),
+    )
+    assert result.status is CapabilityEpisodeStatus.PASSED
+    assert result.model_turn_count == 8
+    assert result.input_token_count == 800
+
+    def echo_prompt(slot: Any, concrete: Any, prior_state: Any) -> CapabilityLiveTurnResult:
+        del prior_state
+        response = {"choices": [{"message": {"content": str(concrete.call.payload)}}]}
+        return CapabilityLiveTurnResult(response, digest(response), 10, 10)
+
+    with pytest.raises(ValidationFailed, match="exact JSON"):
+        execute_capability_episode(
+            plan=prepared_plan,
+            task=task,
+            fixture=fixtures[task.task_digest],
+            model_id=model_id,
+            slots=episode_slots,
+            invoke=echo_prompt,
+            verifier=_verifier(),
+        )
+
+    marker_state: dict[str, object] = dict(EMPTY_CONTINUITY_STATE)
+
+    def marker_only(slot: Any, concrete: Any, prior_state: Any) -> CapabilityLiveTurnResult:
+        nonlocal marker_state
+        del concrete
+        assert prior_state == marker_state
+        next_state = {
+            "facts": [" ".join(task.expected_markers)],
+            "open_questions": [],
+            "risks": [],
+            "next_action": "repeat labels",
+        }
+        document = {
+            "schema": TURN_SCHEMA,
+            "phase": slot.phase,
+            "progress": min(100, slot.turn_index * 13),
+            "checkpoint": task.required_checkpoints[min((slot.turn_index - 1) // 2, 3)],
+            "evidence": [" ".join(task.expected_markers)],
+            "revision": {
+                "changed": slot.turn_index == 6,
+                "summary": "changed labels" if slot.turn_index == 6 else "",
+            },
+            "continuity_state": next_state,
+            "prior_state_digest": digest(marker_state),
+            "artifact": " ".join(task.expected_markers),
+        }
+        marker_state = next_state
+        response = {"choices": [{"message": {"content": json.dumps(document)}}]}
+        return CapabilityLiveTurnResult(response, digest(response), 10, 10)
+
+    marker_result = execute_capability_episode(
+        plan=prepared_plan,
+        task=task,
+        fixture=fixtures[task.task_digest],
+        model_id=model_id,
+        slots=episode_slots,
+        invoke=marker_only,
+        verifier=_verifier(),
+    )
+    assert marker_result.status is CapabilityEpisodeStatus.FAILED
+    assert marker_result.hidden_acceptance_ratio == 0
+
+    first = episode_slots[0]
+    concrete_a = derive_capability_slot(first, EMPTY_CONTINUITY_STATE)
+    concrete_b = derive_capability_slot(
+        first,
+        {**EMPTY_CONTINUITY_STATE, "facts": ["new bounded fact"]},
+    )
+    assert concrete_a.plan.payload_digest != concrete_b.plan.payload_digest
+    material = capability_derivation_material(first, EMPTY_CONTINUITY_STATE)
+    assert material["template_digest"] == first.template_digest
+    assert material["continuity_state_digest"] == digest(EMPTY_CONTINUITY_STATE)
+    assert concrete_a.call.payload == {
+        "model": first.backend_model,
+        "messages": [
+            {"role": "system", "content": first.system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    first.prompt_prefix
+                    + "prior_state_digest tam olarak "
+                    + digest(EMPTY_CONTINUITY_STATE)
+                    + " olmali. Onceki continuity_state:\n"
+                    + canonical_json(EMPTY_CONTINUITY_STATE)
+                ),
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": first.output_cap,
+    }
 
 
 def test_parallel_runner_starts_each_model_in_same_task_wave() -> None:
@@ -200,6 +459,7 @@ def test_response_shape_and_progress_regression_fail_closed() -> None:
         hidden_acceptance_passed=0,
         hidden_acceptance_total=0,
         regression_count=0,
+        context_retention_ratio=1.0,
         unsafe=False,
         acceptance_evidence_digest=digest("invalid-shape"),
     )
@@ -215,6 +475,7 @@ def test_response_shape_and_progress_regression_fail_closed() -> None:
     }
     regressed = replace(
         response,
+        duration_ms=2,
         payload=payload,
         checkpoint_receipts=(
             CapabilityCheckpointReceipt("first", 1, digest("first"), 1, 2),
@@ -229,12 +490,15 @@ def test_response_shape_and_progress_regression_fail_closed() -> None:
             task, regressed, _verifier().provenance_digest
         ),
     )
-    with pytest.raises(ValidationFailed, match="geriye"):
-        _verifier().verify(
-            tested_model_id="model-a",
-            task=task,
-            response=regressed,
-        )
+    regressed = replace(regressed, regression_count=1)
+    regressed = replace(
+        regressed,
+        acceptance_evidence_digest=capability_acceptance_evidence_digest(
+            task, regressed, _verifier().provenance_digest
+        ),
+    )
+    metrics = _verifier().verify(tested_model_id="model-a", task=task, response=regressed)
+    assert metrics["regression_count"] == 1
 
 
 def test_registry_digest_drift_and_repository_escape_are_rejected(tmp_path: Path) -> None:

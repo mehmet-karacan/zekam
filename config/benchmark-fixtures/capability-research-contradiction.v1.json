@@ -3,10 +3,17 @@
   "task_id": "research-contradiction",
   "version": 1,
   "data_classification": "public",
-  "brief": "Celisen kanitlari siniflandir, iddialari kaynaklara bagla ve belirsizligi koru.",
+  "brief": "Uyusmayan model olcumlerinden karar notu gelistir; iddialari kayitlarla esle, alternatif aciklamalari sina ve sinirli bir oneride bulun.",
+  "scenario": "Kayit A, Model X icin 92 kalite ve 400 ms bildiriyor; testi modeli sunan ekip yapmis, veri seti ile ham ciktilar ekli degil. Kayit B, X etiketiyle 71 ve 1.8 s p95 olcmus; dipnotunda A'dan uc ay eski bir servis goruntusu kullandigi yaziyor. Kurum ici Kayit C'de 30 gorevin 24'unu X, 25'ini Y tamamlamis; gorev bazli sonuc var, istatistiksel ozet yok ve Y'nin birim fiyati iki kat. Kayit D, A'nin grafigini baglamsiz yeniden paylasan tek cumlelik sosyal medya iletisi. Kod uretme, hata inceleme ve bilgi toplama isleri farkli hata maliyetlerine sahip. Savlarini hangi kaydin ne kadar destekledigini ve hangi yeni olcumun karari degistirebilecegini goster.",
   "required_checkpoints": ["claims", "evidence", "contradictions", "synthesis"],
-  "expected_markers": ["CLAIM_MAP", "EVIDENCE", "CONTRADICTION", "UNCERTAINTY"],
+  "expected_markers": ["rs-01", "rs-02", "rs-03", "rs-04"],
+  "hidden_acceptance_checks": [
+    {"id": "rs-01", "any_of": ["farkli surum", "version mismatch", "surum farki", "version confound"]},
+    {"id": "rs-02", "any_of": ["uretici", "bagimsiz kaynak", "provenance", "kaynak d"]},
+    {"id": "rs-03", "any_of": ["guven araligi", "belirsizlik", "uncertainty", "orneklem"]},
+    {"id": "rs-04", "any_of": ["role-specific recommendation", "rol bazli", "implementer", "reviewer"]}
+  ],
   "forbidden_markers": ["INVENTED_SOURCE", "CERTAIN_WITHOUT_EVIDENCE"],
-  "minimum_self_corrections": 0,
+  "minimum_self_corrections": 1,
   "max_tool_calls": 18
 }

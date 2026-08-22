@@ -160,6 +160,27 @@ def test_modality_request_builders_have_exact_shapes() -> None:
     assert "labels" in guard["messages"][0]["content"]
 
 
+def test_chat_output_budget_uses_one_reviewed_compatible_field() -> None:
+    legacy = openai_chat_payload("chat-model", "merhaba", max_output_tokens=17)
+    assert legacy["max_tokens"] == 17
+    assert "max_completion_tokens" not in legacy
+    completion = openai_chat_payload(
+        "reasoning-model",
+        "merhaba",
+        max_output_tokens=19,
+        output_token_field="max_completion_tokens",
+    )
+    assert completion["max_completion_tokens"] == 19
+    assert "max_tokens" not in completion
+    with pytest.raises(ValidationFailed, match="alan sozlesmesi"):
+        openai_chat_payload(
+            "chat-model",
+            "merhaba",
+            max_output_tokens=1,
+            output_token_field="both",  # type: ignore[arg-type]
+        )
+
+
 def test_vision_payload_uses_inline_image_without_repr_guard() -> None:
     payload = openai_vision_payload(
         "vl-model", "nesneleri ver", b"\x89PNG\r\n", media_type="image/png"
