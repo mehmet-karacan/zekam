@@ -7,6 +7,7 @@
   const search = document.getElementById("graph-search");
   const motionToggle = document.getElementById("motion-toggle");
   const recenterButton = document.getElementById("recenter-button");
+  const liveNetworkToggle = document.getElementById("live-network-toggle");
 
   const state = {
     snapshot: null,
@@ -17,6 +18,8 @@
     selected: null,
     hovered: null,
     focus: "all",
+    liveMode: true,
+    liveNodeIds: new Set(),
     query: "",
     paused: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     connected: false,
@@ -40,6 +43,8 @@
     agent: "#ffce73",
     "agent-session": "#72ddff",
     client: "#ffffff",
+    "agent-session": "#72ddff",
+    client: "#ffffff",
     model: "#8de9ff",
     knowledge: "#62e8ff",
     memory: "#c7a3ff",
@@ -53,6 +58,7 @@
     "runtime-root": [0.50, 0.53],
     work: [0.30, 0.31],
     run: [0.48, 0.27],
+    client: [0.50, 0.22],
     client: [0.50, 0.22],
     model: [0.70, 0.31],
     knowledge: [0.71, 0.61],
@@ -147,8 +153,28 @@
   function renderAgents(agents) {
     const list = document.getElementById("agent-list");
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const rows = [...(agents || [])].sort((left, right) => Number(activeStates.has(right.state)) - Number(activeStates.has(left.state)));
-    const activeCount = rows.filter((agent) => activeStates.has(agent.state)).length;
+    const allRows = [...(agents || [])];
+    const byId = new Map(allRows.map((agent) => [agent.agent_id, agent]));
+    const visibleIds = new Set(allRows.filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
+    for (const agent of allRows) {
+      if (!visibleIds.has(agent.agent_id)) continue;
+      let parent = agent.parent_agent_id;
+      while (parent && byId.has(parent)) {
+        visibleIds.add(parent);
+        parent = byId.get(parent).parent_agent_id;
+      }
+    }
+    const depth = (agent) => {
+      let value = 0;
+      let parent = agent.parent_agent_id;
+      while (parent && byId.has(parent) && value < 4) {
+        value += 1;
+        parent = byId.get(parent).parent_agent_id;
+      }
+      return value;
+    };
+    const rows = allRows.filter((agent) => visibleIds.has(agent.agent_id)).sort((left, right) => depth(left) - depth(right));
+    const activeCount = allRows.filter((agent) => activeStates.has(agent.state)).length;
     document.getElementById("agent-count").textContent = activeCount.toLocaleString("tr-TR");
     document.getElementById("agent-badge").textContent = `${activeCount} LIVE`;
     document.getElementById("active-session-count").textContent = activeCount.toLocaleString("tr-TR");
@@ -159,7 +185,7 @@
     list.innerHTML = rows.map((agent) => {
       const initials = String(agent.client || "zk").slice(0, 2).toUpperCase();
       return `
-        <article class="agent-card ${activeStates.has(agent.state) ? "is-active" : ""}" data-agent="${escapeHtml(agent.agent_id)}">
+        <article class="agent-card ${activeStates.has(agent.state) ? "is-active" : "is-context"}" data-agent="${escapeHtml(agent.agent_id)}" style="--session-depth:${depth(agent)}">
           <div class="agent-top">
             <div class="agent-identity">
               <span class="agent-avatar">${escapeHtml(initials)}</span>
@@ -251,7 +277,7 @@
   }
 
   function graphDomain(node) {
-    if (node.kind === "client") return "client";
+    if (node.kind === "client") return "run";
     if (node.kind === "agent-session") return "run";
     if (node.node_id.startsWith("runtime:cluster:")) return node.node_id.split(":").at(-1);
     if (node.node_id.startsWith("cluster:docs:")) return node.node_id.split(":").at(-1);
@@ -295,6 +321,24 @@
         });
       });
     }
+    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const agents = (state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state));
+    const activeMap = new Map(agents.map((agent) => [agent.agent_id, agent]));
+    const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id));
+    roots.forEach((agent, rootIndex) => {
+      const rootX = 0.5 + (rootIndex - (roots.length - 1) / 2) * 0.22;
+      positions.set(agent.agent_id, { x: rootX, y: 0.35, vx: 0, vy: 0, seed: hash(agent.agent_id) });
+      const children = agents.filter((child) => child.parent_agent_id === agent.agent_id);
+      children.forEach((child, childIndex) => {
+        positions.set(child.agent_id, {
+          x: rootX + (childIndex - (children.length - 1) / 2) * 0.13,
+          y: 0.56,
+          vx: 0,
+          vy: 0,
+          seed: hash(child.agent_id),
+        });
+      });
+    });
     state.positions = positions;
   }
 
@@ -304,6 +348,18 @@
     state.nodes = snapshot.graph?.nodes || [];
     state.edges = snapshot.graph?.edges || [];
     state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
+    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
+    const liveIds = new Set((snapshot.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
+    const liveEdgeKinds = new Set(["delegates", "runs-session", "observes-client"]);
+    for (let pass = 0; pass < 4; pass += 1) {
+      for (const edge of state.edges) {
+        if (liveEdgeKinds.has(edge.kind) && (liveIds.has(edge.source) || liveIds.has(edge.target))) {
+          liveIds.add(edge.source);
+          liveIds.add(edge.target);
+        }
+      }
+    }
+    state.liveNodeIds = liveIds;
     calculatePositions(state.nodes);
 
     renderTiles(snapshot.dashboard?.tiles || []);
@@ -316,8 +372,10 @@
     document.getElementById("runtime-mode").textContent = runtime.available ? "CANLI REALM" : "BELGE MODU";
     document.getElementById("digest-value").textContent = String(snapshot.projection_digest || "—").replace("sha256:", "").slice(0, 10);
     document.getElementById("snapshot-time").textContent = `snapshot ${fmtTime(snapshot.generated_at)}`;
-    document.getElementById("node-count").textContent = state.nodes.length.toLocaleString("tr-TR");
-    document.getElementById("edge-count").textContent = state.edges.length.toLocaleString("tr-TR");
+    const visibleNodes = state.liveMode && liveIds.size ? liveIds.size : state.nodes.length;
+    const visibleEdges = state.liveMode && liveIds.size ? state.edges.filter((edge) => liveIds.has(edge.source) && liveIds.has(edge.target)).length : state.edges.length;
+    document.getElementById("node-count").textContent = visibleNodes.toLocaleString("tr-TR");
+    document.getElementById("edge-count").textContent = visibleEdges.toLocaleString("tr-TR");
     document.getElementById("graph-empty").hidden = state.nodes.length > 0;
 
     if (state.selected && !state.nodeMap.has(state.selected.node_id)) selectNode(null);
@@ -453,6 +511,7 @@
   }
 
   function nodeVisible(node) {
+    if (state.liveMode && state.liveNodeIds.size) return state.liveNodeIds.has(node.node_id);
     const query = state.query.trim().toLowerCase();
     const domain = graphDomain(node);
     const focusMatch = state.focus === "all" || domain === state.focus || (state.focus === "run" && ["job", "agent"].includes(node.kind));
@@ -693,6 +752,12 @@
   recenterButton.addEventListener("click", () => {
     calculatePositions(state.nodes);
     selectNode(null);
+  });
+  liveNetworkToggle.addEventListener("click", () => {
+    state.liveMode = !state.liveMode;
+    liveNetworkToggle.setAttribute("aria-pressed", String(state.liveMode));
+    liveNetworkToggle.textContent = state.liveMode ? "CANLI OTURUM AĞI" : "TÜM AĞ";
+    applySnapshot(state.snapshot);
   });
 
   new ResizeObserver(resizeCanvas).observe(wrap);

@@ -55,7 +55,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outl
   position: relative;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 248px minmax(720px, 1fr) 292px;
+  grid-template-columns: 220px minmax(760px, 1fr) 360px;
   gap: 0;
 }
 .panel-edge { border-color: var(--line); }
@@ -70,6 +70,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outl
 }
 .sidebar { border-right: 1px solid var(--line); padding: 26px 20px 20px; display: flex; flex-direction: column; }
 .agent-rail { border-left: 1px solid var(--line); padding: 27px 20px 20px; display: flex; flex-direction: column; }
+.live-network-toggle { padding: 8px 10px; border: 1px solid rgba(114,221,255,.3); border-radius: 8px; background: rgba(114,221,255,.08); color: #72ddff; font: 8px var(--mono); letter-spacing: .07em; cursor: pointer; }
+.live-network-toggle[aria-pressed="false"] { border-color: var(--line); background: transparent; color: var(--muted); }
 
 .brand-block { display: flex; align-items: center; gap: 14px; padding: 4px 4px 25px; border-bottom: 1px solid var(--line); }
 .brand-mark { position: relative; width: 42px; height: 42px; flex: 0 0 auto; }
@@ -213,7 +215,10 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .session-heading small { color: var(--mint); }
 .agent-list { margin-top: 12px; display: grid; gap: 9px; max-height: calc(100vh - 525px); overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(118,255,208,.2) transparent; }
 .agent-card { position: relative; padding: 12px; border: 1px solid rgba(151,255,216,.09); border-radius: 12px; background: rgba(255,255,255,.018); overflow: hidden; }
+.agent-card { margin-left: calc(var(--session-depth) * 18px); }
+.agent-card[style*="--session-depth:1"]::after, .agent-card[style*="--session-depth:2"]::after { content: "↳"; position: absolute; left: -15px; top: 12px; color: #72ddff; font: 11px var(--mono); }
 .agent-card.is-active { border-color: rgba(114,221,255,.36); box-shadow: 0 0 20px rgba(114,221,255,.08), inset 0 0 18px rgba(114,221,255,.04); }
+.agent-card.is-context { opacity: .62; }
 .agent-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--mint); opacity: .7; }
 .agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }

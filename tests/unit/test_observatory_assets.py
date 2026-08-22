@@ -12,6 +12,7 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "brain-canvas" in index
     assert "client-grid" in index
     assert "active-session-count" in index
+    assert "live-network-toggle" in index
     assert "EventSource" in script
     assert 'label: "OpenCode"' in script
     assert 'label: "Codex"' in script

@@ -211,10 +211,14 @@ class OpenCodeLifecycleProjectionReader:
         edges: list[GraphEdge] = []
         agents: list[ObservatoryAgent] = []
         events: list[ObservatoryEvent] = []
+        session_nodes = {
+            str(item["session_id"]): f"opencode-session:{_short_id(str(item['session_id']))}"
+            for item in sessions
+        }
         for item in sessions:
             session_id = str(item["session_id"])
             session_metadata = metadata.get(session_id, {})
-            node_id = f"opencode-session:{_short_id(session_id)}"
+            node_id = session_nodes[session_id]
             agent_name = str(
                 item.get("agent") or session_metadata.get("agent") or "OpenCode session"
             )
@@ -248,7 +252,15 @@ class OpenCodeLifecycleProjectionReader:
                     canonical_ref=canonical_ref,
                 )
             )
-            edges.append(GraphEdge("client:opencode", node_id, "runs-session"))
+            parent_id = item.get("parent_session_id")
+            parent_node = session_nodes.get(str(parent_id)) if parent_id else None
+            edges.append(
+                GraphEdge(
+                    parent_node or "client:opencode",
+                    node_id,
+                    "delegates" if parent_node else "runs-session",
+                )
+            )
             agents.append(
                 ObservatoryAgent(
                     agent_id=node_id,

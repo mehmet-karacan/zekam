@@ -122,8 +122,16 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     _write(root / "README.md", "# Zekam\n")
     record_event(
         home,
+        event_type="session.status",
+        session_id="ses_parent",
+        agent="zekam-coordinator",
+        status="busy",
+    )
+    record_event(
+        home,
         event_type="tool.execute.before",
         session_id="ses_live",
+        parent_session_id="ses_parent",
         agent="zekam-builder",
         model_ref="provider/model",
         tool="bash",
@@ -141,6 +149,7 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     assert any(event.source == "opencode" for event in snapshot.events)
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
+    assert any(edge.kind == "delegates" for edge in snapshot.graph.edges)
 
 
 def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: Path) -> None:
