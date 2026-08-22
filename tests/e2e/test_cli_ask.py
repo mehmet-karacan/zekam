@@ -10,12 +10,97 @@ import pytest
 from typer.testing import CliRunner
 
 from zekam.application.config import DatabaseSettings
+from zekam.interfaces.cli import ask as ask_cli
 from zekam.interfaces.cli.main import app
 from zekam.interfaces.cli.session import EXIT_AMBIGUOUS
 
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
 
 runner = CliRunner()
+
+
+def test_benchmark_dogal_dil_once_scope_sorar() -> None:
+    result = runner.invoke(app, ["ask", "benchmark testlerini baslat", "--json"])
+
+    assert result.exit_code == EXIT_AMBIGUOUS
+    document = json.loads(result.stdout)
+    assert document["resolution"]["request_class"] == "benchmark"
+    prepared = document["benchmark_prepare"]
+    assert prepared["status"] == "scope-required"
+    assert prepared["authority_records_created"] == 0
+    assert prepared["provider_calls_made"] == 0
+    assert prepared["network_calls_made"] == 0
+    assert prepared["grants_authority"] is False
+
+
+def test_tam_benchmark_dogal_dil_exact_plani_gosterir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ask_cli,
+        "_full_benchmark_plan",
+        lambda: {
+            "status": "ready-for-explicit-authorization",
+            "scope": "all-reviewed-aihub",
+            "configured_model_count": 17,
+            "canonical_target_count": 18,
+            "eligible_target_count": 17,
+            "audio_excluded_count": 1,
+            "health_call_count": 17,
+            "benchmark_call_count": 85,
+            "maximum_provider_call_count": 102,
+            "authority_records_created": 0,
+            "provider_calls_made": 0,
+            "network_calls_made": 0,
+            "audio_provider_calls_made": 0,
+            "grants_authority": False,
+        },
+    )
+
+    result = runner.invoke(app, ["ask", "tum AIHub modellerini benchmark et", "--json"])
+
+    assert result.exit_code == 0
+    prepared = json.loads(result.stdout)["benchmark_prepare"]
+    assert prepared["configured_model_count"] == 17
+    assert prepared["canonical_target_count"] == 18
+    assert prepared["eligible_target_count"] == 17
+    assert prepared["audio_excluded_count"] == 1
+    assert prepared["health_call_count"] == 17
+    assert prepared["benchmark_call_count"] == 85
+    assert prepared["maximum_provider_call_count"] == 102
+    assert prepared["audio_provider_calls_made"] == 0
+    assert prepared["authority_records_created"] == 0
+    assert prepared["provider_calls_made"] == 0
+    assert prepared["network_calls_made"] == 0
+    assert prepared["grants_authority"] is False
+
+
+def test_tek_model_dogal_dil_remote_campaigni_sessizce_daraltmaz() -> None:
+    result = runner.invoke(app, ["ask", "tek model benchmark testi", "--json"])
+
+    assert result.exit_code == EXIT_AMBIGUOUS
+    prepared = json.loads(result.stdout)["benchmark_prepare"]
+    assert prepared["status"] == "unsupported-by-remote-campaign"
+    assert prepared["provider_calls_made"] == 0
+
+
+def test_proje_benchmarki_global_kampanyaya_sessizce_genislemez() -> None:
+    result = runner.invoke(app, ["ask", "gpu projesinde benchmark baslat", "--json"])
+
+    assert result.exit_code == EXIT_AMBIGUOUS
+    prepared = json.loads(result.stdout)["benchmark_prepare"]
+    assert prepared["status"] == "project-suite-required"
+    assert "maximum_provider_call_count" not in prepared
+    assert prepared["provider_calls_made"] == 0
+
+
+def test_scope_cue_model_adinin_alt_dizesinden_uydurulmaz() -> None:
+    result = runner.invoke(app, ["ask", "small-model benchmark", "--json"])
+
+    assert result.exit_code == EXIT_AMBIGUOUS
+    prepared = json.loads(result.stdout)["benchmark_prepare"]
+    assert prepared["status"] == "scope-required"
+    assert prepared["provider_calls_made"] == 0
 
 
 @pytest.fixture

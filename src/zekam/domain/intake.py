@@ -29,6 +29,7 @@ _SENSITIVE = re.compile(
 
 
 class RequestClass(StrEnum):
+    BENCHMARK = "benchmark"
     RESEARCH = "research"
     PROJECT_CHANGE = "project-change"
     STATUS = "status"
@@ -56,6 +57,17 @@ class MatchKind(StrEnum):
 _EXACT_MATCHES = (MatchKind.EXACT_ID, MatchKind.EXACT_ALIAS)
 
 _CUES: dict[RequestClass, tuple[str, ...]] = {
+    RequestClass.BENCHMARK: (
+        "benchmark",
+        "model testi",
+        "model testleri",
+        "modelleri test et",
+        "performans testi",
+        "performans testleri",
+        "benchmark campaign",
+        "benchmark models",
+        "test the models",
+    ),
     RequestClass.RESEARCH: (
         "arastir",
         "arastirma",
@@ -428,7 +440,8 @@ def resolve_intake(
         request,
         candidates=candidates,
         subject=request.subject if subject_used else None,
-        required=project_required and request_class is not RequestClass.STATUS,
+        required=project_required
+        and request_class not in {RequestClass.STATUS, RequestClass.BENCHMARK},
     )
     if project_problem is not None:
         problems.append(project_problem)

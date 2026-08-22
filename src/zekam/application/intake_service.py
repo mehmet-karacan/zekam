@@ -160,3 +160,8 @@ class IntakeService:
 
     def is_research(self, outcome: IntakeOutcome) -> bool:
         return outcome.resolution.request_class is RequestClass.RESEARCH
+
+    def is_benchmark(self, outcome: IntakeOutcome) -> bool:
+        """Benchmark niyetini tanir; tek basina authority veya provider effect vermez."""
+
+        return outcome.resolution.request_class is RequestClass.BENCHMARK

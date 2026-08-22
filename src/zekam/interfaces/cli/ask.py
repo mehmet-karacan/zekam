@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from typing import Annotated
 from uuid import UUID
 
@@ -17,10 +18,17 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam.application.intake_service import IntakeOutcome, IntakeService
+from zekam.application.opencode_benchmark_campaign import (
+    default_scope_file,
+    discover_campaign,
+    prepare_campaign_manifest,
+)
+from zekam.application.opencode_remote_benchmark import EVALUATOR_PROVENANCE_DIGEST
 from zekam.application.realm_context import RealmContext
 from zekam.application.research_service import default_dag_nodes
 from zekam.domain.errors import ZekamError
 from zekam.domain.identifiers import new_uuid7
+from zekam.domain.intake import RequestClass, normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.research import (
     ResearchBudget,
@@ -43,6 +51,91 @@ from zekam.interfaces.cli.session import (
 
 app = typer.Typer(name="research", help="Kanitli arastirma islemleri", no_args_is_help=True)
 console = Console()
+
+_ALL_BENCHMARK_CUES = ("tum", "hepsi", "butun", "all", "full")
+_SINGLE_BENCHMARK_CUES = ("tek model", "bir model", "single model", "one model")
+
+
+def _full_benchmark_plan() -> dict[str, object]:
+    """Reviewed tam kampanyayi effect/authority uretmeden sanitize eder."""
+
+    discovery = discover_campaign(
+        scope_file=default_scope_file(),
+        verifier_provenance_digest=EVALUATOR_PROVENANCE_DIGEST,
+    )
+    manifest = prepare_campaign_manifest(discovery)
+    return {
+        "status": "ready-for-explicit-authorization",
+        "scope": "all-reviewed-aihub",
+        "campaign_key": "opencode-aihub",
+        "configured_model_count": discovery.configured_model_count,
+        "canonical_target_count": discovery.canonical_target_count,
+        "eligible_target_count": (
+            discovery.canonical_target_count - discovery.audio_excluded_count
+        ),
+        "audio_excluded_count": discovery.audio_excluded_count,
+        "health_call_count": discovery.health_call_count,
+        "benchmark_call_count": discovery.tested_call_count,
+        "maximum_provider_call_count": discovery.provider_call_budget,
+        "repetitions": discovery.scope.repetitions,
+        "manifest_digest": manifest.manifest_digest,
+        "scope_digest": discovery.scope.scope_digest,
+        "inventory_digest": discovery.inventory_digest,
+        "fixture_registry_digest": discovery.fixture_registry_digest,
+        "verifier_provenance_digest": discovery.verifier_provenance_digest,
+        "question": "Bu exact tam kampanya planini authorize edip baslatalim mi?",
+        "authority_records_created": 0,
+        "provider_calls_made": 0,
+        "network_calls_made": 0,
+        "audio_provider_calls_made": 0,
+        "grants_authority": False,
+    }
+
+
+def _benchmark_prepare(text: str) -> dict[str, object]:
+    normalized = normalize_text(text)
+
+    def _matches(cue: str) -> bool:
+        return re.search(rf"(?<!\w){re.escape(cue)}(?!\w)", normalized) is not None
+
+    wants_all = any(_matches(cue) for cue in _ALL_BENCHMARK_CUES)
+    wants_single = any(_matches(cue) for cue in _SINGLE_BENCHMARK_CUES)
+    wants_project = re.search(r"(?<!\w)(?:proje|project)\w*", normalized) is not None
+    zero_effect = {
+        "authority_records_created": 0,
+        "provider_calls_made": 0,
+        "network_calls_made": 0,
+        "audio_provider_calls_made": 0,
+        "grants_authority": False,
+    }
+    if wants_project:
+        return {
+            "status": "project-suite-required",
+            "scope": "project-specific",
+            "question": "Hangi exact proje ve reviewed project benchmark suite kullanilsin?",
+            "limitation": "Global AIHub kampanyasi proje-ozel benchmark yerine kullanilamaz.",
+            **zero_effect,
+        }
+    if wants_all == wants_single:
+        return {
+            "status": "scope-required",
+            "scope": None,
+            "question": "Tam reviewed AIHub kampanyasi mi, tek model tanilamasi mi?",
+            "options": ["all-reviewed-aihub", "single-model-diagnostic"],
+            **zero_effect,
+        }
+    if wants_single:
+        return {
+            "status": "unsupported-by-remote-campaign",
+            "scope": "single-model-diagnostic",
+            "question": "Hangi exact model kimligi yerel tek-model tanilamasinda kullanilsin?",
+            "limitation": (
+                "Remote OpenCode/AIHub campaign exact tek-model kapsam desteklemiyor; "
+                "yerel tek-model sonucu ZEKAM-DOD-025 veya 83/83 kaniti sayilmaz."
+            ),
+            **zero_effect,
+        }
+    return _full_benchmark_plan()
 
 
 def _now() -> dt.datetime:
@@ -92,16 +185,37 @@ def ask_command(
 ) -> None:
     """Dogal dil istegini cozer. Salt okunur; hicbir kaydi degistirmez."""
     try:
-        with RealmSession(home, realm) as realm_context:
-            outcome = _intake(realm_context, text)
+        local_outcome = IntakeService().resolve(
+            text,
+            now=_now(),
+            project_required=False,
+        )
+        if local_outcome.resolution.request_class is RequestClass.BENCHMARK:
+            outcome = local_outcome
+        else:
+            with RealmSession(home, realm) as realm_context:
+                outcome = _intake(realm_context, text)
     except ZekamError as exc:
         raise fail_from(exc) from exc
 
+    benchmark_prepare = (
+        _benchmark_prepare(text)
+        if outcome.resolution.request_class is RequestClass.BENCHMARK
+        else None
+    )
+    document = outcome.as_dict()
+    if benchmark_prepare is not None:
+        document["benchmark_prepare"] = benchmark_prepare
     if as_json:
-        console.print_json(json.dumps(outcome.as_dict(), ensure_ascii=False))
+        console.print_json(json.dumps(document, ensure_ascii=False))
     else:
         _render_intake(outcome)
-    if not outcome.may_start_work:
+        if benchmark_prepare is not None:
+            console.print_json(json.dumps(benchmark_prepare, ensure_ascii=False))
+    if not outcome.may_start_work or (
+        benchmark_prepare is not None
+        and benchmark_prepare["status"] != "ready-for-explicit-authorization"
+    ):
         raise typer.Exit(EXIT_AMBIGUOUS)
 
 

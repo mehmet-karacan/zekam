@@ -47,6 +47,12 @@ bir defect olarak kaydedilir.
 
 ## 4. Devam kararı
 
+Model benchmark isteği doğal dille geldiyse önce `AGENTS.md` içindeki benchmark
+kurallarını uygula: kapsam belirsizse tam kampanya/tek model/proje-özel seçimini sor;
+tam kampanyada yalnız salt okunur planı ve exact çağrı bütçesini göster; ayrı açık
+onay olmadan authorization üretme veya provider çağrısı yapma. Tek-model tanılamayı
+`ZEKAM-DOD-025` ya da 83/83 kanıtı sayma.
+
 Aşağıdaki sırayla tek karar üret:
 
 ```text

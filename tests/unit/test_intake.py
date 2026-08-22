@@ -43,6 +43,8 @@ def _candidate(ref: str, kind: MatchKind = MatchKind.EXACT_ID) -> ProjectCandida
         ("bugun hangi islerimiz var, listele", RequestClass.STATUS),
         ("bir fikrim var: retrieval'i ayirsak olabilir mi", RequestClass.IDEA),
         ("investigate the root cause in gpu", RequestClass.RESEARCH),
+        ("benchmark testlerini baslat", RequestClass.BENCHMARK),
+        ("AIHub modelleri icin performans testleri", RequestClass.BENCHMARK),
     ],
 )
 def test_siniflandirma_dort_sinifi_ayirir(text: str, expected: RequestClass) -> None:
@@ -155,6 +157,21 @@ def test_status_istegi_proje_zorunlu_degil() -> None:
     resolution = resolve_intake(_request("bugun hangi islerimiz var"), candidates=())
     assert resolution.request_class is RequestClass.STATUS
     assert resolution.may_start_work is True
+
+
+def test_benchmark_istegi_proje_uydurmadan_salt_okunur_cozulur() -> None:
+    outcome = IntakeService().resolve(
+        "benchmark testlerini baslat",
+        now=NOW,
+        projects=(),
+        project_required=True,
+    )
+
+    assert outcome.resolution.request_class is RequestClass.BENCHMARK
+    assert outcome.may_start_work is True
+    assert outcome.resolution.project_ref is None
+    assert outcome.resolution.grants_authority is False
+    assert outcome.clarifications == ()
 
 
 def test_intake_authority_veremez() -> None:

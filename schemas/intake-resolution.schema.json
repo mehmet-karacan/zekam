@@ -6,7 +6,7 @@
   "required": ["schema", "request_class", "request_digest", "matched_cues", "exact_identifiers", "project_ref", "project_candidates", "work_ref", "subject_used", "anaphora_present", "ambiguities", "grants_authority"],
   "properties": {
     "schema": {"const": "zekam-intake-resolution/v1"},
-    "request_class": {"enum": ["research", "project-change", "status", "idea", "ambiguous"]},
+    "request_class": {"enum": ["benchmark", "research", "project-change", "status", "idea", "ambiguous"]},
     "request_digest": {"$ref": "#/$defs/digest"},
     "matched_cues": {"type": "array", "items": {"type": "string"}},
     "exact_identifiers": {"type": "array", "items": {
