@@ -1,0 +1,1 @@
+{"case_id":"general-chat-json-tr","metrics":{"input_tokens":64,"latency_ms":20,"output_tokens":32,"quality":0.92,"reliability":0.95},"schema":"zekam-local-benchmark-fixture/v1","version":1}

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Agent Result Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "envelope_id",
+    "project_id",
+    "work_item_id",
+    "plan_revision_id",
+    "step_id",
+    "attempt_id",
+    "role",
+    "execution_identity",
+    "status",
+    "summary",
+    "findings",
+    "risks",
+    "artifact_refs",
+    "evidence_refs",
+    "input_digest",
+    "result_digest",
+    "created_at",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "envelope_id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "#/$defs/id"
+    },
+    "work_item_id": {
+      "$ref": "#/$defs/id"
+    },
+    "plan_revision_id": {
+      "$ref": "#/$defs/id"
+    },
+    "step_id": {
+      "$ref": "#/$defs/id"
+    },
+    "attempt_id": {
+      "$ref": "#/$defs/id"
+    },
+    "role": {
+      "enum": [
+        "coordinator",
+        "explorer",
+        "researcher",
+        "builder",
+        "tester",
+        "verifier",
+        "critic",
+        "synthesizer",
+        "memory-curator"
+      ]
+    },
+    "execution_identity": {
+      "$ref": "#/$defs/id"
+    },
+    "model_assignment_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "failed",
+        "blocked",
+        "recovery-required",
+        "abstained"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      }
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "string",
+        "maxLength": 4000
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/evidenceRef"
+      }
+    },
+    "effect_claim_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "effect_receipt_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "verification": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "verifier_execution_identity",
+        "covered_subjects"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed",
+            "inconclusive"
+          ]
+        },
+        "verifier_execution_identity": {
+          "$ref": "#/$defs/id"
+        },
+        "covered_subjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "missing_steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "failure_category": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 100
+    },
+    "input_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "result_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

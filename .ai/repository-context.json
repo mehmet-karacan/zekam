@@ -1,0 +1,14 @@
+{
+  "schema": "zekam-repository-context/v1",
+  "project": "zekam",
+  "first_read": "00_BASLA.md",
+  "main_task": "NIHAI_UYGULAMA_PROMPTU.md",
+  "continuation": "DEVAM_PROTOKOLU.md",
+  "manifest": "PROJE_MANIFESTI.yaml",
+  "active_work": "AKTIF_GOREV.yaml",
+  "global_done": "GLOBAL_DEFINITION_OF_DONE.md",
+  "agentic_min_subagents": 1,
+  "coordinator_counts_as_subagent": false,
+  "external_source_write": "deny",
+  "commit_language": "Turkish meaning, ASCII-only"
+}

@@ -1,0 +1,137 @@
+schema: zekam-project-manifest/v1
+project:
+  name: Zekam
+  slug: zekam
+  repository_name: zekam
+  python_package: zekam
+  cli: zekam
+  data_root_env: ZEKAM_HOME
+  status: implementation-package-ready
+authority:
+  canonical_store: PostgreSQL 18
+  vector_extension: pgvector >= 0.8.6
+  work_truth: work-graph
+  execution_truth: run-step-claim-receipt-ledger
+  retrieval_is_authority: false
+  memory_is_authority: false
+  dashboard_is_authority: false
+architecture:
+  style: modular-monolith-with-separate-processes
+  processes:
+  - cli
+  - api
+  - scheduler
+  - worker
+  planes:
+  - control
+  - execution
+  - knowledge
+  - memory-learning
+  - experience-operations
+  canonical_schemas:
+  - core
+  - projects
+  - work
+  - runtime
+  - models
+  - research
+  - knowledge
+  - memory
+  - skills
+  - security
+  - ops
+subagents:
+  deterministic_operations_minimum: 0
+  agentic_operations_minimum: 1
+  coordinator_counts_as_subagent: false
+  fixed_global_maximum: null
+  parallelism: computed-per-run
+  single_builder_per_writable_logical_resource: true
+  independent_verifier_for_high_or_critical_risk: true
+source_policy:
+  external_project_root: read-only
+  mutation_workspace: zekam-managed-detached-worktree-or-sandbox
+  direct_write_to_external_root: deny
+  absolute_paths_in_portable_records: deny
+  push_default: deny
+memory:
+  port: MemoryEngine
+  required_engine: NativePostgresMemoryEngine
+  optional_adapter: Mem0OssMemoryEngine
+  classes:
+  - working
+  - episodic
+  - semantic
+  - procedural
+  - preference
+  - failure
+  scopes:
+  - global-user
+  - project
+  - work-item
+  - run
+  - agent
+  work_graph_ownership: false
+  policy_ownership: false
+  authority_ownership: false
+knowledge:
+  embedding_model_ref: openai/BAAI/bge-m3
+  dimension: 1024
+  distance: cosine
+  retrieval:
+  - exact-id
+  - path-symbol-db-object
+  - alias-trigram
+  - postgresql-fts
+  - dense-vector
+  - rrf
+  - optional-reranker
+  - dedupe
+  - parent-neighbor-expansion
+  content:
+  - docx
+  - pdf
+  - txt
+  - markdown
+  - png
+  - jpeg
+  - tiff
+  - ocr
+  - git-repository
+  - archive
+  - allowed-directory
+  - oracle-metadata
+  - postgresql-metadata
+models:
+  canonical_inventory_count: 20
+  technical_profile_count: 19
+  inventory_identity: model_id
+  unknown_fields_are_not_inferred: true
+  health_is_not_capability: true
+  minimum_benchmark_repetitions: 5
+  quota_policy:
+    codex_remaining_below: 0.4
+    then: evaluate-claude
+    claude_remaining_below: 0.3
+    then_2: evaluate-internal-opencode-models
+    unknown_quota: do-not-guess
+security:
+  secret_values_in_model_context: deny
+  secret_reference_type: SecretRef
+  network_default: deny
+  untrusted_source_instructions: data-only
+  claim_before_effect: true
+  terminal_receipt_after_effect: true
+  silent_retry_after_claim_without_receipt: false
+commit_policy:
+  language_meaning: Turkish
+  characters: ASCII-only
+  title_format: '<tur>: <kisa emir cumlesi>'
+  push_default: deny
+entrypoints:
+  first_read: 00_BASLA.md
+  main_task: NIHAI_UYGULAMA_PROMPTU.md
+  continuation: DEVAM_PROTOKOLU.md
+  work_graph: kalite/UYGULAMA_IS_GRAFIGI.yaml
+  global_done: GLOBAL_DEFINITION_OF_DONE.md
+  validator: scripts/paket_dogrula.py

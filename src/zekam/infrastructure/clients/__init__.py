@@ -1,0 +1,1 @@
+"""Istemci adapter altyapisi."""

@@ -1,0 +1,1 @@
+"""Zekam komut satiri yuzeyi."""

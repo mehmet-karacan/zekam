@@ -1,0 +1,1245 @@
+schema: zekam-global-definition-of-done/v1
+project: zekam
+criterion_count: 83
+completion_rule: all criteria terminal passed with evidence; no implicit waiver
+criteria:
+- id: ZEKAM-DOD-001
+  category: A. Kurulum ve çekirdek
+  criterion: Temiz Linux, macOS ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - docs/YENI_MAKINEDE_BASLAMA.md
+  - .zekam/evidence/ZEKAM-DOD-001-macos-20260821T070131Z.json
+  - .zekam/evidence/ZEKAM-DOD-001-linux-20260821T072025Z.json
+  - .zekam/defects/ZEKAM-DEF-003.json
+  - .zekam/defects/ZEKAM-DEF-004.json
+  assessment_note: 'Uc platformda temiz kurulum tatbikati kosuldu ve alti kapi da her
+    birinde gecti. Windows: 2026-08-20, MINGW64_NT-10.0-26200. macOS: 2026-08-21, Darwin
+    25.6.0 arm64, Python 3.12.14. Linux: 2026-08-21, python:3.12-slim (Debian 13 trixie,
+    arm64) konteynerinde ayri veritabanina karsi sifirdan migration. Tatbikat iki gercek
+    kusur buldu: symlink kararinin resolve sonrasinda verilmesi (commit e7b5c28) ve
+    operator ZEKAM_DATABASE_* ortaminin testlere sizmasi (commit 8f266af). Ucuncu
+    bir bosluk da kapatildi: zorunlu bakim islerini tanimlayan komut yoktu, bu
+    yuzden taze kurulum doctor healthy donemiyordu; zekam scheduler init eklendi
+    (commit db4e694, ZEKAM-DEF-004) ve sifirdan Linux kurulumunda doctor healthy
+    dondu. Sinirlar: WSL ayri olarak kosulmadi, Windows ayagi native MSYS2
+    uzerindedir; Linux ayagi macOS ustundeki konteynerdedir, ayri fiziksel makine
+    degildir.'
+- id: ZEKAM-DOD-002
+  category: A. Kurulum ve çekirdek
+  criterion: '`zekam doctor` DB, pgvector, object storage, queue, clients, models ve policy durumunu doğrular.'
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/infrastructure/doctor/runtime_checks.py
+  - tests/integration/test_doctor_runtime_checks.py
+  - src/zekam/application/composition.py
+  assessment_note: doctor artik DB, pgvector, migration, object store, queue, clients, models, policy,
+    scheduler ve komut yuzeyini dogruluyor. Kanonik kayit okunamazsa skipped doner; sahte passed uretmez.
+- id: ZEKAM-DOD-003
+  category: A. Kurulum ve çekirdek
+  criterion: PostgreSQL 18 migration'ları temiz kurulum, upgrade ve rollback testlerinden geçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/integration/test_migrations_postgres.py
+  - migrations/
+  - .zekam/phases/ZEKAM-P01-kanit.json
+  assessment_note: Temiz kurulum, upgrade, rollback ve drift testleri gercek PostgreSQL uzerinde geciyor.
+- id: ZEKAM-DOD-004
+  category: A. Kurulum ve çekirdek
+  criterion: Core kodu ile `ZEKAM_HOME` kullanıcı verisi fiziksel olarak ayrıdır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/home.py
+  - tests/unit/test_home_layout.py
+  - .zekam/phases/ZEKAM-P00-kanit.json
+  assessment_note: Core repository ile ZEKAM_HOME ayrimi kod ve testle uygulanmis.
+- id: ZEKAM-DOD-005
+  category: A. Kurulum ve çekirdek
+  criterion: Proje source'ları kopyalanmadan logical binding ile yerinde okunabilir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/project_integration.py
+  - tests/integration/test_project_registry.py
+  - .zekam/phases/ZEKAM-P02-kanit.json
+  assessment_note: Salt okunur source binding; kaynak kopyalanmiyor.
+- id: ZEKAM-DOD-006
+  category: A. Kurulum ve çekirdek
+  criterion: Backup/restore ve disaster-recovery tatbikatı kanıtlanmıştır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/integration/test_disaster_recovery.py
+  - src/zekam/application/backup.py
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Yedek manifesti, yalitilmis geri yukleme ve kapsul tatbikati gercek depo uzerinde dogrulandi.
+- id: ZEKAM-DOD-007
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: Birden fazla bağımsız proje kayıt, alias, rebind ve capability profile ile yönetilir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/integration/test_project_registry.py
+  - src/zekam/application/capability_profile.py
+  - .zekam/phases/ZEKAM-P02-kanit.json
+  assessment_note: Kayit, alias, rebind ve capability profile calisiyor.
+- id: ZEKAM-DOD-008
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: '`gpu projesi` gibi alias''lar exact project''e deterministik çözülür.'
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/infrastructure/postgres/project_repository.py
+  - tests/unit/test_intake.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Alias exact/normalize/trigram sirasiyla deterministik cozuluyor; belirsizlikte secim
+    isteniyor.
+- id: ZEKAM-DOD-009
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: Talep, defect, iş, task, subtask, decision ve research Work Item tipleri çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/work.py
+  - tests/integration/test_work_graph.py
+  - .zekam/phases/ZEKAM-P03-kanit.json
+  assessment_note: Sekiz Work Item turu ve kapali durum makinesi calisiyor.
+- id: ZEKAM-DOD-010
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: Work revision ve event geçmişi append-only ve optimistic concurrency korumalıdır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0005_work_graph.sql
+  - tests/concurrency/test_work_concurrency.py
+  - .zekam/phases/ZEKAM-P03-kanit.json
+  assessment_note: Append-only revision zinciri ve optimistic concurrency testle dogrulandi.
+- id: ZEKAM-DOD-011
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: '`bugun ne islerimiz var`, `123 defect nerede kaldi` ve `nerede kaldik` sorguları kanonik
+    state''ten yanıtlanır.'
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/interfaces/cli/work.py
+  - tests/e2e/test_cli_work.py
+  - .zekam/phases/ZEKAM-P03-kanit.json
+  assessment_note: Sorgular kanonik Work Graph'tan yanitlaniyor.
+- id: ZEKAM-DOD-012
+  category: B. Proje, doğal dil ve Work Graph
+  criterion: Aynı iş idempotency key ile ikinci kez oluşturulmaz veya yürütülmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0007_runtime_queue.sql
+  - tests/integration/test_runtime_queue.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Idempotent enqueue ve ikinci claim reddi testle dogrulandi.
+- id: ZEKAM-DOD-013
+  category: C. Agent harness ve execution runtime
+  criterion: Agentic her işte en az bir gerçek subagent enforcement seviyesinde zorunludur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/route_planner.py
+  - tests/unit/test_research.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Agentic aramada en az bir gercek subagent zorunlu; DAG bunu reddederek zorluyor.
+- id: ZEKAM-DOD-014
+  category: C. Agent harness ve execution runtime
+  criterion: Koordinatör subagent sayılmaz ve sabit global maksimum yoktur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/research.py
+  - tests/unit/test_research.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Koordinator BUILDER_ROLES disinda; sabit global maksimum yok.
+- id: ZEKAM-DOD-015
+  category: C. Agent harness ve execution runtime
+  criterion: DAG dependency ve resource conflict'e göre parallel/sequential route seçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/route_planner.py
+  - tests/unit/test_route_planner.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Paralellik yedi sinirin en kucugunden hesaplaniyor.
+- id: ZEKAM-DOD-016
+  category: C. Agent harness ve execution runtime
+  criterion: PostgreSQL durable queue, lease, heartbeat, fencing ve logical lock çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0007_runtime_queue.sql
+  - tests/integration/test_runtime_queue.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Durable queue, lease, heartbeat, fencing ve logical lock gercek veritabaninda calisiyor.
+- id: ZEKAM-DOD-017
+  category: C. Agent harness ve execution runtime
+  criterion: Claim-before-effect ve terminal receipt-after-effect sözleşmesi uygulanır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/execution.py
+  - tests/integration/test_runtime_queue.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Claim-before-effect ve terminal receipt zinciri uygulanmis.
+- id: ZEKAM-DOD-018
+  category: C. Agent harness ve execution runtime
+  criterion: Interrupted mutation `recovery-required` olur; sessiz retry yapılamaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/execution.py
+  - tests/integration/test_runtime_queue.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Crash-after-claim recovery-required; sessiz retry reddediliyor.
+- id: ZEKAM-DOD-019
+  category: C. Agent harness ve execution runtime
+  criterion: Strict Agent Result Envelope ve coordinator fan-in çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/envelope.py
+  - tests/unit/test_envelope.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Strict envelope ve fan-in non-success sonucu yutmuyor.
+- id: ZEKAM-DOD-020
+  category: C. Agent harness ve execution runtime
+  criterion: Builder ve risk bazlı bağımsız verifier kimlikleri ayrıdır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/sandbox.py
+  - tests/unit/test_sandbox.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Builder ve verifier kimlikleri ayri olmak zorunda.
+- id: ZEKAM-DOD-021
+  category: C. Agent harness ve execution runtime
+  criterion: Her meaningful step checkpoint ve continuity üretir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0010_context_continuity.sql
+  - tests/integration/test_context_continuity_postgres.py
+  - .zekam/phases/ZEKAM-P08-kanit.json
+  assessment_note: Meaningful step checkpoint'siz completed olamiyor; trigger zorluyor.
+- id: ZEKAM-DOD-022
+  category: C. Agent harness ve execution runtime
+  criterion: Entegre proje mutation'ı yalnız detached worktree/sandbox içinde yapılır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/sandbox_delivery.py
+  - tests/integration/test_sandbox_delivery.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Gercek git worktree ile dogrulandi; main tree degismiyor.
+- id: ZEKAM-DOD-023
+  category: D. Model envanteri, benchmark ve routing
+  criterion: 20 Model ID bağımsız inventory record olarak import edilir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/model_registry.py
+  - tests/integration/test_model_registry.py
+  - .zekam/phases/ZEKAM-P06-kanit.json
+  assessment_note: 20 Model ID bagimsiz kayit olarak iceri aliniyor.
+- id: ZEKAM-DOD-024
+  category: D. Model envanteri, benchmark ve routing
+  criterion: 19 teknik profil ile 20 kanonik kayıt farkı görünür provenance olarak korunur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/model_inventory.py
+  - tests/integration/test_model_registry.py
+  - .zekam/phases/ZEKAM-P06-kanit.json
+  assessment_note: 19/20 farki gorunur provenance olarak korunuyor.
+- id: ZEKAM-DOD-025
+  category: D. Model envanteri, benchmark ve routing
+  criterion: OpenCode yapılandırmasındaki AIHub model hedeflerinin tamamı exact health kampanyasında
+    değerlendirilir; health-passed hedefler en az beş tekrarlı modalite benchmarkına ve bağımsız
+    provider-neutral doğrulamaya girer. Yalnız qualified sonuçlar agent/model routing için aktif olur;
+    kullanıcı kapsamı dışında bırakılan ses hedefi çağrılmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/model_contract.py
+  - src/zekam/application/model_contract_service.py
+  - src/zekam/application/provider_adapter.py
+  - src/zekam/application/provider_configuration.py
+  - src/zekam/application/provider_contract_execution.py
+  - config/model_provider_bindings.yaml
+  - config/model_provider_contract_fixtures.yaml
+  - tests/unit/test_model_contract.py
+  - tests/unit/test_provider_adapter.py
+  - tests/unit/test_provider_configuration.py
+  - tests/unit/test_provider_contract_execution.py
+  - tests/security/test_provider_adapter_security.py
+  - tests/e2e/test_cli_model.py
+  - src/zekam/domain/model_campaign.py
+  - src/zekam/interfaces/cli/model_campaign.py
+  - src/zekam/application/provider_acceptance_evidence.py
+  - migrations/0018_opencode_benchmark_campaign.sql
+  - migrations/0019_opencode_campaign_continuation.sql
+  - migrations/0020_opencode_continuation_budget_hardening.sql
+  - tests/integration/test_model_campaign_postgres.py
+  - tests/e2e/test_cli_model_campaign.py
+  - .zekam/evidence/ZEKAM-DOD-025-live.json
+  - .zekam/evidence/ZEKAM-DOD-025-partial-20260821T090557Z.json
+  - .zekam/evidence/ZEKAM-DOD-025-local-adapter.json
+  - .zekam/evidence/ZEKAM-DOD-025-dry-run.json
+  - .zekam/evidence/ZEKAM-DOD-025-prelive-ready.json
+  assessment_note: OpenCode/AIHub kampanyasi 17 configured route, 18 canonical target ve
+    1 kullanici-kapsami-disi audio hedefiyle tamamlandi. Recovery continuation eski terminal
+    sonuclari sifir cagriyla benimsedi; yalniz denenmemis hedefleri cagirdi. Parent ve continuation
+    zincirinde toplam 62/102 provider cagrisi, 9 health-passed hedef icin 45 adet bes-tekrarli
+    benchmark ve bagimsiz provider-neutral verifier kaniti vardir. Sonuc 7 qualified, 10
+    disqualified ve 0 recovery-required; issued authority, receiptless claim, lease ve lock sifirdir.
+    Sanitize v3 kaniti canonical PostgreSQL zincirinden yeniden turetilip gate tarafindan dogrulanir.
+- id: ZEKAM-DOD-026
+  category: D. Model envanteri, benchmark ve routing
+  criterion: En az beş tekrarlı genel benchmark ve proje özel benchmark uygulanır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/model_benchmark.py
+  - tests/integration/test_model_benchmark_pipeline.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Bes tekrar zorunlu; genel ve proje suite'i ayri.
+- id: ZEKAM-DOD-027
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Quality, reliability, verifier pass, latency, token, cost ve human correction ölçülür.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/model_benchmark.py
+  - tests/integration/test_model_benchmark_postgres.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Kalite, guvenilirlik, verifier, latency, token, maliyet ve insan duzeltmesi olculuyor.
+- id: ZEKAM-DOD-028
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Model health, quarantine, cooldown ve stale evidence kuralları çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/model_health_service.py
+  - tests/integration/test_model_registry.py
+  - .zekam/phases/ZEKAM-P06-kanit.json
+  assessment_note: Karantina, cooldown ve staleness kurallari calisiyor.
+- id: ZEKAM-DOD-029
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Codex <%40, Claude <%30 fallback kuralı yalnız güvenilir quota observation ile çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/model_decision_service.py
+  - tests/e2e/test_cli_model_decide.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Trusted observation olmadan fallback tetiklenmiyor.
+- id: ZEKAM-DOD-030
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Bilinmeyen kota tahmin edilmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/model_decision_service.py
+  - tests/e2e/test_cli_model_decide.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Bilinmeyen kota unknown olarak kaydediliyor, tahmin edilmiyor.
+- id: ZEKAM-DOD-031
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Model assignment açıklanabilir, digest-bound ve authority-free'dir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/model_decision_service.py
+  - tests/e2e/test_cli_model_decide.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Karar digest-bound, aciklanabilir ve authority-free.
+- id: ZEKAM-DOD-032
+  category: D. Model envanteri, benchmark ve routing
+  criterion: Bounded model deliberation/fusion süre, tur, token ve kanıt bütçesine uyar.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/model_benchmark.py
+  - tests/integration/test_model_benchmark_pipeline.py
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  assessment_note: Iki tur, 600 saniye ve acik token/maliyet butcesi zorunlu.
+- id: ZEKAM-DOD-033
+  category: E. Knowledge Plane
+  criterion: BGE-M3 dense 1024 sürümlü ilk embedding profilidir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/retrieval.py
+  - tests/unit/test_retrieval.py
+  - .zekam/phases/ZEKAM-P12-kanit.json
+  assessment_note: BGE-M3 dense 1024 cosine ilk surumlu profil.
+- id: ZEKAM-DOD-034
+  category: E. Knowledge Plane
+  criterion: PostgreSQL+pgvector, exact, FTS, alias/trigram, dense, RRF ve opsiyonel reranker çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0013_retrieval_index.sql
+  - tests/integration/test_retrieval_postgres.py
+  - .zekam/phases/ZEKAM-P12-kanit.json
+  assessment_note: Exact, FTS, trigram, dense, RRF ve opsiyonel reranker gercek pgvector uzerinde calisiyor.
+- id: ZEKAM-DOD-035
+  category: E. Knowledge Plane
+  criterion: DOCX heading/table, dijital/taranmış PDF, TXT/MD, PNG/JPEG/TIFF ve OCR ingestion çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/infrastructure/knowledge/document_parsers.py
+  - tests/fixtures/knowledge/SHA256SUMS
+  - tests/unit/test_offline_document_parsers.py
+  - tests/integration/test_offline_ocr.py
+  - tests/integration/test_offline_pdf.py
+  - tests/e2e/test_cli_offline_documents.py
+  - .zekam/evidence/ZEKAM-DOD-035-20260821T090557Z.json
+  assessment_note: Kullanici karari geregi hat cevrimdisi ve permissive-only'dir.
+    DOCX stdlib OOXML ile heading/table ve sahte sayfa uretmeden; dijital/taranmis
+    PDF exact wheel BUILD_LICENSES allowlist'inden gecen PDFium ile; PNG/JPEG/TIFF
+    Tesseract 5 + Leptonica ile islenir. Gercek binary fixture'lar CLI -> Local CAS
+    -> PostgreSQL yolunda test edildi; OCR page/bbox/confidence ve PDF sayfa
+    locator'lari korundu. Bulut veya gercek dis saglayici cagrisi yapilmadi.
+- id: ZEKAM-DOD-036
+  category: E. Knowledge Plane
+  criterion: Orijinal artifact, normalized content, parser/chunker/embedding profile ve source revision
+    korunur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0012_knowledge_ingestion.sql
+  - migrations/0017_offline_document_ingestion.sql
+  - src/zekam/interfaces/cli/knowledge.py
+  - tests/integration/test_knowledge_postgres.py
+  - tests/e2e/test_cli_knowledge.py
+  - tests/e2e/test_cli_offline_documents.py
+  - .zekam/evidence/ZEKAM-DOD-036-20260821T090557Z.json
+  assessment_note: Orijinal payload Local CAS'a exact byte olarak yaziliyor. Source-scoped
+    idempotency, row-safe revision, normalized content, tam parser profile, lexical
+    chunk ve exact chunk/embedding profile zinciri migration 17 ile kanonik. Tamamlanmis
+    ingestion, normalized digest, gercek lexical chunk ve profile zinciri olmadan
+    aktivasyon DB trigger'i tarafindan reddediliyor; embedding uretilene kadar state
+    acikca pending kaliyor.
+- id: ZEKAM-DOD-037
+  category: E. Knowledge Plane
+  criterion: Git URL, archive ve izinli directory taraması kod çalıştırmadan yapılır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/knowledge_ingestion.py
+  - tests/security/test_knowledge_security.py
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  assessment_note: Dizin ve arsiv taramasi kod calistirmadan yapiliyor; testte dosya yazan kaynakla dogrulandi.
+- id: ZEKAM-DOD-038
+  category: E. Knowledge Plane
+  criterion: AST/symbol chunking ve PL/SQL object ayrımı çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/knowledge_ingestion.py
+  - tests/unit/test_knowledge.py
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  assessment_note: AST sembol cikarimi ve PL/SQL nesne ayrimi calisiyor.
+- id: ZEKAM-DOD-039
+  category: E. Knowledge Plane
+  criterion: Oracle/PostgreSQL metadata retrieval satır verisini varsayılan olarak toplamaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/knowledge.py
+  - tests/unit/test_knowledge.py
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  assessment_note: row_data_included=True PolicyViolation uretiyor.
+- id: ZEKAM-DOD-040
+  category: E. Knowledge Plane
+  criterion: Incremental re-index ve atomik active-version değişimi çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0012_knowledge_ingestion.sql
+  - tests/integration/test_knowledge_postgres.py
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  assessment_note: Atomik aktivasyon ve tek aktif surum indeksi dogrulandi.
+- id: ZEKAM-DOD-041
+  category: E. Knowledge Plane
+  criterion: PDF page, DOCX heading/block, OCR bbox, code path/symbol/line ve DB object citation üretilir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/knowledge.py
+  - tests/unit/test_knowledge.py
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  assessment_note: Locator turleri uretiliyor; locator'siz birim reddediliyor.
+- id: ZEKAM-DOD-042
+  category: E. Knowledge Plane
+  criterion: Golden retrieval evaluation Recall/MRR/nDCG ve no-answer oranlarını ölçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/retrieval_service.py
+  - tests/integration/test_retrieval_postgres.py
+  - .zekam/phases/ZEKAM-P12-kanit.json
+  assessment_note: Recall/MRR/nDCG ve abstain durumlari olculuyor.
+- id: ZEKAM-DOD-043
+  category: E. Knowledge Plane
+  criterion: Retrieval sonucu görev durumu veya yetki kaynağı olamaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/retrieval.py
+  - tests/unit/test_retrieval.py
+  - .zekam/phases/ZEKAM-P12-kanit.json
+  assessment_note: RetrievalAnswer grants_authority=False; alan zorluyor.
+- id: ZEKAM-DOD-044
+  category: F. Bellek, öğrenme ve skills
+  criterion: Native PostgreSQL MemoryEngine üretim çekirdeği olarak çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0014_memory.sql
+  - tests/integration/test_memory_postgres.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Native PostgreSQL motoru kanonik cekirdek.
+- id: ZEKAM-DOD-045
+  category: F. Bellek, öğrenme ve skills
+  criterion: Mem0 OSS adapter'ı opsiyonel ve aynı port arkasında çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/memory_service.py
+  - tests/unit/test_memory.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Mem0 adapteri ayni port arkasinda ve opsiyonel.
+- id: ZEKAM-DOD-046
+  category: F. Bellek, öğrenme ve skills
+  criterion: Working, episodic, semantic, procedural, preference ve failure memory ayrıdır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/memory.py
+  - tests/unit/test_memory.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Alti bellek sinifi ayri ve review kurallari sinifa gore.
+- id: ZEKAM-DOD-047
+  category: F. Bellek, öğrenme ve skills
+  criterion: User/project/work/run/agent scope isolation testleri geçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/memory.py
+  - tests/security/test_memory_security.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Realm, proje ve gecici kapsam izolasyonu testle dogrulandi.
+- id: ZEKAM-DOD-048
+  category: F. Bellek, öğrenme ve skills
+  criterion: Exact+lexical+vector+entity+temporal memory retrieval açıklanabilirdir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/memory_service.py
+  - tests/integration/test_memory_postgres.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Bes bilesen birlestiriliyor ve her sonuc gerekce tasiyor.
+- id: ZEKAM-DOD-049
+  category: F. Bellek, öğrenme ve skills
+  criterion: Memory candidate bağımsız evidence ve verifier olmadan active olmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0014_memory.sql
+  - tests/unit/test_memory.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Kanitsiz ve review'suz kayit aktif olamiyor; alan ve constraint birlikte.
+- id: ZEKAM-DOD-050
+  category: F. Bellek, öğrenme ve skills
+  criterion: Duplicate, stale, conflict ve retention hygiene raporlanır; otomatik silme yapılmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/memory_service.py
+  - tests/unit/test_memory.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Hijyen salt okunur; deleted alani sifirdan farkli olamiyor.
+- id: ZEKAM-DOD-051
+  category: F. Bellek, öğrenme ve skills
+  criterion: Tekrarlı hatalar learning candidate olur; kanıt olmadan guideline/skill'e terfi etmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/learning.py
+  - tests/unit/test_learning.py
+  - .zekam/phases/ZEKAM-P14-kanit.json
+  assessment_note: Kok neden ve iki bagimsiz gozlem olmadan ders uretilmiyor.
+- id: ZEKAM-DOD-052
+  category: F. Bellek, öğrenme ve skills
+  criterion: Skill candidate, evaluation, approval, activate/deprecate/retire yaşam döngüsü çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - migrations/0015_learning_skills.sql
+  - tests/integration/test_learning_postgres.py
+  - .zekam/phases/ZEKAM-P14-kanit.json
+  assessment_note: Aday, olcum, onay, activate/deprecate/retire dongusu calisiyor.
+- id: ZEKAM-DOD-053
+  category: F. Bellek, öğrenme ve skills
+  criterion: Memory veya Mem0 Work Graph durumunu, policy'yi veya authority'yi sahiplenmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/memory.py
+  - tests/security/test_memory_security.py
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  assessment_note: Bellek ve Mem0 authority tasimiyor; drift durumunda native kazaniyor.
+- id: ZEKAM-DOD-054
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Doğal dil araştırma isteği Work+Intent+ResearchQuestion'a dönüşür.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/intake_service.py
+  - tests/e2e/test_research_to_plan.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Dogal dil istegi Work/Intent scope'una bagli ResearchQuestion'a donusuyor.
+- id: ZEKAM-DOD-055
+  category: G. Araştırma ve uygulama teslimi
+  criterion: En az bir researcher subagent, critic/synthesizer ve risk bazlı citation verifier çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/research_service.py
+  - tests/e2e/test_research_to_plan.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Researcher, critic, synthesizer ve bagimsiz citation verifier calisiyor.
+- id: ZEKAM-DOD-056
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Kaynak snapshot, claim, contradiction ve exact citation kanıtı tutulur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/research.py
+  - tests/integration/test_research_postgres.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Snapshot, claim, celiski ve exact citation kanit olarak tutuluyor.
+- id: ZEKAM-DOD-057
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Araştırma raporu Decision ve exact Plan'a ayrı review ile dönüşür.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/research.py
+  - tests/e2e/test_research_to_plan.py
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  assessment_note: Plan candidate yalniz answered rapordan turer ve authority tasimaz.
+- id: ZEKAM-DOD-058
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Implementation yalnız approved path/resource scope'ta worktree içinde yapılır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/sandbox_delivery.py
+  - tests/integration/test_sandbox_delivery.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Allowlist disi yol ve plan disi degisiklik teslimi durduruyor.
+- id: ZEKAM-DOD-059
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Testler Zekam tarafından bağımsız yeniden çalıştırılır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/sandbox_delivery.py
+  - tests/integration/test_sandbox_delivery.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Testler sandbox icinde Zekam tarafindan yeniden calistiriliyor.
+- id: ZEKAM-DOD-060
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Patch, receipt ve rollback artifact'ı üretilir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/sandbox.py
+  - tests/integration/test_sandbox_delivery.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Patch artifact, teslim karari ve receipt uygunlugu uretiliyor.
+- id: ZEKAM-DOD-061
+  category: G. Araştırma ve uygulama teslimi
+  criterion: Commit/push kullanıcı ve policy kurallarına uyar.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/commit_policy.py
+  - tests/e2e/test_cli_sandbox.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: ASCII-only Turkce commit ve push default deny kapisi calisiyor.
+- id: ZEKAM-DOD-062
+  category: H. Secret, policy ve güvenlik
+  criterion: Secret Broker logical SecretRef çözer; plaintext model context'ine girmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/secret_broker.py
+  - tests/security/test_secret_value.py
+  - .zekam/phases/ZEKAM-P04-kanit.json
+  assessment_note: SecretRef cozumu ve maskeleme; plaintext prompt'a girmiyor.
+- id: ZEKAM-DOD-063
+  category: H. Secret, policy ve güvenlik
+  criterion: Prompt/log/vector/artifact/report/backup içinde secret sızıntı testleri geçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/security/test_secret_leakage.py
+  - tests/security/test_threat_model.py
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Prompt, log, telemetri, artifact, rapor ve yedek yollarinda sizinti testleri geciyor.
+- id: ZEKAM-DOD-064
+  category: H. Secret, policy ve güvenlik
+  criterion: Network default-deny ve outbound disclosure/authorization uygulanır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/sandbox.py
+  - tests/security/test_sandbox_security.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Network default-deny; izin exact host ve operasyon istiyor.
+- id: ZEKAM-DOD-065
+  category: H. Secret, policy ve güvenlik
+  criterion: Path traversal, symlink escape, archive bomb ve source-root escape fail-closed'dur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/security/test_threat_model.py
+  - tests/security/test_knowledge_security.py
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Traversal, symlink, arsiv bombasi ve kok kacisi fail-closed.
+- id: ZEKAM-DOD-066
+  category: H. Secret, policy ve güvenlik
+  criterion: Untrusted document/repository talimatları asla sistem komutu sayılmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - tests/security/test_research_security.py
+  - tests/security/test_threat_model.py
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Untrusted metin authority uretmiyor; talimat olarak yurutulmuyor.
+- id: ZEKAM-DOD-067
+  category: H. Secret, policy ve güvenlik
+  criterion: Güvenli read-only sorgular gereksiz onay istemez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/observability.py
+  - tests/unit/test_observability.py
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  assessment_note: Salt okunur komut authorization istemiyor; sozlesme bunu zorluyor.
+- id: ZEKAM-DOD-068
+  category: H. Secret, policy ve güvenlik
+  criterion: Network, secret, mutation, DB write, push ve destructive effect exact one-shot authorization
+    gerektirir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/governance.py
+  - tests/security/test_authorization_negative.py
+  - .zekam/phases/ZEKAM-P04-kanit.json
+  assessment_note: Exact one-shot authorization atomik tuketiliyor; replay reddediliyor.
+- id: ZEKAM-DOD-069
+  category: H. Secret, policy ve güvenlik
+  criterion: Yetkilendirilmiş planın child step'leri drift yoksa anlamsız ikinci onay istemez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/harness.py
+  - tests/unit/test_harness.py
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  assessment_note: Drift yoksa child step yeniden onay istemiyor; drift varsa istiyor.
+- id: ZEKAM-DOD-070
+  category: I. Scheduler, rapor ve dashboard
+  criterion: '`gelen-belgeler` watcher idempotent ingestion/research job üretir.'
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/scheduler.py
+  - tests/integration/test_scheduler_postgres.py
+  - .zekam/phases/ZEKAM-P15-kanit.json
+  assessment_note: Watcher idempotent; ayni icerik ikinci kez islenmiyor.
+- id: ZEKAM-DOD-071
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Gece model health, project scan, memory hygiene, recovery ve araştırma işleri çalışır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/worker.py
+  - tests/integration/test_worker_postgres.py
+  - docs/WORKER.md
+  assessment_note: Worker sureci baglandi; zamanlanmis isler gercek veritabani uzerinde tetikleniyor,
+    kacirilan calisma olay olarak kaydediliyor.
+- id: ZEKAM-DOD-072
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Sabah genel ve proje bazlı rapor oluşur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/scheduler.py
+  - tests/unit/test_scheduler.py
+  - .zekam/phases/ZEKAM-P15-kanit.json
+  assessment_note: Genel ve proje kapsamli rapor uretiliyor; ayni gun ikinci rapor engelleniyor.
+- id: ZEKAM-DOD-073
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Rapor model, kaynak, agent, token, cost, quota, failure, contradiction ve next action içerir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/scheduler.py
+  - tests/integration/test_scheduler_postgres.py
+  - .zekam/phases/ZEKAM-P15-kanit.json
+  assessment_note: On zorunlu bolum alan ve constraint ile zorlaniyor.
+- id: ZEKAM-DOD-074
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Dashboard Work Graph, queue, model, retrieval, memory ve scheduler projection'larını gösterir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/observability.py
+  - tests/unit/test_observability.py
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  assessment_note: Alti projeksiyon zorunlu ve her kare drill-down tasiyor.
+- id: ZEKAM-DOD-075
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Dashboard veya OpenTelemetry kanonik state olmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/observability.py
+  - tests/unit/test_observability.py
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  assessment_note: Dashboard ve telemetri authority uretmiyor; read_only kapatilamiyor.
+- id: ZEKAM-DOD-076
+  category: I. Scheduler, rapor ve dashboard
+  criterion: Obsidian/sinaps benzeri graph görünümü güvenli derived projection olarak sağlanır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/observability.py
+  - tests/unit/test_observability.py
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  assessment_note: Graf derived; her dugum kanonik referans tasiyor.
+- id: ZEKAM-DOD-077
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Unit, integration, security, property, concurrency, PostgreSQL acceptance ve E2E testleri
+    geçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - scripts/kalite.py
+  - tests/
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Unit, integration, security, property, concurrency, PostgreSQL kabul ve E2E testleri
+    geciyor.
+- id: ZEKAM-DOD-078
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Lint, format, type check, dependency audit, migration drift ve dead-code kapıları geçer.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - scripts/kalite.py
+  - pyproject.toml
+  - .zekam/evidence/ZEKAM-DOD-078-20260821T055019Z.json
+  - .zekam/evidence/ZEKAM-DOD-078-pypi-audit-20260821T093000Z.json
+  assessment_note: 'Alti kapi: bicim, lint, tip, test, bagimlilik audit (pip-audit) ve olu kod taramasi
+    (vulture). Degisen bagimlilik kumesi yalniz pypi.org exact authorization ile tarandi ve bilinen
+    guvenlik acigi bulunmadi; provider-call ve git-push yapilmadi. Migration drift kapisi migration
+    testleriyle zaten kapali.'
+- id: ZEKAM-DOD-079
+  category: J. Kalite, dokümantasyon ve release
+  criterion: İnsan okunur Türkçe belgeler gerçek kodla çelişmez.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - docs/
+  - tests/e2e/test_cli_surface.py
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  assessment_note: surface check belge ile kod arasindaki komut sapmasini yakaliyor; 20/20 komut kayitli.
+- id: ZEKAM-DOD-080
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Commit mesajları Türkçe anlamlı ve ASCII-only'dir.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - kalite/COMMIT_POLITIKASI.md
+  - tests/unit/test_clients_and_commit_policy.py
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  assessment_note: Commit politikasi kod olarak uygulaniyor ve dogrulaniyor.
+- id: ZEKAM-DOD-081
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Kritik akışlarda placeholder, mock-only production path veya ölü kod yoktur.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/application/worker.py
+  - tests/e2e/test_cli_worker.py
+  - tests/e2e/test_cli_surface.py
+  assessment_note: Kritik akislarda mock yok; worker sureci baglandi. Varsayilan noop handler sahte basari
+    uretmez, isleyicisi olmayan is failed olur. FastAPI ve MCP sunucusu kapsam disidir ve SURUM_RAPORU.md
+    icinde acikca belirtilmistir.
+- id: ZEKAM-DOD-082
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Release manifesti, SBOM, checksum ve rollback talimatı vardır.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - scripts/surum_hazirligi.py
+  - SHA256SUMS.txt
+  - tests/unit/test_release.py
+  assessment_note: SBOM, checksum, DoD digest ve rollback talimati uretiliyor; DoD tamamlanmadan release
+    engelleniyor.
+- id: ZEKAM-DOD-083
+  category: J. Kalite, dokümantasyon ve release
+  criterion: Zekam tekil kimlik testi package, CLI, environment, home, schema ve DB alias'i birakmaz.
+  state: passed
+  required_evidence:
+  - test-or-evaluation
+  - canonical-record-or-artifact
+  - verifier-or-review
+  waiver_allowed: false
+  evidence:
+  - src/zekam/domain/release.py
+  - tests/unit/test_release.py
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  assessment_note: Tekil Zekam kimligi kaynak ve test yuzeyinde fail-closed dogrulanir.

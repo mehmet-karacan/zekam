@@ -1,0 +1,15 @@
+{
+  "digital_pdf": {
+    "pages": [1, 2],
+    "tokens": ["DIGITAL PDF BIRINCI SAYFA", "DIGITAL PDF IKINCI SAYFA"]
+  },
+  "docx": {
+    "heading_path": ["Cevrimdisi Belge", "Tablo Bolumu"],
+    "table_tokens": ["Alan", "Deger", "Calisma", "Cevrimdisi"]
+  },
+  "ocr": {
+    "page_1_tokens": ["CEVRIMDISI", "BIRINCI", "SAYFA"],
+    "page_2_tokens": ["YEREL", "TESSERACT", "IKINCI", "SAYFA"]
+  }
+}
+

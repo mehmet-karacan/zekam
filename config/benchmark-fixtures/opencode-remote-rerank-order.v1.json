@@ -1,0 +1,1 @@
+{"case_id":"opencode-remote-rerank-order","data_classification":"public","expectation":{"expected_order":[0,2,1],"min_margin":0.05},"modality":"rerank","payload":{"documents":["Dosyadaki satir sayisini wc -l ile ogren.","Bugun hava gunesli.","Metin dosyasinin kac satir oldugunu say."],"query":"dosya satir sayisi"},"schema":"zekam-opencode-remote-benchmark-fixture/v1","version":1}

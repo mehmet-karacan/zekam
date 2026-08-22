@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "00_BASLA.md",
+    "DEVAM_PROTOKOLU.md",
+    "NIHAI_UYGULAMA_PROMPTU.md"
+  ],
+  "default_agent": "zekam-coordinator",
+  "permission": {
+    "edit": "ask",
+    "bash": "ask",
+    "webfetch": "ask",
+    "external_directory": "deny",
+    "task": "allow"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Intake Resolution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "request_class", "request_digest", "matched_cues", "exact_identifiers", "project_ref", "project_candidates", "work_ref", "subject_used", "anaphora_present", "ambiguities", "grants_authority"],
+  "properties": {
+    "schema": {"const": "zekam-intake-resolution/v1"},
+    "request_class": {"enum": ["research", "project-change", "status", "idea", "ambiguous"]},
+    "request_digest": {"$ref": "#/$defs/digest"},
+    "matched_cues": {"type": "array", "items": {"type": "string"}},
+    "exact_identifiers": {"type": "array", "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {"kind": {"enum": ["work-code", "number"]}, "value": {"type": "string", "minLength": 1}}
+    }},
+    "project_ref": {"type": ["string", "null"]},
+    "project_candidates": {"type": "array", "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_ref", "display_name", "match_kind", "matched_on"],
+      "properties": {
+        "project_ref": {"type": "string", "minLength": 1},
+        "display_name": {"type": "string"},
+        "match_kind": {"enum": ["exact-id", "exact-alias", "normalized-alias", "trigram"]},
+        "matched_on": {"type": "string"}
+      }
+    }},
+    "work_ref": {"type": ["string", "null"]},
+    "subject_used": {"type": ["string", "null"]},
+    "anaphora_present": {"type": "boolean"},
+    "ambiguities": {"type": "array", "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "detail", "options"],
+      "properties": {
+        "kind": {"enum": ["multiple-intents", "no-intent-cue", "anaphora-unresolved", "project-ambiguous", "project-unresolved", "identifier-unknown"]},
+        "detail": {"type": "string", "minLength": 1},
+        "options": {"type": "array", "items": {"type": "string"}}
+      }
+    }},
+    "grants_authority": {"const": false}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}
+}

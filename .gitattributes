@@ -1,0 +1,9 @@
+# Depoda tek satir sonu bicimi: LF. Checksum ve digest kararliligi icin zorunludur.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tiff binary
+*.zip binary
+*.pdf binary

@@ -1,0 +1,423 @@
+schema: zekam-active-work/v1
+projection_only: true
+canonical_source_when_runtime_exists: PostgreSQL Work Graph
+updated_at: '2026-08-21T13:52:13+03:00'
+project: zekam
+work_item:
+  id: ZEKAM-BOOTSTRAP-001
+  type: project-build
+  title: Zekam nihai uygulama gorevini baslat
+  state: blocked
+  goal: Paketi yeni zekam repository kokune yerlestir, baseline'i dogrula ve butun is grafigini Global DoD tamamlanana kadar
+    uygula.
+  current_task: ZEKAM-DOD-025
+  next_safe_action: 'ZEKAM-DOD-025 canli test oncesi yerel hazirligi kanonik Work
+    plan revision 15 ile tamamlandi. Yedi SecretRef metadata kaydi, public contract
+    fixture registry, 7 exact hedefli policy adayi ve 10 ayri one-shot authorization
+    plani hazir; inventory/SecretRef match 7/7, readiness 0/7. Ana suite 1662 passed.
+    Endpoint/credential ve Whisper fixture degerleri mevcut oldugunda aday policy
+    kalicilastirilip just-in-time authorization ile canli contract testleri en son
+    kapida calistirilacak. Provider/dis-ag cagrisi ve push yapilmadi. Ayrinti
+    SURUM_RAPORU.md.'
+  evidence:
+  - .zekam/phases/ZEKAM-P00-kanit.json
+  - .zekam/checkpoints/ZEKAM-P00-checkpoint.json
+  - .zekam/continuity/ZEKAM-P00-continuity.json
+  - .zekam/phases/ZEKAM-P01-kanit.json
+  - .zekam/checkpoints/ZEKAM-P01-checkpoint.json
+  - .zekam/continuity/ZEKAM-P01-continuity.json
+  - .zekam/phases/ZEKAM-P02-kanit.json
+  - .zekam/checkpoints/ZEKAM-P02-checkpoint.json
+  - .zekam/continuity/ZEKAM-P02-continuity.json
+  - .zekam/phases/ZEKAM-P03-kanit.json
+  - .zekam/checkpoints/ZEKAM-P03-checkpoint.json
+  - .zekam/continuity/ZEKAM-P03-continuity.json
+  - .zekam/phases/ZEKAM-P04-kanit.json
+  - .zekam/checkpoints/ZEKAM-P04-checkpoint.json
+  - .zekam/continuity/ZEKAM-P04-continuity.json
+  - .zekam/phases/ZEKAM-P05-kanit.json
+  - .zekam/checkpoints/ZEKAM-P05-checkpoint.json
+  - .zekam/continuity/ZEKAM-P05-continuity.json
+  - .zekam/phases/ZEKAM-P06-kanit.json
+  - .zekam/checkpoints/ZEKAM-P06-checkpoint.json
+  - .zekam/continuity/ZEKAM-P06-continuity.json
+  - .zekam/phases/ZEKAM-P07-kanit.json
+  - .zekam/checkpoints/ZEKAM-P07-checkpoint.json
+  - .zekam/continuity/ZEKAM-P07-continuity.json
+  - .zekam/phases/ZEKAM-P08-kanit.json
+  - .zekam/checkpoints/ZEKAM-P08-checkpoint.json
+  - .zekam/continuity/ZEKAM-P08-continuity.json
+  - .zekam/phases/ZEKAM-P09-kanit.json
+  - .zekam/checkpoints/ZEKAM-P09-checkpoint.json
+  - .zekam/continuity/ZEKAM-P09-continuity.json
+  - .zekam/phases/ZEKAM-P10-kanit.json
+  - .zekam/checkpoints/ZEKAM-P10-checkpoint.json
+  - .zekam/continuity/ZEKAM-P10-continuity.json
+  - .zekam/phases/ZEKAM-P11-kanit.json
+  - .zekam/checkpoints/ZEKAM-P11-checkpoint.json
+  - .zekam/continuity/ZEKAM-P11-continuity.json
+  - .zekam/phases/ZEKAM-P12-kanit.json
+  - .zekam/checkpoints/ZEKAM-P12-checkpoint.json
+  - .zekam/continuity/ZEKAM-P12-continuity.json
+  - .zekam/phases/ZEKAM-P13-kanit.json
+  - .zekam/checkpoints/ZEKAM-P13-checkpoint.json
+  - .zekam/continuity/ZEKAM-P13-continuity.json
+  - .zekam/phases/ZEKAM-P14-kanit.json
+  - .zekam/checkpoints/ZEKAM-P14-checkpoint.json
+  - .zekam/continuity/ZEKAM-P14-continuity.json
+  - .zekam/phases/ZEKAM-P15-kanit.json
+  - .zekam/checkpoints/ZEKAM-P15-checkpoint.json
+  - .zekam/continuity/ZEKAM-P15-continuity.json
+  - .zekam/phases/ZEKAM-P16-kanit.json
+  - .zekam/checkpoints/ZEKAM-P16-checkpoint.json
+  - .zekam/continuity/ZEKAM-P16-continuity.json
+  - .zekam/phases/ZEKAM-P17-kanit.json
+  - .zekam/checkpoints/ZEKAM-P17-checkpoint.json
+  - .zekam/continuity/ZEKAM-P17-continuity.json
+  - GLOBAL_DOD_DURUM.md
+  - docs/WORKER.md
+  - SURUM_RAPORU.md
+  - .zekam/evidence/ZEKAM-DOD-078-pypi-audit-20260821T093000Z.json
+  - .zekam/evidence/ZEKAM-DOD-025-prelive-ready.json
+  authority:
+    granted: false
+    approval_inherited: false
+phases:
+  ZEKAM-P00:
+    name: Baseline ve bootstrap
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Python paketi src/zekam (domain, application, infrastructure, interfaces)
+    - Kalite kapilari ruff format, ruff check, mypy strict, pytest
+    - PostgreSQL 18 + pgvector 0.8.6 compose baseline ve kabul testleri
+    - ZEKAM_HOME yerlesimi, sahiplik siniflari ve core/user-data ayrimi
+    - zekam CLI ilk surumu (--version, init, doctor)
+  ZEKAM-P01:
+    name: Kanonik persistence ve realm
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Kanonik JSON ve sha256 digest kutuphanesi (zekam-canonical-json/v1)
+    - UUIDv7 kimlikleri, portable slug ve absolute-path reddi
+    - Realm, actor, client ve execution identity alan modelleri
+    - Bounded-context schema seti (core, projects, work, runtime, models, research, knowledge,
+      memory, skills, security, ops), zekam_app rolu ve forward-only migration altyapisi
+    - Append-only revision hash zinciri ve immutable event kaydi, RLS ile realm yalitimi
+    - Icerik adresli yerel nesne deposu ve yedek manifesti dogrulamasi
+  ZEKAM-P02:
+    name: Project registry ve capability
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Realm kapsamli proje kayit defteri, alias ve portable kimlik
+    - Exact/alias/trigram dogal dil resolver; belirsizlikte mutation yok
+    - Salt okunur source binding, rebind ve append-only source revision gozlemi
+    - Guvenli kaynak kesfi, gitignore/zekamignore/deny list, symlink ve secret disarida
+    - Deterministik capability profiler (dil, build, framework, test, DB, CI, container)
+    - Entegrasyon yasam dongusu: registered/bound/current/stale/unbound ve next safe action
+  ZEKAM-P03:
+    name: Work Graph Intent Decision Plan
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Work Item, kapali durum makinesi ve kanitsiz completed reddi (alan + DB constraint)
+    - core.revision hash zincirine bagli tam tarihce ve dogrulanabilir chain_valid
+    - Optimistic concurrency; ayni kayitta iki yazardan yalniz biri kazanir
+    - Iliski grafi, DB trigger ile aciklik, cross-project/cross-realm reddi
+    - Intent ve Decision append-only revision kayitlari
+    - Task Plan DAG, exact effect digest, drift tespiti ve authority tasimama garantisi
+    - bugun/next/nerede kaldik sorgulari yalnizca kanonik kayittan
+  ZEKAM-P04:
+    name: Governance Secret Broker authorization
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Surumlu policy ve capability registry; yetenek beyani yetki degil
+    - Turetilen risk siniflandirmasi; istemci beyaniyla risk dusurulemez
+    - SecretRef metadata; deger hicbir kolona yazilmaz, sizinti taramasi ile dogrulandi
+    - SecretValue maskeleme; json, pickle ve hash reddediliyor
+    - Secret Broker kapsam, amac, operasyon, expiry ve yetki dogrulamasi
+    - Exact one-shot authorization; atomik tuketim, replay ve scope reddi
+    - Outbound Provider Gate; secret ve local-only veri disari cikamiyor
+    - Append-only denetim ledgeri; her karar actor ve kanit ile izlenebilir
+  ZEKAM-P05:
+    name: AgentHarness ve runtime
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - prepare/apply sozlesmesi; prepare yan etki uretmiyor, apply drift dogruluyor
+    - Route planner; sabit maksimum yok, paralellik yedi sinirin en kucugu
+    - Durable queue; idempotent enqueue, outbox ayni transaction, skip locked claim
+    - Lease ve fencing; owner token saklanmiyor, eski fence sonuc yayimlayamiyor
+    - Logical lock; catisma kurallari veritabani trigger'inda
+    - Claim-before-effect; ikinci claim ve ikinci receipt reddediliyor
+    - Crash-after-claim recovery-required; sessiz retry yasak
+    - Agent Result Envelope; strict sema, fan-in kaybetmiyor, bagimsiz verifier
+  ZEKAM-P06:
+    name: Model inventory ve health
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - 20 Model ID kanonik import; ayni backend adi birlestirilmiyor
+    - 19 teknik profil farki gorunur provenance olarak korunuyor
+    - Ham endpoint ve credential envantere giremiyor; alan ve DB constraint'i
+    - Alti modalite icin sentetik probe ve sekil dogrulamasi
+    - Prompt ve yanit icerigi saklanmiyor; secret echo yakalaniyor
+    - Sozlesme kontrolleri; dogrulanmayan yetenek verified sayilmiyor
+    - Iki ardisik basarisizlikta karantina, cooldown sonrasi salivarme
+    - Envanter ve policy digest degisiminde staleness
+    - Gunluk Turkce Markdown ve JSON rapor ayni evidence digest'ine bagli
+  ZEKAM-P07:
+    name: Benchmark routing quota deliberation
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Bes surumlu ve secret-free fixture artifacti; allow-root, digest ve local/remote fail-closed
+    - Capability profile digestine bagli project benchmark suite
+    - Gercek child-process tested model ve ayri verifier adapteri; 25 trial, 25 verifier sonucu
+    - Iki ayri claim/receipt zinciri, duplicate-call/maliyet engeli ve exact matrix aggregate
+    - Mean/median/p95/variance, unsafe gate ve deterministik evidence digest
+    - Kanonik health/benchmark/policy/capability/quota provenance ile aciklanabilir model karari
+    - Codex 40/Claude 30 trusted quota fallback, unknown-no-guess ve bounded deliberation
+  ZEKAM-P08:
+    name: Context compiler ve continuity
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Deterministik context secimi; required tasmasi fail-closed
+    - Her dislama acik gerekce tasiyor
+    - WorkJournal append-only hash zinciri; bes tahrifat turu de yakalaniyor
+    - Checkpoint exact partition; meaningful step checkpoint'siz completed olamiyor
+    - Handoff transcript, authority, lease, approval ve absolute path tasiyamiyor
+    - Transcript'siz cross-client resume; yeni worker yetkiyi yeniden ediniyor
+  ZEKAM-P09:
+    name: Dogal dil ve kanitli arastirma
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Dort istek sinifi ayriliyor; ipucu yoksa niyet tahmin edilmiyor
+    - Exact identifier semantic benzerlikle degistirilemiyor
+    - Anaphora yalniz taze bounded konuyla cozuluyor; konu uydurulmuyor
+    - Iki proje adayinda mutation baslamadan secim isteniyor
+    - Soru project/work/intent scope'una bagli; stale revision reddediliyor
+    - HTTPS exact host allowlist olmadan etkinlesmiyor; bounded butce zorunlu
+    - Snapshot provenance; absolute path ve traversal fail-closed
+    - Koordinator subagent sayilmiyor; bagimsiz roller paralel grupta
+    - Direct contradiction unresolved kaliyor; answered rapor gizleyemiyor
+    - Citation verifier arastirmaciyla ayni kimlik olamiyor
+    - Non-success child sonucu fan-in tarafindan yutulamiyor
+    - Plan candidate yalniz answered rapordan turer ve authority tasimaz
+  ZEKAM-P10:
+    name: Sandbox teslim ve istemci adaptorleri
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Detached worktree; main tree read-only kapatilamaz, parmak izi dogrulaniyor
+    - Bos allowlist reddediliyor; onek eslemesi, traversal ve symlink kacisi kapali
+    - Network default-deny; izin exact host ve exact operasyon istiyor
+    - Typed runner shell kullanmiyor; timeout, env allowlist ve cikti siniri zorunlu
+    - Ham cikti saklanmiyor; yalniz stdout/stderr digest
+    - Teslim drift, git apply --check ve bagimsiz test kanitina bagli
+    - Builder ile verifier ayni kimlik olamiyor; yalniz applied receipt'e uygun
+    - Istemciler exact calistirilabilir ve acik yetenek beyani ile cagriliyor
+    - Strict JSON envelope; bozuk cikti sessizce kabul edilmiyor
+    - Komut satiri talimat metni degil instruction digest tasiyor
+    - Commit ASCII-only ve zorunlu bolumlu; secret ve kisisel path reddediliyor
+    - Push varsayilan deny; force push otomatik izinli degil
+  ZEKAM-P11:
+    name: Knowledge ingestion ve artifact
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Degismez artifact; update ve delete trigger ile reddediliyor
+    - Asamalar sirali; atlama alanda, geri alma trigger'da reddediliyor
+    - Ayni idempotency anahtari ikinci is yaratmiyor; ilerleme kalicilasiyor
+    - Tamamlanmamis ingestion aktif surum uretemiyor; tek aktif surum garantisi
+    - Parser vector uretmiyor; locator tasiyan icerik birimi uretiyor
+    - Locatorsuz birim yazilamiyor; OCR birimi confidence istiyor
+    - DOCX icin sayfa numarasi uydurulmuyor; bilinmeyen format metin sayilmiyor
+    - Deny list, symlink, ikili dosya, traversal ve zip bomb fail-closed
+    - Kod calistirilmiyor; AST ile sembol ve satir araligi cikariliyor
+    - DB kaynaklari metadata-only; satir verisi ayri authorization istiyor
+  ZEKAM-P12:
+    name: Hibrit retrieval citation eval
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Yapi duyarli chunker; tablo ve kod butun, buyuk birim parent-child
+    - Locatorsuz chunk alanda ve check constraint'inde reddediliyor
+    - BGE-M3 1024 cosine profili; NaN/Inf ve boyut uyusmazligi indekslenmiyor
+    - Farkli prefix ayri profil; profil digest uyusmazligi trigger ile reddediliyor
+    - Uc kanal: exact trigram, FTS simple sozlugu, pgvector HNSW cosine
+    - RRF ham skorlari toplamiyor; yalniz sira kullaniliyor
+    - Exact eslesme dusuk dense skorla elenemiyor; siralama deterministik
+    - Reranker hatasi ve sonuc dusurmesi fusion sirasina geri donuyor
+    - Ayni icerik iki kez baglama girmiyor; cocuk secilirse ebeveyn de aliniyor
+    - Kanitsiz cevap uretilemiyor; no-hit ve dusuk kanit ayri abstain durumu
+    - Her cevap kanal ve eleme aciklamasi tasiyor
+    - Recall/MRR/nDCG; iyilesme hicbir metrik gerilemeden kabul ediliyor
+  ZEKAM-P13:
+    name: Native memory ve Mem0 adaptoru
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Bellek authority tasimiyor; alan ve check constraint birlikte zorluyor
+    - run ve agent kapsami kalici bellek uretemiyor, aramada gorunmuyor
+    - Cross-project acik izin istiyor; farkli realm hicbir kosulda gorunmuyor
+    - Ham model ciktisi dogrudan aktif olamiyor; kanit zorunlu
+    - Semantic, procedural ve failure bagimsiz review istiyor
+    - Review yazarla ayni kimlik olamiyor; failure iki gozlem istiyor
+    - Supersession eski icerigi koruyor ve iliski kuruyor
+    - Icerik sutun yetkisi ve trigger ile degistirilemiyor; kayit silinemiyor
+    - Arama exact/FTS/vektor/varlik/zaman bilesenlerini gerekce ile veriyor
+    - Hijyen salt okunur; otomatik silme yok
+    - Mem0 otorite degil; drift ve senkron hatasi native kaydi etkilemiyor
+  ZEKAM-P14:
+    name: Ogrenme skill ve olculu dongu
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Ayni kanit iki kez sayilmiyor; alan ve unique constraint birlikte
+    - Dogrulanmis kok neden olmadan ders uretilmiyor
+    - Kok neden ucusu birlikte doldurulur veya hic doldurulmaz
+    - En az iki bagimsiz gozlem; tek olay yalniz kritik isaretiyle
+    - Ders verifier'i yazarla ayni kimlik olamiyor
+    - Skill kendi kendini aktive edemiyor
+    - Aktivasyon olcum, baseline gecme, bagimsiz onay ve rollback plani istiyor
+    - Degerlendirme en az bes deneme; degerlendiren ve dogrulayan ayri
+    - Ayni govdeli skill adaylari tekillestiriliyor
+    - Dongu bes durdurucu ile sinirli; dogrulanmamis basari hedefi kapatmiyor
+    - Baglam etkinligi route'a giriyor ama authority uretmiyor
+  ZEKAM-P15:
+    name: Scheduler gelen belgeler ve raporlar
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Zamanlama tanimi kalici; surec yeniden baslatildiginda durum korunuyor
+    - Ayni tetikleme iki kez is uretmiyor; anahtar UTC anina bagli
+    - Kacirilan calisma sessizce yutulmuyor; sayisi raporlaniyor
+    - Bir tanimin ayni anda tek aktif calismasi olabiliyor
+    - Terminal calisma bitis zamani istiyor
+    - Hala yazilan dosya ingest edilmiyor; ayni icerik ikinci kez islenmiyor
+    - Birden fazla hedefte tahmin edilmiyor; secim isteniyor
+    - Gelen belge yolu portable olmak zorunda
+    - Gece isleri bounded butce istiyor; kota bilinmiyorsa calismiyor
+    - Gunluk raporda on bolum zorunlu; bos bolum kayit yok yaziyor
+    - Rapor authority tasimiyor; ayni gun ve kapsam icin ikinci rapor yok
+    - Her scheduler olayi next safe action bildiriyor
+  ZEKAM-P16:
+    name: CLI API MCP ve dashboard
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Kanonik komut sozlesmesi; mutasyon yapan komut acik uygula bayragi istiyor
+    - surface check sozlesme ile kayitli komutlari karsilastiriyor
+    - Telemetri correlation zorunlu; prompt, response, content ve body yasak
+    - Secret benzeri deger ve kisisel path alan olusturulurken reddediliyor
+    - Dashboard salt okunur ve authority uretmiyor; alti projeksiyon zorunlu
+    - Her dashboard karesi kanonik kayda drill-down baglantisi tasiyor
+    - Turetilmis graf derived bayragini kapatamiyor
+    - Graf dugumleri kanonik referans tasiyor; kenar kendine baglanamiyor
+    - MCP authority sahibi olamiyor; yetenekler istemciyle uzlasiliyor
+    - Mutasyon yapan MCP araci authorization istiyor
+  ZEKAM-P17:
+    name: Hardening DR release kimlik butunlugu
+    state: completed
+    gate:
+      all_tasks_terminal_success: true
+      handoff: true
+      documentation_code_consistency: true
+    delivered:
+    - Butunlesik tehdit modeli; alti kapi katmanlar birlikte deneniyor
+    - Uc gercek guvenlik acigi bulundu ve kapatildi
+    - DR tatbikati; yalitilmis geri yukleme ve kapsul dogrulamasi
+    - Kapsul absolute path, traversal, secret ve aktif lease tasiyamiyor
+    - Kapasite backpressure ve sert iptal kurallari
+    - SBOM ve DoD olcum betigi; release DoD tamamlanmadan uretilemiyor
+    - Tekil Zekam kimligi; compatibility alias yok
+    - Global DoD 82/83 passed, 1 pending, waiver yok
+global_dod:
+  criterion_count: 83
+  passed: 82
+  pending: 1
+  failed: 0
+  blocked: 0
+  completion_ratio: 0.988
+  report: GLOBAL_DOD_DURUM.md
+  blocker_report: SURUM_RAPORU.md
+  release_produced: false
+  release_blocked_reason: build_release Global DoD tamamlanmadan artifact uretmiyor
+continuation:
+  last_checkpoint: .zekam/checkpoints/ZEKAM-P17-checkpoint.json
+  last_run: ZEKAM-P17-bootstrap-run
+  last_commit: f6690a0958d06bd4da93ab935cbfb0cfe4ff671e
+  recovery_required: false
+known_defects:
+- id: ZEKAM-DEF-001
+  title: Teslim paketinde SHA256SUMS ile dosya icerigi uyusmuyordu
+  status: resolved
+  record: .zekam/defects/ZEKAM-DEF-001.json
+- id: ZEKAM-DEF-002
+  title: P07 verifier ilk E2E denemesi gelistirme DB'sinde test realm'i olusturdu
+  status: resolved
+  record: .zekam/defects/ZEKAM-DEF-002.json
+- id: ZEKAM-DEF-003
+  title: ZEKAM-DEF-002 nuksetti; operator ZEKAM_DATABASE_* ortami testlere siziyordu
+  status: resolved
+  record: .zekam/defects/ZEKAM-DEF-003.json
+- id: ZEKAM-DEF-004
+  title: Zorunlu bakim islerini tanimlayan CLI komutu yok; doctor healthy olamiyor
+  status: resolved
+  record: .zekam/defects/ZEKAM-DEF-004.json

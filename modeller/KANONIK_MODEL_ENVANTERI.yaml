@@ -1,0 +1,602 @@
+schema: zekam-model-inventory/v1
+inventory_date: '2026-08-20'
+canonical_count: 20
+technical_profile_count: 19
+identity_key: model_id
+security_note: Endpoint ve credential degerleri bu dosyada tutulmaz; SecretRef/config hub tarafindan cozulur.
+models:
+- inventory_index: 1
+  model_id: 2d13d348-ab24-4738-a19c-6b4be323f836
+  access_name: openai/codepilot-qwen3
+  backend_model: openai/Qwen/Qwen3-32B-AWQ
+  provider_protocol: openai
+  declared_mode: null
+  declared_category: code_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:2d13d348-ab24-4738-a19c-6b4be323f836
+  credential_ref: model-credential:2d13d348-ab24-4738-a19c-6b4be323f836
+  endpoint_scope: Belirtilmemiş
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.8
+    ui_output_usd_per_million_token_equivalent: 0.8
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: null
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: false
+    verification_note: Teknik dışa aktarımlarda bu Model ID bulunmadığından API adresi, çalışma modu, doğrudan erişim ve desteklenen
+      parametreler ayrıca doğrulanmalıdır.
+- inventory_index: 2
+  model_id: 224d14fe-d5d1-45aa-8430-392621c555fb
+  access_name: openai/codepilot-gpt-oss
+  backend_model: openai/openai/gpt-oss-20b
+  provider_protocol: openai
+  declared_mode: null
+  declared_category: code_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:224d14fe-d5d1-45aa-8430-392621c555fb
+  credential_ref: model-credential:224d14fe-d5d1-45aa-8430-392621c555fb
+  endpoint_scope: Kubernetes kümesi içi servis
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.07
+    ui_output_usd_per_million_token_equivalent: 0.3
+    raw_input_cost_per_token: 7.5e-08
+    raw_output_cost_per_token: 3.0e-07
+  declared_parameter_profile: OAI-32
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: mode alanı null durumundadır; ilan edilen parametrelerin arka uçta fiilen çalıştığı entegrasyon testiyle
+      doğrulanmalıdır.
+- inventory_index: 3
+  model_id: 979c8117-ab95-4f02-ac9b-154284828e27
+  access_name: openai/Systran/faster-whisper-large-v3
+  backend_model: openai/Systran/faster-whisper-large-v3
+  provider_protocol: openai
+  declared_mode: audio_transcription
+  declared_category: audio_transcription
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:979c8117-ab95-4f02-ac9b-154284828e27
+  credential_ref: model-credential:979c8117-ab95-4f02-ac9b-154284828e27
+  endpoint_scope: Kubernetes kümesi içi servis
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.0
+    ui_output_usd_per_million_token_equivalent: 0.0
+    raw_input_cost_per_token: 0
+    raw_output_cost_per_token: 0
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Maliyet sıfır olarak yapılandırılmıştır; gerçek altyapı tüketimi veya kurum içi maliyetlendirme ayrıca
+      izlenmelidir.
+- inventory_index: 4
+  model_id: e5fdb4ae-3485-4623-b628-c6a3e11d92ee
+  access_name: openai/Qwen/Qwen3-Embedding-0.6B
+  backend_model: openai/Qwen/Qwen3-Embedding-0.6B
+  provider_protocol: openai
+  declared_mode: embedding
+  declared_category: embedding
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:e5fdb4ae-3485-4623-b628-c6a3e11d92ee
+  credential_ref: model-credential:e5fdb4ae-3485-4623-b628-c6a3e11d92ee
+  endpoint_scope: Kubernetes kümesi içi servis
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.8
+    ui_output_usd_per_million_token_equivalent: 0.8
+    raw_input_cost_per_token: 8.000000000000001e-07
+    raw_output_cost_per_token: 8.000000000000001e-07
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Çıktı maliyeti de yapılandırılmış görünmektedir; embedding çağrılarında maliyet yorumunun LiteLLM kullanım
+      şekliyle doğrulanması gerekir.
+- inventory_index: 5
+  model_id: b5d7a6bd-0341-4407-846f-abd3026db96d
+  access_name: openai/QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ
+  backend_model: openai/QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ
+  provider_protocol: openai
+  declared_mode: completion
+  declared_category: multimodal_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:b5d7a6bd-0341-4407-846f-abd3026db96d
+  credential_ref: model-credential:b5d7a6bd-0341-4407-846f-abd3026db96d
+  endpoint_scope: Kubernetes kümesi içi servis
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.15
+    ui_output_usd_per_million_token_equivalent: 1.55
+    raw_input_cost_per_token: 1.5e-07
+    raw_output_cost_per_token: 1.55e-06
+  declared_parameter_profile: OAI-32
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: supports_vision alanı kaynakta true olarak işaretlenmemiştir; görsel girdi biçimi ve fiili görsel destek
+      entegrasyon testi gerektirir.
+- inventory_index: 6
+  model_id: 7622a967-8c01-4172-af52-e16b4a5b3fd0
+  access_name: openai/BAAI/bge-m3
+  backend_model: openai/BAAI/bge-m3
+  provider_protocol: openai
+  declared_mode: embedding
+  declared_category: embedding
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:7622a967-8c01-4172-af52-e16b4a5b3fd0
+  credential_ref: model-credential:7622a967-8c01-4172-af52-e16b4a5b3fd0
+  endpoint_scope: Kubernetes kümesi içi servis
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.0
+    ui_output_usd_per_million_token_equivalent: 0.0
+    raw_input_cost_per_token: 0
+    raw_output_cost_per_token: 0
+  declared_parameter_profile: OAI-30
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: supported_openai_params listesi genel üretim parametreleri içeriyor olsa da çağrılar embedding sözleşmesine
+      göre yapılmalıdır.
+- inventory_index: 7
+  model_id: f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+  access_name: openai/codepilot-qwen3-next
+  backend_model: openai/Qwen3-Next
+  provider_protocol: openai
+  declared_mode: null
+  declared_category: code_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+  credential_ref: model-credential:f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.1
+    ui_output_usd_per_million_token_equivalent: 1.2
+    raw_input_cost_per_token: 1.0000000000000001e-07
+    raw_output_cost_per_token: 1.2e-06
+  declared_parameter_profile: OAI-32
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: mode alanı null durumundadır; amaçlanan endpoint sözleşmesi chat/completions testiyle kesinleştirilmelidir.
+- inventory_index: 8
+  model_id: 52397247-4df7-4a16-ae09-3cafc362e196
+  access_name: openai/google/gemma-4-31B-it-8bit
+  backend_model: cyankiwi/gemma-4-31B-it-AWQ-8bit
+  provider_protocol: openai
+  declared_mode: chat
+  declared_category: chat
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:52397247-4df7-4a16-ae09-3cafc362e196
+  credential_ref: model-credential:52397247-4df7-4a16-ae09-3cafc362e196
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.4
+    ui_output_usd_per_million_token_equivalent: 1.0
+    raw_input_cost_per_token: 4.0000000000000003e-07
+    raw_output_cost_per_token: 1.0e-06
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: timeout alanı boş metin olarak yapılandırılmıştır; istemci varsayılanlarının beklenmedik davranmaması
+      için açık bir zaman aşımı değeri değerlendirilmelidir.
+- inventory_index: 9
+  model_id: 176bc319-901d-4bc6-b36e-73e0b7fa9203
+  access_name: openai/MiniMaxAI/MiniMax-M2.5
+  backend_model: openai/MiniMaxAI/MiniMax-M2.5
+  provider_protocol: openai
+  declared_mode: null
+  declared_category: chat_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:176bc319-901d-4bc6-b36e-73e0b7fa9203
+  credential_ref: model-credential:176bc319-901d-4bc6-b36e-73e0b7fa9203
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.8
+    ui_output_usd_per_million_token_equivalent: 0.8
+    raw_input_cost_per_token: 8.000000000000001e-07
+    raw_output_cost_per_token: 8.000000000000001e-07
+  declared_parameter_profile: OAI-30
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Aynı model ailesinin Anthropic uyumlu ayrı kaydı da vardır; iki kayıt protokol, URL ve fiyat açısından
+      birbirinin yerine otomatik kullanılmamalıdır.
+- inventory_index: 10
+  model_id: 5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f
+  access_name: Qwen/Qwen3-14B
+  backend_model: Qwen/Qwen3-14B
+  provider_protocol: openai
+  declared_mode: null
+  declared_category: text_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f
+  credential_ref: model-credential:5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: null
+    ui_output_usd_per_million_token_equivalent: null
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Çalışma modu, maliyet, direct_access ve desteklenen parametreler kaynakta tanımlı değildir.
+- inventory_index: 11
+  model_id: 9890d36b-95b0-4073-88c5-33a7f1b8adf3
+  access_name: openai/gpt-oss-120b
+  backend_model: openai/gpt-oss-120b
+  provider_protocol: hosted_vllm
+  declared_mode: chat
+  declared_category: chat
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:9890d36b-95b0-4073-88c5-33a7f1b8adf3
+  credential_ref: model-credential:9890d36b-95b0-4073-88c5-33a7f1b8adf3
+  endpoint_scope: Özel ağ IP adresi
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.15
+    ui_output_usd_per_million_token_equivalent: 0.6
+    raw_input_cost_per_token: 1.5e-07
+    raw_output_cost_per_token: 6.0e-07
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: API özel ağ IP adresi kullanır; erişim ağ bağımlıdır.
+- inventory_index: 12
+  model_id: 5499ecda-bf10-4553-9776-4bc97ee2c00e
+  access_name: BAAI/bge-reranker-v2-m3
+  backend_model: BAAI/bge-reranker-v2-m3
+  provider_protocol: hosted_vllm
+  declared_mode: rerank
+  declared_category: rerank
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:5499ecda-bf10-4553-9776-4bc97ee2c00e
+  credential_ref: model-credential:5499ecda-bf10-4553-9776-4bc97ee2c00e
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: null
+    ui_output_usd_per_million_token_equivalent: null
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Maliyet ve direct_access kaynakta belirtilmemiştir. Diğer reranker kaydıyla aynı adı ve endpoint'i
+      kullansa da yaşam döngüsü Model ID üzerinden ayrı yönetilmelidir.
+- inventory_index: 13
+  model_id: d871eceb-96e0-4fd1-89d1-e2a5c8516b60
+  access_name: MiniMaxAI/MiniMax-M2.5
+  backend_model: MiniMaxAI/MiniMax-M2.5
+  provider_protocol: anthropic
+  declared_mode: chat
+  declared_category: chat
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:d871eceb-96e0-4fd1-89d1-e2a5c8516b60
+  credential_ref: model-credential:d871eceb-96e0-4fd1-89d1-e2a5c8516b60
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.3
+    ui_output_usd_per_million_token_equivalent: 1.2
+    raw_input_cost_per_token: 3.0e-07
+    raw_output_cost_per_token: 1.2e-06
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: OpenAI uyumlu MiniMax kaydından farklı protokol, API yolu ve fiyat kullanır; istemci seçimi kayıt bazında
+      yapılmalıdır.
+- inventory_index: 14
+  model_id: 25aa0a2c-caea-4104-a863-d29276fcb187
+  access_name: cortecs/Llama-3.3-70B-Instruct-FP8-Dynamic
+  backend_model: RedHatAI/Llama-3.3-70B-Instruct-FP8-Dynamic
+  provider_protocol: hosted_vllm
+  declared_mode: completion
+  declared_category: completion
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:25aa0a2c-caea-4104-a863-d29276fcb187
+  credential_ref: model-credential:25aa0a2c-caea-4104-a863-d29276fcb187
+  endpoint_scope: Özel ağ IP adresi
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 1.0
+    ui_output_usd_per_million_token_equivalent: 1.0
+    raw_input_cost_per_token: 1.0e-06
+    raw_output_cost_per_token: 1.0e-06
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: API özel ağ IP adresi kullanır; alias ile arka uç model adının farklı olduğu izleme ve loglamada dikkate
+      alınmalıdır.
+- inventory_index: 15
+  model_id: d088c86d-4eae-4345-b2c8-4298ae2ffc59
+  access_name: intfloat/e5-mistral-7b-instruct
+  backend_model: intfloat/e5-mistral-7b-instruct
+  provider_protocol: hosted_vllm
+  declared_mode: embedding
+  declared_category: embedding
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:d088c86d-4eae-4345-b2c8-4298ae2ffc59
+  credential_ref: model-credential:d088c86d-4eae-4345-b2c8-4298ae2ffc59
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: null
+    ui_output_usd_per_million_token_equivalent: null
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Maliyet ve direct_access kaynakta belirtilmemiştir.
+- inventory_index: 16
+  model_id: 6a9f0333-c9b5-4bb9-b638-35c59594ca4d
+  access_name: moonshotai/Kimi-K2.7-Code
+  backend_model: moonshotai/Kimi-K2.7-Code
+  provider_protocol: hosted_vllm
+  declared_mode: chat
+  declared_category: code_chat
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:6a9f0333-c9b5-4bb9-b638-35c59594ca4d
+  credential_ref: model-credential:6a9f0333-c9b5-4bb9-b638-35c59594ca4d
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 1.0
+    ui_output_usd_per_million_token_equivalent: 4.0
+    raw_input_cost_per_token: 1.0e-06
+    raw_output_cost_per_token: 4.0e-06
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Endpoint rota adı `kimi-k26` içerirken model adı `Kimi-K2.7-Code` şeklindedir; dağıtım sürümü operasyon
+      ekibi tarafından doğrulanmalıdır.
+- inventory_index: 17
+  model_id: 9a15b1c2-9eac-47cb-9a0b-03a64ce6e094
+  access_name: Qwen/Qwen3.5-27B-FP8
+  backend_model: Qwen/Qwen3.5-27B-FP8
+  provider_protocol: hosted_vllm
+  declared_mode: chat
+  declared_category: chat
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:9a15b1c2-9eac-47cb-9a0b-03a64ce6e094
+  credential_ref: model-credential:9a15b1c2-9eac-47cb-9a0b-03a64ce6e094
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.3
+    ui_output_usd_per_million_token_equivalent: 2.6
+    raw_input_cost_per_token: 3.0e-07
+    raw_output_cost_per_token: 2.6e-06
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Maksimum bağlam ve çıktı token sınırları kaynakta tanımlı değildir.
+- inventory_index: 18
+  model_id: ff35d826-952e-4731-b752-1c80c8cf8d8c
+  access_name: Qwen/Qwen3Guard-Gen-8B
+  backend_model: Qwen/Qwen3Guard-Gen-8B
+  provider_protocol: custom_openai
+  declared_mode: null
+  declared_category: guardrail
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:ff35d826-952e-4731-b752-1c80c8cf8d8c
+  credential_ref: model-credential:ff35d826-952e-4731-b752-1c80c8cf8d8c
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: null
+    ui_output_usd_per_million_token_equivalent: null
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: mode, maliyet, direct_access ve çıktı sözleşmesi kaynakta belirtilmemiştir; üretim zincirine alınmadan
+      önce karar etiketleri ve hata davranışı test edilmelidir.
+- inventory_index: 19
+  model_id: 61cd22f6-1687-45c2-9e5a-598d40a05e9d
+  access_name: deepseek-ai/DeepSeek-V4-Flash
+  backend_model: deepseek-ai/DeepSeek-V4-Flash
+  provider_protocol: hosted_vllm
+  declared_mode: null
+  declared_category: reasoning_generation
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:61cd22f6-1687-45c2-9e5a-598d40a05e9d
+  credential_ref: model-credential:61cd22f6-1687-45c2-9e5a-598d40a05e9d
+  endpoint_scope: Kurumsal HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: 0.14
+    ui_output_usd_per_million_token_equivalent: 0.28
+    raw_input_cost_per_token: 1.4e-07
+    raw_output_cost_per_token: 2.8e-07
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: high
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: mode alanı tanımlı değildir. Endpoint adı FP8 dağıtımını işaret eder; istemci sözleşmesi ve reasoning
+      çıktısı test edilmelidir.
+- inventory_index: 20
+  model_id: 7fe96e76-6599-4a8d-a6f1-af5d6353242e
+  access_name: BAAI/bge-reranker-v2-m3
+  backend_model: BAAI/bge-reranker-v2-m3
+  provider_protocol: hosted_vllm
+  declared_mode: rerank
+  declared_category: rerank
+  status: candidate
+  enabled: true
+  endpoint_ref: model-endpoint:7fe96e76-6599-4a8d-a6f1-af5d6353242e
+  credential_ref: model-credential:7fe96e76-6599-4a8d-a6f1-af5d6353242e
+  endpoint_scope: Kurumsal intranet HTTPS rotası
+  cost_evidence:
+    ui_input_usd_per_million_token_equivalent: null
+    ui_output_usd_per_million_token_equivalent: null
+    raw_input_cost_per_token: null
+    raw_output_cost_per_token: null
+  declared_parameter_profile: İlan edilmemiş
+  reasoning_effort: null
+  capabilities_declared: []
+  capabilities_verified: []
+  health_state: untested
+  benchmark_state: not-run
+  quarantine_until: null
+  source:
+    canonical_report: AI_MODEL_ENVANTERI_NIHAI.md
+    technical_report: TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md
+    technical_profile_available: true
+    verification_note: Diğer reranker kaydıyla aynı model ve endpoint kullanılır; yetki, kullanım ve silme işlemleri Model
+      ID bazında yürütülmelidir.

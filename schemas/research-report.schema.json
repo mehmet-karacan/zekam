@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Research Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "report_id", "question_id", "question_digest", "status", "findings", "unresolved_conflicts", "non_success_results", "verification", "snapshots", "grants_authority"],
+  "properties": {
+    "schema": {"const": "zekam-research-report/v1"},
+    "report_id": {"type": "string", "minLength": 1},
+    "question_id": {"type": "string", "minLength": 1},
+    "question_digest": {"$ref": "#/$defs/digest"},
+    "status": {"enum": ["answered", "partial", "abstained"]},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "unresolved_conflicts": {"type": "array", "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_id", "kind", "left_finding_id", "right_finding_id", "detail", "resolved_by"],
+      "properties": {
+        "conflict_id": {"type": "string"},
+        "kind": {"enum": ["compatible", "scope-or-terminology", "stale-source", "evidence-gap", "direct-contradiction"]},
+        "left_finding_id": {"type": "string"},
+        "right_finding_id": {"type": "string"},
+        "detail": {"type": "string", "minLength": 1},
+        "resolved_by": {"enum": ["verifier", "human-review", null]}
+      }
+    }},
+    "non_success_results": {"type": "array", "items": {"$ref": "#/$defs/role_result"}},
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifier_ref", "verified_finding_ids", "rejected_finding_ids", "rejection_reasons"],
+      "properties": {
+        "verifier_ref": {"type": "string", "minLength": 1},
+        "verified_finding_ids": {"type": "array", "items": {"type": "string"}},
+        "rejected_finding_ids": {"type": "array", "items": {"type": "string"}},
+        "rejection_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "snapshots": {"type": "array", "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "kind", "locator", "content_digest", "revision", "host"],
+      "properties": {
+        "snapshot_id": {"type": "string"},
+        "kind": {"enum": ["file", "repository", "https", "import"]},
+        "locator": {"type": "string", "minLength": 1},
+        "content_digest": {"$ref": "#/$defs/digest"},
+        "revision": {"type": ["string", "null"]},
+        "host": {"type": ["string", "null"]}
+      }
+    }},
+    "grants_authority": {"const": false}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "claim", "citations", "confidence"],
+      "properties": {
+        "finding_id": {"type": "string"},
+        "claim": {"type": "string", "minLength": 1},
+        "citations": {"type": "array", "minItems": 1, "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["snapshot_id", "locator_detail", "content_digest"],
+          "properties": {
+            "snapshot_id": {"type": "string"},
+            "locator_detail": {"type": "string", "minLength": 1},
+            "content_digest": {"$ref": "#/$defs/digest"}
+          }
+        }},
+        "confidence": {"enum": ["low", "medium", "high"]}
+      }
+    },
+    "role_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "agent_ref", "outcome", "findings", "objections", "blocker", "grants_authority"],
+      "properties": {
+        "role": {"enum": ["researcher", "domain-reviewer", "critic", "synthesizer", "citation-verifier"]},
+        "agent_ref": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["success", "partial", "failed", "blocked", "abstained", "recovery-required"]},
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+        "objections": {"type": "array", "items": {"type": "string"}},
+        "blocker": {"type": ["string", "null"]},
+        "grants_authority": {"const": false}
+      }
+    }
+  }
+}

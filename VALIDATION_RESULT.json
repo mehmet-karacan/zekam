@@ -1,0 +1,54 @@
+{
+  "schema": "zekam-package-validation/v1",
+  "root": "zekam",
+  "status": "passed",
+  "checks": {
+    "required_files": {
+      "expected": 20,
+      "missing": []
+    },
+    "project_identity": {
+      "name": "Zekam",
+      "slug": "zekam",
+      "cli": "zekam"
+    },
+    "model_inventory": {
+      "declared_count": 20,
+      "actual_count": 20,
+      "unique_ids": 20,
+      "technical_profile_count": 19
+    },
+    "implementation_graph": {
+      "phase_count": 18,
+      "task_count_declared": 108,
+      "task_count_actual": 108
+    },
+    "phase_projection_consistency": {
+      "checked": 18,
+      "portable_checked": 18,
+      "local_checked": 0,
+      "findings": []
+    },
+    "global_dod": {
+      "criterion_count_declared": 83,
+      "criterion_count_actual": 83
+    },
+    "schemas": {
+      "count": 21,
+      "errors": []
+    },
+    "yaml": {
+      "count": 5,
+      "errors": []
+    },
+    "commit_template_ascii": true,
+    "forbidden_canonical_terms": [],
+    "removed_product_identity_hits": [],
+    "secret_pattern_hits": [],
+    "context_vault_reference": {
+      "missing_terms": []
+    }
+  },
+  "warnings": [],
+  "errors": []
+}

@@ -1,0 +1,1 @@
+{"case_id":"opencode-remote-code-markers","data_classification":"public","expectation":{"required_markers":["def topla(","assert topla(2, 3) == 5"]},"modality":"code","payload":{"instruction":"Iki sayiyi toplayan Python topla fonksiyonu ve assert topla(2, 3) == 5 testi yaz."},"schema":"zekam-opencode-remote-benchmark-fixture/v1","version":1}

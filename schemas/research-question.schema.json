@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Research Question",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "question_id", "question", "project_ref", "work_ref", "intent_digest", "source_revision", "policy", "budget"],
+  "properties": {
+    "schema": {"const": "zekam-research-question/v1"},
+    "question_id": {"type": "string", "minLength": 1},
+    "question": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "project_ref": {"type": "string", "minLength": 1},
+    "work_ref": {"type": "string", "minLength": 1},
+    "intent_digest": {"$ref": "#/$defs/digest"},
+    "source_revision": {"type": "string", "minLength": 1},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_kinds", "allowed_hosts", "project_scope", "allow_row_data"],
+      "properties": {
+        "allowed_kinds": {"type": "array", "minItems": 1, "items": {"enum": ["file", "repository", "https", "import"]}},
+        "allowed_hosts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "project_scope": {"type": ["string", "null"]},
+        "allow_row_data": {"type": "boolean"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_tokens", "max_cost_units", "max_seconds", "max_rounds"],
+      "properties": {
+        "max_tokens": {"type": "integer", "minimum": 1},
+        "max_cost_units": {"type": "integer", "minimum": 1},
+        "max_seconds": {"type": "integer", "minimum": 1, "maximum": 600},
+        "max_rounds": {"type": "integer", "minimum": 1, "maximum": 2}
+      }
+    }
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}
+}

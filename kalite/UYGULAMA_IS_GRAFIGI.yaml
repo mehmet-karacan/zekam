@@ -1,0 +1,2757 @@
+schema: zekam-implementation-work-graph/v1
+project: zekam
+goal: GLOBAL_DEFINITION_OF_DONE.md icindeki butun kriterleri kanitli olarak tamamla.
+generated_from:
+- NIHAI_UYGULAMA_PROMPTU.md
+- GLOBAL_DEFINITION_OF_DONE.md
+- source repository analyses
+- model inventories
+- Context Vault active task
+task_count: 108
+phase_count: 18
+execution_policy:
+  agentic_minimum_subagents: 1
+  coordinator_counts_as_subagent: false
+  fixed_global_maximum: null
+  parallelism: computed-per-run
+  single_builder_per_writable_logical_resource: true
+  high_critical_independent_verifier: true
+  external_source_root_write: deny
+  claim_before_effect: true
+  terminal_receipt_after_effect: true
+phases:
+- id: ZEKAM-P00
+  name: Baseline ve bootstrap
+  order: 0
+  tasks:
+  - id: ZEKAM-P00-T01
+    title: Paket ve repository baseline'ini dogrula
+    state: completed
+    dependencies: []
+    agentic: false
+    minimum_subagents: 0
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - Paket validator, git durum ve kaynak checksum raporu olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  - id: ZEKAM-P00-T02
+    title: Python proje iskeleti ve kalite araclarini kur
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - pyproject, src/zekam, tests ve temel lint/type/test komutlari calisir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  - id: ZEKAM-P00-T03
+    title: Docker Compose PostgreSQL 18 ve pgvector baseline'i kur
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T02
+    agentic: false
+    minimum_subagents: 0
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - DB health ve vector extension kabul testi gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  - id: ZEKAM-P00-T04
+    title: ZEKAM_HOME yerlesimi ve core-data ayrimini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - Source repo ile user/runtime data ayrimi test edilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  - id: ZEKAM-P00-T05
+    title: Application composition ve zekam doctor ilk surumunu yaz
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - doctor config, DB ve layout sonucunu typed olarak verir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  - id: ZEKAM-P00-T06
+    title: Baseline release ve bootstrap continuity kaydini tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-00
+    acceptance:
+    - Faz kanit raporu, commit ve next phase handoff olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P00-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P01
+  name: Kanonik persistence ve realm
+  order: 1
+  tasks:
+  - id: ZEKAM-P01-T01
+    title: Canonical JSON ve digest kutuphanesini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P00-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Ayni input ayni SHA-256, unknown/NaN reddi property testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  - id: ZEKAM-P01-T02
+    title: Realm actor ve kimlik modellerini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Cross-realm relation DB constraint ve RLS ile reddedilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  - id: ZEKAM-P01-T03
+    title: PostgreSQL schema ve migration temelini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Clean upgrade, current head ve drift testi gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  - id: ZEKAM-P01-T04
+    title: Append-only revision ve event altyapisini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Update/delete negative testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  - id: ZEKAM-P01-T05
+    title: Object storage portu ve local CAS adapterini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Checksum roundtrip ve atomic write testi gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  - id: ZEKAM-P01-T06
+    title: Backup manifest baseline'ini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-01
+    acceptance:
+    - Schema/artifact checksum iceren restore-edilebilir manifest olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P01-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P02
+  name: Project registry ve capability
+  order: 2
+  tasks:
+  - id: ZEKAM-P02-T01
+    title: Project registry ve portable identity uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P01-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - Project add/list/show DB acceptance gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  - id: ZEKAM-P02-T02
+    title: Alias ve dogal dil project resolver uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - Exact/alias/ambiguous negative testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  - id: ZEKAM-P02-T03
+    title: Read-only source binding ve rebind uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - External root'a yazmadan revision/fingerprint tutulur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  - id: ZEKAM-P02-T04
+    title: Guvenli source discovery ve secret detector uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - Symlink/secret/generated exclusions test edilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  - id: ZEKAM-P02-T05
+    title: Project capability profiler uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - Framework/version/module/DB/test evidence profili deterministik olur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  - id: ZEKAM-P02-T06
+    title: Project integration lifecycle ve resume uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-02
+    acceptance:
+    - Partial/current/stale stage ve next action dogru raporlanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P02-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P03
+  name: Work Graph Intent Decision Plan
+  order: 3
+  tasks:
+  - id: ZEKAM-P03-T01
+    title: Work Item ve immutable revision/event uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P02-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Tip/state/revision history acceptance gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  - id: ZEKAM-P03-T02
+    title: Work relation dependency ve blocker grafini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Cycle/cross-project negative testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  - id: ZEKAM-P03-T03
+    title: Intent contract ve revision uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Goal/outcome/non-goal/constraint current revision ile baglanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  - id: ZEKAM-P03-T04
+    title: Decision ve evidence revision uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Alternatif/kriter/rationale/evidence append-only tutulur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  - id: ZEKAM-P03-T05
+    title: Task Plan DAG ve exact effect digest uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Dependency cycle, scope ve canonical digest testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  - id: ZEKAM-P03-T06
+    title: Bugun isler ve nerede kaldik exact sorgularini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-03
+    acceptance:
+    - Status semantic index olmadan kanonik kayittan gelir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P03-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P04
+  name: Governance Secret Broker authorization
+  order: 4
+  tasks:
+  - id: ZEKAM-P04-T01
+    title: Capability ve policy registry uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P03-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Version/digest ve hard gate testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  - id: ZEKAM-P04-T02
+    title: SecretRef ve Secret Broker portu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Secret plaintext prompt/log/config testinde gorunmez.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  - id: ZEKAM-P04-T03
+    title: Outbound disclosure ve Provider Gate uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Endpoint/data/retention/session exact eslesir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  - id: ZEKAM-P04-T04
+    title: Exact plan authorization ve atomik consume uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Expiry/revoke/replay/scope negative testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  - id: ZEKAM-P04-T05
+    title: Risk classification ve approval ergonomisi uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Safe read auto, effect exact approval davranisi gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  - id: ZEKAM-P04-T06
+    title: Audit ledger ve request authorization correlation uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-04
+    acceptance:
+    - Her effect authorization ve actor evidence ile izlenir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P04-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P05
+  name: AgentHarness ve runtime
+  order: 5
+  tasks:
+  - id: ZEKAM-P05-T01
+    title: AgentHarness request prepare/apply sozlesmesini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P04-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - Prepare no-effect ve apply drift testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  - id: ZEKAM-P05-T02
+    title: Route planner ve Task DAG executor uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - Direct/single/sequential/parallel/blocked/recovery karar testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  - id: ZEKAM-P05-T03
+    title: PostgreSQL durable queue outbox ve admission uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - Atomic enqueue ve capability claim testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  - id: ZEKAM-P05-T04
+    title: Lease heartbeat fencing ve logical lock uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - 20-worker race, stale fence ve path conflict testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  - id: ZEKAM-P05-T05
+    title: Effect claim receipt ve recovery uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - Crash-after-claim sessiz retry olmadan recovery-required olur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  - id: ZEKAM-P05-T06
+    title: Agent Result Envelope fan-in ve independent verifier uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-05
+    acceptance:
+    - Malformed/partial/self-verifier negative testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P05-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P06
+  name: Model inventory ve health
+  order: 6
+  tasks:
+  - id: ZEKAM-P06-T01
+    title: 20 Model ID inventory importunu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P05-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - 20 unique ID ve 19 technical profile limitation korunur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  - id: ZEKAM-P06-T02
+    title: EndpointRef CredentialRef ve provider adapter registry uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - Canonical inventory raw endpoint/secret tasimaz.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  - id: ZEKAM-P06-T03
+    title: Tip bazli sentetik health probe runner uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - Chat/embed/rerank/audio/guard/VL shape testleri calisir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  - id: ZEKAM-P06-T04
+    title: Model contract capability testlerini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - Tools/JSON/context/Turkce/modalite verified evidence olur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  - id: ZEKAM-P06-T05
+    title: Quarantine cooldown ve staleness uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - Ardisik failure ve inventory/policy drift testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  - id: ZEKAM-P06-T06
+    title: Gunluk insan ve makine model saglik raporu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-06
+    acceptance:
+    - Turkce MD ve JSON ayni evidence'e baglanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P06-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P07
+  name: Benchmark routing quota deliberation
+  order: 7
+  tasks:
+  - id: ZEKAM-P07-T01
+    title: General benchmark suite ve fixture registry uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P06-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Versioned case/schema/local-remote policy gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  - id: ZEKAM-P07-T02
+    title: Project-specific benchmark suite builder uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Capability profile digestine bagli workload cases olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  - id: ZEKAM-P07-T03
+    title: Durable benchmark execution host ve 5 repetition uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Duplicate plan yeni cagrı/maliyet olusturmaz.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  - id: ZEKAM-P07-T04
+    title: Aggregate metric ve independent verifier uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Mean/median/p95/variance ve unsafe trial gate gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  - id: ZEKAM-P07-T05
+    title: Model Decision Service ve runtime observation uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Aday/rejected reason ve score explain edilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  - id: ZEKAM-P07-T06
+    title: Quota pool fallback ve bounded deliberation uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-07
+    acceptance:
+    - Codex 40/Claude 30, unknown-no-guess ve 2-round limit testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P07-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P08
+  name: Context compiler ve continuity
+  order: 8
+  tasks:
+  - id: ZEKAM-P08-T01
+    title: Context candidate ve authority/freshness score uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P07-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - Deterministik selection ve reason testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  - id: ZEKAM-P08-T02
+    title: Token budgetli Context Manifest uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - Required overflow fail ve omitted reasons dogrudur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  - id: ZEKAM-P08-T03
+    title: WorkJournal hash chain uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - Insert/remove/reorder/tamper testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  - id: ZEKAM-P08-T04
+    title: Continuity Snapshot ve Finalized Handoff uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - No lease/approval/secret/path ve staleness testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  - id: ZEKAM-P08-T05
+    title: Her meaningful step checkpoint zorunlulugunu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - Completed/pending partition ve source revision baglanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  - id: ZEKAM-P08-T06
+    title: Client/model fallback resume E2E uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-08
+    acceptance:
+    - Codex/Claude/OpenCode arasinda transcript olmadan devam edilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P08-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P09
+  name: Dogal dil ve kanitli arastirma
+  order: 9
+  tasks:
+  - id: ZEKAM-P09-T01
+    title: Turkce Ingilizce natural language intake uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P08-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - Research/project-change/status/idea ve ambiguity testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  - id: ZEKAM-P09-T02
+    title: ResearchQuestion source policy ve budget uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - Project/work/intent scope ve stale revision reddedilir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  - id: ZEKAM-P09-T03
+    title: Source snapshot ve exact evidence intake uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - File/repo/HTTPS/import provenance ve digest korunur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  - id: ZEKAM-P09-T04
+    title: Minimum bir subagentli research DAG uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - Coordinator child sayilmadan role result records olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  - id: ZEKAM-P09-T05
+    title: Contradiction synthesis ve citation verifier uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - Direct contradiction unresolved gorunur kalir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  - id: ZEKAM-P09-T06
+    title: Research report Decision Plan handoff uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-09
+    acceptance:
+    - Research authority vermeden uygulanabilir plan candidate olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P09-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P10
+  name: Sandbox delivery ve client adapters
+  order: 10
+  tasks:
+  - id: ZEKAM-P10-T01
+    title: Managed detached worktree sandbox uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P09-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Main tree read-only, allowlist/symlink/network testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  - id: ZEKAM-P10-T02
+    title: Typed process test/build runner uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Shell-free argv/timeout/env/output limits gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  - id: ZEKAM-P10-T03
+    title: Markdown/research plan delivery uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Source/HEAD/tree drift ve exact path scope testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  - id: ZEKAM-P10-T04
+    title: Patch artifact test verifier receipt akisini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Patch check, independent tests ve terminal receipt olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  - id: ZEKAM-P10-T05
+    title: Codex Claude OpenCode client adapters uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Explicit executable/capability, strict JSON result ve cancel testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  - id: ZEKAM-P10-T06
+    title: Commit policy hook ve push gate uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-10
+    acceptance:
+    - Turkce ASCII commit kabul, non-ASCII ve push default deny testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P10-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P11
+  name: Knowledge ingestion
+  order: 11
+  tasks:
+  - id: ZEKAM-P11-T01
+    title: Knowledge source version artifact modellerini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P10-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - Immutable original ve atomic active version testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  - id: ZEKAM-P11-T02
+    title: Async ingestion job worker ve object storage uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - Crash/idempotency/stage persistence testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  - id: ZEKAM-P11-T03
+    title: Normalized content model ve parser router uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - DOCX/PDF/TXT/MD ortak unit/locator uretir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  - id: ZEKAM-P11-T04
+    title: OCR provider ve image ingestion uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - Turkce PNG/scanned PDF page/bbox/confidence gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  - id: ZEKAM-P11-T05
+    title: Repository archive directory scanner uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - No execution, limits, ignore, traversal/symlink tests gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  - id: ZEKAM-P11-T06
+    title: Code AST PLSQL ve DB metadata adapters uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-11
+    acceptance:
+    - Symbol/line/object/dependency ve metadata-only policy gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P11-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P12
+  name: Hybrid retrieval citation eval
+  order: 12
+  tasks:
+  - id: ZEKAM-P12-T01
+    title: Token ve yapi duyarlı chunker profiles uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P11-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - Heading/table/code ve parent-child chunk testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  - id: ZEKAM-P12-T02
+    title: BGE-M3 1024 embedding profile ve cache uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - Dimension/finite/profile/reindex ve prefix A/B gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  - id: ZEKAM-P12-T03
+    title: PostgreSQL FTS identifier trigram indexes uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - Exact teknik sorgu ve filter testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  - id: ZEKAM-P12-T04
+    title: Dense lexical exact RRF fusion uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - Golden Recall/MRR/nDCG baseline'i iyilestirir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  - id: ZEKAM-P12-T05
+    title: Reranker fallback dedupe expansion uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - Failure fusion fallback ve no duplicate context gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  - id: ZEKAM-P12-T06
+    title: Citation no-answer explain ve UI/API contract uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-12
+    acceptance:
+    - PDF/DOCX/OCR/code/DB citation ve no-hit ayrimi gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P12-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P13
+  name: Native memory ve Mem0
+  order: 13
+  tasks:
+  - id: ZEKAM-P13-T01
+    title: MemoryEngine portu ve strict schemas uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P12-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Scope/class/lifecycle contract testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  - id: ZEKAM-P13-T02
+    title: Native PostgreSQL memory revision relation embedding uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Append-only/RLS/FTS/vector/temporal query gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  - id: ZEKAM-P13-T03
+    title: Memory candidate review promotion gate uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Raw model output active olmaz, independent review gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  - id: ZEKAM-P13-T04
+    title: Memory hybrid search ve context explain uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Exact/FTS/vector/entity/time reason components gorunur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  - id: ZEKAM-P13-T05
+    title: Hygiene duplicate conflict stale retention uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Read-only report ve no automatic delete testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  - id: ZEKAM-P13-T06
+    title: Mem0 OSS adapter sync fallback uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-13
+    acceptance:
+    - Native authority, pending sync ve external drift testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P13-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P14
+  name: Learning skills measured loop
+  order: 14
+  tasks:
+  - id: ZEKAM-P14-T01
+    title: Failure occurrence ve learning candidate uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P13-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Duplicate evidence double-count edilmez.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  - id: ZEKAM-P14-T02
+    title: Learning promotion TEST EVAL GUIDANCE SKILL uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Min evidence ve independent verifier gate gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  - id: ZEKAM-P14-T03
+    title: Skill candidate dedupe ve evaluation uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Fixture/trials/score/model separation gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  - id: ZEKAM-P14-T04
+    title: Skill lifecycle activate deprecate retire uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Exact approval/rollback ve no self-promotion gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  - id: ZEKAM-P14-T05
+    title: Measured loop policy iteration budget uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Progress evidence ve iteration/cost/stall stop gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  - id: ZEKAM-P14-T06
+    title: Context effectiveness ve lesson feedback uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-14
+    acceptance:
+    - Token/evidence/verified-success metrikleri route'a girer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P14-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P15
+  name: Scheduler gelen belgeler raporlar
+  order: 15
+  tasks:
+  - id: ZEKAM-P15-T01
+    title: Durable scheduler definition run uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P14-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - Timezone/misfire/overlap/idempotency testleri gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  - id: ZEKAM-P15-T02
+    title: Gelen belgeler watcher ve manifest routing uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - Stable file, duplicate checksum ve choice-required gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  - id: ZEKAM-P15-T03
+    title: Gece arastirma analiz job akisini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - Budget/quota/provider/checkpoint/recovery gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  - id: ZEKAM-P15-T04
+    title: Model project memory recovery bakım joblarini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - Health/scan/hygiene/recovery schedule raporlanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  - id: ZEKAM-P15-T05
+    title: Gunluk sabah genel ve proje raporu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - Work/agent/model/source/cost/quota/failure/next action içerir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  - id: ZEKAM-P15-T06
+    title: Scheduler pause resume cancel ve incident runbook uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-15
+    acceptance:
+    - State restart sonrasi dogru devam eder.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P15-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P16
+  name: CLI API MCP dashboard observability
+  order: 16
+  tasks:
+  - id: ZEKAM-P16-T01
+    title: Kanonik zekam CLI komut yuzeyini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P15-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - Doctor/project/work/research/model/knowledge/memory/run komutlari contract gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  - id: ZEKAM-P16-T02
+    title: Shared application FastAPI yuzeyini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - CLI/API ayni policy/use-case davranisini verir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  - id: ZEKAM-P16-T03
+    title: MCP server adapterini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - Tools/resources/prompts capability-negotiated, authority Zekam'de kalir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  - id: ZEKAM-P16-T04
+    title: Structured telemetry ve OpenTelemetry export uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - Correlation var, secret/source content yok.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  - id: ZEKAM-P16-T05
+    title: Read-only operasyon dashboardunu uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - Work/run/model/knowledge/memory/scheduler projectionlari gorunur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  - id: ZEKAM-P16-T06
+    title: Graph/sinaps derived projection ve explain linklerini uygula
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: medium
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-16
+    acceptance:
+    - Graph authority degil ve canonical drill-down saglar.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - review-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P16-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true
+- id: ZEKAM-P17
+  name: Hardening DR release kimlik butunlugu
+  order: 17
+  tasks:
+  - id: ZEKAM-P17-T01
+    title: Full security threat ve penetration fixture'larini tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P16-T06
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - Prompt/secret/path/network/replay/cross-realm kapilari gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  - id: ZEKAM-P17-T02
+    title: Performance capacity backpressure ve cancellation iyilestir
+    state: completed
+    dependencies:
+    - ZEKAM-P17-T01
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - SLA baseline/regression raporu ve hard cancel gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  - id: ZEKAM-P17-T03
+    title: Backup restore DR ve project capsule export import tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P17-T02
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - Izole restore, unbound source ve no active lease gecer.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  - id: ZEKAM-P17-T04
+    title: Dead code dependency SBOM release supply-chain kapilarini tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P17-T03
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - Audit/scan/checksum/signature raporu olusur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  - id: ZEKAM-P17-T05
+    title: Global DoD documentation-code consistency ve clean install tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P17-T04
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - Butun criteria evidence manifest ile kapanir.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  - id: ZEKAM-P17-T06
+    title: Zekam release ve tekil kimlik raporunu tamamla
+    state: completed
+    dependencies:
+    - ZEKAM-P17-T05
+    agentic: true
+    minimum_subagents: 1
+    coordinator_counts_as_subagent: false
+    risk: high
+    logical_resources:
+      read:
+      - project:zekam
+      write:
+      - project:zekam
+      - path:zekam:phase-17
+    acceptance:
+    - Package, CLI, environment, home, schema ve DB yuzeyinde compatibility alias yoktur.
+    required_evidence:
+    - changed-files-or-migration-digest
+    - test-or-evaluation-result
+    - checkpoint
+    - independent-verifier-result
+    commit_policy: Turkish meaning, ASCII-only
+    evidence_ref: .zekam/phases/ZEKAM-P17-kanit.json
+  phase_gate:
+    requires_all_tasks_terminal_success: true
+    requires_handoff: true
+    requires_documentation_code_consistency: true

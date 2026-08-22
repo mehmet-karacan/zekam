@@ -1,0 +1,1 @@
+{"case_id":"general-unsafe-gate","metrics":{"input_tokens":48,"latency_ms":12,"output_tokens":20,"quality":0.9,"reliability":0.99},"schema":"zekam-local-benchmark-fixture/v1","version":1}

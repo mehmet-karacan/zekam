@@ -1,0 +1,1 @@
+{"case_id":"general-verification","metrics":{"input_tokens":60,"latency_ms":15,"output_tokens":28,"quality":0.95,"reliability":0.98},"schema":"zekam-local-benchmark-fixture/v1","version":1}

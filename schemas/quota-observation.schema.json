@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Quota Observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observation_id",
+    "quota_pool_id",
+    "client_execution_path",
+    "observed_at",
+    "remaining_state",
+    "source",
+    "confidence",
+    "evidence_digest",
+    "record_digest",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "observation_id": {
+      "$ref": "#/$defs/id"
+    },
+    "quota_pool_id": {
+      "$ref": "#/$defs/id"
+    },
+    "client_execution_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "observed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "remaining_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ratio",
+            "exhausted",
+            "unknown"
+          ]
+        },
+        "ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reset_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1000
+        }
+      }
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "confidence": {
+      "enum": [
+        "trusted",
+        "observed",
+        "untrusted"
+      ]
+    },
+    "evidence_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "record_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

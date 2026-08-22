@@ -1,0 +1,83 @@
+schema: zekam-opencode-benchmark-scope/v1
+version: 1
+provider_id: litellm
+provider_family: aihub
+scope_policy: configured-canonical-all
+repetitions: 5
+verifier:
+  model_id: zekam/provider-neutral-contract-verifier-v1
+  execution_identity: zekam:provider-neutral-contract-verifier:v1
+targets:
+  - configured_model_id: openai/codepilot-qwen3
+    canonical_model_ids: [2d13d348-ab24-4738-a19c-6b4be323f836]
+    modality: code
+    workload: code
+  - configured_model_id: openai/codepilot-gpt-oss
+    canonical_model_ids: [224d14fe-d5d1-45aa-8430-392621c555fb]
+    modality: code
+    workload: code
+  - configured_model_id: openai/Systran/faster-whisper-large-v3
+    canonical_model_ids: [979c8117-ab95-4f02-ac9b-154284828e27]
+    modality: audio_transcription
+    workload: transcription
+    excluded_reason: audio-user-scope-excluded
+  - configured_model_id: openai/Qwen/Qwen3-Embedding-0.6B
+    canonical_model_ids: [e5fdb4ae-3485-4623-b628-c6a3e11d92ee]
+    modality: embedding
+    workload: retrieval
+  - configured_model_id: openai/QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ
+    canonical_model_ids: [b5d7a6bd-0341-4407-846f-abd3026db96d]
+    modality: vision_language
+    workload: vision
+    reviewed_modality_conflict: true
+  - configured_model_id: openai/BAAI/bge-m3
+    canonical_model_ids: [7622a967-8c01-4172-af52-e16b4a5b3fd0]
+    modality: embedding
+    workload: retrieval
+  - configured_model_id: openai/google/gemma-4-31B-it-8bit
+    canonical_model_ids: [52397247-4df7-4a16-ae09-3cafc362e196]
+    modality: chat
+    workload: analysis
+  - configured_model_id: openai/MiniMaxAI/MiniMax-M2.5
+    canonical_model_ids: [176bc319-901d-4bc6-b36e-73e0b7fa9203]
+    modality: chat
+    workload: analysis
+  - configured_model_id: Qwen/Qwen3-14B
+    canonical_model_ids: [5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f]
+    modality: chat
+    workload: analysis
+  - configured_model_id: BAAI/bge-reranker-v2-m3
+    canonical_model_ids:
+      - 5499ecda-bf10-4553-9776-4bc97ee2c00e
+      - 7fe96e76-6599-4a8d-a6f1-af5d6353242e
+    modality: rerank
+    workload: retrieval
+    reviewed_duplicate_route: true
+  - configured_model_id: MiniMaxAI/MiniMax-M2.5
+    canonical_model_ids: [d871eceb-96e0-4fd1-89d1-e2a5c8516b60]
+    modality: chat
+    workload: analysis
+  - configured_model_id: cortecs/Llama-3.3-70B-Instruct-FP8-Dynamic
+    canonical_model_ids: [25aa0a2c-caea-4104-a863-d29276fcb187]
+    modality: completion
+    workload: analysis
+  - configured_model_id: intfloat/e5-mistral-7b-instruct
+    canonical_model_ids: [d088c86d-4eae-4345-b2c8-4298ae2ffc59]
+    modality: embedding
+    workload: retrieval
+  - configured_model_id: moonshotai/Kimi-K2.7-Code
+    canonical_model_ids: [6a9f0333-c9b5-4bb9-b638-35c59594ca4d]
+    modality: chat
+    workload: code
+  - configured_model_id: Qwen/Qwen3.5-27B-FP8
+    canonical_model_ids: [9a15b1c2-9eac-47cb-9a0b-03a64ce6e094]
+    modality: chat
+    workload: analysis
+  - configured_model_id: Qwen/Qwen3Guard-Gen-8B
+    canonical_model_ids: [ff35d826-952e-4731-b752-1c80c8cf8d8c]
+    modality: guardrail
+    workload: safety
+  - configured_model_id: deepseek-ai/DeepSeek-V4-Flash
+    canonical_model_ids: [61cd22f6-1687-45c2-9e5a-598d40a05e9d]
+    modality: chat
+    workload: reasoning

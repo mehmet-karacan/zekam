@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Project State Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "project_id",
+    "project_revision",
+    "work_counts",
+    "active_work",
+    "runtime",
+    "model",
+    "knowledge",
+    "memory",
+    "as_of",
+    "snapshot_digest",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "snapshot_id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "work_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "active_work": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "work_item_id",
+          "state",
+          "revision",
+          "next_action"
+        ],
+        "properties": {
+          "work_item_id": {
+            "$ref": "#/$defs/id"
+          },
+          "state": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "next_action": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object"
+    },
+    "model": {
+      "type": "object"
+    },
+    "knowledge": {
+      "type": "object"
+    },
+    "memory": {
+      "type": "object"
+    },
+    "as_of": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "snapshot_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

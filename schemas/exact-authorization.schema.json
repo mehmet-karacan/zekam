@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Exact Authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authorization_id",
+    "actor_id",
+    "project_id",
+    "request_digest",
+    "plan_digest",
+    "effect_digest",
+    "scope",
+    "issued_at",
+    "expires_at",
+    "state",
+    "authorization_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "authorization_id": {
+      "$ref": "#/$defs/id"
+    },
+    "actor_id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "#/$defs/id"
+    },
+    "request_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "effect_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resources",
+        "paths",
+        "tools",
+        "network",
+        "data_effects",
+        "provider_refs",
+        "secret_refs"
+      ],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/logicalResource"
+          }
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relativePath"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "network": {
+          "type": "boolean"
+        },
+        "data_effects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "provider_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "secret_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "issued_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "state": {
+      "enum": [
+        "approved",
+        "consumed",
+        "revoked",
+        "expired"
+      ]
+    },
+    "authorization_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

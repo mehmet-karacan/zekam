@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Model Inventory Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model_id",
+    "access_name",
+    "backend_model",
+    "provider_protocol",
+    "enabled",
+    "endpoint_ref",
+    "credential_ref",
+    "declared",
+    "verified",
+    "health_state",
+    "benchmark_state",
+    "source_digest",
+    "record_digest",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "model_id": {
+      "$ref": "#/$defs/id"
+    },
+    "access_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "backend_model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "provider_protocol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "endpoint_ref": {
+      "type": "string",
+      "pattern": "^model-endpoint:",
+      "maxLength": 300
+    },
+    "credential_ref": {
+      "type": "string",
+      "pattern": "^model-credential:",
+      "maxLength": 300
+    },
+    "declared": {
+      "type": "object"
+    },
+    "verified": {
+      "type": "object"
+    },
+    "health_state": {
+      "enum": [
+        "untested",
+        "candidate",
+        "health-passed",
+        "health-failed",
+        "quarantined",
+        "cooldown"
+      ]
+    },
+    "benchmark_state": {
+      "enum": [
+        "not-run",
+        "eligible",
+        "passed",
+        "failed",
+        "stale"
+      ]
+    },
+    "source_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "record_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

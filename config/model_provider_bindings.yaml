@@ -1,0 +1,95 @@
+schema: zekam-model-provider-bindings/v1
+selection_policy: one-explicit-model-per-required-modality
+security_note: Values are environment locator names, never endpoint or credential values.
+bindings:
+  - modality: chat
+    model_id: 52397247-4df7-4a16-ae09-3cafc362e196
+    access_name: openai/google/gemma-4-31B-it-8bit
+    provider_protocol: openai
+    provider_ref: model:52397247-4df7-4a16-ae09-3cafc362e196
+    endpoint_ref: model-endpoint:52397247-4df7-4a16-ae09-3cafc362e196
+    endpoint_env: ZEKAM_ENDPOINT_CHAT_COMPLETIONS
+    credential_ref: model-credential:52397247-4df7-4a16-ae09-3cafc362e196
+    secret_ref_name: model-credential-52397247-4df7-4a16-ae09-3cafc362e196
+    credential_env: ZEKAM_CREDENTIAL_CHAT
+    operation: chat-completions
+    request_format: json
+    path_hint: /v1/chat/completions
+  - modality: code
+    model_id: f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+    access_name: openai/codepilot-qwen3-next
+    provider_protocol: openai
+    provider_ref: model:f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+    endpoint_ref: model-endpoint:f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+    endpoint_env: ZEKAM_ENDPOINT_CODE_COMPLETIONS
+    credential_ref: model-credential:f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+    secret_ref_name: model-credential-f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4
+    credential_env: ZEKAM_CREDENTIAL_CODE
+    operation: code-completions
+    request_format: json
+    path_hint: /v1/chat/completions
+  - modality: audio_transcription
+    model_id: 979c8117-ab95-4f02-ac9b-154284828e27
+    access_name: openai/Systran/faster-whisper-large-v3
+    provider_protocol: openai
+    provider_ref: model:979c8117-ab95-4f02-ac9b-154284828e27
+    endpoint_ref: model-endpoint:979c8117-ab95-4f02-ac9b-154284828e27
+    endpoint_env: ZEKAM_ENDPOINT_WHISPER_TRANSCRIPTIONS
+    credential_ref: model-credential:979c8117-ab95-4f02-ac9b-154284828e27
+    secret_ref_name: model-credential-979c8117-ab95-4f02-ac9b-154284828e27
+    credential_env: ZEKAM_CREDENTIAL_WHISPER
+    operation: audio-transcriptions
+    request_format: multipart
+    path_hint: /v1/audio/transcriptions
+  - modality: embedding
+    model_id: 7622a967-8c01-4172-af52-e16b4a5b3fd0
+    access_name: openai/BAAI/bge-m3
+    provider_protocol: openai
+    provider_ref: model:7622a967-8c01-4172-af52-e16b4a5b3fd0
+    endpoint_ref: model-endpoint:7622a967-8c01-4172-af52-e16b4a5b3fd0
+    endpoint_env: ZEKAM_ENDPOINT_EMBEDDINGS
+    credential_ref: model-credential:7622a967-8c01-4172-af52-e16b4a5b3fd0
+    secret_ref_name: model-credential-7622a967-8c01-4172-af52-e16b4a5b3fd0
+    credential_env: ZEKAM_CREDENTIAL_EMBEDDING
+    operation: embeddings
+    request_format: json
+    path_hint: /v1/embeddings
+  - modality: vision_language
+    model_id: b5d7a6bd-0341-4407-846f-abd3026db96d
+    access_name: openai/QuantTrio/Qwen3-VL-30B-A3B-Instruct-AWQ
+    provider_protocol: openai
+    provider_ref: model:b5d7a6bd-0341-4407-846f-abd3026db96d
+    endpoint_ref: model-endpoint:b5d7a6bd-0341-4407-846f-abd3026db96d
+    endpoint_env: ZEKAM_ENDPOINT_VISION_CHAT
+    credential_ref: model-credential:b5d7a6bd-0341-4407-846f-abd3026db96d
+    secret_ref_name: model-credential-b5d7a6bd-0341-4407-846f-abd3026db96d
+    credential_env: ZEKAM_CREDENTIAL_VISION
+    operation: vision-chat-completions
+    request_format: json
+    path_hint: /v1/chat/completions
+  - modality: rerank
+    model_id: 5499ecda-bf10-4553-9776-4bc97ee2c00e
+    access_name: BAAI/bge-reranker-v2-m3
+    provider_protocol: hosted_vllm
+    provider_ref: model:5499ecda-bf10-4553-9776-4bc97ee2c00e
+    endpoint_ref: model-endpoint:5499ecda-bf10-4553-9776-4bc97ee2c00e
+    endpoint_env: ZEKAM_ENDPOINT_RERANK
+    credential_ref: model-credential:5499ecda-bf10-4553-9776-4bc97ee2c00e
+    secret_ref_name: model-credential-5499ecda-bf10-4553-9776-4bc97ee2c00e
+    credential_env: ZEKAM_CREDENTIAL_RERANK
+    operation: rerank
+    request_format: json
+    path_hint: /v1/rerank
+  - modality: guardrail
+    model_id: ff35d826-952e-4731-b752-1c80c8cf8d8c
+    access_name: Qwen/Qwen3Guard-Gen-8B
+    provider_protocol: custom_openai
+    provider_ref: model:ff35d826-952e-4731-b752-1c80c8cf8d8c
+    endpoint_ref: model-endpoint:ff35d826-952e-4731-b752-1c80c8cf8d8c
+    endpoint_env: ZEKAM_ENDPOINT_GUARDRAIL
+    credential_ref: model-credential:ff35d826-952e-4731-b752-1c80c8cf8d8c
+    secret_ref_name: model-credential-ff35d826-952e-4731-b752-1c80c8cf8d8c
+    credential_env: ZEKAM_CREDENTIAL_GUARDRAIL
+    operation: guardrail-classify
+    request_format: json
+    path_hint: /v1/chat/completions

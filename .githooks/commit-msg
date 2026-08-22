@@ -1,0 +1,2 @@
+#!/bin/sh
+exec py -3 scripts/git_kimlik_politikasi.py commit-msg "$1"

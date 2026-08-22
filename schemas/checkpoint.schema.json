@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "checkpoint_id",
+    "project_id",
+    "work_item_id",
+    "plan_revision_id",
+    "run_id",
+    "plan_steps",
+    "completed_steps",
+    "pending_steps",
+    "source_revision",
+    "context_manifest_digest",
+    "journal_head_digest",
+    "next_safe_action",
+    "created_at",
+    "checkpoint_digest",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "checkpoint_id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "#/$defs/id"
+    },
+    "work_item_id": {
+      "$ref": "#/$defs/id"
+    },
+    "plan_revision_id": {
+      "$ref": "#/$defs/id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/id"
+    },
+    "plan_steps": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "completed_steps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "pending_steps": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "step_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step_id",
+          "result_digest"
+        ],
+        "properties": {
+          "step_id": {
+            "$ref": "#/$defs/id"
+          },
+          "result_digest": {
+            "$ref": "#/$defs/digest"
+          }
+        }
+      }
+    },
+    "source_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "context_manifest_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "journal_head_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "logical_resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/logicalResource"
+      }
+    },
+    "remaining_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "cost_microunits",
+        "wall_seconds"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_microunits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "next_safe_action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "checkpoint_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

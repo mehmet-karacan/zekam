@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Model Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "result_id",
+    "model_id",
+    "suite_id",
+    "case_id",
+    "execution_profile_digest",
+    "trial_count",
+    "metrics",
+    "all_trials_verifier_approved",
+    "passed",
+    "observed_at",
+    "result_digest",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "result_id": {
+      "$ref": "#/$defs/id"
+    },
+    "model_id": {
+      "$ref": "#/$defs/id"
+    },
+    "suite_id": {
+      "$ref": "#/$defs/id"
+    },
+    "case_id": {
+      "$ref": "#/$defs/id"
+    },
+    "execution_profile_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "trial_count": {
+      "type": "integer",
+      "minimum": 5
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quality_mean_bp",
+        "reliability_mean_bp",
+        "latency_p95_ms",
+        "input_tokens_total",
+        "output_tokens_total",
+        "estimated_cost_microunits"
+      ],
+      "properties": {
+        "quality_mean_bp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "reliability_mean_bp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "latency_p95_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_tokens_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimated_cost_microunits": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "actual_cost_microunits": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "human_corrections_total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "all_trials_verifier_approved": {
+      "type": "boolean"
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "observed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "result_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "grants_authority": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "logicalResource": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+:[^\\s]+$",
+      "maxLength": 500
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$",
+      "maxLength": 1000
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "digest"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "run",
+            "receipt",
+            "test",
+            "artifact",
+            "source",
+            "citation",
+            "memory",
+            "benchmark",
+            "commit"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

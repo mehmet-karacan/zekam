@@ -1,0 +1,666 @@
+schema_version: 1
+manifest_kind: z-control-plane-project
+metadata:
+  project_name: Z Control Plane
+  repository_name: z-control-plane
+  package_name: z_control_plane
+  cli_name: zctl
+  decision_date: 2026-08-20
+  status: implementation-ready
+  language:
+    internal_code: en
+    user_documents: tr
+
+mission:
+  description: >-
+    Model, provider and CLI independent AI engineering control plane for
+    project work, research, implementation, continuity, evidence and secure
+    multi-agent execution.
+  canonical_state_rule: postgresql-only
+  source_roots_read_only: true
+  existing_repositories_merge: false
+
+architecture:
+  style: modular-monolith
+  process_roles:
+    - cli
+    - api
+    - scheduler
+    - worker
+  dependency_direction:
+    - interfaces->application
+    - application->domain
+    - infrastructure->application-ports
+  external_protocols:
+    mcp:
+      role: tool-and-resource-adapter
+      owns_authority: false
+      owns_work_state: false
+    a2a:
+      role: future-external-agent-federation
+      enabled_in_v1: false
+      owns_internal_runtime: false
+    opentelemetry:
+      role: content-free-observability
+      prompt_content_default: disabled
+      response_content_default: disabled
+
+stores:
+  canonical:
+    engine: postgresql
+    version: "18"
+    schemas:
+      - core
+      - work
+      - runtime
+      - models
+      - research
+      - knowledge
+      - memory
+      - security
+      - ops
+  semantic_projection:
+    engine: pgvector
+    authoritative: false
+    first_embedding_profile:
+      model: openai/BAAI/bge-m3
+      dimensions: 1024
+      distance: cosine
+      query_prefix_policy: evaluated-not-assumed
+  artifacts:
+    port: ArtifactStore
+    adapters:
+      - local-cas
+      - s3-compatible
+    preferred_s3_implementation: minio
+  transient_signals:
+    redis:
+      required: false
+      authoritative: false
+      allowed_uses:
+        - worker-wakeup
+        - cache
+
+bounded_contexts:
+  projects:
+    owns:
+      - project
+      - project-alias
+      - source-binding
+      - module
+      - capability-profile
+    does_not_own:
+      - work-state
+      - model-score
+      - embeddings
+  work:
+    owns:
+      - work-item
+      - work-revision
+      - work-relation
+      - work-event
+      - intent-revision
+      - decision-revision
+      - plan-revision
+      - authorization
+    does_not_own:
+      - active-lease
+      - provider-session
+      - vector-similarity
+  runtime:
+    owns:
+      - task-plan
+      - task-step
+      - run
+      - attempt
+      - queue-item
+      - lease
+      - fencing-token
+      - resource-lock
+      - checkpoint
+      - effect-claim
+      - effect-receipt
+      - agent-result-envelope
+      - verification
+    does_not_own:
+      - business-work-state
+      - secret-value
+  models:
+    owns:
+      - provider-inventory
+      - client-inventory
+      - model-inventory
+      - model-health
+      - benchmark-suite
+      - benchmark-result
+      - quota-pool
+      - quota-observation
+      - price-evidence
+      - model-assignment
+    does_not_own:
+      - work-authority
+      - credentials
+  research:
+    owns:
+      - research-question
+      - source-snapshot
+      - claim
+      - contradiction
+      - citation-verdict
+      - synthesis
+      - research-report
+    does_not_own:
+      - automatic-knowledge-promotion
+      - automatic-policy-promotion
+  knowledge:
+    owns:
+      - source
+      - source-version
+      - artifact-identity
+      - normalized-manifest
+      - citation
+      - ingestion-job
+      - evaluation-run
+    does_not_own:
+      - work-status
+      - authorization
+      - active-lease
+  memory_skills:
+    owns:
+      - memory-revision
+      - learning-candidate
+      - learning-observation
+      - skill-candidate
+      - skill-evaluation
+      - skill-lifecycle
+    does_not_own:
+      - automatic-registry-mutation
+      - automatic-policy-mutation
+  governance:
+    owns:
+      - policy
+      - capability-grant
+      - provider-assurance
+      - one-shot-authorization
+      - secret-ref
+      - audit-event
+    does_not_own:
+      - secret-plaintext
+      - model-output-as-authority
+  operations:
+    owns:
+      - schedule
+      - inbox-item
+      - report-job
+      - backup-manifest
+      - health-event
+    does_not_own:
+      - domain-state-replacement
+
+agent_execution_policy:
+  coordinator_counts_as_subagent: false
+  deterministic_operations:
+    min_subagents: 0
+    examples:
+      - exact-lookup
+      - status-query
+      - schema-validation
+      - digest-computation
+      - projection-build
+      - metric-calculation
+  agentic_operations:
+    min_subagents: 1
+    fixed_global_max_subagents: null
+    concurrency_strategy: computed-per-run
+    concurrency_factors:
+      - ready-independent-dag-nodes
+      - logical-resource-conflicts
+      - worker-capacity
+      - provider-quota
+      - token-budget
+      - cost-budget
+      - time-budget
+      - data-classification
+      - project-policy
+  writable_scope:
+    max_concurrent_builders_per_logical_resource: 1
+  high_or_critical_risk:
+    independent_verifier_required: true
+    different_execution_identity_required: true
+    different_model_family_preferred: true
+  standard_shapes:
+    deterministic: direct-deterministic
+    small_agentic: single-subagent
+    dependency_ordered: sequential-dag
+    independent_read_only: parallel-dag
+    approval_missing: review-only
+    safety_precondition_missing: blocked
+    claim_without_receipt: recovery-required
+
+result_contract:
+  schema: schemas/runtime/agent-result-envelope-v1.json
+  statuses:
+    - completed
+    - partial
+    - failed
+    - blocked
+    - recovery-required
+    - abstained
+  completed_requires:
+    - valid-result-digest
+    - required-evidence
+    - matching-scope
+    - terminal-receipt-for-non-read-effect
+    - independent-verification-when-policy-requires
+  forbidden_public_fields:
+    - raw-prompt
+    - raw-model-response
+    - chain-of-thought
+    - secret-value
+    - credential
+    - absolute-machine-path
+
+work_state_machine:
+  states:
+    - proposed
+    - ready
+    - active
+    - blocked
+    - verifying
+    - completed
+    - cancelled
+    - archived
+  transitions:
+    proposed: [ready, cancelled]
+    ready: [active, blocked, cancelled]
+    active: [blocked, verifying, cancelled]
+    blocked: [active, cancelled]
+    verifying: [completed, active, blocked, cancelled]
+    completed: [archived]
+    cancelled: [archived]
+    archived: []
+  reopen_is_new_revision: true
+  completed_requires_evidence: true
+
+runtime_state_machine:
+  step_states:
+    - planned
+    - ready
+    - queued
+    - leased
+    - running
+    - waiting-input
+    - verifying
+    - completed
+    - partial
+    - failed
+    - blocked
+    - recovery-required
+    - cancelled
+  write_or_network_claim_without_terminal_receipt: recovery-required
+  silent_retry: false
+
+queue:
+  engine: postgresql
+  claim_method: select-for-update-skip-locked
+  normal_domain_reads_use_skip_locked: false
+  lease:
+    owner_token_storage: sha256-digest-only
+    monotonically_increasing_fencing_token: true
+    heartbeat_requires:
+      - matching-owner-digest
+      - matching-fencing-token
+      - unexpired-lease
+  idempotency:
+    required: true
+    terminal-receipt-replay: return-canonical-receipt
+    pending-claim-replay: recovery-required
+  notification:
+    primary_state: database-table
+    optional_wakeup:
+      - postgresql-listen-notify
+      - redis
+
+logical_resources:
+  formats:
+    - project:<project-id>
+    - work:<project-id>:<work-id>
+    - path:<project-id>:<relative-posix-path>
+    - source:<project-id>:<binding-id>:<relative-posix-path>
+    - database:<project-id>:<connection-ref>:<object-ref>
+    - provider:<quota-pool-id>
+    - artifact:<artifact-id>
+  compatibility:
+    read_read: compatible
+    read_write: conflict
+    write_write: conflict
+  project_write_conflicts_with_all_children: true
+  parent_child_path_write_conflict: true
+
+model_control_plane:
+  hierarchy:
+    - provider
+    - client-or-execution-path
+    - model
+    - model-revision
+    - quota-pool
+  adapters_in_order:
+    - fake
+    - opencode-cli
+    - codex-cli
+    - claude-cli
+    - openai-compatible-http
+    - native-api-optional
+  hard_eligibility:
+    - enabled
+    - current-health-passed
+    - workload-supported
+    - modality-supported
+    - tools-and-structured-output-supported
+    - context-capacity-sufficient
+    - project-benchmark-floor-passed
+    - data-locality-and-provider-policy-passed
+    - provider-assurance-present
+    - quota-pool-eligible
+    - latency-and-cost-hard-budget-passed
+    - worker-verifier-exclusion-passed
+  soft_score_inputs:
+    positive:
+      - verified-quality
+      - observed-reliability
+      - project-workload-fit
+      - quota-headroom
+      - token-efficiency
+    negative:
+      - normalized-latency
+      - normalized-cost
+      - recent-failure-penalty
+  weights_source: versioned-policy
+  missing_quota_percentage:
+    fabricate: false
+    behavior: record-unknown-and-lower-confidence
+  fallback_boundary: safe-step-or-checkpoint-only
+  transcript_migration: false
+
+quota_observation:
+  sources:
+    - provider-api
+    - cli-json
+    - telemetry
+    - manual
+    - estimated
+  fields:
+    quota_pool_id: required
+    remaining_basis_points: nullable
+    reset_at: nullable
+    confidence_basis_points: required
+    observed_at: required
+    observation_digest: required
+  policy_thresholds_are_configuration: true
+
+context_compiler:
+  required_records:
+    - current-work-revision
+    - current-intent-revision
+    - current-plan-and-step
+    - acceptance-criteria
+    - constraints-and-prohibited-actions
+    - project-capability-profile
+    - source-revision
+    - authority-summary
+    - required-evidence
+  optional_sources:
+    - relevant-code
+    - relevant-documents
+    - database-metadata
+    - verified-decisions
+    - episodic-runs
+    - project-policy
+    - active-compatible-skills
+  budget_overflow_for_required_records: fail-closed
+  output:
+    - selected-records
+    - omitted-records-with-reasons
+    - token-estimate
+    - manifest-digest
+  secrets_allowed: false
+
+continuity_packet:
+  grants_authority: false
+  carries_active_lease: false
+  soft_limit_bytes: 24576
+  hard_limit_bytes: 32768
+  stale_when:
+    - work-revision-changed
+    - run-state-digest-changed
+    - source-revision-changed
+  required_sections:
+    - goal-and-status
+    - current-step
+    - completed-and-pending
+    - verified-decisions
+    - risks-and-blockers
+    - first-exact-reads
+    - next-safe-action
+
+knowledge_plane:
+  ingestion_versioned: true
+  original_artifact_preserved: true
+  normalized_content_preserved: true
+  source_code_execution_during_ingestion: false
+  first_retrieval_pipeline:
+    - scope-resolution
+    - canonical-status-routing
+    - exact-id-path-symbol
+    - alias-trigram
+    - postgresql-full-text
+    - bge-m3-dense-1024
+    - reciprocal-rank-fusion
+    - optional-reranker
+    - deduplication
+    - parent-neighbor-expansion
+    - token-budgeted-evidence-package
+  embedding_profile_binding:
+    - source-version
+    - parser-profile
+    - chunker-profile
+    - embedding-profile
+    - policy-digest
+  reindex_triggers:
+    - source-revision
+    - parser-profile
+    - chunker-profile
+    - embedding-profile
+    - normalization-schema
+    - retrieval-policy
+  vector_cannot_determine:
+    - work-status
+    - authorization
+    - policy
+    - completion
+
+memory_policy:
+  layers:
+    working: checkpoint-and-context-manifest
+    episodic: verified-terminal-runs
+    semantic: approved-knowledge-and-decisions
+    procedural: active-skill-versions
+    preference: user-and-project-policy
+    learning: candidates-only
+  automatic_overwrite: false
+  automatic_delete: false
+  learning_promotion_requires:
+    - at-least-two-independent-observations
+    - independent-verifier
+    - explicit-target
+    - exact-approval-for-mutation
+
+security:
+  source_root_direct_write: deny
+  mutation_workspace: detached-worktree
+  high_risk_sandbox: rootless-oci
+  network_default: deny
+  path_allowlist_required: true
+  path_traversal: deny
+  symlink_escape: deny
+  prompt_injection_source_is_untrusted: true
+  tool_calls_require_complete_mediation: true
+  secrets:
+    contract_value: secret-ref-only
+    prompt: deny
+    logs: deny
+    vectors: deny
+    artifact_metadata: deny
+    continuity_packet: deny
+    injection_boundary:
+      - child-process-environment
+      - file-descriptor
+      - http-client
+    short_lived_and_scoped: true
+  approvals:
+    auto:
+      - exact-read-only
+      - digest
+      - rebuildable-projection
+    preauthorized:
+      - bounded-scheduled-read-only
+    user_once:
+      - source-mutation
+      - database-write
+      - remote-sensitive-data
+      - secret-use
+      - commit
+      - push
+      - external-api-effect
+    deny:
+      - direct-source-root-write
+      - secret-in-prompt
+      - unplanned-destructive-production-change
+
+human_workspace:
+  root_variable: Z_HOME
+  layout:
+    - projeler/<slug>/proje.md
+    - projeler/<slug>/talepler/<id>/
+    - projeler/<slug>/defectler/<id>/
+    - projeler/<slug>/isler/<id>/
+    - projeler/<slug>/arastirmalar/<id>/
+    - projeler/<slug>/kararlar/<id>/
+    - projeler/<slug>/raporlar/
+    - modeller/envanter/
+    - modeller/testler/
+    - modeller/raporlar/
+    - gelen-kutusu/
+    - calisma-alanlari/
+    - raporlar/gunluk/
+    - raporlar/genel/
+    - yedekler/
+    - .z/runtime/
+    - .z/cache/
+    - .z/locks/
+    - .z/secret-refs/
+  canonical: false
+  roles:
+    - readable-projection
+    - user-drop-zone
+
+implementation_phases:
+  - id: 0
+    name: foundation
+    real_model_calls_allowed: false
+    acceptance:
+      - doctor-passes
+      - migration-roundtrip-passes
+      - architecture-tests-pass
+      - secret-scanner-passes
+  - id: 1
+    name: project-and-work
+    acceptance:
+      - exact-defect-lookup-without-vector
+      - ambiguous-alias-fails-closed
+      - source-root-unchanged
+      - resume-from-canonical-state
+  - id: 2
+    name: runtime-core
+    acceptance:
+      - queue-concurrency-tests-pass
+      - lease-and-fencing-tests-pass
+      - lock-conflict-tests-pass
+      - crash-recovery-tests-pass
+      - minimum-one-subagent-policy-enforced
+  - id: 3
+    name: model-control-plane
+    acceptance:
+      - health-and-benchmark-gates-pass
+      - unknown-quota-not-fabricated
+      - opencode-models-discovered-and-reported
+      - safe-adapter-fallback-works
+  - id: 4
+    name: natural-language-and-context
+    acceptance:
+      - gpu-alias-and-defect-123-resolve-exactly
+      - context-manifest-explainable
+      - cross-model-resume-works
+  - id: 5
+    name: evidence-research
+    acceptance:
+      - one-real-researcher-subagent-or-more
+      - evidence-required-for-completed
+      - contradiction-visible
+      - turkish-report-produced
+  - id: 6
+    name: sandboxed-delivery
+    acceptance:
+      - exact-plan-and-one-shot-authorization
+      - single-builder-per-write-scope
+      - independent-verifier
+      - patch-and-terminal-receipt
+      - no-implicit-commit-or-push
+  - id: 7
+    name: knowledge-plane
+    acceptance:
+      - versioned-bge-m3-1024
+      - hybrid-retrieval-evaluated
+      - citations-and-reindex
+      - no-source-code-execution
+  - id: 8
+    name: memory-skills-scheduler
+    acceptance:
+      - no-automatic-self-promotion
+      - scheduled-runs-have-budget-and-receipt
+      - morning-reports-have-evidence
+  - id: 9
+    name: api-dashboard-portability
+    acceptance:
+      - dashboard-is-projection
+      - backup-restore-drill-passes
+      - active-leases-not-exported
+
+first_vertical_slice:
+  command: zctl ask "gpu projesindeki 123 numaralı defectin kök nedenini araştır"
+  mutation_allowed: false
+  required_outcomes:
+    - exact-project-alias-resolution
+    - exact-defect-resolution
+    - work-and-intent-revision
+    - context-manifest
+    - at-least-one-researcher-subagent
+    - queue-lease-fencing-checkpoint
+    - strict-result-envelope
+    - evidence-bearing-turkish-report
+    - authority-free-continuity-packet
+    - cross-adapter-resume
+    - idempotent-replay
+    - no-secret-or-absolute-path-leak
+
+non_goals_v1:
+  - microservices
+  - graph-database
+  - separate-vector-database
+  - a2a-as-internal-runtime
+  - automatic-skill-activation
+  - automatic-policy-mutation
+  - multiple-builders-racing-on-one-patch
+  - unlimited-model-debate
+  - sparse-or-colbert-without-supported-inference-provider
+  - rich-synapse-dashboard

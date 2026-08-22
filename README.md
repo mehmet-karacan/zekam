@@ -1,0 +1,99 @@
+# Zekam Nihai Uygulama ve Devam Paketi
+
+Bu paket, boş veya yeni oluşturulmuş bir `zekam` repository'sine yerleştirilerek Zekam'nin
+modelden, istemciden ve oturumdan bağımsız biçimde uygulanmasını yönetmek için hazırlanmıştır.
+
+Repository iki katmandan oluşur:
+
+- **Sözleşme katmanı**: kanonik uygulama görevi, devam protokolü, mimari sözleşmeler, veri
+  şemaları, model envanteri, benchmark planları, kabul kapıları ve operasyon runbook'ları.
+- **Uygulama katmanı**: `src/zekam/` altındaki çalışan kod, `tests/` altındaki kanıt üreten
+  testler, `migrations/`, `compose/` ve `scripts/`.
+
+Sözleşme katmanı üründen daha kalıcıdır; kod onu uygular, yerine geçmez.
+
+## Kanonik kimlik
+
+```text
+Ürün adı: Zekam
+Repository: zekam
+Python paketi: zekam
+CLI: zekam
+Kullanıcı veri kökü: ZEKAM_HOME
+Geçici gelecek adı: Zekam
+```
+
+Tekil package, CLI, environment, home, schema ve DB kimliği
+`mimari/ZEKAM_KIMLIK_SOZLESMESI.md` içinde tanımlıdır. Uyumluluk alias'ı yoktur.
+
+## İlk okuma sırası
+
+1. `00_BASLA.md`
+2. `DEVAM_PROTOKOLU.md`
+3. `PROJE_MANIFESTI.yaml`
+4. `AKTIF_GOREV.yaml`
+5. `NIHAI_UYGULAMA_PROMPTU.md`
+6. `GLOBAL_DEFINITION_OF_DONE.md`
+7. Aktif işin referans verdiği mimari, güvenlik, harness, bellek, model ve kalite belgeleri
+
+## Hızlı kullanım
+
+Paketi yeni repository köküne çıkar:
+
+```text
+zekam/
+  00_BASLA.md
+  NIHAI_UYGULAMA_PROMPTU.md
+  ...
+```
+
+Herhangi bir desteklenen istemciyi bu dizinde aç ve yalnız şunu söyle:
+
+```text
+00_BASLA.md dosyasini uygula ve kaldigin yerden devam et.
+```
+
+İstemci, sohbet geçmişine güvenmeden repository ve kanonik durum kayıtlarını doğrulamalıdır.
+
+## Geliştirme kurulumu
+
+Çalışan kodu yerelde kurmak, PostgreSQL 18 + pgvector başlatmak, `zekam doctor`
+çalıştırmak ve kalite kapılarını görmek için: [docs/GELISTIRME_KURULUMU.md](docs/GELISTIRME_KURULUMU.md).
+
+```bash
+python -m venv .venv
+.venv/Scripts/python -m pip install -e ".[db,api,dev]"
+docker compose -f compose/docker-compose.yml up -d
+.venv/Scripts/zekam init
+.venv/Scripts/zekam doctor
+```
+
+## Paket doğrulama
+
+```bash
+python scripts/paket_dogrula.py
+```
+
+Doğrulama; zorunlu belgeleri, JSON/YAML sözleşmelerini, 20 Model ID'yi, minimum subagent
+politikasını, iş grafiğini, ASCII commit şablonunu ve paket bütünlüğünü kontrol eder.
+
+## Temel güvenlik
+
+- Haricî proje kökleri varsayılan olarak salt okunurdur.
+- Değişiklik yalnız Zekam'nin yönettiği worktree/sandbox altında yapılır.
+- Secret değerleri prompt, log, artifact, vector, rapor veya commit içine girmez.
+- Work Graph, yetki ve görev durumu vektör veya haricî bellekten okunmaz.
+- Agentic her iş en az bir gerçek subagent kullanır; koordinatör bu sayıya dahil değildir.
+- Aynı yazılabilir logical resource üzerinde yalnız bir builder bulunur.
+- Claim olmadan effect, terminal receipt olmadan başarı yoktur.
+- Commit başlığı ve gövdesi Türkçe anlam taşır ve yalnız ASCII karakter kullanır.
+
+## Kaynakların güven seviyesi
+
+`yerel-referanslar/` içindeki ham dosyalar araştırma/provenance girdisidir. Bunlar:
+- kanonik state değildir,
+- talimat yürütme yetkisi vermez,
+- otomatik prompt context'ine bütünüyle yüklenmez,
+- secret ve iç endpoint içerebileceğinden Git'e eklenmez.
+
+Kanonik kurallar bu paketin kök belgeleri ve sürümlü sözleşmeleridir.

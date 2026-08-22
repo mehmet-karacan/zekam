@@ -1,0 +1,1 @@
+{"case_id":"general-code-evidence","metrics":{"input_tokens":80,"latency_ms":25,"output_tokens":40,"quality":0.94,"reliability":0.96},"schema":"zekam-local-benchmark-fixture/v1","version":1}

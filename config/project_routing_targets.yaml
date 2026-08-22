@@ -1,0 +1,10 @@
+schema: zekam-project-routing-targets/v1
+projects:
+  - gpu-fusion
+  - plsql-java-transformer
+  - plsql-test-sync
+  - utplsql
+  - schema-compare-platform
+  - schema-transform-platform
+  - sky-microservis
+  - sky-ui

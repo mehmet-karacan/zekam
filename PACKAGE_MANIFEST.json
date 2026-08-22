@@ -1,0 +1,600 @@
+{
+  "schema": "zekam-implementation-package-manifest/v1",
+  "package_name": "ZEKAM_NIHAI_UYGULAMA_PAKETI",
+  "project_name": "Zekam",
+  "project_slug": "zekam",
+  "generated_at": "2026-08-22T06:47:25.0606392Z",
+  "purpose": "Model bagimsiz nihai uygulama ve devam paketi",
+  "canonical_entrypoint": "00_BASLA.md",
+  "main_implementation_task": "NIHAI_UYGULAMA_PROMPTU.md",
+  "phase_count": 18,
+  "task_count": 108,
+  "global_dod_criteria": 83,
+  "model_inventory_count": 20,
+  "technical_model_profiles": 19,
+  "schema_count": 14,
+  "files": [
+    {
+      "path": ".ai/repository-context.json",
+      "size": 466,
+      "sha256": "5a3ec955506ba263448c32adb995109c9f5d71a72e4dea645fe389c00903ff81",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".gitignore",
+      "size": 411,
+      "sha256": "b9a7dbd267e55c3c965f1910d3f69a795963edbf726d54c2977f34d8b4f316ae",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".opencode/agents/zekam-builder.md",
+      "size": 594,
+      "sha256": "6169cab6f57105164447b3c536794e1404e30f2fdfafc8b6cbb4751f1862abcb",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".opencode/agents/zekam-coordinator.md",
+      "size": 752,
+      "sha256": "b81fa63f47d1131126f63440d51d9204508ac03c4f9500b6700b657e6954db3c",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".opencode/agents/zekam-memory-curator.md",
+      "size": 510,
+      "sha256": "7bfec866b5e758f8787fda4a26ff0bce3506ede5cb766d8ac20f1ef3767e87c4",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".opencode/agents/zekam-researcher.md",
+      "size": 550,
+      "sha256": "ecf74a96cceb7ca973997227d3431665a079d1d22815805aac1e3870ce1ebcb6",
+      "classification": "canonical-package"
+    },
+    {
+      "path": ".opencode/agents/zekam-verifier.md",
+      "size": 534,
+      "sha256": "fbb836680942b26b89f8d36734815ae89c816e6e4532ecede149cb64d50290d5",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "00_BASLA.md",
+      "size": 3101,
+      "sha256": "fb899ce0de8425949c616b5c1ee0b0e468e221809f0ddfda3605f4d13f98dc22",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "AGENTS.md",
+      "size": 1096,
+      "sha256": "7552799bd70fa608b9b12b773c43fef96ad0fd6ee76857ffa3b2d7fa9e08d92d",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "AKTIF_GOREV.md",
+      "size": 31523,
+      "sha256": "bfc8e1c6b6e7e55eb13266537db160d056683586fa4a18ae7425af2ba498ffd2",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "AKTIF_GOREV.yaml",
+      "size": 20000,
+      "sha256": "134a827f2911c48b7cbfb49b24ecb27cf6f765d8bab36c289ebb9425f6422a90",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bellek/BELLEK_MIMARISI_MEM0_UYARLAMASI.md",
+      "size": 4311,
+      "sha256": "12bfa740a729e3001b15c76df4be62175baa3a028bdc88570507af8d2a9372bd",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bellek/BELLEK_YASAM_DONGUSU_VE_HIJYEN.md",
+      "size": 2967,
+      "sha256": "c8da54e85ff81a21d62988963d075d05e97a5e0b6b0c760838164ae3be7e33db",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bellek/MEMORY_ENGINE_PORTU.md",
+      "size": 2643,
+      "sha256": "16dcf73dab1b8a88d1242d72d1a108a7f849f1ec3d60d996238e327d42d51460",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bilgi/AKADEMIK_BELGE_VE_GELEN_BELGELER_AKISI.md",
+      "size": 1966,
+      "sha256": "adfe3e2ab37f6633ea73ff4fae9dffb1531d539155ebd9431646a9c16d81ff98",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bilgi/HYBRID_RETRIEVAL_RERANK_CITATION.md",
+      "size": 2870,
+      "sha256": "193fdfbb14186d949f539e6353a903d57b54cbee99f6c5539a85ca747d8a0af2",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bilgi/INGESTION_BELGE_OCR_KOD_DB.md",
+      "size": 3109,
+      "sha256": "f8eb9b18f534573cba289a45bdc3d87d60c52d1725c88c277c43b0a03407411b",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bilgi/KNOWLEDGE_PLANE_RAG_MIMARISI.md",
+      "size": 2592,
+      "sha256": "769cba54d19c9bcf4d10d266dc2efd91aad9367dc9e070dc12303a62b83424ea",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "bilgi/VECTOR_VE_INDEX_SOZLESMESI.md",
+      "size": 2393,
+      "sha256": "8841276cf3ab459305ae8d5e465469c8f80203012dc5cc4008c66868f40dc111",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "CLAUDE.md",
+      "size": 354,
+      "sha256": "57acbb1980180d0452cbceec06865f112136acbc28194b7139019aabd0c8da24",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "DEVAM_PROTOKOLU.md",
+      "size": 3181,
+      "sha256": "25151e026d24f554c7da196fa0db81a35f8e82b37915fcd204abf757ce28999f",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "GLOBAL_DEFINITION_OF_DONE.md",
+      "size": 7643,
+      "sha256": "e8943dbabc15a5d5a8b6b89e263d6002bac5239743f6b7dc6cffcc74988107b5",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "guvenlik/APPROVAL_VE_YETKI_POLITIKASI.md",
+      "size": 2490,
+      "sha256": "9a55f9f96c76b72048fee8d230e20eaf3be2fbfa0949e370f477d845bcbca3d7",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "guvenlik/SANDBOX_PATH_NETWORK_POLICY.md",
+      "size": 2285,
+      "sha256": "f185e39a0e533ecda2614e233b1fa0d9995814053e03cb11c2d82da32eab7d9d",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "guvenlik/SECRET_BROKER_VE_OUTBOUND_POLICY.md",
+      "size": 2442,
+      "sha256": "566c5916fac13db80053ce351850411fc377905d2f0689f774dffbf00d99e46e",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "guvenlik/THREAT_MODEL.md",
+      "size": 2355,
+      "sha256": "e011d60c821d49bb0769f2019235fb36e7de5e812f50eafd2b663c2850c25a99",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/CONTEXT_COMPILER_VE_CONTINUITY.md",
+      "size": 2420,
+      "sha256": "bcacdbaed8fe206c7556801766d3bce4b3a0e4975b2bb04ab0167fc94ccfbb52",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/GERCEK_AGENT_HARNESS.md",
+      "size": 4430,
+      "sha256": "eb054ae8afca9b09b8ff146682e8eaca2f58deb4283e2ef629229336388e8eb5",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/KILIT_CLAIM_RECEIPT_RECOVERY.md",
+      "size": 2809,
+      "sha256": "bca64c594e09d0fb63e915b4fb2f675f3ba3870b767bfc9475f4b0148b377088",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/ORKESTRASYON_DAG_QUEUE_LEASE_FENCING.md",
+      "size": 3570,
+      "sha256": "9ac588c0c28295e4ce41e2d0a2633bdc82fc1e85d82cf799b84f419318ed1604",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/SUBAGENT_VE_RESULT_ENVELOPE.md",
+      "size": 3188,
+      "sha256": "03b5e5208dafbf007bf8be21ea3a67e2ca26f7fe13787b13bf78d8ca48510b80",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "harness/TOOL_CAPABILITY_REGISTRY.md",
+      "size": 1819,
+      "sha256": "f15ea0ba7f4bf02b74d817e98653bb2a05c12a1f0f87d48d9ce706e8fb9777d9",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/ACCEPTANCE_MATRIX.md",
+      "size": 2194,
+      "sha256": "0ad0d859abb35d3c9adefd3e8e410ef593bbc09ab30f66e2d994247392ccfcdc",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/CI_QUALITY_GATES.md",
+      "size": 1666,
+      "sha256": "75f43a9f13d25c2081148c0ac73959ae555abbb0d32ad0cc870dcd46846994a1",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/COMMIT_POLITIKASI.md",
+      "size": 2420,
+      "sha256": "82731e1324e4bfa447b3b81902b3e5e467fb39fd0ec649bb48e51c667c159d26",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/commit-template.txt",
+      "size": 91,
+      "sha256": "4a55b86930264d9e66e106b5fc00fa3554415576973159aa3e3b7a5b586f6c5a",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/GLOBAL_DOD.yaml",
+      "size": 47165,
+      "sha256": "e432555fd5bf817be7dad84a8163fb6a76871a79994865bb18832de5264063fb",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/PHASE_PROJECTION_BASELINE.json",
+      "size": 3905,
+      "sha256": "30f69426c45ddcf93a60b54653906bb4878f5acf4bc3a8ad301c155d6d6d0f60",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/TEST_STRATEJISI.md",
+      "size": 2580,
+      "sha256": "d851bc818ce1f27619e546dc88700b95c91f1e3f9d6708d75d99e9dcb167daac",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "kalite/UYGULAMA_IS_GRAFIGI.yaml",
+      "size": 77206,
+      "sha256": "4f7570d3ecb6b3cccff434c3600778e2b9e536a2914ec719d990859609462fe7",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "KURULUM_VE_PROJE_ENTEGRASYONU.md",
+      "size": 2413,
+      "sha256": "9c2bdecb9f4588df195fb1292a772e745968ba896cb820faae0e766f19744490",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "mimari/ZEKAM_KIMLIK_SOZLESMESI.md",
+      "size": 1526,
+      "sha256": "c1d8144c023ea53b191ecb79742add2b47c02e4136b7b2f0b373379a8e506830",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "mimari/ADR_KARARLARI.md",
+      "size": 2924,
+      "sha256": "9060407f38e363781483c584cd29b60442855fc212c6ea0720b83b4f346b9b1d",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "mimari/ANA_MIMARI.md",
+      "size": 3445,
+      "sha256": "8678f30b95011e6b2a0ae9b7169d7ec56f09f2766052d32da73a87210930135e",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "mimari/BOUNDED_CONTEXTLER_VE_SAHIPLIK.md",
+      "size": 2204,
+      "sha256": "c9abcb38445ff6e2fa49495c972c099cd8f08eaaeab28367b28724ecb6997b46",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "mimari/DIZIN_YERLESIMI_VE_VERI_SAHIPLIK.md",
+      "size": 2606,
+      "sha256": "030ffc975399aa7b6df8b9690373887a24a97e3bb606793578294c3b28d9eb97",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "modeller/BENCHMARK_SUITE_KATALOGU.md",
+      "size": 3902,
+      "sha256": "06696c58dc203e29a80771cb8e03c6c505e92ea6d39a68cced3833d6a2d04b87",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "modeller/KANONIK_MODEL_ENVANTERI.yaml",
+      "size": 24047,
+      "sha256": "ede3bd13a95c68e62be46f05b76fd98a787ceb45d7464b878bcc57a2c144d1cd",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "modeller/MODEL_ENVANTER_MUTABAKAT.md",
+      "size": 1945,
+      "sha256": "67a4ac02727e7e2e226a42c03334d3bdc85155e4817ece09c1b359807ce5d049",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "modeller/MODEL_ROUTING_QUOTA_FALLBACK.md",
+      "size": 2788,
+      "sha256": "88ffe88613ded0e1b5a8190c580b66913674a6111d72831c7da4605c178f2006",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "modeller/MODEL_SAGLIK_BENCHMARK_VE_YETENEK.md",
+      "size": 3752,
+      "sha256": "8f41eedc7e6b85c508e6b05af6906ac7ec121d058b8c90889c941386fcb36974",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "NIHAI_UYGULAMA_PROMPTU.md",
+      "size": 28089,
+      "sha256": "c0f51b46eaadefacb83fd66c26086de3573a25167f01bff9ea21bb4544551f95",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "opencode.json",
+      "size": 330,
+      "sha256": "a28526314a780d8369fb5b35343bb80e4288c3b21f46b47b347ea2d27621149f",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "operasyon/BACKUP_RESTORE_MIGRATION_ROLLBACK.md",
+      "size": 2209,
+      "sha256": "7e31b51e0e2ec3671001bbedd9ce48fecc4e4d539deddaa49578dd77be972e7e",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "operasyon/DOCTOR_RUNBOOK.md",
+      "size": 1680,
+      "sha256": "5445ff11fa776619b899a76a468b0c68e7cbc9bac510c93f08a2a691edc4d18c",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "operasyon/OBSERVABILITY_DASHBOARD_RAPORLAMA.md",
+      "size": 2531,
+      "sha256": "105f0bc0e4add417d98b6f7c4be3e83456492bf3957951912d0cf79880abd4f3",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "operasyon/SCHEDULER_GECE_ISLERI_SABAH_RAPORU.md",
+      "size": 2891,
+      "sha256": "83e9f5e6296d2a611055d99d1f216d634456f6074a1ef93f02561bac3d3fb861",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "PROJE_MANIFESTI.yaml",
+      "size": 3157,
+      "sha256": "31a073add0545cd1495fe737baa905e005f28232ee0d153206a9b48240942ce4",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "README.md",
+      "size": 3385,
+      "sha256": "ebe4eb6f7418ff4f5536847ab44e35c21a5dd0ba6e32ae2bb84a8afb282f8e80",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "referanslar/context-vault/AKTIF_GOREV_FOR_CONTEXT_VAULT.md",
+      "size": 51473,
+      "sha256": "1aff3d70dafd0ddeb2fe206138934483edd3c30c262a470b7ca989ae9b98570d",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/GUNCEL_TEKNIK_KAYNAKLAR.md",
+      "size": 2872,
+      "sha256": "1b0f4bb9048ac99635bf7a4ec9c749852be751dd17ed73978632eb9ed95c934d",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/KAYNAK_KULLANIM_KURALLARI.md",
+      "size": 1342,
+      "sha256": "e690e175589abe8a6b3fae4b16fe915a7b37e3e3ca235a869a1d581a345e5b01",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/00_ANA_ARASTIRMA_PROMPTU.md",
+      "size": 10024,
+      "sha256": "344783da09d6660c3e1bd0eb3f921c08cb8560cd51190d16b4751c741b81d7ee",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/01_KRCN_CORE_REFERANS_ANALIZI.md",
+      "size": 7695,
+      "sha256": "0dbef685c66903842992901e3ae53ee51dc3ecc842a9310cccb821c0ded7c1d9",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/02_ZEKAM_REFERANS_ANALIZI.md",
+      "size": 6901,
+      "sha256": "58f47b27ca305a85afc964eb68108e8d6b266a83ef8138989718980d6384785a",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/03_CONTEXT_VAULT_REFERANS_ANALIZI.md",
+      "size": 11367,
+      "sha256": "c5a3cac0f002c6de5629065b9a763704bacc73d4c7451249f30bb4b0052c3d79",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/04_AVENOX_REFERANS_ANALIZI.md",
+      "size": 6574,
+      "sha256": "0749371e72a513f8ca6c1c427e12bf75feec7d09a6dfed88b424d0948bd4b2a7",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-arastirma-analizleri/05_DEVDAN_REFERANS_ANALIZI.md",
+      "size": 8139,
+      "sha256": "d63d807c13176af94be4106b98537a04a28d1deb4f6b901886f7601e425758b6",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/00_NIHAI_ARASTIRMA_RAPORU.md",
+      "size": 28290,
+      "sha256": "12bd1d6765dd2f12921445aded1862db63408bf7648d0606b2541ff0c2b604b2",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/01_Z_CONTROL_PLANE_UYGULAMA_GOREVI.md",
+      "size": 23505,
+      "sha256": "d911fb65083116a280e37eb8dc9cb935c031b7c53da30675e1a4355108ff4311",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/02_ILK_DIK_EKSEN_VE_BACKLOG.md",
+      "size": 13539,
+      "sha256": "1adf39764c312d099454d5fbbb67c3e0cff487dda5afd242692c8bfc16602d2d",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/03_Z_PROJECT_MANIFEST.yaml",
+      "size": 16423,
+      "sha256": "7bd9576e8a0534e15776bc24e7017b12c17440653eae55e1b0648c85944d2b9e",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/04_BASLANGIC_ADR_KARARLARI.md",
+      "size": 9530,
+      "sha256": "f6a45550162c8f5a79b06e4532e17c0bfd8c277d28c54f3ce8a1a7abf1475835",
+      "classification": "research-reference"
+    },
+    {
+      "path": "referanslar/onceki-nihai-paket-tarihsel/05_PAKET_OKUMA_SIRASI.md",
+      "size": 3437,
+      "sha256": "2bd1abd96d5d2a96fc011904b5da1a8218a35b0ed7e5fd033c7106e2cc455209",
+      "classification": "research-reference"
+    },
+    {
+      "path": "schemas/agent-result-envelope.schema.json",
+      "size": 4855,
+      "sha256": "96f21e925f8f8a895d387ec7a66d067332e871d5d58c72dd01126594d87748cb",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/benchmark-result.schema.json",
+      "size": 3771,
+      "sha256": "6ee7a85e323a2bb7d49a2faa1f67aa68c237e69a279a5d0b651b8539912d359d",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/checkpoint.schema.json",
+      "size": 4189,
+      "sha256": "e6f2b1053d471b1d8dedce0264aff6276807edb4180f9a4fec0ec0262994323a",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/continuity-packet.schema.json",
+      "size": 3873,
+      "sha256": "ed6046ac2339fcfc1adea1417034811a79868a499bac7a057e816c42815c0a6b",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/effect-claim.schema.json",
+      "size": 3162,
+      "sha256": "1eff051e525fc505d4110a18f45c21a0d95f03436d485c9fdb64a69b936dacd5",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/effect-receipt.schema.json",
+      "size": 3155,
+      "sha256": "1c237d517caeacea65efb685cee318171c6a6c5da5e88f7ebe04ce6d715e5b2b",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/exact-authorization.schema.json",
+      "size": 3741,
+      "sha256": "488ee70d966108906fb49248512e21194e0fccc71085da959b48c3db3f2c4362",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/memory-record.schema.json",
+      "size": 4173,
+      "sha256": "2c9771d2474eac79e0d0fb3293672c6d9ec6ada7ff0eacdf87ce3fa523e9a5a6",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/model-inventory.schema.json",
+      "size": 3152,
+      "sha256": "650cf3f27aca73df1e74864980d46275139401a3377113d6b0d1c334c43ff9e5",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/project-state-snapshot.schema.json",
+      "size": 3201,
+      "sha256": "41ea6700362a0a6aa306ade433bc184b3c5055d18e3afa7a6f1ff19cf6a9ca7b",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/quota-observation.schema.json",
+      "size": 3230,
+      "sha256": "9e07747e1214810f221670f49cc25bad904e2f4b52732ed7d163bd25cbb92073",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/research-agent-result.schema.json",
+      "size": 3731,
+      "sha256": "72d522c9222586d3f6088c03de6ec2e88b3a2e3ff79f1c06a04c5a67db467ca7",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/task-plan.schema.json",
+      "size": 4510,
+      "sha256": "b1c2329415fe376c3834dea0a8d206a52f06574f0d8dc64ea9cffe2816c291cb",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "schemas/work-item.schema.json",
+      "size": 3857,
+      "sha256": "e11af75c52edeb98ffbbee0c8667709fc8bb902e3125b29b632f00039499c43d",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "scripts/paket_dogrula.py",
+      "size": 18454,
+      "sha256": "9820e52019196b949626dcfb7e02d0e7adb3b84222ddd72e30ba672831344b1a",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "scripts/requirements.txt",
+      "size": 12,
+      "sha256": "71749243f84428fee225bfaa796dca5ef6c1e83a98f6d2a407df615b0390d6fb",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "UYGULAMA_TESLIM_SOZLESMESI.md",
+      "size": 1477,
+      "sha256": "8631716ea2ea8895edbd0d42427bf7a15bd172c16bc724bab291c1533653be00",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "VALIDATION_RESULT.json",
+      "size": 1158,
+      "sha256": "14a170d0cd0eb5a3ff926684421f026dc10cdd5b45b468685b7b6acbc39cc300",
+      "classification": "canonical-package"
+    },
+    {
+      "path": "yerel-referanslar/ham/avenoxai.zip",
+      "size": 666271,
+      "sha256": "17b20441a08e69fb00a179565d569efe0c0009a90cea382314d71b1686d0c164",
+      "classification": "local-uncommitted-reference"
+    },
+    {
+      "path": "yerel-referanslar/ham/devdan.zip",
+      "size": 1683237,
+      "sha256": "11678c934b77663e1a13e22a273725f471227cd8e19f92a6e81df0b0a15f404c",
+      "classification": "local-uncommitted-reference"
+    },
+    {
+      "path": "yerel-referanslar/model-envanterleri/AI_MODEL_ENVANTERI_NIHAI.md",
+      "size": 71500,
+      "sha256": "fa6fafe8dcb053ee6af7b0cc14bb6777dd673b8be7b739a506fce902b55c98ab",
+      "classification": "local-uncommitted-reference"
+    },
+    {
+      "path": "yerel-referanslar/model-envanterleri/TT_AI_MODEL_ENVANTERI_FINAL_2026-08-20.md",
+      "size": 100042,
+      "sha256": "516ba0db7cc9849b142f12bbf1f1d0b839a512c4d098795c1836742027be36f4",
+      "classification": "local-uncommitted-reference"
+    },
+    {
+      "path": "yerel-referanslar/README.md",
+      "size": 611,
+      "sha256": "fe1c34ccf93c7eb715e44d289eea924291526413eae83cea41b172f1bcdaeeba",
+      "classification": "local-uncommitted-reference"
+    }
+  ]
+}

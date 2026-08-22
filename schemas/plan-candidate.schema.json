@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Plan Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "candidate_id", "report_id", "report_digest", "work_ref", "source_revision", "proposed_steps", "writable_resources", "acceptance", "rollback", "risk", "open_questions", "requires_authorization", "approval_inherited", "grants_authority"],
+  "properties": {
+    "schema": {"const": "zekam-plan-candidate/v1"},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "report_id": {"type": "string", "minLength": 1},
+    "report_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "work_ref": {"type": "string", "minLength": 1},
+    "source_revision": {"type": "string", "minLength": 1},
+    "proposed_steps": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "writable_resources": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "acceptance": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "rollback": {"type": "string", "minLength": 1},
+    "risk": {"enum": ["low", "medium", "high", "critical"]},
+    "open_questions": {"type": "array", "items": {"type": "string"}},
+    "requires_authorization": {"const": true},
+    "approval_inherited": {"const": false},
+    "grants_authority": {"const": false}
+  }
+}

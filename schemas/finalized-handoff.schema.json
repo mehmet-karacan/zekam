@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Finalized Handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "from_client", "to_client", "from_model_ref", "to_model_ref", "snapshot_digest", "checkpoint_digest", "source_revision", "created_at", "handoff_digest", "transcript_included", "grants_authority", "carries_active_lease", "approval_inherited", "reacquire_required"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "from_client": {"type": "string", "minLength": 1},
+    "to_client": {"type": "string", "minLength": 1},
+    "from_model_ref": {"type": "string", "minLength": 1},
+    "to_model_ref": {"type": "string", "minLength": 1},
+    "snapshot_digest": {"$ref": "#/$defs/digest"},
+    "checkpoint_digest": {"$ref": "#/$defs/digest"},
+    "source_revision": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "handoff_digest": {"$ref": "#/$defs/digest"},
+    "transcript_included": {"const": false},
+    "grants_authority": {"const": false},
+    "carries_active_lease": {"const": false},
+    "approval_inherited": {"const": false},
+    "reacquire_required": {"const": true}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}
+}

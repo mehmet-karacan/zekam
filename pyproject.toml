@@ -1,0 +1,127 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zekam"
+version = "0.1.0"
+description = "Zekam - kanit tabanli, model bagimsiz calisma ve bilgi platformu"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Zekam" }]
+dependencies = [
+    "pydantic>=2.9",
+    "pyyaml>=6.0.2",
+    "click>=8.1",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+db = [
+    "psycopg[binary,pool]>=3.2",
+]
+oracle = [
+    # Oracle'in resmi surucusu varsayilan Thin modda istemci kutuphanesi istemez.
+    "oracledb>=4.0,<5",
+]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+knowledge-docs = [
+    # Yalniz izin verici lisansli yerel PDF render hatti. Runtime, V8/XFA ve
+    # exact wheel BUILD_LICENSES kapilarini fail-closed uygular.
+    "pypdfium2>=5.12.1,<6",
+    "Pillow>=11,<13",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML>=6.0",
+    # Kalite kapilari: bagimlilik audit ve olu kod taramasi.
+    "pip-audit>=2.7",
+    "vulture>=2.11",
+]
+
+[project.scripts]
+zekam = "zekam.interfaces.cli.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zekam"]
+
+# Core varsayilan yapilandirmasi wheel icine de kopyalanir; boylece paket olarak
+# kurulumda `config/` dizini olmadan da varsayilanlar bulunur.
+[tool.hatch.build.targets.wheel.force-include]
+"config" = "zekam/_config"
+"migrations" = "zekam/migrations"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# Paket dogrulayicinin icerigi SHA256SUMS.txt ile sabitlenmistir; bicimlendirme
+# degisikligi teslim checksum'ini bozar.
+extend-exclude = ["scripts/paket_dogrula.py"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehensions
+    "SIM",           # simplify
+    "RUF",           # ruff specific
+]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/zekam", "tests"]
+strict = true
+warn_unreachable = true
+disallow_untyped_defs = true
+no_implicit_reexport = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = [
+    "psycopg.*",
+    "oracledb.*",
+    "typer.*",
+    "rich.*",
+    "pypdfium2.*",
+    "pypdfium2_raw.*",
+    "PIL.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "unit: saf domain ve fonksiyon testleri",
+    "property: ozellik ve fuzz testleri",
+    "integration: gercek PostgreSQL veya dis bagimlilik gerektiren testler",
+    "concurrency: coklu worker yaris testleri",
+    "security: guvenlik ve negatif testler",
+    "e2e: uctan uca akis testleri",
+    "postgres: gercek PostgreSQL 18 + pgvector container gerektirir",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/zekam"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

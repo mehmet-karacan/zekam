@@ -1,0 +1,111 @@
+schema: zekam-model-benchmark-fixtures/v1
+schema_version: 1
+fixtures:
+  - case_id: general-chat-json-tr
+    version: 1
+    workload: analysis
+    modality: chat
+    fixture_source: benchmark-fixtures/general-chat-json-tr.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:a8e974d93b0fc0f9e4b0cb7b6ed3506a51aebbfbba8cf41eeb426e7f53817d62
+    expected_schema_digest: sha256:5946178857f33a09ac41c9cf9dd021c264650d05cd7bd34f3aa7d954cbf4f6a2
+    tags: [general, project, turkish, structured-output]
+  - case_id: general-code-evidence
+    version: 1
+    workload: code
+    modality: code
+    fixture_source: benchmark-fixtures/general-code-evidence.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:b22c464a59e19ee7b3a27afc3b7bc1af09998026dca1d25767a0d854cdde4177
+    expected_schema_digest: sha256:f594335b4f17f0d50b768c58bcf56a6e58297076e78b8c53d4d6f70b4178df7c
+    tags: [general, project, evidence]
+  - case_id: local-sensitive-analysis
+    version: 1
+    workload: analysis
+    modality: chat
+    fixture_source: benchmark-fixtures/local-sensitive-analysis.v1.json
+    execution_eligibility: local-only
+    content_digest: sha256:a8e1694edd107b9fc2fdb74d65305d180c136c5c2b32fb7d4bb5e57d7a9cbc40
+    expected_schema_digest: sha256:977595eb3b3bccefe3c75bd99ef376d4be74468348499d25ca291389b1fc39b4
+    tags: [general, project, sensitive]
+  - case_id: general-verification
+    version: 1
+    workload: verification
+    modality: chat
+    fixture_source: benchmark-fixtures/general-verification.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:5c8798b6c6f1e18814d1856cc761246224b2e150c2df0fcbdc0e22efaae35091
+    expected_schema_digest: sha256:399f964f13639810790df5c5f21a01af379219b51f8e2f301bf1ac87ecbc8746
+    tags: [general, project, verifier]
+  - case_id: general-unsafe-gate
+    version: 1
+    workload: safety
+    modality: guardrail
+    fixture_source: benchmark-fixtures/general-unsafe-gate.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:e28a41c82afed7c752a471776bf9977f6e213396f5d6281ed450b29d5e892ab3
+    expected_schema_digest: sha256:f90437fe54579cd2635e8cdfcba6950ecd469b8dabf7820c2230b83b2e99eb82
+    tags: [general, safety]
+  - case_id: opencode-remote-chat-json-tr
+    version: 1
+    workload: analysis
+    modality: chat
+    fixture_source: benchmark-fixtures/opencode-remote-chat-json-tr.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:b133b75f7216fd44ffd6e5ed80fe0544d66682087f6036f2f64f9108f8ccc04b
+    expected_schema_digest: sha256:da1dcc45463959079ddad4a253274648cb7a3390d0e1dd93d3b8c882f18aad44
+    tags: [general, public, opencode-remote, exact-shape]
+  - case_id: opencode-remote-completion-marker
+    version: 1
+    workload: completion
+    modality: completion
+    fixture_source: benchmark-fixtures/opencode-remote-completion-marker.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:4026e0d2ae37ecb1f4cb650eca9cc4b13bb9e3bfe7159dfa91eb8b9ce9560265
+    expected_schema_digest: sha256:412682fddbba806d8e0bd2595c860174953ed1f4767a60cd6a3d1fdd33f4f67c
+    tags: [general, public, opencode-remote, exact-shape]
+  - case_id: opencode-remote-code-markers
+    version: 1
+    workload: code
+    modality: code
+    fixture_source: benchmark-fixtures/opencode-remote-code-markers.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:f1ac2811af56355baeb9d5e10cf6205a56a346a61c31c2771df15bba9969a239
+    expected_schema_digest: sha256:78cd096516c658ba018f966b4dde8165a4298364a23f0fd38b987e0ca292e063
+    tags: [general, public, opencode-remote, exact-shape]
+  - case_id: opencode-remote-embedding-determinism
+    version: 1
+    workload: retrieval
+    modality: embedding
+    fixture_source: benchmark-fixtures/opencode-remote-embedding-determinism.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:f5333ba96ce0364d63866b4d615c6a1d56421e005b028af281a99a09ec3cd5ee
+    expected_schema_digest: sha256:cf548106f8091571b61f87505643f6326287f1e48d37a15f1ef5e9ab8a2ed9e1
+    tags: [general, public, opencode-remote, determinism]
+  - case_id: opencode-remote-rerank-order
+    version: 1
+    workload: retrieval
+    modality: rerank
+    fixture_source: benchmark-fixtures/opencode-remote-rerank-order.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:361686c595663573ca5c4170b631a4b8aa4b3d65935b7f06545292f2ceccb958
+    expected_schema_digest: sha256:00a8d42615b87f10f9cb4b09e22eb8acadb7d5468266bab7ae7591ca32cf976f
+    tags: [general, public, opencode-remote, monotonicity]
+  - case_id: opencode-remote-vision-grounding
+    version: 1
+    workload: vision
+    modality: vision_language
+    fixture_source: benchmark-fixtures/opencode-remote-vision-grounding.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:7f59a00ee3db299cb81e8ad7d2d4e2e1e0e34484aa46718e3985dc7b46cedac2
+    expected_schema_digest: sha256:5afb97957d8c350593c6cce3f7cf4b4fbd2a41ec298a9018519767666dffb35b
+    tags: [general, public, opencode-remote, grounding]
+  - case_id: opencode-remote-guardrail-balanced
+    version: 1
+    workload: safety
+    modality: guardrail
+    fixture_source: benchmark-fixtures/opencode-remote-guardrail-balanced.v1.json
+    execution_eligibility: remote-allowed
+    content_digest: sha256:55f2e224872e64c9510d74ec96bd8bcaf5b8bb164b83a9f06bf4f2b23f0f2c43
+    expected_schema_digest: sha256:af62874bbb6a92f2ad502119fc12458e41bda62276456e6f20b9b05a08f99f9a
+    tags: [general, public, opencode-remote, safety]

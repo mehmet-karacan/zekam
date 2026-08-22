@@ -1,0 +1,1 @@
+{"case_id":"opencode-remote-completion-marker","data_classification":"public","expectation":{"required_marker":"ZEKAM-TAMAM"},"modality":"completion","payload":{"max_tokens":24,"prompt":"Cumleyi ZEKAM-TAMAM belirteciyle bitir: Yerel dogrulama"},"schema":"zekam-opencode-remote-benchmark-fixture/v1","version":1}

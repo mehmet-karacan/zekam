@@ -1,0 +1,1 @@
+"""Nesne deposu adapterleri."""

@@ -1,0 +1,23 @@
+{
+  "schema": "zekam-phase-projection-baseline/v1",
+  "phases": [
+    {"id": "ZEKAM-P00", "completed_digest": "sha256:e01a1fe55c72879a8c306b9e982f6c72062f24b51fb3a5a466c9e0aa036a11ec", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P01", "completed_digest": "sha256:4bba9dcf3fc0842ba66c42e2dadfcf0c4cdaf80227df04a137e668f07d893c3b", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P02", "completed_digest": "sha256:0d681d3064dac763cb1d7eae9ec149a7627b89518299c429e54c82d9c2e16d80", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P03", "completed_digest": "sha256:6f44981dd27b25848b1c859b667f1af46d4cf3b464c833f34dd278c616404f62", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P04", "completed_digest": "sha256:8c02f05ec85af930a14260efa329ee4962cac15dbc73765c74ca5a16b5fb140f", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P05", "completed_digest": "sha256:abb6b2d1c01a3d57d9b0af45abf7f12d66cc2b86706436aba4348a83a0ca6b4b", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P06", "completed_digest": "sha256:b256cb98b94fb56bf911cc6e3a5838dc2a37a187fb7459ed3378abaaf78b3a93", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P07", "completed_digest": "sha256:0efcaf9661f4695825afc1a235ba68f312343b9ceadda5c445966b4bd49b96af", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P08", "completed_digest": "sha256:bade36fe70f92c781286d5a59869cc07c54c97bf925006e0fc65c0b68f6afc0a", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P09", "completed_digest": "sha256:ff0b59f605564b25b8ecfd86443ff769b4dcaf2ce122172ddbde58c5b27c44f4", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P10", "completed_digest": "sha256:ec3e2c4fbc7f2eb1a2e5b054a15f5248fa79241525ca57fd627d844b01941ade", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P11", "completed_digest": "sha256:4d870c9e8028f2efd57d20f60126a59007b83b95815a8bc7fa6290948954976d", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P12", "completed_digest": "sha256:a3206e6fea518e9c5aaca319800650a431877b97e17cc18302388fea9ee0aed9", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P13", "completed_digest": "sha256:1b59f87ff52177cd905bd8c139384897c12c2289d65519030df82c25817085ff", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P14", "completed_digest": "sha256:68fabade3f0580a44039b40cdffda18b5a2c2ea289a876ce338a6fb8b22a3162", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P15", "completed_digest": "sha256:14d353dd92d1605706d550deb49322cfdaeb405be2445b35b096e55d93588be3", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P16", "completed_digest": "sha256:e87c7be767ed58ec3c5f8c0084315788df017fd36320176140a235510ee2f5cc", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    {"id": "ZEKAM-P17", "completed_digest": "sha256:ec026ef548c34bb323a585a4f8fc60120b9d689dc7992f96354b227db071ed38", "pending_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+  ]
+}

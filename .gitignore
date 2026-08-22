@@ -1,0 +1,35 @@
+# Zekam local user/runtime data
+.zekam/
+ZEKAM_HOME/
+.calisma/
+worktrees/
+sandboxlar/
+kilitler/
+secrets/
+
+# Ham ve hassas yerel referanslar pakette gelir fakat Git'e eklenmez
+yerel-referanslar/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# Build
+dist/
+build/
+*.egg-info/

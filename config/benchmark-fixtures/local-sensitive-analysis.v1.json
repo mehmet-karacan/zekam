@@ -1,0 +1,1 @@
+{"case_id":"local-sensitive-analysis","metrics":{"input_tokens":72,"latency_ms":18,"output_tokens":36,"quality":0.91,"reliability":0.97},"schema":"zekam-local-benchmark-fixture/v1","version":1}
