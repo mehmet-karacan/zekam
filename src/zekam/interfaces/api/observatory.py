@@ -1,6 +1,7 @@
 """FastAPI surface for the read-only Zekam Neuro Observatory."""
 
 import asyncio
+import ipaddress
 import json
 from pathlib import Path
 from typing import Any
@@ -20,11 +21,27 @@ from zekam.application.observatory import (
 _STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
 
+def validated_lan_hosts(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Accept only exact, non-loopback interface IPs for explicit LAN exposure."""
+
+    validated: list[str] = []
+    for value in values:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError("LAN trusted host exact IP olmali") from exc
+        if address.is_unspecified or address.is_multicast or address.is_loopback:
+            raise ValueError("LAN trusted host belirli bir non-loopback IP olmali")
+        validated.append(str(address))
+    return tuple(validated)
+
+
 def create_app(
     context: ApplicationContext,
     *,
     realm_id: UUID | None = None,
     refresh_seconds: float = 2.0,
+    allowed_hosts: tuple[str, ...] = (),
 ) -> Any:
     """Create the local, read-only observatory application.
 
@@ -41,6 +58,7 @@ def create_app(
 
     if refresh_seconds < 0.5 or refresh_seconds > 30:
         raise ValueError("refresh_seconds 0.5..30 araliginda olmali")
+    trusted_lan_hosts = validated_lan_hosts(allowed_hosts)
     if not _STATIC_ROOT.is_dir():
         raise RuntimeError("Zekam UI statik dosyalari bulunamadi")
 
@@ -76,7 +94,14 @@ def create_app(
     app.state.observatory_service = service
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["127.0.0.1", "localhost", "::1", "[::1]", "testserver"],
+        allowed_hosts=[
+            "127.0.0.1",
+            "localhost",
+            "::1",
+            "[::1]",
+            "testserver",
+            *trusted_lan_hosts,
+        ],
     )
 
     @app.middleware("http")

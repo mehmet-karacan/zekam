@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Annotated
 from uuid import UUID
 
@@ -15,6 +16,18 @@ app = typer.Typer(name="ui", help="Salt okunur Neuro Observatory", no_args_is_he
 console = Console()
 error_console = Console(stderr=True)
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def validate_lan_bind_host(host: str) -> str:
+    """Require one exact non-loopback interface IP; never accept wildcards."""
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("LAN host exact IP olmali") from exc
+    if address.is_unspecified or address.is_multicast or address.is_loopback:
+        raise ValueError("LAN host belirli bir non-loopback IP olmali")
+    return str(address)
 
 
 @app.command("serve")
@@ -32,8 +45,15 @@ def serve_command(
     ] = None,
     host: Annotated[
         str,
-        typer.Option(help="Ilk surum yalniz loopback arayuzune baglanir"),
+        typer.Option(help="Varsayilan olarak yalniz loopback arayuzune baglanir"),
     ] = "127.0.0.1",
+    allow_lan: Annotated[
+        bool,
+        typer.Option(
+            "--allow-lan",
+            help="Acik yetkiyle belirtilen LAN adresine baglanmaya izin verir",
+        ),
+    ] = False,
     port: Annotated[
         int,
         typer.Option(min=1, max=65535, help="Yerel HTTP portu"),
@@ -45,11 +65,16 @@ def serve_command(
 ) -> None:
     """Zekam'in read-only beyin/sinaps gozlem arayuzunu baslatir."""
 
+    lan_host: str | None = None
     if host not in _LOOPBACK_HOSTS:
-        error_console.print(
-            "[red]Hata:[/red] UI ilk dilimde yalniz 127.0.0.1, ::1 veya localhost'a baglanir"
-        )
-        raise typer.Exit(64)
+        if not allow_lan:
+            error_console.print("[red]Hata:[/red] LAN adresi icin acik --allow-lan yetkisi gerekli")
+            raise typer.Exit(64)
+        try:
+            lan_host = validate_lan_bind_host(host)
+        except ValueError as exc:
+            error_console.print(f"[red]Hata:[/red] {exc}")
+            raise typer.Exit(64) from exc
     try:
         resolved_realm = UUID(realm_id) if realm_id is not None else None
         context = build_context(home=home)
@@ -59,6 +84,7 @@ def serve_command(
             context,
             realm_id=resolved_realm,
             refresh_seconds=refresh_ms / 1000,
+            allowed_hosts=() if lan_host is None else (lan_host,),
         )
         import uvicorn
     except (ValueError, RuntimeError, ZekamError) as exc:

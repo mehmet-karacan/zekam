@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from importlib.resources import files
 
+import pytest
+
+from zekam.interfaces.api.observatory import validated_lan_hosts
+from zekam.interfaces.cli.ui import validate_lan_bind_host
+
 
 def test_observatory_assets_are_packaged_and_self_contained() -> None:
     static = files("zekam.interfaces.api").joinpath("static")
@@ -56,3 +61,23 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
+
+
+def test_ui_lan_binding_requires_explicit_flag() -> None:
+    source = files("zekam.interfaces.cli").joinpath("ui.py").read_text(encoding="utf-8")
+
+    assert '"--allow-lan"' in source
+    assert "if host not in _LOOPBACK_HOSTS:" in source
+    assert "if not allow_lan:" in source
+    assert "allowed_hosts=() if lan_host is None else (lan_host,)" in source
+
+
+def test_ui_lan_binding_accepts_only_exact_non_loopback_ip() -> None:
+    assert validate_lan_bind_host("192.168.1.183") == "192.168.1.183"
+    assert validated_lan_hosts(("192.168.1.183",)) == ("192.168.1.183",)
+
+    for unsafe in ("*", "0.0.0.0", "::", "*.example", "localhost", "127.0.0.1"):
+        with pytest.raises(ValueError):
+            validate_lan_bind_host(unsafe)
+        with pytest.raises(ValueError):
+            validated_lan_hosts((unsafe,))
