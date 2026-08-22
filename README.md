@@ -68,6 +68,20 @@ docker compose -f compose/docker-compose.yml up -d
 .venv/Scripts/zekam doctor
 ```
 
+## Neuro Observatory (read-only)
+
+Repository belge grafini PostgreSQL olmadan, canli runtime projeksiyonunu ise exact realm
+kimligiyle acmak icin:
+
+```bash
+.venv/Scripts/zekam ui serve
+.venv/Scripts/zekam ui serve --realm-id <REALM_UUID>
+```
+
+Ilk surum yalniz loopback arayuzune baglanir ve mutation endpoint'i acmaz. Mimari, veri
+sinirlari ve sonraki OpenCode/Codex/Claude bridge plani:
+[`docs/UI_NEURO_OBSERVATORY_MIMARISI.md`](docs/UI_NEURO_OBSERVATORY_MIMARISI.md).
+
 ## Paket doğrulama
 
 ```bash

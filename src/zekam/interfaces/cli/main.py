@@ -44,6 +44,7 @@ from zekam.interfaces.cli import project as project_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import surface as surface_commands
+from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
 
@@ -87,6 +88,7 @@ app.add_typer(knowledge_commands.app)
 app.add_typer(scheduler_commands.scheduler_app)
 app.add_typer(scheduler_commands.report_app)
 app.add_typer(surface_commands.app)
+app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
 
 

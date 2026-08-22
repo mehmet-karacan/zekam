@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/observatory_snapshot.schema.json",
+  "title": "Zekam Neuro Observatory Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at",
+    "projection_digest",
+    "read_only",
+    "grants_authority",
+    "dashboard",
+    "graph",
+    "agents",
+    "events",
+    "reports",
+    "runtime",
+    "safety"
+  ],
+  "properties": {
+    "schema": { "const": "zekam-observatory-snapshot/v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "projection_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "read_only": { "const": true },
+    "grants_authority": { "const": false },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "tiles", "read_only", "grants_authority"],
+      "properties": {
+        "schema": { "const": "zekam-dashboard/v1" },
+        "read_only": { "const": true },
+        "grants_authority": { "const": false },
+        "tiles": {
+          "type": "array",
+          "minItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "title", "value", "drill_down", "detail"],
+            "properties": {
+              "key": { "enum": ["work", "run", "model", "knowledge", "memory", "scheduler"] },
+              "title": { "type": "string", "minLength": 1, "maxLength": 96 },
+              "value": { "type": "integer", "minimum": 0 },
+              "drill_down": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "detail": { "type": "string", "maxLength": 4096 }
+            }
+          }
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "nodes", "edges", "source_digest", "derived", "grants_authority"],
+      "properties": {
+        "schema": { "const": "zekam-derived-graph/v1" },
+        "source_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "derived": { "const": true },
+        "grants_authority": { "const": false },
+        "nodes": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["node_id", "kind", "label", "canonical_ref"],
+            "properties": {
+              "node_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "label": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "target", "kind"],
+            "properties": {
+              "source": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "target": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 128 }
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent_id", "label", "client", "state", "canonical_ref",
+          "job_id", "work_item_id", "step_id", "heartbeat_at", "lease_expires_at"
+        ],
+        "properties": {
+          "agent_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "client": { "enum": ["zekam", "opencode", "codex", "claude"] },
+          "state": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "job_id": { "type": ["string", "null"] },
+          "work_item_id": { "type": ["string", "null"] },
+          "step_id": { "type": ["string", "null"] },
+          "heartbeat_at": { "type": ["string", "null"], "format": "date-time" },
+          "lease_expires_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 80,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "event_type", "source", "occurred_at", "canonical_ref", "job_id", "agent_id"],
+        "properties": {
+          "event_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "event_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "source": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "occurred_at": { "type": "string", "format": "date-time" },
+          "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "job_id": { "type": ["string", "null"] },
+          "agent_id": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "reports": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["report_id", "title", "relative_path", "modified_at", "canonical_ref"],
+        "properties": {
+          "report_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "modified_at": { "type": "string", "format": "date-time" },
+          "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "detail"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_content", "model_response_content", "secret_values", "authority"],
+      "properties": {
+        "prompt_content": { "const": false },
+        "model_response_content": { "const": false },
+        "secret_values": { "const": false },
+        "authority": { "const": false }
+      }
+    }
+  }
+}

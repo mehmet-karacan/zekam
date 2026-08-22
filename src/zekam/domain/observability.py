@@ -123,6 +123,7 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     ),
     CommandContract("report today", "Gunun raporunu okur", mutating=False),
     CommandContract("backup verify", "Yedek butunlugunu dogrular", mutating=False),
+    CommandContract("ui serve", "Salt okunur Neuro Observatory arayuzunu baslatir", mutating=False),
     CommandContract("worker settings", "Worker sinirlarini gosterir", mutating=False),
     CommandContract(
         "worker tick",
