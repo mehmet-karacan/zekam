@@ -61,6 +61,7 @@ _EXCLUDED_PARTS = frozenset(
     }
 )
 _REPORT_HINTS = ("RAPOR", "REPORT", "DURUM", "CHECKPOINT", "KANIT")
+_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f-]{27,36}", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +322,116 @@ class OpenCodeLifecycleProjectionReader:
 
 
 @dataclass(frozen=True, slots=True)
+class LocalSessionFileProjectionReader:
+    """Observe Codex/Claude session file heartbeats without reading conversation content."""
+
+    client: str
+    root: Path
+    index_path: Path | None = None
+    active_seconds: int = 45
+    recent_seconds: int = 300
+
+    def read(self) -> RuntimeProjection:
+        now = dt.datetime.now(dt.UTC)
+        titles = _session_title_index(self.index_path)
+        candidates: list[tuple[Path, dt.datetime]] = []
+        if self.root.is_dir():
+            for path in self.root.rglob("*.jsonl"):
+                if "tool-results" in path.parts:
+                    continue
+                try:
+                    updated_at = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.UTC)
+                except OSError:
+                    continue
+                if (now - updated_at).total_seconds() <= self.recent_seconds:
+                    candidates.append((path, updated_at))
+        candidates.sort(key=lambda item: item[1], reverse=True)
+        nodes = [
+            GraphNode(
+                node_id=f"client:{self.client}",
+                kind="client",
+                label=self.client.title(),
+                canonical_ref=f"runtime:{self.client}-sessions",
+            )
+        ]
+        edges: list[GraphEdge] = []
+        agents: list[ObservatoryAgent] = []
+        events: list[ObservatoryEvent] = []
+        for path, updated_at in candidates[:8]:
+            session_id = _session_id_from_path(path)
+            node_id = f"{self.client}-session:{_short_id(session_id)}"
+            title = titles.get(session_id, f"{self.client.title()} session {session_id[-8:]}")
+            label = sanitize_observatory_label(title, fallback=f"{self.client.title()} session")
+            age_seconds = (now - updated_at).total_seconds()
+            state = "active" if age_seconds <= self.active_seconds else "checkpointed"
+            canonical_ref = f"runtime:{self.client}-sessions/{session_id}"
+            nodes.append(GraphNode(node_id, "agent-session", label, canonical_ref))
+            edges.append(GraphEdge(f"client:{self.client}", node_id, "runs-session"))
+            agents.append(
+                ObservatoryAgent(
+                    agent_id=node_id,
+                    label=label,
+                    client=self.client,
+                    state=state,
+                    canonical_ref=canonical_ref,
+                    heartbeat_at=updated_at,
+                    task_label=label,
+                    started_at=updated_at,
+                )
+            )
+            events.append(
+                ObservatoryEvent(
+                    event_id=(
+                        f"{self.client}-event:{_short_id(session_id + updated_at.isoformat())}"
+                    ),
+                    event_type="session.activity",
+                    source=self.client,
+                    occurred_at=updated_at,
+                    canonical_ref=canonical_ref,
+                    agent_id=node_id,
+                )
+            )
+        return RuntimeProjection(
+            generated_at=now,
+            tiles=unavailable_runtime_projection(f"{self.client}-sessions").tiles,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
+            agents=tuple(agents),
+            events=tuple(events),
+            source_digest=digest(
+                {"client": self.client, "sessions": [agent.as_dict() for agent in agents]}
+            ),
+            available=bool(agents),
+            detail=f"{self.client}-sessions",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CompositeRuntimeProjectionReader:
+    readers: tuple[RuntimeProjectionReader, ...]
+
+    def read(self) -> RuntimeProjection:
+        projections = tuple(reader.read() for reader in self.readers)
+        return RuntimeProjection(
+            generated_at=dt.datetime.now(dt.UTC),
+            tiles=unavailable_runtime_projection("local-client-sessions").tiles,
+            nodes=_unique_nodes(tuple(node for item in projections for node in item.nodes)),
+            edges=_unique_edges(tuple(edge for item in projections for edge in item.edges)),
+            agents=tuple(agent for item in projections for agent in item.agents)[:MAX_AGENTS],
+            events=tuple(
+                sorted(
+                    (event for item in projections for event in item.events),
+                    key=lambda event: event.occurred_at,
+                    reverse=True,
+                )[:MAX_EVENTS]
+            ),
+            source_digest=digest([item.source_digest for item in projections]),
+            available=any(item.available for item in projections),
+            detail="local-client-sessions",
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EmptyRuntimeProjectionReader:
     detail: str = "realm-id-required"
 
@@ -424,10 +535,13 @@ class ObservatoryService:
             edges = _unique_edges(
                 (*edges, GraphEdge("system:zekam", runtime_root, "observes-runtime"))
             )
-        if "client:opencode" in known and "system:zekam" in known:
-            edges = _unique_edges(
-                (*edges, GraphEdge("system:zekam", "client:opencode", "observes-client"))
+        if "system:zekam" in known:
+            client_edges = tuple(
+                GraphEdge("system:zekam", node_id, "observes-client")
+                for node_id in ("client:opencode", "client:codex", "client:claude")
+                if node_id in known
             )
+            edges = _unique_edges((*edges, *client_edges))
 
         graph = DerivedGraph(
             nodes=nodes,
@@ -440,7 +554,10 @@ class ObservatoryService:
                 }
             ),
         )
-        dashboard = OperationsDashboard(generated_at=generated_at, tiles=runtime.tiles)
+        dashboard_tiles = runtime.tiles
+        if not runtime.available and clients.available:
+            dashboard_tiles = _client_observation_tiles(runtime.tiles, clients.agents)
+        dashboard = OperationsDashboard(generated_at=generated_at, tiles=dashboard_tiles)
         return ObservatorySnapshot(
             generated_at=generated_at,
             dashboard=dashboard,
@@ -505,6 +622,33 @@ def unavailable_runtime_projection(detail: str) -> RuntimeProjection:
         source_digest=digest({"available": False, "detail": detail}),
         available=False,
         detail=detail,
+    )
+
+
+def _client_observation_tiles(
+    tiles: tuple[ProjectionTile, ...],
+    agents: tuple[ObservatoryAgent, ...],
+) -> tuple[ProjectionTile, ...]:
+    active_states = {"active", "running", "claimed", "executing", "in_progress"}
+    active = tuple(agent for agent in agents if agent.state in active_states)
+    observed = {
+        "work": sum(agent.parent_agent_id is None for agent in active),
+        "run": len(active),
+        "model": len({agent.model_ref for agent in active if agent.model_ref}),
+    }
+    return tuple(
+        ProjectionTile(
+            key=tile.key,
+            title=tile.title,
+            value=observed.get(tile.key, tile.value),
+            drill_down=tile.drill_down,
+            detail=(
+                "istemci gozlemi · authority degil"
+                if tile.key in observed
+                else "canli realm baglanmadi"
+            ),
+        )
+        for tile in tiles
     )
 
 
@@ -690,6 +834,33 @@ def _opencode_session_metadata(
             "updated_at": dt.datetime.fromtimestamp(int(updated_at) / 1000, tz=dt.UTC).isoformat(),
         }
     return result
+
+
+def _session_id_from_path(path: Path) -> str:
+    matches = _SESSION_ID.findall(path.stem)
+    return matches[-1] if matches else path.stem[-80:]
+
+
+def _session_title_index(path: Path | None) -> dict[str, str]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        if path.stat().st_size > 2 * 1024 * 1024:
+            return {}
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    titles: dict[str, str] = {}
+    for line in lines[-2000:]:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        session_id = item.get("id")
+        title = item.get("thread_name")
+        if isinstance(session_id, str) and isinstance(title, str):
+            titles[session_id] = sanitize_observatory_label(title, fallback="Session")
+    return titles
 
 
 def sanitize_observatory_label(

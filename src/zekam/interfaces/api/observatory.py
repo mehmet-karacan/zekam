@@ -9,7 +9,9 @@ from uuid import UUID
 from zekam.application.composition import ApplicationContext
 from zekam.application.config import PersistenceBackend
 from zekam.application.observatory import (
+    CompositeRuntimeProjectionReader,
     EmptyRuntimeProjectionReader,
+    LocalSessionFileProjectionReader,
     ObservatoryService,
     OpenCodeLifecycleProjectionReader,
     RuntimeProjectionReader,
@@ -46,9 +48,22 @@ def create_app(
     service = ObservatoryService(
         core_path=context.core_path,
         runtime_reader=reader,
-        client_reader=OpenCodeLifecycleProjectionReader(
-            context.home,
-            metadata_path=Path.home() / ".local" / "share" / "opencode" / "opencode.db",
+        client_reader=CompositeRuntimeProjectionReader(
+            (
+                OpenCodeLifecycleProjectionReader(
+                    context.home,
+                    metadata_path=Path.home() / ".local" / "share" / "opencode" / "opencode.db",
+                ),
+                LocalSessionFileProjectionReader(
+                    "codex",
+                    Path.home() / ".codex" / "sessions",
+                    index_path=Path.home() / ".codex" / "session_index.jsonl",
+                ),
+                LocalSessionFileProjectionReader(
+                    "claude",
+                    Path.home() / ".claude" / "projects",
+                ),
+            )
         ),
     )
     app = FastAPI(

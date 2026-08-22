@@ -219,6 +219,19 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .agent-card[style*="--session-depth:1"]::after, .agent-card[style*="--session-depth:2"]::after { content: "↳"; position: absolute; left: -15px; top: 12px; color: #72ddff; font: 11px var(--mono); }
 .agent-card.is-active { border-color: rgba(114,221,255,.36); box-shadow: 0 0 20px rgba(114,221,255,.08), inset 0 0 18px rgba(114,221,255,.04); }
 .agent-card.is-context { opacity: .62; }
+
+/* Observatory okunabilirlik tabani: operasyon metadatasi 10px altina dusmez. */
+.eyebrow { font-size: 11px; }
+.metric-top span, .metric-tile small { font-size: 11px; }
+.metric-tile strong { font-size: 25px; }
+.client-card strong, .agent-identity strong { font-size: 12px; }
+.client-card small, .agent-identity small, .agent-meta, .agent-state, .client-status { font-size: 10px; }
+.event-row time, .event-row small, .event-source { font-size: 10px; }
+.event-row strong { font-size: 12px; }
+.report-item strong { font-size: 11px; }
+.report-item span, .system-list, .agent-contract li, .agent-contract > p:last-child { font-size: 10px; }
+.brain-corner-stat span { font-size: 16px; }
+.brain-corner-stat small { font-size: 10px; }
 .agent-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--mint); opacity: .7; }
 .agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }

@@ -321,23 +321,25 @@
         });
       });
     }
-    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const agents = (state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state));
+    const agents = (state.snapshot?.agents || []).filter((agent) => state.liveNodeIds.has(agent.agent_id));
     const activeMap = new Map(agents.map((agent) => [agent.agent_id, agent]));
     const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id));
+    positions.set("client:opencode", { x: 0.25, y: 0.12, vx: 0, vy: 0, seed: 1 });
+    positions.set("client:codex", { x: 0.5, y: 0.12, vx: 0, vy: 0, seed: 2 });
+    positions.set("client:claude", { x: 0.75, y: 0.12, vx: 0, vy: 0, seed: 3 });
+    positions.set("system:zekam", { x: 0.5, y: 0.86, vx: 0, vy: 0, seed: 4 });
     roots.forEach((agent, rootIndex) => {
-      const rootX = 0.5 + (rootIndex - (roots.length - 1) / 2) * 0.22;
-      positions.set(agent.agent_id, { x: rootX, y: 0.35, vx: 0, vy: 0, seed: hash(agent.agent_id) });
-      const children = agents.filter((child) => child.parent_agent_id === agent.agent_id);
-      children.forEach((child, childIndex) => {
-        positions.set(child.agent_id, {
-          x: rootX + (childIndex - (children.length - 1) / 2) * 0.13,
-          y: 0.56,
-          vx: 0,
-          vy: 0,
-          seed: hash(child.agent_id),
+      const rootX = 0.5 + (rootIndex - (roots.length - 1) / 2) * 0.36;
+      const placeBranch = (parent, x, y, depth) => {
+        positions.set(parent.agent_id, { x, y, vx: 0, vy: 0, seed: hash(parent.agent_id) });
+        if (depth >= 3) return;
+        const children = agents.filter((child) => child.parent_agent_id === parent.agent_id);
+        const spread = Math.max(0.14, 0.34 / (depth + 1));
+        children.forEach((child, index) => {
+          placeBranch(child, x + (index - (children.length - 1) / 2) * spread, y + 0.2, depth + 1);
         });
-      });
+      };
+      placeBranch(agent, rootX, 0.32, 0);
     });
     state.positions = positions;
   }
@@ -350,10 +352,18 @@
     state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
     const liveIds = new Set((snapshot.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
-    const liveEdgeKinds = new Set(["delegates", "runs-session", "observes-client"]);
+    if (!liveIds.size) {
+      for (const nodeId of state.liveNodeIds) if (state.nodeMap.has(nodeId)) liveIds.add(nodeId);
+    }
+    if (!liveIds.size && snapshot.agents?.length) {
+      const latest = [...snapshot.agents].sort((left, right) => Date.parse(right.heartbeat_at || "") - Date.parse(left.heartbeat_at || ""))[0];
+      liveIds.add(latest.agent_id);
+    }
     for (let pass = 0; pass < 4; pass += 1) {
       for (const edge of state.edges) {
-        if (liveEdgeKinds.has(edge.kind) && (liveIds.has(edge.source) || liveIds.has(edge.target))) {
+        const joinsConversation = edge.kind === "delegates" && (liveIds.has(edge.source) || liveIds.has(edge.target));
+        const joinsClient = (edge.kind === "runs-session" || edge.kind === "observes-client") && liveIds.has(edge.target);
+        if (joinsConversation || joinsClient) {
           liveIds.add(edge.source);
           liveIds.add(edge.target);
         }
@@ -623,9 +633,9 @@
       context.fill();
       context.shadowBlur = 0;
 
-      if (selected || hovered || node.kind === "system" || node.kind.endsWith("cluster")) {
+      if (selected || hovered || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
         const label = node.label.length > 30 ? `${node.label.slice(0, 29)}…` : node.label;
-        context.font = `${selected ? 10 : 9}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+        context.font = `${selected ? 13 : state.liveMode ? 12 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
         context.textAlign = "center";
         context.fillText(label, point.x, point.y + radius + 14);

@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 
 from zekam.application.observatory import (
+    CompositeRuntimeProjectionReader,
+    LocalSessionFileProjectionReader,
     ObservatoryService,
     OpenCodeLifecycleProjectionReader,
     sanitize_observatory_label,
@@ -125,6 +127,7 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
         event_type="session.status",
         session_id="ses_parent",
         agent="zekam-coordinator",
+        model_ref="provider/coordinator",
         status="busy",
     )
     record_event(
@@ -150,6 +153,10 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
     assert any(edge.kind == "delegates" for edge in snapshot.graph.edges)
+    tiles = {tile.key: tile.value for tile in snapshot.dashboard.tiles}
+    assert tiles["work"] == 1
+    assert tiles["run"] == 1
+    assert tiles["model"] == 1
 
 
 def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: Path) -> None:
@@ -183,3 +190,25 @@ def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: 
     session = next(agent for agent in snapshot.agents if agent.client == "opencode")
     assert session.task_label == "Sky 11267 task details"
     assert session.model_ref == "litellm/Qwen/Qwen3.5-27B-FP8"
+
+
+def test_codex_and_claude_file_heartbeats_are_client_scoped(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    codex_root = tmp_path / "codex"
+    claude_root = tmp_path / "claude"
+    _write(root / "README.md", "# Zekam\n")
+    _write(codex_root / "rollout-01a02b31-a697-7553-8a72-c5ba348997a2.jsonl", "")
+    _write(claude_root / "b463564c-3715-4532-8130-609a54c5d9b0.jsonl", "")
+
+    reader = CompositeRuntimeProjectionReader(
+        (
+            LocalSessionFileProjectionReader("codex", codex_root),
+            LocalSessionFileProjectionReader("claude", claude_root),
+        )
+    )
+    snapshot = ObservatoryService(root, client_reader=reader).snapshot()
+
+    clients = {agent.client for agent in snapshot.agents}
+    assert clients == {"codex", "claude"}
+    assert all(agent.state == "active" for agent in snapshot.agents)
+    assert {event.source for event in snapshot.events} == {"codex", "claude"}
