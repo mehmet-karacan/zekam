@@ -649,12 +649,19 @@ class EffectLedger:
 
             if state is JobState.FAILED:
                 cursor.execute(
-                    "select outcome, failure_category from runtime.job_attempt"
+                    "select outcome, failure_category, result_digest from runtime.job_attempt"
                     " where id = %s and realm_id = %s and job_id = %s",
                     (request.attempt_id, self.realm_id, request.job_id),
                 )
                 attempt = cursor.fetchone()
-                if attempt != (AttemptOutcome.FAILED.value, receipt.failure_category.value):
+                if attempt not in {
+                    (AttemptOutcome.FAILED.value, receipt.failure_category.value, None),
+                    (
+                        AttemptOutcome.RECOVERY_REQUIRED.value,
+                        receipt.failure_category.value,
+                        request.failure_digest,
+                    ),
+                }:
                     raise PolicyViolation("Failure reconciliation replay attempt drift")
                 return RecoveryFinalization(receipt=receipt, created=False)
             if state is not JobState.RECOVERY_REQUIRED:
@@ -663,45 +670,64 @@ class EffectLedger:
                 )
 
             cursor.execute(
-                "select outcome, fencing_token from runtime.job_attempt"
+                "select outcome, fencing_token, failure_category, result_digest"
+                " from runtime.job_attempt"
                 " where id = %s and realm_id = %s and job_id = %s for update",
                 (request.attempt_id, self.realm_id, request.job_id),
             )
             attempt = cursor.fetchone()
-            if attempt is None or attempt[0] is not None:
-                raise PolicyViolation("Failure reconciliation terminal olmayan attempt ister")
+            if attempt is None:
+                raise NotFound("Failure reconciliation attempt bulunamadi")
             if int(attempt[1]) != request.fencing_token:
                 raise ConcurrencyConflict("Failure reconciliation attempt fence drift")
-
-            cursor.execute(
-                "select id, expires_at from runtime.lease"
-                " where realm_id = %s and job_id = %s and attempt_id = %s"
-                " and fencing_token = %s for update",
-                (
-                    self.realm_id,
-                    request.job_id,
-                    request.attempt_id,
-                    request.fencing_token,
-                ),
-            )
-            lease = cursor.fetchone()
-            if lease is None or lease[1] > moment:
-                raise PolicyViolation("Failure reconciliation exact expired lease ister")
-
-            cursor.execute(
-                "update runtime.job_attempt set outcome = 'failed', failure_category = %s,"
-                " finished_at = %s where id = %s and outcome is null and fencing_token = %s",
-                (
-                    receipt.failure_category.value,
-                    moment,
-                    request.attempt_id,
-                    request.fencing_token,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise ConcurrencyConflict("Failure reconciliation attempt update reddedildi")
+            terminal_recovery = attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value
+            if terminal_recovery:
+                if (
+                    attempt[2] != receipt.failure_category.value
+                    or attempt[3] != request.failure_digest
+                ):
+                    raise PolicyViolation("Failure reconciliation recovery attempt drift")
+                cursor.execute(
+                    "select count(*) from runtime.lease"
+                    " where realm_id = %s and job_id = %s and attempt_id = %s",
+                    (self.realm_id, request.job_id, request.attempt_id),
+                )
+                if int(cursor.fetchone()[0]) != 0:
+                    raise PolicyViolation("Failure reconciliation terminal attempt lease tasiyamaz")
+                lease_id = None
+            elif attempt[0] is None:
+                cursor.execute(
+                    "select id, expires_at from runtime.lease"
+                    " where realm_id = %s and job_id = %s and attempt_id = %s"
+                    " and fencing_token = %s for update",
+                    (
+                        self.realm_id,
+                        request.job_id,
+                        request.attempt_id,
+                        request.fencing_token,
+                    ),
+                )
+                lease = cursor.fetchone()
+                if lease is None or lease[1] > moment:
+                    raise PolicyViolation("Failure reconciliation exact expired lease ister")
+                lease_id = lease[0]
+                cursor.execute(
+                    "update runtime.job_attempt set outcome = 'failed', failure_category = %s,"
+                    " finished_at = %s where id = %s and outcome is null and fencing_token = %s",
+                    (
+                        receipt.failure_category.value,
+                        moment,
+                        request.attempt_id,
+                        request.fencing_token,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConcurrencyConflict("Failure reconciliation attempt update reddedildi")
+            else:
+                raise PolicyViolation("Failure reconciliation attempt durumu uygun degil")
             cursor.execute("delete from runtime.resource_lock where job_id = %s", (request.job_id,))
-            cursor.execute("delete from runtime.lease where id = %s", (lease[0],))
+            if lease_id is not None:
+                cursor.execute("delete from runtime.lease where id = %s", (lease_id,))
             cursor.execute(
                 "update runtime.job set state = 'failed'"
                 " where id = %s and realm_id = %s and fencing_token = %s"

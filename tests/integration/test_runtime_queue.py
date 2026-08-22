@@ -28,6 +28,7 @@ from zekam.domain.runtime import (
     JobState,
     ReceiptStatus,
     ReconciledCompletionRequest,
+    ReconciledFailureRequest,
     RecoveryOutcome,
 )
 from zekam.infrastructure.postgres import runtime_repository as runtime_repository_module
@@ -80,6 +81,20 @@ def _recovery_request(work: Any, claim: Any, **overrides: Any) -> ReconciledComp
     }
     values.update(overrides)
     return ReconciledCompletionRequest(**values)
+
+
+def _failure_recovery_request(work: Any, claim: Any, receipt: Any) -> ReconciledFailureRequest:
+    return ReconciledFailureRequest(
+        job_id=work.job.id,
+        attempt_id=work.attempt_id,
+        claim_id=claim.id,
+        receipt_id=receipt.id,
+        fencing_token=work.lease.fencing_token,
+        claim_digest=claim.claim_digest,
+        effect_digest=claim.effect_digest,
+        authorization_digest=claim.authorization_digest,
+        failure_digest=receipt.failure_digest,
+    )
 
 
 # -- enqueue -----------------------------------------------------------------------------------
@@ -546,6 +561,60 @@ def test_adapter_evidence_reconciles_the_claim(
     )
     assessment = host.recover(work.job.id, adapter_evidence=ReceiptStatus.COMPLETED)
     assert assessment.outcome is RecoveryOutcome.RECONCILED_COMPLETED
+
+
+def test_failed_receipt_reconciles_terminal_recovery_attempt(
+    host: ExecutionHost,
+    realm_session: tuple[Realm, Any],
+    project_id: Any,
+) -> None:
+    realm, connection = realm_session
+    failure_digest = "sha256:" + "c" * 64
+    host.jobs.enqueue(_job(project_id, realm, now=RECOVERY_NOW))
+    work = host.acquire_work(capabilities=("sandbox.write",), now=RECOVERY_NOW)
+    assert work is not None
+    claim = host.claim_effect(
+        work,
+        operation="file-write",
+        effect_digest=DIGEST,
+        authorization_digest=DIGEST,
+        resources=(),
+        adapter_digest=DIGEST,
+        now=RECOVERY_NOW,
+    )
+    receipt = host.record_failure(
+        claim,
+        category=FailureCategory.ADAPTER,
+        failure_digest=failure_digest,
+        now=RECOVERY_NOW,
+    )
+    assert host.finish(
+        work,
+        outcome=AttemptOutcome.RECOVERY_REQUIRED,
+        result_digest=failure_digest,
+        failure_category=FailureCategory.ADAPTER,
+        now=RECOVERY_NOW,
+    )
+
+    request = _failure_recovery_request(work, claim, receipt)
+    finalized = host.finalize_reconciled_failure(
+        request, now=RECOVERY_NOW + dt.timedelta(seconds=1)
+    )
+    assert not finalized.created
+    assert host.jobs.get(work.job.id).state is JobState.FAILED
+    replay = host.finalize_reconciled_failure(request, now=RECOVERY_NOW + dt.timedelta(seconds=2))
+    assert not replay.created
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select outcome, failure_category, result_digest from runtime.job_attempt"
+            " where id = %s",
+            (work.attempt_id,),
+        )
+        assert cursor.fetchone() == (
+            AttemptOutcome.RECOVERY_REQUIRED.value,
+            FailureCategory.ADAPTER.value,
+            failure_digest,
+        )
 
 
 @pytest.mark.parametrize("mark_recovery", (False, True))
