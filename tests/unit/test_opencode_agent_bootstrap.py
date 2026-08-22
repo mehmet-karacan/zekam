@@ -44,6 +44,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"*": deny' in coordinator
     assert "task: allow" in coordinator
     assert "Kendin terminal" in coordinator
+    verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
+    assert '"zekam doctor *": allow' in verifier
+    assert '"zekam work list *": allow' in verifier
+    assert '"*": ask' in verifier
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
     assert not repeat.config_update_required
