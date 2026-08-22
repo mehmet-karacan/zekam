@@ -15,13 +15,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.application.opencode_benchmark_campaign import load_campaign_scope
 from zekam.domain.errors import ConfigurationError
+from zekam.domain.model_inventory import Modality
 
 DEFAULT_AGENT = "zekam-coordinator"
 _CONFIG_RELATIVE = Path(".config") / "opencode" / "opencode.json"
 _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
 
-_AGENT_TEMPLATES: Mapping[str, str] = {
+_BASE_AGENT_TEMPLATES: Mapping[str, str] = {
     "zekam-builder.md": """---
 description: Exact approved plan ve managed worktree icinde degisiklik yapan builder subagent
 mode: subagent
@@ -50,7 +52,12 @@ permission:
     "zekam-builder": allow
     "zekam-memory-curator": allow
     "zekam-researcher": allow
+    "zekam-router": allow
     "zekam-verifier": allow
+    "zekam-implementer-*": allow
+    "zekam-reviewer-*": allow
+    "zekam-researcher-*": allow
+    "zekam-verifier-*": allow
   question: allow
 ---
 Görevin:
@@ -64,6 +71,10 @@ Görevin:
 - Sonucu bağımsız verifier ile fan-in yap; kanıtsız tamamlanma üretme.
 - Repository bootstrap gerekiyorsa bunu ilgili subagente ver; mevcut çalışma dizininden dosya
   keşfetmeye çalışma.
+- Proje-bagli agentic iste ilk olarak `zekam-router` ile implementer/reviewer/researcher/verifier
+  route'larini kanonik kayittan coz. Yalniz router'in dondurdugu canonical Model ID ile biten
+  model-bound agent adini cagir. Route `selected` degilse veya agent adi mevcut degilse
+  varsayilan modele dusme; `pending` ya da kanitli fallback bildir.
 
 Dispatch protokolu:
 - Istegi once bagimliliklari ve her adimin logical read/write resource'larini aciklayan
@@ -157,6 +168,66 @@ kullan; baska bir komut icin onay iste veya `inconclusive` don.
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.
 """,
+    "zekam-router.md": """---
+description: Proje ve rol icin kanonik model route'unu salt okunur cozen router subagenti
+mode: subagent
+permission:
+  edit: deny
+  bash:
+    "*": deny
+    "zekam model route resolve *": allow
+    "zekam model route status *": allow
+    "zekam project resolve *": allow
+  webfetch: deny
+  external_directory: deny
+  task: deny
+---
+Exact proje, rol, workload ve teknoloji ile kanonik `zekam model route resolve` sonucunu oku.
+Yalniz status `selected`, taze evidence digest ve canonical primary Model ID varsa su agent
+adini dondur: `zekam-<rol>-<canonical-model-id>`. Fallback'i ancak kanonik sonuc veriyorsa yaz.
+Route stale, pending, missing veya model-bound agent bilinmiyorsa uzmanlik uydurma ve varsayilan
+modele dusme. Ciktiyi status, agent_name, model_id, fallback_model_id ve evidence_digest ile
+en fazla 6 kisa maddede ver.
+""",
+}
+
+
+_MODEL_AGENT_ROLES: Mapping[str, str] = {
+    "implementer": "zekam-builder.md",
+    "reviewer": "zekam-verifier.md",
+    "researcher": "zekam-researcher.md",
+    "verifier": "zekam-verifier.md",
+}
+_AGENT_MODALITIES = frozenset(
+    {Modality.CHAT, Modality.CODE, Modality.COMPLETION, Modality.VISION_LANGUAGE}
+)
+
+
+def _model_bound_agent_templates() -> dict[str, str]:
+    """Reviewed OpenCode hedeflerini gercek agent model alanina baglar."""
+
+    scope = load_campaign_scope()
+    templates: dict[str, str] = {}
+    for target in scope.targets:
+        if target.excluded_reason is not None or target.modality not in _AGENT_MODALITIES:
+            continue
+        model_ref = f"{scope.provider_id}/{target.configured_model_id}"
+        for canonical_model_id in target.canonical_model_ids:
+            for role, base_name in _MODEL_AGENT_ROLES.items():
+                base = _BASE_AGENT_TEMPLATES[base_name]
+                header = f"mode: subagent\nmodel: {model_ref}\nhidden: true\n"
+                bound = base.replace("mode: subagent\n", header, 1)
+                bound += (
+                    "\nModel baglama kaniti: canonical_model_id="
+                    f"{canonical_model_id}; configured_model_id={target.configured_model_id}.\n"
+                )
+                templates[f"zekam-{role}-{canonical_model_id}.md"] = bound
+    return templates
+
+
+_AGENT_TEMPLATES: Mapping[str, str] = {
+    **_BASE_AGENT_TEMPLATES,
+    **_model_bound_agent_templates(),
 }
 
 

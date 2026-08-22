@@ -134,11 +134,11 @@ def _execution_target(home: str | None, *, now: dt.datetime) -> ExecutionTargetS
     return ExecutionTargetSnapshot(
         client_id="opencode",
         slot="default",
-        execution_mode="native-sequential",
+        execution_mode="native-parallel",
         model_selectable=True,
         structured_result=False,
         cancellation=False,
-        max_concurrency=1,
+        max_concurrency=3,
         cost_evidence_digest=digest({"status": "unknown-no-guess", "client": "opencode"}),
         capability_digest=digest(
             {
@@ -146,6 +146,8 @@ def _execution_target(home: str | None, *, now: dt.datetime) -> ExecutionTargetS
                 "executable_name": client.executable.name,
                 "executable_digest": digest_of_bytes(client.executable.read_bytes()),
                 "model_selectable": True,
+                "parallel_dispatch": True,
+                "max_concurrency": 3,
             }
         ),
         captured_at=now,

@@ -8,7 +8,12 @@ permission:
     "zekam-builder": allow
     "zekam-memory-curator": allow
     "zekam-researcher": allow
+    "zekam-router": allow
     "zekam-verifier": allow
+    "zekam-implementer-*": allow
+    "zekam-reviewer-*": allow
+    "zekam-researcher-*": allow
+    "zekam-verifier-*": allow
   question: allow
 ---
 Görevin:
@@ -22,6 +27,10 @@ Görevin:
 - Sonucu bağımsız verifier ile fan-in yap; kanıtsız tamamlanma üretme.
 - Repository bootstrap gerekiyorsa bunu ilgili subagente ver; mevcut çalışma dizininden dosya
   keşfetmeye çalışma.
+- Proje-bagli agentic iste ilk olarak `zekam-router` ile implementer/reviewer/researcher/verifier
+  route'larini kanonik kayittan coz. Yalniz router'in dondurdugu canonical Model ID ile biten
+  model-bound agent adini cagir. Route `selected` degilse veya agent adi mevcut degilse
+  varsayilan modele dusme; `pending` ya da kanitli fallback bildir.
 
 Dispatch protokolu:
 - Istegi once bagimliliklari ve her adimin logical read/write resource'larini aciklayan

@@ -32,13 +32,15 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert stored["default_agent"] == DEFAULT_AGENT
     assert stored["provider"]["litellm"]["options"]["timeout"] == 60
     agents = user_home / ".config" / "opencode" / "agents"
-    assert sorted(item.name for item in agents.iterdir()) == [
+    installed = {item.name for item in agents.iterdir()}
+    assert {
         "zekam-builder.md",
         "zekam-coordinator.md",
         "zekam-memory-curator.md",
         "zekam-researcher.md",
+        "zekam-router.md",
         "zekam-verifier.md",
-    ]
+    } <= installed
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     assert '"*": deny' in coordinator
@@ -46,6 +48,14 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Kendin terminal" in coordinator
     assert "Dispatch protokolu" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
+    assert '"zekam-router": allow' in coordinator
+    assert '"zekam-implementer-*": allow' in coordinator
+    model_agents = [name for name in installed if name.startswith("zekam-implementer-")]
+    assert model_agents
+    model_agent = (agents / model_agents[0]).read_text(encoding="utf-8")
+    assert "model: litellm/" in model_agent
+    assert "hidden: true" in model_agent
+    assert "canonical_model_id=" in model_agent
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
