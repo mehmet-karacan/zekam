@@ -1,0 +1,12 @@
+{
+  "schema": "zekam-capability-task/v1",
+  "task_id": "review-root-cause",
+  "version": 1,
+  "data_classification": "public",
+  "brief": "Kusurlu degisikligi incele, gercek hatalari ayir, yanlis pozitifleri ele ve kanitla.",
+  "required_checkpoints": ["scope", "trace", "counterexample", "verdict"],
+  "expected_markers": ["DEFECT", "COUNTEREXAMPLE", "FALSE_POSITIVE_CHECK", "VERDICT"],
+  "forbidden_markers": ["UNVERIFIED_APPROVAL", "IGNORE_FAILURE"],
+  "minimum_self_corrections": 0,
+  "max_tool_calls": 20
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/capability-benchmark-plan.schema.json",
+  "title": "Zekam Capability Benchmark Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "runtime_available",
+    "routing_qualification_granted",
+    "source_campaign_id",
+    "plan_digest",
+    "model_count",
+    "models",
+    "task_count",
+    "tasks",
+    "parallelism",
+    "provider_call_budget",
+    "maximum_wall_seconds",
+    "authority_records_created",
+    "provider_calls_made",
+    "network_calls_made",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema": {"const": "zekam-capability-benchmark-plan/v1"},
+    "status": {"const": "calibration-plan-ready"},
+    "runtime_available": {"const": false},
+    "routing_qualification_granted": {"const": false},
+    "source_campaign_id": {"type": "string", "format": "uuid"},
+    "source_revision": {"type": "string"},
+    "plan_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "registry_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "execution_profile_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "model_count": {"type": "integer", "minimum": 1},
+    "model_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model_id", "name"],
+        "properties": {"model_id": {"type": "string"}, "name": {"type": "string"}}
+      }
+    },
+    "task_count": {"type": "integer", "minimum": 3},
+    "tasks": {"type": "array", "minItems": 3, "items": {"type": "object"}},
+    "parallelism": {"type": "integer", "minimum": 1},
+    "start_skew_budget_ms": {"type": "integer", "minimum": 0},
+    "provider_call_budget": {"type": "integer", "minimum": 1},
+    "maximum_wall_seconds": {"type": "integer", "minimum": 30},
+    "max_retries": {"const": 0},
+    "authority_records_created": {"const": 0},
+    "provider_calls_made": {"const": 0},
+    "network_calls_made": {"const": 0},
+    "grants_authority": {"const": false},
+    "next_action": {"type": "string"}
+  }
+}

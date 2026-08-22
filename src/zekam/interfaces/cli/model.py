@@ -120,11 +120,13 @@ from zekam.infrastructure.postgres.security_repository import (
     SecretRefRepository,
 )
 from zekam.interfaces.cli import model_campaign as model_campaign_commands
+from zekam.interfaces.cli import model_capability as model_capability_commands
 from zekam.interfaces.cli import model_routing as model_routing_commands
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail, fail_from
 
 app = typer.Typer(name="model", help="Model envanteri ve saglik islemleri", no_args_is_help=True)
 app.add_typer(model_campaign_commands.app)
+app.add_typer(model_capability_commands.app)
 app.add_typer(model_routing_commands.app)
 app.command("resolve")(model_campaign_commands.resolve_command)
 console = Console()

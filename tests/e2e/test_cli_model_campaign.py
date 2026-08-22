@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import secrets
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
+from psycopg import Error as PsycopgError
 from typer.testing import CliRunner
 
 from zekam.application.config import DatabaseSettings
@@ -31,6 +33,12 @@ from zekam.application.provider_acceptance_evidence import (
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.model_capability_benchmark import (
+    CapabilityEpisodeResult,
+    CapabilityEpisodeStatus,
+    aggregate_capability_episodes,
+)
+from zekam.domain.model_routing import AgentRole
 from zekam.domain.realm import Actor, ActorKind, Realm
 from zekam.domain.work import WorkType
 from zekam.infrastructure.doctor import runtime_checks
@@ -40,7 +48,9 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository, RealmRepository
 from zekam.infrastructure.postgres.model_campaign_repository import ModelCampaignRepository
+from zekam.infrastructure.postgres.model_capability_repository import ModelCapabilityRepository
 from zekam.interfaces.cli import model_campaign as campaign_cli
+from zekam.interfaces.cli import model_capability as capability_cli
 from zekam.interfaces.cli.main import app
 
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
@@ -442,6 +452,29 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
     assert evidence["actual_provider_call_count"] == 102
     assert evidence["secret_values_reported"] == 0
 
+    capability = _run(
+        campaign_home,
+        campaign_realm_flags,
+        "model",
+        "capability",
+        "plan",
+        "--json",
+    )
+    assert capability.exit_code == 0, f"{capability.stderr} {capability.exception!r}"
+    capability_plan = json.loads(capability.stdout)
+    assert capability_plan["status"] == "calibration-plan-ready"
+    assert capability_plan["runtime_available"] is False
+    assert capability_plan["routing_qualification_granted"] is False
+    assert capability_plan["model_count"] == 17
+    assert capability_plan["task_count"] == 3
+    assert capability_plan["parallelism"] == 17
+    assert capability_plan["provider_call_budget"] == 408
+    assert capability_plan["maximum_wall_seconds"] == 900
+    assert capability_plan["max_retries"] == 0
+    assert capability_plan["authority_records_created"] == 0
+    assert capability_plan["provider_calls_made"] == 0
+    assert capability_plan["network_calls_made"] == 0
+
     inventory = _run(
         campaign_home,
         campaign_realm_flags,
@@ -451,6 +484,108 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
         "--json",
     )
     assert inventory.exit_code == 0, f"{inventory.stderr} {inventory.exception!r}"
+
+    plan = capability_cli._plan(str(campaign_home), campaign_realm_flags[1])
+    model_id = plan.model_ids[0]
+    episodes = tuple(
+        CapabilityEpisodeResult(
+            model_id=model_id,
+            task_digest=task.task_digest,
+            role=task.role,
+            status=CapabilityEpisodeStatus.PASSED,
+            started_at=dt.datetime.now(dt.UTC),
+            duration_ms=1_000,
+            start_skew_ms=0,
+            model_turn_count=2,
+            input_token_count=2_000,
+            output_token_count=1_000,
+            correctness=1.0,
+            completion=1.0,
+            sustained_progress=0.9,
+            context_retention=1.0,
+            self_correction=1.0,
+            tool_efficiency=0.9,
+            safety=1.0,
+            hidden_acceptance_ratio=1.0,
+            sustained_progress_auc=0.9,
+            longest_stagnation_ms=100,
+            regression_count=0,
+            noop_ratio=0.0,
+            checkpoint_count=len(task.required_checkpoints),
+            self_correction_count=1,
+            tool_call_count=4,
+            checkpoint_receipt_digests=tuple(
+                digest((model_id, task.task_digest, "checkpoint", index))
+                for index in range(len(task.required_checkpoints))
+            ),
+            tool_receipt_digests=tuple(
+                digest((model_id, task.task_digest, "tool", index)) for index in range(4)
+            ),
+            response_digest=digest((model_id, task.task_digest, "response")),
+            verifier_model_id="independent-capability-verifier",
+            verifier_execution_identity="capability-verifier-slot",
+            verifier_provenance_digest=plan.execution_profile.evaluator_provenance_digest,
+            evidence_digest=digest((model_id, task.task_digest, "evidence")),
+            acceptance_evidence_digest=digest((model_id, task.task_digest, "acceptance-evidence")),
+        )
+        for task in plan.registry.tasks
+    )
+    episodes = (
+        replace(episodes[0], tool_call_count=0, tool_receipt_digests=()),
+        *episodes[1:],
+    )
+    scorecard = aggregate_capability_episodes(plan, model_id, episodes)
+    with connect(migrated_database) as connection:
+        configure_session(connection, realm_id=realm_id)
+        repository = ModelCapabilityRepository(connection, realm_id)
+        _, cohort_id, inserted = repository.ensure_plan(plan)
+        assert inserted is True
+        _, replay_id, replay_inserted = repository.ensure_plan(plan)
+        assert replay_inserted is False and replay_id == cohort_id
+        for episode in episodes:
+            repository.record_episode(cohort_id, episode)
+        repository.record_scorecard(cohort_id, scorecard)
+        assert repository.scorecards(cohort_id)[0]["model_id"] == model_id
+        second_model = plan.model_ids[1]
+        role_drift = replace(
+            episodes[0],
+            model_id=second_model,
+            role=AgentRole.REVIEWER,
+            response_digest=digest((second_model, "response")),
+            evidence_digest=digest((second_model, "role-drift")),
+        )
+        with pytest.raises(PsycopgError):
+            repository.record_episode(cohort_id, role_drift)
+
+        second_episodes = tuple(
+            replace(
+                episode,
+                model_id=second_model,
+                response_digest=digest((second_model, episode.task_digest, "response")),
+                evidence_digest=digest((second_model, episode.task_digest, "evidence")),
+            )
+            for episode in episodes
+        )
+        for episode in second_episodes:
+            repository.record_episode(cohort_id, episode)
+        second_scorecard = aggregate_capability_episodes(plan, second_model, second_episodes)
+        with connection.cursor() as cursor, pytest.raises(PsycopgError):
+            cursor.execute(
+                "insert into models.capability_benchmark_scorecard"
+                " (id,realm_id,cohort_id,model_id,episode_evidence_digests,general_score,"
+                " role_scores,completion_rate,mean_duration_ms,evidence_digest)"
+                " values (%s,%s,%s,%s,%s,1.0,%s::jsonb,1.0,%s,%s)",
+                (
+                    uuid4(),
+                    realm_id,
+                    cohort_id,
+                    second_model,
+                    list(second_scorecard.episode_evidence_digests),
+                    json.dumps({role.value: 1.0 for role, _ in second_scorecard.role_scores}),
+                    second_scorecard.mean_duration_ms,
+                    digest("forged-capability-scorecard"),
+                ),
+            )
 
     route = _run(
         campaign_home,

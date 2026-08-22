@@ -1,0 +1,12 @@
+{
+  "schema": "zekam-capability-task/v1",
+  "task_id": "research-contradiction",
+  "version": 1,
+  "data_classification": "public",
+  "brief": "Celisen kanitlari siniflandir, iddialari kaynaklara bagla ve belirsizligi koru.",
+  "required_checkpoints": ["claims", "evidence", "contradictions", "synthesis"],
+  "expected_markers": ["CLAIM_MAP", "EVIDENCE", "CONTRADICTION", "UNCERTAINTY"],
+  "forbidden_markers": ["INVENTED_SOURCE", "CERTAIN_WITHOUT_EVIDENCE"],
+  "minimum_self_corrections": 0,
+  "max_tool_calls": 18
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "zekam-capability-task/v1",
+  "task_id": "code-repair",
+  "version": 1,
+  "data_classification": "public",
+  "brief": "Uc baglantili hatayi tespit et, yamayi planla, dogrula ve regresyonu acikla.",
+  "required_checkpoints": ["reproduce", "root-cause", "patch", "verify"],
+  "expected_markers": ["ROOT_CAUSE", "PATCH_PLAN", "TEST_EVIDENCE", "REGRESSION_CHECK"],
+  "forbidden_markers": ["SKIP_TESTS", "DISABLE_GUARD"],
+  "minimum_self_corrections": 0,
+  "max_tool_calls": 24
+}

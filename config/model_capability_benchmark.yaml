@@ -1,0 +1,37 @@
+schema_version: 1
+execution_profile:
+  profile_id: zekam-capability-300s
+  version: 1
+  wall_budget_seconds: 300
+  cancellation_grace_seconds: 10
+  max_model_turns: 8
+  max_input_tokens_total: 65536
+  max_output_tokens_total: 16384
+  max_tool_calls: 24
+  max_retries: 0
+  allowed_tools: [read, search, test]
+  sandbox: public-fixture-isolated-v1
+  network_policy: deny-except-authorized-provider-v1
+  evaluator: independent-capability-verifier-v1
+tasks:
+  - task_id: code-repair
+    version: 1
+    role: implementer
+    workload: code-repair
+    fixture_source: config/benchmark-fixtures/capability-code-repair.v1.json
+    max_duration_seconds: 300
+    max_output_tokens: 16384
+  - task_id: review-root-cause
+    version: 1
+    role: reviewer
+    workload: code-review
+    fixture_source: config/benchmark-fixtures/capability-review-root-cause.v1.json
+    max_duration_seconds: 300
+    max_output_tokens: 12288
+  - task_id: research-contradiction
+    version: 1
+    role: researcher
+    workload: evidence-research
+    fixture_source: config/benchmark-fixtures/capability-research-contradiction.v1.json
+    max_duration_seconds: 300
+    max_output_tokens: 12288
