@@ -153,6 +153,12 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
     assert any(edge.kind == "delegates" for edge in snapshot.graph.edges)
+    assert any(
+        edge.source == "client:opencode"
+        and edge.target == "system:zekam"
+        and edge.kind == "reports-observation"
+        for edge in snapshot.graph.edges
+    )
     tiles = {tile.key: tile.value for tile in snapshot.dashboard.tiles}
     assert tiles["work"] == 1
     assert tiles["run"] == 1

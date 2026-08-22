@@ -208,7 +208,7 @@ class OpenCodeLifecycleProjectionReader:
             label="OpenCode",
             canonical_ref="runtime:opencode-lifecycle",
         )
-        nodes: list[GraphNode] = [root]
+        nodes: list[GraphNode] = [root] if sessions else []
         edges: list[GraphEdge] = []
         agents: list[ObservatoryAgent] = []
         events: list[ObservatoryEvent] = []
@@ -346,14 +346,16 @@ class LocalSessionFileProjectionReader:
                 if (now - updated_at).total_seconds() <= self.recent_seconds:
                     candidates.append((path, updated_at))
         candidates.sort(key=lambda item: item[1], reverse=True)
-        nodes = [
-            GraphNode(
-                node_id=f"client:{self.client}",
-                kind="client",
-                label=self.client.title(),
-                canonical_ref=f"runtime:{self.client}-sessions",
+        nodes: list[GraphNode] = []
+        if candidates:
+            nodes.append(
+                GraphNode(
+                    node_id=f"client:{self.client}",
+                    kind="client",
+                    label=self.client.title(),
+                    canonical_ref=f"runtime:{self.client}-sessions",
+                )
             )
-        ]
         edges: list[GraphEdge] = []
         agents: list[ObservatoryAgent] = []
         events: list[ObservatoryEvent] = []
@@ -537,7 +539,7 @@ class ObservatoryService:
             )
         if "system:zekam" in known:
             client_edges = tuple(
-                GraphEdge("system:zekam", node_id, "observes-client")
+                GraphEdge(node_id, "system:zekam", "reports-observation")
                 for node_id in ("client:opencode", "client:codex", "client:claude")
                 if node_id in known
             )

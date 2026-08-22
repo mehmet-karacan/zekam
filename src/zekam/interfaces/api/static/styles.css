@@ -32,7 +32,7 @@ body {
     linear-gradient(145deg, #07110f 0%, var(--bg-deep) 54%, #07100e 100%);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 15px;
 }
 button, input { font: inherit; }
 button { color: inherit; }
@@ -221,15 +221,19 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .agent-card.is-context { opacity: .62; }
 
 /* Observatory okunabilirlik tabani: operasyon metadatasi 10px altina dusmez. */
-.eyebrow { font-size: 11px; }
-.metric-top span, .metric-tile small { font-size: 11px; }
+.live-network-mode .report-section, .live-network-mode .safety-note, .live-network-mode .legend { display: none; }
+.eyebrow { font-size: 12px; }
+.topbar h2 { font-size: 28px; }
+.brain-toolbar h3, .panel-title-row h3, .agent-rail-header h3 { font-size: 18px; }
+.nav-item { font-size: 14px; }
+.metric-top span, .metric-tile small { font-size: 12px; }
 .metric-tile strong { font-size: 25px; }
-.client-card strong, .agent-identity strong { font-size: 12px; }
-.client-card small, .agent-identity small, .agent-meta, .agent-state, .client-status { font-size: 10px; }
-.event-row time, .event-row small, .event-source { font-size: 10px; }
-.event-row strong { font-size: 12px; }
-.report-item strong { font-size: 11px; }
-.report-item span, .system-list, .agent-contract li, .agent-contract > p:last-child { font-size: 10px; }
+.client-card strong, .agent-identity strong { font-size: 13px; }
+.client-card small, .agent-identity small, .agent-meta, .agent-state, .client-status { font-size: 11px; }
+.event-row time, .event-row small, .event-source { font-size: 11px; }
+.event-row strong { font-size: 13px; }
+.report-item strong { font-size: 12px; }
+.report-item span, .system-list, .agent-contract li, .agent-contract > p:last-child { font-size: 11px; }
 .brain-corner-stat span { font-size: 16px; }
 .brain-corner-stat small { font-size: 10px; }
 .agent-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--mint); opacity: .7; }

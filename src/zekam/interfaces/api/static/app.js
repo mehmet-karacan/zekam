@@ -331,12 +331,14 @@
     roots.forEach((agent, rootIndex) => {
       const rootX = 0.5 + (rootIndex - (roots.length - 1) / 2) * 0.36;
       const placeBranch = (parent, x, y, depth) => {
-        positions.set(parent.agent_id, { x, y, vx: 0, vy: 0, seed: hash(parent.agent_id) });
+        const safeX = Math.max(0.12, Math.min(0.88, x));
+        const safeY = Math.max(0.18, Math.min(0.78, y));
+        positions.set(parent.agent_id, { x: safeX, y: safeY, vx: 0, vy: 0, seed: hash(parent.agent_id) });
         if (depth >= 3) return;
         const children = agents.filter((child) => child.parent_agent_id === parent.agent_id);
         const spread = Math.max(0.14, 0.34 / (depth + 1));
         children.forEach((child, index) => {
-          placeBranch(child, x + (index - (children.length - 1) / 2) * spread, y + 0.2, depth + 1);
+          placeBranch(child, safeX + (index - (children.length - 1) / 2) * spread, safeY + 0.2, depth + 1);
         });
       };
       placeBranch(agent, rootX, 0.32, 0);
@@ -347,6 +349,7 @@
   function applySnapshot(snapshot) {
     if (!snapshot || snapshot.schema !== "zekam-observatory-snapshot/v1") return;
     state.snapshot = snapshot;
+    document.body.classList.toggle("live-network-mode", state.liveMode);
     state.nodes = snapshot.graph?.nodes || [];
     state.edges = snapshot.graph?.edges || [];
     state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
@@ -362,8 +365,9 @@
     for (let pass = 0; pass < 4; pass += 1) {
       for (const edge of state.edges) {
         const joinsConversation = edge.kind === "delegates" && (liveIds.has(edge.source) || liveIds.has(edge.target));
-        const joinsClient = (edge.kind === "runs-session" || edge.kind === "observes-client") && liveIds.has(edge.target);
-        if (joinsConversation || joinsClient) {
+        const joinsClient = edge.kind === "runs-session" && liveIds.has(edge.target);
+        const joinsSystem = edge.kind === "reports-observation" && liveIds.has(edge.source);
+        if (joinsConversation || joinsClient || joinsSystem) {
           liveIds.add(edge.source);
           liveIds.add(edge.target);
         }
@@ -475,8 +479,8 @@
     context.fillStyle = fill;
     context.fill(path);
     context.shadowBlur = 0;
-    context.strokeStyle = "rgba(136,255,218,.14)";
-    context.lineWidth = 1.2;
+    context.strokeStyle = "rgba(136,255,218,.30)";
+    context.lineWidth = 1.8;
     context.stroke(path);
     context.restore();
 
@@ -515,7 +519,7 @@
         startX + side * length,
         startY + Math.sin(index) * height * 0.025,
       );
-      context.strokeStyle = `rgba(126, 235, 199, ${0.035 + (index % 3) * 0.012})`;
+      context.strokeStyle = `rgba(126, 235, 199, ${0.07 + (index % 3) * 0.018})`;
       context.stroke();
     }
   }
@@ -551,7 +555,8 @@
       const source = pointFor(edge.source);
       const target = pointFor(edge.target);
       if (!source || !target) continue;
-      const active = activeIds.has(edge.source) || activeIds.has(edge.target) || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
+      const evidencedLiveEdge = state.liveMode && state.liveNodeIds.has(edge.source) && state.liveNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
+      const active = activeIds.has(edge.source) || activeIds.has(edge.target) || evidencedLiveEdge || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
       const alpha = active ? 0.72 : edge.kind === "markdown-link" ? 0.08 : 0.12;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
@@ -566,15 +571,40 @@
       context.lineWidth = active ? 2.1 : 0.7;
       context.stroke();
 
-      if (!state.paused && (active || hash(edge.kind) % 7 === 0)) {
-        const phase = (state.time * (active ? 0.00022 : 0.00009) + (hash(`${edge.source}:${edge.target}`) % 1000) / 1000) % 1;
+      if (state.liveMode) {
+        const arrowT = 0.9;
+        const oneMinusArrow = 1 - arrowT;
+        const arrowX = oneMinusArrow * oneMinusArrow * source.x + 2 * oneMinusArrow * arrowT * controlX + arrowT * arrowT * target.x;
+        const arrowY = oneMinusArrow * oneMinusArrow * source.y + 2 * oneMinusArrow * arrowT * controlY + arrowT * arrowT * target.y;
+        const tangentX = 2 * oneMinusArrow * (controlX - source.x) + 2 * arrowT * (target.x - controlX);
+        const tangentY = 2 * oneMinusArrow * (controlY - source.y) + 2 * arrowT * (target.y - controlY);
+        const angle = Math.atan2(tangentY, tangentX);
+        context.beginPath();
+        context.moveTo(arrowX, arrowY);
+        context.lineTo(arrowX - 10 * Math.cos(angle - 0.45), arrowY - 10 * Math.sin(angle - 0.45));
+        context.lineTo(arrowX - 10 * Math.cos(angle + 0.45), arrowY - 10 * Math.sin(angle + 0.45));
+        context.closePath();
+        context.fillStyle = active ? "rgba(190,255,233,.95)" : "rgba(123,183,165,.55)";
+        context.fill();
+
+        const relation = { "runs-session": "oturum", delegates: "delege", "reports-observation": "gözlem" }[edge.kind];
+        if (relation) {
+          context.font = `11px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+          context.fillStyle = "rgba(190,218,210,.82)";
+          context.textAlign = "center";
+          context.fillText(relation, (source.x + target.x) / 2, (source.y + target.y) / 2 - 7);
+        }
+      }
+
+      if (!state.paused && active) {
+        const phase = (state.time * 0.00022 + (hash(`${edge.source}:${edge.target}`) % 1000) / 1000) % 1;
         const oneMinus = 1 - phase;
         const pulseX = oneMinus * oneMinus * source.x + 2 * oneMinus * phase * controlX + phase * phase * target.x;
         const pulseY = oneMinus * oneMinus * source.y + 2 * oneMinus * phase * controlY + phase * phase * target.y;
         context.beginPath();
-        context.arc(pulseX, pulseY, active ? 2.1 : 1.2, 0, Math.PI * 2);
-        context.fillStyle = active ? "rgba(190,255,233,.95)" : "rgba(118,255,208,.55)";
-        context.shadowBlur = active ? 12 : 7;
+        context.arc(pulseX, pulseY, 2.1, 0, Math.PI * 2);
+        context.fillStyle = "rgba(190,255,233,.95)";
+        context.shadowBlur = 12;
         context.shadowColor = "#76ffd0";
         context.fill();
         context.shadowBlur = 0;
@@ -767,6 +797,7 @@
     state.liveMode = !state.liveMode;
     liveNetworkToggle.setAttribute("aria-pressed", String(state.liveMode));
     liveNetworkToggle.textContent = state.liveMode ? "CANLI OTURUM AĞI" : "TÜM AĞ";
+    document.body.classList.toggle("live-network-mode", state.liveMode);
     applySnapshot(state.snapshot);
   });
 
