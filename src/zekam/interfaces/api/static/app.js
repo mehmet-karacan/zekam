@@ -18,7 +18,7 @@
     selected: null,
     hovered: null,
     focus: "all",
-    liveMode: true,
+    liveMode: false,
     liveNodeIds: new Set(),
     activeNodeIds: new Set(),
     query: "",
@@ -561,8 +561,6 @@
   }
 
   function drawEdges() {
-    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const activeIds = new Set((state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state)).flatMap((agent) => [agent.agent_id, agent.job_id ? `job:${agent.job_id}` : ""]));
     for (const edge of state.edges) {
       const sourceNode = state.nodeMap.get(edge.source);
       const targetNode = state.nodeMap.get(edge.target);
@@ -570,10 +568,7 @@
       const source = pointFor(edge.source);
       const target = pointFor(edge.target);
       if (!source || !target) continue;
-      const evidencedActiveEdge = state.liveMode && state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
-      const active = state.liveMode
-        ? evidencedActiveEdge
-        : activeIds.has(edge.source) || activeIds.has(edge.target) || edge.kind.includes("active") || edge.kind.includes("lease") || edge.kind.includes("running");
+      const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
       const alpha = active ? 0.72 : edge.kind === "markdown-link" ? 0.08 : 0.12;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
@@ -588,7 +583,7 @@
       context.lineWidth = active ? 2.1 : 0.7;
       context.stroke();
 
-      if (state.liveMode) {
+      if (state.liveMode || active) {
         const arrowT = 0.9;
         const oneMinusArrow = 1 - arrowT;
         const arrowX = oneMinusArrow * oneMinusArrow * source.x + 2 * oneMinusArrow * arrowT * controlX + arrowT * arrowT * target.x;
@@ -633,10 +628,8 @@
   }
 
   function drawNodes() {
-    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const activeAgents = new Set((state.snapshot?.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
     const labelBoxes = [];
-    const orderedNodes = [...state.nodes].sort((left, right) => Number(activeAgents.has(right.node_id)) - Number(activeAgents.has(left.node_id)));
+    const orderedNodes = [...state.nodes].sort((left, right) => Number(state.activeNodeIds.has(right.node_id)) - Number(state.activeNodeIds.has(left.node_id)));
     for (const node of orderedNodes) {
       if (!nodeVisible(node)) continue;
       const point = pointFor(node.node_id);
@@ -645,7 +638,7 @@
       const color = palette[node.kind] || palette.document;
       const selected = state.selected?.node_id === node.node_id;
       const hovered = state.hovered?.node_id === node.node_id;
-      const active = activeAgents.has(node.node_id) || node.kind === "job" && /running|recovery/.test(node.label.toLowerCase());
+      const active = state.activeNodeIds.has(node.node_id);
       const pulse = state.paused ? 0 : Math.sin(state.time * 0.003 + (hash(node.node_id) % 100)) * 0.8;
 
       if (active || selected || hovered || node.kind === "system") {
@@ -675,9 +668,9 @@
       context.fill();
       context.shadowBlur = 0;
 
-      if (selected || hovered || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
+      if (selected || hovered || active || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
         const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
-        context.font = `${selected ? 13 : state.liveMode ? 12 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+        context.font = `${selected ? 14 : active ? 14 : state.liveMode ? 12 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
         context.textAlign = "center";
         const labelWidth = context.measureText(label).width + 12;
@@ -822,7 +815,7 @@
   liveNetworkToggle.addEventListener("click", () => {
     state.liveMode = !state.liveMode;
     liveNetworkToggle.setAttribute("aria-pressed", String(state.liveMode));
-    liveNetworkToggle.textContent = state.liveMode ? "CANLI OTURUM AĞI" : "TÜM AĞ";
+    liveNetworkToggle.textContent = state.liveMode ? "TÜM AĞA DÖN" : "CANLI ODAK";
     document.body.classList.toggle("live-network-mode", state.liveMode);
     applySnapshot(state.snapshot);
   });

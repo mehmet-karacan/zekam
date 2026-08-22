@@ -23,8 +23,17 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "arrowT" in script
     assert "labelBoxes" in script
     assert "hash(edge.kind) % 7" not in script
+    assert 'edge.kind.includes("active")' not in script
+    assert "/running|recovery/" not in script
+    assert "state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target)" in script
     assert "font-size: 15px" in style
     assert "live-network-mode .report-section" in style
+    assert "liveMode: false" in script
+    assert "grid-template-columns: minmax(760px, 1fr) 390px" in style
+    assert ".sidebar { display: none; }" in style
+    assert ".client-grid { grid-template-columns: repeat(3" in style
+    assert "@media (max-width: 1000px)" in style
+    assert ".client-grid, .agent-list { grid-template-columns: 1fr; }" in style
     assert "zekam-observatory-snapshot/v1" in script
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
