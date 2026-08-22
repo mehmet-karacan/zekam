@@ -14,6 +14,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.home import resolve_home
+from zekam.application.opencode_lifecycle import resume_projection
 from zekam.application.realm_context import RealmContext
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.errors import ZekamError
@@ -264,6 +266,7 @@ def resume_command(
     try:
         with RealmSession(home, realm) as realm_context:
             document = _service(realm_context).where_did_we_stop()
+            document["client_continuity"] = resume_projection(resolve_home(home))
     except ZekamError as exc:
         raise fail_from(exc) from exc
 

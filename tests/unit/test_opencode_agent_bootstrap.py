@@ -56,6 +56,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "model: litellm/" in model_agent
     assert "hidden: true" in model_agent
     assert "canonical_model_id=" in model_agent
+    plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
+    assert plugin.is_file()
+    assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
+    assert "session.error" in plugin.read_text(encoding="utf-8")
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
@@ -70,6 +74,7 @@ def test_missing_opencode_has_no_global_side_effect_plan(tmp_path: Path) -> None
     apply_opencode_agent_bootstrap(plan)
     assert not plan.available
     assert not plan.config_path.exists()
+    assert not plan.lifecycle_plugin_to_create
 
 
 def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:

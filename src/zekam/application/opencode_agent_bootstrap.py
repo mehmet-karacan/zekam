@@ -22,6 +22,78 @@ from zekam.domain.model_inventory import Modality
 DEFAULT_AGENT = "zekam-coordinator"
 _CONFIG_RELATIVE = Path(".config") / "opencode" / "opencode.json"
 _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
+_PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
+
+_LIFECYCLE_PLUGIN = r"""const pending = new Map()
+
+const text = (value) => typeof value === "string" && value.length > 0 ? value : undefined
+const props = (event) => event?.properties ?? event ?? {}
+const sessionID = (value) => text(value?.sessionID) ?? text(value?.sessionId) ??
+  text(value?.info?.id) ?? text(value?.id)
+const portable = (value, directory) => {
+  const candidate = text(value)
+  if (!candidate) return undefined
+  const normalized = candidate.replaceAll("\\", "/")
+  const root = String(directory).replaceAll("\\", "/").replace(/\/$/, "")
+  const relative = normalized.startsWith(root + "/")
+    ? normalized.slice(root.length + 1)
+    : normalized
+  if (
+    /^[A-Za-z]:\//.test(relative) ||
+    relative.startsWith("/") ||
+    relative.split("/").includes("..")
+  ) return undefined
+  return relative.slice(0, 512)
+}
+
+export const ZekamLifecycle = async ({ directory }) => {
+  const emit = async (type, data = {}) => {
+    const session = sessionID(data)
+    if (!session) return
+    const args = ["opencode", "event", "--type", type, "--session", session]
+    const optional = [
+      ["--parent", text(data.parentID) ?? text(data.parentSessionID) ?? text(data.info?.parentID)],
+      ["--agent", text(data.agent) ?? text(data.info?.agent)],
+      ["--model", text(data.modelID) ?? text(data.info?.modelID)],
+      ["--tool", text(data.tool)],
+      ["--resource", portable(data.resource, directory)],
+      ["--status", text(data.status?.type) ?? text(data.status)],
+      [
+        "--error-category",
+        text(data.error?.name) ?? text(data.error?.code) ?? text(data.errorCategory),
+      ],
+    ]
+    for (const [flag, value] of optional) if (value) args.push(flag, value)
+    try {
+      const process = Bun.spawn(["zekam", ...args], { stdout: "ignore", stderr: "ignore" })
+      await process.exited
+    } catch {}
+  }
+
+  return {
+    event: async ({ event }) => {
+      const tracked = [
+        "session.created", "session.compacted", "session.deleted",
+        "session.error", "session.idle", "session.status",
+      ]
+      if (tracked.includes(event.type)) {
+        await emit(event.type, props(event))
+      }
+    },
+    "tool.execute.before": async (input, output) => {
+      const resource = output?.args?.filePath ?? output?.args?.path
+      pending.set(input.callID ?? `${input.sessionID}:${input.tool}`, resource)
+      await emit("tool.execute.before", { ...input, resource })
+    },
+    "tool.execute.after": async (input) => {
+      const key = input.callID ?? `${input.sessionID}:${input.tool}`
+      const resource = pending.get(key)
+      pending.delete(key)
+      await emit("tool.execute.after", { ...input, resource, status: "completed" })
+    },
+  }
+}
+"""
 
 _BASE_AGENT_TEMPLATES: Mapping[str, str] = {
     "zekam-builder.md": """---
@@ -238,10 +310,13 @@ class OpenCodeAgentBootstrapPlan:
     executable: Path | None
     config_path: Path
     agents_path: Path
+    plugins_path: Path
     config_document: Mapping[str, Any]
     config_update_required: bool
     agents_to_create: tuple[str, ...]
     conflicting_agents: tuple[str, ...]
+    lifecycle_plugin_to_create: bool
+    lifecycle_plugin_conflict: bool
 
     @property
     def available(self) -> bool:
@@ -260,10 +335,13 @@ def plan_opencode_agent_bootstrap(
             executable=None,
             config_path=config_path,
             agents_path=agents_path,
+            plugins_path=user_home / _PLUGINS_RELATIVE,
             config_document={},
             config_update_required=False,
             agents_to_create=(),
             conflicting_agents=(),
+            lifecycle_plugin_to_create=False,
+            lifecycle_plugin_conflict=False,
         )
     if not executable.is_absolute() or not executable.is_file():
         raise ConfigurationError("OpenCode executable dogrulanamadi")
@@ -281,14 +359,23 @@ def plan_opencode_agent_bootstrap(
             create.append(name)
         elif not candidate.is_file() or candidate.read_text(encoding="utf-8") != body:
             conflict.append(name)
+    plugins_path = user_home / _PLUGINS_RELATIVE
+    plugin_path = plugins_path / "zekam-lifecycle.js"
+    plugin_to_create = not plugin_path.exists()
+    plugin_conflict = plugin_path.exists() and (
+        not plugin_path.is_file() or plugin_path.read_text(encoding="utf-8") != _LIFECYCLE_PLUGIN
+    )
     return OpenCodeAgentBootstrapPlan(
         executable=executable,
         config_path=config_path,
         agents_path=agents_path,
+        plugins_path=plugins_path,
         config_document=updated,
         config_update_required=config_update_required,
         agents_to_create=tuple(create),
         conflicting_agents=tuple(conflict),
+        lifecycle_plugin_to_create=plugin_to_create,
+        lifecycle_plugin_conflict=plugin_conflict,
     )
 
 
@@ -297,12 +384,15 @@ def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
 
     if not plan.available:
         return
-    if plan.conflicting_agents:
+    if plan.conflicting_agents or plan.lifecycle_plugin_conflict:
         joined = ", ".join(plan.conflicting_agents)
-        raise ConfigurationError(f"OpenCode Zekam agent dosyasi cakisiyor: {joined}")
+        detail = joined or "zekam-lifecycle.js"
+        raise ConfigurationError(f"OpenCode Zekam dosyasi cakisiyor: {detail}")
     plan.agents_path.mkdir(parents=True, exist_ok=True)
     for name in plan.agents_to_create:
         _atomic_write(plan.agents_path / name, _AGENT_TEMPLATES[name])
+    if plan.lifecycle_plugin_to_create:
+        _atomic_write(plan.plugins_path / "zekam-lifecycle.js", _LIFECYCLE_PLUGIN)
     if plan.config_update_required:
         rendered = json.dumps(plan.config_document, ensure_ascii=False, indent=2) + "\n"
         _atomic_write(plan.config_path, rendered)

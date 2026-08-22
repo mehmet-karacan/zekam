@@ -38,6 +38,7 @@ from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import governance as governance_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
 from zekam.interfaces.cli import model as model_commands
+from zekam.interfaces.cli import opencode as opencode_commands
 from zekam.interfaces.cli import oracle as oracle_commands
 from zekam.interfaces.cli import project as project_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
@@ -76,6 +77,7 @@ app.add_typer(governance_commands.secret_app)
 app.add_typer(governance_commands.auth_app)
 app.add_typer(model_commands.app)
 app.add_typer(oracle_commands.app)
+app.add_typer(opencode_commands.app)
 app.add_typer(backup_commands.app)
 app.add_typer(ask_commands.app)
 app.command("ask")(ask_commands.ask_command)
@@ -181,6 +183,11 @@ def init(
                         f"{len(opencode_plan.agents_to_create)} agent olusturulacak; "
                         f"default={opencode_plan.config_document['default_agent']}"
                     ),
+                )
+                table.add_row(
+                    ".config/opencode/plugins/zekam-lifecycle.js",
+                    "user-config",
+                    ("olusturulacak" if opencode_plan.lifecycle_plugin_to_create else "mevcut"),
                 )
             console.print(table)
             raise typer.Exit(0)
