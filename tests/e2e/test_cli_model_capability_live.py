@@ -586,3 +586,93 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
                     (approval["task_plan_id"], approval["task_plan_id"]),
                 )
                 assert tuple(cursor.fetchone()) == (190, 190, 0)
+
+    if not fail_middle and derivation_drift is None and not model_contract_failure:
+        second_base_authorization = _authorize(home, flags, ids, config, revision=2)
+        second_base_run = _run(
+            home,
+            flags,
+            "model",
+            "campaign",
+            "run",
+            "--campaign-id",
+            second_base_authorization["campaign_id"],
+            "--project-uuid",
+            ids["project_id"],
+            "--work",
+            ids["work_id"],
+            "--plan-id",
+            second_base_authorization["task_plan_id"],
+            "--revision",
+            "2",
+            "--config",
+            str(config),
+            "--uygula",
+            "--json",
+        )
+        assert second_base_run.exit_code == 0, second_base_run.stderr
+        assert json.loads(second_base_run.stdout)["qualified_model_count"] == 7
+        second_authorized = _run(
+            home,
+            flags,
+            "model",
+            "capability",
+            "authorize",
+            "--project-uuid",
+            ids["project_id"],
+            "--work",
+            ids["work_id"],
+            "--actor",
+            ids["actor_id"],
+            "--config",
+            str(config),
+            "--uygula",
+            "--json",
+        )
+        assert second_authorized.exit_code == 0, second_authorized.stderr
+        second_approval = json.loads(second_authorized.stdout)
+        assert second_approval["manifest_id"] != approval["manifest_id"]
+        assert second_approval["cohort_id"] != approval["cohort_id"]
+        second_executed = _run(
+            home,
+            flags,
+            "model",
+            "capability",
+            "run",
+            "--manifest-id",
+            second_approval["manifest_id"],
+            "--cohort-id",
+            second_approval["cohort_id"],
+            "--project-uuid",
+            ids["project_id"],
+            "--work",
+            ids["work_id"],
+            "--plan-id",
+            second_approval["task_plan_id"],
+            "--config",
+            str(config),
+            "--uygula",
+            "--json",
+        )
+        assert second_executed.exit_code == 0, (
+            f"{second_executed.stderr} {second_executed.exception!r} "
+            f"context={second_executed.exception.__context__!r}"
+        )
+        assert json.loads(second_executed.stdout)["provider_calls_made"] == 168
+        with connect(migrated_database) as second_connection:
+            second_realm = RealmRepository(second_connection).find_by_slug(flags[1])
+            assert second_realm is not None
+            configure_session(second_connection, realm_id=second_realm.id)
+            with second_connection.cursor() as second_cursor:
+                second_cursor.execute(
+                    "select task_plan_id,count(*),count(distinct checkpoint_key)"
+                    " from work.checkpoint where task_plan_id in (%s,%s)"
+                    " and job_id in (select id from runtime.job"
+                    " where step_id like 'capability-episode-%%')"
+                    " group by task_plan_id order by task_plan_id",
+                    (approval["task_plan_id"], second_approval["task_plan_id"]),
+                )
+                assert sorted(
+                    (int(count), int(distinct_count))
+                    for _, count, distinct_count in second_cursor.fetchall()
+                ) == [(21, 21), (21, 21)]

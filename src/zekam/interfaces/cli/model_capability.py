@@ -380,7 +380,7 @@ def _execute_live_episode(
         if claimed is None or claimed.job.id != expected_job_id:
             raise PolicyViolation("Capability episode exact job claim edilemedi")
         episode_checkpoint = Checkpoint(
-            checkpoint_id=f"capability-{episode_key}",
+            checkpoint_id=f"capability-{manifest_id}-{episode_key}",
             project_id=str(project_id),
             work_item_id=str(approval_manifest.work_item_id),
             plan_revision_id=str(approval_manifest.task_plan_id),
