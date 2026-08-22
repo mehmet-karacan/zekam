@@ -69,7 +69,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outl
   z-index: 4;
 }
 .sidebar { display: none; }
-.agent-rail { border-left: 1px solid var(--line); padding: 28px 24px 22px; display: flex; flex-direction: column; }
+.agent-rail { border-left: 1px solid var(--line); padding: 28px 24px 22px; display: flex; flex-direction: column; overflow: hidden; }
 .live-network-toggle { padding: 8px 10px; border: 1px solid rgba(114,221,255,.3); border-radius: 8px; background: rgba(114,221,255,.08); color: #72ddff; font: 8px var(--mono); letter-spacing: .07em; cursor: pointer; }
 .live-network-toggle[aria-pressed="false"] { border-color: var(--line); background: transparent; color: var(--muted); }
 
@@ -153,7 +153,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .legend-dot.knowledge { background: var(--cyan); }
 .legend-dot.memory { background: var(--violet); }
 .legend-dot.document { background: #8eb4a9; }
-.brain-wrap { position: relative; height: clamp(600px, 64vh, 820px); overflow: hidden; background: radial-gradient(ellipse at center, rgba(31,89,72,.17), transparent 62%); }
+.brain-wrap { position: relative; height: clamp(680px, 72vh, 940px); overflow: hidden; background: radial-gradient(ellipse at center, rgba(31,89,72,.17), transparent 62%); }
 .brain-wrap::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,.008) 4px); z-index: 2; }
 #brain-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
 .brain-center-label { position: absolute; left: 50%; top: 50%; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; display: grid; place-items: center; color: rgba(198,255,235,.55); font-family: var(--mono); font-size: 8px; letter-spacing: .13em; }
@@ -174,7 +174,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .node-card code { display: block; padding: 8px; border-radius: 8px; background: rgba(255,255,255,.035); color: var(--muted-bright); font-family: var(--mono); font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
 .copy-button { margin-top: 9px; width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: rgba(118,255,208,.045); color: var(--mint); font-size: 10px; cursor: pointer; }
 
-.lower-grid { display: grid; grid-template-columns: 1fr; gap: 13px; margin-top: 13px; }
+.lower-grid { display: none; }
 .selection-panel { display: none; }
 .event-panel, .selection-panel { min-height: 230px; border-radius: 15px; padding: 15px; }
 .panel-title-row, .agent-rail-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -240,8 +240,10 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .report-item span, .system-list, .agent-contract li, .agent-contract > p:last-child { font-size: 11px; }
 .brain-corner-stat span { font-size: 16px; }
 .brain-corner-stat small { font-size: 10px; }
-.agent-list { max-height: calc(100vh - 390px); }
+.agent-list { max-height: 38vh; flex: 0 1 auto; }
 .event-list { max-height: 220px; }
+.rail-event-panel { min-height: 220px; margin-top: 18px; padding: 18px 0 0; border-width: 1px 0 0; border-radius: 0; display: flex; flex: 1 1 280px; flex-direction: column; overflow: hidden; }
+.rail-event-panel .event-list { max-height: none; flex: 1; overflow-y: auto; }
 .agent-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--mint); opacity: .7; }
 .agent-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -279,6 +281,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
   .agent-rail { position: relative; width: 100%; height: auto; border-left: 0; border-top: 1px solid var(--line); }
   .client-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .agent-list { grid-template-columns: repeat(2, minmax(0,1fr)); max-height: none; }
+  .rail-event-panel { min-height: 320px; }
 }
 @media (max-width: 650px) {
   .tile-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }

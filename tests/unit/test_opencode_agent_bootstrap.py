@@ -46,7 +46,13 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "webfetch: allow" in coordinator
     assert '"*": deny' in coordinator
     assert '"zekam-builder": allow' in coordinator
-    assert "Kendin terminal" in coordinator
+    assert "izinli salt-okunur terminal" in coordinator
+    assert '"git diff *": allow' in coordinator
+    assert '"git status": allow' in coordinator
+    assert '"git commit *": deny' in coordinator
+    assert '"git push *": deny' in coordinator
+    assert '"git reset *": deny' in coordinator
+    assert '"git clean *": deny' in coordinator
     assert "Dispatch protokolu" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
     assert '"zekam-router": allow' in coordinator

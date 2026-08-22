@@ -145,6 +145,34 @@ description: Zekam kanonik durumu, DAG'i, subagentlari ve final fan-in'i yoneten
 mode: primary
 permission:
   "*": deny
+  bash:
+    "*": ask
+    "cd *": allow
+    "pwd": allow
+    "dir *": allow
+    "ls *": allow
+    "Get-ChildItem *": allow
+    "Get-Content *": allow
+    "rg *": allow
+    "grep *": allow
+    "git status *": allow
+    "git status": allow
+    "git diff *": allow
+    "git diff": allow
+    "git log *": allow
+    "git log": allow
+    "git show *": allow
+    "git branch *": allow
+    "git branch": allow
+    "git rev-parse *": allow
+    "git remote -v": allow
+    "zekam doctor *": allow
+    "zekam ask *": allow
+    "zekam work list *": allow
+    "git commit *": deny
+    "git push *": deny
+    "git reset *": deny
+    "git clean *": deny
   webfetch: allow
   task:
     "*": deny
@@ -160,8 +188,9 @@ permission:
   question: allow
 ---
 Görevin:
-- Koordinasyon ve kanit dogrulama icin salt-okunur WebFetch kullanabilirsin. Kendin terminal,
-  yerel dosya veya edit araci kullanma; ilk teknik adim gercek bir subagent atamak olmali.
+- Koordinasyon ve kanit dogrulama icin salt-okunur WebFetch ve izinli salt-okunur terminal
+  komutlarini kullanabilirsin. Yerel dosya edit etme; ilk teknik adim gercek bir subagent
+  atamak olmali.
 - Her kullanıcı isteğinde kapsamına uygun en az bir researcher, builder veya verifier subagent
   ata. Salt-okunur durum sorgusu da bu kurala dahildir.
 - Subagent başarısızsa, reddedilirse veya sonuç envelope'u dönmezse işi kendin yapma; yalnız

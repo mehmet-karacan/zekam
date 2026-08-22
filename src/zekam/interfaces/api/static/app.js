@@ -305,7 +305,7 @@
 
     for (const [domain, rows] of groups.entries()) {
       const center = clusterCenters[domain] || clusterCenters.docs;
-      rows.forEach((node, index) => {
+      rows.sort((left, right) => left.node_id.localeCompare(right.node_id)).forEach((node, index) => {
         const seed = hash(node.node_id);
         const isRoot = node.kind === "system" || node.kind === "runtime-root";
         const isCluster = node.kind.endsWith("cluster");
@@ -322,21 +322,25 @@
         });
       });
     }
-    const agents = (state.snapshot?.agents || []).filter((agent) => state.liveNodeIds.has(agent.agent_id));
+    const agents = (state.snapshot?.agents || []).filter((agent) => state.liveNodeIds.has(agent.agent_id)).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
     const activeMap = new Map(agents.map((agent) => [agent.agent_id, agent]));
-    const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id));
-    positions.set("client:opencode", { x: 0.25, y: 0.12, vx: 0, vy: 0, seed: 1 });
+    const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id)).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
+    const clientAnchors = { opencode: 0.32, codex: 0.5, claude: 0.68, zekam: 0.5 };
+    positions.set("client:opencode", { x: 0.32, y: 0.11, vx: 0, vy: 0, seed: 1 });
     positions.set("client:codex", { x: 0.5, y: 0.12, vx: 0, vy: 0, seed: 2 });
-    positions.set("client:claude", { x: 0.75, y: 0.12, vx: 0, vy: 0, seed: 3 });
+    positions.set("client:claude", { x: 0.68, y: 0.11, vx: 0, vy: 0, seed: 3 });
     positions.set("system:zekam", { x: 0.5, y: 0.86, vx: 0, vy: 0, seed: 4 });
-    roots.forEach((agent, rootIndex) => {
-      const rootX = roots.length === 1 ? 0.5 : 0.18 + rootIndex * (0.64 / (roots.length - 1));
+    roots.forEach((agent) => {
+      const client = normalizedClient(agent.client);
+      const siblings = roots.filter((candidate) => normalizedClient(candidate.client) === client);
+      const siblingIndex = siblings.findIndex((candidate) => candidate.agent_id === agent.agent_id);
+      const rootX = (clientAnchors[client] || 0.5) + (siblingIndex - (siblings.length - 1) / 2) * 0.1;
       const placeBranch = (parent, x, y, depth) => {
         const safeX = Math.max(0.12, Math.min(0.88, x));
         const safeY = Math.max(0.18, Math.min(0.78, y));
         positions.set(parent.agent_id, { x: safeX, y: safeY, vx: 0, vy: 0, seed: hash(parent.agent_id) });
         if (depth >= 3) return;
-        const children = agents.filter((child) => child.parent_agent_id === parent.agent_id);
+        const children = agents.filter((child) => child.parent_agent_id === parent.agent_id).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
         const branchWidth = Math.max(0.12, 0.56 / Math.max(1, roots.length));
         const spread = Math.max(0.1, branchWidth / Math.max(1, children.length));
         children.forEach((child, index) => {
@@ -629,7 +633,7 @@
 
   function drawNodes() {
     const labelBoxes = [];
-    const orderedNodes = [...state.nodes].sort((left, right) => Number(state.activeNodeIds.has(right.node_id)) - Number(state.activeNodeIds.has(left.node_id)));
+    const orderedNodes = [...state.nodes].sort((left, right) => Number(state.activeNodeIds.has(right.node_id)) - Number(state.activeNodeIds.has(left.node_id)) || left.node_id.localeCompare(right.node_id));
     for (const node of orderedNodes) {
       if (!nodeVisible(node)) continue;
       const point = pointFor(node.node_id);
