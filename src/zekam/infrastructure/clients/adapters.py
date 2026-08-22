@@ -143,7 +143,9 @@ def opencode_adapter(executable: str) -> SubprocessClientAdapter:
             kind=ClientKind.OPENCODE,
             client_id="opencode",
             executable=executable,
-            capabilities=frozenset({"chat", "code", "structured-result", "model-selection"}),
+            capabilities=frozenset(
+                {"chat", "code", "structured-result", "model-selection", "parallel-dispatch"}
+            ),
         )
     )
 

@@ -42,8 +42,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     assert '"*": deny' in coordinator
-    assert "task: allow" in coordinator
+    assert '"zekam-builder": allow' in coordinator
     assert "Kendin terminal" in coordinator
+    assert "Dispatch protokolu" in coordinator
+    assert "Eszamanli child sayisi ucu gecemez" in coordinator
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier

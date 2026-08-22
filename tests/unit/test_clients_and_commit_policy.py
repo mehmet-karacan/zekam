@@ -21,6 +21,7 @@ from zekam.domain.commit_policy import (
     evaluate_push,
 )
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
+from zekam.infrastructure.clients.adapters import opencode_adapter
 
 GOOD_MESSAGE = """ozellik: sandbox teslim akisini ekle
 
@@ -86,6 +87,10 @@ def test_beyan_edilmeyen_yetenek_cikarim_yoluyla_varsayilmaz() -> None:
         descriptor.assert_supports("parallel-dispatch")
     with pytest.raises(ValidationFailed):
         descriptor.assert_supports("telepathy")
+
+
+def test_opencode_paralel_dispatch_yetenegini_acikca_beyan_eder() -> None:
+    assert opencode_adapter("opencode.exe").descriptor.supports("parallel-dispatch") is True
 
 
 def test_adapter_sonucu_authority_veremez() -> None:
