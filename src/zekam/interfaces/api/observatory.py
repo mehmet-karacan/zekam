@@ -11,6 +11,7 @@ from zekam.application.config import PersistenceBackend
 from zekam.application.observatory import (
     EmptyRuntimeProjectionReader,
     ObservatoryService,
+    OpenCodeLifecycleProjectionReader,
     RuntimeProjectionReader,
 )
 
@@ -42,7 +43,11 @@ def create_app(
         raise RuntimeError("Zekam UI statik dosyalari bulunamadi")
 
     reader = _runtime_reader(context, realm_id)
-    service = ObservatoryService(core_path=context.core_path, runtime_reader=reader)
+    service = ObservatoryService(
+        core_path=context.core_path,
+        runtime_reader=reader,
+        client_reader=OpenCodeLifecycleProjectionReader(context.home),
+    )
     app = FastAPI(
         title="Zekam Neuro Observatory",
         version="1",

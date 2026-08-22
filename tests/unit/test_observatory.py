@@ -5,9 +5,11 @@ from pathlib import Path
 
 from zekam.application.observatory import (
     ObservatoryService,
+    OpenCodeLifecycleProjectionReader,
     sanitize_observatory_label,
     scan_repository,
 )
+from zekam.application.opencode_lifecycle import record_event
 from zekam.domain.observability import REQUIRED_TILES
 
 
@@ -111,3 +113,27 @@ def test_repository_graph_is_cached_between_runtime_polls(tmp_path: Path) -> Non
     assert first.graph.source_digest == second.graph.source_digest
     assert all(report.relative_path != "NEW_REPORT.md" for report in second.reports)
     assert any(report.relative_path == "NEW_REPORT.md" for report in refreshed.reports)
+
+
+def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    home = tmp_path / "home"
+    _write(root / "README.md", "# Zekam\n")
+    record_event(
+        home,
+        event_type="tool.execute.before",
+        session_id="ses_live",
+        agent="zekam-builder",
+        model_ref="provider/model",
+        tool="bash",
+    )
+
+    snapshot = ObservatoryService(
+        root,
+        client_reader=OpenCodeLifecycleProjectionReader(home),
+    ).snapshot()
+
+    assert any(agent.client == "opencode" for agent in snapshot.agents)
+    assert any(agent.state == "interrupted" for agent in snapshot.agents)
+    assert any(event.source == "opencode-lifecycle" for event in snapshot.events)
+    assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)

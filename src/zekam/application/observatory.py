@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from zekam.application.opencode_lifecycle import resume_projection
 from zekam.domain.canonical import digest
 from zekam.domain.observability import (
     REQUIRED_TILES,
@@ -175,6 +176,88 @@ class RuntimeProjectionReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class OpenCodeLifecycleProjectionReader:
+    """Project the sanitized local OpenCode ledger into observatory cards."""
+
+    home: Path
+
+    def read(self) -> RuntimeProjection:
+        projection = resume_projection(self.home, limit=MAX_AGENTS)
+        sessions = tuple(item for item in projection["sessions"] if item.get("status") != "closed")
+        root = GraphNode(
+            node_id="client:opencode",
+            kind="client",
+            label="OpenCode",
+            canonical_ref="runtime:opencode-lifecycle",
+        )
+        nodes: list[GraphNode] = [root]
+        edges: list[GraphEdge] = []
+        agents: list[ObservatoryAgent] = []
+        events: list[ObservatoryEvent] = []
+        for item in sessions:
+            session_id = str(item["session_id"])
+            node_id = f"opencode-session:{_short_id(session_id)}"
+            agent_name = str(item.get("agent") or "OpenCode session")
+            model_ref = item.get("model_ref")
+            label = agent_name if model_ref is None else f"{agent_name} · {model_ref}"
+            occurred_at = _parse_timestamp(item.get("updated_at"))
+            canonical_ref = f"runtime:opencode-lifecycle/{session_id}"
+            nodes.append(
+                GraphNode(
+                    node_id=node_id,
+                    kind="agent-session",
+                    label=sanitize_observatory_label(label, fallback="OpenCode session"),
+                    canonical_ref=canonical_ref,
+                )
+            )
+            edges.append(GraphEdge("client:opencode", node_id, "runs-session"))
+            agents.append(
+                ObservatoryAgent(
+                    agent_id=node_id,
+                    label=sanitize_observatory_label(label, fallback="OpenCode session"),
+                    client="opencode",
+                    state=str(item.get("status") or "unknown"),
+                    canonical_ref=canonical_ref,
+                    heartbeat_at=occurred_at,
+                )
+            )
+            event_key = session_id + str(item.get("updated_at"))
+            events.append(
+                ObservatoryEvent(
+                    event_id=f"opencode-event:{_short_id(event_key)}",
+                    event_type=str(item.get("last_event") or "session.status"),
+                    source="opencode-lifecycle",
+                    occurred_at=occurred_at,
+                    canonical_ref=canonical_ref,
+                    agent_id=node_id,
+                )
+            )
+        source = digest(
+            {
+                "sessions": [
+                    {
+                        "session_id": item["session_id"],
+                        "status": item.get("status"),
+                        "updated_at": item.get("updated_at"),
+                    }
+                    for item in sessions
+                ]
+            }
+        )
+        return RuntimeProjection(
+            generated_at=dt.datetime.now(dt.UTC),
+            tiles=unavailable_runtime_projection("opencode-lifecycle").tiles,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
+            agents=tuple(agents),
+            events=tuple(events),
+            source_digest=source,
+            available=bool(sessions),
+            detail="opencode-lifecycle",
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EmptyRuntimeProjectionReader:
     detail: str = "realm-id-required"
 
@@ -246,6 +329,7 @@ class ObservatoryService:
 
     core_path: Path
     runtime_reader: RuntimeProjectionReader = field(default_factory=EmptyRuntimeProjectionReader)
+    client_reader: RuntimeProjectionReader = field(default_factory=EmptyRuntimeProjectionReader)
     repository_refresh_seconds: float = REPOSITORY_REFRESH_SECONDS
     _repository_cache: RepositoryProjection | None = field(default=None, init=False, repr=False)
     _repository_cache_at: float = field(default=0.0, init=False, repr=False)
@@ -258,13 +342,14 @@ class ObservatoryService:
         generated_at = dt.datetime.now(dt.UTC)
         repository = self._repository_projection()
         runtime = self._safe_runtime_projection()
+        clients = self._safe_projection(self.client_reader, "client-read-failed")
 
-        nodes = _unique_nodes(repository.nodes + runtime.nodes)
+        nodes = _unique_nodes(repository.nodes + runtime.nodes + clients.nodes)
         known = {item.node_id for item in nodes}
         edges = _unique_edges(
             tuple(
                 item
-                for item in repository.edges + runtime.edges
+                for item in repository.edges + runtime.edges + clients.edges
                 if item.source in known and item.target in known
             )
         )
@@ -276,6 +361,10 @@ class ObservatoryService:
             edges = _unique_edges(
                 (*edges, GraphEdge("system:zekam", runtime_root, "observes-runtime"))
             )
+        if "client:opencode" in known and "system:zekam" in known:
+            edges = _unique_edges(
+                (*edges, GraphEdge("system:zekam", "client:opencode", "observes-client"))
+            )
 
         graph = DerivedGraph(
             nodes=nodes,
@@ -284,6 +373,7 @@ class ObservatoryService:
                 {
                     "repository": repository.source_digest,
                     "runtime": runtime.source_digest,
+                    "clients": clients.source_digest,
                 }
             ),
         )
@@ -292,8 +382,14 @@ class ObservatoryService:
             generated_at=generated_at,
             dashboard=dashboard,
             graph=graph,
-            agents=runtime.agents[:MAX_AGENTS],
-            events=runtime.events[:MAX_EVENTS],
+            agents=(clients.agents + runtime.agents)[:MAX_AGENTS],
+            events=tuple(
+                sorted(
+                    clients.events + runtime.events,
+                    key=lambda item: item.occurred_at,
+                    reverse=True,
+                )[:MAX_EVENTS]
+            ),
             reports=repository.reports[:MAX_REPORTS],
             runtime_available=runtime.available,
             runtime_detail=runtime.detail,
@@ -318,10 +414,14 @@ class ObservatoryService:
         return projection
 
     def _safe_runtime_projection(self) -> RuntimeProjection:
+        return self._safe_projection(self.runtime_reader, "runtime-read-failed")
+
+    @staticmethod
+    def _safe_projection(reader: RuntimeProjectionReader, prefix: str) -> RuntimeProjection:
         try:
-            return self.runtime_reader.read()
+            return reader.read()
         except Exception as exc:
-            return unavailable_runtime_projection(f"runtime-read-failed:{type(exc).__name__}")
+            return unavailable_runtime_projection(f"{prefix}:{type(exc).__name__}")
 
 
 def unavailable_runtime_projection(detail: str) -> RuntimeProjection:
@@ -480,6 +580,17 @@ def _read_prefix(path: Path) -> str:
             return handle.read(MAX_MARKDOWN_BYTES)
     except OSError:
         return ""
+
+
+def _parse_timestamp(value: Any) -> dt.datetime:
+    if isinstance(value, str):
+        try:
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(dt.UTC)
+        except ValueError:
+            pass
+    return dt.datetime.now(dt.UTC)
 
 
 def sanitize_observatory_label(
