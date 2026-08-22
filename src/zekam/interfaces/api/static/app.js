@@ -569,7 +569,7 @@
       const target = pointFor(edge.target);
       if (!source || !target) continue;
       const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "reports-observation"].includes(edge.kind);
-      const alpha = active ? 0.72 : edge.kind === "markdown-link" ? 0.08 : 0.12;
+      const alpha = active ? 0.82 : edge.kind === "markdown-link" ? 0.12 : 0.18;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const bend = Math.min(30, Math.hypot(dx, dy) * 0.12);
@@ -580,7 +580,7 @@
       context.moveTo(source.x, source.y);
       context.quadraticCurveTo(controlX, controlY, target.x, target.y);
       context.strokeStyle = active ? `rgba(118,255,208,${alpha})` : `rgba(123,183,165,${alpha})`;
-      context.lineWidth = active ? 2.1 : 0.7;
+      context.lineWidth = active ? 2.8 : 1;
       context.stroke();
 
       if (state.liveMode || active) {
@@ -618,13 +618,13 @@
   }
 
   function nodeRadius(node) {
-    if (node.kind === "system") return 9;
-    if (node.kind === "runtime-root") return 7;
-    if (node.kind.endsWith("cluster")) return 5.4;
-    if (node.kind === "agent") return 5;
-    if (node.kind === "agent-session") return 6.2;
-    if (["work", "job", "model"].includes(node.kind)) return 4.1;
-    return 3.1;
+    if (node.kind === "system") return 12;
+    if (node.kind === "runtime-root") return 10;
+    if (node.kind.endsWith("cluster")) return 7.2;
+    if (node.kind === "agent") return 7;
+    if (node.kind === "agent-session") return 8.2;
+    if (["work", "job", "model"].includes(node.kind)) return 5.6;
+    return 4.4;
   }
 
   function drawNodes() {
@@ -663,7 +663,7 @@
       context.beginPath();
       context.arc(point.x, point.y, radius + (active ? pulse * 0.15 : 0), 0, Math.PI * 2);
       context.fillStyle = color;
-      context.shadowBlur = active || selected ? 17 : 8;
+      context.shadowBlur = active || selected ? 20 : 11;
       context.shadowColor = color;
       context.fill();
       context.shadowBlur = 0;

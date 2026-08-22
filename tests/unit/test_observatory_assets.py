@@ -29,7 +29,11 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "font-size: 15px" in style
     assert "live-network-mode .report-section" in style
     assert "liveMode: false" in script
-    assert "grid-template-columns: minmax(760px, 1fr) 390px" in style
+    assert "grid-template-columns: minmax(800px, 1fr) 430px" in style
+    assert "height: clamp(600px, 64vh, 820px)" in style
+    assert "context.lineWidth = active ? 2.8 : 1" in script
+    assert 'if (node.kind === "agent-session") return 8.2' in script
+    assert ".agent-identity strong { display: block; font-size: 15px" in style
     assert ".sidebar { display: none; }" in style
     assert ".client-grid { grid-template-columns: repeat(3" in style
     assert "@media (max-width: 1000px)" in style
