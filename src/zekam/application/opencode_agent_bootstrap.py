@@ -24,7 +24,9 @@ _CONFIG_RELATIVE = Path(".config") / "opencode" / "opencode.json"
 _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
 _PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
 
-_LIFECYCLE_PLUGIN = r"""const pending = new Map()
+_LIFECYCLE_PLUGIN = r"""import { tool } from "@opencode-ai/plugin"
+
+const pending = new Map()
 
 const text = (value) => typeof value === "string" && value.length > 0 ? value : undefined
 const props = (event) => event?.properties ?? event ?? {}
@@ -62,6 +64,9 @@ export const ZekamLifecycle = async ({ directory }) => {
         "--error-category",
         text(data.error?.name) ?? text(data.error?.code) ?? text(data.errorCategory),
       ],
+      ["--completed", text(data.completed)],
+      ["--pending", text(data.pending)],
+      ["--next-action", text(data.nextAction)],
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
     try {
@@ -71,6 +76,26 @@ export const ZekamLifecycle = async ({ directory }) => {
   }
 
   return {
+    tool: {
+      zekam_checkpoint: tool({
+        description: "Meaningful adim sonucunu Zekam continuity kaydina yazar",
+        args: {
+          completed: tool.schema.string().max(500),
+          pending: tool.schema.string().max(500),
+          next_action: tool.schema.string().max(500),
+        },
+        async execute(args, context) {
+          await emit("session.checkpoint", {
+            sessionID: context.sessionID,
+            agent: context.agent,
+            completed: args.completed,
+            pending: args.pending,
+            nextAction: args.next_action,
+          })
+          return "Zekam continuity checkpoint kaydedildi"
+        },
+      }),
+    },
     event: async ({ event }) => {
       const tracked = [
         "session.created", "session.compacted", "session.deleted",
@@ -158,6 +183,8 @@ Dispatch protokolu:
   sirali calistir.
 - Her child'a tek rol, tek kapsam, bagimlilik, acceptance, kanit ve sonuc sozlesmesi ver.
   Paralel baslatildigini, ancak ayri child session'lar gercekten acildiysa bildir.
+- Her child gorevine meaningful adim ve hata/blokaj sonrasinda `zekam_checkpoint` ile
+  tamamlanan, bekleyen ve sonraki guvenli aksiyonu sanitize kaydetme zorunlulugu ekle.
 - Dalga sonucu veya kaynak sahipligi belirsizse paralellik uydurma; sirali verifier/researcher
   akisini sec ve blokaji acikca bildir.
 

@@ -42,6 +42,8 @@ Dispatch protokolu:
   sirali calistir.
 - Her child'a tek rol, tek kapsam, bagimlilik, acceptance, kanit ve sonuc sozlesmesi ver.
   Paralel baslatildigini, ancak ayri child session'lar gercekten acildiysa bildir.
+- Her child gorevine meaningful adim ve hata/blokaj sonrasinda `zekam_checkpoint` ile
+  tamamlanan, bekleyen ve sonraki guvenli aksiyonu sanitize kaydetme zorunlulugu ekle.
 - Dalga sonucu veya kaynak sahipligi belirsizse paralellik uydurma; sirali verifier/researcher
   akisini sec ve blokaji acikca bildir.
 

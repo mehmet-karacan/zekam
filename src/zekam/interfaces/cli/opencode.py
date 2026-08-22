@@ -28,6 +28,9 @@ def event_command(
     resource: Annotated[str | None, typer.Option("--resource")] = None,
     status: Annotated[str | None, typer.Option("--status")] = None,
     error_category: Annotated[str | None, typer.Option("--error-category")] = None,
+    completed_summary: Annotated[str | None, typer.Option("--completed")] = None,
+    pending_summary: Annotated[str | None, typer.Option("--pending")] = None,
+    next_action: Annotated[str | None, typer.Option("--next-action")] = None,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Sanitize lifecycle olayini atomik yerel ledgera yazar."""
@@ -43,6 +46,9 @@ def event_command(
             resource=resource,
             status=status,
             error_category=error_category,
+            completed_summary=completed_summary,
+            pending_summary=pending_summary,
+            next_action=next_action,
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc

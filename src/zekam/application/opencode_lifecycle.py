@@ -21,6 +21,7 @@ _EVENTS = frozenset(
     {
         "session.created",
         "session.compacted",
+        "session.checkpoint",
         "session.deleted",
         "session.error",
         "session.idle",
@@ -29,6 +30,8 @@ _EVENTS = frozenset(
         "tool.execute.after",
     }
 )
+_SENSITIVE_SUMMARY = re.compile(r"(?i)(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+")
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|(?:^|\s)/(?:Users|home|root|etc|var)/)")
 
 
 def lifecycle_root(home: Path) -> Path:
@@ -59,6 +62,22 @@ def _relative_resource(value: str | None) -> str | None:
     return normalized
 
 
+def _safe_summary(value: str | None, *, label: str) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if (
+        not cleaned
+        or len(cleaned) > 500
+        or "\n" in cleaned
+        or "\r" in cleaned
+        or _SENSITIVE_SUMMARY.search(cleaned)
+        or _ABSOLUTE_PATH.search(cleaned)
+    ):
+        raise ValidationFailed(f"OpenCode lifecycle {label} gecersiz")
+    return cleaned
+
+
 @dataclass(frozen=True, slots=True)
 class OpenCodeLifecycleEvent:
     event_id: str
@@ -71,6 +90,9 @@ class OpenCodeLifecycleEvent:
     resource: str | None
     status: str | None
     error_category: str | None
+    completed_summary: str | None
+    pending_summary: str | None
+    next_action: str | None
     occurred_at: dt.datetime
 
     def __post_init__(self) -> None:
@@ -87,6 +109,12 @@ class OpenCodeLifecycleEvent:
         ):
             _bounded(value, label=label)
         _relative_resource(self.resource)
+        for label, value in (
+            ("completed_summary", self.completed_summary),
+            ("pending_summary", self.pending_summary),
+            ("next_action", self.next_action),
+        ):
+            _safe_summary(value, label=label)
         if self.occurred_at.tzinfo is None:
             raise ValidationFailed("OpenCode lifecycle zamani timezone ister")
 
@@ -103,6 +131,9 @@ class OpenCodeLifecycleEvent:
             "resource": self.resource,
             "status": self.status,
             "error_category": self.error_category,
+            "completed_summary": self.completed_summary,
+            "pending_summary": self.pending_summary,
+            "next_action": self.next_action,
             "occurred_at": self.occurred_at.astimezone(dt.UTC).isoformat(),
             "contains_prompt": False,
             "contains_response": False,
@@ -126,6 +157,9 @@ def record_event(
     resource: str | None = None,
     status: str | None = None,
     error_category: str | None = None,
+    completed_summary: str | None = None,
+    pending_summary: str | None = None,
+    next_action: str | None = None,
     now: dt.datetime | None = None,
 ) -> OpenCodeLifecycleEvent:
     event = OpenCodeLifecycleEvent(
@@ -139,6 +173,9 @@ def record_event(
         resource=_relative_resource(resource),
         status=status,
         error_category=error_category,
+        completed_summary=_safe_summary(completed_summary, label="completed_summary"),
+        pending_summary=_safe_summary(pending_summary, label="pending_summary"),
+        next_action=_safe_summary(next_action, label="next_action"),
         occurred_at=now or dt.datetime.now(dt.UTC),
     )
     root = lifecycle_root(home)
@@ -188,6 +225,9 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
                 "last_resource": None,
                 "status": "running",
                 "error_category": None,
+                "completed_summary": None,
+                "pending_summary": None,
+                "next_safe_action": None,
                 "updated_at": event["occurred_at"],
             },
         )
@@ -207,6 +247,11 @@ def resume_projection(home: Path, *, limit: int = 20) -> dict[str, Any]:
         elif event["event_type"] == "session.error":
             current["status"] = "failed"
             current["error_category"] = event.get("error_category") or "session-error"
+        elif event["event_type"] == "session.checkpoint":
+            current["status"] = "checkpointed"
+            current["completed_summary"] = event.get("completed_summary")
+            current["pending_summary"] = event.get("pending_summary")
+            current["next_safe_action"] = event.get("next_action")
         elif event["event_type"] in {"session.idle", "session.compacted"}:
             current["status"] = "checkpointed"
         elif event["event_type"] == "session.deleted":

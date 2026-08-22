@@ -53,6 +53,38 @@ def test_completed_tool_and_idle_session_are_checkpointed(tmp_path) -> None:
     assert projection["sessions"][0]["status"] == "checkpointed"
 
 
+def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path) -> None:
+    record_event(
+        tmp_path,
+        event_type="session.checkpoint",
+        session_id="ses_1",
+        completed_summary="Iki test gecti",
+        pending_summary="Verifier bekleniyor",
+        next_action="Verifier sonucunu dogrula",
+        now=NOW,
+    )
+
+    session = resume_projection(tmp_path)["sessions"][0]
+    assert session["completed_summary"] == "Iki test gecti"
+    assert session["pending_summary"] == "Verifier bekleniyor"
+    assert session["next_safe_action"] == "Verifier sonucunu dogrula"
+
+
+@pytest.mark.parametrize(
+    "summary",
+    ["token=super-secret", r"C:\\Users\\name\\secret.txt", "/home/name/secret.txt"],
+)
+def test_semantic_checkpoint_rejects_sensitive_or_absolute_content(tmp_path, summary: str) -> None:
+    with pytest.raises(ValidationFailed):
+        record_event(
+            tmp_path,
+            event_type="session.checkpoint",
+            session_id="ses_1",
+            completed_summary=summary,
+            now=NOW,
+        )
+
+
 def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path) -> None:
     event = record_event(
         tmp_path,
