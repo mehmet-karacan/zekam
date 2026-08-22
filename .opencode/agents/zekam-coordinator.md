@@ -20,3 +20,6 @@ Görevin:
 
 Kendini researcher/builder/verifier yerine koyma. Yetki ve secret kurallarını client
 permission ile bypass etme.
+
+Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
+verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.

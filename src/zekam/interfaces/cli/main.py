@@ -7,6 +7,7 @@ Cikis kodlari otomasyon icin kararlidir.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -17,10 +18,14 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam import __version__
-from zekam.application.composition import build_context, build_doctor
+from zekam.application.composition import ApplicationContext, build_context, build_doctor
 from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
 from zekam.application.home import resolve_home
+from zekam.application.opencode_agent_bootstrap import (
+    apply_opencode_agent_bootstrap,
+    plan_opencode_agent_bootstrap,
+)
 from zekam.application.persistence_setup import (
     apply_persistence_setup,
     plan_persistence_setup,
@@ -145,6 +150,9 @@ def init(
         persistence = _interactive_persistence_choice(resolved_home, persistence)
         persistence_plan = plan_persistence_setup(home=resolved_home, requested=persistence)
         context = build_context(home=home)
+        opencode_plan = plan_opencode_agent_bootstrap(
+            executable=_opencode_executable(context), user_home=Path.home()
+        )
         if dry_run:
             table = Table(title=f"{PRODUCT.data_root_env} plani: {context.home}")
             table.add_column("Dizin")
@@ -165,14 +173,34 @@ def init(
                     + ("mevcut" if persistence_plan.config_exists else "olusturulacak")
                 ),
             )
+            if opencode_plan.available:
+                table.add_row(
+                    ".config/opencode/agents",
+                    "user-config",
+                    (
+                        f"{len(opencode_plan.agents_to_create)} agent olusturulacak; "
+                        f"default={opencode_plan.config_document['default_agent']}"
+                    ),
+                )
             console.print(table)
             raise typer.Exit(0)
         context.layout.ensure()
         apply_persistence_setup(persistence_plan)
+        apply_opencode_agent_bootstrap(opencode_plan)
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
     console.print(f"[green]Hazir:[/green] {context.home}")
+
+
+def _opencode_executable(context: ApplicationContext) -> Path | None:
+    """Config kaydi veya PATH uzerinden OpenCode'u bulur."""
+
+    for client in context.settings.clients:
+        if client.name.casefold() == "opencode":
+            return client.executable
+    discovered = shutil.which("opencode")
+    return Path(discovered).resolve() if discovered else None
 
 
 def _interactive_persistence_choice(
