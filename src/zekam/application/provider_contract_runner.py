@@ -123,7 +123,12 @@ class RuntimeProviderContractRunner:
             effect_digest=plan.effect_request.effect_digest,
             authorization_digest=authorization.authorization_digest,
             authorization_id=authorization.id,
-            idempotency_key=plan.authorization_plan_digest,
+            idempotency_key=digest(
+                {
+                    "job_id": str(self.work.job.id),
+                    "authorization_plan_digest": plan.authorization_plan_digest,
+                }
+            ),
             resources=parse_requests(write=(plan.call_resource,)),
             adapter_digest=digest(
                 {

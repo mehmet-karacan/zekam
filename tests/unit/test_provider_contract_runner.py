@@ -38,8 +38,7 @@ class FakeLedger:
         self.claims: list[SimpleNamespace] = []
 
     def claims_for_job(self, job_id: object) -> tuple[SimpleNamespace, ...]:
-        del job_id
-        return tuple(self.claims)
+        return tuple(claim for claim in self.claims if claim.job_id == job_id)
 
 
 class FakeJobs:
@@ -56,10 +55,15 @@ class FakeHost:
         self.events = events
         self.ledger = FakeLedger()
         self.jobs = FakeJobs(events)
+        self.claim_idempotency_keys: list[str] = []
 
     def claim_effect(self, work: object, **kwargs: object) -> SimpleNamespace:
-        del work
-        claim = SimpleNamespace(id=uuid4(), effect_digest=kwargs["effect_digest"])
+        self.claim_idempotency_keys.append(str(kwargs["idempotency_key"]))
+        claim = SimpleNamespace(
+            id=uuid4(),
+            job_id=work.job.id,  # type: ignore[attr-defined]
+            effect_digest=kwargs["effect_digest"],
+        )
         self.ledger.claims.append(claim)
         self.events.append("claim")
         return claim
@@ -184,6 +188,47 @@ def test_runner_claims_before_transport_and_writes_success_receipt() -> None:
     )
     assert events == ["claim", "transport", "success-receipt"]
     assert result.call_id == "embedding-single-1"
+
+
+def test_runner_scopes_claim_idempotency_to_runtime_job() -> None:
+    prepared, secret, first_authorization = _case()
+    events: list[str] = []
+    host = FakeHost(events)
+    first_runner = RuntimeProviderContractRunner(
+        host=host,  # type: ignore[arg-type]
+        work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
+        client=FakeClient(events),  # type: ignore[arg-type]
+    )
+    first_runner.invoke(
+        prepared,
+        secret_ref=secret,
+        authorization=first_authorization,
+        consumed_by="offline-test",
+    )
+
+    second_authorization = Authorization.issue(
+        realm_id=first_authorization.realm_id,
+        actor_id=first_authorization.actor_id,
+        plan_digest=first_authorization.plan_digest,
+        effect_digest=first_authorization.effect_digest,
+        scope=first_authorization.scope,
+        risk="critical",
+        lifetime=dt.timedelta(minutes=5),
+    )
+    second_runner = RuntimeProviderContractRunner(
+        host=host,  # type: ignore[arg-type]
+        work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
+        client=FakeClient(events),  # type: ignore[arg-type]
+    )
+    second_runner.invoke(
+        prepared,
+        secret_ref=secret,
+        authorization=second_authorization,
+        consumed_by="offline-test",
+    )
+
+    assert len(host.claim_idempotency_keys) == 2
+    assert len(set(host.claim_idempotency_keys)) == 2
 
 
 def test_runner_failure_is_terminal_recovery_required_and_never_retried() -> None:
