@@ -17,7 +17,9 @@ from zekam.domain.model_capability_runtime import (
     CapabilityRuntimeContinuityState,
     CapabilityRuntimeDerivation,
     CapabilityRuntimeDerivedAuthorization,
+    CapabilityRuntimeEpisodeOutcome,
     CapabilityRuntimeOutcome,
+    CapabilityRuntimeSkippedSlot,
     CapabilityRuntimeSlot,
     CapabilityRuntimeTurnCheckpoint,
 )
@@ -280,14 +282,62 @@ class ModelCapabilityRuntimeRepository:
                 raise ConcurrencyConflict("Capability runtime call outcome replay drift")
             return UUID(str(existing[0]))
 
+    def record_episode_outcome(
+        self,
+        manifest_id: UUID,
+        outcome: CapabilityRuntimeEpisodeOutcome,
+        skipped_slots: tuple[CapabilityRuntimeSkippedSlot, ...] = (),
+    ) -> UUID:
+        episode_id = new_uuid7()
+        with self.connection.transaction(), self.connection.cursor() as cursor:
+            cursor.execute(
+                "insert into models.capability_runtime_episode_outcome"
+                " (id,realm_id,manifest_id,model_id,task_digest,job_id,status,"
+                " attempted_calls,successful_calls,failure_turn,reason_code,evidence_digest,"
+                " completed_at) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    episode_id,
+                    self.realm_id,
+                    manifest_id,
+                    outcome.model_id,
+                    outcome.task_digest,
+                    outcome.job_id,
+                    outcome.status.value,
+                    outcome.attempted_calls,
+                    outcome.successful_calls,
+                    outcome.failure_turn,
+                    outcome.reason_code,
+                    outcome.evidence_digest,
+                    outcome.completed_at,
+                ),
+            )
+            for skipped in skipped_slots:
+                cursor.execute(
+                    "insert into models.capability_runtime_skipped_slot"
+                    " (id,realm_id,manifest_id,episode_outcome_id,slot_id,reason_code,"
+                    " evidence_digest,sealed_at) values (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        new_uuid7(),
+                        self.realm_id,
+                        manifest_id,
+                        episode_id,
+                        skipped.slot_id,
+                        skipped.reason_code,
+                        skipped.evidence_digest,
+                        outcome.completed_at,
+                    ),
+                )
+        return episode_id
+
     def finalize_outcome(self, manifest_id: UUID, outcome: CapabilityRuntimeOutcome) -> UUID:
         outcome_id = new_uuid7()
         with self.connection.transaction(), self.connection.cursor() as cursor:
             cursor.execute(
                 "insert into models.capability_runtime_outcome"
                 " (id,realm_id,manifest_id,status,actual_provider_calls,actual_retries,"
-                " call_evidence_digests,evidence_digest,completed_at)"
-                " values (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                " call_evidence_digests,evidence_digest,completed_at,successful_episode_count,"
+                " contract_failed_episode_count,skipped_slot_count)"
+                " values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                 " on conflict (realm_id,manifest_id) do nothing returning id",
                 (
                     outcome_id,
@@ -299,6 +349,9 @@ class ModelCapabilityRuntimeRepository:
                     list(outcome.call_evidence_digests),
                     outcome.evidence_digest,
                     outcome.completed_at,
+                    outcome.successful_episode_count,
+                    outcome.contract_failed_episode_count,
+                    outcome.skipped_slot_count,
                 ),
             )
             inserted = cursor.fetchone()
@@ -318,7 +371,8 @@ class ModelCapabilityRuntimeRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select status,actual_provider_calls,actual_retries,score_eligible,"
-                " routing_eligible,evidence_digest,completed_at"
+                " routing_eligible,evidence_digest,completed_at,successful_episode_count,"
+                " contract_failed_episode_count,skipped_slot_count"
                 " from models.capability_runtime_outcome"
                 " where realm_id=%s and manifest_id=%s",
                 (self.realm_id, manifest_id),
@@ -334,6 +388,9 @@ class ModelCapabilityRuntimeRepository:
             "routing_eligible": bool(row[4]),
             "evidence_digest": str(row[5]),
             "completed_at": row[6],
+            "successful_episode_count": int(row[7]),
+            "contract_failed_episode_count": int(row[8]),
+            "skipped_slot_count": int(row[9]),
         }
 
     def manifest_for_cohort(

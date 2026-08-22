@@ -30,6 +30,8 @@ TABLES = (
     "capability_runtime_turn_checkpoint",
     "capability_runtime_slot_authorization",
     "capability_runtime_call_outcome",
+    "capability_runtime_episode_outcome",
+    "capability_runtime_skipped_slot",
     "capability_runtime_outcome",
 )
 
@@ -417,14 +419,14 @@ def _seed_authorization_derivation_candidate(connection: Any) -> dict[str, Any]:
     return values
 
 
-def test_migration_23_is_head_and_runtime_tables_are_rls_append_only(
+def test_migration_24_is_head_and_runtime_tables_are_rls_append_only(
     migrated_database: DatabaseSettings,
 ) -> None:
-    assert migrations.discover_migrations()[-1].version == 23
+    assert migrations.discover_migrations()[-1].version == 24
     assert migrations.discover_migrations()[-1].has_down
     with connect(migrated_database) as connection, connection.cursor() as cursor:
         cursor.execute("select max(version) from core.schema_migrations")
-        assert cursor.fetchone()[0] == 23
+        assert cursor.fetchone()[0] == 24
         cursor.execute(
             "select relname,relrowsecurity,relforcerowsecurity from pg_class"
             " join pg_namespace on pg_namespace.oid=pg_class.relnamespace"
@@ -444,6 +446,93 @@ def test_migration_23_is_head_and_runtime_tables_are_rls_append_only(
     assert triggers == {
         (table, trigger) for table in TABLES for trigger in ("deny_update", "deny_delete")
     }
+
+
+def test_migration_24_down_restores_executable_head_23_functions(
+    postgres_settings: DatabaseSettings,
+) -> None:
+    database_name = f"zekam_test_{uuid4().hex[:12]}"
+    scoped = DatabaseSettings(
+        host=postgres_settings.host,
+        port=postgres_settings.port,
+        name=database_name,
+        user=postgres_settings.user,
+        sslmode=postgres_settings.sslmode,
+    )
+    with connect(postgres_settings) as connection, connection.cursor() as cursor:
+        cursor.execute(f'create database "{database_name}"')
+    try:
+        with connect(scoped) as connection:
+            migrations.upgrade(connection, target=24)
+            migrations.downgrade(connection, target=24)
+            status = migrations.status(connection)
+            assert status.head == 23
+            assert status.drift == ()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select pg_get_functiondef('models.enforce_capability_runtime_outcome()'"
+                    "::regprocedure)"
+                )
+                restored_outcome = str(cursor.fetchone()[0])
+                assert "successful_count<>168" in restored_outcome.replace(" ", "")
+                assert "capability_runtime_episode_outcome" not in restored_outcome
+                cursor.execute(
+                    "create temp table restored_score_probe("
+                    "realm_id uuid,cohort_id uuid,model_id text)"
+                )
+                cursor.execute(
+                    "create trigger restored_score before insert on restored_score_probe"
+                    " for each row execute function "
+                    "models.enforce_capability_runtime_scorecard_gate()"
+                )
+                cursor.execute(
+                    "insert into restored_score_probe values (%s,%s,'model')",
+                    (uuid4(), uuid4()),
+                )
+                cursor.execute(
+                    "create temp table restored_outcome_probe("
+                    "realm_id uuid,manifest_id uuid,status text,actual_provider_calls integer,"
+                    "actual_retries integer,call_evidence_digests text[])"
+                )
+                cursor.execute(
+                    "create trigger restored_outcome before insert on restored_outcome_probe"
+                    " for each row execute function models.enforce_capability_runtime_outcome()"
+                )
+                cursor.execute(
+                    "insert into restored_outcome_probe values (%s,%s,'partial',0,0,'{}')",
+                    (uuid4(), uuid4()),
+                )
+                with pytest.raises(Exception, match=r"aggregate count/status/evidence mismatch"):
+                    cursor.execute(
+                        "insert into restored_outcome_probe values (%s,%s,'completed',161,0,%s)",
+                        (uuid4(), uuid4(), [_sha(f"restored-{index}") for index in range(161)]),
+                    )
+                cursor.execute(
+                    "create temp table restored_call_probe("
+                    "realm_id uuid,slot_id uuid,claim_id uuid,receipt_id uuid,"
+                    "checkpoint_id uuid,status text,result_digest text,failure_category text)"
+                )
+                cursor.execute(
+                    "create trigger restored_call before insert on restored_call_probe"
+                    " for each row execute function "
+                    "models.enforce_capability_runtime_call_outcome()"
+                )
+                with pytest.raises(
+                    Exception, match=r"claim/receipt/checkpoint/job binding mismatch"
+                ):
+                    cursor.execute(
+                        "insert into restored_call_probe values (%s,%s,%s,%s,%s,'failed',null,'x')",
+                        (uuid4(), uuid4(), uuid4(), uuid4(), uuid4()),
+                    )
+            migrations.upgrade(connection, target=24)
+            assert migrations.status(connection).is_current
+    finally:
+        with connect(postgres_settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_terminate_backend(pid) from pg_stat_activity where datname=%s",
+                (database_name,),
+            )
+            cursor.execute(f'drop database if exists "{database_name}"')
 
 
 def test_runtime_tables_reject_updates_even_when_no_row_matches(
@@ -486,14 +575,22 @@ def test_runtime_schema_has_exact_slot_and_score_gates(
             " and column_name in ('score_eligible','routing_eligible')"
         )
         generated = {str(row[0]): (str(row[1]), str(row[2])) for row in cursor.fetchall()}
+        cursor.execute(
+            "select pg_get_functiondef('models.enforce_capability_runtime_scorecard_gate()'"
+            "::regprocedure)"
+        )
+        scorecard_gate = str(cursor.fetchone()[0])
     assert "capability_runtime_slot_exact_unique" in constraints
     assert "capability_runtime_slot_auth_authorization_unique" in constraints
     assert "capability_runtime_manifest_exact_slots" in triggers
     assert "capability_runtime_scorecard_gate" in triggers
     assert set(generated) == {"score_eligible", "routing_eligible"}
     assert all(value[0] == "ALWAYS" for value in generated.values())
-    assert "168" in generated["score_eligible"][1]
+    assert "completed" in generated["score_eligible"][1]
     assert "false" in generated["routing_eligible"][1]
+    compact_gate = scorecard_gate.replace(" ", "")
+    assert "episode.status<>'not-comparable'" in compact_gate
+    assert "episode.noop_ratio<>1" in compact_gate
 
 
 def test_sql_request_derivation_matches_python_golden_vector(
@@ -810,6 +907,89 @@ def test_call_outcome_rejects_claim_operation_tamper(
             )
 
 
+def test_terminal_episode_rejects_attempted_skipped_partition_tamper(
+    migrated_database: DatabaseSettings,
+) -> None:
+    with connect(migrated_database) as connection:
+        realm_id, manifest_id, _ = _seed_adversarial_completed_candidate(
+            connection, mode="missing-receipts"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "insert into core.realm(id,slug,display_name) values (%s,%s,'Terminal realm')",
+                (realm_id, f"terminal-{str(realm_id)[:8]}"),
+            )
+            cursor.execute(
+                "select model_id,task_digest,job_id from models.capability_runtime_approval_slot"
+                " where realm_id=%s and manifest_id=%s order by ordinal limit 1",
+                (realm_id, manifest_id),
+            )
+            model_id, task_digest, job_id = cursor.fetchone()
+        with (
+            pytest.raises(Exception, match=r"episode terminal evidence mismatch"),
+            connection.cursor() as cursor,
+        ):
+            cursor.execute(
+                "insert into models.capability_runtime_episode_outcome"
+                " (id,realm_id,manifest_id,model_id,task_digest,job_id,status,"
+                " attempted_calls,successful_calls,failure_turn,reason_code,evidence_digest,"
+                " completed_at) values (%s,%s,%s,%s,%s,%s,'model-contract-failed',"
+                " 1,1,1,'model-contract-failure',%s,now())",
+                (
+                    uuid4(),
+                    realm_id,
+                    manifest_id,
+                    model_id,
+                    task_digest,
+                    job_id,
+                    _sha("tampered-terminal-episode"),
+                ),
+            )
+
+
+def test_scorecard_rejects_missing_terminal_episode_correspondence(
+    migrated_database: DatabaseSettings,
+) -> None:
+    with connect(migrated_database) as connection:
+        realm_id, manifest_id, evidence = _seed_adversarial_completed_candidate(
+            connection, mode="missing-receipts"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select cohort_id,model_ids[1] from models.capability_runtime_approval_manifest"
+                " where id=%s",
+                (manifest_id,),
+            )
+            cohort_id, model_id = cursor.fetchone()
+            cursor.execute("set session_replication_role=replica")
+            try:
+                cursor.execute(
+                    "insert into models.capability_runtime_outcome"
+                    " (id,realm_id,manifest_id,status,actual_provider_calls,actual_retries,"
+                    " call_evidence_digests,evidence_digest,completed_at)"
+                    " values (%s,%s,%s,'completed',168,0,%s,%s,now())",
+                    (uuid4(), realm_id, manifest_id, list(evidence), _sha("score-ready")),
+                )
+            finally:
+                cursor.execute("set session_replication_role=origin")
+            cursor.execute(
+                "create temp table capability_scorecard_probe("
+                "realm_id uuid,cohort_id uuid,model_id text)"
+            )
+            cursor.execute(
+                "create trigger scorecard_probe before insert on capability_scorecard_probe"
+                " for each row execute function models.enforce_capability_runtime_scorecard_gate()"
+            )
+        with (
+            pytest.raises(Exception, match=r"exact terminal episode correspondence"),
+            connection.cursor() as cursor,
+        ):
+            cursor.execute(
+                "insert into capability_scorecard_probe values (%s,%s,%s)",
+                (realm_id, cohort_id, model_id),
+            )
+
+
 def test_domain_rejects_scope_or_budget_drift_and_partial_is_not_eligible() -> None:
     manifest = CapabilityRuntimeApprovalManifest(
         cohort_id=uuid4(),
@@ -843,6 +1023,19 @@ def test_domain_rejects_scope_or_budget_drift_and_partial_is_not_eligible() -> N
     )
     assert complete.score_eligible is True
     assert complete.routing_eligible is False
+    contract_terminal = CapabilityRuntimeOutcome(
+        status=CapabilityRuntimeStatus.COMPLETED,
+        actual_provider_calls=161,
+        actual_retries=0,
+        call_evidence_digests=tuple(_sha(f"contract-{index}") for index in range(161)),
+        evidence_digest=_sha("contract-terminal"),
+        completed_at=dt.datetime.now(dt.UTC),
+        successful_episode_count=20,
+        contract_failed_episode_count=1,
+        skipped_slot_count=7,
+    )
+    assert contract_terminal.score_eligible is True
+    assert contract_terminal.routing_eligible is False
     with pytest.raises(ValidationFailed, match="retry"):
         CapabilityRuntimeOutcome(
             status=CapabilityRuntimeStatus.PARTIAL,
@@ -852,7 +1045,7 @@ def test_domain_rejects_scope_or_budget_drift_and_partial_is_not_eligible() -> N
             evidence_digest=_sha("retry"),
             completed_at=dt.datetime.now(dt.UTC),
         )
-    with pytest.raises(ValidationFailed, match="exact 168"):
+    with pytest.raises(ValidationFailed, match="terminal 21x8 partition"):
         CapabilityRuntimeOutcome(
             status=CapabilityRuntimeStatus.COMPLETED,
             actual_provider_calls=167,

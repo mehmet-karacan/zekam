@@ -25,8 +25,10 @@ from zekam.application.model_capability_live import (
     EMPTY_CONTINUITY_STATE,
     REQUEST_TEMPLATE_SCHEMA,
     TURN_SCHEMA,
+    CapabilityEpisodeClassification,
     CapabilityLiveTurnResult,
     capability_derivation_material,
+    classify_capability_episode,
     derive_capability_request_body,
     derive_capability_slot,
     execute_capability_episode,
@@ -291,7 +293,6 @@ def test_live_manifest_prepares_exact_static_168_slots() -> None:
                 "summary": "replaced an earlier retry assumption" if slot.turn_index == 6 else "",
             },
             "continuity_state": next_state,
-            "prior_state_digest": digest(continuity),
             "artifact": "a concrete phase artifact with an observable assertion",
         }
         continuity = next_state
@@ -312,22 +313,62 @@ def test_live_manifest_prepares_exact_static_168_slots() -> None:
     assert result.status is CapabilityEpisodeStatus.PASSED
     assert result.model_turn_count == 8
     assert result.input_token_count == 800
+    assert result.context_retention == 1
+    assert result.self_correction_count == 1
+    assert result.regression_count == 0
+    assert result.sustained_progress_auc > 0
 
     def echo_prompt(slot: Any, concrete: Any, prior_state: Any) -> CapabilityLiveTurnResult:
         del prior_state
         response = {"choices": [{"message": {"content": str(concrete.call.payload)}}]}
         return CapabilityLiveTurnResult(response, digest(response), 10, 10)
 
-    with pytest.raises(ValidationFailed, match="exact JSON"):
-        execute_capability_episode(
-            plan=prepared_plan,
-            task=task,
-            fixture=fixtures[task.task_digest],
-            model_id=model_id,
-            slots=episode_slots,
-            invoke=echo_prompt,
-            verifier=_verifier(),
-        )
+    malformed = execute_capability_episode(
+        plan=prepared_plan,
+        task=task,
+        fixture=fixtures[task.task_digest],
+        model_id=model_id,
+        slots=episode_slots,
+        invoke=echo_prompt,
+        verifier=_verifier(),
+    )
+    assert malformed.status is CapabilityEpisodeStatus.NOT_COMPARABLE
+    assert classify_capability_episode(malformed) is (
+        CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED
+    )
+    assert malformed.model_turn_count == 1
+
+    def obsolete_digest_echo(
+        slot: Any, concrete: Any, prior_state: Any
+    ) -> CapabilityLiveTurnResult:
+        assert concrete == derive_capability_slot(slot, prior_state)
+        document = {
+            "schema": TURN_SCHEMA,
+            "phase": slot.phase,
+            "progress": 10,
+            "checkpoint": task.required_checkpoints[0],
+            "evidence": ["bounded observation"],
+            "revision": {"changed": False, "summary": ""},
+            "continuity_state": prior_state,
+            "artifact": "bounded artifact",
+            "prior_state_digest": digest("wrong-model-echo"),
+        }
+        response = {"choices": [{"message": {"content": json.dumps(document)}}]}
+        return CapabilityLiveTurnResult(response, digest(response), 10, 10)
+
+    obsolete = execute_capability_episode(
+        plan=prepared_plan,
+        task=task,
+        fixture=fixtures[task.task_digest],
+        model_id=model_id,
+        slots=episode_slots,
+        invoke=obsolete_digest_echo,
+        verifier=_verifier(),
+    )
+    assert obsolete.status is CapabilityEpisodeStatus.NOT_COMPARABLE
+    assert classify_capability_episode(obsolete) is (
+        CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED
+    )
 
     marker_state: dict[str, object] = dict(EMPTY_CONTINUITY_STATE)
 
@@ -352,7 +393,6 @@ def test_live_manifest_prepares_exact_static_168_slots() -> None:
                 "summary": "changed labels" if slot.turn_index == 6 else "",
             },
             "continuity_state": next_state,
-            "prior_state_digest": digest(marker_state),
             "artifact": " ".join(task.expected_markers),
         }
         marker_state = next_state

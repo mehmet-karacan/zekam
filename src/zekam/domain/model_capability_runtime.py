@@ -33,6 +33,22 @@ class CapabilityRuntimeStatus(StrEnum):
     RECOVERY_REQUIRED = "recovery-required"
 
 
+class CapabilityRuntimeEpisodeStatus(StrEnum):
+    SUCCESSFUL = "successful"
+    MODEL_CONTRACT_FAILED = "model-contract-failed"
+    RECOVERY_REQUIRED = "recovery-required"
+
+
+MODEL_CONTRACT_FAILURE_REASONS = frozenset(
+    {
+        "malformed-model-response",
+        "model-contract-failure",
+        "model-response-contract",
+        "continuity-contract-violation",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class CapabilityRuntimeApprovalManifest:
     cohort_id: UUID
@@ -293,6 +309,60 @@ class CapabilityRuntimeCallOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityRuntimeSkippedSlot:
+    slot_id: UUID
+    reason_code: str
+    evidence_digest: str
+
+    def __post_init__(self) -> None:
+        if self.reason_code not in MODEL_CONTRACT_FAILURE_REASONS:
+            raise ValidationFailed("Skipped slot model-contract reason ister")
+        parse_digest(self.evidence_digest)
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRuntimeEpisodeOutcome:
+    model_id: str
+    task_digest: str
+    job_id: UUID
+    status: CapabilityRuntimeEpisodeStatus
+    attempted_calls: int
+    successful_calls: int
+    failure_turn: int | None
+    reason_code: str | None
+    evidence_digest: str
+    completed_at: dt.datetime
+
+    def __post_init__(self) -> None:
+        if not self.model_id.strip():
+            raise ValidationFailed("Capability episode model kimligi bos olamaz")
+        parse_digest(self.task_digest)
+        parse_digest(self.evidence_digest)
+        if self.completed_at.tzinfo is None:
+            raise ValidationFailed("Capability episode terminal timezone ister")
+        if not 0 <= self.successful_calls <= self.attempted_calls <= SLOTS_PER_EPISODE:
+            raise ValidationFailed("Capability episode call sayilari gecersiz")
+        if self.status is CapabilityRuntimeEpisodeStatus.SUCCESSFUL:
+            if (
+                self.attempted_calls != SLOTS_PER_EPISODE
+                or self.successful_calls != SLOTS_PER_EPISODE
+                or self.failure_turn is not None
+                or self.reason_code is not None
+            ):
+                raise ValidationFailed("Successful capability episode exact sekiz call ister")
+        elif self.status is CapabilityRuntimeEpisodeStatus.MODEL_CONTRACT_FAILED:
+            if (
+                self.reason_code not in MODEL_CONTRACT_FAILURE_REASONS
+                or self.failure_turn != self.attempted_calls
+                or self.successful_calls != self.attempted_calls
+                or self.attempted_calls < 1
+            ):
+                raise ValidationFailed("Model-contract terminal episode kaniti gecersiz")
+        elif not self.reason_code:
+            raise ValidationFailed("Recovery episode reason ister")
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilityRuntimeOutcome:
     status: CapabilityRuntimeStatus
     actual_provider_calls: int
@@ -300,6 +370,9 @@ class CapabilityRuntimeOutcome:
     call_evidence_digests: tuple[str, ...]
     evidence_digest: str
     completed_at: dt.datetime
+    successful_episode_count: int = EPISODE_COUNT
+    contract_failed_episode_count: int = 0
+    skipped_slot_count: int = 0
 
     def __post_init__(self) -> None:
         parse_digest(self.evidence_digest)
@@ -316,8 +389,14 @@ class CapabilityRuntimeOutcome:
         if len(set(self.call_evidence_digests)) != len(self.call_evidence_digests):
             raise ValidationFailed("Capability runtime evidence digestleri unique olmali")
         if self.status is CapabilityRuntimeStatus.COMPLETED:
-            if self.actual_provider_calls != MAX_PROVIDER_CALLS:
-                raise ValidationFailed("Completed capability runtime exact 168 call ister")
+            if (
+                self.successful_episode_count + self.contract_failed_episode_count != EPISODE_COUNT
+                or self.actual_provider_calls + self.skipped_slot_count != MAX_PROVIDER_CALLS
+                or self.actual_provider_calls
+                < self.successful_episode_count * SLOTS_PER_EPISODE
+                + self.contract_failed_episode_count
+            ):
+                raise ValidationFailed("Completed capability runtime terminal 21x8 partition ister")
         elif (
             self.status is CapabilityRuntimeStatus.PARTIAL
             and self.actual_provider_calls >= MAX_PROVIDER_CALLS
@@ -326,11 +405,7 @@ class CapabilityRuntimeOutcome:
 
     @property
     def score_eligible(self) -> bool:
-        return (
-            self.status is CapabilityRuntimeStatus.COMPLETED
-            and self.actual_provider_calls == MAX_PROVIDER_CALLS
-            and self.actual_retries == 0
-        )
+        return self.status is CapabilityRuntimeStatus.COMPLETED and self.actual_retries == 0
 
     @property
     def routing_eligible(self) -> bool:

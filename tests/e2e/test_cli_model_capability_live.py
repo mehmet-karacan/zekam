@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import secrets
 import sys
 from dataclasses import replace
@@ -140,18 +139,26 @@ def test_capability_live_transport_factory_is_fake_injectable(
 @pytest.mark.e2e
 @pytest.mark.postgres
 @pytest.mark.parametrize(
-    ("fail_middle", "derivation_drift"),
+    ("fail_middle", "derivation_drift", "model_contract_failure"),
     (
-        (True, None),
-        (False, None),
-        (False, "effect-action"),
-        (False, "claim-operation"),
+        (True, None, False),
+        (False, None, False),
+        (False, "effect-action", False),
+        (False, "claim-operation", False),
+        (False, None, True),
     ),
-    ids=("failure", "success", "effect-action-drift", "claim-operation-drift"),
+    ids=(
+        "failure",
+        "success",
+        "effect-action-drift",
+        "claim-operation-drift",
+        "model-contract-failure",
+    ),
 )
 def test_capability_runtime_terminal_paths_are_fully_sealed(
     fail_middle: bool,
     derivation_drift: str | None,
+    model_contract_failure: bool,
     tmp_path: Path,
     migrated_database: DatabaseSettings,
     monkeypatch: pytest.MonkeyPatch,
@@ -321,6 +328,7 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
 
     class DeterministicCapabilityTransport:
         calls = 0
+        malformed_sent = False
 
         def post_json(self, endpoint, payload, credential):  # type: ignore[no-untyped-def]
             del endpoint, credential
@@ -332,8 +340,16 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
             assert ("max_tokens" in payload) ^ ("max_completion_tokens" in payload)
             prompt = str(payload["messages"][-1]["content"])
             phase = next(row for row in phases if f"Bu tur fazi: {row};" in prompt)
-            prior_match = re.search(r"prior_state_digest tam olarak (sha256:[0-9a-f]{64})", prompt)
-            assert prior_match is not None
+            if (
+                model_contract_failure
+                and not self.malformed_sent
+                and str(payload["model"]) == configured[next(iter(kept_ids))]
+            ):
+                self.malformed_sent = True
+                return {
+                    "choices": [{"message": {"content": "malformed-model-output"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+                }
             fixture = next(row for row in fixture_rows if str(row.payload["brief"]) in prompt)
             task = next(
                 row for row in _seven_model_plan().registry.tasks if row.task_id == fixture.task_id
@@ -355,7 +371,6 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
                         "risks": ["regresyon"],
                         "next_action": "siradaki fazi dogrula",
                     },
-                    "prior_state_digest": prior_match.group(1),
                     "artifact": " ".join(semantic_tokens),
                 },
                 ensure_ascii=False,
@@ -416,9 +431,9 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
             f"nested={executed.exception.__context__.__context__!r}"
         )
         document = json.loads(executed.stdout)
-        assert document["status"] == "completed"
+        assert document["status"] == "completed-calibration"
         assert document["episode_count"] == 21
-        assert document["provider_calls_made"] == 168
+        assert document["provider_calls_made"] == (161 if model_contract_failure else 168)
         assert len(document["scorecards"]) == 7
         assert document["routing_eligible"] is False
         assert "offline-capability-fixture" not in executed.stdout
@@ -505,9 +520,10 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
                     f"nested={executed.exception.__context__.__context__!r}"
                 )
             else:
-                assert runtime_row == ("completed", True, False, 0, 168)
-                assert continuity_count == 168
-                assert turn_checkpoint_count == 168
+                expected_calls = 161 if model_contract_failure else 168
+                assert runtime_row == ("completed", True, False, 0, expected_calls)
+                assert continuity_count == expected_calls
+                assert turn_checkpoint_count == expected_calls
                 cursor.execute(
                     "select count(*) from models.capability_benchmark_episode where cohort_id=%s",
                     (approval["cohort_id"],),
@@ -518,26 +534,49 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
                     (approval["cohort_id"],),
                 )
                 assert int(cursor.fetchone()[0]) == 7
+                if model_contract_failure:
+                    document = json.loads(executed.stdout)
+                    assert sum(row["disqualified"] for row in document["scorecards"]) == 1
+                    cursor.execute(
+                        "select count(*) filter(where status='successful'),"
+                        " count(*) filter(where status='model-contract-failed'),"
+                        " sum(attempted_calls),sum(successful_calls)"
+                        " from models.capability_runtime_episode_outcome"
+                        " where manifest_id=%s",
+                        (approval["manifest_id"],),
+                    )
+                    assert tuple(int(value) for value in cursor.fetchone()) == (20, 1, 161, 161)
+                    cursor.execute(
+                        "select count(*),count(o.id),count(binding.authorization_id)"
+                        " from models.capability_runtime_skipped_slot skipped"
+                        " left join models.capability_runtime_call_outcome o"
+                        " on o.slot_id=skipped.slot_id"
+                        " left join models.capability_runtime_slot_authorization binding"
+                        " on binding.slot_id=skipped.slot_id"
+                        " where skipped.manifest_id=%s",
+                        (approval["manifest_id"],),
+                    )
+                    assert tuple(int(value) for value in cursor.fetchone()) == (7, 0, 0)
                 cursor.execute(
                     "select count(*) from runtime.effect_claim c"
                     " join runtime.effect_receipt r on r.claim_id=c.id"
                     " where c.job_id in (select id from runtime.job where plan_id=%s)",
                     (approval["task_plan_id"],),
                 )
-                assert int(cursor.fetchone()[0]) == 190
+                assert int(cursor.fetchone()[0]) == expected_calls + 22
                 cursor.execute(
                     "select count(*) from models.capability_runtime_slot_authorization"
                     " where manifest_id=%s",
                     (approval["manifest_id"],),
                 )
-                assert int(cursor.fetchone()[0]) == 168
+                assert int(cursor.fetchone()[0]) == expected_calls
                 cursor.execute(
                     "select count(*) from security.authorization"
                     " where work_item_id=%s and plan_id=%s"
                     " and scope -> 'allowed_effects' = '[\"provider-call\"]'::jsonb",
                     (ids["work_id"], approval["task_plan_id"]),
                 )
-                assert int(cursor.fetchone()[0]) == 168
+                assert int(cursor.fetchone()[0]) == expected_calls
                 cursor.execute(
                     "select cardinality(plan_steps),cardinality(completed_steps),"
                     " cardinality(pending_steps) from work.checkpoint"

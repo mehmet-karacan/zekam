@@ -44,7 +44,6 @@ CAPABILITY_RESPONSE_SCHEMA_DIGEST = digest(
             "evidence",
             "revision",
             "continuity_state",
-            "prior_state_digest",
             "artifact",
         ],
         "acceptance_metrics_source": "independent-hidden-harness-evaluator",

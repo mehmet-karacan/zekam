@@ -22,9 +22,11 @@ from zekam.application.model_capability_benchmark import (
     load_capability_registry,
 )
 from zekam.application.model_capability_live import (
+    CapabilityEpisodeClassification,
     CapabilityLiveTurnResult,
     PreparedCapabilityLiveManifest,
     capability_derivation_attestation_digest,
+    classify_capability_episode,
     execute_capability_episode,
     prepare_capability_live_manifest,
 )
@@ -52,7 +54,10 @@ from zekam.domain.model_capability_runtime import (
     CapabilityRuntimeCallStatus,
     CapabilityRuntimeContinuityState,
     CapabilityRuntimeDerivedAuthorization,
+    CapabilityRuntimeEpisodeOutcome,
+    CapabilityRuntimeEpisodeStatus,
     CapabilityRuntimeOutcome,
+    CapabilityRuntimeSkippedSlot,
     CapabilityRuntimeSlot,
     CapabilityRuntimeStatus,
     CapabilityRuntimeTurnCheckpoint,
@@ -668,6 +673,60 @@ def _execute_live_episode(
                     result_digest=result.evidence_digest,
                 ):
                     raise PolicyViolation("Capability episode job finish reddedildi")
+            classification = classify_capability_episode(result)
+            if classification is CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED:
+                attempted_calls = result.model_turn_count
+                reason_code = "model-response-contract"
+                terminal_status = CapabilityRuntimeEpisodeStatus.MODEL_CONTRACT_FAILED
+                skipped_slots = tuple(
+                    CapabilityRuntimeSkippedSlot(
+                        slot_id=stored[turn].slot_id,
+                        reason_code=reason_code,
+                        evidence_digest=digest(
+                            {
+                                "schema": "zekam-capability-skipped-slot/v1",
+                                "episode_evidence_digest": result.evidence_digest,
+                                "slot_digest": stored[turn].slot.slot_digest,
+                                "reason_code": reason_code,
+                            }
+                        ),
+                    )
+                    for turn in range(attempted_calls + 1, 9)
+                )
+            else:
+                attempted_calls = 8
+                reason_code = None
+                terminal_status = CapabilityRuntimeEpisodeStatus.SUCCESSFUL
+                skipped_slots = ()
+            runtime_repository.record_episode_outcome(
+                manifest_id,
+                CapabilityRuntimeEpisodeOutcome(
+                    model_id=model_id,
+                    task_digest=task_digest,
+                    job_id=claimed.job.id,
+                    status=terminal_status,
+                    attempted_calls=attempted_calls,
+                    successful_calls=attempted_calls,
+                    failure_turn=(
+                        attempted_calls
+                        if terminal_status is CapabilityRuntimeEpisodeStatus.MODEL_CONTRACT_FAILED
+                        else None
+                    ),
+                    reason_code=reason_code,
+                    evidence_digest=digest(
+                        {
+                            "schema": "zekam-capability-runtime-episode-outcome/v1",
+                            "manifest_id": str(manifest_id),
+                            "job_id": str(claimed.job.id),
+                            "episode_evidence_digest": result.evidence_digest,
+                            "status": terminal_status.value,
+                            "attempted_calls": attempted_calls,
+                        }
+                    ),
+                    completed_at=dt.datetime.now(dt.UTC),
+                ),
+                skipped_slots,
+            )
             return result
         except Exception as episode_exc:
             recovery_digest = digest(
@@ -1439,12 +1498,20 @@ def run_command(
                     (context.realm_id, manifest_id),
                 )
                 call_rows = cursor.fetchall()
-                call_evidence = tuple(str(row[3]) for row in call_rows)
+                call_evidence = tuple(sorted(str(row[3]) for row in call_rows))
                 call_result_by_key = {
                     (str(row[0]), str(row[1]), int(row[2])): str(row[3]) for row in call_rows
                 }
-            if len(call_evidence) != 168:
-                raise PolicyViolation("Capability finalize exact 168 call evidence ister")
+            actual_provider_calls = len(call_evidence)
+            if not 21 <= actual_provider_calls <= 168:
+                raise PolicyViolation("Capability finalize provider evidence siniri gecersiz")
+            failed_episode_by_key = {
+                (row.model_id, row.task_digest): row
+                for row in episode_results
+                if row.status.value != "passed"
+            }
+            contract_failed_episode_count = len(failed_episode_by_key)
+            skipped_slot_count = 168 - actual_provider_calls
             result_digest = digest(
                 {
                     "manifest_digest": approval_manifest.manifest_digest,
@@ -1467,7 +1534,18 @@ def run_command(
                     *(
                         (
                             slot.prepared.plan.call_id,
-                            call_result_by_key[(slot.model_id, slot.task_digest, slot.turn_index)],
+                            call_result_by_key[(slot.model_id, slot.task_digest, slot.turn_index)]
+                            if (slot.model_id, slot.task_digest, slot.turn_index)
+                            in call_result_by_key
+                            else digest(
+                                {
+                                    "status": "skipped-model-contract",
+                                    "slot_key": slot.slot_key,
+                                    "episode_evidence_digest": failed_episode_by_key[
+                                        (slot.model_id, slot.task_digest)
+                                    ].evidence_digest,
+                                }
+                            ),
                         )
                         for slot in live_manifest.slots
                     ),
@@ -1509,23 +1587,26 @@ def run_command(
                     raise PolicyViolation("Capability finalize job finish reddedildi")
                 runtime_outcome = CapabilityRuntimeOutcome(
                     status=CapabilityRuntimeStatus.COMPLETED,
-                    actual_provider_calls=168,
+                    actual_provider_calls=actual_provider_calls,
                     actual_retries=0,
                     call_evidence_digests=call_evidence,
                     evidence_digest=result_digest,
                     completed_at=dt.datetime.now(dt.UTC),
+                    successful_episode_count=21 - contract_failed_episode_count,
+                    contract_failed_episode_count=contract_failed_episode_count,
+                    skipped_slot_count=skipped_slot_count,
                 )
                 runtime_repository.finalize_outcome(manifest_id, runtime_outcome)
                 for model_result in scorecards:
                     capability_repository.record_scorecard(cohort_id, model_result)
         document = {
             "schema": "zekam-capability-runtime-run/v1",
-            "status": "completed",
+            "status": "completed-calibration",
             "manifest_id": str(manifest_id),
             "cohort_id": str(cohort_id),
             "episode_count": 21,
-            "provider_calls_made": 168,
-            "network_calls_made": 168,
+            "provider_calls_made": actual_provider_calls,
+            "network_calls_made": actual_provider_calls,
             "actual_retries": 0,
             "score_eligible": True,
             "routing_eligible": False,
@@ -1535,6 +1616,7 @@ def run_command(
                     "general_score": row.general_score,
                     "role_scores": {role.value: score for role, score in row.role_scores},
                     "completion_rate": row.completion_rate,
+                    "disqualified": row.completion_rate < 1,
                     "evidence_digest": row.evidence_digest,
                 }
                 for row in sorted(scorecards, key=lambda item: (-item.general_score, item.model_id))

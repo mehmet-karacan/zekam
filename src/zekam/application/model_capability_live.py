@@ -11,6 +11,7 @@ import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import Any, cast
 
 from zekam.application.model_capability_benchmark import (
@@ -58,7 +59,6 @@ TURN_FIELDS = {
     "evidence",
     "revision",
     "continuity_state",
-    "prior_state_digest",
     "artifact",
 }
 EMPTY_CONTINUITY_STATE: dict[str, object] = {
@@ -74,6 +74,20 @@ REQUEST_TEMPLATE_SCHEMA = "zekam-capability-request-template/v1"
 REQUEST_DERIVATION_SCHEMA = "zekam-capability-request-derivation/v1"
 REQUEST_DERIVATION_ALGORITHM = "zekam-capability-continuity-derive/v3"
 REQUEST_TEMPLATE_FIELDS = {"schema", "model", "system", "prompt_prefix", "max_tokens"}
+
+
+class CapabilityEpisodeClassification(StrEnum):
+    EVALUATED = "evaluated"
+    MODEL_CONTRACT_FAILED = "model-contract-failed"
+
+
+def classify_capability_episode(
+    result: CapabilityEpisodeResult,
+) -> CapabilityEpisodeClassification:
+    """Classify a completed lane without turning model faults into infrastructure faults."""
+    if result.status is CapabilityEpisodeStatus.NOT_COMPARABLE:
+        return CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED
+    return CapabilityEpisodeClassification.EVALUATED
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +153,7 @@ def _public_prompt_prefix(task: CapabilityTaskSpec, fixture: CapabilityFixture, 
         f"Bu tur fazi: {phase}; tam sekiz turun yalniz bu fazini isle. Checkpoint degeri "
         f"su public asamalardan biri olmali: {', '.join(task.required_checkpoints)}.\n"
         "Sadece JSON uret. Exact alanlar: schema, phase, progress, checkpoint, evidence, "
-        "revision, continuity_state, prior_state_digest, artifact. schema "
+        "revision, continuity_state, artifact. schema "
         f"{TURN_SCHEMA}, phase {phase}, progress 0..100 integer olmali. evidence 1..6 kisa "
         "kanit/gozlem listesi; revision exact {changed:boolean, summary:string}; continuity_state "
         "exact {facts:list, open_questions:list, risks:list, next_action:string}. Onceki state "
@@ -441,7 +455,7 @@ class CapabilityLiveTurnResult:
 
 
 def _parse_turn(
-    text: str, slot: PreparedCapabilitySlot, prior_state: Mapping[str, object]
+    text: str, slot: PreparedCapabilitySlot
 ) -> tuple[dict[str, object], dict[str, object]]:
     try:
         document = json.loads(text)
@@ -470,8 +484,6 @@ def _parse_turn(
         revision["summary"], "revision summary", allow_empty=not revision["changed"]
     )
     document["artifact"] = _short(document["artifact"], "artifact")
-    if document["prior_state_digest"] != digest(validate_continuity_state(prior_state)):
-        raise PolicyViolation("Capability turn prior state binding drift")
     state = validate_continuity_state(document["continuity_state"])
     document["continuity_state"] = state
     return cast(dict[str, object], document), state
@@ -540,10 +552,67 @@ def execute_capability_episode(
     for slot in slots:
         concrete = derive_capability_slot(slot, prior_state)
         turn = invoke(slot, concrete, dict(prior_state))
-        document, next_state = _parse_turn(openai_chat_text(turn.response), slot, prior_state)
         response_digests.append(turn.response_digest)
         total_input += turn.input_tokens
         total_output += turn.output_tokens
+        try:
+            document, next_state = _parse_turn(openai_chat_text(turn.response), slot)
+        except ValidationFailed as exc:
+            duration_ms = max(prior_elapsed + 1, (monotonic_ns() - started_ns) // 1_000_000)
+            acceptance_digest = digest(
+                {
+                    "schema": "zekam-capability-model-contract-failure/v1",
+                    "plan_digest": plan.plan_digest,
+                    "model_id": model_id,
+                    "task_digest": task.task_digest,
+                    "turn_index": slot.turn_index,
+                    "response_digest": turn.response_digest,
+                    "verifier_provenance_digest": verifier.provenance_digest,
+                }
+            )
+            evidence_digest = digest(
+                {
+                    "acceptance_evidence_digest": acceptance_digest,
+                    "failure_type": type(exc).__name__,
+                    "classification": CapabilityEpisodeClassification.MODEL_CONTRACT_FAILED.value,
+                    "status": CapabilityEpisodeStatus.NOT_COMPARABLE.value,
+                }
+            )
+            return CapabilityEpisodeResult(
+                model_id=model_id,
+                task_digest=task.task_digest,
+                role=task.role,
+                status=CapabilityEpisodeStatus.NOT_COMPARABLE,
+                started_at=moment,
+                duration_ms=duration_ms,
+                start_skew_ms=0,
+                model_turn_count=len(response_digests),
+                input_token_count=total_input,
+                output_token_count=total_output,
+                correctness=0,
+                completion=0,
+                sustained_progress=0,
+                context_retention=0,
+                self_correction=0,
+                tool_efficiency=0,
+                safety=0,
+                hidden_acceptance_ratio=0,
+                sustained_progress_auc=0,
+                longest_stagnation_ms=duration_ms,
+                regression_count=0,
+                noop_ratio=1,
+                checkpoint_count=len(receipts),
+                self_correction_count=0,
+                tool_call_count=0,
+                checkpoint_receipt_digests=tuple(row.receipt_digest for row in receipts),
+                tool_receipt_digests=(),
+                response_digest=turn.response_digest,
+                verifier_model_id=verifier.model_id,
+                verifier_execution_identity=verifier.execution_identity,
+                verifier_provenance_digest=verifier.provenance_digest,
+                evidence_digest=evidence_digest,
+                acceptance_evidence_digest=acceptance_digest,
+            )
         if total_input > plan.execution_profile.max_input_tokens_total or total_output > min(
             plan.execution_profile.max_output_tokens_total, task.max_output_tokens
         ):
