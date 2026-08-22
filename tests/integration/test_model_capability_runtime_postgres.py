@@ -419,14 +419,14 @@ def _seed_authorization_derivation_candidate(connection: Any) -> dict[str, Any]:
     return values
 
 
-def test_migration_24_is_head_and_runtime_tables_are_rls_append_only(
+def test_migration_25_is_head_and_runtime_tables_are_rls_append_only(
     migrated_database: DatabaseSettings,
 ) -> None:
-    assert migrations.discover_migrations()[-1].version == 24
+    assert migrations.discover_migrations()[-1].version == 25
     assert migrations.discover_migrations()[-1].has_down
     with connect(migrated_database) as connection, connection.cursor() as cursor:
         cursor.execute("select max(version) from core.schema_migrations")
-        assert cursor.fetchone()[0] == 24
+        assert cursor.fetchone()[0] == 25
         cursor.execute(
             "select relname,relrowsecurity,relforcerowsecurity from pg_class"
             " join pg_namespace on pg_namespace.oid=pg_class.relnamespace"
@@ -446,6 +446,77 @@ def test_migration_24_is_head_and_runtime_tables_are_rls_append_only(
     assert triggers == {
         (table, trigger) for table in TABLES for trigger in ("deny_update", "deny_delete")
     }
+
+
+def test_migration_25_derivation_golden_down_and_reapply(
+    postgres_settings: DatabaseSettings,
+) -> None:
+    database_name = f"zekam_test_{uuid4().hex[:12]}"
+    scoped = DatabaseSettings(
+        host=postgres_settings.host,
+        port=postgres_settings.port,
+        name=database_name,
+        user=postgres_settings.user,
+        sslmode=postgres_settings.sslmode,
+    )
+    template = {
+        "schema": "zekam-capability-request-template/v1",
+        "model": "model/test",
+        "system": "system",
+        "prompt_prefix": "prefix\n",
+        "max_tokens": 17,
+    }
+    state = {
+        "facts": ["alpha", "gamma"],
+        "open_questions": ["beta?"],
+        "risks": [],
+        "next_action": "verify",
+    }
+
+    def request_digest(cursor: Any) -> str:
+        cursor.execute(
+            "select models.capability_runtime_jsonb_digest("
+            "models.derive_capability_request_body(%s::jsonb,%s::jsonb))",
+            (json.dumps(template, sort_keys=True), json.dumps(state, sort_keys=True)),
+        )
+        return str(cursor.fetchone()[0])
+
+    with connect(postgres_settings) as connection, connection.cursor() as cursor:
+        cursor.execute(f'create database "{database_name}"')
+    try:
+        with connect(scoped) as connection:
+            migrations.upgrade(connection, target=24)
+            with connection.cursor() as cursor:
+                assert request_digest(cursor) == (
+                    "sha256:4a5fd7d23042bb9429634a19d280bfd9e567284d4cb39b16ac7fe41adfcbc5b9"
+                )
+            migrations.upgrade(connection, target=25)
+            with connection.cursor() as cursor:
+                assert request_digest(cursor) == (
+                    "sha256:09221c94678df030360a65799081883ef9b14549c97b4cfa7b3c55cffb9aa4f8"
+                )
+            migrations.downgrade(connection, target=25)
+            restored = migrations.status(connection)
+            assert restored.head == 24
+            assert restored.drift == ()
+            with connection.cursor() as cursor:
+                assert request_digest(cursor) == (
+                    "sha256:4a5fd7d23042bb9429634a19d280bfd9e567284d4cb39b16ac7fe41adfcbc5b9"
+                )
+                cursor.execute(
+                    "select pg_get_functiondef("
+                    "'models.enforce_capability_runtime_continuity()'::regprocedure)"
+                )
+                assert "zekam-capability-continuity-derive/v3" in str(cursor.fetchone()[0])
+            migrations.upgrade(connection, target=25)
+            assert migrations.status(connection).is_current
+    finally:
+        with connect(postgres_settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_terminate_backend(pid) from pg_stat_activity where datname=%s",
+                (database_name,),
+            )
+            cursor.execute(f'drop database if exists "{database_name}"')
 
 
 def test_migration_24_down_restores_executable_head_23_functions(
@@ -525,7 +596,9 @@ def test_migration_24_down_restores_executable_head_23_functions(
                         (uuid4(), uuid4(), uuid4(), uuid4(), uuid4()),
                     )
             migrations.upgrade(connection, target=24)
-            assert migrations.status(connection).is_current
+            restored_24 = migrations.status(connection)
+            assert restored_24.head == 24
+            assert restored_24.drift == ()
     finally:
         with connect(postgres_settings) as connection, connection.cursor() as cursor:
             cursor.execute(
@@ -620,10 +693,26 @@ def test_sql_request_derivation_matches_python_golden_vector(
             ),
         )
         row = cursor.fetchone()
+        cursor.execute(
+            "select models.capability_runtime_jsonb_digest(jsonb_build_object("
+            " 'schema','zekam-capability-request-derivation/v1',"
+            " 'algorithm','zekam-capability-continuity-derive/v4',"
+            " 'template_digest',models.capability_runtime_jsonb_digest(%s::jsonb),"
+            " 'continuity_state_digest',models.capability_runtime_jsonb_digest(%s::jsonb),"
+            " 'request_body_digest',models.capability_runtime_jsonb_digest("
+            " models.derive_capability_request_body(%s::jsonb,%s::jsonb))))",
+            tuple(
+                json.dumps(value, sort_keys=True) for value in (template, state, template, state)
+            ),
+        )
+        attestation_digest = str(cursor.fetchone()[0])
     assert row == (
         "sha256:7cc1613f26ad1aa39ee75ae98680a4927ae19131f1d78efa349228b21c95502c",
         "sha256:95908edc8b10ee95b025cda83d35f49fd8e8986caddff5b1c325d42f87beb3ba",
-        "sha256:4a5fd7d23042bb9429634a19d280bfd9e567284d4cb39b16ac7fe41adfcbc5b9",
+        "sha256:09221c94678df030360a65799081883ef9b14549c97b4cfa7b3c55cffb9aa4f8",
+    )
+    assert attestation_digest == (
+        "sha256:905c0875d749d492362d3a4c9037905188abeab8860aeba9d80d48e334a6b5a3"
     )
 
 

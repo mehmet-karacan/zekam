@@ -138,19 +138,21 @@ def _benchmark_evidence(
     return suite_record_id, aggregate_id, suite.suite_digest, aggregate_evidence
 
 
-def test_migrations_23_and_24_can_down_and_reapply_at_current_head(
+def test_migrations_23_24_and_25_can_down_and_reapply_at_current_head(
     migrated_database: Any,
 ) -> None:
     from zekam.infrastructure.postgres.connection import connect
 
     with connect(migrated_database) as connection:
+        assert migrations.status(connection).head == 25
+        migrations.downgrade(connection, target=25)
         assert migrations.status(connection).head == 24
         migrations.downgrade(connection, target=24)
         assert migrations.status(connection).head == 23
         migrations.downgrade(connection, target=23)
         assert migrations.status(connection).head == 22
         migrations.upgrade(connection)
-        assert migrations.status(connection).head == 24
+        assert migrations.status(connection).head == 25
 
 
 def test_context_policy_decision_roundtrip_is_append_only(

@@ -23,6 +23,7 @@ from zekam.application.model_capability_benchmark import (
 )
 from zekam.application.model_capability_live import (
     EMPTY_CONTINUITY_STATE,
+    REQUEST_DERIVATION_ALGORITHM,
     REQUEST_TEMPLATE_SCHEMA,
     TURN_SCHEMA,
     CapabilityEpisodeClassification,
@@ -185,7 +186,20 @@ def test_request_derivation_has_stable_python_sql_golden_vector() -> None:
         "sha256:95908edc8b10ee95b025cda83d35f49fd8e8986caddff5b1c325d42f87beb3ba"
     )
     assert digest(payload) == (
-        "sha256:4a5fd7d23042bb9429634a19d280bfd9e567284d4cb39b16ac7fe41adfcbc5b9"
+        "sha256:09221c94678df030360a65799081883ef9b14549c97b4cfa7b3c55cffb9aa4f8"
+    )
+    assert REQUEST_DERIVATION_ALGORITHM == "zekam-capability-continuity-derive/v4"
+    assert (
+        digest(
+            {
+                "schema": "zekam-capability-request-derivation/v1",
+                "algorithm": REQUEST_DERIVATION_ALGORITHM,
+                "template_digest": digest(template),
+                "continuity_state_digest": digest(state),
+                "request_body_digest": digest(payload),
+            }
+        )
+        == "sha256:905c0875d749d492362d3a4c9037905188abeab8860aeba9d80d48e334a6b5a3"
     )
     assert set(payload) == {"model", "messages", "temperature", "max_tokens"}
 
@@ -429,9 +443,8 @@ def test_live_manifest_prepares_exact_static_168_slots() -> None:
                 "role": "user",
                 "content": (
                     first.prompt_prefix
-                    + "prior_state_digest tam olarak "
-                    + digest(EMPTY_CONTINUITY_STATE)
-                    + " olmali. Onceki continuity_state:\n"
+                    + "Asagidaki onceki state sistem tarafindan baglanmistir; exact cikti "
+                    + "semasina ek alan ekleme. Onceki continuity_state:\n"
                     + canonical_json(EMPTY_CONTINUITY_STATE)
                 ),
             },

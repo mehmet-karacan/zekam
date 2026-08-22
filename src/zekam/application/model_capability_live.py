@@ -72,7 +72,7 @@ MAX_STATE_LIST_ITEMS = 6
 MAX_STATE_STRING_CHARS = 240
 REQUEST_TEMPLATE_SCHEMA = "zekam-capability-request-template/v1"
 REQUEST_DERIVATION_SCHEMA = "zekam-capability-request-derivation/v1"
-REQUEST_DERIVATION_ALGORITHM = "zekam-capability-continuity-derive/v3"
+REQUEST_DERIVATION_ALGORITHM = "zekam-capability-continuity-derive/v4"
 REQUEST_TEMPLATE_FIELDS = {"schema", "model", "system", "prompt_prefix", "max_tokens"}
 
 
@@ -249,9 +249,8 @@ def derive_capability_request_body(
     state = validate_continuity_state(continuity_state)
     prompt = (
         prefix
-        + "prior_state_digest tam olarak "
-        + digest(state)
-        + " olmali. Onceki continuity_state:\n"
+        + "Asagidaki onceki state sistem tarafindan baglanmistir; exact cikti "
+        + "semasina ek alan ekleme. Onceki continuity_state:\n"
         + canonical_json(state)
     )
     return _capability_payload(
