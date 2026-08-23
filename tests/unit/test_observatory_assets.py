@@ -55,7 +55,7 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert '{ source: toolNodeId(agent), target: "system:zekam"' not in script
     assert "font-size: 14px; line-height: 1.45" in style
     assert ".lower-grid { display: none; }" in style
-    assert 'edge.kind === "markdown-link" ? 0.65 : 1' in script
+    assert 'edge.kind === "markdown-link" ? 0.8 : 1.15' in script
     assert "function drawClusterRegions()" in script
     assert "function focusedNeighborhood()" in script
     assert 'if (node.kind === "tool") return "run"' in script
@@ -69,6 +69,16 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "margin-top: var(--primary-panel-offset, 0)" in style
     assert ".agent-rail { position: relative; top: auto;" in style
     assert ".agent-rail { position: relative; width: 100%; height: auto; margin-top: 0;" in style
+    assert "const sx = width * 0.455" in script
+    assert "const sy = height * 0.455" in script
+    assert "for (let index = 0; index < 38; index += 1)" in script
+    assert "grid-template-columns: minmax(0,1fr) auto" in style
+    assert ".agent-identity > div { min-width: 0; }" in style
+    assert ".event-row > div { min-width: 0; overflow: hidden; }" in style
+    assert (
+        ".event-row strong, .event-row small { white-space: nowrap; overflow: hidden; "
+        "text-overflow: ellipsis; }" in style
+    )
     assert "Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36)" in script
     assert "Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36)" in script
     assert 'context.fillStyle = "rgba(3,12,10,.82)"' in script
@@ -82,8 +92,8 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=9" in index
-    assert "/assets/app.js?v=9" in index
+    assert "/assets/styles.css?v=10" in index
+    assert "/assets/app.js?v=10" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

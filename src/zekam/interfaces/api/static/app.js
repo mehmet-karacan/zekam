@@ -530,17 +530,19 @@
     const path = new Path2D();
     const cx = width * 0.5;
     const cy = height * 0.51;
-    const sx = width * 0.39;
-    const sy = height * 0.40;
-    path.moveTo(cx, cy - sy * 0.92);
-    path.bezierCurveTo(cx - sx * 0.13, cy - sy * 1.08, cx - sx * 0.54, cy - sy * 1.02, cx - sx * 0.72, cy - sy * 0.73);
-    path.bezierCurveTo(cx - sx * 1.04, cy - sy * 0.61, cx - sx * 1.03, cy - sy * 0.18, cx - sx * 0.91, cy - sy * 0.02);
-    path.bezierCurveTo(cx - sx * 1.04, cy + sy * 0.23, cx - sx * 0.82, cy + sy * 0.55, cx - sx * 0.61, cy + sy * 0.61);
-    path.bezierCurveTo(cx - sx * 0.50, cy + sy * 0.92, cx - sx * 0.12, cy + sy * 1.03, cx, cy + sy * 0.76);
-    path.bezierCurveTo(cx + sx * 0.15, cy + sy * 1.04, cx + sx * 0.53, cy + sy * 0.91, cx + sx * 0.63, cy + sy * 0.60);
-    path.bezierCurveTo(cx + sx * 0.91, cy + sy * 0.48, cx + sx * 1.04, cy + sy * 0.19, cx + sx * 0.90, cy - sy * 0.04);
-    path.bezierCurveTo(cx + sx * 1.03, cy - sy * 0.29, cx + sx * 0.96, cy - sy * 0.63, cx + sx * 0.70, cy - sy * 0.73);
-    path.bezierCurveTo(cx + sx * 0.53, cy - sy * 1.03, cx + sx * 0.14, cy - sy * 1.08, cx, cy - sy * 0.92);
+    const sx = width * 0.455;
+    const sy = height * 0.455;
+    path.moveTo(cx, cy - sy * 0.94);
+    path.bezierCurveTo(cx - sx * 0.18, cy - sy * 1.03, cx - sx * 0.47, cy - sy * 0.99, cx - sx * 0.62, cy - sy * 0.78);
+    path.bezierCurveTo(cx - sx * 0.82, cy - sy * 0.79, cx - sx * 0.98, cy - sy * 0.62, cx - sx * 0.96, cy - sy * 0.39);
+    path.bezierCurveTo(cx - sx * 1.04, cy - sy * 0.18, cx - sx * 1.01, cy + sy * 0.08, cx - sx * 0.90, cy + sy * 0.20);
+    path.bezierCurveTo(cx - sx * 1.02, cy + sy * 0.38, cx - sx * 0.88, cy + sy * 0.62, cx - sx * 0.67, cy + sy * 0.66);
+    path.bezierCurveTo(cx - sx * 0.58, cy + sy * 0.88, cx - sx * 0.27, cy + sy * 1.00, cx, cy + sy * 0.79);
+    path.bezierCurveTo(cx + sx * 0.27, cy + sy * 1.00, cx + sx * 0.58, cy + sy * 0.88, cx + sx * 0.67, cy + sy * 0.66);
+    path.bezierCurveTo(cx + sx * 0.88, cy + sy * 0.62, cx + sx * 1.02, cy + sy * 0.38, cx + sx * 0.90, cy + sy * 0.20);
+    path.bezierCurveTo(cx + sx * 1.01, cy + sy * 0.08, cx + sx * 1.04, cy - sy * 0.18, cx + sx * 0.96, cy - sy * 0.39);
+    path.bezierCurveTo(cx + sx * 0.98, cy - sy * 0.62, cx + sx * 0.82, cy - sy * 0.79, cx + sx * 0.62, cy - sy * 0.78);
+    path.bezierCurveTo(cx + sx * 0.47, cy - sy * 0.99, cx + sx * 0.18, cy - sy * 1.03, cx, cy - sy * 0.94);
     path.closePath();
     return path;
   }
@@ -557,8 +559,8 @@
     context.fillStyle = fill;
     context.fill(path);
     context.shadowBlur = 0;
-    context.strokeStyle = "rgba(136,255,218,.30)";
-    context.lineWidth = 1.8;
+    context.strokeStyle = "rgba(136,255,218,.42)";
+    context.lineWidth = 2.1;
     context.stroke(path);
     context.restore();
 
@@ -571,8 +573,8 @@
     context.beginPath();
     context.moveTo(state.width * 0.5, state.height * 0.14);
     context.bezierCurveTo(state.width * 0.48, state.height * 0.33, state.width * 0.52, state.height * 0.69, state.width * 0.50, state.height * 0.83);
-    context.strokeStyle = "rgba(118,255,208,.09)";
-    context.lineWidth = 1;
+    context.strokeStyle = "rgba(118,255,208,.18)";
+    context.lineWidth = 1.2;
     context.stroke();
     context.restore();
   }
@@ -580,8 +582,8 @@
   function drawGyri() {
     const width = state.width;
     const height = state.height;
-    context.lineWidth = 0.75;
-    for (let index = 0; index < 26; index += 1) {
+    context.lineWidth = 0.9;
+    for (let index = 0; index < 38; index += 1) {
       const seed = hash(`gyrus-${index}`);
       const side = index % 2 === 0 ? -1 : 1;
       const startX = width * (0.5 + side * (0.06 + ((seed % 100) / 100) * 0.25));
@@ -597,7 +599,7 @@
         startX + side * length,
         startY + Math.sin(index) * height * 0.025,
       );
-      context.strokeStyle = `rgba(126, 235, 199, ${0.07 + (index % 3) * 0.018})`;
+      context.strokeStyle = `rgba(126, 235, 199, ${0.105 + (index % 3) * 0.022})`;
       context.stroke();
     }
   }
@@ -656,14 +658,14 @@
       const radiusY = Math.max(38, Math.max(...points.map((point) => Math.abs(point.y - centerY))) + 26);
       const color = domainPalette[domain] || domainPalette.docs;
       const gradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(radiusX, radiusY));
-      gradient.addColorStop(0, colorWithAlpha(color, 0.055));
+      gradient.addColorStop(0, colorWithAlpha(color, 0.075));
       gradient.addColorStop(1, colorWithAlpha(color, 0));
       context.beginPath();
       context.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
       context.fillStyle = gradient;
       context.fill();
-      context.strokeStyle = colorWithAlpha(color, 0.12);
-      context.lineWidth = 0.8;
+      context.strokeStyle = colorWithAlpha(color, 0.17);
+      context.lineWidth = 0.95;
       context.stroke();
       if (domainLabels[domain] && points.length >= 3) {
         context.font = `11px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
@@ -701,7 +703,7 @@
       const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "executes-tool", "reports-observation"].includes(edge.kind);
       const edgeKey = `${edge.source}\u0000${edge.target}\u0000${edge.kind}`;
       const related = neighborhood?.edgeKeys.has(edgeKey) || false;
-      const alpha = active ? 0.86 : related ? 0.64 : neighborhood ? 0.035 : edge.kind === "markdown-link" ? 0.1 : 0.22;
+      const alpha = active ? 0.9 : related ? 0.72 : neighborhood ? 0.055 : edge.kind === "markdown-link" ? 0.15 : 0.31;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const distance = Math.max(1, Math.hypot(dx, dy));
@@ -715,7 +717,7 @@
       context.quadraticCurveTo(controlX, controlY, target.x, target.y);
       const edgeColor = domainPalette[graphDomain(sourceNode)] || domainPalette.docs;
       context.strokeStyle = active ? colorWithAlpha(domainPalette.work, alpha) : colorWithAlpha(edgeColor, alpha);
-      context.lineWidth = active ? 2.8 : related ? 1.8 : edge.kind === "markdown-link" ? 0.65 : 1;
+      context.lineWidth = active ? 3 : related ? 2 : edge.kind === "markdown-link" ? 0.8 : 1.15;
       context.stroke();
 
       if (state.liveMode || active) {
