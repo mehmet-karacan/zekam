@@ -1,0 +1,8 @@
+schema: zekam-jira-project-mappings/v1
+mappings:
+  - project_ref: gpu-fusion
+    project_aliases: [gpu, gpu projesi]
+    jira_prefix: SKYRSM
+  - project_ref: sky-fusion
+    project_aliases: [sky, sky projesi]
+    jira_prefix: TLCSKY

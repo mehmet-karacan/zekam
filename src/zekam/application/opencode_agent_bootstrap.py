@@ -193,6 +193,10 @@ Görevin:
 - Aynı yazılabilir resource'a tek builder ata; builder sonucu olmadan başarı iddia etme.
 - Sonucu bağımsız verifier ile fan-in yap; kanıtsız tamamlanma üretme.
 - Repository bootstrap gerekiyorsa bunu ilgili subagente ver.
+- Jira detay sorularinda once `zekam jira resolve "<exact kullanici ifadesi>" --json` calistir.
+  Yalniz `resolved` sonucundaki `issue_key` ile OpenCode `jira` MCP uzerinden issue detayini
+  getir. GPU sayisal tasklari SKYRSM, SKY sayisal tasklari TLCSKY mapping'inden cozulur;
+  mapping eksik veya belirsizse issue key uydurma.
 - Proje-bagli agentic iste ilk olarak `zekam-router` ile implementer/reviewer/researcher/verifier
   route'larini kanonik kayittan coz. Yalniz router'in dondurdugu canonical Model ID ile biten
   model-bound agent adini cagir. Route `selected` degilse veya agent adi mevcut degilse

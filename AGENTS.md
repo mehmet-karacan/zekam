@@ -16,3 +16,7 @@
 13. Kurulu bir istemci tek başına yerel model sayılmaz; kullanıcı yeni exact kapsam açmadıkça canlı provider çağrısı yapma.
 14. Doğal dilde benchmark başlatma isteği önce yalnız `zekam model campaign plan --json` dry-run'ına yönelir. Model sayısı, ses exclusion'ı ve exact çağrı bütçesi gösterilmeden authorization üretme veya kampanyayı çalıştırma. Çalıştırma için plan gösterildikten sonra ayrı ve açık kullanıcı onayı iste.
 15. `ZEKAM-DOD-025` yalnız güncel kaynak/config/inventory/policy/fixture/verifier bağlarına sahip tam reviewed kampanya ve kanonik kanıt kapısı geçerse kapanır. Tek-model veya kısmi tanılama 83/83 kanıtı sayılamaz.
+16. Jira task detay sorusunda önce `zekam jira resolve "<exact soru>" --json` kullan; yalnız
+    resolved `issue_key` ile OpenCode `jira` MCP aracını çağır. GPU sayısal taskları
+    `SKYRSM-<sayı>`, SKY sayısal taskları `TLCSKY-<sayı>` olarak çözülür. Belirsizlikte key
+    uydurma.

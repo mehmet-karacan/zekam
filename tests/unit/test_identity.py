@@ -39,6 +39,7 @@ def test_wheel_includes_complete_fresh_migration_set() -> None:
     root = Path(__file__).resolve().parents[2]
     document = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     force_include = document["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    assert force_include["config"] == "zekam/_config"
     migrations = sorted((root / "migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
     up = [path for path in migrations if not path.name.endswith(".down.sql")]
     down = [path for path in migrations if path.name.endswith(".down.sql")]
