@@ -150,7 +150,10 @@ class QueueCheck:
                     severity=Severity.ERROR,
                     title=f"{recovery} is recovery bekliyor",
                     detail="Claim var ama terminal receipt yok; sessiz retry yasaktir",
-                    next_action="`zekam run recover` ile adapter kanitini uzlastirin",
+                    next_action=(
+                        "`zekam worker reconcile-recovery --girdi <plan.json> --json` ile "
+                        "once dry-run yapip adapter kanitini uzlastirin"
+                    ),
                 )
             )
         if ready > QUEUE_DEPTH_WARNING:

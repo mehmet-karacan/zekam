@@ -226,7 +226,7 @@ def _safe_tool_name(value: Any) -> str:
 def resume_projection(
     home: Path, *, limit: int = 20, now: dt.datetime | None = None
 ) -> dict[str, Any]:
-    events = list(recent_events(home, limit=500))
+    events = list(recent_events(home, limit=5000))
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))
     sessions: dict[str, dict[str, Any]] = {}
     pending_tools: dict[str, tuple[str, dt.datetime]] = {}
@@ -290,9 +290,19 @@ def resume_projection(
             current["active_tool"] = None
             current["status"] = "checkpointed"
         elif event["event_type"] == "session.deleted":
-            pending_tools.pop(session_id, None)
+            pending = pending_tools.pop(session_id, None)
             current["active_tool"] = None
-            current["status"] = "closed"
+            if current["status"] == "failed":
+                continue
+            if pending is not None:
+                current["status"] = "interrupted"
+                current["next_safe_action"] = (
+                    f"{pending[0]} etkisini dogrula; sessiz retry yapma"
+                )
+            elif current["status"] == "checkpointed":
+                current["status"] = "closed-checkpointed"
+            else:
+                current["status"] = "closed"
     for session_id, (tool, started_at) in pending_tools.items():
         if dt.timedelta(0) <= observed_at - started_at <= _ACTIVE_TOOL_TTL:
             sessions[session_id]["status"] = "running"
@@ -315,8 +325,8 @@ def resume_projection(
 def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
     """Return newest verified, content-free OpenCode lifecycle events."""
 
-    if limit < 1 or limit > 500:
-        raise ValidationFailed("OpenCode lifecycle event limiti 1..500 olmali")
+    if limit < 1 or limit > 5000:
+        raise ValidationFailed("OpenCode lifecycle event limiti 1..5000 olmali")
     root = lifecycle_root(home)
     if not root.is_dir():
         return ()

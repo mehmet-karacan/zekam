@@ -138,6 +138,44 @@ def test_terminal_session_event_clears_active_tool(tmp_path, terminal_event: str
     assert session["active_tool"] is None
 
 
+def test_error_then_deleted_remains_failed(tmp_path) -> None:
+    record_event(tmp_path, event_type="session.error", session_id="ses_1", now=NOW)
+    record_event(
+        tmp_path,
+        event_type="session.deleted",
+        session_id="ses_1",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+    session = resume_projection(tmp_path)["sessions"][0]
+    assert session["status"] == "failed"
+
+
+def test_pending_tool_then_deleted_is_interrupted(tmp_path) -> None:
+    record_event(
+        tmp_path, event_type="tool.execute.before", session_id="ses_1", tool="bash", now=NOW
+    )
+    record_event(
+        tmp_path,
+        event_type="session.deleted",
+        session_id="ses_1",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+    session = resume_projection(tmp_path)["sessions"][0]
+    assert session["status"] == "interrupted"
+    assert "sessiz retry" in session["next_safe_action"]
+
+
+def test_checkpoint_then_deleted_preserves_checkpoint_state(tmp_path) -> None:
+    record_event(tmp_path, event_type="session.checkpoint", session_id="ses_1", now=NOW)
+    record_event(
+        tmp_path,
+        event_type="session.deleted",
+        session_id="ses_1",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+    assert resume_projection(tmp_path)["sessions"][0]["status"] == "closed-checkpointed"
+
+
 def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path) -> None:
     record_event(
         tmp_path,
