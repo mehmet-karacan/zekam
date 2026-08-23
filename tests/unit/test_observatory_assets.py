@@ -55,7 +55,13 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert '{ source: toolNodeId(agent), target: "system:zekam"' not in script
     assert "font-size: 14px; line-height: 1.45" in style
     assert ".lower-grid { display: none; }" in style
-    assert 'edge.kind === "markdown-link" ? 0.55 : 0.85' in script
+    assert 'edge.kind === "markdown-link" ? 0.65 : 1' in script
+    assert "function drawClusterRegions()" in script
+    assert "function focusedNeighborhood()" in script
+    assert 'if (node.kind === "tool") return "run"' in script
+    assert "neighborhood?.edgeKeys.has(edgeKey)" in script
+    assert "context.globalAlpha = dimmed ? 0.22 : 1" in script
+    assert "Math.random" not in script
     assert "Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36)" in script
     assert "Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36)" in script
     assert 'context.fillStyle = "rgba(3,12,10,.82)"' in script
@@ -69,8 +75,8 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=7" in index
-    assert "/assets/app.js?v=7" in index
+    assert "/assets/styles.css?v=8" in index
+    assert "/assets/app.js?v=8" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

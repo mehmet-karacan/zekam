@@ -44,8 +44,7 @@
     agent: "#ffce73",
     "agent-session": "#72ddff",
     client: "#ffffff",
-    "agent-session": "#72ddff",
-    client: "#ffffff",
+    tool: "#76ffd0",
     model: "#8de9ff",
     knowledge: "#62e8ff",
     memory: "#c7a3ff",
@@ -60,7 +59,6 @@
     work: [0.30, 0.31],
     run: [0.48, 0.27],
     client: [0.50, 0.22],
-    client: [0.50, 0.22],
     model: [0.70, 0.31],
     knowledge: [0.71, 0.61],
     memory: [0.31, 0.64],
@@ -72,6 +70,26 @@
     docs: [0.62, 0.76],
     core: [0.40, 0.76],
   };
+
+  const domainPalette = {
+    system: "#b6ffe7", "runtime-root": "#76ffd0", work: "#76ffd0",
+    run: "#72ddff", model: "#8de9ff", knowledge: "#62e8ff",
+    memory: "#c7a3ff", scheduler: "#ffce73", reports: "#ff9cc3",
+    architecture: "#8ed7c5", operations: "#7be7c7", contracts: "#8db8ff",
+    docs: "#86a9a0", core: "#83a79d",
+  };
+
+  const domainLabels = {
+    work: "İŞLER", run: "ÇALIŞMA AĞI", model: "MODELLER", knowledge: "BİLGİ",
+    memory: "BELLEK", scheduler: "ZAMANLAYICI", reports: "RAPOR VE KANIT",
+    architecture: "MİMARİ", operations: "OPERASYON", contracts: "SÖZLEŞMELER",
+    docs: "BELGELER", core: "KANONİK ÇEKİRDEK",
+  };
+
+  function colorWithAlpha(color, alpha) {
+    const value = color.replace("#", "");
+    return `rgba(${Number.parseInt(value.slice(0, 2), 16)},${Number.parseInt(value.slice(2, 4), 16)},${Number.parseInt(value.slice(4, 6), 16)},${alpha})`;
+  }
 
   function hash(value) {
     let result = 2166136261;
@@ -287,6 +305,7 @@
   function graphDomain(node) {
     if (node.kind === "client") return "run";
     if (node.kind === "agent-session") return "run";
+    if (node.kind === "tool") return "run";
     if (node.node_id.startsWith("runtime:cluster:")) return node.node_id.split(":").at(-1);
     if (node.node_id.startsWith("cluster:docs:")) return node.node_id.split(":").at(-1);
     const kind = node.kind;
@@ -601,7 +620,59 @@
     };
   }
 
+  function focusedNeighborhood() {
+    const focusId = state.hovered?.node_id || state.selected?.node_id;
+    if (!focusId) return null;
+    const nodeIds = new Set([focusId]);
+    const edgeKeys = new Set();
+    for (const edge of state.edges) {
+      if (edge.source !== focusId && edge.target !== focusId) continue;
+      nodeIds.add(edge.source);
+      nodeIds.add(edge.target);
+      edgeKeys.add(`${edge.source}\u0000${edge.target}\u0000${edge.kind}`);
+    }
+    return { nodeIds, edgeKeys };
+  }
+
+  function drawClusterRegions() {
+    const groups = new Map();
+    for (const node of state.nodes) {
+      if (!nodeVisible(node)) continue;
+      const domain = graphDomain(node);
+      if (["system", "runtime-root"].includes(domain)) continue;
+      const point = pointFor(node.node_id);
+      if (!point) continue;
+      if (!groups.has(domain)) groups.set(domain, []);
+      groups.get(domain).push(point);
+    }
+    for (const [domain, points] of groups.entries()) {
+      if (points.length < 2) continue;
+      const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+      const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+      const radiusX = Math.max(54, Math.max(...points.map((point) => Math.abs(point.x - centerX))) + 34);
+      const radiusY = Math.max(38, Math.max(...points.map((point) => Math.abs(point.y - centerY))) + 26);
+      const color = domainPalette[domain] || domainPalette.docs;
+      const gradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(radiusX, radiusY));
+      gradient.addColorStop(0, colorWithAlpha(color, 0.055));
+      gradient.addColorStop(1, colorWithAlpha(color, 0));
+      context.beginPath();
+      context.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+      context.fillStyle = gradient;
+      context.fill();
+      context.strokeStyle = colorWithAlpha(color, 0.12);
+      context.lineWidth = 0.8;
+      context.stroke();
+      if (domainLabels[domain] && points.length >= 3) {
+        context.font = `11px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+        context.fillStyle = colorWithAlpha(color, 0.5);
+        context.textAlign = "center";
+        context.fillText(domainLabels[domain], centerX, centerY - radiusY + 17);
+      }
+    }
+  }
+
   function drawEdges() {
+    const neighborhood = focusedNeighborhood();
     for (const edge of state.edges) {
       const sourceNode = state.nodeMap.get(edge.source);
       const targetNode = state.nodeMap.get(edge.target);
@@ -625,7 +696,9 @@
         y: targetCenter.y - unitY * targetPadding,
       };
       const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "executes-tool", "reports-observation"].includes(edge.kind);
-      const alpha = active ? 0.82 : edge.kind === "markdown-link" ? 0.06 : 0.14;
+      const edgeKey = `${edge.source}\u0000${edge.target}\u0000${edge.kind}`;
+      const related = neighborhood?.edgeKeys.has(edgeKey) || false;
+      const alpha = active ? 0.86 : related ? 0.64 : neighborhood ? 0.035 : edge.kind === "markdown-link" ? 0.1 : 0.22;
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const distance = Math.max(1, Math.hypot(dx, dy));
@@ -637,8 +710,9 @@
       context.beginPath();
       context.moveTo(source.x, source.y);
       context.quadraticCurveTo(controlX, controlY, target.x, target.y);
-      context.strokeStyle = active ? `rgba(118,255,208,${alpha})` : `rgba(123,183,165,${alpha})`;
-      context.lineWidth = active ? 2.6 : edge.kind === "markdown-link" ? 0.55 : 0.85;
+      const edgeColor = domainPalette[graphDomain(sourceNode)] || domainPalette.docs;
+      context.strokeStyle = active ? colorWithAlpha(domainPalette.work, alpha) : colorWithAlpha(edgeColor, alpha);
+      context.lineWidth = active ? 2.8 : related ? 1.8 : edge.kind === "markdown-link" ? 0.65 : 1;
       context.stroke();
 
       if (state.liveMode || active) {
@@ -688,6 +762,7 @@
 
   function drawNodes() {
     const labelBoxes = [];
+    const neighborhood = focusedNeighborhood();
     const orderedNodes = [...state.nodes].sort((left, right) => Number(state.activeNodeIds.has(right.node_id)) - Number(state.activeNodeIds.has(left.node_id)) || left.node_id.localeCompare(right.node_id));
     for (const node of orderedNodes) {
       if (!nodeVisible(node)) continue;
@@ -698,7 +773,12 @@
       const selected = state.selected?.node_id === node.node_id;
       const hovered = state.hovered?.node_id === node.node_id;
       const active = state.activeNodeIds.has(node.node_id);
+      const related = neighborhood?.nodeIds.has(node.node_id) || false;
+      const dimmed = Boolean(neighborhood) && !related && !active;
       const pulse = state.paused ? 0 : Math.sin(state.time * 0.003 + (hash(node.node_id) % 100)) * 0.8;
+
+      context.save();
+      context.globalAlpha = dimmed ? 0.22 : 1;
 
       if (active || selected || hovered || node.kind === "system") {
         context.beginPath();
@@ -754,6 +834,7 @@
           context.fillText(label, position.x, position.y);
         }
       }
+      context.restore();
     }
   }
 
@@ -763,6 +844,7 @@
     drawBrainBase();
     context.save();
     context.clip(brainPath(state.width, state.height));
+    drawClusterRegions();
     drawEdges();
     drawNodes();
     context.restore();
