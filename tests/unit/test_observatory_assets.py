@@ -72,6 +72,17 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "const sx = width * 0.455" in script
     assert "const sy = height * 0.455" in script
     assert "for (let index = 0; index < 38; index += 1)" in script
+    assert 'positions.set("system:zekam", { x: 0.5, y: 0.5' in script
+    assert "knowledge: [0.82, 0.52]" in script
+    assert "contracts: [0.82, 0.32]" in script
+    assert "const clusterRadiusCaps" in script
+    assert '"runtime-root": [0.50, 0.64]' in script
+    assert "const outsideSystemCore" in script
+    assert "Math.hypot(dx, dy) >= minimumDistance" in script
+    assert 'ref.includes("bellek") || ref.includes("memory")' in script
+    assert "points.length >= 2 && state.width >= 720" in script
+    assert 'node.kind === "system" || (state.liveMode' in script
+    assert ".brain-center-label { display: none; }" in style
     assert "grid-template-columns: minmax(0,1fr) auto" in style
     assert ".agent-identity > div { min-width: 0; }" in style
     assert ".event-row > div { min-width: 0; overflow: hidden; }" in style
@@ -92,8 +103,8 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=10" in index
-    assert "/assets/app.js?v=10" in index
+    assert "/assets/styles.css?v=11" in index
+    assert "/assets/app.js?v=11" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

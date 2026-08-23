@@ -156,7 +156,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
 .brain-wrap { position: relative; height: clamp(820px, 82vh, 1120px); overflow: hidden; background: radial-gradient(ellipse at center, rgba(31,89,72,.21), transparent 66%); }
 .brain-wrap::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,.008) 4px); z-index: 2; }
 #brain-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
-.brain-center-label { position: absolute; left: 50%; top: 50%; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; display: grid; place-items: center; color: rgba(198,255,235,.55); font-family: var(--mono); font-size: 8px; letter-spacing: .13em; }
+.brain-center-label { display: none; }
 .brain-pulse { position: absolute; width: 72px; height: 72px; border: 1px solid rgba(118,255,208,.13); border-radius: 50%; animation: centerPulse 3.4s ease-out infinite; }
 .brain-corner-stat { position: absolute; z-index: 3; display: grid; gap: 2px; pointer-events: none; }
 .brain-corner-stat span { font-family: var(--mono); color: var(--muted-bright); font-size: 14px; }

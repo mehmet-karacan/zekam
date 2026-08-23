@@ -57,21 +57,27 @@
   };
 
   const clusterCenters = {
-    system: [0.50, 0.48],
-    "runtime-root": [0.50, 0.53],
-    work: [0.30, 0.31],
-    run: [0.48, 0.27],
-    client: [0.50, 0.22],
-    model: [0.70, 0.31],
-    knowledge: [0.71, 0.61],
-    memory: [0.31, 0.64],
-    scheduler: [0.51, 0.72],
-    reports: [0.20, 0.50],
-    architecture: [0.35, 0.20],
-    operations: [0.52, 0.18],
-    contracts: [0.72, 0.46],
-    docs: [0.62, 0.76],
-    core: [0.40, 0.76],
+    system: [0.50, 0.50],
+    "runtime-root": [0.50, 0.64],
+    work: [0.25, 0.38],
+    run: [0.50, 0.27],
+    client: [0.50, 0.14],
+    model: [0.77, 0.19],
+    knowledge: [0.82, 0.52],
+    memory: [0.82, 0.69],
+    scheduler: [0.39, 0.83],
+    reports: [0.17, 0.52],
+    architecture: [0.20, 0.20],
+    operations: [0.43, 0.17],
+    contracts: [0.82, 0.32],
+    docs: [0.60, 0.79],
+    core: [0.24, 0.72],
+  };
+
+  const clusterRadiusCaps = {
+    work: 0.09, run: 0.11, model: 0.08, knowledge: 0.085, memory: 0.08,
+    scheduler: 0.07, reports: 0.09, architecture: 0.08, operations: 0.075,
+    contracts: 0.08, docs: 0.13, core: 0.09,
   };
 
   const domainPalette = {
@@ -318,7 +324,8 @@
     const ref = node.canonical_ref.toLowerCase();
     if (ref.includes("mimari")) return "architecture";
     if (ref.includes("operasyon")) return "operations";
-    if (ref.includes("bellek") || ref.includes("knowledge") || ref.includes("rag")) return "knowledge";
+    if (ref.includes("bellek") || ref.includes("memory")) return "memory";
+    if (ref.includes("knowledge") || ref.includes("rag") || ref.includes("bilgi")) return "knowledge";
     if (ref.includes("guvenlik") || ref.includes("model") || ref.includes("sozlesme")) return "contracts";
     return "docs";
   }
@@ -340,7 +347,7 @@
         const isCluster = node.kind.endsWith("cluster");
         const goldenAngle = Math.PI * (3 - Math.sqrt(5));
         const angle = index * goldenAngle + ((seed % 1000) / 1000 - 0.5) * 0.24;
-        const clusterRadius = Math.min(0.19, 0.055 + Math.sqrt(rows.length) * 0.012);
+        const clusterRadius = Math.min(clusterRadiusCaps[domain] || 0.09, 0.045 + Math.sqrt(rows.length) * 0.01);
         const radius = isRoot ? 0 : isCluster ? 0.012 : 0.028 + Math.sqrt((index + 1) / rows.length) * clusterRadius;
         const x = center[0] + Math.cos(angle) * radius;
         const y = center[1] + Math.sin(angle) * radius * 0.72;
@@ -357,18 +364,29 @@
     const activeMap = new Map(agents.map((agent) => [agent.agent_id, agent]));
     const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id)).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
     const clientAnchors = { opencode: 0.32, codex: 0.5, claude: 0.68, zekam: 0.5 };
+    const outsideSystemCore = (x, y, seed) => {
+      const dx = x - 0.5;
+      const dy = y - 0.5;
+      const minimumDistance = 0.14;
+      if (Math.hypot(dx, dy) >= minimumDistance) return { x, y };
+      const direction = dx === 0 ? (seed % 2 ? 1 : -1) : Math.sign(dx);
+      const safeDy = Math.min(Math.abs(dy), minimumDistance * 0.86);
+      const safeDx = Math.sqrt(minimumDistance ** 2 - safeDy ** 2) * direction;
+      return { x: 0.5 + safeDx, y };
+    };
     positions.set("client:opencode", { x: 0.32, y: 0.11, vx: 0, vy: 0, seed: 1 });
     positions.set("client:codex", { x: 0.5, y: 0.12, vx: 0, vy: 0, seed: 2 });
     positions.set("client:claude", { x: 0.68, y: 0.11, vx: 0, vy: 0, seed: 3 });
-    positions.set("system:zekam", { x: 0.5, y: 0.86, vx: 0, vy: 0, seed: 4 });
+    positions.set("system:zekam", { x: 0.5, y: 0.5, vx: 0, vy: 0, seed: 4 });
     roots.forEach((agent) => {
       const client = normalizedClient(agent.client);
       const siblings = roots.filter((candidate) => normalizedClient(candidate.client) === client);
       const siblingIndex = siblings.findIndex((candidate) => candidate.agent_id === agent.agent_id);
       const rootX = (clientAnchors[client] || 0.5) + (siblingIndex - (siblings.length - 1) / 2) * 0.1;
       const placeBranch = (parent, x, y, depth) => {
-        const safeX = Math.max(0.12, Math.min(0.88, x));
-        const safeY = Math.max(0.18, Math.min(0.78, y));
+        const coreSafe = outsideSystemCore(x, y, hash(parent.agent_id));
+        const safeX = Math.max(0.12, Math.min(0.88, coreSafe.x));
+        const safeY = Math.max(0.18, Math.min(0.78, coreSafe.y));
         positions.set(parent.agent_id, { x: safeX, y: safeY, vx: 0, vy: 0, seed: hash(parent.agent_id) });
         if (depth >= 3) return;
         const children = agents.filter((child) => child.parent_agent_id === parent.agent_id).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
@@ -384,9 +402,10 @@
       const parent = positions.get(agent.agent_id);
       if (!parent) return;
       const offset = (hash(toolNodeId(agent)) % 2 ? 1 : -1) * 0.055;
+      const coreSafe = outsideSystemCore(parent.x + offset, parent.y + 0.13, hash(toolNodeId(agent)));
       positions.set(toolNodeId(agent), {
-        x: Math.max(0.12, Math.min(0.88, parent.x + offset)),
-        y: Math.max(0.22, Math.min(0.8, parent.y + 0.13)),
+        x: Math.max(0.12, Math.min(0.88, coreSafe.x)),
+        y: Math.max(0.22, Math.min(0.8, coreSafe.y)),
         vx: 0,
         vy: 0,
         seed: hash(toolNodeId(agent)),
@@ -667,11 +686,16 @@
       context.strokeStyle = colorWithAlpha(color, 0.17);
       context.lineWidth = 0.95;
       context.stroke();
-      if (domainLabels[domain] && points.length >= 3) {
-        context.font = `11px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
-        context.fillStyle = colorWithAlpha(color, 0.5);
+      if (domainLabels[domain] && points.length >= 2 && state.width >= 720) {
+        const domainLabel = domainLabels[domain];
+        context.font = `12px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.textAlign = "center";
-        context.fillText(domainLabels[domain], centerX, centerY - radiusY + 17);
+        const labelY = centerY - radiusY + 18;
+        const labelWidth = context.measureText(domainLabel).width + 14;
+        context.fillStyle = "rgba(3,12,10,.76)";
+        context.fillRect(centerX - labelWidth / 2, labelY - 13, labelWidth, 18);
+        context.fillStyle = colorWithAlpha(color, 0.72);
+        context.fillText(domainLabel, centerX, labelY);
       }
     }
   }
@@ -812,7 +836,7 @@
       context.fill();
       context.shadowBlur = 0;
 
-      if (selected || hovered || active || node.kind === "system" || node.kind.endsWith("cluster") || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
+      if (selected || hovered || active || node.kind === "system" || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
         const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
         context.font = `${selected ? 17 : active ? 17 : state.liveMode ? 14 : 12}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
         context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
