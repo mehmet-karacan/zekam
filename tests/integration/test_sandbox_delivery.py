@@ -1,6 +1,6 @@
-"""P10 gercek Git worktree ve typed process kabul testleri.
+"""P10 bagli gercek source rootu ve typed process kabul testleri.
 
-Bu testler gercek `git worktree` ve gercek alt surec kullanir; mock degildir.
+Bu testler gercek source repository ve gercek alt surec kullanir; mock degildir.
 """
 
 from __future__ import annotations
@@ -50,7 +50,10 @@ def source_repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def service(source_repo: Path, tmp_path: Path) -> SandboxDeliveryService:
     return SandboxDeliveryService(
-        WorktreeManager(source_root=source_repo, workspaces_root=tmp_path / "worktrees")
+        WorktreeManager(source_root=source_repo, workspaces_root=tmp_path / "worktrees"),
+        resolve_bound_source=lambda project_ref: source_repo
+        if project_ref == "kaynak"
+        else tmp_path / "kayitsiz",
     )
 
 
@@ -65,23 +68,51 @@ def _spec(source_repo: Path, paths: tuple[str, ...] = ("src",)) -> WorkspaceSpec
     )
 
 
-def test_worktree_detached_acilir_ve_main_tree_degismez(
+def test_workspace_bagli_gercek_source_rootunu_kullanir(
     service: SandboxDeliveryService, source_repo: Path
 ) -> None:
     before = fingerprint(source_repo)
     workspace = service.prepare(_spec(source_repo))
     assert workspace.worktree.exists is True
     assert workspace.worktree.revision == before.head
+    assert workspace.worktree.path == source_repo.resolve()
 
     (workspace.worktree.path / "src" / "modul.py").write_text(
         "DEGER = 2\n", encoding="utf-8", newline="\n"
     )
     after = fingerprint(source_repo)
-    assert after.matches(before), "worktree yazimi main tree'yi degistirmemeli"
-    assert (source_repo / "src" / "modul.py").read_text(encoding="utf-8") == "DEGER = 1\n"
+    assert not after.matches(before), "direct-source yazimi gercek tree'yi degistirmeli"
+    assert (source_repo / "src" / "modul.py").read_text(encoding="utf-8") == "DEGER = 2\n"
 
     service.discard(workspace)
-    assert fingerprint(source_repo).matches(before)
+    assert not fingerprint(source_repo).matches(before)
+
+
+def test_project_ref_binding_uyusmazligi_reddedilir(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    spec = WorkspaceSpec(
+        workspace_id="w-mismatch",
+        project_ref="baska-proje",
+        work_ref="ZEKAM-P10-T01",
+        source_revision=fingerprint(source_repo).head,
+        policy=default_policy(("src",)),
+    )
+    with pytest.raises(PolicyViolation):
+        service.prepare(spec)
+
+
+def test_prepare_proje_kopyasi_ve_worktree_dizini_uretmez(
+    source_repo: Path, tmp_path: Path
+) -> None:
+    workspaces_root = tmp_path / "uretilmemeli"
+    service = SandboxDeliveryService(
+        WorktreeManager(source_root=source_repo, workspaces_root=workspaces_root),
+        resolve_bound_source=lambda project_ref: source_repo,
+    )
+    workspace = service.prepare(_spec(source_repo))
+    assert workspace.worktree.path == source_repo.resolve()
+    assert not workspaces_root.exists()
 
 
 def test_allowlist_disina_yazma_reddedilir(
@@ -223,8 +254,8 @@ def test_yama_uretimi_apply_check_test_ve_receipt_akisi(
         assert report.decision.outcome.value == "applied"
         assert report.decision.apply_check_passed is True
         assert report.receipt_eligible is True
-        assert report.main_tree_before.matches(report.main_tree_after)
-        assert (source_repo / "src" / "modul.py").read_text(encoding="utf-8") == "DEGER = 1\n"
+        assert not report.main_tree_before.matches(report.main_tree_after)
+        assert (source_repo / "src" / "modul.py").read_text(encoding="utf-8") == "DEGER = 2\n"
     finally:
         service.discard(workspace)
 

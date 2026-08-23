@@ -33,7 +33,7 @@ dokümantasyon tamamlanmış sayılmaz.
 - [x] Strict Agent Result Envelope ve coordinator fan-in çalışır.
 - [x] Builder ve risk bazlı bağımsız verifier kimlikleri ayrıdır.
 - [x] Her meaningful step checkpoint ve continuity üretir.
-- [x] Entegre proje mutation'ı yalnız detached worktree/sandbox içinde yapılır.
+- [x] Entegre proje mutation'i yalniz bagli gercek source rootunda, tek-writer kilidiyla yapilir.
 
 ## D. Model envanteri, benchmark ve routing
 

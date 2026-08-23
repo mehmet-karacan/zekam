@@ -69,8 +69,8 @@ Bu paket komutların implementasyonunu tarif eder; paket tek başına henüz exe
 ## D. Mutation
 
 Kullanıcı projede geliştirme istediğinde:
-- source main tree read-only,
-- Zekam worktree oluşturur,
+- bagli gercek source root read/write ve tek-writer kilitli,
+- Zekam bağlı gerçek source rootunda çalışır; proje kopyası veya worktree oluşturmaz,
 - exact path/resource planı,
 - single builder,
 - test/verifier,

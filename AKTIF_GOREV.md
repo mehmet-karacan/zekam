@@ -243,7 +243,8 @@ Kanıt: `.zekam/phases/ZEKAM-P09-kanit.json`, `.zekam/evidence/ZEKAM-P09-*.json`
 
 ## Faz 10 teslimi
 
-- **Detached worktree**: entegre kaynak main tree read-only ve bu kapatılamaz
+- **Bound real source**: mutation exact bagli gercek proje kokunde tek-writer kilidiyla yapilir;
+  kopya, mirror ve detached worktree yasaktir
   (`main_tree_read_only=False` → `PolicyViolation`). HEAD ve tree parmak izi işlem
   öncesi/sonrası karşılaştırılıyor; gerçek `git worktree` ile doğrulandı.
 - **Path allowlist**: boş allowlist reddediliyor; önek eşlemesiyle kaçılamıyor

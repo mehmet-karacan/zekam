@@ -315,7 +315,7 @@ criteria:
   assessment_note: Meaningful step checkpoint'siz completed olamiyor; trigger zorluyor.
 - id: ZEKAM-DOD-022
   category: C. Agent harness ve execution runtime
-  criterion: Entegre proje mutation'ı yalnız detached worktree/sandbox içinde yapılır.
+  criterion: Entegre proje mutation'i yalniz bagli gercek source rootunda tek-writer kilidiyla yapilir.
   state: passed
   required_evidence:
   - test-or-evaluation

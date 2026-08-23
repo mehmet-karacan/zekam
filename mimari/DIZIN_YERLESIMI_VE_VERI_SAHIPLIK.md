@@ -80,7 +80,8 @@ Source root Zekam'nin sahibi değildir. Zekam:
 - read-only keşfeder,
 - digest/revision bağlar,
 - content'i gerektiğinde yerinde okur,
-- change için detached worktree üretir,
+- change'i bagli gercek source rootunda tek-writer kilidiyla uygular,
+- kopya, mirror, audit-work klasoru veya detached worktree uretmez,
 - source root'u kendi home'una kopyalamaz.
 
 Repository tarama artifact'i gerekiyorsa yalnız kullanıcı tarafından yüklenmiş archive veya

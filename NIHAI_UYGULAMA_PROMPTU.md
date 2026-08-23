@@ -57,7 +57,7 @@ Her yeni oturum:
 7. Aktif iş için gerekli bounded context'i derle.
 8. Uygulama ve test planını exact logical resources ile kaydet.
 9. Agentic işte minimum bir gerçek subagent atamadan yürütmeye başlama.
-10. Haricî kaynak proje köküne doğrudan yazma.
+10. Kod mutation'ini bagli exact gercek source rootunda yap; proje kopyasi veya worktree uretme.
 
 ## 4. Değiştirilemez mimari ilkeler
 
@@ -110,8 +110,8 @@ veridir. Derived kayıp olduğunda state kaybolmaz; rebuild action üretilir.
 
 - Core kodu Git repository'de sürümlenir.
 - Kullanıcı state'i `ZEKAM_HOME` altında kalır.
-- Haricî project source kendi dizininde kalır ve read-only binding ile okunur.
-- Mutation Zekam-managed worktree/sandbox'ta yapılır.
+- Haricî project source kendi dizininde kalır ve exact binding ile okunur/yazilir.
+- Mutation yalniz bagli gercek source rootunda yapilir; kopya, mirror veya worktree uretilmez.
 - Portable kayıtlarda absolute path veya aktif lease taşınmaz.
 - Secret değerleri repository veya backup'a girmez.
 
@@ -211,14 +211,14 @@ result/failure digest ve adapter evidence ile eşleşir. “Agent başarılı de
 
 ### 5.5 Sandbox
 
-- Entegre source main tree read-only kabul edilir.
-- Her builder için detached worktree veya daha güçlü isolated workspace.
+- Entegre source exact bagli gercek proje kokudur; mutation dogrudan bu kokte yapilir.
+- Her yazilabilir logical resource ayni anda yalniz bir builder tarafindan degistirilir.
 - Exact relative path allowlist.
 - Traversal/symlink escape reddi.
 - Network default-deny; exact host/operation allowlist.
 - Shell yerine typed tool/capability tercih edilir.
-- Test/verifier source main tree'yi işlem sonunda yeniden doğrular.
-- Başarılı patch hedefe taşınmadan önce `git apply --check` veya eşdeğer doğrulama yapılır.
+- Test/verifier bagli gercek source tree'yi işlem sonunda yeniden doğrular.
+- Direct-source değişiklik, allowlist + revision drift + changed-path doğrulamasından geçirilir.
 
 ## 6. Proje ve Work Graph
 
@@ -574,7 +574,7 @@ Verified research/decision'dan:
 1. Exact file/resource/effect planı oluştur.
 2. Risk, acceptance, test ve rollback belirt.
 3. Authorization al.
-4. Builder worktree'de uygular.
+4. Builder bagli gercek proje dosyasinda uygular; kopya veya worktree kullanmaz.
 5. Zekam testleri bağımsız yeniden çalıştırır.
 6. Verifier patch/evidence'i doğrular.
 7. Patch/receipt/continuity üret.

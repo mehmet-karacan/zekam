@@ -46,7 +46,8 @@ def policy_command(
     table.add_column("Deger")
     table.add_row("yazilabilir yollar", ", ".join(sorted(policy.allowlist.entries)))
     table.add_row("network", "default-deny" if policy.network.is_default_deny else "kisitli izin")
-    table.add_row("main tree", "read-only")
+    table.add_row("proje kaynagi", "exact-bound direct-write")
+    table.add_row("proje kopyasi", "yasak")
     table.add_row("digest", policy.policy_digest)
     console.print(table)
 

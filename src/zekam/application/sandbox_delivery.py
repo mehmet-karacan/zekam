@@ -1,4 +1,4 @@
-"""Sandbox teslim akisi: worktree -> yama -> apply-check -> test -> verifier.
+"""Bound real-source teslim akisi: exact write -> test -> verifier.
 
 Bu servis authority uretmez. Teslim karari `applied` olsa bile mutation exact
 authorization ve runtime claim/receipt zincirinden gecer.
@@ -7,6 +7,7 @@ authorization ve runtime claim/receipt zincirinden gecer.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,6 @@ from zekam.domain.sandbox import (
     SandboxPolicy,
     TreeFingerprint,
     WorkspaceSpec,
-    assert_main_tree_untouched,
     assert_no_drift,
 )
 from zekam.infrastructure.git.worktree import ManagedWorktree, WorktreeManager, fingerprint
@@ -86,11 +86,19 @@ class DeliveryReport:
 
 @dataclass(frozen=True, slots=True)
 class SandboxDeliveryService:
-    """Worktree yasam dongusu ve yama teslimi."""
+    """Bagli gercek source rootu teslim yasam dongusu."""
 
     manager: WorktreeManager
+    resolve_bound_source: Callable[[str], Path]
 
     def prepare(self, spec: WorkspaceSpec) -> PreparedWorkspace:
+        try:
+            registered = self.resolve_bound_source(spec.project_ref).resolve(strict=True)
+            configured = self.manager.source_root.resolve(strict=True)
+        except OSError as exc:
+            raise PolicyViolation("project_ref icin exact source binding cozumlenemedi") from exc
+        if registered != configured:
+            raise PolicyViolation("project_ref exact source binding ile eslesmiyor")
         baseline = fingerprint(self.manager.source_root)
         if baseline.head != spec.source_revision:
             raise PolicyViolation("source revision drift; workspace hazirlanamaz")
@@ -100,7 +108,7 @@ class SandboxDeliveryService:
     def run_tests(
         self, workspace: PreparedWorkspace, specs: tuple[ProcessSpec, ...]
     ) -> tuple[ProcessResult, ...]:
-        """Testleri sandbox icinde, shell'siz ve bounded calistirir."""
+        """Testleri bagli source rootunda, shell'siz ve bounded calistirir."""
 
         return tuple(runner.run(item, cwd=workspace.worktree.path).result for item in specs)
 
@@ -111,7 +119,7 @@ class SandboxDeliveryService:
         artifact_id: str,
         now: dt.datetime,
     ) -> tuple[PatchArtifact, str]:
-        """Worktree degisikligini yama artifact'ina cevirir."""
+        """Gercek source degisikligini kanit artifact'ina cevirir."""
 
         patch = self.manager.diff(workspace.worktree)
         changed = self.manager.changed_paths(workspace.worktree)
@@ -137,7 +145,7 @@ class SandboxDeliveryService:
         builder_ref: str,
         verifier_ref: str,
     ) -> DeliveryReport:
-        """Apply-check, drift ve bagimsiz test kanitini birlikte degerlendirir."""
+        """Direct-source drift ve bagimsiz test kanitini birlikte degerlendirir."""
 
         before = fingerprint(self.manager.source_root)
         tests_passed = bool(test_results) and all(item.succeeded for item in test_results)
@@ -155,9 +163,9 @@ class SandboxDeliveryService:
         except PolicyViolation as exc:
             outcome, detail = DeliveryOutcome.DRIFTED, str(exc)
         else:
-            apply_ok = self.manager.apply_check(patch)
+            apply_ok = bool(patch.strip())
             if not apply_ok:
-                outcome, detail = DeliveryOutcome.REJECTED, "git apply --check basarisiz"
+                outcome, detail = DeliveryOutcome.REJECTED, "degisiklik kaniti bos"
             elif not tests_passed:
                 outcome, detail = DeliveryOutcome.REJECTED, "bagimsiz test kaniti yok"
 
@@ -171,21 +179,19 @@ class SandboxDeliveryService:
             detail=detail,
         )
         after = fingerprint(self.manager.source_root)
-        assert_main_tree_untouched(before, after)
         return DeliveryReport(
             artifact=artifact,
             decision=decision,
             test_results=test_results,
-            main_tree_before=before,
+            main_tree_before=workspace.baseline,
             main_tree_after=after,
         )
 
     def discard(self, workspace: PreparedWorkspace) -> TreeFingerprint:
-        """Calisma alanini kaldirir ve main tree'nin bozulmadigini dogrular."""
+        """Kopya kaldirmadan bagli source tree'nin son parmak izini dondurur."""
 
         self.manager.remove(workspace.worktree)
         after = fingerprint(self.manager.source_root)
-        assert_main_tree_untouched(workspace.baseline, after)
         return after
 
 

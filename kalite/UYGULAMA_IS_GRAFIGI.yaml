@@ -1544,7 +1544,7 @@ phases:
   order: 10
   tasks:
   - id: ZEKAM-P10-T01
-    title: Managed detached worktree sandbox uygula
+    title: Bound real source ve tek-writer mutation politikasini uygula
     state: completed
     dependencies:
     - ZEKAM-P09-T06
@@ -1559,7 +1559,7 @@ phases:
       - project:zekam
       - path:zekam:phase-10
     acceptance:
-    - Main tree read-only, allowlist/symlink/network testleri gecer.
+    - Exact bound real source, allowlist/symlink/network ve no-copy testleri gecer.
     required_evidence:
     - changed-files-or-migration-digest
     - test-or-evaluation-result

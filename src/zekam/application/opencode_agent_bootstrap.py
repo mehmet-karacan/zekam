@@ -23,6 +23,16 @@ DEFAULT_AGENT = "zekam-coordinator"
 _CONFIG_RELATIVE = Path(".config") / "opencode" / "opencode.json"
 _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
 _PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
+_MANAGED_AGENT_MARKER = "# zekam-managed-agent/v1"
+_LEGACY_MANAGED_DESCRIPTIONS = (
+    "description: Exact approved plan ile bagli gercek proje dosyalarini "
+    "degistiren builder subagent",
+    "description: Zekam kanonik durumu, DAG'i, subagentlari ve final fan-in'i yoneten ana ajan",
+    "description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only subagent",
+    "description: Kanitli, kaynak revision'li ve citation tasiyan read-only arastirma subagenti",
+    "description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti",
+    "description: Proje ve rol icin kanonik model route'unu salt okunur cozen router subagenti",
+)
 
 _LIFECYCLE_PLUGIN = r"""import { tool } from "@opencode-ai/plugin"
 
@@ -123,19 +133,23 @@ export const ZekamLifecycle = async ({ directory }) => {
 
 _BASE_AGENT_TEMPLATES: Mapping[str, str] = {
     "zekam-builder.md": """---
-description: Exact approved plan ve managed worktree icinde degisiklik yapan builder subagent
+description: Exact approved plan ile bagli gercek proje dosyalarini degistiren builder subagent
 mode: subagent
 permission:
-  edit: ask
-  bash: ask
+  edit: allow
+  bash:
+    "*": allow
+    "*git commit*": deny
+    "*git push*": deny
   webfetch: deny
-  external_directory: deny
+  external_directory: allow
   task: deny
 ---
 Yalnız exact Task Plan step'i, logical resource lock'u, current lease/fence ve authorization
-scope'u içinde çalış. Haricî source main tree'ye yazma. Yeni path/resource gerekirse durup plan
-revision iste. Claim olmadan non-read effect başlatma. Test sonucu, patch artifact ve receipt
-referansı olmadan completed dönme. Commit yapma yetkisi ayrıca verilmemişse commit yapma.
+scope'u içinde çalış. Degisikligi project registry'de bagli exact gercek source rootunda yap;
+kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma. Yeni
+path/resource gerekirse durup plan revision iste. Claim olmadan non-read effect başlatma. Test
+sonucu, patch artifact ve receipt referansı olmadan completed dönme. Git commit ve push yapma.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.
@@ -144,35 +158,17 @@ verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi 
 description: Zekam kanonik durumu, DAG'i, subagentlari ve final fan-in'i yoneten ana ajan
 mode: primary
 permission:
-  "*": deny
+  "*": allow
+  edit: allow
+  external_directory: allow
   bash:
-    "*": ask
-    "cd *": allow
-    "pwd": allow
-    "dir *": allow
-    "ls *": allow
-    "Get-ChildItem *": allow
-    "Get-Content *": allow
-    "rg *": allow
-    "grep *": allow
-    "git status *": allow
-    "git status": allow
-    "git diff *": allow
-    "git diff": allow
-    "git log *": allow
-    "git log": allow
-    "git show *": allow
-    "git branch *": allow
-    "git branch": allow
-    "git rev-parse *": allow
-    "git remote -v": allow
-    "zekam doctor *": allow
-    "zekam ask *": allow
-    "zekam work list *": allow
+    "*": allow
+    "*git commit*": deny
+    "*git push*": deny
     "git commit *": deny
+    "git commit": deny
     "git push *": deny
-    "git reset *": deny
-    "git clean *": deny
+    "git push": deny
   webfetch: allow
   task:
     "*": deny
@@ -188,17 +184,15 @@ permission:
   question: allow
 ---
 Görevin:
-- Koordinasyon ve kanit dogrulama icin salt-okunur WebFetch ve izinli salt-okunur terminal
-  komutlarini kullanabilirsin. Yerel dosya edit etme; ilk teknik adim gercek bir subagent
-  atamak olmali.
+- Koordinasyon, kesif, test ve yetkili yerel mutation icin edit, WebFetch, external directory
+  ve terminal araclarini tekrar onay istemeden kullanabilirsin. Git commit ve push yasaktir.
 - Her kullanıcı isteğinde kapsamına uygun en az bir researcher, builder veya verifier subagent
   ata. Salt-okunur durum sorgusu da bu kurala dahildir.
 - Subagent başarısızsa, reddedilirse veya sonuç envelope'u dönmezse işi kendin yapma; yalnız
   blokajı ve gerekli sonraki adımı bildir.
 - Aynı yazılabilir resource'a tek builder ata; builder sonucu olmadan başarı iddia etme.
 - Sonucu bağımsız verifier ile fan-in yap; kanıtsız tamamlanma üretme.
-- Repository bootstrap gerekiyorsa bunu ilgili subagente ver; mevcut çalışma dizininden dosya
-  keşfetmeye çalışma.
+- Repository bootstrap gerekiyorsa bunu ilgili subagente ver.
 - Proje-bagli agentic iste ilk olarak `zekam-router` ile implementer/reviewer/researcher/verifier
   route'larini kanonik kayittan coz. Yalniz router'in dondurdugu canonical Model ID ile biten
   model-bound agent adini cagir. Route `selected` degilse veya agent adi mevcut degilse
@@ -209,9 +203,10 @@ Dispatch protokolu:
   dalgalara ayir. Bir sonraki dalgaya, onceki dalganin gerekli sonucu fan-in olmadan gecme.
 - Bir dalgada bagimsiz ve salt-okunur gorevleri, ayni assistant turunde ayri `task` cagriyla
   paralel baslat. Eszamanli child sayisi ucu gecemez.
-- Iki builder'i yalniz ayri managed worktree'lerde ve yazilabilir logical resource'lari
-  kesismezse ayni dalgaya koy. Ayni kaynak, ayni dosya veya belirsiz kaynak sahipliginde
-  sirali calistir.
+- Kod degisikliklerini yalniz project registry'de bagli exact gercek source rootunda yap.
+  Kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma.
+- Iki builder'i yalniz yazilabilir logical resource'lari kesismezse ayni dalgaya koy. Ayni
+  kaynak, ayni dosya veya belirsiz kaynak sahipliginde sirali calistir.
 - Her child'a tek rol, tek kapsam, bagimlilik, acceptance, kanit ve sonuc sozlesmesi ver.
   Paralel baslatildigini, ancak ayri child session'lar gercekten acildiysa bildir.
 - Her child gorevine meaningful adim ve hata/blokaj sonrasinda `zekam_checkpoint` ile
@@ -321,6 +316,11 @@ en fazla 6 kisa maddede ver.
 """,
 }
 
+_BASE_AGENT_TEMPLATES = {
+    name: body.replace("---\n", f"---\n{_MANAGED_AGENT_MARKER}\n", 1)
+    for name, body in _BASE_AGENT_TEMPLATES.items()
+}
+
 
 _MODEL_AGENT_ROLES: Mapping[str, str] = {
     "implementer": "zekam-builder.md",
@@ -372,6 +372,7 @@ class OpenCodeAgentBootstrapPlan:
     config_document: Mapping[str, Any]
     config_update_required: bool
     agents_to_create: tuple[str, ...]
+    agents_to_update: tuple[str, ...]
     conflicting_agents: tuple[str, ...]
     lifecycle_plugin_to_create: bool
     lifecycle_plugin_conflict: bool
@@ -397,6 +398,7 @@ def plan_opencode_agent_bootstrap(
             config_document={},
             config_update_required=False,
             agents_to_create=(),
+            agents_to_update=(),
             conflicting_agents=(),
             lifecycle_plugin_to_create=False,
             lifecycle_plugin_conflict=False,
@@ -410,13 +412,24 @@ def plan_opencode_agent_bootstrap(
     updated["default_agent"] = DEFAULT_AGENT
 
     create: list[str] = []
+    update: list[str] = []
     conflict: list[str] = []
     for name, body in _AGENT_TEMPLATES.items():
         candidate = agents_path / name
         if not candidate.exists():
             create.append(name)
-        elif not candidate.is_file() or candidate.read_text(encoding="utf-8") != body:
+        elif not candidate.is_file():
             conflict.append(name)
+        else:
+            existing = candidate.read_text(encoding="utf-8")
+            if existing != body:
+                managed = _MANAGED_AGENT_MARKER in existing or any(
+                    description in existing for description in _LEGACY_MANAGED_DESCRIPTIONS
+                )
+                if managed:
+                    update.append(name)
+                else:
+                    conflict.append(name)
     plugins_path = user_home / _PLUGINS_RELATIVE
     plugin_path = plugins_path / "zekam-lifecycle.js"
     plugin_to_create = not plugin_path.exists()
@@ -431,6 +444,7 @@ def plan_opencode_agent_bootstrap(
         config_document=updated,
         config_update_required=config_update_required,
         agents_to_create=tuple(create),
+        agents_to_update=tuple(update),
         conflicting_agents=tuple(conflict),
         lifecycle_plugin_to_create=plugin_to_create,
         lifecycle_plugin_conflict=plugin_conflict,
@@ -447,7 +461,7 @@ def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
         detail = joined or "zekam-lifecycle.js"
         raise ConfigurationError(f"OpenCode Zekam dosyasi cakisiyor: {detail}")
     plan.agents_path.mkdir(parents=True, exist_ok=True)
-    for name in plan.agents_to_create:
+    for name in (*plan.agents_to_create, *plan.agents_to_update):
         _atomic_write(plan.agents_path / name, _AGENT_TEMPLATES[name])
     if plan.lifecycle_plugin_to_create:
         _atomic_write(plan.plugins_path / "zekam-lifecycle.js", _LIFECYCLE_PLUGIN)

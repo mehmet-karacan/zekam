@@ -44,15 +44,16 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     assert "webfetch: allow" in coordinator
-    assert '"*": deny' in coordinator
+    assert '"*": allow' in coordinator
+    assert "edit: allow" in coordinator
+    assert "external_directory: allow" in coordinator
     assert '"zekam-builder": allow' in coordinator
-    assert "izinli salt-okunur terminal" in coordinator
-    assert '"git diff *": allow' in coordinator
-    assert '"git status": allow' in coordinator
+    assert "tekrar onay istemeden" in coordinator
+    assert '"*git commit*": deny' in coordinator
+    assert '"*git push*": deny' in coordinator
     assert '"git commit *": deny' in coordinator
     assert '"git push *": deny' in coordinator
-    assert '"git reset *": deny' in coordinator
-    assert '"git clean *": deny' in coordinator
+    assert "detached worktree veya gecici proje klonu olusturma" in coordinator
     assert "Dispatch protokolu" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
     assert '"zekam-router": allow' in coordinator
@@ -63,6 +64,9 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "model: litellm/" in model_agent
     assert "hidden: true" in model_agent
     assert "canonical_model_id=" in model_agent
+    assert "edit: allow" in model_agent
+    assert "external_directory: allow" in model_agent
+    assert '"*git commit*": deny' in model_agent
     plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
     assert plugin.is_file()
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
@@ -74,7 +78,28 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"*": ask' in verifier
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
+    assert repeat.agents_to_update == ()
     assert not repeat.config_update_required
+
+
+def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    agents = user_home / ".config" / "opencode" / "agents"
+    agents.mkdir(parents=True)
+    coordinator = agents / "zekam-coordinator.md"
+    coordinator.write_text(
+        "---\n# zekam-managed-agent/v1\ndescription: Zekam old\n---\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+    assert "zekam-coordinator.md" in plan.agents_to_update
+    assert plan.conflicting_agents == ()
+    apply_opencode_agent_bootstrap(plan)
+
+    upgraded = coordinator.read_text(encoding="utf-8")
+    assert '"*": allow' in upgraded
+    assert '"*git commit*": deny' in upgraded
 
 
 def test_missing_opencode_has_no_global_side_effect_plan(tmp_path: Path) -> None:
@@ -95,3 +120,19 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
     assert plan.conflicting_agents == ("zekam-coordinator.md",)
     with pytest.raises(ConfigurationError, match="cakisiyor"):
         apply_opencode_agent_bootstrap(plan)
+
+
+def test_repository_policy_allows_tools_but_denies_commit_and_push() -> None:
+    root = Path(__file__).resolve().parents[2]
+    config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
+    permission = config["permission"]
+    assert permission["edit"] == "allow"
+    assert permission["external_directory"] == "allow"
+    assert permission["bash"]["*"] == "allow"
+    assert permission["bash"]["*git commit*"] == "deny"
+    assert permission["bash"]["*git push*"] == "deny"
+
+    manifest = (root / "PROJE_MANIFESTI.yaml").read_text(encoding="utf-8")
+    assert "mutation_workspace: exact-bound-real-source-root" in manifest
+    assert "project_copy_or_mirror: deny" in manifest
+    assert "detached_worktree_for_mutation: deny" in manifest

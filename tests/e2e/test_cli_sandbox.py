@@ -19,19 +19,19 @@ runner = CliRunner()
 GOOD_MESSAGE = """ozellik: sandbox teslim akisini ekle
 
 Neden:
-- Builder main tree'ye yazamamali.
+- Builder yalniz bagli gercek source rootuna yazmali.
 
 Degisiklik:
-- Detached worktree eklendi.
+- Direct-source mutation eklendi.
 
 Kanit:
 - Kabul testleri gecti.
 
 Risk:
-- Disk kullanimi artar.
+- Yanlis source binding riski vardir.
 
 Geri donus:
-- git worktree remove ile geri alinir.
+- Git diff ile geri alinir.
 """
 
 
@@ -40,7 +40,9 @@ def test_sandbox_policy_default_deny_gosterir() -> None:
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["network"]["default_deny"] is True
-    assert payload["main_tree_read_only"] is True
+    assert payload["main_tree_read_only"] is False
+    assert payload["direct_source_write"] is True
+    assert payload["project_copy"] is False
     assert payload["policy_digest"].startswith("sha256:")
 
 

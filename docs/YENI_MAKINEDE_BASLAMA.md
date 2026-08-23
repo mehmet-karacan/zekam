@@ -140,7 +140,7 @@ Calisma bicimi:
   govde Neden/Degisiklik/Kanit/Risk/Geri donus bolumlerini tasir.
 - Push bu depo icin acikca yetkilendirilmistir (kullanici: mehmet-karacan).
 - Agentic isde en az bir gercek subagent; koordinator sayilmaz.
-- Testler mock degil gercek PostgreSQL, gercek git worktree ve gercek alt surec
+- Testler mock degil gercek PostgreSQL, gercek bagli source repository ve gercek alt surec
   kullanmalidir.
 
 Ortam:

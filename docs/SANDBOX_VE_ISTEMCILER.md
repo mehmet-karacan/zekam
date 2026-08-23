@@ -1,11 +1,11 @@
 # Sandbox teslim ve istemci adaptorleri
 
-## Neden sandbox
+## Neden bound-source policy
 
-Entegre kaynak **main tree read-only**'dir ve bu bir tercih degil, kapatilamaz bir
-kisittir: `SandboxPolicy(main_tree_read_only=False)` `PolicyViolation` uretir. Her
-builder kendi detached worktree'sinde calisir; main tree'nin HEAD ve tree parmak
-izi islem oncesi ve sonrasi karsilastirilir.
+Entegre kaynak project registry'de bagli **gercek source root**'tur. Builder exact path
+allowlist, authorization, claim ve tek-writer logical lock ile dogrudan bu kokte yazar.
+Kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu uretilmez.
+HEAD ve tree parmak izi islem oncesi ve sonrasi karsilastirilir.
 
 ## Yazma sinirlari
 
@@ -14,7 +14,7 @@ izi islem oncesi ve sonrasi karsilastirilir.
 - Girdi bir dizinse altindaki yollar izinlidir; disindaki her yol reddedilir.
 - Onek eslemesiyle kacilamaz: `docs` izinliyken `docs-gizli/` izinli **degildir**.
 - Absolute path, `..` traversal ve ters bolu ayirici reddedilir.
-- Symlink kacisi worktree kokunde cozulerek yakalanir: cozulmus hedef kokun
+- Symlink kacisi bagli source kokunde cozulerek yakalanir: cozulmus hedef kokun
   disina cikamaz.
 
 ## Network
@@ -43,21 +43,20 @@ komut satiridir; kontrol oraya uygulanir.
 ## Teslim akisi
 
 ```text
-prepare (detached worktree)
-  -> builder yazar (yalniz allowlist icine)
-  -> build_artifact (git diff -> PatchArtifact)
-  -> run_tests (typed, sandbox icinde)
-  -> deliver: drift kontrolu -> git apply --check -> test kaniti
+prepare (bound real source root + exact path allowlist)
+  -> builder dogrudan gercek source dosyasina yazar
+  -> changed-path kaniti ve tree fingerprint uretilir
+  -> run_tests (typed, bagli source rootunda)
+  -> deliver: drift kontrolu -> test kaniti
   -> DeliveryDecision -> receipt uygunlugu
-  -> discard (worktree kaldirilir, main tree yeniden dogrulanir)
+  -> source tree yeniden dogrulanir
 ```
 
 Kurallar:
 
 - **Drift**: plan revision'i degistiyse veya yama plan disinda bir yola dokunduysa
   sonuc `drifted` olur; teslim durur.
-- **apply-check**: yama hedefe uygulanmadan once `git apply --check` ile dogrulanir.
-  Girdi bayt olarak verilir; text modunda Windows satir sonu cevrimi yamayi bozar.
+- **No-copy**: patch'i baska bir proje kopyasinda hazirlayip hedefe tasimak yasaktir.
 - **Bagimsiz test**: builder'in "gecti" demesi yeterli degildir; Zekam testleri
   kendisi calistirir.
 - **Verifier**: `verifier_ref` ile `builder_ref` ayni olamaz.

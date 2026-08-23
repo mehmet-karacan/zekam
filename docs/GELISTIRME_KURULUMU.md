@@ -146,8 +146,8 @@ zekam project rebind gpu /yeni/konum --uygula
 
 Kurallar:
 
-- Harici kaynak kökü **hiçbir komutta yazılmaz**; `git` yalnız salt okunur alt
-  komutlarla çağrılır ve yazma yapan alt komutlar kod seviyesinde reddedilir.
+- Harici kaynak kökü exact project binding, açık mutation yetkisi, allowlist ve
+  tek-writer kilidiyle doğrudan düzenlenir; kopya, mirror veya worktree üretilmez.
 - `add`, `scan` ve `rebind` varsayılan olarak dry-run'dır; `--uygula` gerekir.
 - Kanonik kayıtta absolute path bulunmaz. Makineye özel yol yalnız
   `projects.source_binding_local` tablosundadır ve export kapsamı dışındadır.
@@ -547,8 +547,9 @@ zekam git push-check origin main <head> --kullanici-istedi --yetki-digest <d>   
 
 Kurallar:
 
-- Entegre kaynak **main tree read-only**'dir ve bu kapatılamaz; her builder kendi
-  detached worktree'sinde çalışır. Main tree'nin HEAD ve tree parmak izi işlem
+- Entegre kaynak registry'de bagli **gercek source root**'tur; her builder exact path allowlist,
+  authorization ve tek-writer kilidiyle dogrudan burada calisir. Kopya/mirror/worktree
+  uretilmez. Source tree'nin HEAD ve tree parmak izi işlem
   öncesi/sonrası karşılaştırılır.
 - `PathAllowlist` boş olamaz. Önek eşlemesiyle kaçılamaz (`docs` izinliyken
   `docs-gizli/` izinli değildir); absolute path, traversal ve symlink kaçışı
@@ -556,7 +557,7 @@ Kurallar:
 - Network **default-deny**; izin exact host **ve** exact operasyon listesi ister.
 - Typed runner shell kullanmaz: argv listesi, zorunlu timeout, ortam allowlist'i,
   çıktı bayt sınırı. Ham çıktı değil digest saklanır.
-- Teslim: drift kontrolü → `git apply --check` → bağımsız test → verifier. Yalnız
+- Teslim: drift kontrolü → bağımsız test → verifier. Yalnız
   `applied` teslim receipt'e uygundur ve bu bile mutation izni değildir.
 - İstemciler exact çalıştırılabilir dosya ve **açık yetenek beyanı** ile çağrılır;
   beyan edilmeyen yetenek varsayılmaz. Sonuç strict JSON envelope'dur; ayrıştırılamayan

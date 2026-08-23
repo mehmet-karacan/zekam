@@ -56,7 +56,8 @@ bırakılmaz.
 
 ## ADR-011 — External source no-write
 
-**Karar:** Source main tree read-only, mutation managed worktree'de.  
+**Karar:** Mutation registry'de bagli gercek source rootunda ve tek-writer kilidiyla yapilir;
+kopya, mirror veya detached worktree uretilmez.
 **Neden:** Projeleri korur ve rollback/verification sağlar.
 
 ## ADR-012 — Commit Türkçe anlamlı ASCII

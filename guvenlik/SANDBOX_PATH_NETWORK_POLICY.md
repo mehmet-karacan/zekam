@@ -2,9 +2,9 @@
 
 ## Workspace sınıfları
 
-- source binding: read-only external root
+- source binding: exact bound read-write external root
 - Zekam core workspace: Zekam geliştirme scope'u
-- managed worktree: integrated project mutation
+- bound real source root: integrated project mutation with exact path allowlist and single writer
 - verification workspace: read-only patch/test veya isolated execute
 - ingestion workspace: untrusted archive/repo read-only extraction
 - temporary runtime: bounded, cleanup/recovery tracked
@@ -73,7 +73,7 @@ Model provider internal route policy ayrı olabilir; yine endpoint_ref ve author
 ## Git
 
 - discovery no hooks/submodules/LFS.
-- worktree source commit/tree bind.
+- direct-source HEAD ve tree fingerprint bind.
 - changed path exact allowlist.
 - main source dirty/HEAD/tree işlem sonunda recheck.
 - commit local after tests/verifier.

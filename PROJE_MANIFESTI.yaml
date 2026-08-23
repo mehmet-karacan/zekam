@@ -49,9 +49,11 @@ subagents:
   single_builder_per_writable_logical_resource: true
   independent_verifier_for_high_or_critical_risk: true
 source_policy:
-  external_project_root: read-only
-  mutation_workspace: zekam-managed-detached-worktree-or-sandbox
-  direct_write_to_external_root: deny
+  external_project_root: bound-read-write
+  mutation_workspace: exact-bound-real-source-root
+  direct_write_to_external_root: allow-with-authorization-and-single-writer-lock
+  project_copy_or_mirror: deny
+  detached_worktree_for_mutation: deny
   absolute_paths_in_portable_records: deny
   push_default: deny
 memory:

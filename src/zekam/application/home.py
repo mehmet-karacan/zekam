@@ -46,7 +46,7 @@ HOME_ENTRIES: tuple[HomeEntry, ...] = (
     HomeEntry("global/runtime", OwnershipClass.RUNTIME, "Global runtime durumu"),
     HomeEntry("projeler", OwnershipClass.USER_DATA, "Kayitli proje kokleri"),
     HomeEntry("gelen-belgeler", OwnershipClass.ARTIFACT, "Izlenen gelen belge klasoru"),
-    HomeEntry("worktrees", OwnershipClass.LOCAL, "Zekam yonetimindeki detached worktree'ler"),
+    HomeEntry("worktrees", OwnershipClass.LOCAL, "Legacy reserved; project mutation icin yasak"),
     HomeEntry("sandboxlar", OwnershipClass.LOCAL, "Yalitilmis calisma alanlari"),
     HomeEntry("kilitler", OwnershipClass.RUNTIME, "Yerel kilit ve lease izleri"),
     HomeEntry("secrets", OwnershipClass.SECRET, "Yerel secret referans deposu"),

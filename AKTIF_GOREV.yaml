@@ -246,7 +246,7 @@ phases:
       handoff: true
       documentation_code_consistency: true
     delivered:
-    - Detached worktree; main tree read-only kapatilamaz, parmak izi dogrulaniyor
+    - Bound real source; tek-writer kilidi ve parmak izi dogrulaniyor, proje kopyasi yasak
     - Bos allowlist reddediliyor; onek eslemesi, traversal ve symlink kacisi kapali
     - Network default-deny; izin exact host ve exact operasyon istiyor
     - Typed runner shell kullanmiyor; timeout, env allowlist ve cikti siniri zorunlu

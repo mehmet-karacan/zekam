@@ -4,7 +4,8 @@
 2. Kanonik nihai görev `NIHAI_UYGULAMA_PROMPTU.md` dosyasıdır.
 3. Devam ve recovery kuralları `DEVAM_PROTOKOLU.md` içindedir.
 4. Agentic işte en az bir gerçek subagent kullan; koordinatör sayılmaz.
-5. Haricî project source root'a doğrudan yazma.
+5. Kod mutation'ini bagli exact gercek project source rootunda yap; kopya, mirror, audit-work
+   klasoru, detached worktree veya gecici proje klonu olusturma.
 6. Work/authority durumunu vector, memory veya Markdown'dan üretme.
 7. Secret değerini prompt/log/artifact/vector içine alma.
 8. Claim olmadan effect, terminal receipt olmadan başarı üretme.

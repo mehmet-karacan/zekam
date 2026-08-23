@@ -93,8 +93,9 @@ politikasını, iş grafiğini, ASCII commit şablonunu ve paket bütünlüğün
 
 ## Temel güvenlik
 
-- Haricî proje kökleri varsayılan olarak salt okunurdur.
-- Değişiklik yalnız Zekam'nin yönettiği worktree/sandbox altında yapılır.
+- Haricî proje kökleri exact binding ile doğrudan yazılabilir; yetki ve allowlist korunur.
+- Değişiklik yalnız registry'de bağlı gerçek proje kökünde ve tek-writer kilidiyle yapılır;
+  proje kopyası, mirror veya detached worktree üretilmez.
 - Secret değerleri prompt, log, artifact, vector, rapor veya commit içine girmez.
 - Work Graph, yetki ve görev durumu vektör veya haricî bellekten okunmaz.
 - Agentic her iş en az bir gerçek subagent kullanır; koordinatör bu sayıya dahil değildir.

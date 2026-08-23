@@ -58,7 +58,9 @@ def test_network_izin_verilmeden_acilmaz() -> None:
     assert policy.network.is_default_deny is True
     document = policy.as_dict()
     assert document["network"]["allowed_hosts"] == []
-    assert document["main_tree_read_only"] is True
+    assert document["main_tree_read_only"] is False
+    assert document["direct_source_write"] is True
+    assert document["project_copy"] is False
 
 
 def test_workspace_policy_digest_degisikligi_yakalar() -> None:
@@ -141,7 +143,7 @@ def test_yetenek_sorgusu_gercek_beyana_dayanir() -> None:
         )
     )
     parallel = registry.with_capability("parallel-dispatch")
-    assert [item.descriptor.client_id for item in parallel] == ["claude-code"]
+    assert [item.descriptor.client_id for item in parallel] == ["claude-code", "opencode"]
     selection = registry.with_capability("model-selection")
     assert [item.descriptor.client_id for item in selection] == ["opencode"]
 

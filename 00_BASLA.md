@@ -38,9 +38,9 @@ bir defect olarak kaydedilir.
 
 ## 3. Çalışma sınırı
 
-- Haricî kaynak proje köküne doğrudan yazma.
+- Kod mutation'ini project registry'de bagli exact gercek source rootunda yap.
 - Zekam source tree'sinde yalnız aktif Zekam geliştirme işi kapsamında yaz.
-- Entegre edilen projelerde değişiklik gerekiyorsa Zekam-managed detached worktree oluştur.
+- Kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma.
 - Absolute path'i portable kayda yazma; logical source binding kullan.
 - Commit ve local branch oluşturma yalnız test ve verifier geçtikten sonra yapılır.
 - Push varsayılan olarak yasaktır; açık kullanıcı talebi ve exact authorization gerekir.

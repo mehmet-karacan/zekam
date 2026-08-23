@@ -18,9 +18,7 @@ from zekam.domain.sandbox import (
     ProcessResult,
     ProcessSpec,
     SandboxPolicy,
-    TreeFingerprint,
     WorkspaceSpec,
-    assert_main_tree_untouched,
     assert_no_drift,
     assert_relative_path,
 )
@@ -83,12 +81,17 @@ def test_network_host_allowlist_operasyon_ister() -> None:
     assert policy.permits("baska.org", "GET") is False
 
 
-def test_main_tree_read_only_kapatilamaz() -> None:
+def test_direct_source_write_kapatilamaz() -> None:
     with pytest.raises(PolicyViolation):
-        SandboxPolicy(allowlist=PathAllowlist(("src",)), main_tree_read_only=False)
+        SandboxPolicy(allowlist=PathAllowlist(("src",)), main_tree_read_only=True)
+
+    document = SandboxPolicy(allowlist=PathAllowlist(("src",))).as_dict()
+    assert document["main_tree_read_only"] is False
+    assert document["direct_source_write"] is True
+    assert document["project_copy"] is False
 
 
-def test_worktree_detached_olmak_zorunda() -> None:
+def test_detached_worktree_reddedilir() -> None:
     with pytest.raises(PolicyViolation):
         WorkspaceSpec(
             workspace_id="w1",
@@ -96,16 +99,8 @@ def test_worktree_detached_olmak_zorunda() -> None:
             work_ref="ZEKAM-P10-T01",
             source_revision="rev",
             policy=SandboxPolicy(allowlist=PathAllowlist(("src",))),
-            detached=False,
+            detached=True,
         )
-
-
-def test_main_tree_degisirse_ihlal() -> None:
-    before = TreeFingerprint(head="abc", tree_digest=digest("t1"), dirty=False)
-    assert_main_tree_untouched(before, before)
-    after = TreeFingerprint(head="abc", tree_digest=digest("t2"), dirty=False)
-    with pytest.raises(PolicyViolation):
-        assert_main_tree_untouched(before, after)
 
 
 # -- T02: typed process -------------------------------------------------------

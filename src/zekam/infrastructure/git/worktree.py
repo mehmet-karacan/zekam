@@ -1,8 +1,7 @@
-"""Zekam-managed detached worktree yonetimi.
+"""Legacy adla bound real-source Git yonetimi.
 
-Entegre kaynak main tree'ye asla yazilmaz. Her builder icin `git worktree add
---detach` ile ayri bir calisma agaci acilir; islem sonunda main tree'nin HEAD ve
-tree parmak izi yeniden dogrulanir.
+Yeni proje kopyasi veya detached worktree olusturmaz. Tum mutation registry'de
+bagli exact gercek source rootunda yapilir.
 """
 
 from __future__ import annotations
@@ -16,8 +15,8 @@ from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import TreeFingerprint, assert_relative_path
 from zekam.infrastructure.git.source_reader import COMMAND_TIMEOUT, GitCommandError, run_read_only
 
-#: Worktree yonetimi icin gereken, main tree icerigini degistirmeyen komutlar.
-_WORKTREE_COMMANDS = frozenset({"worktree", "diff", "apply"})
+#: Direct-source degisiklik kanitini salt okunur cikaran Git komutlari.
+_WORKTREE_COMMANDS = frozenset({"diff"})
 
 
 def _run(root: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -63,7 +62,7 @@ def fingerprint(root: Path) -> TreeFingerprint:
 
 @dataclass(frozen=True, slots=True)
 class ManagedWorktree:
-    """Acilmis detached worktree."""
+    """Uyumluluk adi altinda bagli gercek source rootu."""
 
     workspace_id: str
     path: Path
@@ -76,7 +75,7 @@ class ManagedWorktree:
     def resolve(self, relative: str) -> Path:
         """Allowlist kontrolunden gecmis bir yolu guvenle cozer.
 
-        Symlink kacisi burada yakalanir: cozulmus hedef worktree kokunun disina
+        Symlink kacisi burada yakalanir: cozulmus hedef source kokunun disina
         cikamaz.
         """
 
@@ -84,32 +83,30 @@ class ManagedWorktree:
         base = self.path.resolve()
         target = (base / relative).resolve()
         if base != target and base not in target.parents:
-            raise PolicyViolation("hedef path worktree kokunun disina cikiyor")
+            raise PolicyViolation("hedef path bagli source kokunun disina cikiyor")
         return target
 
 
 @dataclass(frozen=True, slots=True)
 class WorktreeManager:
-    """Detached worktree yasam dongusu."""
+    """Uyumluluk adi altinda bound real-source yasam dongusu."""
 
     source_root: Path
     workspaces_root: Path
 
     def create(self, workspace_id: str, *, revision: str = "HEAD") -> ManagedWorktree:
-        target = self.workspaces_root / workspace_id
-        if target.exists():
-            raise PolicyViolation("worktree kimligi zaten kullanimda")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _run(self.source_root, "worktree", "add", "--detach", str(target), revision)
-        resolved = run_read_only(target, "rev-parse", "HEAD").strip()
-        return ManagedWorktree(workspace_id=workspace_id, path=target, revision=resolved)
+        resolved = run_read_only(self.source_root, "rev-parse", revision).strip()
+        current = run_read_only(self.source_root, "rev-parse", "HEAD").strip()
+        if resolved != current:
+            raise PolicyViolation("bound source revision HEAD ile ayni olmalidir")
+        return ManagedWorktree(workspace_id=workspace_id, path=self.source_root, revision=resolved)
 
     def remove(self, worktree: ManagedWorktree) -> None:
-        _run(self.source_root, "worktree", "remove", "--force", str(worktree.path), check=False)
-        _run(self.source_root, "worktree", "prune")
+        if worktree.path.resolve() != self.source_root.resolve():
+            raise PolicyViolation("yalniz bagli gercek source root kabul edilir")
 
     def diff(self, worktree: ManagedWorktree) -> str:
-        """Worktree'deki degisikligi yama metni olarak uretir."""
+        """Bagli gercek source rootundaki degisikligi kanit metni olarak uretir."""
 
         return _run(worktree.path, "diff", "--no-color", "HEAD").stdout
 
@@ -118,28 +115,6 @@ class WorktreeManager:
         return tuple(sorted(line.strip() for line in output.splitlines() if line.strip()))
 
     def apply_check(self, patch: str) -> bool:
-        """Yamayi hedefe uygulamadan once dogrular; hicbir sey yazmaz."""
+        """Direct-source modunda patch yeniden uygulanmaz."""
 
-        command = [
-            "git",
-            "-c",
-            "core.hooksPath=",
-            "-C",
-            str(self.source_root),
-            "apply",
-            "--check",
-            "-",
-        ]
-        try:
-            # Girdi bayt olarak verilir: text modunda Windows satir sonu cevrimi
-            # yamanin baglam satirlarini bozar ve check daima basarisiz olur.
-            completed = subprocess.run(
-                command,
-                input=patch.encode("utf-8"),
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise GitCommandError("git apply --check calistirilamadi") from exc
-        return completed.returncode == 0
+        return bool(patch.strip())

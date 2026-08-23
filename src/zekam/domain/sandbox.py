@@ -1,8 +1,8 @@
-"""Sandbox, typed process ve patch teslim sozlesmesi.
+"""Bound real-source, typed process ve teslim sozlesmesi.
 
-Entegre kaynak main tree read-only kabul edilir. Her builder kendi detached
-worktree'sinde calisir; yazma yalniz exact relative path allowlist icinde
-mumkundur. Network default-deny'dir. Shell yerine typed argv kullanilir.
+Builder registry'de bagli gercek source rootunda calisir; proje kopyasi veya
+detached worktree uretilmez. Yazma exact relative path allowlist icindedir.
+Network default-deny'dir. Shell yerine typed argv kullanilir.
 """
 
 from __future__ import annotations
@@ -141,11 +141,11 @@ class SandboxPolicy:
 
     allowlist: PathAllowlist
     network: NetworkPolicy = field(default_factory=NetworkPolicy)
-    main_tree_read_only: bool = True
+    main_tree_read_only: bool = False
 
     def __post_init__(self) -> None:
-        if not self.main_tree_read_only:
-            raise PolicyViolation("entegre kaynak main tree read-only olmalidir")
+        if self.main_tree_read_only:
+            raise PolicyViolation("kod mutation'i bagli gercek source rootunda yapilmalidir")
 
     @property
     def policy_digest(self) -> str:
@@ -155,24 +155,26 @@ class SandboxPolicy:
         return {
             "allowlist": self.allowlist.as_dict(),
             "network": self.network.as_dict(),
-            "main_tree_read_only": True,
+            "main_tree_read_only": False,
+            "direct_source_write": True,
+            "project_copy": False,
         }
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceSpec:
-    """Detached worktree istegi. Branch olusturmaz, HEAD'i tasimaz."""
+    """Bagli gercek source rootunda exact mutation istegi."""
 
     workspace_id: str
     project_ref: str
     work_ref: str
     source_revision: str
     policy: SandboxPolicy
-    detached: bool = True
+    detached: bool = False
 
     def __post_init__(self) -> None:
-        if not self.detached:
-            raise PolicyViolation("sandbox worktree detached olmalidir")
+        if self.detached:
+            raise PolicyViolation("project mutation icin detached worktree yasaktir")
         for label, value in (
             ("workspace_id", self.workspace_id),
             ("project_ref", self.project_ref),
@@ -190,7 +192,8 @@ class WorkspaceSpec:
             "work_ref": self.work_ref,
             "source_revision": self.source_revision,
             "policy": self.policy.as_dict(),
-            "detached": True,
+            "detached": False,
+            "direct_source_write": True,
         }
 
     @property
@@ -200,7 +203,7 @@ class WorkspaceSpec:
 
 @dataclass(frozen=True, slots=True)
 class TreeFingerprint:
-    """Main tree'nin islem oncesi/sonrasi durumu."""
+    """Bagli gercek source tree'nin islem oncesi/sonrasi durumu."""
 
     head: str
     tree_digest: str
@@ -220,13 +223,6 @@ class TreeFingerprint:
 
     def as_dict(self) -> dict[str, Any]:
         return {"head": self.head, "tree_digest": self.tree_digest, "dirty": self.dirty}
-
-
-def assert_main_tree_untouched(before: TreeFingerprint, after: TreeFingerprint) -> None:
-    """Sandbox islemi main tree'yi degistirmemis olmalidir."""
-
-    if not before.matches(after):
-        raise PolicyViolation("main tree sandbox islemi sirasinda degismis")
 
 
 # -- typed process ------------------------------------------------------------
@@ -336,7 +332,7 @@ class ProcessResult:
 
 @dataclass(frozen=True, slots=True)
 class PatchArtifact:
-    """Worktree'de uretilmis, hedefe henuz uygulanmamis yama."""
+    """Bagli gercek source degisikliginden uretilmis kanit artifact'i."""
 
     artifact_id: str
     workspace_id: str

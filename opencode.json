@@ -7,10 +7,15 @@
   ],
   "default_agent": "zekam-coordinator",
   "permission": {
-    "edit": "ask",
-    "bash": "ask",
+    "*": "allow",
+    "edit": "allow",
+    "bash": {
+      "*": "allow",
+      "*git commit*": "deny",
+      "*git push*": "deny"
+    },
     "webfetch": "allow",
-    "external_directory": "deny",
+    "external_directory": "allow",
     "task": "allow"
   }
 }
