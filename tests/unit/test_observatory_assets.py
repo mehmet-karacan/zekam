@@ -62,6 +62,13 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "neighborhood?.edgeKeys.has(edgeKey)" in script
     assert "context.globalAlpha = dimmed ? 0.22 : 1" in script
     assert "Math.random" not in script
+    assert "function syncPrimaryPanelGeometry()" in script
+    assert 'window.matchMedia("(max-width: 1000px)").matches' in script
+    assert "panelGeometryObserver.observe(brainStage)" in script
+    assert "height: var(--primary-panel-height, 100vh)" in style
+    assert "margin-top: var(--primary-panel-offset, 0)" in style
+    assert ".agent-rail { position: relative; top: auto;" in style
+    assert ".agent-rail { position: relative; width: 100%; height: auto; margin-top: 0;" in style
     assert "Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36)" in script
     assert "Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36)" in script
     assert 'context.fillStyle = "rgba(3,12,10,.82)"' in script
@@ -75,8 +82,8 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=8" in index
-    assert "/assets/app.js?v=8" in index
+    assert "/assets/styles.css?v=9" in index
+    assert "/assets/app.js?v=9" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

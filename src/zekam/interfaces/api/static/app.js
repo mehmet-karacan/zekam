@@ -8,6 +8,9 @@
   const motionToggle = document.getElementById("motion-toggle");
   const recenterButton = document.getElementById("recenter-button");
   const liveNetworkToggle = document.getElementById("live-network-toggle");
+  const shell = document.querySelector(".shell");
+  const brainStage = document.querySelector(".brain-stage");
+  const workspace = document.querySelector(".workspace");
 
   const state = {
     snapshot: null,
@@ -967,13 +970,30 @@
     applySnapshot(state.snapshot);
   });
 
+  function syncPrimaryPanelGeometry() {
+    if (!shell || !brainStage || !workspace || window.matchMedia("(max-width: 1000px)").matches) {
+      shell?.style.removeProperty("--primary-panel-offset");
+      shell?.style.removeProperty("--primary-panel-height");
+      return;
+    }
+    const shellBounds = shell.getBoundingClientRect();
+    const stageBounds = brainStage.getBoundingClientRect();
+    shell.style.setProperty("--primary-panel-offset", `${Math.max(0, stageBounds.top - shellBounds.top)}px`);
+    shell.style.setProperty("--primary-panel-height", `${stageBounds.height}px`);
+  }
+
   new ResizeObserver(resizeCanvas).observe(wrap);
+  const panelGeometryObserver = new ResizeObserver(syncPrimaryPanelGeometry);
+  panelGeometryObserver.observe(brainStage);
+  panelGeometryObserver.observe(workspace);
+  window.addEventListener("resize", syncPrimaryPanelGeometry);
   window.setInterval(() => {
     document.getElementById("clock").textContent = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
   }, 1000);
 
   async function boot() {
     resizeCanvas();
+    syncPrimaryPanelGeometry();
     try {
       if (window.__ZEKAM_PREVIEW__) {
         applySnapshot(window.__ZEKAM_PREVIEW__);

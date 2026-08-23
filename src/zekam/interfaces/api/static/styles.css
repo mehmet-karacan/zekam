@@ -69,7 +69,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mint); outl
   z-index: 4;
 }
 .sidebar { display: none; }
-.agent-rail { border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+.agent-rail { position: relative; top: auto; height: var(--primary-panel-height, 100vh); margin-top: var(--primary-panel-offset, 0); border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
 .live-network-toggle { padding: 8px 10px; border: 1px solid rgba(114,221,255,.3); border-radius: 8px; background: rgba(114,221,255,.08); color: #72ddff; font: 8px var(--mono); letter-spacing: .07em; cursor: pointer; }
 .live-network-toggle[aria-pressed="false"] { border-color: var(--line); background: transparent; color: var(--muted); }
 
@@ -278,7 +278,7 @@ kbd { padding: 2px 5px; border: 1px solid rgba(255,255,255,.1); border-bottom-co
   .topbar { flex-direction: column; }
   .topbar-actions { width: 100%; flex-wrap: wrap; }
   .search-box { flex: 1; min-width: 210px; }
-  .agent-rail { position: relative; width: 100%; height: auto; border-left: 0; border-top: 1px solid var(--line); }
+  .agent-rail { position: relative; width: 100%; height: auto; margin-top: 0; border-left: 0; border-top: 1px solid var(--line); }
   .agent-pulse-panel { min-height: 520px; }
   .client-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .agent-list { grid-template-columns: repeat(2, minmax(0,1fr)); max-height: none; }
