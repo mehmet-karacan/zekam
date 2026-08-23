@@ -83,6 +83,31 @@ where parent_job.state = 'recovery-required'
   )
 """
 
+_RECOVERY_BREAKDOWN_SQL = """
+select
+    count(*) filter (where claim_count = 0) as no_claim,
+    count(*) filter (where receiptless_count > 0) as claim_without_receipt,
+    count(*) filter (
+        where claim_count > 0 and receiptless_count = 0 and failed_receipt_count > 0
+    ) as failed_receipt,
+    count(*) filter (
+        where claim_count > 0 and receiptless_count = 0 and failed_receipt_count = 0
+    ) as completed_receipt
+from (
+    select recovery_job.id,
+           count(claim.id) as claim_count,
+           count(claim.id) filter (where receipt.id is null) as receiptless_count,
+           count(receipt.id) filter (where receipt.status = 'failed') as failed_receipt_count
+    from runtime.job recovery_job
+    left join runtime.effect_claim claim
+      on claim.realm_id = recovery_job.realm_id and claim.job_id = recovery_job.id
+    left join runtime.effect_receipt receipt
+      on receipt.realm_id = claim.realm_id and receipt.claim_id = claim.id
+    where recovery_job.state = 'recovery-required'
+    group by recovery_job.id
+) recovery
+"""
+
 
 def _resolved_campaign_recovery_count(connection: Any) -> int:
     """Terminal continuation ile exact cozulmus tarihsel recovery sayisi."""
@@ -90,6 +115,27 @@ def _resolved_campaign_recovery_count(connection: Any) -> int:
     with connection.cursor() as cursor:
         cursor.execute(_RESOLVED_CAMPAIGN_RECOVERY_COUNT_SQL)
         return int(cursor.fetchone()[0])
+
+
+def _recovery_breakdown(connection: Any) -> dict[str, int]:
+    """Recovery state'lerini claim/receipt kanitina gore ayirir."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(_RECOVERY_BREAKDOWN_SQL)
+        row = cursor.fetchone()
+    if row is None:
+        return {
+            "no_claim": 0,
+            "claim_without_receipt": 0,
+            "failed_receipt": 0,
+            "completed_receipt": 0,
+        }
+    return {
+        "no_claim": int(row[0] or 0),
+        "claim_without_receipt": int(row[1] or 0),
+        "failed_receipt": int(row[2] or 0),
+        "completed_receipt": int(row[3] or 0),
+    }
 
 
 def _unavailable(check_id: str, detail: str) -> CheckResult:
@@ -127,6 +173,7 @@ class QueueCheck:
                 cursor.execute("select state, count(*) from runtime.job group by state")
                 counts = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
                 resolved_recovery = _resolved_campaign_recovery_count(connection)
+                raw_recovery_breakdown = _recovery_breakdown(connection)
         except Exception as exc:
             return _unavailable(self.check_id, type(exc).__name__)
 
@@ -139,6 +186,7 @@ class QueueCheck:
             "pending": ready,
             "recovery": recovery,
             "recovery_resolved_by_continuation": resolved_recovery,
+            "raw_recovery_breakdown": raw_recovery_breakdown,
             "cross_realm": CROSS_REALM,
         }
 
@@ -149,10 +197,20 @@ class QueueCheck:
                     code="runtime.recovery-required",
                     severity=Severity.ERROR,
                     title=f"{recovery} is recovery bekliyor",
-                    detail="Claim var ama terminal receipt yok; sessiz retry yasaktir",
+                    detail=(
+                        "Ham kanit siniflari: "
+                        f"claim yok={raw_recovery_breakdown['no_claim']}, "
+                        "claim var receipt yok="
+                        f"{raw_recovery_breakdown['claim_without_receipt']}, "
+                        f"failed receipt={raw_recovery_breakdown['failed_receipt']}, "
+                        f"completed receipt={raw_recovery_breakdown['completed_receipt']}; "
+                        f"continuation ile cozulmus={resolved_recovery}. "
+                        "Her sinif kendi terminal kanitiyla uzlastirilmalidir"
+                    ),
                     next_action=(
-                        "`zekam worker reconcile-recovery --girdi <plan.json> --json` ile "
-                        "once dry-run yapip adapter kanitini uzlastirin"
+                        "Yalniz claim var receipt yok sinifi icin `zekam worker "
+                        "reconcile-recovery --girdi <plan.json> --json` kullanin; diger "
+                        "siniflari mevcut receipt/attempt kanitina gore uzlastirin"
                     ),
                 )
             )

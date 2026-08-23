@@ -54,6 +54,14 @@ def test_kuyruk_kontrolu_derinlik_ve_recovery_raporlar(
     resolved = int(result.evidence["recovery_resolved_by_continuation"])
     recovery = raw_recovery - resolved
     assert result.evidence["recovery"] == recovery
+    breakdown = result.evidence["raw_recovery_breakdown"]
+    assert set(breakdown) == {
+        "no_claim",
+        "claim_without_receipt",
+        "failed_receipt",
+        "completed_receipt",
+    }
+    assert sum(int(value) for value in breakdown.values()) == raw_recovery
     assert result.evidence["cross_realm"] is True
     expected = CheckStatus.DEGRADED if recovery else CheckStatus.PASSED
     assert result.status is expected
