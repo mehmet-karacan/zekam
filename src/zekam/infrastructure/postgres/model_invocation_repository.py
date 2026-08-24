@@ -39,9 +39,10 @@ class ModelInvocationRepository:
                 " source_label,missing_bindings,binding_status,tool_contract_digest,"
                 " environment_digest,"
                 " permission_profile_digest,tool_set_digest,"
+                " tool_visible_payload_digest,tool_visible_payload_mode,"
                 " turn_execution_snapshot_digest,config_effective_digest,hook_set_digest,"
                 " created_at,manifest_digest)"
-                " values (" + ",".join(["%s"] * 45) + ")"
+                " values (" + ",".join(["%s"] * 47) + ")"
                 " on conflict do nothing returning id",
                 (
                     item.id,
@@ -84,6 +85,8 @@ class ModelInvocationRepository:
                     item.environment_digest,
                     item.permission_profile_digest,
                     item.tool_set_digest,
+                    item.tool_visible_payload_digest,
+                    item.tool_visible_payload_mode,
                     item.turn_execution_snapshot_digest,
                     item.config_effective_digest,
                     item.hook_set_digest,
@@ -108,13 +111,15 @@ class ModelInvocationRepository:
                 "e.checkpoint_digest,e.source_revision,e.policy_digest,e.output_schema_digest,"
                 "e.max_input_tokens,e.max_output_tokens,e.max_cost_micros,e.deadline,"
                 "e.turn_execution_snapshot_digest,t.execution_environment_snapshot_digest,"
-                "env.permission_profile_digest,t.exposed_tool_set_digest,"
+                "env.permission_profile_digest,tool_set.tool_set_digest,"
                 "t.config_effective_digest,t.hook_set_digest"
                 " from runtime.execution_envelope e"
                 " left join runtime.turn_execution_snapshot t on t.realm_id=e.realm_id"
                 " and t.id=e.turn_execution_snapshot_id"
                 " left join runtime.execution_environment_snapshot env on env.realm_id=t.realm_id"
                 " and env.snapshot_digest=t.execution_environment_snapshot_digest"
+                " left join tools.compiled_set tool_set on tool_set.realm_id=t.realm_id"
+                " and tool_set.tool_set_digest=t.exposed_tool_set_digest"
                 " join runtime.execution_run r on r.realm_id=e.realm_id and r.id=e.run_id"
                 " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
                 " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
@@ -228,6 +233,36 @@ class ModelInvocationRepository:
             )
             if cursor.fetchone() is None:
                 raise PolicyViolation("Gateway context fragment set stale veya gecersiz")
+
+    def assert_current_tool_set(self, item: ModelRequestManifest) -> None:
+        if item.tool_set_digest is None or item.permission_profile_digest is None:
+            raise PolicyViolation("Gateway enforce compiled tool set binding ister")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select 1 from tools.compiled_set s"
+                " where s.realm_id=%s and s.tool_set_digest=%s and s.role=%s"
+                " and s.permission_profile_digest=%s"
+                " and not exists(select 1 from jsonb_array_elements(s.entries) entry"
+                " where not exists(select 1 from tools.runtime_revision r"
+                " where r.realm_id=s.realm_id and r.tool_id=entry->>'tool_id'"
+                " and r.revision=(entry->>'revision')::integer"
+                " and r.runtime_digest=entry->>'runtime_digest'"
+                " and r.captured_at<=statement_timestamp()"
+                " and r.expires_at>statement_timestamp()"
+                " and r.id=(select latest.id from tools.runtime_revision latest"
+                " where latest.realm_id=r.realm_id and latest.tool_id=r.tool_id"
+                " and latest.captured_at<=statement_timestamp()"
+                " and latest.expires_at>statement_timestamp()"
+                " order by latest.revision desc,latest.captured_at desc,latest.id desc limit 1)))",
+                (
+                    self.realm_id,
+                    item.tool_set_digest,
+                    item.role,
+                    item.permission_profile_digest,
+                ),
+            )
+            if cursor.fetchone() is None:
+                raise PolicyViolation("Gateway compiled tool set stale veya runtime drift")
 
     def record_audit(
         self,

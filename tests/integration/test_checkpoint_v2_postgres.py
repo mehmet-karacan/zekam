@@ -57,6 +57,7 @@ from zekam.domain.model_routing import (
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.resume_apply import ResumeApplyEvent, ResumeApplyPhase, ResumeApplyState
 from zekam.domain.security import Authorization, AuthorizationScope
+from zekam.domain.tool_registry import CompiledToolSet
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.checkpoint_v2_repository import CheckpointV2Repository
 from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
@@ -67,6 +68,7 @@ from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingR
 from zekam.infrastructure.postgres.resume_apply_repository import ResumeApplyRepository
 from zekam.infrastructure.postgres.resume_repository import ResumeRepository
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
+from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -459,6 +461,14 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
     execution.record_environment_probe(
         detect_environment_drift(environment, current_environment, checked_at=now)
     )
+    compiled_tools = CompiledToolSet.create(
+        realm_id=realm.id,
+        role="builder",
+        permission_profile_digest=environment.permission_profile_digest,
+        entries=(),
+        created_at=now,
+    )
+    ToolRegistryRepository(connection, realm.id).store_compiled_set(compiled_tools)
     for assignment_id in (research_builder_id, builder_id):
         execution.bind_assignment_environment(
             AssignmentEnvironmentBinding.create(
@@ -481,7 +491,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         reasoning_profile_digest=digest("reasoning"),
         execution_environment_snapshot_digest=environment.snapshot_digest,
         context_manifest_digest=manifest.manifest_digest,
-        exposed_tool_set_digest=digest("tool-set"),
+        exposed_tool_set_digest=compiled_tools.tool_set_digest,
         hook_set_digest=digest("hooks"),
         config_effective_digest=environment.config_effective_digest,
         created_at=now,
@@ -499,7 +509,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         reasoning_profile_digest=digest("reasoning"),
         execution_environment_snapshot_digest=environment.snapshot_digest,
         context_manifest_digest=manifest.manifest_digest,
-        exposed_tool_set_digest=digest("tool-set"),
+        exposed_tool_set_digest=compiled_tools.tool_set_digest,
         hook_set_digest=digest("hooks"),
         config_effective_digest=environment.config_effective_digest,
         created_at=now,

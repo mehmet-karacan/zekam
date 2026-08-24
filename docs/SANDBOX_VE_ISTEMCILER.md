@@ -112,6 +112,24 @@ manifest'i environment, permission, tool, hook ve config ile exact eslesmezse pr
 effect baslamadan reddedilir. Expired environment veya son bes dakikada drift'siz force
 probe kaniti bulunmamasi da fail-closed'dur.
 
+## Tool spec/runtime digest gate
+
+`ToolSpecRevision`, `ToolRuntimeRevision` ve role/permission profile'a gore derlenmis
+`CompiledToolSet` append-only kanonik kayitlardir. Turn snapshot ve model request manifest,
+modelin gordugu exact compiled tool set digest'ine baglanir. Tool effect'i baslamadan once
+`ToolDispatchService` su kapilari birlikte zorlar:
+
+- persisted ve receipt yazilmamis exact effect claim;
+- claim'in job/attempt/run/assignment'i ile exact turn snapshot eslesmesi;
+- compiled entry icindeki tool/spec/runtime revision ve digest eslesmesi;
+- PostgreSQL'deki current, suresi dolmamis executable runtime revision'i;
+- effect'i gerceklestirecek adapter instance'inin ilan ettigi runtime descriptor.
+
+Bu gate authority uretmez ve claim-before-effect'in yerine gecmez. Gate'in verdigi
+process-local permit exact input/tool/runtime/turn/claim disinda kullanilamaz. Ilk
+model-visible set yalniz `direct` entry'leri tasir; `code-mode-only` ancak code mode'da
+eklenir, `hidden-dispatch` model payload'ina girmez.
+
 ## Commit ve push kapisi
 
 `kalite/COMMIT_POLITIKASI.md` kod olarak uygulanir:

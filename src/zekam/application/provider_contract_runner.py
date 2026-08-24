@@ -22,6 +22,7 @@ from zekam.application.provider_adapter import (
 )
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.domain.canonical import digest
+from zekam.domain.context_fragment import ModelVisiblePayloadBinding
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import GatewayInvocationPermit
 from zekam.domain.resources import parse_requests
@@ -32,6 +33,7 @@ from zekam.domain.security import (
     DataClassification,
     SecretRef,
 )
+from zekam.domain.tool_registry import ModelToolPayloadBinding
 from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 
@@ -85,6 +87,8 @@ class RuntimeProviderContractRunner:
     work: ClaimedWork
     client: Any
     gateway: ModelGateway | None = None
+    payload_binding: ModelVisiblePayloadBinding | None = None
+    tool_payload_binding: ModelToolPayloadBinding | None = None
     defer_job_recovery: bool = False
 
     @staticmethod
@@ -124,7 +128,13 @@ class RuntimeProviderContractRunner:
         manifest = (
             None
             if self.gateway is None
-            else self.gateway.prepare(prepared, self.work, authorization)
+            else self.gateway.prepare(
+                prepared,
+                self.work,
+                authorization,
+                payload_binding=self.payload_binding,
+                tool_payload_binding=self.tool_payload_binding,
+            )
         )
         for existing in self.host.ledger.claims_for_job(self.work.job.id):
             if existing.effect_digest == plan.effect_request.effect_digest:

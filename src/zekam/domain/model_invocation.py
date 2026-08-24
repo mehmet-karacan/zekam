@@ -119,6 +119,8 @@ class ModelRequestManifest:
     environment_digest: str | None = None
     permission_profile_digest: str | None = None
     tool_set_digest: str | None = None
+    tool_visible_payload_digest: str | None = None
+    tool_visible_payload_mode: str | None = None
     turn_execution_snapshot_digest: str | None = None
     config_effective_digest: str | None = None
     hook_set_digest: str | None = None
@@ -180,6 +182,8 @@ class ModelRequestManifest:
                     "environment_digest": self.environment_digest,
                     "permission_profile_digest": self.permission_profile_digest,
                     "tool_set_digest": self.tool_set_digest,
+                    "tool_visible_payload_digest": self.tool_visible_payload_digest,
+                    "tool_visible_payload_mode": self.tool_visible_payload_mode,
                     "config_effective_digest": self.config_effective_digest,
                     "hook_set_digest": self.hook_set_digest,
                 }
@@ -205,6 +209,7 @@ class ModelRequestManifest:
             self.environment_digest,
             self.permission_profile_digest,
             self.tool_set_digest,
+            self.tool_visible_payload_digest,
             self.turn_execution_snapshot_digest,
             self.config_effective_digest,
             self.hook_set_digest,
@@ -212,6 +217,8 @@ class ModelRequestManifest:
         for digest_value in digest_values:
             if digest_value is not None:
                 parse_digest(digest_value)
+        if self.tool_visible_payload_mode not in {None, "direct", "code-mode"}:
+            raise ValidationFailed("Model tool payload mode gecersiz")
         if (
             self.model_visible_payload_digest is not None
             and self.model_visible_payload_digest != self.payload_digest
@@ -268,6 +275,8 @@ class ModelRequestManifest:
             "environment_digest": self.environment_digest,
             "permission_profile_digest": self.permission_profile_digest,
             "tool_set_digest": self.tool_set_digest,
+            "tool_visible_payload_digest": self.tool_visible_payload_digest,
+            "tool_visible_payload_mode": self.tool_visible_payload_mode,
             "turn_execution_snapshot_digest": self.turn_execution_snapshot_digest,
             "config_effective_digest": self.config_effective_digest,
             "hook_set_digest": self.hook_set_digest,
@@ -287,6 +296,8 @@ class ModelRequestManifest:
     def create(cls, **values: Any) -> ModelRequestManifest:
         values.setdefault("context_fragment_set_digest", None)
         values.setdefault("model_visible_payload_digest", None)
+        values.setdefault("tool_visible_payload_digest", None)
+        values.setdefault("tool_visible_payload_mode", None)
         item = cls(id=values.pop("id", uuid4()), manifest_digest="", **values)
         fields = {
             name: getattr(item, name)

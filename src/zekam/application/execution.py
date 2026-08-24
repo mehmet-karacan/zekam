@@ -20,6 +20,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from zekam.application.tool_dispatch import ToolDispatchService, ToolRuntimeAdapter
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.resources import ResourceRequest
@@ -37,6 +38,7 @@ from zekam.domain.runtime import (
     assert_no_silent_retry,
     assess_recovery,
 )
+from zekam.domain.tool_registry import ToolDispatchBinding
 from zekam.infrastructure.postgres.runtime_repository import (
     ClaimedWork,
     EffectLedger,
@@ -44,6 +46,7 @@ from zekam.infrastructure.postgres.runtime_repository import (
     RecoveryFinalization,
     ResourceLockRepository,
 )
+from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 
 class AdmissionDecision(StrEnum):
@@ -227,6 +230,18 @@ class ExecutionHost:
             now=now,
         )
         return self.ledger.claim(claim, authorization_id=authorization_id)
+
+    def dispatch_tool(
+        self,
+        binding: ToolDispatchBinding,
+        adapter: ToolRuntimeAdapter[Any],
+        *,
+        now: dt.datetime | None = None,
+    ) -> Any:
+        """Exact claim/turn/spec/current-runtime kapisindan tool effect'i calistirir."""
+
+        repository = ToolRegistryRepository(self.connection, self.realm_id)
+        return ToolDispatchService(repository).dispatch(binding, adapter, now=now)
 
     def record_success(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -21,7 +22,8 @@ from zekam.domain.context_fragment import (
     ContextVisibility,
 )
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.model_invocation import GatewaySourceLabel
+from zekam.domain.model_invocation import GatewayMode, GatewaySourceLabel
+from zekam.domain.tool_registry import CompiledToolSet
 
 NOW = dt.datetime(2026, 8, 24, 12, tzinfo=dt.UTC)
 D = digest("binding")
@@ -63,9 +65,21 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
         {"fragment/instruction": content},
         base_payload={"model": "provider/model"},
     )
-    call = ProviderCall("provider:x", "endpoint:x", "invoke", "call-1", payload)
+    compiled_tools = CompiledToolSet.create(
+        realm_id=uuid4(),
+        role="builder",
+        permission_profile_digest=D,
+        entries=(),
+        created_at=NOW,
+    )
+    serialized = compiled_tools.compile_model_payload().serialize_request(payload)
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "call-1", serialized.payload)
+    payload_binding = replace(
+        payload_binding,
+        request_payload_digest=call.payload_digest,
+    )
     gateway = ModelGateway(
-        repository=SimpleNamespace(),  # type: ignore[arg-type]
+        repository=SimpleNamespace(mode=lambda: GatewayMode.ENFORCE),  # type: ignore[arg-type]
         source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
         bindings=ModelGatewayBindings(
             execution_envelope_id=uuid4(),
@@ -87,7 +101,7 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
             turn_execution_snapshot_digest=D,
             environment_digest=D,
             permission_profile_digest=D,
-            tool_set_digest=D,
+            tool_set_digest=compiled_tools.tool_set_digest,
             config_effective_digest=D,
             hook_set_digest=D,
         ),
@@ -119,6 +133,7 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
         SimpleNamespace(job=job, attempt_id=uuid4()),  # type: ignore[arg-type]
         authorization,  # type: ignore[arg-type]
         payload_binding=payload_binding,
+        tool_payload_binding=serialized.binding,
         now=NOW,
     )
     assert manifest.missing_bindings == ()
@@ -131,7 +146,10 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
         "endpoint:x",
         "invoke",
         "call-1",
-        {**payload, "messages": [{"role": "system", "content": "degistirildi"}]},
+        {
+            **serialized.payload,
+            "messages": [{"role": "system", "content": "degistirildi"}],
+        },
     )
     with pytest.raises(PolicyViolation, match="payload digest mismatch"):
         gateway.invoke(

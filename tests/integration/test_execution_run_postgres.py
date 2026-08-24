@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from psycopg import Error as PsycopgError
 
+from zekam.application.execution import ExecutionHost
 from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
@@ -52,7 +53,17 @@ from zekam.domain.model_routing import (
     RoleRoutingPolicy,
     RoutingLayer,
 )
+from zekam.domain.runtime import EffectClaim
+from zekam.domain.tool_registry import (
+    CompiledToolSet,
+    ToolDispatchBinding,
+    ToolExposure,
+    ToolRuntimeRevision,
+    ToolSetEntry,
+    ToolSpecRevision,
+)
 from zekam.domain.work import EffectKind, PlanStep, WorkType
+from zekam.infrastructure.postgres.connection import configure_session, connect
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
@@ -60,12 +71,14 @@ from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunR
 from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
+from zekam.infrastructure.postgres.runtime_repository import EffectLedger
+from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
 def test_execution_run_and_exact_context_packet_roundtrip(
-    realm_session: tuple[Any, Any], tmp_path: Path
+    realm_session: tuple[Any, Any], migrated_database: Any, tmp_path: Path
 ) -> None:
     realm, connection = realm_session
     source = tmp_path / "execution-source"
@@ -432,6 +445,47 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     repository.record_environment_probe(
         detect_environment_drift(environment, current_environment, checked_at=now)
     )
+    tool_spec = ToolSpecRevision.create(
+        realm_id=realm.id,
+        tool_id="test.read",
+        revision=1,
+        name="Test read",
+        description="Read fixture data",
+        input_schema_digest=digest("tool-input"),
+        output_schema_digest=digest("tool-output"),
+        created_at=now,
+    )
+    tool_runtime = ToolRuntimeRevision.create(
+        realm_id=realm.id,
+        tool_id=tool_spec.tool_id,
+        revision=1,
+        adapter_ref="test:read",
+        executable_revision="test-read@1",
+        executable_digest=digest("tool-binary"),
+        permission_capabilities=("filesystem.read",),
+        parallel_supported=True,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    tool_registry = ToolRegistryRepository(connection, realm.id)
+    tool_registry.store_spec(tool_spec)
+    tool_registry.store_runtime(tool_runtime)
+    compiled_tools = CompiledToolSet.create(
+        realm_id=realm.id,
+        role="builder",
+        permission_profile_digest=environment.permission_profile_digest,
+        entries=(
+            ToolSetEntry(
+                tool_spec.tool_id,
+                1,
+                ToolExposure.DIRECT,
+                tool_spec.spec_digest,
+                tool_runtime.runtime_digest,
+            ),
+        ),
+        created_at=now,
+    )
+    tool_registry.store_compiled_set(compiled_tools)
     equal_time_drift = reprobe_snapshot(
         environment,
         captured_at=now,
@@ -513,12 +567,41 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         reasoning_profile_digest=digest("reasoning"),
         execution_environment_snapshot_digest=environment.snapshot_digest,
         context_manifest_digest=manifest.manifest_digest,
-        exposed_tool_set_digest=digest("tool-set"),
+        exposed_tool_set_digest=compiled_tools.tool_set_digest,
         hook_set_digest=digest("hooks"),
         config_effective_digest=environment.config_effective_digest,
         created_at=now,
     )
     repository.create_turn_snapshot(turn)
+    wrong_permission_tools = CompiledToolSet.create(
+        realm_id=realm.id,
+        role="builder",
+        permission_profile_digest=digest("wrong-permission"),
+        entries=(),
+        created_at=now,
+    )
+    tool_registry.store_compiled_set(wrong_permission_tools)
+    wrong_tool_turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        run_id=run.id,
+        attempt_id=attempt_id,
+        client_session_id="session-1",
+        turn_id="wrong-tool-permission-turn",
+        model_id=model.model_id,
+        provider_id=provider_binding.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=wrong_permission_tools.tool_set_digest,
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=now,
+    )
+    with pytest.raises(PsycopgError):
+        repository.create_turn_snapshot(wrong_tool_turn)
+    connection.rollback()
     foreign_job_id, foreign_attempt_id = uuid4(), uuid4()
     with connection.cursor() as cursor:
         cursor.execute(
@@ -557,7 +640,7 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         reasoning_profile_digest=digest("reasoning"),
         execution_environment_snapshot_digest=environment.snapshot_digest,
         context_manifest_digest=manifest.manifest_digest,
-        exposed_tool_set_digest=digest("tool-set"),
+        exposed_tool_set_digest=compiled_tools.tool_set_digest,
         hook_set_digest=digest("hooks"),
         config_effective_digest=environment.config_effective_digest,
         created_at=now,
@@ -670,6 +753,8 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         environment_digest=environment.snapshot_digest,
         permission_profile_digest=environment.permission_profile_digest,
         tool_set_digest=turn.exposed_tool_set_digest,
+        tool_visible_payload_digest=compiled_tools.compile_model_payload().serialized_tools_digest,
+        tool_visible_payload_mode="direct",
         config_effective_digest=turn.config_effective_digest,
         hook_set_digest=turn.hook_set_digest,
     )
@@ -685,6 +770,13 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     with pytest.raises(PsycopgError):
         invocation.store_manifest(forged_manifest)
     connection.rollback()
+    forged_values["permission_profile_digest"] = request_manifest.permission_profile_digest
+    forged_values["tool_visible_payload_digest"] = digest("forged-tool-payload")
+    forged_values["idempotency_key"] = "call-3-forged-tool-payload"
+    forged_tool_payload = ModelRequestManifest.create(**forged_values)
+    with pytest.raises(PsycopgError):
+        invocation.store_manifest(forged_tool_payload)
+    connection.rollback()
     invocation.activate_enforce(policy_digest)
     invocation.assert_current_envelope(request_manifest)
     invocation.assert_current_context_fragment_set(request_manifest)
@@ -693,6 +785,76 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     )
     assert bound_gateway.bindings.execution_envelope_digest == bound_envelope.envelope_digest
     assert bound_gateway.bindings.max_cost_micros == bound_envelope.max_cost_micros
+    tool_claim = EffectClaim.create(
+        realm_id=realm.id,
+        job_id=envelope_job_id,
+        attempt_id=attempt_id,
+        operation="tool.execute:test.read",
+        effect_digest=digest("tool-effect"),
+        authorization_digest=digest("authorization"),
+        idempotency_key="tool-effect-1",
+        resources=(),
+        execution_identity="execution-test:1",
+        fencing_token=1,
+        adapter_digest=digest("tool-adapter"),
+        now=dt.datetime.now(dt.UTC),
+    )
+    EffectLedger(connection, realm.id).claim(tool_claim)
+    tool_binding = ToolDispatchBinding(
+        tool_claim.id,
+        turn.turn_snapshot_digest,
+        compiled_tools.tool_set_digest,
+        tool_spec.tool_id,
+        1,
+        tool_spec.spec_digest,
+        tool_runtime.runtime_digest,
+        digest("tool-input-value"),
+    )
+
+    runtime_v2 = ToolRuntimeRevision.create(
+        realm_id=realm.id,
+        tool_id=tool_spec.tool_id,
+        revision=2,
+        adapter_ref="test:read",
+        executable_revision="test-read@2",
+        executable_digest=digest("tool-binary-v2"),
+        permission_capabilities=("filesystem.read",),
+        parallel_supported=True,
+        captured_at=dt.datetime.now(dt.UTC),
+        expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=10),
+    )
+
+    class ToolAdapter:
+        calls = 0
+        concurrent_update_blocked = False
+
+        def runtime_binding(self):  # type: ignore[no-untyped-def]
+            return tool_spec.tool_id, 1, tool_runtime.runtime_digest
+
+        def execute(self, binding, *, permit):  # type: ignore[no-untyped-def]
+            permit.assert_for(binding)
+            with connect(migrated_database) as concurrent:
+                configure_session(concurrent, realm_id=realm.id)
+                with concurrent.cursor() as cursor:
+                    cursor.execute(
+                        "select pg_try_advisory_xact_lock(hashtextextended(%s,0))",
+                        (f"{realm.id}:{tool_spec.tool_id}",),
+                    )
+                    self.concurrent_update_blocked = cursor.fetchone()[0] is False
+            self.calls += 1
+            return digest("tool-result")
+
+    tool_adapter = ToolAdapter()
+    execution_host = ExecutionHost(connection, realm.id, worker_label="execution-test")
+    assert execution_host.dispatch_tool(tool_binding, tool_adapter) == digest("tool-result")
+    assert tool_adapter.calls == 1
+    assert tool_adapter.concurrent_update_blocked is True
+    tool_registry.store_runtime(runtime_v2)
+    with pytest.raises(PolicyViolation, match="runtime revision mismatch"):
+        execution_host.dispatch_tool(tool_binding, tool_adapter)
+    with pytest.raises(PolicyViolation, match="runtime drift"):
+        invocation.assert_current_tool_set(request_manifest)
+    assert tool_adapter.calls == 1
     drift_moment = dt.datetime.now(dt.UTC)
     drifted_environment = reprobe_snapshot(
         environment,
@@ -719,7 +881,7 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         reasoning_profile_digest=digest("reasoning"),
         execution_environment_snapshot_digest=environment.snapshot_digest,
         context_manifest_digest=manifest.manifest_digest,
-        exposed_tool_set_digest=digest("tool-set"),
+        exposed_tool_set_digest=compiled_tools.tool_set_digest,
         hook_set_digest=digest("hooks"),
         config_effective_digest=environment.config_effective_digest,
         created_at=drift_moment,

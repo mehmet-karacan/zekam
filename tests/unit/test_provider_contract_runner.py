@@ -90,8 +90,8 @@ class FakeGateway:
     def __init__(self) -> None:
         self.terminals: list[dict[str, object]] = []
 
-    def prepare(self, *args: object) -> object:
-        del args
+    def prepare(self, *args: object, **kwargs: object) -> object:
+        del args, kwargs
         return object()
 
     def invoke(self, manifest: object, **kwargs: object) -> tuple[object, ProviderCallResult]:

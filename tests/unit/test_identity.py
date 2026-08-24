@@ -45,5 +45,6 @@ def test_wheel_includes_complete_fresh_migration_set() -> None:
     down = [path for path in migrations if path.name.endswith(".down.sql")]
 
     assert force_include["migrations"] == "zekam/migrations"
-    assert [int(path.name[:4]) for path in up] == list(range(1, 37))
-    assert len(down) == 36
+    versions = [int(path.name[:4]) for path in up]
+    assert versions == list(range(1, max(versions) + 1))
+    assert len(down) == max(versions)

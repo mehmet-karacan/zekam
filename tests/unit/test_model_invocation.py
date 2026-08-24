@@ -19,6 +19,7 @@ from zekam.domain.model_invocation import (
     ModelRequestManifest,
     _issue_gateway_permit,
 )
+from zekam.domain.tool_registry import CompiledToolSet
 
 D = "sha256:" + "a" * 64
 
@@ -29,6 +30,14 @@ class _GatewayRepository:
         self.mode_value = mode
         self.envelope_asserted = False
         self.fragment_set_asserted = False
+        self.tool_set_asserted = False
+        self.compiled_tools = CompiledToolSet.create(
+            realm_id=uuid4(),
+            role="builder",
+            permission_profile_digest=D,
+            entries=(),
+            created_at=dt.datetime.now(dt.UTC),
+        )
 
     def store_manifest(self, item: ModelRequestManifest) -> tuple[object, bool]:
         return item.id, True
@@ -44,6 +53,9 @@ class _GatewayRepository:
 
     def assert_current_context_fragment_set(self, item: ModelRequestManifest) -> None:
         self.fragment_set_asserted = True
+
+    def assert_current_tool_set(self, item: ModelRequestManifest) -> None:
+        self.tool_set_asserted = True
 
     def envelope_bindings(self, envelope_id):  # type: ignore[no-untyped-def]
         now = dt.datetime.now(dt.UTC)
@@ -67,7 +79,7 @@ class _GatewayRepository:
             "turn_execution_snapshot_digest": D,
             "environment_digest": D,
             "permission_profile_digest": D,
-            "tool_set_digest": D,
+            "tool_set_digest": self.compiled_tools.tool_set_digest,
             "config_effective_digest": D,
             "hook_set_digest": D,
         }
@@ -133,6 +145,8 @@ def _manifest(**changes):  # type: ignore[no-untyped-def]
         "environment_digest": D,
         "permission_profile_digest": D,
         "tool_set_digest": D,
+        "tool_visible_payload_digest": D,
+        "tool_visible_payload_mode": "direct",
         "config_effective_digest": D,
         "hook_set_digest": D,
     }
@@ -277,11 +291,16 @@ def test_gateway_loads_envelope_budgets_and_prepares_bound_manifest() -> None:
         risk="medium",
         expires_at=now + dt.timedelta(minutes=5),
     )
+    serialized = repository.compiled_tools.compile_model_payload().serialize_request({"input": "x"})
+    prepared.call.payload_digest = serialized.binding.request_payload_digest
     item = gateway.prepare(
         prepared,  # type: ignore[arg-type]
         SimpleNamespace(job=job, attempt_id=uuid4()),  # type: ignore[arg-type]
         authorization,  # type: ignore[arg-type]
-        payload_binding=ModelVisiblePayloadBinding(D, D, ("fragment/request",), D),
+        payload_binding=ModelVisiblePayloadBinding(
+            D, D, ("fragment/request",), serialized.binding.request_payload_digest
+        ),
+        tool_payload_binding=serialized.binding,
         now=now,
     )
     assert item.missing_bindings == ()
@@ -301,7 +320,8 @@ def test_gateway_enforce_marks_missing_typed_payload_binding_and_rejects_effect(
         uuid4(),
     )
     now = dt.datetime.now(dt.UTC)
-    call = ProviderCall("provider:x", "endpoint:x", "invoke", "call-1", {"input": "x"})
+    serialized = repository.compiled_tools.compile_model_payload().serialize_request({"input": "x"})
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "call-1", serialized.payload)
     manifest = gateway.prepare(
         SimpleNamespace(
             plan=SimpleNamespace(
@@ -326,6 +346,7 @@ def test_gateway_enforce_marks_missing_typed_payload_binding_and_rejects_effect(
             risk="medium",
             expires_at=now + dt.timedelta(minutes=5),
         ),  # type: ignore[arg-type]
+        tool_payload_binding=serialized.binding,
         now=now,
     )
     assert manifest.missing_bindings == (

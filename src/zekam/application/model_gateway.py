@@ -26,6 +26,7 @@ from zekam.domain.model_invocation import (
     _issue_gateway_permit,
 )
 from zekam.domain.security import Authorization
+from zekam.domain.tool_registry import ModelToolPayloadBinding
 from zekam.infrastructure.postgres.model_invocation_repository import (
     ModelInvocationRepository,
 )
@@ -90,6 +91,7 @@ class ModelGateway:
         authorization: Authorization,
         *,
         payload_binding: ModelVisiblePayloadBinding | None = None,
+        tool_payload_binding: ModelToolPayloadBinding | None = None,
         now: dt.datetime | None = None,
     ) -> ModelRequestManifest:
         job = work.job
@@ -126,6 +128,16 @@ class ModelGateway:
             "environment_digest": self.bindings.environment_digest,
             "permission_profile_digest": self.bindings.permission_profile_digest,
             "tool_set_digest": self.bindings.tool_set_digest,
+            "tool_visible_payload_digest": (
+                None
+                if tool_payload_binding is None
+                else tool_payload_binding.serialized_tools_digest
+            ),
+            "tool_visible_payload_mode": (
+                None
+                if tool_payload_binding is None
+                else ("code-mode" if tool_payload_binding.code_mode else "direct")
+            ),
             "config_effective_digest": self.bindings.config_effective_digest,
             "hook_set_digest": self.bindings.hook_set_digest,
         }
@@ -134,6 +146,8 @@ class ModelGateway:
             "environment_digest",
             "permission_profile_digest",
             "tool_set_digest",
+            "tool_visible_payload_digest",
+            "tool_visible_payload_mode",
             "config_effective_digest",
             "hook_set_digest",
         }
@@ -155,6 +169,18 @@ class ModelGateway:
             and payload_binding.context_manifest_digest != self.bindings.context_manifest_digest
         ):
             raise PolicyViolation("Context fragment set execution manifest ile eslesmiyor")
+        if tool_payload_binding is not None:
+            tool_payload_binding.assert_valid()
+            if tool_payload_binding.request_payload_digest != prepared.call.payload_digest:
+                raise PolicyViolation("Model tool payload provider call ile eslesmiyor")
+            if tool_payload_binding.tool_set_digest != self.bindings.tool_set_digest:
+                raise PolicyViolation("Model tool payload compiled set ile eslesmiyor")
+        if (
+            self.repository.mode() is GatewayMode.ENFORCE
+            and self.bindings.tool_set_digest is not None
+            and tool_payload_binding is None
+        ):
+            raise PolicyViolation("Gateway enforce kanonik model tool payload ister")
         return ModelRequestManifest.create(
             realm_id=job.realm_id,
             project_id=job.project_id,
@@ -219,6 +245,7 @@ class ModelGateway:
             )
             self.repository.assert_current_envelope(manifest)
             self.repository.assert_current_context_fragment_set(manifest)
+            self.repository.assert_current_tool_set(manifest)
         ledger_attempt_id = self.repository.record_attempt(
             manifest_id=manifest.id,
             effect_claim_id=claim_id,
