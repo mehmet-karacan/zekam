@@ -81,6 +81,37 @@ modeller birer adapter'dir.
 Kayitli olmayan istemci turetilmez: `ClientRegistry.get` bilinmeyen kimlik icin
 `PolicyViolation` uretir.
 
+## Execution environment snapshot
+
+Bir calisma ortami yalniz host path veya tek bir serbest digest ile tanimlanmaz.
+`ExecutionEnvironmentSnapshot` asagidaki boyutlari birlikte ve append-only saklar:
+
+- environment-native `cwd_locator` ve canonical sirali workspace root'lari;
+- shell turu, binary ve startup profile digest'leri;
+- permission profile ile filesystem/network policy digest'leri;
+- tool runtime, capability ve effective config digest'leri;
+- executor protocol, platform, source revision ve exact expiry.
+
+Host absolute path kanonik snapshot'a giremez; adapter sinirina kadar
+`workspace:<logical-root>` locator'i kullanilir. Snapshot authority uretmez.
+
+Iki farkli okuma semantigi vardir:
+
+1. `initialize`, ayni execution identity icin yapiskan snapshot'i bir kez alir;
+   clone/recovery boyunca cache'deki exact nesneyi dondurur.
+2. `force_probe`, cache'i atlar ve executor'dan current snapshot alir. Workspace,
+   shell, permission, filesystem, network, tool runtime, capability, config ve source
+   drift'leri ayri reason code'lardir.
+
+DB, probe reason code listesini sticky/current snapshot'lardan yeniden hesaplar;
+sahte veya eksik listeyi reddeder. Assignment once exact environment snapshot'a
+baglanir. Her attempt icin `TurnExecutionSnapshot`; assignment/run/attempt, route,
+reasoning, context, tool set, hook set ve config'i ayni environment'a baglar.
+`ExecutionEnvelope` bu turn snapshot olmadan yazilamaz. Gateway enforce modunda model
+manifest'i environment, permission, tool, hook ve config ile exact eslesmezse provider
+effect baslamadan reddedilir. Expired environment veya son bes dakikada drift'siz force
+probe kaniti bulunmamasi da fail-closed'dur.
+
 ## Commit ve push kapisi
 
 `kalite/COMMIT_POLITIKASI.md` kod olarak uygulanir:

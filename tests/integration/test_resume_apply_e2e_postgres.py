@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -47,6 +48,11 @@ class RecordingAdapter:
             exit_code=0,
             payload={"status": "ok"},
         )
+
+
+class EnvironmentGuard:
+    def assert_envelope_current(self, envelope_id, *, now):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(id=envelope_id, captured_at=now)
 
 
 @pytest.mark.parametrize(
@@ -222,7 +228,7 @@ def test_real_resume_apply_safe_continue_and_replay(
             capabilities=("database.write", "process.run", "sandbox.write"),
             lease_seconds=60,
         )
-        service = ResumeApplyService(connection, governance)
+        service = ResumeApplyService(connection, governance, EnvironmentGuard())
         first = service.apply(request, adapter, cwd=tmp_path, timeout_seconds=30, now=apply_at)
         replay = service.apply(request, adapter, cwd=tmp_path, timeout_seconds=30, now=apply_at)
         assert first.state is expected_state

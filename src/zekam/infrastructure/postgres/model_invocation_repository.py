@@ -38,8 +38,10 @@ class ModelInvocationRepository:
                 " route_expires_at,"
                 " source_label,missing_bindings,binding_status,tool_contract_digest,"
                 " environment_digest,"
-                " permission_profile_digest,tool_set_digest,created_at,manifest_digest)"
-                " values (" + ",".join(["%s"] * 42) + ")"
+                " permission_profile_digest,tool_set_digest,"
+                " turn_execution_snapshot_digest,config_effective_digest,hook_set_digest,"
+                " created_at,manifest_digest)"
+                " values (" + ",".join(["%s"] * 45) + ")"
                 " on conflict do nothing returning id",
                 (
                     item.id,
@@ -82,6 +84,9 @@ class ModelInvocationRepository:
                     item.environment_digest,
                     item.permission_profile_digest,
                     item.tool_set_digest,
+                    item.turn_execution_snapshot_digest,
+                    item.config_effective_digest,
+                    item.hook_set_digest,
                     item.created_at,
                     item.manifest_digest,
                 ),
@@ -101,8 +106,15 @@ class ModelInvocationRepository:
                 "select e.id,e.envelope_digest,e.run_id,e.role,e.route_decision_digest,"
                 "e.route_expires_at,e.context_manifest_digest,e.context_packet_digest,"
                 "e.checkpoint_digest,e.source_revision,e.policy_digest,e.output_schema_digest,"
-                "e.max_input_tokens,e.max_output_tokens,e.max_cost_micros,e.deadline"
+                "e.max_input_tokens,e.max_output_tokens,e.max_cost_micros,e.deadline,"
+                "e.turn_execution_snapshot_digest,t.execution_environment_snapshot_digest,"
+                "env.permission_profile_digest,t.exposed_tool_set_digest,"
+                "t.config_effective_digest,t.hook_set_digest"
                 " from runtime.execution_envelope e"
+                " left join runtime.turn_execution_snapshot t on t.realm_id=e.realm_id"
+                " and t.id=e.turn_execution_snapshot_id"
+                " left join runtime.execution_environment_snapshot env on env.realm_id=t.realm_id"
+                " and env.snapshot_digest=t.execution_environment_snapshot_digest"
                 " join runtime.execution_run r on r.realm_id=e.realm_id and r.id=e.run_id"
                 " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
                 " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
@@ -111,7 +123,22 @@ class ModelInvocationRepository:
                 " and j.state='running' and a.status='active'"
                 " and l.expires_at>statement_timestamp()"
                 " and e.route_expires_at>statement_timestamp()"
-                " and e.deadline>statement_timestamp()",
+                " and e.deadline>statement_timestamp()"
+                " and (e.turn_execution_snapshot_id is null or ("
+                " env.expires_at>statement_timestamp()"
+                " and exists(select 1 from runtime.environment_probe_evidence p"
+                " join runtime.execution_environment_snapshot current_env"
+                " on current_env.realm_id=p.realm_id"
+                " and current_env.snapshot_digest=p.current_snapshot_digest"
+                " where p.realm_id=e.realm_id"
+                " and p.sticky_snapshot_digest=t.execution_environment_snapshot_digest"
+                " and cardinality(p.drift_dimensions)=0"
+                " and p.checked_at>=statement_timestamp()-interval '5 minutes'"
+                " and current_env.expires_at>statement_timestamp()"
+                " and p.id=(select latest.id from runtime.environment_probe_evidence latest"
+                " where latest.realm_id=p.realm_id"
+                " and latest.sticky_snapshot_digest=p.sticky_snapshot_digest"
+                " order by latest.checked_at desc,latest.id desc limit 1))))",
                 (self.realm_id, envelope_id),
             )
             row = cursor.fetchone()
@@ -134,6 +161,12 @@ class ModelInvocationRepository:
             "max_output_tokens",
             "max_cost_micros",
             "deadline",
+            "turn_execution_snapshot_digest",
+            "environment_digest",
+            "permission_profile_digest",
+            "tool_set_digest",
+            "config_effective_digest",
+            "hook_set_digest",
         )
         return dict(zip(names, row, strict=True))
 
@@ -147,11 +180,29 @@ class ModelInvocationRepository:
                 " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
                 " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
                 " join runtime.lease l on l.realm_id=e.realm_id and l.id=e.lease_id"
+                " join runtime.turn_execution_snapshot t on t.realm_id=e.realm_id"
+                " and t.id=e.turn_execution_snapshot_id"
+                " join runtime.execution_environment_snapshot env on env.realm_id=t.realm_id"
+                " and env.snapshot_digest=t.execution_environment_snapshot_digest"
                 " where e.realm_id=%s and e.id=%s and e.envelope_digest=%s"
                 " and r.state='active' and j.state='running' and a.status='active'"
                 " and l.expires_at>statement_timestamp()"
                 " and e.route_expires_at>statement_timestamp()"
-                " and e.deadline>statement_timestamp()",
+                " and e.deadline>statement_timestamp()"
+                " and env.expires_at>statement_timestamp()"
+                " and exists(select 1 from runtime.environment_probe_evidence p"
+                " join runtime.execution_environment_snapshot current_env"
+                " on current_env.realm_id=p.realm_id"
+                " and current_env.snapshot_digest=p.current_snapshot_digest"
+                " where p.realm_id=e.realm_id"
+                " and p.sticky_snapshot_digest=t.execution_environment_snapshot_digest"
+                " and cardinality(p.drift_dimensions)=0"
+                " and p.checked_at>=statement_timestamp()-interval '5 minutes'"
+                " and current_env.expires_at>statement_timestamp()"
+                " and p.id=(select latest.id from runtime.environment_probe_evidence latest"
+                " where latest.realm_id=p.realm_id"
+                " and latest.sticky_snapshot_digest=p.sticky_snapshot_digest"
+                " order by latest.checked_at desc,latest.id desc limit 1))",
                 (self.realm_id, item.execution_envelope_id, item.execution_envelope_digest),
             )
             if cursor.fetchone() is None:

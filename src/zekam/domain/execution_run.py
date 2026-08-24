@@ -245,6 +245,8 @@ class ExecutionEnvelope:
     context_manifest_digest: str
     context_packet_id: UUID
     context_packet_digest: str
+    turn_execution_snapshot_id: UUID
+    turn_execution_snapshot_digest: str
     checkpoint_id: UUID | None
     checkpoint_digest: str | None
     checkpoint_disposition: CheckpointDisposition
@@ -313,6 +315,7 @@ class ExecutionEnvelope:
             self.route_decision_digest,
             self.context_manifest_digest,
             self.context_packet_digest,
+            self.turn_execution_snapshot_digest,
             self.provider_binding_digest,
             self.policy_digest,
             self.authorization_scope_digest,
@@ -354,6 +357,8 @@ class ExecutionEnvelope:
             "context_manifest_digest": self.context_manifest_digest,
             "context_packet_id": str(self.context_packet_id),
             "context_packet_digest": self.context_packet_digest,
+            "turn_execution_snapshot_id": str(self.turn_execution_snapshot_id),
+            "turn_execution_snapshot_digest": self.turn_execution_snapshot_digest,
             "checkpoint_id": None if self.checkpoint_id is None else str(self.checkpoint_id),
             "checkpoint_digest": self.checkpoint_digest,
             "checkpoint_disposition": self.checkpoint_disposition.value,

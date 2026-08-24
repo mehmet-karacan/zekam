@@ -64,6 +64,12 @@ class _GatewayRepository:
             "max_output_tokens": 20,
             "max_cost_micros": 1000,
             "deadline": now + dt.timedelta(minutes=4),
+            "turn_execution_snapshot_digest": D,
+            "environment_digest": D,
+            "permission_profile_digest": D,
+            "tool_set_digest": D,
+            "config_effective_digest": D,
+            "hook_set_digest": D,
         }
 
     def record_attempt(self, **values: object) -> object:
@@ -72,6 +78,18 @@ class _GatewayRepository:
     def record_result(self, **values: object) -> object:
         self.result = values
         return uuid4()
+
+
+class _EnvironmentGuard:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[object] = []
+
+    def assert_envelope_current(self, envelope_id, *, now):  # type: ignore[no-untyped-def]
+        self.calls.append((envelope_id, now))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(id=envelope_id, captured_at=now)
 
 
 def _manifest(**changes):  # type: ignore[no-untyped-def]
@@ -111,6 +129,12 @@ def _manifest(**changes):  # type: ignore[no-untyped-def]
         "route_expires_at": now + dt.timedelta(minutes=1),
         "created_at": now,
         "source_label": GatewaySourceLabel.MODEL_CAPABILITY,
+        "turn_execution_snapshot_digest": D,
+        "environment_digest": D,
+        "permission_profile_digest": D,
+        "tool_set_digest": D,
+        "config_effective_digest": D,
+        "hook_set_digest": D,
     }
     values.update(changes)
     return ModelRequestManifest.create(**values)
@@ -191,6 +215,38 @@ def test_gateway_enforce_rejects_envelopeless_manifest_before_effect() -> None:
         )
     assert called is False
     assert repository.envelope_asserted is False
+
+
+def test_gateway_enforce_live_probe_drift_blocks_repository_check_and_effect() -> None:
+    repository = _GatewayRepository(GatewayMode.ENFORCE)
+    guard = _EnvironmentGuard(PolicyViolation("environment.capability-drift"))
+    gateway = ModelGateway(
+        repository=repository,  # type: ignore[arg-type]
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+        environment_guard=guard,
+    )
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
+    item = _manifest(
+        payload_digest=call.payload_digest,
+        model_visible_payload_digest=call.payload_digest,
+    )
+    called = False
+
+    def effect(_permit):  # type: ignore[no-untyped-def]
+        nonlocal called
+        called = True
+
+    with pytest.raises(PolicyViolation, match="capability-drift"):
+        gateway.invoke(
+            item,
+            claim_id=uuid4(),
+            authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            call=call,
+            effect=effect,
+        )
+    assert len(guard.calls) == 1
+    assert repository.envelope_asserted is False
+    assert called is False
 
 
 def test_gateway_loads_envelope_budgets_and_prepares_bound_manifest() -> None:

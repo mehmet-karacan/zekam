@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.agent_dispatch import CanonicalAgentDispatchService
+from zekam.application.environment_snapshot_service import EnvironmentEffectGuard
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import EffectRequest, GovernanceService
 from zekam.application.resume_coordinator import ResumeCoordinator
@@ -58,6 +59,7 @@ class ResumeApplyService:
 
     connection: Any
     governance: GovernanceService
+    environment_guard: EnvironmentEffectGuard | None = None
 
     def apply(
         self,
@@ -119,6 +121,11 @@ class ResumeApplyService:
             )
             if fresh.plan_digest != request.supplied_plan_digest:
                 raise PolicyViolation("Resume apply exact plan revalidation drift")
+            if self.environment_guard is None:
+                raise PolicyViolation("Resume apply live environment force probe ister")
+            self.environment_guard.assert_envelope_current(
+                plan.runtime.execution_envelope_id, now=moment
+            )
 
             apply_id, created = repository.create(
                 plan,

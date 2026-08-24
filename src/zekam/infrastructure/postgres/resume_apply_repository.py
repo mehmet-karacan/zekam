@@ -19,6 +19,7 @@ from zekam.domain.checkpoint_v2 import (
     StepResultV2,
 )
 from zekam.domain.errors import NotFound, PolicyViolation
+from zekam.domain.execution_environment import AssignmentEnvironmentBinding, TurnExecutionSnapshot
 from zekam.domain.execution_run import CheckpointDisposition, ExecutionEnvelope
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.resume import ResumePlan
@@ -311,13 +312,19 @@ class ResumeApplyRepository:
     ) -> ExecutionEnvelope:
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select role,route_decision_id,route_decision_digest,route_expires_at,model_id,"
-                " provider_binding_id,provider_binding_digest,provider_ref,context_manifest_id,"
-                " context_manifest_digest,context_packet_id,context_packet_digest,"
-                " source_revision,policy_digest,output_schema_digest,max_input_tokens,"
-                " max_output_tokens,max_cost_micros,checkpoint_id,checkpoint_digest,deadline"
-                " from runtime.execution_envelope"
-                " where realm_id=%s and id=%s",
+                "select e.role,e.route_decision_id,e.route_decision_digest,e.route_expires_at,"
+                " e.model_id,e.provider_binding_id,e.provider_binding_digest,e.provider_ref,"
+                " e.context_manifest_id,e.context_manifest_digest,e.context_packet_id,"
+                " e.context_packet_digest,e.source_revision,e.policy_digest,"
+                " e.output_schema_digest,e.max_input_tokens,e.max_output_tokens,"
+                " e.max_cost_micros,e.checkpoint_id,e.checkpoint_digest,e.deadline,"
+                " t.client_session_id,t.model_id,t.provider_id,t.reasoning_profile_digest,"
+                " t.execution_environment_snapshot_digest,t.exposed_tool_set_digest,"
+                " t.hook_set_digest,t.config_effective_digest,t.trace_id"
+                " from runtime.execution_envelope e"
+                " join runtime.turn_execution_snapshot t on t.realm_id=e.realm_id"
+                " and t.id=e.turn_execution_snapshot_id"
+                " where e.realm_id=%s and e.id=%s",
                 (self.realm_id, plan.runtime.execution_envelope_id),
             )
             old = cursor.fetchone()
@@ -333,6 +340,35 @@ class ResumeApplyRepository:
                 (self.realm_id, plan.runtime.run_id, plan.runtime.job_id),
             )
             ordinal = int(cursor.fetchone()[0])
+        turn_snapshot = TurnExecutionSnapshot.create(
+            realm_id=self.realm_id,
+            assignment_id=plan.runtime.assignment_id,
+            run_id=plan.runtime.run_id,
+            attempt_id=attempt_id,
+            client_session_id=str(old[21]),
+            turn_id=f"resume:{apply_id}",
+            model_id=str(old[22]),
+            provider_id=str(old[23]),
+            route_decision_digest=str(old[2]),
+            reasoning_profile_digest=str(old[24]),
+            execution_environment_snapshot_digest=str(old[25]),
+            context_manifest_digest=str(old[9]),
+            exposed_tool_set_digest=str(old[26]),
+            hook_set_digest=str(old[27]),
+            config_effective_digest=str(old[28]),
+            trace_id=None if old[29] is None else str(old[29]),
+            created_at=now,
+        )
+        execution_repository = ExecutionRunRepository(self.connection, self.realm_id)
+        execution_repository.bind_assignment_environment(
+            AssignmentEnvironmentBinding.create(
+                realm_id=self.realm_id,
+                assignment_id=plan.runtime.assignment_id,
+                execution_environment_snapshot_digest=str(old[25]),
+                bound_at=now,
+            )
+        )
+        execution_repository.create_turn_snapshot(turn_snapshot)
         envelope = ExecutionEnvelope.create(
             realm_id=self.realm_id,
             run_id=plan.runtime.run_id,
@@ -355,6 +391,8 @@ class ResumeApplyRepository:
             context_manifest_digest=str(old[9]),
             context_packet_id=UUID(str(old[10])),
             context_packet_digest=str(old[11]),
+            turn_execution_snapshot_id=turn_snapshot.id,
+            turn_execution_snapshot_digest=turn_snapshot.turn_snapshot_digest,
             checkpoint_id=None,
             checkpoint_digest=None,
             checkpoint_disposition=CheckpointDisposition.BOUND_V2,
@@ -371,7 +409,7 @@ class ResumeApplyRepository:
             deadline=old[20],
             created_at=now,
         )
-        ExecutionRunRepository(self.connection, self.realm_id).create_envelope(envelope)
+        execution_repository.create_envelope(envelope)
         return envelope
 
     def store_result_checkpoint(

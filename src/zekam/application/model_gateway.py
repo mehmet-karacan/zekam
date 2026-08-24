@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 from uuid import UUID
 
+from zekam.application.environment_snapshot_service import EnvironmentEffectGuard
 from zekam.application.provider_adapter import (
     MultipartProviderCall,
     ProviderCall,
@@ -51,6 +52,12 @@ class ModelGatewayBindings:
     max_output_tokens: int | None = None
     max_cost_micros: int | None = None
     deadline: dt.datetime | None = None
+    turn_execution_snapshot_digest: str | None = None
+    environment_digest: str | None = None
+    permission_profile_digest: str | None = None
+    tool_set_digest: str | None = None
+    config_effective_digest: str | None = None
+    hook_set_digest: str | None = None
 
 
 @dataclass(slots=True)
@@ -58,6 +65,7 @@ class ModelGateway:
     repository: ModelInvocationRepository
     source_label: GatewaySourceLabel
     bindings: ModelGatewayBindings = ModelGatewayBindings()
+    environment_guard: EnvironmentEffectGuard | None = None
 
     @classmethod
     def from_execution_envelope(
@@ -65,11 +73,14 @@ class ModelGateway:
         repository: ModelInvocationRepository,
         source_label: GatewaySourceLabel,
         envelope_id: UUID,
+        *,
+        environment_guard: EnvironmentEffectGuard | None = None,
     ) -> ModelGateway:
         return cls(
             repository=repository,
             source_label=source_label,
             bindings=ModelGatewayBindings(**repository.envelope_bindings(envelope_id)),
+            environment_guard=environment_guard,
         )
 
     def prepare(
@@ -111,8 +122,29 @@ class ModelGateway:
             "max_input_tokens": self.bindings.max_input_tokens,
             "max_output_tokens": self.bindings.max_output_tokens,
             "max_cost_micros": self.bindings.max_cost_micros,
+            "turn_execution_snapshot_digest": self.bindings.turn_execution_snapshot_digest,
+            "environment_digest": self.bindings.environment_digest,
+            "permission_profile_digest": self.bindings.permission_profile_digest,
+            "tool_set_digest": self.bindings.tool_set_digest,
+            "config_effective_digest": self.bindings.config_effective_digest,
+            "hook_set_digest": self.bindings.hook_set_digest,
         }
-        missing = tuple(sorted(key for key, value in values.items() if value is None))
+        environment_keys = {
+            "turn_execution_snapshot_digest",
+            "environment_digest",
+            "permission_profile_digest",
+            "tool_set_digest",
+            "config_effective_digest",
+            "hook_set_digest",
+        }
+        missing = tuple(
+            sorted(
+                key
+                for key, value in values.items()
+                if value is None
+                and (self.bindings.execution_envelope_id is not None or key not in environment_keys)
+            )
+        )
         if (
             payload_binding is not None
             and payload_binding.request_payload_digest != prepared.call.payload_digest
@@ -180,6 +212,11 @@ class ModelGateway:
         if self.repository.mode() is GatewayMode.ENFORCE:
             if manifest.missing_bindings:
                 raise PolicyViolation("Model gateway enforce eksik binding reddi")
+            if self.environment_guard is None or manifest.execution_envelope_id is None:
+                raise PolicyViolation("Model gateway enforce live environment force probe ister")
+            self.environment_guard.assert_envelope_current(
+                manifest.execution_envelope_id, now=dt.datetime.now(dt.UTC)
+            )
             self.repository.assert_current_envelope(manifest)
             self.repository.assert_current_context_fragment_set(manifest)
         ledger_attempt_id = self.repository.record_attempt(

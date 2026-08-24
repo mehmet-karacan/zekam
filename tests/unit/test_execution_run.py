@@ -78,6 +78,8 @@ def _envelope(**changes: object) -> ExecutionEnvelope:
         "context_manifest_digest": D,
         "context_packet_id": uuid4(),
         "context_packet_digest": D,
+        "turn_execution_snapshot_id": uuid4(),
+        "turn_execution_snapshot_digest": D,
         "checkpoint_id": None,
         "checkpoint_digest": None,
         "checkpoint_disposition": CheckpointDisposition.NOT_APPLICABLE_GENESIS,

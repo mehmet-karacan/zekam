@@ -119,6 +119,9 @@ class ModelRequestManifest:
     environment_digest: str | None = None
     permission_profile_digest: str | None = None
     tool_set_digest: str | None = None
+    turn_execution_snapshot_digest: str | None = None
+    config_effective_digest: str | None = None
+    hook_set_digest: str | None = None
     created_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     manifest_digest: str = ""
 
@@ -170,6 +173,17 @@ class ModelRequestManifest:
             "max_output_tokens": self.max_output_tokens,
             "max_cost_micros": self.max_cost_micros,
         }
+        if self.execution_envelope_id is not None:
+            required_bindings.update(
+                {
+                    "turn_execution_snapshot_digest": self.turn_execution_snapshot_digest,
+                    "environment_digest": self.environment_digest,
+                    "permission_profile_digest": self.permission_profile_digest,
+                    "tool_set_digest": self.tool_set_digest,
+                    "config_effective_digest": self.config_effective_digest,
+                    "hook_set_digest": self.hook_set_digest,
+                }
+            )
         expected_missing = tuple(
             sorted(name for name, binding in required_bindings.items() if binding is None)
         )
@@ -191,6 +205,9 @@ class ModelRequestManifest:
             self.environment_digest,
             self.permission_profile_digest,
             self.tool_set_digest,
+            self.turn_execution_snapshot_digest,
+            self.config_effective_digest,
+            self.hook_set_digest,
         )
         for digest_value in digest_values:
             if digest_value is not None:
@@ -251,6 +268,9 @@ class ModelRequestManifest:
             "environment_digest": self.environment_digest,
             "permission_profile_digest": self.permission_profile_digest,
             "tool_set_digest": self.tool_set_digest,
+            "turn_execution_snapshot_digest": self.turn_execution_snapshot_digest,
+            "config_effective_digest": self.config_effective_digest,
+            "hook_set_digest": self.hook_set_digest,
             "created_at": self.created_at,
         }
 

@@ -84,6 +84,12 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
             max_output_tokens=20,
             max_cost_micros=1000,
             deadline=NOW + dt.timedelta(minutes=4),
+            turn_execution_snapshot_digest=D,
+            environment_digest=D,
+            permission_profile_digest=D,
+            tool_set_digest=D,
+            config_effective_digest=D,
+            hook_set_digest=D,
         ),
     )
     authorization = SimpleNamespace(

@@ -31,6 +31,14 @@ from zekam.domain.context_continuity import (
     JournalEntry,
     compile_context,
 )
+from zekam.domain.execution_environment import (
+    AssignmentEnvironmentBinding,
+    ExecutionEnvironmentSnapshot,
+    ShellSnapshot,
+    TurnExecutionSnapshot,
+    detect_environment_drift,
+    reprobe_snapshot,
+)
 from zekam.domain.execution_run import (
     CheckpointDisposition,
     ContextPacket,
@@ -420,6 +428,84 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         expires_at=now + dt.timedelta(minutes=10),
     )
     execution.create_provider_binding(provider)
+    environment = ExecutionEnvironmentSnapshot.create(
+        realm_id=realm.id,
+        environment_id="env-checkpoint-test",
+        execution_identity="checkpoint-test",
+        provider="local-process",
+        platform="test-platform",
+        executor_protocol_version="zekam-exec/v1",
+        cwd_locator="workspace:checkpoint/root",
+        workspace_roots=("workspace:checkpoint/root",),
+        shell=ShellSnapshot("test-shell", digest("shell"), digest("profile")),
+        permission_profile_id="test-profile",
+        permission_profile_digest=digest("permission"),
+        filesystem_policy_digest=digest("filesystem"),
+        network_policy_digest=digest("network"),
+        tool_runtime_digest=digest("tool-runtime"),
+        capability_digest=digest("environment-capability"),
+        config_effective_digest=digest("config"),
+        source_revision=scan.revision.revision,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    execution.create_environment_snapshot(environment)
+    current_environment = reprobe_snapshot(
+        environment,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    execution.create_environment_snapshot(current_environment)
+    execution.record_environment_probe(
+        detect_environment_drift(environment, current_environment, checked_at=now)
+    )
+    for assignment_id in (research_builder_id, builder_id):
+        execution.bind_assignment_environment(
+            AssignmentEnvironmentBinding.create(
+                realm_id=realm.id,
+                assignment_id=assignment_id,
+                execution_environment_snapshot_digest=environment.snapshot_digest,
+                bound_at=now,
+            )
+        )
+    research_turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=research_builder_id,
+        run_id=run.id,
+        attempt_id=research_attempt_id,
+        client_session_id="checkpoint-session",
+        turn_id="research-turn",
+        model_id=model.model_id,
+        provider_id=provider.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=digest("tool-set"),
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=now,
+    )
+    builder_turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        run_id=run.id,
+        attempt_id=attempt_id,
+        client_session_id="checkpoint-session",
+        turn_id="builder-turn",
+        model_id=model.model_id,
+        provider_id=provider.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=digest("tool-set"),
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=now,
+    )
+    execution.create_turn_snapshot(research_turn)
+    execution.create_turn_snapshot(builder_turn)
     research_envelope = ExecutionEnvelope.create(
         realm_id=realm.id,
         run_id=run.id,
@@ -442,6 +528,8 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         context_manifest_digest=manifest.manifest_digest,
         context_packet_id=packet.id,
         context_packet_digest=packet.packet_digest,
+        turn_execution_snapshot_id=research_turn.id,
+        turn_execution_snapshot_digest=research_turn.turn_snapshot_digest,
         checkpoint_id=None,
         checkpoint_digest=None,
         checkpoint_disposition=CheckpointDisposition.NOT_APPLICABLE_GENESIS,
@@ -479,6 +567,8 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         context_manifest_digest=manifest.manifest_digest,
         context_packet_id=packet.id,
         context_packet_digest=packet.packet_digest,
+        turn_execution_snapshot_id=builder_turn.id,
+        turn_execution_snapshot_digest=builder_turn.turn_snapshot_digest,
         checkpoint_id=None,
         checkpoint_digest=None,
         checkpoint_disposition=CheckpointDisposition.NOT_APPLICABLE_GENESIS,

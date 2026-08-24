@@ -103,6 +103,18 @@ class Governance:
         self.consumptions = 0
 
 
+class EnvironmentGuard:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[UUID, dt.datetime]] = []
+
+    def assert_envelope_current(self, envelope_id: UUID, *, now: dt.datetime):  # type: ignore[no-untyped-def]
+        self.calls.append((envelope_id, now))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(id=envelope_id, captured_at=now)
+
+
 def test_stale_revalidation_consumes_no_authority_and_never_dispatches(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -140,7 +152,7 @@ def test_stale_revalidation_consumes_no_authority_and_never_dispatches(
         original, original.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
     with pytest.raises(PolicyViolation, match="exact plan revalidation drift"):
-        ResumeApplyService(Connection(), governance).apply(  # type: ignore[arg-type]
+        ResumeApplyService(Connection(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
             request, adapter, cwd=tmp_path, timeout_seconds=10, now=now
         )
     assert repository_calls == {"lock": 1, "create": 0}
@@ -158,7 +170,7 @@ def test_expired_or_non_continue_plan_stops_before_database_and_dispatch(tmp_pat
         expired, expired.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
     with pytest.raises(PolicyViolation, match="penceresi doldu"):
-        ResumeApplyService(object(), governance).apply(  # type: ignore[arg-type]
+        ResumeApplyService(object(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
             expired_request, adapter, cwd=tmp_path, timeout_seconds=10, now=now
         )
     denied = plan(now, disposition=ResumeDisposition.SAFE_REPLAN)
@@ -166,7 +178,7 @@ def test_expired_or_non_continue_plan_stops_before_database_and_dispatch(tmp_pat
         denied, denied.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
     with pytest.raises(PolicyViolation, match="safe-continue"):
-        ResumeApplyService(object(), governance).apply(  # type: ignore[arg-type]
+        ResumeApplyService(object(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
             denied_request, adapter, cwd=tmp_path, timeout_seconds=10, now=now
         )
     assert adapter.calls == 0
@@ -369,7 +381,7 @@ def test_fresh_apply_dispatches_once_and_replay_never_dispatches_again(
     request = ResumeApplyRequest(
         prepared, prepared.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
-    service = ResumeApplyService(Connection(), governance)  # type: ignore[arg-type]
+    service = ResumeApplyService(Connection(), governance, EnvironmentGuard())  # type: ignore[arg-type]
     first = service.apply(request, adapter, cwd=tmp_path, timeout_seconds=10, now=now)
     replay = service.apply(request, adapter, cwd=tmp_path, timeout_seconds=10, now=now)
     assert first.state is ResumeApplyState.COMPLETED
@@ -378,6 +390,26 @@ def test_fresh_apply_dispatches_once_and_replay_never_dispatches_again(
     assert state["dispatches"] == 1
     assert governance.consumptions == 1
     assert state["finishes"] == [AttemptOutcome.SUCCEEDED]
+
+
+def test_live_environment_drift_blocks_authority_claim_and_dispatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    now = dt.datetime.now(dt.UTC)
+    prepared = plan(now)
+    state, governance = _install_apply_fakes(monkeypatch, prepared)
+    guard = EnvironmentGuard(PolicyViolation("environment.network-policy-drift"))
+    request = ResumeApplyRequest(
+        prepared, prepared.plan_digest, uid(11), uid(12), "worker", ("database.write",)
+    )
+    with pytest.raises(PolicyViolation, match="network-policy-drift"):
+        ResumeApplyService(Connection(), governance, guard).apply(  # type: ignore[arg-type]
+            request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now
+        )
+    assert len(guard.calls) == 1
+    assert governance.consumptions == 0
+    assert state["claims"] == 0
+    assert state["dispatches"] == 0
 
 
 def test_expired_nonterminal_replay_becomes_recovery_without_redispatch(
@@ -404,7 +436,7 @@ def test_expired_nonterminal_replay_becomes_recovery_without_redispatch(
     request = ResumeApplyRequest(
         prepared, prepared.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
-    result = ResumeApplyService(Connection(), governance).apply(  # type: ignore[arg-type]
+    result = ResumeApplyService(Connection(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
         request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now
     )
     assert result.state is ResumeApplyState.RECOVERY_REQUIRED
@@ -437,7 +469,7 @@ def test_live_nonterminal_replay_is_observed_without_redispatch(
     request = ResumeApplyRequest(
         prepared, prepared.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
-    result = ResumeApplyService(Connection(), governance).apply(  # type: ignore[arg-type]
+    result = ResumeApplyService(Connection(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
         request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now
     )
     assert result.state is ResumeApplyState.CLAIMED
@@ -455,7 +487,7 @@ def test_adapter_exception_is_durable_recovery_required(
     request = ResumeApplyRequest(
         prepared, prepared.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
-    result = ResumeApplyService(Connection(), governance).apply(  # type: ignore[arg-type]
+    result = ResumeApplyService(Connection(), governance, EnvironmentGuard()).apply(  # type: ignore[arg-type]
         request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now
     )
     assert result.state is ResumeApplyState.RECOVERY_REQUIRED

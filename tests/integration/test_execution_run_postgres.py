@@ -4,7 +4,7 @@ import datetime as dt
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from psycopg import Error as PsycopgError
@@ -26,6 +26,16 @@ from zekam.domain.context_fragment import (
     ContextFragmentSet,
     ContextRole,
     ContextVisibility,
+)
+from zekam.domain.errors import PolicyViolation
+from zekam.domain.execution_environment import (
+    AssignmentEnvironmentBinding,
+    EnvironmentDriftReport,
+    ExecutionEnvironmentSnapshot,
+    ShellSnapshot,
+    TurnExecutionSnapshot,
+    detect_environment_drift,
+    reprobe_snapshot,
 )
 from zekam.domain.execution_run import (
     CheckpointDisposition,
@@ -374,6 +384,207 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         "deadline": run.deadline,
         "created_at": dt.datetime.now(dt.UTC),
     }
+    environment = ExecutionEnvironmentSnapshot.create(
+        realm_id=realm.id,
+        environment_id="env-execution-test",
+        execution_identity="execution-test",
+        provider="local-process",
+        platform="test-platform",
+        executor_protocol_version="zekam-exec/v1",
+        cwd_locator="workspace:execution/root",
+        workspace_roots=("workspace:execution/root",),
+        shell=ShellSnapshot("test-shell", digest("shell"), digest("profile")),
+        permission_profile_id="test-profile",
+        permission_profile_digest=digest("permission"),
+        filesystem_policy_digest=digest("filesystem"),
+        network_policy_digest=digest("network"),
+        tool_runtime_digest=digest("tool-runtime"),
+        capability_digest=digest("environment-capability"),
+        config_effective_digest=digest("config"),
+        source_revision="revision-1",
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    repository.create_environment_snapshot(environment)
+    current_environment = reprobe_snapshot(
+        environment,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    repository.create_environment_snapshot(current_environment)
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.execution_environment_snapshot"
+            "(id,realm_id,environment_id,execution_identity,provider,platform,"
+            "executor_protocol_version,cwd_locator,workspace_roots,shell,permission_profile_id,"
+            "permission_profile_digest,filesystem_policy_digest,network_policy_digest,"
+            "tool_runtime_digest,capability_digest,config_effective_digest,source_revision,"
+            "captured_at,expires_at,grants_authority,snapshot_digest)"
+            " select %s,realm_id,environment_id,execution_identity,provider,platform,"
+            "executor_protocol_version,cwd_locator,workspace_roots,shell,permission_profile_id,"
+            "permission_profile_digest,filesystem_policy_digest,network_policy_digest,"
+            "tool_runtime_digest,capability_digest,config_effective_digest,source_revision,"
+            "captured_at,expires_at,false,%s from runtime.execution_environment_snapshot"
+            " where id=%s",
+            (uuid4(), digest("forged-snapshot"), environment.id),
+        )
+    connection.rollback()
+    repository.record_environment_probe(
+        detect_environment_drift(environment, current_environment, checked_at=now)
+    )
+    equal_time_drift = reprobe_snapshot(
+        environment,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+        capability_digest=digest("equal-time-drift"),
+    )
+    repository.create_environment_snapshot(equal_time_drift)
+    with pytest.raises(PsycopgError):
+        repository.record_environment_probe(
+            detect_environment_drift(environment, equal_time_drift, checked_at=now)
+        )
+    connection.rollback()
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.environment_probe_evidence"
+            "(id,realm_id,execution_identity,sticky_snapshot_digest,current_snapshot_digest,"
+            "drift_dimensions,checked_at,evidence_digest)"
+            " select %s,realm_id,execution_identity,sticky_snapshot_digest,"
+            "current_snapshot_digest,drift_dimensions,checked_at,%s"
+            " from runtime.environment_probe_evidence where realm_id=%s limit 1",
+            (uuid4(), digest("forged-evidence"), realm.id),
+        )
+    connection.rollback()
+    with pytest.raises(PsycopgError):
+        repository.record_environment_probe(
+            EnvironmentDriftReport(
+                environment.snapshot_digest,
+                current_environment.snapshot_digest,
+                (),
+                now + dt.timedelta(minutes=11),
+            )
+        )
+    connection.rollback()
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.environment_probe_evidence"
+            "(id,realm_id,execution_identity,sticky_snapshot_digest,current_snapshot_digest,"
+            "drift_dimensions,checked_at,evidence_digest) values"
+            "(%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                UUID(int=environment.id.int + 1),
+                realm.id,
+                environment.execution_identity,
+                current_environment.snapshot_digest,
+                environment.snapshot_digest,
+                ["environment.capability-drift"],
+                now,
+                digest("forged-probe"),
+            ),
+        )
+    connection.rollback()
+    assignment_environment = AssignmentEnvironmentBinding.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        bound_at=now,
+    )
+    repository.bind_assignment_environment(assignment_environment)
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into agents.assignment_environment_binding"
+            "(id,realm_id,assignment_id,execution_environment_snapshot_digest,bound_at,"
+            "grants_authority,binding_digest) select %s,realm_id,assignment_id,"
+            "execution_environment_snapshot_digest,bound_at,false,%s"
+            " from agents.assignment_environment_binding where id=%s",
+            (uuid4(), digest("forged-binding"), assignment_environment.id),
+        )
+    connection.rollback()
+    turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        run_id=run.id,
+        attempt_id=attempt_id,
+        client_session_id="session-1",
+        turn_id="turn-1",
+        model_id=model.model_id,
+        provider_id=provider_binding.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=digest("tool-set"),
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=now,
+    )
+    repository.create_turn_snapshot(turn)
+    foreign_job_id, foreign_attempt_id = uuid4(), uuid4()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.job"
+            "(id,realm_id,project_id,work_item_id,plan_id,step_id,kind,state,"
+            "idempotency_key,assignment_id,run_id) values"
+            "(%s,%s,%s,%s,%s,'build','provider-call','running',%s,%s,%s)",
+            (
+                foreign_job_id,
+                realm.id,
+                project.id,
+                work.id,
+                plan.id,
+                f"foreign-job-{foreign_job_id}",
+                coordinator_id,
+                run.id,
+            ),
+        )
+        cursor.execute(
+            "insert into runtime.job_attempt"
+            "(id,realm_id,job_id,attempt_number,fencing_token,worker_label,started_at)"
+            " values(%s,%s,%s,1,1,'foreign-worker',%s)",
+            (foreign_attempt_id, realm.id, foreign_job_id, now),
+        )
+    connection.commit()
+    foreign_turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        run_id=run.id,
+        attempt_id=foreign_attempt_id,
+        client_session_id="session-1",
+        turn_id="foreign-attempt-turn",
+        model_id=model.model_id,
+        provider_id=provider_binding.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=digest("tool-set"),
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=now,
+    )
+    with pytest.raises(PsycopgError):
+        repository.create_turn_snapshot(foreign_turn)
+    connection.rollback()
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.turn_execution_snapshot"
+            "(id,realm_id,assignment_id,run_id,attempt_id,client_session_id,turn_id,model_id,"
+            "provider_id,route_decision_digest,reasoning_profile_digest,"
+            "execution_environment_snapshot_digest,context_manifest_digest,"
+            "exposed_tool_set_digest,hook_set_digest,config_effective_digest,trace_id,"
+            "grants_authority,created_at,turn_snapshot_digest)"
+            " select %s,realm_id,assignment_id,run_id,attempt_id,client_session_id,"
+            "'forged-turn',model_id,provider_id,route_decision_digest,reasoning_profile_digest,"
+            "execution_environment_snapshot_digest,context_manifest_digest,"
+            "exposed_tool_set_digest,hook_set_digest,config_effective_digest,trace_id,false,"
+            "created_at,%s from runtime.turn_execution_snapshot where id=%s",
+            (uuid4(), digest("forged-turn"), turn.id),
+        )
+    connection.rollback()
+    common.update(
+        turn_execution_snapshot_id=turn.id,
+        turn_execution_snapshot_digest=turn.turn_snapshot_digest,
+    )
     first_envelope = ExecutionEnvelope.create(
         request_ordinal=1,
         idempotency_key="call-1",
@@ -455,9 +666,25 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         route_expires_at=target.expires_at,
         source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
         created_at=dt.datetime.now(dt.UTC),
+        turn_execution_snapshot_digest=turn.turn_snapshot_digest,
+        environment_digest=environment.snapshot_digest,
+        permission_profile_digest=environment.permission_profile_digest,
+        tool_set_digest=turn.exposed_tool_set_digest,
+        config_effective_digest=turn.config_effective_digest,
+        hook_set_digest=turn.hook_set_digest,
     )
     invocation = ModelInvocationRepository(connection, realm.id)
     assert invocation.store_manifest(request_manifest)[1] is True
+    forged_values = {
+        name: getattr(request_manifest, name)
+        for name in request_manifest.__dataclass_fields__
+        if name not in {"id", "manifest_digest"}
+    }
+    forged_values["permission_profile_digest"] = digest("forged-permission")
+    forged_manifest = ModelRequestManifest.create(**forged_values)
+    with pytest.raises(PsycopgError):
+        invocation.store_manifest(forged_manifest)
+    connection.rollback()
     invocation.activate_enforce(policy_digest)
     invocation.assert_current_envelope(request_manifest)
     invocation.assert_current_context_fragment_set(request_manifest)
@@ -466,6 +693,40 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     )
     assert bound_gateway.bindings.execution_envelope_digest == bound_envelope.envelope_digest
     assert bound_gateway.bindings.max_cost_micros == bound_envelope.max_cost_micros
+    drift_moment = dt.datetime.now(dt.UTC)
+    drifted_environment = reprobe_snapshot(
+        environment,
+        captured_at=drift_moment,
+        expires_at=drift_moment + dt.timedelta(minutes=10),
+        capability_digest=digest("drifted-capability"),
+    )
+    repository.create_environment_snapshot(drifted_environment)
+    repository.record_environment_probe(
+        detect_environment_drift(environment, drifted_environment, checked_at=drift_moment)
+    )
+    with pytest.raises(PolicyViolation, match="stale"):
+        invocation.assert_current_envelope(request_manifest)
+    stale_turn = TurnExecutionSnapshot.create(
+        realm_id=realm.id,
+        assignment_id=builder_id,
+        run_id=run.id,
+        attempt_id=attempt_id,
+        client_session_id="session-1",
+        turn_id="stale-probe-turn",
+        model_id=model.model_id,
+        provider_id=provider_binding.provider_ref,
+        route_decision_digest=route_digest,
+        reasoning_profile_digest=digest("reasoning"),
+        execution_environment_snapshot_digest=environment.snapshot_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        exposed_tool_set_digest=digest("tool-set"),
+        hook_set_digest=digest("hooks"),
+        config_effective_digest=environment.config_effective_digest,
+        created_at=drift_moment,
+    )
+    with pytest.raises(PsycopgError):
+        repository.create_turn_snapshot(stale_turn)
+    connection.rollback()
     with pytest.raises(PsycopgError):
         repository.create_envelope(
             ExecutionEnvelope.create(
