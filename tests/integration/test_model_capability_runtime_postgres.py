@@ -419,14 +419,14 @@ def _seed_authorization_derivation_candidate(connection: Any) -> dict[str, Any]:
     return values
 
 
-def test_migration_25_is_head_and_runtime_tables_are_rls_append_only(
+def test_current_migration_head_and_runtime_tables_are_rls_append_only(
     migrated_database: DatabaseSettings,
 ) -> None:
-    assert migrations.discover_migrations()[-1].version == 25
+    assert migrations.discover_migrations()[-1].version == 34
     assert migrations.discover_migrations()[-1].has_down
     with connect(migrated_database) as connection, connection.cursor() as cursor:
         cursor.execute("select max(version) from core.schema_migrations")
-        assert cursor.fetchone()[0] == 25
+        assert cursor.fetchone()[0] == 34
         cursor.execute(
             "select relname,relrowsecurity,relforcerowsecurity from pg_class"
             " join pg_namespace on pg_namespace.oid=pg_class.relnamespace"
@@ -509,7 +509,9 @@ def test_migration_25_derivation_golden_down_and_reapply(
                 )
                 assert "zekam-capability-continuity-derive/v3" in str(cursor.fetchone()[0])
             migrations.upgrade(connection, target=25)
-            assert migrations.status(connection).is_current
+            reapplied = migrations.status(connection)
+            assert reapplied.head == 25
+            assert tuple(item.version for item in reapplied.pending) == tuple(range(26, 35))
     finally:
         with connect(postgres_settings) as connection, connection.cursor() as cursor:
             cursor.execute(

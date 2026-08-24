@@ -51,9 +51,9 @@ def source_repo(tmp_path: Path) -> Path:
 def service(source_repo: Path, tmp_path: Path) -> SandboxDeliveryService:
     return SandboxDeliveryService(
         WorktreeManager(source_root=source_repo, workspaces_root=tmp_path / "worktrees"),
-        resolve_bound_source=lambda project_ref: source_repo
-        if project_ref == "kaynak"
-        else tmp_path / "kayitsiz",
+        resolve_bound_source=lambda project_ref: (
+            source_repo if project_ref == "kaynak" else tmp_path / "kayitsiz"
+        ),
     )
 
 

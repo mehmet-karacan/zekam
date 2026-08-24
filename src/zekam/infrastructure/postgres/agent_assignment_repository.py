@@ -6,14 +6,57 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.agents import AgentAssignment, AgentInvocation, AssignmentRole
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.agents import (
+    AgentAssignment,
+    AgentInvocation,
+    AssignmentRole,
+    AssignmentStatus,
+)
+from zekam.domain.errors import NotFound, PolicyViolation
 
 
 @dataclass(frozen=True, slots=True)
 class AgentAssignmentRepository:
     connection: Any
     realm_id: UUID
+
+    def get(self, assignment_id: UUID) -> AgentAssignment:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select id,realm_id,project_id,work_item_id,role,agent_ref,instruction_digest,"
+                " context_manifest_digest,assignment_digest,status,parent_assignment_id,plan_id,"
+                " step_id,risk,created_at from agents.assignment"
+                " where realm_id=%s and id=%s",
+                (self.realm_id, assignment_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise NotFound("Assignment bulunamadi")
+            cursor.execute(
+                "select resource,mode from agents.assignment_resource"
+                " where realm_id=%s and assignment_id=%s order by resource,mode",
+                (self.realm_id, assignment_id),
+            )
+            resources = cursor.fetchall()
+        return AgentAssignment(
+            id=UUID(str(row[0])),
+            realm_id=UUID(str(row[1])),
+            project_id=UUID(str(row[2])),
+            work_item_id=UUID(str(row[3])),
+            role=AssignmentRole(str(row[4])),
+            agent_ref=str(row[5]),
+            instruction_digest=str(row[6]),
+            context_manifest_digest=str(row[7]),
+            assignment_digest=str(row[8]),
+            status=AssignmentStatus(str(row[9])),
+            parent_assignment_id=None if row[10] is None else UUID(str(row[10])),
+            plan_id=None if row[11] is None else UUID(str(row[11])),
+            step_id=None if row[12] is None else str(row[12]),
+            risk=str(row[13]),
+            read_resources=tuple(str(item[0]) for item in resources if item[1] == "read"),
+            write_resources=tuple(str(item[0]) for item in resources if item[1] == "write"),
+            created_at=row[14],
+        )
 
     def create(self, assignment: AgentAssignment) -> tuple[UUID, bool]:
         if assignment.realm_id != self.realm_id:

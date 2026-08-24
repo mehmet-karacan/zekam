@@ -23,6 +23,7 @@ class ExecutionRunState(StrEnum):
 
 class CheckpointDisposition(StrEnum):
     BOUND = "bound"
+    BOUND_V2 = "bound-v2"
     NOT_APPLICABLE_GENESIS = "not-applicable-genesis"
 
 
@@ -258,6 +259,8 @@ class ExecutionEnvelope:
     deadline: dt.datetime
     created_at: dt.datetime
     envelope_digest: str
+    checkpoint_v2_id: UUID | None = None
+    checkpoint_v2_digest: str | None = None
     grants_authority: bool = False
 
     def __post_init__(self) -> None:
@@ -289,7 +292,22 @@ class ExecutionEnvelope:
         if self.checkpoint_disposition is CheckpointDisposition.BOUND:
             if self.checkpoint_id is None or self.checkpoint_digest is None:
                 raise ValidationFailed("Bound execution envelope checkpoint ister")
-        elif self.checkpoint_id is not None or self.checkpoint_digest is not None:
+            if self.checkpoint_v2_id is not None or self.checkpoint_v2_digest is not None:
+                raise ValidationFailed("V1 bound envelope v2 checkpoint tasiyamaz")
+        elif self.checkpoint_disposition is CheckpointDisposition.BOUND_V2:
+            if self.checkpoint_v2_id is None or self.checkpoint_v2_digest is None:
+                raise ValidationFailed("V2 bound execution envelope checkpoint ister")
+            if self.checkpoint_id is not None or self.checkpoint_digest is not None:
+                raise ValidationFailed("V2 bound envelope v1 checkpoint tasiyamaz")
+        elif any(
+            value is not None
+            for value in (
+                self.checkpoint_id,
+                self.checkpoint_digest,
+                self.checkpoint_v2_id,
+                self.checkpoint_v2_digest,
+            )
+        ):
             raise ValidationFailed("Genesis execution envelope checkpoint tasiyamaz")
         for value in (
             self.route_decision_digest,
@@ -304,6 +322,8 @@ class ExecutionEnvelope:
             parse_digest(value)
         if self.checkpoint_digest is not None:
             parse_digest(self.checkpoint_digest)
+        if self.checkpoint_v2_digest is not None:
+            parse_digest(self.checkpoint_v2_digest)
         if self.envelope_digest:
             parse_digest(self.envelope_digest)
             if self.envelope_digest != self.computed_digest:
@@ -337,6 +357,10 @@ class ExecutionEnvelope:
             "checkpoint_id": None if self.checkpoint_id is None else str(self.checkpoint_id),
             "checkpoint_digest": self.checkpoint_digest,
             "checkpoint_disposition": self.checkpoint_disposition.value,
+            "checkpoint_v2_id": (
+                None if self.checkpoint_v2_id is None else str(self.checkpoint_v2_id)
+            ),
+            "checkpoint_v2_digest": self.checkpoint_v2_digest,
             "source_revision": self.source_revision,
             "policy_digest": self.policy_digest,
             "authorization_scope_digest": self.authorization_scope_digest,

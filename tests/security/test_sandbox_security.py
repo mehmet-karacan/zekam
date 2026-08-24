@@ -177,9 +177,7 @@ def test_structured_result_beyani_olmadan_dispatch_reddedilir(tmp_path: Path) ->
         adapter.dispatch(
             request,
             cwd=tmp_path,
-            permit=_issue_canonical_dispatch_permit(
-                request.assignment_id, request.invocation_id
-            ),
+            permit=_issue_canonical_dispatch_permit(request.assignment_id, request.invocation_id),
         )
 
 

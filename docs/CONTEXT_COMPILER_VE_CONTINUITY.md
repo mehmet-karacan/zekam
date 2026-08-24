@@ -36,3 +36,34 @@ lease/approval/authorization'i devralmaz. Receiptless effect varsa normal retry/
 incelemesine, source/dependency/plan drift'i replan'a, yalnız context/route drift'i
 recompile'a gider. Planın uygulanması ayrı bir mutation protokolüdür ve P0-012 kapsamında
 exact plan digest revalidation ile ele alınır.
+
+## ResumeCoordinator apply
+
+`apply`, yalniz `safe-continue` disposition'li ve gecerlilik penceresi dolmamis
+bir plan kabul eder. Ayni Work icin mutation transaction'i advisory lock ile
+siralanir. Daha once ayni `resume_plan_digest` uygulanmissa exact actor,
+authorization, client ve effect kapsami dogrulanir; kayitli saga event'i doner ve
+ikinci dispatch yapilmaz.
+
+Yeni uygulamada plan kanonik snapshot'tan yeniden hazirlanir ve supplied digest ile
+exact eslestirilir. Drift varsa authorization tuketilmez. Fresh planda one-shot
+authorization tuketildikten sonra yalniz planin exact job'i yeni attempt, lease,
+fencing token ve logical lock'larla claim edilir. Onceki attempt herhangi bir effect
+claim tasiyorsa normal reclaim yasaktir; receipt durumuna gore reconciliation gerekir.
+
+Dispatch'ten once canonical assignment/invocation, `bound-v2` execution envelope ve
+effect claim kalicilastirilir. Envelope gercek `DispatchRequest` payload digest'ini,
+run deadline'ini ve checkpoint v2 kimlik/digest'ini tasir. Saga event zinciri
+claim -> dispatch -> terminal sirasi, previous digest ve DB tarafinda yeniden
+hesaplanan event digest ile append-only'dir. Adapter sonucu bilinmiyorsa job
+`recovery-required` olur ve sessiz retry yapilmaz. Basarili apply terminal kaydi,
+dispatch receipt'i ile yeni step sonucunu ayni checkpoint v2 revision'ina baglar;
+checkpoint DB completeness kapisi gecmeden job `succeeded` olamaz. Ardindan exact
+fence ile job/attempt terminal olur ve ephemeral lease/resource lock temizlenir.
+Claimed veya dispatched event'te kesilen replay'de canli lease varsa istemciye
+acik in-flight durum doner; lease dolmussa adapter tekrar cagrilmaz, append-only
+recovery eventi yazilir ve job `recovery-required` olarak terminalize edilir.
+High/critical assignment icin tarihsel verifier invocation/receipt'i yeni sonuca
+devredilmez. Current result ve execution envelope'a exact post-result verifier
+binding'i kanonik olarak yoksa completion checkpoint'i uretilmez; receipt korunur,
+is policy recovery'ye alinir ve yeniden dispatch yasak kalir.

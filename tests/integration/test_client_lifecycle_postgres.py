@@ -50,9 +50,7 @@ def test_ingest_is_ordered_idempotent_and_acknowledged(
             (realm.id,),
         )
         assert cursor.fetchone() == (2, second["event_digest"])
-        cursor.execute(
-            "select count(*) from client.lifecycle_ack where realm_id=%s", (realm.id,)
-        )
+        cursor.execute("select count(*) from client.lifecycle_ack where realm_id=%s", (realm.id,))
         assert cursor.fetchone()[0] == 2
 
 
@@ -130,8 +128,7 @@ def test_db_trigger_and_append_only_guards_reject_direct_mutation(
         cursor.execute("savepoint immutable_event")
         with pytest.raises(Exception, match=r"append-only|permission denied"):
             cursor.execute(
-                "update client.lifecycle_event set payload='{}'::jsonb"
-                " where realm_id=%s and id=%s",
+                "update client.lifecycle_event set payload='{}'::jsonb where realm_id=%s and id=%s",
                 (realm.id, acknowledgement.event_id),
             )
         cursor.execute("rollback to savepoint immutable_event")

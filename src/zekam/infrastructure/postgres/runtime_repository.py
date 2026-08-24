@@ -184,6 +184,198 @@ class JobRepository:
             raise NotFound("Job bulunamadi")
         return _job_from_row(row)
 
+    def claim_exact(
+        self,
+        job_id: UUID,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        plan_id: UUID,
+        step_id: str,
+        assignment_id: UUID,
+        run_id: UUID,
+        capabilities: Sequence[str],
+        worker_label: str,
+        lease_seconds: int = 60,
+        now: dt.datetime | None = None,
+    ) -> ClaimedWork:
+        """Claim one exact resume job; never selects another queued job."""
+        moment = now or dt.datetime.now(dt.UTC)
+        if moment.tzinfo is None:
+            raise PolicyViolation("Exact resume claim zamani timezone-aware olmali")
+        if not worker_label.strip():
+            raise PolicyViolation("Exact resume worker etiketi bos olamaz")
+        if lease_seconds < 1 or lease_seconds > 3600:
+            raise PolicyViolation("Exact resume lease suresi 1..3600 olmali")
+        token = _new_token()
+        with self.connection.transaction(), self.connection.cursor() as cursor:
+            # Exact resume claims serialize inside a realm.  Resource conflicts include
+            # ancestor paths, so locking only the literal resource strings is insufficient.
+            cursor.execute(
+                "select pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"resume-claim:{self.realm_id}",),
+            )
+            cursor.execute(
+                f"select {_JOB_COLUMNS} from runtime.job where realm_id=%s and id=%s for update",
+                (self.realm_id, job_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise NotFound("Exact resume job bulunamadi")
+            job = _job_from_row(row)
+            if (
+                job.project_id,
+                job.work_item_id,
+                job.plan_id,
+                job.step_id,
+                job.assignment_id,
+                job.run_id,
+            ) != (project_id, work_item_id, plan_id, step_id, assignment_id, run_id):
+                raise PolicyViolation("Exact resume job scope/identity drift")
+            if not set(job.required_capabilities).issubset(set(capabilities)):
+                raise PolicyViolation("Exact resume worker capability eksik")
+            if job.available_at > moment:
+                raise PolicyViolation("Exact resume job henuz hazir degil")
+
+            if job.state is JobState.RUNNING:
+                cursor.execute(
+                    "select id,attempt_id,expires_at from runtime.lease"
+                    " where realm_id=%s and job_id=%s for update",
+                    (self.realm_id, job.id),
+                )
+                old_lease = cursor.fetchone()
+                if old_lease is None or old_lease[2] > moment:
+                    raise ConcurrencyConflict("Exact resume job aktif lease tasiyor")
+                cursor.execute(
+                    "select count(*) from runtime.effect_claim cl"
+                    " where cl.realm_id=%s and cl.job_id=%s and cl.attempt_id=%s",
+                    (self.realm_id, job.id, old_lease[1]),
+                )
+                if int(cursor.fetchone()[0]):
+                    raise PolicyViolation(
+                        "Exact resume effect bulunan attempt reconcile edilmeden claim olamaz"
+                    )
+                cursor.execute("delete from runtime.resource_lock where job_id=%s", (job.id,))
+                cursor.execute("delete from runtime.lease where id=%s", (old_lease[0],))
+                cursor.execute(
+                    "update runtime.job_attempt set outcome='abandoned',finished_at=%s"
+                    " where realm_id=%s and id=%s and outcome is null",
+                    (moment, self.realm_id, old_lease[1]),
+                )
+                cursor.execute(
+                    "update runtime.job set state='ready'"
+                    " where realm_id=%s and id=%s and state='running'",
+                    (self.realm_id, job.id),
+                )
+                job = Job(
+                    id=job.id,
+                    realm_id=job.realm_id,
+                    project_id=job.project_id,
+                    kind=job.kind,
+                    state=JobState.READY,
+                    idempotency_key=job.idempotency_key,
+                    priority=job.priority,
+                    attempt_count=job.attempt_count,
+                    max_attempts=job.max_attempts,
+                    fencing_token=job.fencing_token,
+                    required_capabilities=job.required_capabilities,
+                    resources=job.resources,
+                    work_item_id=job.work_item_id,
+                    plan_id=job.plan_id,
+                    step_id=job.step_id,
+                    assignment_id=job.assignment_id,
+                    run_id=job.run_id,
+                    payload=job.payload,
+                    available_at=job.available_at,
+                    created_at=job.created_at,
+                )
+            if job.state is not JobState.READY:
+                raise PolicyViolation(f"Exact resume job claim edilemez: {job.state.value}")
+            if not job.has_attempts_left():
+                raise PolicyViolation("Exact resume job attempt butcesi tukendi")
+
+            attempt_number = job.attempt_count + 1
+            fencing_token = job.fencing_token + 1
+            attempt_id = new_uuid7(now=moment)
+            lease_id = new_uuid7(now=moment)
+            expires_at = moment + dt.timedelta(seconds=lease_seconds)
+            cursor.execute(
+                "update runtime.job set state='running',attempt_count=%s,fencing_token=%s"
+                " where realm_id=%s and id=%s and state='ready'",
+                (attempt_number, fencing_token, self.realm_id, job.id),
+            )
+            if cursor.rowcount != 1:
+                raise ConcurrencyConflict("Exact resume job claim yarisi kaybedildi")
+            cursor.execute(
+                "insert into runtime.job_attempt"
+                " (id,realm_id,job_id,attempt_number,fencing_token,worker_label,started_at)"
+                " values(%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    attempt_id,
+                    self.realm_id,
+                    job.id,
+                    attempt_number,
+                    fencing_token,
+                    worker_label,
+                    moment,
+                ),
+            )
+            cursor.execute(
+                "insert into runtime.lease"
+                " (id,realm_id,job_id,attempt_id,owner_digest,fencing_token,worker_label,"
+                " expires_at,heartbeat_at,created_at) values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    lease_id,
+                    self.realm_id,
+                    job.id,
+                    attempt_id,
+                    owner_digest(token),
+                    fencing_token,
+                    worker_label,
+                    expires_at,
+                    moment,
+                    moment,
+                ),
+            )
+            ResourceLockRepository(self.connection, self.realm_id).acquire(
+                job.id, job.resources, lease_id=lease_id
+            )
+
+        claimed_job = Job(
+            id=job.id,
+            realm_id=job.realm_id,
+            project_id=job.project_id,
+            kind=job.kind,
+            state=JobState.RUNNING,
+            idempotency_key=job.idempotency_key,
+            priority=job.priority,
+            attempt_count=attempt_number,
+            max_attempts=job.max_attempts,
+            fencing_token=fencing_token,
+            required_capabilities=job.required_capabilities,
+            resources=job.resources,
+            work_item_id=job.work_item_id,
+            plan_id=job.plan_id,
+            step_id=job.step_id,
+            assignment_id=job.assignment_id,
+            run_id=job.run_id,
+            payload=job.payload,
+            available_at=job.available_at,
+            created_at=job.created_at,
+        )
+        lease = Lease(
+            id=lease_id,
+            realm_id=self.realm_id,
+            job_id=job.id,
+            attempt_id=attempt_id,
+            owner_digest=owner_digest(token),
+            fencing_token=fencing_token,
+            expires_at=expires_at,
+            heartbeat_at=moment,
+            worker_label=worker_label,
+        )
+        return ClaimedWork(claimed_job, attempt_id, lease, token)
+
     def list_by_state(self, state: JobState) -> tuple[Job, ...]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -503,7 +695,23 @@ class ResourceLockRepository:
                         lease_id,
                     ),
                 )
-                acquired.append(lock_id)
+                if cursor.rowcount == 1:
+                    acquired.append(lock_id)
+                else:
+                    cursor.execute(
+                        "select id from runtime.resource_lock"
+                        " where realm_id=%s and resource=%s and mode=%s and job_id=%s",
+                        (
+                            self.realm_id,
+                            request.resource.text,
+                            request.mode.value,
+                            job_id,
+                        ),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is None:
+                        raise ConcurrencyConflict("Logical lock acquisition drift")
+                    acquired.append(UUID(str(existing[0])))
         return tuple(acquired)
 
     def held_by(self, job_id: UUID) -> tuple[ResourceRequest, ...]:

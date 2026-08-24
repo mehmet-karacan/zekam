@@ -125,17 +125,13 @@ def test_bos_kuyrukta_is_alinmaz(realm_session: tuple[Any, Any], tmp_path: Path)
     assert result.skipped_reason == "kuyruk bos"
 
 
-def test_isleyicisi_olmayan_worker_baslamaz(
-    realm_session: tuple[Any, Any], tmp_path: Path
-) -> None:
+def test_isleyicisi_olmayan_worker_baslamaz(realm_session: tuple[Any, Any], tmp_path: Path) -> None:
     """Sessiz basari uretilmez; isleyici yoksa is failed olur."""
 
     realm, connection = realm_session
     _project(connection, realm, tmp_path)
     with pytest.raises(PolicyViolation, match="explicit handler"):
-        build_worker(
-            connection, realm.id, settings=_settings(), handlers={}, with_scheduler=False
-        )
+        build_worker(connection, realm.id, settings=_settings(), handlers={}, with_scheduler=False)
 
 
 def test_isleyici_hatasi_terminal_duruma_cevrilir(

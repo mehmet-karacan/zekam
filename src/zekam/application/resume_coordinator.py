@@ -79,10 +79,21 @@ def _disposition(
         return ResumeDisposition.MANUAL_REVIEW, ("resume.legacy-checkpoint-limited",)
     if not observation.checkpoint_integrity:
         return ResumeDisposition.MANUAL_REVIEW, ("resume.checkpoint-integrity-failed",)
+    if observation.observed_at >= observation.valid_until:
+        return ResumeDisposition.WAITING, ("resume.plan-validity-expired",)
     if observation.work_state in {"cancelled", "archived"}:
         return ResumeDisposition.DENIED, ("resume.work-not-active",)
     if observation.open_effects:
         return ResumeDisposition.RECOVERY_REQUIRED, ("resume.unresolved-effect",)
+    if observation.runtime.job_state == "recovery-required":
+        return ResumeDisposition.RECOVERY_REQUIRED, ("resume.target-job-recovery-required",)
+    if observation.runtime.job_state == "running" and (
+        observation.runtime.lease_expires_at is not None
+        and observation.runtime.lease_expires_at > observation.observed_at
+    ):
+        return ResumeDisposition.WAITING, ("resume.target-job-active-lease",)
+    if observation.runtime.job_state not in {"ready", "running"}:
+        return ResumeDisposition.MANUAL_REVIEW, ("resume.target-job-not-runnable",)
     if observation.resumability is Resumability.MANUAL_REVIEW:
         return ResumeDisposition.MANUAL_REVIEW, ("resume.checkpoint-manual-review",)
     if observation.resumability is Resumability.BLOCKED:
@@ -224,6 +235,10 @@ class ResumeCoordinator:
             stale_dimensions=stale,
             reconciliation_actions=reconciliation,
             reacquire_resources=reacquire,
+            logical_read_resources=observation.logical_read_resources,
+            logical_write_resources=observation.logical_write_resources,
+            runtime=observation.runtime,
+            target_client_id=observation.target_client_id,
             next_step_id=(
                 observation.next_step_id
                 if disposition
@@ -239,4 +254,5 @@ class ResumeCoordinator:
             actions=_actions(observation, disposition, reconciliation),
             blockers=blockers,
             observed_at=observation.observed_at,
+            valid_until=observation.valid_until,
         )

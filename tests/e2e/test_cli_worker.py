@@ -94,7 +94,10 @@ def test_worker_tick_zamanlanmis_isi_tetikler(
     applied = runner.invoke(
         app, ["worker", "tick", "--uygula", "--json", "--home", str(cli_home), *realm_flags]
     )
-    assert applied.exit_code == 0, applied.stdout
+    assert applied.exit_code == 0, (
+        f"stdout={applied.stdout!r} output={applied.output!r} "
+        f"stderr={applied.stderr!r} exception={applied.exception!r}"
+    )
     payload = json.loads(applied.stdout)
     # Tanimli zamanlanmis is yok; kuyruk da bos.
     assert payload["accepted_work"] is False

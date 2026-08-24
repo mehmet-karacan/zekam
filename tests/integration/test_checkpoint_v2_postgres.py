@@ -46,15 +46,23 @@ from zekam.domain.model_routing import (
     RoleRoutingPolicy,
     RoutingLayer,
 )
+from zekam.domain.realm import Actor, ActorKind
+from zekam.domain.resume_apply import ResumeApplyEvent, ResumeApplyPhase, ResumeApplyState
+from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.checkpoint_v2_repository import CheckpointV2Repository
 from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
+from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
+from zekam.infrastructure.postgres.resume_apply_repository import ResumeApplyRepository
 from zekam.infrastructure.postgres.resume_repository import ResumeRepository
+from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+
+E2E_FIXTURE_CONSUMER: Any | None = None
 
 
 def test_checkpoint_v2_evidence_revision_and_terminal_gate(
@@ -238,6 +246,25 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
                 "build",
             ),
         ):
+            instruction_digest = digest(f"instruction:{role}:{step_id}")
+            assignment_digest = digest(
+                {
+                    "id": str(assignment_id),
+                    "realm_id": str(realm.id),
+                    "project_id": str(project.id),
+                    "work_item_id": str(work.id),
+                    "plan_id": str(plan.id),
+                    "step_id": step_id,
+                    "parent_assignment_id": str(parent_id) if parent_id else None,
+                    "role": role,
+                    "agent_ref": agent,
+                    "risk": risk,
+                    "instruction_digest": instruction_digest,
+                    "context_manifest_digest": manifest.manifest_digest,
+                    "read_resources": [],
+                    "write_resources": [],
+                }
+            )
             cursor.execute(
                 "insert into agents.assignment"
                 "(id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,role,"
@@ -255,9 +282,9 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
                     role,
                     agent,
                     risk,
-                    digest(f"instruction:{role}:{step_id}"),
+                    instruction_digest,
                     manifest.manifest_digest,
-                    digest(f"assignment:{role}:{step_id}"),
+                    assignment_digest,
                     now,
                 ),
             )
@@ -559,6 +586,9 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
     with connection.cursor() as cursor:
         cursor.execute("update runtime.job set state='completed' where id=%s", (research_job_id,))
     connection.commit()
+    if E2E_FIXTURE_CONSUMER is not None:
+        E2E_FIXTURE_CONSUMER(locals())
+        return
 
     first = CheckpointV2(
         checkpoint_id=uuid4(),
@@ -611,6 +641,69 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         )
         after_counts = tuple(int(value) for value in cursor.fetchone())
     assert after_counts == before_counts
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="resume-actor", now=now)
+    )
+    apply_effect_digest = digest("effect:two")
+    authorization = Authorization.issue(
+        realm_id=realm.id,
+        actor_id=actor.id,
+        work_item_id=work.id,
+        plan_id=plan.id,
+        plan_digest=plan.plan_digest,
+        effect_digest=apply_effect_digest,
+        scope=AuthorizationScope(
+            allowed_resources=("project:checkpoint",),
+            allowed_effects=(EffectKind.DATABASE_WRITE.value,),
+        ),
+        risk="high",
+        lifetime=dt.timedelta(minutes=5),
+        now=now,
+    )
+    AuthorizationRepository(connection, realm.id).issue(authorization)
+    apply_repository = ResumeApplyRepository(connection, realm.id)
+    apply_id, apply_created = apply_repository.create(
+        prepared,
+        actor_id=actor.id,
+        authorization_id=authorization.id,
+        effect_digest=apply_effect_digest,
+        now=now,
+    )
+    assert apply_created
+    apply_event = ResumeApplyEvent(
+        apply_id=apply_id,
+        sequence=1,
+        phase=ResumeApplyPhase.CLAIM,
+        state=ResumeApplyState.CLAIMED,
+        reason_code="resume.test-claim",
+        occurred_at=now,
+        attempt_id=attempt_id,
+        lease_id=lease_id,
+        fencing_token=1,
+        claim_id=claim_two,
+    )
+    assert apply_repository.append_event(apply_event)[1]
+    connection.commit()
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.resume_apply_event"
+            "(id,realm_id,resume_apply_id,sequence,phase,state,reason_code,attempt_id,lease_id,"
+            "fencing_token,claim_id,previous_digest,event_digest,event_body,occurred_at) values"
+            "(%s,%s,%s,2,'dispatch','dispatched','resume.forged',%s,%s,1,%s,%s,%s,%s::jsonb,%s)",
+            (
+                uuid4(),
+                realm.id,
+                apply_id,
+                attempt_id,
+                lease_id,
+                claim_two,
+                apply_event.event_digest,
+                digest("forged-event"),
+                '{"forged":true}',
+                now,
+            ),
+        )
+    connection.rollback()
     ambiguous = CheckpointV2(
         checkpoint_id=uuid4(),
         checkpoint_key="alternate-progress",

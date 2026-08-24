@@ -66,9 +66,7 @@ class ClientLifecycleRepository:
             )
             replay = cursor.fetchone()
             if replay is not None:
-                return LifecycleAck(
-                    UUID(str(replay[0])), local_digest, str(replay[1]), replay[2]
-                )
+                return LifecycleAck(UUID(str(replay[0])), local_digest, str(replay[1]), replay[2])
 
             cursor.execute(
                 "select id,head_sequence,head_digest from client.lifecycle_stream"

@@ -133,9 +133,10 @@ class AgentResultEnvelope:
             raise ValidationFailed("Blocked envelope blocker aciklamasi tasimali")
         if self.token_count < 0 or self.cost_micros < 0 or self.latency_ms < 0:
             raise ValidationFailed("Olcumler negatif olamaz")
-        if self.produced_at.tzinfo is None or self.produced_at.tzinfo.utcoffset(
-            self.produced_at
-        ) is None:
+        if (
+            self.produced_at.tzinfo is None
+            or self.produced_at.tzinfo.utcoffset(self.produced_at) is None
+        ):
             raise ValidationFailed("Envelope produced_at timezone tasimali")
 
     @classmethod

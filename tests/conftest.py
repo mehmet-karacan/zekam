@@ -137,6 +137,40 @@ def migrated_database(postgres_settings: DatabaseSettings) -> Iterator[DatabaseS
 
 
 @pytest.fixture
+def isolated_migrated_database(
+    postgres_settings: DatabaseSettings,
+) -> Iterator[DatabaseSettings]:
+    """Tek teste ait, migration uygulanmis gecici PostgreSQL veritabani."""
+    import secrets
+
+    from zekam.infrastructure.postgres import migrations
+    from zekam.infrastructure.postgres.connection import connect
+
+    database_name = f"zekam_isolated_test_{secrets.token_hex(6)}"
+    with connect(postgres_settings) as connection, connection.cursor() as cursor:
+        cursor.execute(f'create database "{database_name}"')
+
+    scoped = DatabaseSettings(
+        host=postgres_settings.host,
+        port=postgres_settings.port,
+        name=database_name,
+        user=postgres_settings.user,
+        sslmode=postgres_settings.sslmode,
+    )
+    try:
+        with connect(scoped) as connection:
+            migrations.upgrade(connection)
+        yield scoped
+    finally:
+        with connect(postgres_settings) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_terminate_backend(pid) from pg_stat_activity where datname = %s",
+                (database_name,),
+            )
+            cursor.execute(f'drop database if exists "{database_name}"')
+
+
+@pytest.fixture
 def realm_session(migrated_database: DatabaseSettings) -> Iterator[tuple[Any, Any]]:
     """Yeni bir realm ve o realm kapsaminda calisan uygulama rolu oturumu."""
     from zekam.domain.realm import Realm

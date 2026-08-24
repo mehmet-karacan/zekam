@@ -97,8 +97,7 @@ def resolve_jira_issue(query: str, path: Path | None = None) -> JiraIssueResolut
         mapping
         for mapping in mappings
         if any(
-            re.search(rf"\b{re.escape(alias)}\b", normalized)
-            for alias in mapping.project_aliases
+            re.search(rf"\b{re.escape(alias)}\b", normalized) for alias in mapping.project_aliases
         )
     ]
     if exact_matches:

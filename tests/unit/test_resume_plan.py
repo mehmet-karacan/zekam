@@ -16,7 +16,12 @@ from zekam.domain.checkpoint_v2 import (
     StaleDigestBindings,
 )
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.resume import ResumeDisposition, ResumeObservation, ResumePlan
+from zekam.domain.resume import (
+    ResumeDisposition,
+    ResumeObservation,
+    ResumePlan,
+    RuntimeObservation,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -67,9 +72,24 @@ def observation(**changes: Any) -> ResumeObservation:
         resumability=Resumability.SAFE_CONTINUE,
         logical_read_resources=("project:2:source",),
         logical_write_resources=("project:2:file:src/app.py",),
+        runtime=RuntimeObservation(
+            run_id=uid(60),
+            job_id=uid(61),
+            attempt_id=uid(62),
+            assignment_id=uid(63),
+            execution_envelope_id=uid(64),
+            execution_envelope_digest=digest("envelope"),
+            observed_lease_id=uid(65),
+            observed_fencing_token=3,
+            job_state="running",
+            lease_expires_at=dt.datetime(2026, 8, 23, 23, 59, tzinfo=dt.UTC),
+            deadline=dt.datetime(2026, 8, 25, tzinfo=dt.UTC),
+        ),
+        target_client_id="codex",
         required_route_role="implementer",
         context_recipe="resume:codex:implementer",
         observed_at=dt.datetime(2026, 8, 24, tzinfo=dt.UTC),
+        valid_until=dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC),
     )
     return replace(value, **changes)
 
@@ -101,6 +121,17 @@ def test_clean_snapshot_is_deterministic_authority_free_continue_plan() -> None:
     assert not first.grants_authority
     assert not first.carries_active_lease
     assert not first.approval_inherited
+
+
+def test_live_target_lease_waits_instead_of_duplicate_dispatch() -> None:
+    runtime = replace(
+        observation().runtime,
+        lease_expires_at=dt.datetime(2026, 8, 24, 0, 1, tzinfo=dt.UTC),
+    )
+    plan = prepare(observation(runtime=runtime))
+    assert plan.disposition is ResumeDisposition.WAITING
+    assert plan.blockers == ("resume.target-job-active-lease",)
+    assert plan.actions == ()
 
 
 def test_receiptless_effect_precedes_drift_and_never_dispatches() -> None:
@@ -186,8 +217,15 @@ def test_every_semantic_drift_changes_plan_digest() -> None:
     assert changed.disposition is ResumeDisposition.SAFE_REPLAN
 
 
-def test_observation_clock_is_diagnostic_not_plan_semantics() -> None:
+def test_observation_clock_and_validity_are_exact_plan_semantics() -> None:
     first = prepare(observation())
-    later = prepare(observation(observed_at=dt.datetime(2026, 8, 25, tzinfo=dt.UTC)))
+    later = prepare(observation(observed_at=dt.datetime(2026, 8, 24, 0, 1, tzinfo=dt.UTC)))
     assert first.observed_at != later.observed_at
-    assert first.plan_digest == later.plan_digest
+    assert first.plan_digest != later.plan_digest
+
+
+def test_expired_validity_window_is_waiting_without_actions() -> None:
+    plan = prepare(observation(observed_at=dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC)))
+    assert plan.disposition is ResumeDisposition.WAITING
+    assert plan.blockers == ("resume.plan-validity-expired",)
+    assert plan.actions == ()

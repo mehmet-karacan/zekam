@@ -139,16 +139,16 @@ def _benchmark_evidence(
 
 
 def test_migrations_23_through_current_can_down_and_reapply(
-    migrated_database: Any,
+    isolated_migrated_database: Any,
 ) -> None:
     from zekam.infrastructure.postgres.connection import connect
 
-    with connect(migrated_database) as connection:
-        for head in range(33, 22, -1):
+    with connect(isolated_migrated_database) as connection:
+        for head in range(34, 22, -1):
             assert migrations.status(connection).head == head
             migrations.downgrade(connection, target=head)
         migrations.upgrade(connection)
-        assert migrations.status(connection).head == 33
+        assert migrations.status(connection).head == 34
 
 
 def test_context_policy_decision_roundtrip_is_append_only(

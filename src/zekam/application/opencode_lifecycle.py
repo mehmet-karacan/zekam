@@ -229,20 +229,20 @@ def record_event(
         sequence = len(stream_events) + 1
         previous_digest = None if not stream_events else str(stream_events[-1]["event_digest"])
         event = OpenCodeLifecycleEvent(
-        event_id=str(new_uuid7()),
-        event_type=event_type,
-        session_id=session_id,
-        parent_session_id=parent_session_id,
-        agent=agent,
-        model_ref=model_ref,
-        tool=tool,
-        resource=_relative_resource(resource),
-        status=status,
-        error_category=error_category,
-        completed_summary=_safe_summary(completed_summary, label="completed_summary"),
-        pending_summary=_safe_summary(pending_summary, label="pending_summary"),
-        next_action=_safe_summary(next_action, label="next_action"),
-        task_label=_safe_summary(task_label, label="task_label"),
+            event_id=str(new_uuid7()),
+            event_type=event_type,
+            session_id=session_id,
+            parent_session_id=parent_session_id,
+            agent=agent,
+            model_ref=model_ref,
+            tool=tool,
+            resource=_relative_resource(resource),
+            status=status,
+            error_category=error_category,
+            completed_summary=_safe_summary(completed_summary, label="completed_summary"),
+            pending_summary=_safe_summary(pending_summary, label="pending_summary"),
+            next_action=_safe_summary(next_action, label="next_action"),
+            task_label=_safe_summary(task_label, label="task_label"),
             occurred_at=now or dt.datetime.now(dt.UTC),
             sequence=sequence,
             previous_digest=previous_digest,
@@ -462,9 +462,7 @@ def resume_projection(
                 continue
             if pending is not None:
                 current["status"] = "interrupted"
-                current["next_safe_action"] = (
-                    f"{pending[0]} etkisini dogrula; sessiz retry yapma"
-                )
+                current["next_safe_action"] = f"{pending[0]} etkisini dogrula; sessiz retry yapma"
             elif current["status"] == "checkpointed":
                 current["status"] = "closed-checkpointed"
             else:
@@ -501,9 +499,7 @@ def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
     return tuple(events[:limit])
 
 
-def oldest_unacknowledged_events(
-    home: Path, *, limit: int = 80
-) -> tuple[dict[str, Any], ...]:
+def oldest_unacknowledged_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
     """Return the oldest local v2 chain prefix that lacks a durable canonical ACK."""
 
     if limit < 1 or limit > 500:
@@ -526,8 +522,7 @@ def oldest_unacknowledged_events(
     events = [
         event
         for event in _verified_events(root, quarantine_invalid=True)
-        if event.get("schema") == SCHEMA
-        and str(event["event_digest"]) not in acknowledged
+        if event.get("schema") == SCHEMA and str(event["event_digest"]) not in acknowledged
     ]
     # Sequence is the authority for each session chain. Session id provides a stable
     # grouping so a backlog larger than one CLI batch always starts at its oldest head.

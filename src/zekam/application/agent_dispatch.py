@@ -59,14 +59,14 @@ class CanonicalAgentDispatchService:
             raise PolicyViolation("Idempotent invocation kimligi uyusmuyor")
 
         request = DispatchRequest(
-                assignment_id=assignment.id,
-                invocation_id=invocation.id,
-                client_id=invocation.client_id,
-                role=assignment.role.value,
-                instruction_digest=assignment.instruction_digest,
-                context_manifest_digest=assignment.context_manifest_digest,
-                timeout_seconds=timeout_seconds,
-            )
+            assignment_id=assignment.id,
+            invocation_id=invocation.id,
+            client_id=invocation.client_id,
+            role=assignment.role.value,
+            instruction_digest=assignment.instruction_digest,
+            context_manifest_digest=assignment.context_manifest_digest,
+            timeout_seconds=timeout_seconds,
+        )
         result = adapter.dispatch(
             request,
             cwd=cwd,

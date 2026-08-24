@@ -114,6 +114,8 @@ class ExecutionRunRepository:
             item.max_cost_micros,
             item.deadline,
             item.envelope_digest,
+            item.checkpoint_v2_id,
+            item.checkpoint_v2_digest,
             False,
             item.created_at,
         )
@@ -126,7 +128,8 @@ class ExecutionRunRepository:
             "context_manifest_id,context_manifest_digest,context_packet_id,context_packet_digest,"
             "checkpoint_id,checkpoint_digest,checkpoint_disposition,source_revision,policy_digest,"
             "authorization_scope_digest,output_schema_digest,payload_digest,max_input_tokens,"
-            "max_output_tokens,max_cost_micros,deadline,envelope_digest,grants_authority,created_at)",
+            "max_output_tokens,max_cost_micros,deadline,envelope_digest,checkpoint_v2_id,"
+            "checkpoint_v2_digest,grants_authority,created_at)",
             values,
             "envelope_digest",
             item.envelope_digest,

@@ -98,9 +98,7 @@ def forward_command(
             {
                 "status": "acknowledged",
                 "forwarded": len(acknowledgements),
-                "canonical_ack_digests": [
-                    item["canonical_digest"] for item in acknowledgements
-                ],
+                "canonical_ack_digests": [item["canonical_digest"] for item in acknowledgements],
             },
             ensure_ascii=False,
         )

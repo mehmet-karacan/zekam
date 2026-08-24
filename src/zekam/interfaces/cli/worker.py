@@ -138,8 +138,11 @@ def tick_command(
                 realm_context.connection,
                 realm_context.realm_id,
                 settings=_settings(label, 1, 2.0),
-                handlers=(resolve_handlers([str(item) for item in JobKind]) if apply else {}),
-                allow_empty_handlers=not apply,
+                handlers={},
+                # A one-shot tick may legitimately observe an empty queue even when
+                # no executable handler plugin is installed.  If it does claim work,
+                # Worker.tick still rejects the missing exact handler explicitly.
+                allow_empty_handlers=True,
             )
             result = worker.tick(now=_now()) if apply else worker.plan(now=_now())
     except ZekamError as exc:

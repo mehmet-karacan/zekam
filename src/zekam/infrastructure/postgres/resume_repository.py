@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
@@ -15,7 +16,7 @@ from zekam.domain.checkpoint_v2 import (
     StaleDigestBindings,
 )
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
-from zekam.domain.resume import ResumeObservation
+from zekam.domain.resume import ResumeObservation, RuntimeObservation
 
 
 def _one(cursor: Any, label: str) -> tuple[Any, ...]:
@@ -29,6 +30,7 @@ def _one(cursor: Any, label: str) -> tuple[Any, ...]:
 class ResumeRepository:
     connection: Any
     realm_id: UUID
+    manage_transaction: bool = True
 
     def read_snapshot(
         self,
@@ -46,8 +48,10 @@ class ResumeRepository:
         if observed_at is not None and observed_at.tzinfo is None:
             raise ValidationFailed("Resume observed_at timezone-aware olmali")
 
-        with self.connection.transaction(), self.connection.cursor() as cursor:
-            cursor.execute("set transaction isolation level repeatable read, read only")
+        transaction = self.connection.transaction() if self.manage_transaction else nullcontext()
+        with transaction, self.connection.cursor() as cursor:
+            if self.manage_transaction:
+                cursor.execute("set transaction isolation level repeatable read, read only")
             cursor.execute("select transaction_timestamp()")
             transaction_time = _one(cursor, "transaction zamani")[0]
             moment = observed_at or transaction_time
@@ -74,10 +78,17 @@ class ResumeRepository:
                 " c.model_inventory_digest,"
                 " c.journal_head_digest,c.pending_steps,c.next_safe_action,c.resumability,"
                 " c.logical_read_resources,c.logical_write_resources,c.job_id,c.attempt_id,"
-                " work.validate_checkpoint_v2(c.realm_id,c.id),rd.role"
+                " work.validate_checkpoint_v2(c.realm_id,c.id),rd.role,c.run_id,c.assignment_id,"
+                " c.execution_envelope_id,c.execution_envelope_digest,c.observed_lease_id,"
+                " c.observed_fencing_token,j.state,l.expires_at,r.deadline,et.expires_at"
                 " from work.checkpoint_v2 c"
                 " join models.model_route_decision rd on rd.realm_id=c.realm_id"
                 " and rd.id=c.route_decision_id"
+                " join models.execution_target_snapshot et on et.realm_id=rd.realm_id"
+                " and et.id=rd.execution_target_id"
+                " join runtime.job j on j.realm_id=c.realm_id and j.id=c.job_id"
+                " join runtime.lease l on l.realm_id=c.realm_id and l.id=c.observed_lease_id"
+                " join runtime.execution_run r on r.realm_id=c.realm_id and r.id=c.run_id"
                 " where c.realm_id=%s and c.work_item_id=%s"
                 " and not exists(select 1 from work.checkpoint_v2 newer"
                 "   where newer.realm_id=c.realm_id and newer.checkpoint_key=c.checkpoint_key"
@@ -98,6 +109,46 @@ class ResumeRepository:
                 raise NotFound("Resume checkpoint v2 bulunamadi")
             row = heads[0]
             checkpoint_integrity = bool(row[27]) and len(heads) == 1
+            next_action = row[21]
+            next_step = None if next_action is None else str(next_action["step_id"])
+
+            # A checkpoint describes the last structural observation.  Dispatch must
+            # bind the exact runnable job for the pending next step, not blindly reuse
+            # the checkpoint step's job/assignment identity.
+            target_runtime: tuple[Any, ...] | None = None
+            if next_step is not None:
+                cursor.execute(
+                    "select j.id,j.assignment_id,j.run_id,j.state,l.attempt_id,l.id,"
+                    " l.fencing_token,l.expires_at,coalesce(e.id,%s),"
+                    " coalesce(e.envelope_digest,%s),r.deadline"
+                    " from runtime.job j"
+                    " join runtime.execution_run r on r.realm_id=j.realm_id and r.id=j.run_id"
+                    " left join runtime.lease l on l.realm_id=j.realm_id and l.job_id=j.id"
+                    " left join lateral (select x.id,x.envelope_digest"
+                    "   from runtime.execution_envelope x where x.realm_id=j.realm_id"
+                    "   and x.job_id=j.id and x.attempt_id=l.attempt_id"
+                    "   order by x.request_ordinal desc,x.id limit 1) e on true"
+                    " where j.realm_id=%s and j.work_item_id=%s and j.plan_id=%s"
+                    " and j.step_id=%s and j.state in ('ready','running','recovery-required')"
+                    " order by j.created_at desc,j.id limit 2",
+                    (
+                        row[31],
+                        row[32],
+                        self.realm_id,
+                        work_id,
+                        current_plan_id,
+                        next_step,
+                    ),
+                )
+                candidates = cursor.fetchall()
+                if len(candidates) == 1:
+                    target_runtime = cast(tuple[Any, ...], candidates[0])
+                elif len(candidates) > 1:
+                    checkpoint_integrity = False
+                else:
+                    # A pending step without one exact runnable target must never
+                    # fall back to the completed checkpoint job identity.
+                    checkpoint_integrity = False
 
             cursor.execute(
                 "select id,source_revision,policy_digest,capability_profile_digest,"
@@ -136,12 +187,14 @@ class ResumeRepository:
             manifest_digest = row[13] if latest_packet is None else latest_packet[0]
             packet_digest = row[14] if latest_packet is None else latest_packet[1]
 
+            effect_job_id = row[25] if target_runtime is None else target_runtime[0]
+            effect_attempt_id = row[26] if target_runtime is None else target_runtime[4]
             cursor.execute(
                 "select cl.id,cl.effect_digest,er.status from runtime.effect_claim cl"
                 " left join runtime.effect_receipt er on er.realm_id=cl.realm_id"
                 " and er.claim_id=cl.id where cl.realm_id=%s and cl.job_id=%s"
                 " and cl.attempt_id=%s and (er.id is null or er.status='failed') order by cl.id",
-                (self.realm_id, row[25], row[26]),
+                (self.realm_id, effect_job_id, effect_attempt_id),
             )
             open_effects = tuple(
                 OpenEffect(
@@ -188,8 +241,24 @@ class ResumeRepository:
                 model_inventory_digest=str(context[8]),
                 journal_head_digest=str(journal_digest),
             )
-            next_action = row[21]
-            next_step = None if next_action is None else str(next_action["step_id"])
+            runtime_row = (
+                (
+                    row[25],
+                    row[30],
+                    row[29],
+                    row[35],
+                    row[26],
+                    row[33],
+                    row[34],
+                    row[36],
+                    row[31],
+                    row[32],
+                    row[37],
+                )
+                if target_runtime is None
+                else target_runtime
+            )
+            valid_until = min(runtime_row[10], row[38])
             return ResumeObservation(
                 realm_id=self.realm_id,
                 project_id=UUID(str(project_id)),
@@ -212,9 +281,28 @@ class ResumeRepository:
                 resumability=Resumability(str(row[22])),
                 logical_read_resources=tuple(str(value) for value in row[23]),
                 logical_write_resources=tuple(str(value) for value in row[24]),
+                runtime=RuntimeObservation(
+                    run_id=UUID(str(runtime_row[2])),
+                    job_id=UUID(str(runtime_row[0])),
+                    attempt_id=(None if runtime_row[4] is None else UUID(str(runtime_row[4]))),
+                    assignment_id=UUID(str(runtime_row[1])),
+                    execution_envelope_id=UUID(str(runtime_row[8])),
+                    execution_envelope_digest=str(runtime_row[9]),
+                    observed_lease_id=(
+                        None if runtime_row[5] is None else UUID(str(runtime_row[5]))
+                    ),
+                    observed_fencing_token=(
+                        None if runtime_row[6] is None else int(runtime_row[6])
+                    ),
+                    job_state=str(runtime_row[3]),
+                    lease_expires_at=runtime_row[7],
+                    deadline=runtime_row[10],
+                ),
+                target_client_id=client_id.strip().lower(),
                 required_route_role=str(row[28]),
                 context_recipe=f"resume:{client_id.strip().lower()}:{row[28]}",
                 observed_at=moment,
+                valid_until=valid_until,
             )
 
     def snapshot_digest(self, observation: ResumeObservation) -> str:
