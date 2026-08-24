@@ -1,0 +1,13 @@
+drop function if exists runtime.enforce_execution_envelope() cascade;
+drop table if exists runtime.execution_envelope;
+drop table if exists models.provider_binding_snapshot;
+drop function if exists runtime.enforce_job_run_binding() cascade;
+alter table runtime.job drop constraint if exists job_run_same_realm;
+alter table runtime.job drop column if exists run_id;
+drop function if exists work.enforce_context_packet() cascade;
+drop table if exists work.context_packet;
+drop function if exists runtime.enforce_execution_run_transition() cascade;
+drop function if exists runtime.enforce_execution_run_plan() cascade;
+drop table if exists runtime.execution_run;
+alter table work.checkpoint drop constraint if exists checkpoint_realm_scoped_key;
+alter table work.context_manifest drop constraint if exists context_manifest_realm_scoped_key;

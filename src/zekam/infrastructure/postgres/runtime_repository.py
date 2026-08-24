@@ -40,7 +40,7 @@ from zekam.domain.runtime import (
 _JOB_COLUMNS = (
     "id, realm_id, project_id, work_item_id, plan_id, step_id, kind, state, priority,"
     " attempt_count, max_attempts, fencing_token, idempotency_key, required_capabilities,"
-    " read_resources, write_resources, payload, available_at, created_at, assignment_id"
+    " read_resources, write_resources, payload, available_at, created_at, assignment_id, run_id"
 )
 
 
@@ -67,6 +67,7 @@ def _job_from_row(row: Sequence[Any]) -> Job:
         available_at=row[17],
         created_at=row[18],
         assignment_id=row[19],
+        run_id=row[20],
     )
 
 
@@ -122,9 +123,9 @@ class JobRepository:
                 " (id, realm_id, project_id, work_item_id, plan_id, step_id, kind, state,"
                 "  priority, attempt_count, max_attempts, fencing_token, idempotency_key,"
                 "  required_capabilities, read_resources, write_resources, payload,"
-                "  available_at, created_at, assignment_id)"
+                "  available_at, created_at, assignment_id, run_id)"
                 " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                "         %s::jsonb, %s, %s, %s)"
+                "         %s::jsonb, %s, %s, %s, %s)"
                 " on conflict (realm_id, idempotency_key) do nothing"
                 f" returning {_JOB_COLUMNS}",
                 (
@@ -148,6 +149,7 @@ class JobRepository:
                     job.available_at,
                     job.created_at,
                     job.assignment_id,
+                    job.run_id,
                 ),
             )
             row = cursor.fetchone()
@@ -302,6 +304,7 @@ class JobRepository:
             plan_id=job.plan_id,
             step_id=job.step_id,
             assignment_id=job.assignment_id,
+            run_id=job.run_id,
             payload=job.payload,
             available_at=job.available_at,
             created_at=job.created_at,

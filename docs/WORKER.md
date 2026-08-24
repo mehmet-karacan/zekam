@@ -33,6 +33,20 @@ kapasite kontrolu -> zamanlama tetiklemeleri -> kuyruktan is alma -> isleme
    kilitler edinilir, çakışma varsa iş bırakılır.
 4. **İşleme**: iş türüne bağlı handler çalışır.
 
+## Model cagrisi execution kimligi
+
+Provider/model cagrisi yapacak bir job, once kanonik `runtime.execution_run` kaydina
+baglanir. Bu bag ilk atamadan sonra degistirilemez. Her model-visible context,
+`work.context_manifest` secimini ayni sirada ve yalniz exact section alanlariyla
+tasiyan `work.context_packet` olarak kaydedilir.
+
+Her gercek cagri ayri `runtime.execution_envelope` kaydidir. Envelope; run, job,
+attempt, aktif lease/fence, child assignment, selected route, route expiry, model
+provider protokolu, context packet, checkpoint disposition, source/policy, payload,
+authorization scope, output schema ve butceleri birlikte baglar. Ayni attempt icindeki
+cagrilar `request_ordinal` ve `idempotency_key` ile ayrilir. Bu kayitlar authority
+uretmez; eksik veya stale baglama sahip cagri fail-closed reddedilir.
+
 ## Terminal durum kuralları
 
 - **İşleyicisi olmayan iş `failed` olur** — sessiz başarı üretilmez.
