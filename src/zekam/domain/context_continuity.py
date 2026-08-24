@@ -48,6 +48,28 @@ class OmittedReason(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ContextCandidateKind(StrEnum):
+    """Recipe registry tarafindan kullanilan typed context bolumleri."""
+
+    GENERAL = "general"
+    SYSTEM_POLICY = "system-policy"
+    WORK_CONTRACT = "work-contract"
+    RUN_STATUS = "run-status"
+    ARCHITECTURE_RULE = "architecture-rule"
+    DEPENDENCY_MANIFEST = "dependency-manifest"
+    SOURCE_SLICE = "source-slice"
+    SOURCE_DIFF = "source-diff"
+    RESEARCH_EVIDENCE = "research-evidence"
+    CITATION = "citation"
+    KNOWLEDGE = "knowledge"
+    MEMORY_SUMMARY = "memory-summary"
+    EFFECT_RECEIPT = "effect-receipt"
+    VERIFICATION_RESULT = "verification-result"
+    TOOL_RESULT_SUMMARY = "tool-result-summary"
+    TEST_EVIDENCE = "test-evidence"
+    CHECKPOINT = "checkpoint"
+
+
 def _safe_logical(value: str, label: str) -> None:
     if not value.strip() or _SENSITIVE.search(value):
         raise PolicyViolation(f"{label} hassas veya bos olamaz")
@@ -94,6 +116,8 @@ class ContextCandidate:
     valid_until: dt.datetime | None = None
     superseded: bool = False
     evidence_refs: tuple[EvidenceReference, ...] = ()
+    kind: ContextCandidateKind = ContextCandidateKind.GENERAL
+    source_ref: str = "context/unspecified"
 
     def __post_init__(self) -> None:
         _safe_logical(self.candidate_id, "Context candidate")
@@ -107,12 +131,33 @@ class ContextCandidate:
             raise ValidationFailed("Context valid_until timezone ister")
         if self.valid_until is not None and self.valid_until <= self.observed_at:
             raise ValidationFailed("Context valid_until observed_at sonrasinda olmali")
+        if not isinstance(self.kind, ContextCandidateKind):
+            raise ValidationFailed("Context candidate kind registry disinda")
+        _safe_logical(self.source_ref, "Context candidate source")
 
     def score(self, now: dt.datetime) -> tuple[int, int, str]:
         """Float kullanmadan authority-first, freshness-second kararli score."""
         age = max(0, int((now - self.observed_at).total_seconds()))
         freshness = max(0, MAX_FRESHNESS_SECONDS - age)
         return int(self.authority), freshness, self.candidate_id
+
+    @property
+    def candidate_digest(self) -> str:
+        return digest(
+            {
+                "id": self.candidate_id,
+                "digest": self.content_digest,
+                "revision": self.source_revision,
+                "source_ref": self.source_ref,
+                "tokens": self.token_count,
+                "authority": int(self.authority),
+                "observed_at": self.observed_at,
+                "valid_until": self.valid_until,
+                "superseded": self.superseded,
+                "evidence_refs": [ref.as_dict() for ref in self.evidence_refs],
+                "kind": self.kind.value,
+            }
+        )
 
     def rejection(self, now: dt.datetime, minimum: AuthorityLevel) -> OmittedReason | None:
         if self.superseded:
@@ -135,6 +180,19 @@ class ContextSelection:
     token_count: int
     score: tuple[int, int, str]
     reason: str
+    kind: ContextCandidateKind = ContextCandidateKind.GENERAL
+    source_ref: str = "context/unspecified"
+    source_revision: str = "revision/unspecified"
+    candidate_digest: str = (
+        "sha256:4cc1a7fe85cc58f8f2c659675ddcb6a3622b7b423ff6cf12ca11c852d7a86435"
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, ContextCandidateKind):
+            raise ValidationFailed("Context selection kind registry disinda")
+        _safe_logical(self.source_ref, "Context selection source")
+        _safe_logical(self.source_revision, "Context selection revision")
+        parse_digest(self.candidate_digest)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -143,6 +201,10 @@ class ContextSelection:
             "token_count": self.token_count,
             "score": list(self.score),
             "reason": self.reason,
+            "kind": self.kind.value,
+            "source_ref": self.source_ref,
+            "source_revision": self.source_revision,
+            "candidate_digest": self.candidate_digest,
         }
 
 
@@ -162,6 +224,9 @@ class ContextManifest:
     omitted: tuple[ContextOmission, ...]
     candidate_fingerprint: str
     created_at: dt.datetime
+    recipe_id: str | None = None
+    recipe_digest: str | None = None
+    target_role: str | None = None
     grants_authority: bool = False
 
     def __post_init__(self) -> None:
@@ -170,6 +235,13 @@ class ContextManifest:
         if sum(item.token_count for item in self.selected) > self.token_budget:
             raise ValidationFailed("Context manifest token budget asiyor")
         parse_digest(self.candidate_fingerprint)
+        recipe_fields = (self.recipe_id, self.recipe_digest, self.target_role)
+        if any(item is not None for item in recipe_fields):
+            if any(item is None for item in recipe_fields):
+                raise ValidationFailed("Context recipe binding tum alanlari ister")
+            _safe_logical(self.recipe_id or "", "Context recipe")
+            _safe_logical(self.target_role or "", "Context target role")
+            parse_digest(self.recipe_digest or "")
 
     @property
     def manifest_digest(self) -> str:
@@ -183,6 +255,9 @@ class ContextManifest:
             "omitted": [item.as_dict() for item in self.omitted],
             "candidate_fingerprint": self.candidate_fingerprint,
             "created_at": self.created_at,
+            "recipe_id": self.recipe_id,
+            "recipe_digest": self.recipe_digest,
+            "target_role": self.target_role,
             "grants_authority": False,
         }
 
@@ -193,27 +268,22 @@ def compile_context(
     token_budget: int,
     minimum_authority: AuthorityLevel,
     now: dt.datetime,
+    recipe_id: str | None = None,
+    recipe_digest: str | None = None,
+    target_role: str | None = None,
 ) -> ContextManifest:
     if token_budget < 1 or now.tzinfo is None:
         raise ValidationFailed("Context budget ve timezone zorunludur")
+    recipe_bound = recipe_id is not None or recipe_digest is not None or target_role is not None
+    if (
+        any(item.kind is not ContextCandidateKind.GENERAL for item in candidates)
+        and not recipe_bound
+    ):
+        raise PolicyViolation("Typed agent context role recipe binding ister")
     if len({item.candidate_id for item in candidates}) != len(candidates):
         raise ValidationFailed("Context candidate kimlikleri tekil olmali")
     fingerprint = digest(
-        [
-            {
-                "id": item.candidate_id,
-                "digest": item.content_digest,
-                "revision": item.source_revision,
-                "tokens": item.token_count,
-                "required": item.required,
-                "authority": int(item.authority),
-                "observed_at": item.observed_at,
-                "valid_until": item.valid_until,
-                "superseded": item.superseded,
-                "evidence_refs": [ref.as_dict() for ref in item.evidence_refs],
-            }
-            for item in sorted(candidates, key=lambda row: row.candidate_id)
-        ]
+        [item.candidate_digest for item in sorted(candidates, key=lambda row: row.candidate_id)]
     )
     eligible: list[ContextCandidate] = []
     omitted: list[ContextOmission] = []
@@ -250,6 +320,10 @@ def compile_context(
                 item.token_count,
                 item.score(now),
                 "required-first" if item.required else "authority-freshness-score",
+                item.kind,
+                item.source_ref,
+                item.source_revision,
+                item.candidate_digest,
             )
         )
         remaining -= item.token_count
@@ -259,6 +333,9 @@ def compile_context(
         tuple(sorted(omitted, key=lambda row: row.candidate_id)),
         fingerprint,
         now,
+        recipe_id,
+        recipe_digest,
+        target_role,
     )
 
 

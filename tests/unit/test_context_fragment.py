@@ -5,15 +5,19 @@ from dataclasses import replace
 
 import pytest
 
+from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.context_materializer import (
     FragmentMaterialization,
     materialize_fragments,
+    materialize_recipe_fragments,
     serialize_model_visible_payload,
 )
+from zekam.application.context_recipe import ContextRecipeRole, RecipeContextPacket
 from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
+    ContextCandidateKind,
     compile_context,
 )
 from zekam.domain.context_fragment import (
@@ -79,6 +83,44 @@ def _materialized() -> tuple[ContextFragmentSet, dict[str, str]]:
     }
 
 
+def _recipe_materialized() -> tuple[RecipeContextPacket, ContextFragmentSet, dict[str, str]]:
+    raw = {
+        ContextCandidateKind.SYSTEM_POLICY: "Kurallari uygula",
+        ContextCandidateKind.WORK_CONTRACT: "Siradaki adimi tamamla",
+        ContextCandidateKind.RUN_STATUS: "Calisma aktif",
+    }
+    candidates = tuple(
+        ContextCandidate(
+            candidate_id=kind.value,
+            authority=AuthorityLevel.VERIFIED,
+            observed_at=NOW,
+            source_revision=f"revision/{kind.value}",
+            content_digest=digest(content),
+            token_count=5,
+            kind=kind,
+            source_ref=f"context/{kind.value}",
+        )
+        for kind, content in raw.items()
+    )
+    packet = ContextContinuityService().compile(
+        candidates,
+        role=ContextRecipeRole.COORDINATOR,
+        token_budget=100,
+        minimum_authority=AuthorityLevel.OBSERVED,
+        now=NOW,
+    )
+    selected_contents = {item.candidate_id: raw[item.kind] for item in packet.manifest.selected}
+    fragment_set = materialize_recipe_fragments(packet, candidates, selected_contents)
+    return (
+        packet,
+        fragment_set,
+        {
+            f"fragment/{candidate_id}": content
+            for candidate_id, content in selected_contents.items()
+        },
+    )
+
+
 def test_selected_context_materializes_with_exact_kind_role_order_and_source() -> None:
     fragment_set, _ = _materialized()
     assert [item.order for item in fragment_set.fragments] == [0, 1]
@@ -101,12 +143,12 @@ def test_materialization_rejects_missing_duplicate_and_content_drift() -> None:
             fragment_set.context_manifest_digest,
             (replace(fragment_set.fragments[0], order=1), fragment_set.fragments[1]),
         )
-    with pytest.raises(PolicyViolation, match="content digest mismatch"):
+    with pytest.raises(PolicyViolation, match="recipe packet"):
         serialize_model_visible_payload(
             fragment_set,
             {**contents, "fragment/work": "degistirilmis"},
         )
-    with pytest.raises(PolicyViolation, match="exact fragment set"):
+    with pytest.raises(PolicyViolation, match="recipe packet"):
         serialize_model_visible_payload(fragment_set, {"fragment/system": "Kurallari uygula"})
 
 
@@ -129,22 +171,29 @@ def test_unknown_content_kind_is_rejected_before_it_can_become_model_visible() -
 
 
 def test_serializer_binds_exact_ordered_model_payload_and_rejects_message_bypass() -> None:
-    fragment_set, contents = _materialized()
+    packet, fragment_set, contents = _recipe_materialized()
     payload, binding = serialize_model_visible_payload(
         fragment_set,
         contents,
+        recipe_packet=packet,
         base_payload={"model": "provider/model", "temperature": 0},
     )
     assert payload["messages"] == [
+        {"role": "user", "content": "Calisma aktif"},
         {"role": "system", "content": "Kurallari uygula"},
         {"role": "user", "content": "Siradaki adimi tamamla"},
     ]
     assert binding.request_payload_digest == digest(payload)
     assert binding.fragment_set_digest == fragment_set.fragment_set_digest
-    assert binding.ordered_model_fragment_ids == ("fragment/system", "fragment/work")
+    assert binding.ordered_model_fragment_ids == (
+        "fragment/run-status",
+        "fragment/system-policy",
+        "fragment/work-contract",
+    )
     with pytest.raises(PolicyViolation, match="base payload"):
         serialize_model_visible_payload(
             fragment_set,
             contents,
+            recipe_packet=packet,
             base_payload={"messages": []},
         )

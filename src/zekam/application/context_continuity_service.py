@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from zekam.application.context_recipe import (
+    ContextRecipeRegistry,
+    ContextRecipeRole,
+    RecipeContextPacket,
+)
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     Checkpoint,
     ContextCandidate,
-    ContextManifest,
     ContinuitySnapshot,
     FinalizedHandoff,
-    compile_context,
     validate_resume,
 )
 
@@ -31,15 +34,19 @@ class ResumeInstructions:
 
 @dataclass(frozen=True, slots=True)
 class ContextContinuityService:
+    recipe_registry: ContextRecipeRegistry = field(default_factory=ContextRecipeRegistry)
+
     def compile(
         self,
         candidates: tuple[ContextCandidate, ...],
         *,
+        role: ContextRecipeRole,
         token_budget: int,
         minimum_authority: AuthorityLevel,
         now: dt.datetime,
-    ) -> ContextManifest:
-        return compile_context(
+    ) -> RecipeContextPacket:
+        return self.recipe_registry.compile(
+            role,
             candidates,
             token_budget=token_budget,
             minimum_authority=minimum_authority,

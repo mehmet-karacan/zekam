@@ -7,6 +7,29 @@ fail-closed biter. Diğer adaylar authority-first, freshness-second ve kimlik ti
 seçilir. Her dışlama `budget-exhausted`, `stale`, `insufficient-authority` veya `superseded`
 nedeni taşır. Model Decision ve benchmark sonuçları yalnız logical ref ve digest olarak girer.
 
+## Rol bazlı context recipe registry
+
+`coordinator`, `researcher`, `builder` ve `verifier` için sürümlü recipe kayıtları;
+kapalı candidate-kind allowlist'i, required kind'lar, toplam token bütçesi, kind
+başına candidate/token sınırı ve minimum authority seviyesini digest-bound olarak
+tanımlar. Recipe dışındaki `required` aday fail-closed reddedilir; required kind
+eksik veya birden fazlaysa packet üretilmez. Current registry digest'i ve hedef rol
+manifest'e bağlanır; stale veya cross-role packet replay reddedilir.
+Packet ayrıca process-kapsamli HMAC issuance seal taşır; manifest, candidate
+fingerprint, exclusions, bütçe veya seçim provenance'i sonradan değiştirilirse
+model payload kapısı fail-closed reddeder.
+
+Geniş `source-corpus`/raw codebase türü registry'de yoktur. Kaynak yalnız bounded
+logical ref, revision ve digest taşıyan `source-slice` veya `source-diff` olabilir.
+Coordinator bu iki türü de alamaz ve en küçük bütçeye sahiptir. Researcher bounded
+source/evidence/citation; builder source slice, architecture, dependency ve tool
+contract özetleri; verifier ise source diff, effect receipt ve test kanıtı ister.
+
+Recipe materialization kind, provider role, model visibility ve source ref'i
+registry'den türetir; caller bunları değiştiremez. Recipe/role/digest bağları context
+manifest digest'ine, oradan fragment set ve final model payload digest zincirine
+transitif olarak girer. Packet hiçbir authority, lease veya approval üretmez.
+
 WorkJournal append-only zincirdir. Sequence, previous digest, payload digest ve truncation bayrağı
 entry digest'e dahildir. PostgreSQL optimistic head kontrolü eşzamanlı stale writer'ı reddeder;
 update/delete trigger'ları geçmişin değiştirilmesini engeller.
