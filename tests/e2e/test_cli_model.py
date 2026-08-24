@@ -415,6 +415,11 @@ def test_benchmark_apply_authorized_cli_executes_dual_receipt_pipeline(
             )
             assert cursor.fetchone()[0] == document["trial_count"]
             cursor.execute(
+                "select count(*) from models.invocation_audit"
+                " where source_label='model-benchmark' and disposition='bypass'"
+            )
+            assert cursor.fetchone()[0] == document["trial_count"] * 2
+            cursor.execute(
                 "select j.state, a.outcome, count(distinct c.id), count(distinct r.id)"
                 " from runtime.job j join runtime.job_attempt a on a.job_id = j.id"
                 " join runtime.effect_claim c on c.job_id = j.id"

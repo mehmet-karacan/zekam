@@ -79,6 +79,31 @@ class FakeHost:
         return SimpleNamespace(id=uuid4(), status=SimpleNamespace(value="failed"))
 
 
+class ReceiptCrashHost(FakeHost):
+    def record_success(self, claim: object, **kwargs: object) -> SimpleNamespace:
+        del claim, kwargs
+        self.events.append("success-receipt-crash")
+        raise RuntimeError("receipt-write-failed")
+
+
+class FakeGateway:
+    def __init__(self) -> None:
+        self.terminals: list[dict[str, object]] = []
+
+    def prepare(self, *args: object) -> object:
+        del args
+        return object()
+
+    def invoke(self, manifest: object, **kwargs: object) -> tuple[object, ProviderCallResult]:
+        del manifest
+        effect = kwargs["effect"]
+        return uuid4(), effect(object())  # type: ignore[operator]
+
+    def record_terminal(self, manifest: object, attempt_id: object, **values: object) -> None:
+        del manifest, attempt_id
+        self.terminals.append(values)
+
+
 class FakeClient:
     def __init__(self, events: list[str], *, fail: bool = False) -> None:
         self.events = events
@@ -286,6 +311,31 @@ def test_runner_rejects_plan_swap_before_claim_or_transport() -> None:
             consumed_by="offline-test",
         )
     assert events == []
+
+
+def test_receipt_write_failure_records_gateway_reconciliation() -> None:
+    prepared, secret, authorization = _case()
+    events: list[str] = []
+    host = ReceiptCrashHost(events)
+    gateway = FakeGateway()
+    runner = RuntimeProviderContractRunner(
+        host=host,  # type: ignore[arg-type]
+        work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
+        client=FakeClient(events),  # type: ignore[arg-type]
+        gateway=gateway,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="receipt-write-failed"):
+        runner.invoke(
+            prepared,
+            secret_ref=secret,
+            authorization=authorization,
+            consumed_by="offline-test",
+        )
+
+    assert events == ["claim", "transport", "success-receipt-crash", "recovery-required"]
+    assert gateway.terminals[0]["receipt_id"] is None
+    assert gateway.terminals[0]["response_digest"] == "sha256:" + "a" * 64
 
 
 def test_claim_after_process_crash_blocks_silent_retry_for_recovery_scan() -> None:

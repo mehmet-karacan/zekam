@@ -28,9 +28,11 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
 
 CAPABILITY_WORKER_SCHEMA: Final = "zekam-capability-worker/v1"
@@ -446,8 +448,11 @@ class ProcessIsolatedJsonProviderTransport:
         endpoint: str,
         payload: Mapping[str, Any],
         credential: SecretValue,
+        *,
+        gateway_provenance: GatewayTransportProvenance,
     ) -> Mapping[str, Any]:
         _validated_provider_endpoint(endpoint)
+        parse_digest(gateway_provenance.manifest_digest)
         request = CapabilityWorkerRequest(
             request_id=str(uuid4()),
             payload={
@@ -457,6 +462,9 @@ class ProcessIsolatedJsonProviderTransport:
                 "credential": credential.reveal(),
                 "timeout_seconds": self.timeout_seconds,
                 "max_response_bytes": self.max_response_bytes,
+                "manifest_digest": gateway_provenance.manifest_digest,
+                "gateway_attempt_id": str(gateway_provenance.attempt_id),
+                "gateway_claim_id": str(gateway_provenance.claim_id),
             },
         )
         spec = CapabilityWorkerSpec(
@@ -688,6 +696,9 @@ def _provider_child() -> int:
             "credential",
             "timeout_seconds",
             "max_response_bytes",
+            "manifest_digest",
+            "gateway_attempt_id",
+            "gateway_claim_id",
         }
         or request_payload.get("operation") != "provider-post-json"
     ):
@@ -697,6 +708,9 @@ def _provider_child() -> int:
     credential = request_payload.get("credential")
     timeout_seconds = request_payload.get("timeout_seconds")
     max_response_bytes = request_payload.get("max_response_bytes")
+    manifest_digest = request_payload.get("manifest_digest")
+    gateway_attempt_id = request_payload.get("gateway_attempt_id")
+    gateway_claim_id = request_payload.get("gateway_claim_id")
     if (
         not isinstance(endpoint, str)
         or not isinstance(provider_payload, dict)
@@ -707,6 +721,16 @@ def _provider_child() -> int:
         or not isinstance(max_response_bytes, int)
         or not 1 <= max_response_bytes <= 16_000_000
     ):
+        return 2
+    try:
+        if not isinstance(manifest_digest, str):
+            return 2
+        if not isinstance(gateway_attempt_id, str) or not isinstance(gateway_claim_id, str):
+            return 2
+        parse_digest(manifest_digest)
+        UUID(gateway_attempt_id)
+        UUID(gateway_claim_id)
+    except (TypeError, ValueError, ValidationFailed):
         return 2
     try:
         target = _validated_provider_endpoint(endpoint)

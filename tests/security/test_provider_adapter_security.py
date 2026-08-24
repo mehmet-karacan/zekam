@@ -7,8 +7,10 @@ transport'a ulasir.
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -21,6 +23,13 @@ from zekam.application.provider_adapter import (
     openai_transcription_body,
 )
 from zekam.application.secret_broker import InMemorySecretStore, SecretBroker
+from zekam.domain.canonical import digest
+from zekam.domain.model_invocation import (
+    GatewaySourceLabel,
+    GatewayTransportProvenance,
+    ModelRequestManifest,
+    _issue_gateway_permit,
+)
 from zekam.domain.policy import PolicyDocument, PolicyRule, RiskLevel, default_policy_rules
 from zekam.domain.realm import Actor, ActorKind, Realm
 from zekam.domain.security import AuthorizationState, OutboundState, SecretBackend, SecretRef
@@ -37,7 +46,15 @@ ENDPOINT_VALUE = "https://models.example.test/v1/embeddings"
 class MemoryTransport:
     calls: int = 0
 
-    def post_json(self, endpoint: str, payload: Any, credential: Any) -> dict[str, Any]:
+    def post_json(
+        self,
+        endpoint: str,
+        payload: Any,
+        credential: Any,
+        *,
+        gateway_provenance: GatewayTransportProvenance,
+    ) -> dict[str, Any]:
+        assert gateway_provenance.manifest_digest.startswith("sha256:")
         assert endpoint == ENDPOINT_VALUE
         assert payload == {"model": "embedding-test", "input": ["merhaba"]}
         assert credential.reveal() == SECRET_VALUE
@@ -121,6 +138,64 @@ def _database_contains(connection: Any, needle: str) -> bool:
     return False
 
 
+def _gateway_evidence(
+    service: GovernanceService,
+    call: ProviderCall | MultipartProviderCall,
+    authorization: Any,
+) -> tuple[ModelRequestManifest, Any]:
+    created_at = dt.datetime.now(dt.UTC)
+    missing = (
+        "assignment_id",
+        "checkpoint_digest",
+        "context_manifest_digest",
+        "context_packet_digest",
+        "max_cost_micros",
+        "max_input_tokens",
+        "max_output_tokens",
+        "output_schema_digest",
+        "policy_digest",
+        "role",
+        "route_decision_digest",
+        "route_expires_at",
+        "run_id",
+        "source_revision",
+    )
+    manifest = ModelRequestManifest.create(
+        realm_id=service.realm.id,
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        plan_id=uuid4(),
+        step_id="provider-security",
+        run_id=None,
+        job_id=uuid4(),
+        attempt_id=uuid4(),
+        assignment_id=None,
+        role=None,
+        risk=authorization.risk,
+        route_decision_digest=None,
+        model_id="security-test-model",
+        provider_ref=call.provider_ref,
+        context_manifest_digest=None,
+        context_packet_digest=None,
+        checkpoint_digest=None,
+        source_revision=None,
+        policy_digest=None,
+        payload_digest=call.payload_digest,
+        authorization_scope_digest=digest(authorization.scope.body()),
+        output_schema_digest=None,
+        idempotency_key=digest({"request_identity": call.request_identity}),
+        max_input_tokens=None,
+        max_output_tokens=None,
+        max_cost_micros=None,
+        deadline=created_at + dt.timedelta(minutes=1),
+        route_expires_at=None,
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+        missing_bindings=missing,
+        created_at=created_at,
+    )
+    return manifest, _issue_gateway_permit(manifest, attempt_id=uuid4(), claim_id=uuid4())
+
+
 def test_exact_provider_chain_consumes_auth_and_persists_only_digests(
     realm_session: tuple[Realm, Any],
 ) -> None:
@@ -165,11 +240,14 @@ def test_exact_provider_chain_consumes_auth_and_persists_only_digests(
         ),
         transport,
     )
+    manifest, permit = _gateway_evidence(service, call, authorization)
     result = client.invoke(
         call,
         secret_ref=reference,
         authorization=authorization,
         consumed_by="provider-security-test",
+        manifest=manifest,
+        gateway_permit=permit,
     )
 
     assert transport.calls == 1
@@ -209,12 +287,15 @@ def test_provider_mismatch_fails_before_transport(
         SecretBroker({}),
         transport,
     )
+    manifest, permit = _gateway_evidence(service, call, authorization)
     with pytest.raises(Exception, match="SecretRef provider"):
         client.invoke(
             call,
             secret_ref=reference,
             authorization=authorization,
             consumed_by="provider-security-test",
+            manifest=manifest,
+            gateway_permit=permit,
         )
     assert transport.calls == 0
     assert service.authorizations.get(authorization.id).state is AuthorizationState.ISSUED
@@ -282,11 +363,14 @@ def test_exact_whisper_multipart_chain_is_digest_only(
         MemoryTransport(),
         multipart,
     )
+    manifest, permit = _gateway_evidence(service, call, authorization)
     result = client.invoke_multipart(
         call,
         secret_ref=reference,
         authorization=authorization,
         consumed_by="whisper-security-test",
+        manifest=manifest,
+        gateway_permit=permit,
     )
     assert multipart.calls == 1
     assert service.authorizations.get(authorization.id).state is AuthorizationState.CONSUMED

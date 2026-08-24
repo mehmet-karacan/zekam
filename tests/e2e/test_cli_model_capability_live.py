@@ -25,6 +25,7 @@ from zekam.application.model_registry import load_inventory
 from zekam.application.opencode_benchmark_campaign import discover_campaign
 from zekam.domain.canonical import digest
 from zekam.domain.model_capability_benchmark import CapabilityCohortPlan
+from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.infrastructure.postgres.connection import configure_session, connect
 from zekam.infrastructure.postgres.core_repository import RealmRepository
 from zekam.interfaces.cli import model_campaign as campaign_cli
@@ -115,7 +116,8 @@ def test_capability_live_transport_factory_is_fake_injectable(
     class FailAtMiddleTransport:
         calls = 0
 
-        def post_json(self, endpoint, payload, credential):  # type: ignore[no-untyped-def]
+        def post_json(self, endpoint, payload, credential, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs["gateway_provenance"].manifest_digest.startswith("sha256:")
             del endpoint, payload, credential
             self.calls += 1
             if self.calls == 4:
@@ -128,11 +130,22 @@ def test_capability_live_transport_factory_is_fake_injectable(
     fake = FailAtMiddleTransport()
     monkeypatch.setattr(capability_cli, "CAPABILITY_TRANSPORT_FACTORY", lambda **_: fake)
     injected = capability_cli.CAPABILITY_TRANSPORT_FACTORY()
+    provenance = GatewayTransportProvenance("sha256:" + "a" * 64, uuid4(), uuid4())
 
     for _ in range(3):
-        injected.post_json("https://offline.invalid/v1/chat", {}, object())
+        injected.post_json(
+            "https://offline.invalid/v1/chat",
+            {},
+            object(),
+            gateway_provenance=provenance,
+        )
     with pytest.raises(RuntimeError, match="offline-middle-failure"):
-        injected.post_json("https://offline.invalid/v1/chat", {}, object())
+        injected.post_json(
+            "https://offline.invalid/v1/chat",
+            {},
+            object(),
+            gateway_provenance=provenance,
+        )
     assert fake.calls == 4
 
 
@@ -200,10 +213,11 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
     )
 
     class SelectiveBaseTransport(FakeCampaignTransport):
-        def post_json(self, endpoint, payload, credential):  # type: ignore[no-untyped-def]
+        def post_json(self, endpoint, payload, credential, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs["gateway_provenance"].manifest_digest.startswith("sha256:")
             backend = str(payload.get("model", ""))
             if backend not in self.health_failure_backend_models:
-                return super().post_json(endpoint, payload, credential)
+                return super().post_json(endpoint, payload, credential, **kwargs)
             self.calls += 1
             usage = {"prompt_tokens": 3, "completion_tokens": 2}
             if "documents" in payload:
@@ -330,7 +344,8 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
         calls = 0
         malformed_sent = False
 
-        def post_json(self, endpoint, payload, credential):  # type: ignore[no-untyped-def]
+        def post_json(self, endpoint, payload, credential, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs["gateway_provenance"].manifest_digest.startswith("sha256:")
             del endpoint, credential
             self.calls += 1
             if fail_middle and self.calls == 4:

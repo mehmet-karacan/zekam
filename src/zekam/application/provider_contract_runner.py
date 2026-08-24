@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any, cast
+from uuid import UUID
 
 from zekam.application.execution import ExecutionHost
+from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
     AuthorizedProviderClient,
@@ -20,6 +23,7 @@ from zekam.application.provider_adapter import (
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.domain.canonical import digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
+from zekam.domain.model_invocation import GatewayInvocationPermit
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import EffectClaim, EffectReceipt, FailureCategory
 from zekam.domain.security import (
@@ -79,7 +83,8 @@ def verify_exact_provider_authorization(
 class RuntimeProviderContractRunner:
     host: ExecutionHost
     work: ClaimedWork
-    client: AuthorizedProviderClient
+    client: Any
+    gateway: ModelGateway | None = None
     defer_job_recovery: bool = False
 
     @staticmethod
@@ -113,7 +118,14 @@ class RuntimeProviderContractRunner:
         """Tek exact call'i bir kez yurutur; hicbir exception sessiz retry edilmez."""
 
         self._verify_exact_authorization(prepared, authorization, secret_ref)
+        if self.gateway is None and isinstance(self.client, AuthorizedProviderClient):
+            raise PolicyViolation("Gercek provider client ModelGateway olmadan cagrilamaz")
         plan = prepared.plan
+        manifest = (
+            None
+            if self.gateway is None
+            else self.gateway.prepare(prepared, self.work, authorization)
+        )
         for existing in self.host.ledger.claims_for_job(self.work.job.id):
             if existing.effect_digest == plan.effect_request.effect_digest:
                 raise PolicyViolation("Provider contract exact call silent retry yasak")
@@ -137,20 +149,50 @@ class RuntimeProviderContractRunner:
                 }
             ),
         )
+        ledger_attempt_id: UUID | None = None
         try:
-            if isinstance(prepared.call, MultipartProviderCall):
-                result = self.client.invoke_multipart(
-                    prepared.call,
-                    secret_ref=secret_ref,
-                    authorization=authorization,
-                    consumed_by=consumed_by,
-                )
-            else:
+            if self.gateway is None:
                 result = self.client.invoke(
                     prepared.call,
                     secret_ref=secret_ref,
                     authorization=authorization,
                     consumed_by=consumed_by,
+                )
+                ledger_attempt_id = None
+            else:
+                assert manifest is not None
+
+                def execute(permit: GatewayInvocationPermit) -> ProviderCallResult:
+                    if isinstance(prepared.call, MultipartProviderCall):
+                        return cast(
+                            ProviderCallResult,
+                            self.client.invoke_multipart(
+                                prepared.call,
+                                secret_ref=secret_ref,
+                                authorization=authorization,
+                                consumed_by=consumed_by,
+                                manifest=manifest,
+                                gateway_permit=permit,
+                            ),
+                        )
+                    return cast(
+                        ProviderCallResult,
+                        self.client.invoke(
+                            prepared.call,
+                            secret_ref=secret_ref,
+                            authorization=authorization,
+                            consumed_by=consumed_by,
+                            manifest=manifest,
+                            gateway_permit=permit,
+                        ),
+                    )
+
+                ledger_attempt_id, result = self.gateway.invoke(
+                    manifest,
+                    claim_id=claim.id,
+                    authorization=authorization,
+                    call=prepared.call,
+                    effect=execute,
                 )
         except Exception as exc:
             self.host.record_failure(
@@ -162,16 +204,51 @@ class RuntimeProviderContractRunner:
                 self.host.jobs.mark_recovery_required(
                     self.work.job.id, "provider-contract-effect-failed-no-silent-retry"
                 )
+            if self.gateway is not None and manifest is not None and ledger_attempt_id is not None:
+                self.gateway.record_terminal(
+                    manifest,
+                    ledger_attempt_id,
+                    receipt_id=None,
+                    response_digest=None,
+                    failure_digest=digest(
+                        {"error_type": type(exc).__name__, "call_id": plan.call_id}
+                    ),
+                )
             raise
-        receipt = self.host.record_success(
-            claim,
-            result_digest=result.response_digest,
-            adapter_evidence_digest=digest(
-                {
-                    "outbound_request_id": str(result.outbound_request_id),
-                    "authorization_id": str(result.authorization_id),
-                    "response_digest": result.response_digest,
-                }
-            ),
-        )
+        try:
+            receipt = self.host.record_success(
+                claim,
+                result_digest=result.response_digest,
+                adapter_evidence_digest=digest(
+                    {
+                        "outbound_request_id": str(result.outbound_request_id),
+                        "authorization_id": str(result.authorization_id),
+                        "response_digest": result.response_digest,
+                    }
+                ),
+            )
+        except Exception as exc:
+            failure_digest = digest({"error_type": type(exc).__name__, "call_id": plan.call_id})
+            if self.gateway is not None and manifest is not None:
+                assert ledger_attempt_id is not None
+                self.gateway.record_terminal(
+                    manifest,
+                    ledger_attempt_id,
+                    receipt_id=None,
+                    response_digest=result.response_digest,
+                    failure_digest=failure_digest,
+                )
+            if not self.defer_job_recovery:
+                self.host.jobs.mark_recovery_required(
+                    self.work.job.id, "provider-contract-receipt-failed-no-silent-retry"
+                )
+            raise
+        if self.gateway is not None and manifest is not None:
+            assert ledger_attempt_id is not None
+            self.gateway.record_terminal(
+                manifest,
+                ledger_attempt_id,
+                receipt_id=receipt.id,
+                response_digest=result.response_digest,
+            )
         return ProviderContractExecutionResult(plan.call_id, claim, receipt, result)

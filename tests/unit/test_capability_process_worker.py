@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
 from zekam.infrastructure.process.capability_worker import (
     CAPABILITY_WORKER_SCHEMA,
@@ -26,6 +28,12 @@ def _script(tmp_path: Path, source: str) -> Path:
     path = tmp_path / "worker_fixture.py"
     path.write_text(source, encoding="utf-8")
     return path
+
+
+def _gateway_provenance() -> GatewayTransportProvenance:
+    from uuid import uuid4
+
+    return GatewayTransportProvenance(digest("manifest"), uuid4(), uuid4())
 
 
 def _spec(
@@ -185,6 +193,33 @@ def test_protocol_constant_is_versioned() -> None:
     assert json.loads(json.dumps({"schema": CAPABILITY_WORKER_SCHEMA}))["schema"]
 
 
+def test_provider_child_rejects_endpoint_and_credential_without_gateway_provenance() -> None:
+    request = CapabilityWorkerRequest(
+        request_id="missing-gateway-provenance",
+        payload={
+            "operation": "provider-post-json",
+            "endpoint": "http://127.0.0.1:1/v1/chat",
+            "payload": {"model": "test-model"},
+            "credential": "must-not-be-enough",
+            "timeout_seconds": 1,
+            "max_response_bytes": 1024,
+        },
+    )
+    spec = CapabilityWorkerSpec(
+        argv=(
+            sys.executable,
+            "-m",
+            "zekam.infrastructure.process.capability_worker",
+            "--provider-child",
+        ),
+        cwd=Path.cwd(),
+        timeout_seconds=2,
+        max_ipc_bytes=8192,
+    )
+    outcome = CapabilityProcessWorker(cancellation_grace_seconds=0.1).run(spec, request)
+    assert outcome.status is CapabilityWorkerStatus.PROTOCOL_ERROR
+
+
 def test_process_isolated_transport_posts_in_child_with_secret_redacted() -> None:
     captured: dict[str, str] = {}
 
@@ -218,6 +253,7 @@ def test_process_isolated_transport_posts_in_child_with_secret_redacted() -> Non
             f"http://127.0.0.1:{server.server_port}/v1/chat",
             {"model": "test-model"},
             SecretValue(token),
+            gateway_provenance=_gateway_provenance(),
         )
     finally:
         server.shutdown()
@@ -258,6 +294,7 @@ def test_process_isolated_transport_denies_redirect(tmp_path: Path) -> None:
                 f"http://127.0.0.1:{server.server_port}/v1/chat",
                 {"model": "test-model"},
                 SecretValue("secret-token"),
+                gateway_provenance=_gateway_provenance(),
             )
     finally:
         server.shutdown()

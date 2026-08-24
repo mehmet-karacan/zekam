@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import urllib.request
 from email.message import Message
+from uuid import uuid4
 
 import pytest
 
@@ -28,7 +29,9 @@ from zekam.application.provider_adapter import (
     openai_vision_payload,
     reviewed_endpoint_digest,
 )
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
+from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
 
 pytestmark = pytest.mark.unit
@@ -103,6 +106,7 @@ def test_urllib_transport_does_not_follow_redirects(
             "https://models.example.test/v1/chat/completions",
             {"model": "test"},
             credential,
+            gateway_provenance=GatewayTransportProvenance(digest("manifest"), uuid4(), uuid4()),
         )
     assert "super-secret-token" not in str(caught.value)
     request = captured["request"]

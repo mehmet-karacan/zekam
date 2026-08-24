@@ -158,7 +158,10 @@ class FakeCampaignTransport:
     guardrail_contract_failure: bool = False
     health_failure_backend_models: frozenset[str] = frozenset()
 
-    def post_json(self, endpoint: str, payload: Any, credential: Any) -> dict[str, Any]:
+    def post_json(
+        self, endpoint: str, payload: Any, credential: Any, **kwargs: Any
+    ) -> dict[str, Any]:
+        assert kwargs["gateway_provenance"].manifest_digest.startswith("sha256:")
         del endpoint, credential
         self.calls += 1
         if self.fail_at == self.calls:

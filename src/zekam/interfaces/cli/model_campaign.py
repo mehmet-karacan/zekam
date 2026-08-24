@@ -32,6 +32,7 @@ from zekam.application.model_benchmark_service import (
     default_fixture_file,
     load_fixture_registry,
 )
+from zekam.application.model_gateway import ModelGateway
 from zekam.application.opencode_benchmark_campaign import (
     BENCHMARK_SECRET_REF_NAME,
     CampaignCallKind,
@@ -99,6 +100,7 @@ from zekam.domain.model_campaign import (
     ResultAdoption,
     ResultRecoveryEvidence,
 )
+from zekam.domain.model_invocation import GatewaySourceLabel
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import AttemptOutcome, FailureCategory, Job, JobKind
@@ -116,6 +118,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
 )
 from zekam.infrastructure.postgres.model_benchmark_repository import BenchmarkRepository
 from zekam.infrastructure.postgres.model_campaign_repository import ModelCampaignRepository
+from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.security_repository import (
     AuthorizationRepository,
     SecretRefRepository,
@@ -1635,6 +1638,10 @@ def run_command(
                 host=host,
                 work=claimed,
                 client=client,
+                gateway=ModelGateway(
+                    ModelInvocationRepository(context.connection, context.realm_id),
+                    GatewaySourceLabel.MODEL_CAMPAIGN,
+                ),
                 defer_job_recovery=True,
             )
             campaign_claim = host.claim_effect(

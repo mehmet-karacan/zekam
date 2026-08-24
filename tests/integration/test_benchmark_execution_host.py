@@ -233,6 +233,10 @@ def test_remote_execution_rejects_local_only_fixture_before_claim() -> None:
     assert gateway.events == []
 
 
+def _invocation_audit(_phase: str, _call_digest: str, _payload_digest: str) -> None:
+    return None
+
+
 def test_production_local_adapter_executes_shipped_secret_free_artifact() -> None:
     registry = load_fixture_registry()
     fixture = registry.fixtures[0]
@@ -246,10 +250,13 @@ def test_production_local_adapter_executes_shipped_secret_free_artifact() -> Non
     )
     process = Path(__file__).parents[1] / "fixtures" / "local_benchmark_process.py"
     oracle = DeterministicLocalBenchmarkAdapter(default_fixture_file().parent)
-    adapter = LocalProcessBenchmarkAdapter("model", (sys.executable, str(process)), oracle)
+    adapter = LocalProcessBenchmarkAdapter(
+        "model", (sys.executable, str(process)), oracle, _invocation_audit
+    )
     verifier = LocalProcessBenchmarkVerifier(
         VerifierIdentity("verifier", "process:verifier", digest("verifier-process")),
         (sys.executable, str(process)),
+        _invocation_audit,
     )
     result = adapter.invoke(plan=plan, fixture=fixture, repetition=1)
     verdict = verifier.verify(plan=plan, fixture=fixture, result=result)
@@ -271,18 +278,20 @@ def test_verifier_rejects_self_approval_and_canned_response_binding() -> None:
     )
     process = Path(__file__).parents[1] / "fixtures" / "local_benchmark_process.py"
     oracle = DeterministicLocalBenchmarkAdapter(default_fixture_file().parent)
-    result = LocalProcessBenchmarkAdapter("model", (sys.executable, str(process)), oracle).invoke(
-        plan=plan, fixture=fixture, repetition=1
-    )
+    result = LocalProcessBenchmarkAdapter(
+        "model", (sys.executable, str(process)), oracle, _invocation_audit
+    ).invoke(plan=plan, fixture=fixture, repetition=1)
     self_verifier = LocalProcessBenchmarkVerifier(
         VerifierIdentity("model", "process:self", digest("self")),
         (sys.executable, str(process)),
+        _invocation_audit,
     )
     with pytest.raises(PolicyViolation, match="kendi verifier"):
         self_verifier.verify(plan=plan, fixture=fixture, result=result)
     stale_verifier = LocalProcessBenchmarkVerifier(
         VerifierIdentity("verifier", "process:verifier", digest("verifier")),
         (sys.executable, str(process), "--stale"),
+        _invocation_audit,
     )
     with pytest.raises(PolicyViolation, match="binding drift"):
         stale_verifier.verify(plan=plan, fixture=fixture, result=result)

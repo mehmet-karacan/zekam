@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -367,6 +368,7 @@ class LocalProcessBenchmarkAdapter:
     routed_model_id: str
     argv: tuple[str, ...]
     oracle: DeterministicLocalBenchmarkAdapter
+    invocation_audit: Callable[[str, str, str], None]
     timeout_seconds: int = 60
 
     @property
@@ -387,17 +389,17 @@ class LocalProcessBenchmarkAdapter:
         if plan.model_id != self.model_id or plan.remote_execution:
             raise PolicyViolation("Tested adapter actual model route eslesmiyor")
         artifact = self.oracle.load(fixture)
-        output = _run_json_process(
-            self.argv,
-            {
-                "schema": "zekam-benchmark-tested-request/v1",
-                "model_id": self.model_id,
-                "fixture": artifact,
-                "fixture_digest": fixture.fixture_digest,
-                "repetition": repetition,
-            },
-            self.timeout_seconds,
+        request = {
+            "schema": "zekam-benchmark-tested-request/v1",
+            "model_id": self.model_id,
+            "fixture": artifact,
+            "fixture_digest": fixture.fixture_digest,
+            "repetition": repetition,
+        }
+        self.invocation_audit(
+            "tested", digest({"phase": "tested", "model_id": self.model_id}), digest(request)
         )
+        output = _run_json_process(self.argv, request, self.timeout_seconds)
         if output.get("schema") != "zekam-benchmark-tested-result/v1":
             raise ValidationFailed("Tested adapter response schema gecersiz")
         if output.get("model_id") != self.model_id:
@@ -430,6 +432,7 @@ class LocalProcessBenchmarkAdapter:
 class LocalProcessBenchmarkVerifier:
     identity: VerifierIdentity
     argv: tuple[str, ...]
+    invocation_audit: Callable[[str, str, str], None]
     timeout_seconds: int = 60
 
     @property
@@ -445,17 +448,19 @@ class LocalProcessBenchmarkVerifier:
     ) -> VerifierVerdict:
         if self.verifier.model_id == plan.model_id:
             raise PolicyViolation("Tested model kendi verifier'i olamaz")
-        output = _run_json_process(
-            self.argv,
-            {
-                "schema": "zekam-benchmark-verifier-request/v1",
-                "tested_model_id": plan.model_id,
-                "verifier_model_id": self.verifier.model_id,
-                "tested_response_digest": result.response_digest,
-                "fixture_digest": fixture.fixture_digest,
-            },
-            self.timeout_seconds,
+        request = {
+            "schema": "zekam-benchmark-verifier-request/v1",
+            "tested_model_id": plan.model_id,
+            "verifier_model_id": self.verifier.model_id,
+            "tested_response_digest": result.response_digest,
+            "fixture_digest": fixture.fixture_digest,
+        }
+        self.invocation_audit(
+            "verifier",
+            digest({"phase": "verifier", "model_id": self.verifier.model_id}),
+            digest(request),
         )
+        output = _run_json_process(self.argv, request, self.timeout_seconds)
         if output.get("schema") != "zekam-benchmark-verifier-result/v1":
             raise ValidationFailed("Verifier response schema gecersiz")
         expected = (plan.model_id, self.verifier.model_id, result.response_digest)

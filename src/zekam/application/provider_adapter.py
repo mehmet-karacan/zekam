@@ -33,6 +33,11 @@ from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.secret_broker import SecretBroker
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.model_invocation import (
+    GatewayInvocationPermit,
+    GatewayTransportProvenance,
+    ModelRequestManifest,
+)
 from zekam.domain.security import (
     Authorization,
     AuthorizationState,
@@ -127,6 +132,8 @@ class JsonProviderTransport(Protocol):
         endpoint: str,
         payload: Mapping[str, Any],
         credential: SecretValue,
+        *,
+        gateway_provenance: GatewayTransportProvenance,
     ) -> Mapping[str, Any]: ...
 
 
@@ -192,7 +199,10 @@ class UrllibJsonProviderTransport:
         endpoint: str,
         payload: Mapping[str, Any],
         credential: SecretValue,
+        *,
+        gateway_provenance: GatewayTransportProvenance,
     ) -> Mapping[str, Any]:
+        del gateway_provenance
         target = validated_provider_endpoint(endpoint)
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(
@@ -487,7 +497,15 @@ class AuthorizedProviderClient:
         secret_ref: SecretRef,
         authorization: Authorization,
         consumed_by: str,
+        manifest: ModelRequestManifest,
+        gateway_permit: GatewayInvocationPermit,
     ) -> ProviderCallResult:
+        gateway_permit.assert_for(manifest)
+        if (
+            manifest.provider_ref != call.provider_ref
+            or manifest.payload_digest != call.payload_digest
+        ):
+            raise PolicyViolation("Gateway manifest provider/payload call ile uyusmuyor")
         if secret_ref.provider != call.provider_ref:
             raise PolicyViolation("SecretRef provider ile outbound provider eslesmiyor")
         endpoint = self.endpoints.resolve(call.endpoint_ref, call.operation)
@@ -522,7 +540,12 @@ class AuthorizedProviderClient:
                     authorization=authorization,
                     consumed_by=consumed_by,
                 )
-                response = self.transport.post_json(endpoint, call.payload, credential)
+                response = self.transport.post_json(
+                    endpoint,
+                    call.payload,
+                    credential,
+                    gateway_provenance=gateway_permit.transport_provenance(manifest),
+                )
         except Exception as exc:
             denied = approved.with_state(
                 OutboundState.DENIED,
@@ -571,8 +594,16 @@ class AuthorizedProviderClient:
         secret_ref: SecretRef,
         authorization: Authorization,
         consumed_by: str,
+        manifest: ModelRequestManifest,
+        gateway_permit: GatewayInvocationPermit,
     ) -> ProviderCallResult:
         """Multipart cagrida JSON yolu ile ayni gate/consume/receipt sirasi."""
+        gateway_permit.assert_for(manifest)
+        if (
+            manifest.provider_ref != call.provider_ref
+            or manifest.payload_digest != call.payload_digest
+        ):
+            raise PolicyViolation("Gateway manifest provider/payload call ile uyusmuyor")
         if self.multipart_transport is None:
             raise ProbeUnavailable("Multipart provider transport tanimli degil")
         if secret_ref.provider != call.provider_ref:

@@ -34,6 +34,7 @@ from zekam.application.model_benchmark_service import (
     load_fixture_registry,
 )
 from zekam.application.model_decision_service import ModelDecisionService
+from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_health_service import (
     AuthorizationRequiredProviderProbe,
     ModelHealthService,
@@ -95,6 +96,7 @@ from zekam.domain.model_benchmark import (
 )
 from zekam.domain.model_contract import evaluate_observation
 from zekam.domain.model_inventory import Modality
+from zekam.domain.model_invocation import GatewaySourceLabel
 from zekam.domain.policy import PolicyDocument, default_policy_rules
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.resources import parse_requests
@@ -111,6 +113,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
 from zekam.infrastructure.postgres.model_benchmark_repository import BenchmarkRepository
+from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.model_repository import (
     HealthReportRepository,
     ModelInventoryRepository,
@@ -459,7 +462,15 @@ def opencode_embedding_probe_command(
             claimed = host.acquire_work(capabilities=(capability,))
             if claimed is None or claimed.job.id != job.id:
                 raise PolicyViolation("OpenCode embedding runtime job claim edilemedi")
-            runner = RuntimeProviderContractRunner(host=host, work=claimed, client=client)
+            runner = RuntimeProviderContractRunner(
+                host=host,
+                work=claimed,
+                client=client,
+                gateway=ModelGateway(
+                    ModelInvocationRepository(realm_context.connection, realm_context.realm_id),
+                    GatewaySourceLabel.OPENCODE_EMBEDDING,
+                ),
+            )
             executions = []
             metrics = []
             try:
@@ -744,6 +755,21 @@ def benchmark_command(
                     oracle = DeterministicLocalBenchmarkAdapter(
                         default_fixture_file().parent.resolve(strict=True)
                     )
+                    invocation_repository = ModelInvocationRepository(
+                        realm_context.connection, realm_context.realm_id
+                    )
+
+                    def record_local_invocation(
+                        _phase: str, call_digest: str, payload_digest: str
+                    ) -> None:
+                        invocation_repository.record_audit(
+                            source_label=GatewaySourceLabel.MODEL_BENCHMARK.value,
+                            disposition="bypass",
+                            call_digest=call_digest,
+                            payload_digest=payload_digest,
+                            missing_bindings=("model_request_manifest",),
+                        )
+
                     adapter = LocalProcessBenchmarkAdapter(
                         routed_model_id=model,
                         argv=(
@@ -755,6 +781,7 @@ def benchmark_command(
                             ),
                         ),
                         oracle=oracle,
+                        invocation_audit=record_local_invocation,
                     )
                     verifier_adapter = LocalProcessBenchmarkVerifier(
                         identity=VerifierIdentity(
@@ -768,6 +795,7 @@ def benchmark_command(
                                 else (str(verifier_script.resolve(strict=True)),)
                             ),
                         ),
+                        invocation_audit=record_local_invocation,
                     )
                     service = BenchmarkExecutionService(repository, registry)
                     gateway = RuntimeBenchmarkClaimGateway(
@@ -1286,7 +1314,15 @@ def provider_live_run_command(
             work = host.acquire_work(capabilities=(capability,))
             if work is None or work.job.id != job.id:
                 raise PolicyViolation("Provider contract runtime job claim edilemedi")
-            runner = RuntimeProviderContractRunner(host=host, work=work, client=client)
+            runner = RuntimeProviderContractRunner(
+                host=host,
+                work=work,
+                client=client,
+                gateway=ModelGateway(
+                    ModelInvocationRepository(realm_context.connection, realm_context.realm_id),
+                    GatewaySourceLabel.PROVIDER_CONTRACT,
+                ),
+            )
             executions = []
             responses = {}
             for prepared_call in prepared:

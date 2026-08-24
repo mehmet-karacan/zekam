@@ -1,0 +1,14 @@
+drop function if exists models.activate_gateway_enforce(text);
+drop function if exists models.enforce_gateway_attempt() cascade;
+drop function if exists models.enforce_manifest_missing_bindings() cascade;
+drop table if exists models.invocation_usage;
+drop table if exists models.invocation_result;
+drop table if exists models.invocation_audit;
+drop table if exists models.invocation_attempt;
+drop table if exists models.request_manifest;
+drop table if exists models.gateway_policy;
+alter table runtime.effect_receipt drop constraint if exists effect_receipt_realm_scoped_key;
+alter table runtime.effect_claim drop constraint if exists effect_claim_realm_scoped_key;
+alter table runtime.job_attempt drop constraint if exists job_attempt_realm_scoped_key;
+alter table security.outbound_request drop constraint if exists outbound_request_realm_scoped_key;
+alter table security.authorization drop constraint if exists authorization_realm_scoped_key;

@@ -132,7 +132,10 @@ class FakeJsonTransport:
     calls: int = 0
     fail_first: bool = False
 
-    def post_json(self, endpoint: str, payload: Any, credential: Any) -> dict[str, Any]:
+    def post_json(
+        self, endpoint: str, payload: Any, credential: Any, **kwargs: Any
+    ) -> dict[str, Any]:
+        assert kwargs["gateway_provenance"].manifest_digest.startswith("sha256:")
         del credential
         self.calls += 1
         if self.fail_first and self.calls == 1:

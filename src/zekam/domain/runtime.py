@@ -133,6 +133,7 @@ class Job:
     work_item_id: UUID | None = None
     plan_id: UUID | None = None
     step_id: str | None = None
+    assignment_id: UUID | None = None
     payload: dict[str, Any] = field(default_factory=dict)
     available_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     created_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
@@ -162,6 +163,7 @@ class Job:
         work_item_id: UUID | None = None,
         plan_id: UUID | None = None,
         step_id: str | None = None,
+        assignment_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
         available_at: dt.datetime | None = None,
         now: dt.datetime | None = None,
@@ -181,6 +183,7 @@ class Job:
             work_item_id=work_item_id,
             plan_id=plan_id,
             step_id=step_id,
+            assignment_id=assignment_id,
             payload=dict(payload or {}),
             available_at=available_at or moment,
             created_at=moment,
@@ -217,6 +220,7 @@ class Job:
             "resources": [request.as_dict() for request in self.resources],
             "work_item_id": None if self.work_item_id is None else str(self.work_item_id),
             "step_id": self.step_id,
+            "assignment_id": (None if self.assignment_id is None else str(self.assignment_id)),
         }
 
 

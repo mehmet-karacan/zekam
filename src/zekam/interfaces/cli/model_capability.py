@@ -30,6 +30,7 @@ from zekam.application.model_capability_live import (
     execute_capability_episode,
     prepare_capability_live_manifest,
 )
+from zekam.application.model_gateway import ModelGateway
 from zekam.application.opencode_benchmark_campaign import BENCHMARK_SECRET_REF_NAME
 from zekam.application.opencode_embedding import OpenCodeCredentialStore
 from zekam.application.provider_adapter import AuthorizedProviderClient
@@ -62,6 +63,7 @@ from zekam.domain.model_capability_runtime import (
     CapabilityRuntimeStatus,
     CapabilityRuntimeTurnCheckpoint,
 )
+from zekam.domain.model_invocation import GatewaySourceLabel
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import AttemptOutcome, FailureCategory, Job, JobKind
@@ -80,6 +82,7 @@ from zekam.infrastructure.postgres.model_capability_repository import ModelCapab
 from zekam.infrastructure.postgres.model_capability_runtime_repository import (
     ModelCapabilityRuntimeRepository,
 )
+from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.runtime_repository import JobRepository
 from zekam.infrastructure.postgres.security_repository import (
     AuthorizationRepository,
@@ -551,6 +554,10 @@ def _execute_live_episode(
                 host=host,
                 work=claimed,
                 client=client,
+                gateway=ModelGateway(
+                    ModelInvocationRepository(context.connection, context.realm_id),
+                    GatewaySourceLabel.MODEL_CAPABILITY,
+                ),
                 defer_job_recovery=True,
             ).invoke(
                 concrete,
