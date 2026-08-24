@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from zekam.domain.clients import (
+    CanonicalDispatchPermit,
     ClientDescriptor,
     ClientKind,
     DispatchOutcome,
@@ -31,7 +32,9 @@ class ClientAdapter(Protocol):
     @property
     def descriptor(self) -> ClientDescriptor: ...
 
-    def dispatch(self, request: DispatchRequest, *, cwd: Path) -> DispatchResult: ...
+    def dispatch(
+        self, request: DispatchRequest, *, cwd: Path, permit: CanonicalDispatchPermit
+    ) -> DispatchResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +58,10 @@ class SubprocessClientAdapter:
             argv=(
                 *self.launcher,
                 self.descriptor.executable,
+                "--assignment-id",
+                str(request.assignment_id),
+                "--invocation-id",
+                str(request.invocation_id),
                 "--role",
                 request.role,
                 "--instruction-digest",
@@ -67,7 +74,10 @@ class SubprocessClientAdapter:
             env=self.env,
         )
 
-    def dispatch(self, request: DispatchRequest, *, cwd: Path) -> DispatchResult:
+    def dispatch(
+        self, request: DispatchRequest, *, cwd: Path, permit: CanonicalDispatchPermit
+    ) -> DispatchResult:
+        permit.assert_valid(request)
         if request.requires_structured_result:
             self.descriptor.assert_supports("structured-result")
         spec = self.build_spec(request)
@@ -75,6 +85,8 @@ class SubprocessClientAdapter:
         if output.result.timed_out:
             self._assert_cancellable()
             return DispatchResult(
+                assignment_id=request.assignment_id,
+                invocation_id=request.invocation_id,
                 client_id=request.client_id,
                 role=request.role,
                 outcome=DispatchOutcome.TIMED_OUT,
@@ -86,6 +98,8 @@ class SubprocessClientAdapter:
             document: Any = json.loads(output.stdout.decode("utf-8", errors="replace"))
         except json.JSONDecodeError:
             return DispatchResult(
+                assignment_id=request.assignment_id,
+                invocation_id=request.invocation_id,
                 client_id=request.client_id,
                 role=request.role,
                 outcome=DispatchOutcome.FAILED,

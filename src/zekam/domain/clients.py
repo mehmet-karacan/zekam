@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -33,6 +34,33 @@ _SENSITIVE = re.compile(
     r"(?:secret|credential|password|parola|api[-_ ]?key|private[-_ ]?key|token)",
     re.IGNORECASE,
 )
+_CANONICAL_DISPATCH_AUTHORITY = object()
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalDispatchPermit:
+    """Process-local proof that assignment and invocation were persisted first."""
+
+    assignment_id: UUID
+    invocation_id: UUID
+    _authority: object
+
+    def assert_valid(self, request: DispatchRequest) -> None:
+        if self._authority is not _CANONICAL_DISPATCH_AUTHORITY:
+            raise PolicyViolation("Canonical dispatch permit gecersiz")
+        if (self.assignment_id, self.invocation_id) != (
+            request.assignment_id,
+            request.invocation_id,
+        ):
+            raise PolicyViolation("Canonical dispatch permit request ile uyusmuyor")
+
+
+def _issue_canonical_dispatch_permit(
+    assignment_id: UUID, invocation_id: UUID
+) -> CanonicalDispatchPermit:
+    """Internal factory; only assignment-first orchestration may call this."""
+
+    return CanonicalDispatchPermit(assignment_id, invocation_id, _CANONICAL_DISPATCH_AUTHORITY)
 
 
 class ClientKind(StrEnum):
@@ -103,6 +131,8 @@ class ClientDescriptor:
 class DispatchRequest:
     """Adapter'a verilen bounded is birimi. Transcript veya secret tasimaz."""
 
+    assignment_id: UUID
+    invocation_id: UUID
     client_id: str
     role: str
     instruction_digest: str
@@ -122,6 +152,8 @@ class DispatchRequest:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "assignment_id": str(self.assignment_id),
+            "invocation_id": str(self.invocation_id),
             "client_id": self.client_id,
             "role": self.role,
             "instruction_digest": self.instruction_digest,
@@ -139,6 +171,8 @@ class DispatchResult:
     authoritative degildir ve `grants_authority` her zaman false'tur.
     """
 
+    assignment_id: UUID
+    invocation_id: UUID
     client_id: str
     role: str
     outcome: DispatchOutcome
@@ -164,6 +198,8 @@ class DispatchResult:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "assignment_id": str(self.assignment_id),
+            "invocation_id": str(self.invocation_id),
             "client_id": self.client_id,
             "role": self.role,
             "outcome": str(self.outcome),
@@ -193,6 +229,8 @@ def parse_result(
         raise ValidationFailed("istek baska bir istemciye ait")
     if not isinstance(document, dict):
         return DispatchResult(
+            assignment_id=request.assignment_id,
+            invocation_id=request.invocation_id,
             client_id=request.client_id,
             role=request.role,
             outcome=DispatchOutcome.FAILED,
@@ -205,6 +243,8 @@ def parse_result(
         outcome = DispatchOutcome(str(raw_outcome))
     except ValueError:
         return DispatchResult(
+            assignment_id=request.assignment_id,
+            invocation_id=request.invocation_id,
             client_id=request.client_id,
             role=request.role,
             outcome=DispatchOutcome.FAILED,
@@ -215,6 +255,8 @@ def parse_result(
     payload = document.get("payload", {})
     if not isinstance(payload, dict):
         return DispatchResult(
+            assignment_id=request.assignment_id,
+            invocation_id=request.invocation_id,
             client_id=request.client_id,
             role=request.role,
             outcome=DispatchOutcome.FAILED,
@@ -223,6 +265,8 @@ def parse_result(
             failure_category="invalid-payload",
         )
     return DispatchResult(
+        assignment_id=request.assignment_id,
+        invocation_id=request.invocation_id,
         client_id=request.client_id,
         role=request.role,
         outcome=outcome,

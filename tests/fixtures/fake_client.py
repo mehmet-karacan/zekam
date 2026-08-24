@@ -16,6 +16,8 @@ import time
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--assignment-id", required=True)
+    parser.add_argument("--invocation-id", required=True)
     parser.add_argument("--role", required=True)
     parser.add_argument("--instruction-digest", required=True)
     parser.add_argument("--context-digest", required=True)

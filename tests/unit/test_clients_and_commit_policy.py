@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from zekam.domain.canonical import digest
@@ -55,6 +57,8 @@ def _descriptor(**kwargs: object) -> ClientDescriptor:
 
 def _request(**kwargs: object) -> DispatchRequest:
     defaults: dict[str, object] = {
+        "assignment_id": uuid4(),
+        "invocation_id": uuid4(),
         "client_id": "codex",
         "role": "researcher",
         "instruction_digest": digest("instruction"),
@@ -96,6 +100,8 @@ def test_opencode_paralel_dispatch_yetenegini_acikca_beyan_eder() -> None:
 def test_adapter_sonucu_authority_veremez() -> None:
     with pytest.raises(PolicyViolation):
         DispatchResult(
+            assignment_id=uuid4(),
+            invocation_id=uuid4(),
             client_id="codex",
             role="researcher",
             outcome=DispatchOutcome.SUCCESS,
@@ -108,6 +114,8 @@ def test_adapter_sonucu_authority_veremez() -> None:
 def test_non_success_sonuc_kategori_ister() -> None:
     with pytest.raises(ValidationFailed):
         DispatchResult(
+            assignment_id=uuid4(),
+            invocation_id=uuid4(),
             client_id="codex",
             role="researcher",
             outcome=DispatchOutcome.FAILED,
@@ -119,6 +127,8 @@ def test_non_success_sonuc_kategori_ister() -> None:
 def test_adapter_payloadi_secret_tasiyamaz() -> None:
     with pytest.raises(PolicyViolation):
         DispatchResult(
+            assignment_id=uuid4(),
+            invocation_id=uuid4(),
             client_id="codex",
             role="researcher",
             outcome=DispatchOutcome.SUCCESS,
@@ -159,6 +169,8 @@ def test_istek_baska_istemciye_aitse_reddedilir() -> None:
 
 def test_iptal_sonucu_gorunur_kalir() -> None:
     result = DispatchResult(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
         client_id="codex",
         role="researcher",
         outcome=DispatchOutcome.CANCELLED,

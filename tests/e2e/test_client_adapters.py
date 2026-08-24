@@ -7,11 +7,18 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from zekam.domain.canonical import digest
-from zekam.domain.clients import ClientDescriptor, ClientKind, DispatchOutcome, DispatchRequest
+from zekam.domain.clients import (
+    ClientDescriptor,
+    ClientKind,
+    DispatchOutcome,
+    DispatchRequest,
+    _issue_canonical_dispatch_permit,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.clients.adapters import SubprocessClientAdapter
 
@@ -36,6 +43,8 @@ def _adapter(mode: str, *, capabilities: frozenset[str] | None = None) -> Subpro
 
 def _request(timeout: int = 30) -> DispatchRequest:
     return DispatchRequest(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
         client_id="sahte-istemci",
         role="researcher",
         instruction_digest=digest("talimat"),
@@ -44,9 +53,17 @@ def _request(timeout: int = 30) -> DispatchRequest:
     )
 
 
+def _dispatch(adapter, request: DispatchRequest, cwd: Path):  # type: ignore[no-untyped-def]
+    return adapter.dispatch(
+        request,
+        cwd=cwd,
+        permit=_issue_canonical_dispatch_permit(request.assignment_id, request.invocation_id),
+    )
+
+
 def test_basarili_dispatch_strict_envelope_dondurur(tmp_path: Path) -> None:
     request = _request()
-    result = _adapter("success").dispatch(request, cwd=tmp_path)
+    result = _dispatch(_adapter("success"), request, tmp_path)
     assert result.outcome is DispatchOutcome.SUCCESS
     assert result.payload["finding_count"] == 2
     assert result.payload["instruction_digest"] == request.instruction_digest
@@ -54,26 +71,30 @@ def test_basarili_dispatch_strict_envelope_dondurur(tmp_path: Path) -> None:
 
 
 def test_bozuk_json_sessizce_kabul_edilmez(tmp_path: Path) -> None:
-    result = _adapter("bad-json").dispatch(_request(), cwd=tmp_path)
+    request = _request()
+    result = _dispatch(_adapter("bad-json"), request, tmp_path)
     assert result.outcome is DispatchOutcome.FAILED
     assert result.failure_category == "unparsable-result"
 
 
 def test_bilinmeyen_outcome_failed_olur(tmp_path: Path) -> None:
-    result = _adapter("unknown-outcome").dispatch(_request(), cwd=tmp_path)
+    request = _request()
+    result = _dispatch(_adapter("unknown-outcome"), request, tmp_path)
     assert result.outcome is DispatchOutcome.FAILED
     assert result.failure_category == "unknown-outcome"
 
 
 def test_istemci_hatasi_gorunur_kalir(tmp_path: Path) -> None:
-    result = _adapter("failed").dispatch(_request(), cwd=tmp_path)
+    request = _request()
+    result = _dispatch(_adapter("failed"), request, tmp_path)
     assert result.outcome is DispatchOutcome.FAILED
     assert result.exit_code == 2
     assert result.failure_category == "adapter"
 
 
 def test_asili_kalan_istemci_timeout_ile_iptal_edilir(tmp_path: Path) -> None:
-    result = _adapter("hang").dispatch(_request(timeout=1), cwd=tmp_path)
+    request = _request(timeout=1)
+    result = _dispatch(_adapter("hang"), request, tmp_path)
     assert result.outcome is DispatchOutcome.TIMED_OUT
     assert result.failure_category == "timeout"
 
@@ -81,4 +102,5 @@ def test_asili_kalan_istemci_timeout_ile_iptal_edilir(tmp_path: Path) -> None:
 def test_iptal_beyani_olmayan_istemcide_timeout_gorunur_hata_verir(tmp_path: Path) -> None:
     adapter = _adapter("hang", capabilities=frozenset({"chat", "structured-result"}))
     with pytest.raises(PolicyViolation):
-        adapter.dispatch(_request(timeout=1), cwd=tmp_path)
+        request = _request(timeout=1)
+        _dispatch(adapter, request, tmp_path)

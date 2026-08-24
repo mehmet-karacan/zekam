@@ -9,11 +9,18 @@ from __future__ import annotations
 import datetime as dt
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from zekam.domain.canonical import digest
-from zekam.domain.clients import ClientDescriptor, ClientKind, DispatchRequest
+from zekam.domain.clients import (
+    CanonicalDispatchPermit,
+    ClientDescriptor,
+    ClientKind,
+    DispatchRequest,
+    _issue_canonical_dispatch_permit,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import (
     NetworkPolicy,
@@ -158,6 +165,8 @@ def test_structured_result_beyani_olmadan_dispatch_reddedilir(tmp_path: Path) ->
         )
     )
     request = DispatchRequest(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
         client_id="kurum-ici",
         role="researcher",
         instruction_digest=digest("i"),
@@ -165,12 +174,20 @@ def test_structured_result_beyani_olmadan_dispatch_reddedilir(tmp_path: Path) ->
         timeout_seconds=10,
     )
     with pytest.raises(PolicyViolation):
-        adapter.dispatch(request, cwd=tmp_path)
+        adapter.dispatch(
+            request,
+            cwd=tmp_path,
+            permit=_issue_canonical_dispatch_permit(
+                request.assignment_id, request.invocation_id
+            ),
+        )
 
 
 def test_adapter_komut_satiri_talimat_metni_tasimaz() -> None:
     adapter = codex_adapter("codex.exe")
     request = DispatchRequest(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
         client_id="codex",
         role="researcher",
         instruction_digest=digest("gizli talimat"),
@@ -180,6 +197,24 @@ def test_adapter_komut_satiri_talimat_metni_tasimaz() -> None:
     argv = adapter.build_spec(request).argv
     assert "gizli talimat" not in " ".join(argv)
     assert request.instruction_digest in argv
+    assert str(request.assignment_id) in argv
+    assert str(request.invocation_id) in argv
+
+
+def test_adapter_forged_canonical_dispatch_permit_reddeder(tmp_path: Path) -> None:
+    adapter = codex_adapter("codex.exe")
+    request = DispatchRequest(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
+        client_id="codex",
+        role="researcher",
+        instruction_digest=digest("instruction"),
+        context_manifest_digest=digest("manifest"),
+        timeout_seconds=30,
+    )
+    forged = CanonicalDispatchPermit(request.assignment_id, request.invocation_id, object())
+    with pytest.raises(PolicyViolation, match="permit gecersiz"):
+        adapter.dispatch(request, cwd=tmp_path, permit=forged)
 
 
 def test_adapter_calistirilabilir_secret_tasiyamaz() -> None:

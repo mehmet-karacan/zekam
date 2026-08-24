@@ -1,0 +1,12 @@
+drop trigger if exists resource_lock_assignment_check on runtime.resource_lock;
+drop trigger if exists resource_lock_identity_no_update on runtime.resource_lock;
+drop function if exists agents.enforce_runtime_lock_assignment();
+drop trigger if exists job_assignment_immutability on runtime.job;
+drop function if exists agents.enforce_job_assignment_immutability();
+alter table runtime.job drop constraint if exists job_assignment_same_realm;
+alter table runtime.job drop column if exists assignment_id;
+drop table if exists agents.result_receipt;
+drop table if exists agents.invocation;
+drop table if exists agents.assignment_resource;
+drop table if exists agents.assignment;
+drop schema if exists agents cascade;
