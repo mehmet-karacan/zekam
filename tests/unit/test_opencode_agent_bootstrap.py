@@ -137,6 +137,27 @@ def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> No
     assert '"*git commit*": deny' in upgraded
 
 
+def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(
+        'import { tool } from "@opencode-ai/plugin"\n'
+        "export const ZekamLifecycle = async () => ({ "
+        "tool: { zekam_checkpoint: tool({}) } })\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+    assert plan.lifecycle_plugin_to_create
+    assert not plan.lifecycle_plugin_conflict
+    apply_opencode_agent_bootstrap(plan)
+
+    body = plugin.read_text(encoding="utf-8")
+    assert body.startswith("// zekam-managed-plugin/v1")
+    assert "opencode-plugin-spool" in body
+
+
 def test_missing_opencode_has_no_global_side_effect_plan(tmp_path: Path) -> None:
     plan = plan_opencode_agent_bootstrap(executable=None, user_home=tmp_path / "user")
     apply_opencode_agent_bootstrap(plan)

@@ -34,7 +34,8 @@ _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Proje ve rol icin kanonik model route'unu salt okunur cozen router subagenti",
 )
 
-_LIFECYCLE_PLUGIN = r"""import { tool } from "@opencode-ai/plugin"
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v1
+import { tool } from "@opencode-ai/plugin"
 import { mkdir, readFile, readdir, rename, rm, unlink } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -626,9 +627,15 @@ def plan_opencode_agent_bootstrap(
                     conflict.append(name)
     plugins_path = user_home / _PLUGINS_RELATIVE
     plugin_path = plugins_path / "zekam-lifecycle.js"
-    plugin_to_create = not plugin_path.exists()
-    plugin_conflict = plugin_path.exists() and (
-        not plugin_path.is_file() or plugin_path.read_text(encoding="utf-8") != _LIFECYCLE_PLUGIN
+    plugin_exists = plugin_path.exists()
+    plugin_body = plugin_path.read_text(encoding="utf-8") if plugin_path.is_file() else ""
+    plugin_matches = plugin_body == _LIFECYCLE_PLUGIN
+    plugin_managed = "// zekam-managed-plugin/v1" in plugin_body or (
+        "export const ZekamLifecycle" in plugin_body and "zekam_checkpoint" in plugin_body
+    )
+    plugin_to_create = not plugin_exists or (plugin_managed and not plugin_matches)
+    plugin_conflict = plugin_exists and (
+        not plugin_path.is_file() or (not plugin_matches and not plugin_managed)
     )
     return OpenCodeAgentBootstrapPlan(
         executable=executable,
