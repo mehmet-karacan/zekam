@@ -6,6 +6,9 @@
 4. Agentic işte en az bir gerçek subagent kullan; koordinatör sayılmaz.
 5. Kod mutation'ini bagli exact gercek project source rootunda yap; kopya, mirror, audit-work
    klasoru, detached worktree veya gecici proje klonu olusturma.
+5a. Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka
+    projenin dosyasını yazma. Burada yalnız yetkili tracked Zekam kaynak/test/migration/belge
+    değişiklikleri yapılır; çalışma çıktıları repo dışındaki kullanıcı alanına yazılır.
 6. Work/authority durumunu vector, memory veya Markdown'dan üretme.
 7. Secret değerini prompt/log/artifact/vector içine alma.
 8. Claim olmadan effect, terminal receipt olmadan başarı üretme.

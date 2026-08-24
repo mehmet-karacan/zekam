@@ -35,6 +35,7 @@ dogrula. Yalniz bu local-only exact gercek kaynak kokunu read/glob/grep/list ile
 kaniti gerekirse sadece yukaridaki `git -C <exact-root>` salt-okunur komutlarini kullan.
 Kendi cwd'sinde veya Zekam kokunde proje klasoru, analiz klasoru, kopya, mirror, clone,
 detached worktree ya da gecici dosya olusturma. Exact source root cozumlenemezse abstain et.
+Zekam source rootuna memo, rapor, araştırma çıktısı veya indirilen artifact yazma.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.

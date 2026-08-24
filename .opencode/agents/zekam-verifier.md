@@ -47,6 +47,7 @@ Kanonik durum ve retrieval sorgularinda yalniz yukaridaki izinli salt-okunur `ze
 kullan; baska bir komut icin onay iste veya `inconclusive` don.
 Proje acceptance dogrulamasinda exact source root'u registry'den coz; patch, Git ve dosya
 kanitini yalniz bu gercek kokten salt-okunur al. Kopya, mirror, clone veya worktree olusturma.
+Zekam source rootuna memo, rapor, doğrulama çıktısı veya geçici artifact yazma.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.

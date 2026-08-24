@@ -40,6 +40,10 @@ bir defect olarak kaydedilir.
 
 - Kod mutation'ini project registry'de bagli exact gercek source rootunda yap.
 - Zekam source tree'sinde yalnız aktif Zekam geliştirme işi kapsamında yaz.
+- Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka
+  projenin dosyasını yazma. Yalnız açıkça yetkilendirilmiş tracked kaynak kodu, test,
+  migration ve repository belgesi değişikliği yapılabilir; çalışma çıktısını repo dışındaki
+  kullanıcı artifact/not alanına yaz.
 - Kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma.
 - Absolute path'i portable kayda yazma; logical source binding kullan.
 - Commit ve local branch oluşturma yalnız test ve verifier geçtikten sonra yapılır.

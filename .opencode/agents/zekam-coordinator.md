@@ -90,6 +90,9 @@ Dispatch protokolu:
 - Tum inceleme, Git kaniti, test ve kod degisikliklerini yalniz project registry'de bagli exact
   gercek source rootunda yap. Koordinator veya child cwd'sinde proje/analiz klasoru olusturma;
   kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma.
+- Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka proje
+  dosyası yazdırma. Yalnız yetkili tracked Zekam source/test/migration/belge mutation'ı burada
+  yapılabilir; diğer çıktıları repo dışındaki kullanıcı artifact/not alanına yönlendir.
 - Iki builder'i yalniz yazilabilir logical resource'lari kesismezse ayni dalgaya koy. Ayni
   kaynak, ayni dosya veya belirsiz kaynak sahipliginde sirali calistir.
 - Her child'a tek rol, tek kapsam, bagimlilik, acceptance, kanit ve sonuc sozlesmesi ver.

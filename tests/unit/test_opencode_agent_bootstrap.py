@@ -48,6 +48,9 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         assert isinstance(yaml.safe_load(frontmatter), dict), agent_path.name
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
+    builder = (agents / "zekam-builder.md").read_text(encoding="utf-8")
+    researcher = (agents / "zekam-researcher.md").read_text(encoding="utf-8")
+    verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert "webfetch: allow" in coordinator
     assert '"*": allow' in coordinator
     assert "edit: allow" in coordinator
@@ -62,6 +65,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"git commit *": deny' in coordinator
     assert '"git push *": deny' in coordinator
     assert "detached worktree veya gecici proje klonu olusturma" in coordinator
+    assert "Zekam source rootuna geçici rapor, memo" in coordinator
+    assert "Zekam source rootuna geçici rapor, memo" in builder
+    assert "Zekam source rootuna memo, rapor" in researcher
+    assert "Zekam source rootuna memo, rapor" in verifier
     assert "Dispatch protokolu" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
     assert '"zekam-router": allow' in coordinator
@@ -84,13 +91,11 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
     assert "session.error" in plugin.read_text(encoding="utf-8")
     assert '"--task-label"' in plugin.read_text(encoding="utf-8")
-    verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
     assert '"*": ask' in verifier
     assert '"C:/innova/projeler/**": allow' in verifier
     assert '"zekam project source-root *": allow' in verifier
-    researcher = (agents / "zekam-researcher.md").read_text(encoding="utf-8")
     assert '"C:/innova/projeler/**": allow' in researcher
     assert '"zekam project source-root *": allow' in researcher
     assert '"git -C * log*": allow' in researcher

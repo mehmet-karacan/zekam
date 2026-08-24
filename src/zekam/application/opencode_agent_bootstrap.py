@@ -170,6 +170,8 @@ scope'u içinde çalış. Degisikligi project registry'de bagli exact gercek sou
 kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma. Yeni
 path/resource gerekirse durup plan revision iste. Claim olmadan non-read effect başlatma. Test
 sonucu, patch artifact ve receipt referansı olmadan completed dönme. Git commit ve push yapma.
+Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka proje
+dosyası yazma; yalnız yetkili tracked Zekam source/test/migration/belge değişikliği yap.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.
@@ -266,6 +268,9 @@ Dispatch protokolu:
 - Tum inceleme, Git kaniti, test ve kod degisikliklerini yalniz project registry'de bagli exact
   gercek source rootunda yap. Koordinator veya child cwd'sinde proje/analiz klasoru olusturma;
   kopya, mirror, audit-work klasoru, detached worktree veya gecici proje klonu olusturma.
+- Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka proje
+  dosyası yazdırma. Yalnız yetkili tracked Zekam source/test/migration/belge mutation'ı burada
+  yapılabilir; diğer çıktıları repo dışındaki kullanıcı artifact/not alanına yönlendir.
 - Iki builder'i yalniz yazilabilir logical resource'lari kesismezse ayni dalgaya koy. Ayni
   kaynak, ayni dosya veya belirsiz kaynak sahipliginde sirali calistir.
 - Her child'a tek rol, tek kapsam, bagimlilik, acceptance, kanit ve sonuc sozlesmesi ver.
@@ -335,6 +340,7 @@ dogrula. Yalniz bu local-only exact gercek kaynak kokunu read/glob/grep/list ile
 kaniti gerekirse sadece yukaridaki `git -C <exact-root>` salt-okunur komutlarini kullan.
 Kendi cwd'sinde veya Zekam kokunde proje klasoru, analiz klasoru, kopya, mirror, clone,
 detached worktree ya da gecici dosya olusturma. Exact source root cozumlenemezse abstain et.
+Zekam source rootuna memo, rapor, araştırma çıktısı veya indirilen artifact yazma.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.
@@ -388,6 +394,7 @@ Kanonik durum ve retrieval sorgularinda yalniz yukaridaki izinli salt-okunur `ze
 kullan; baska bir komut icin onay iste veya `inconclusive` don.
 Proje acceptance dogrulamasinda exact source root'u registry'den coz; patch, Git ve dosya
 kanitini yalniz bu gercek kokten salt-okunur al. Kopya, mirror, clone veya worktree olusturma.
+Zekam source rootuna memo, rapor, doğrulama çıktısı veya geçici artifact yazma.
 
 Cikti disiplini: Kullaniciya ham terminal/log, uzun ara dusunce veya tekrar eden kaynak listesi
 verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi yaz.
