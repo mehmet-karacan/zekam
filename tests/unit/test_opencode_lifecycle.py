@@ -8,8 +8,10 @@ import pytest
 
 from zekam.application.opencode_lifecycle import (
     SCHEMA_V1,
+    lifecycle_client_instance_id,
     lifecycle_root,
     recent_events,
+    record_canonical_ack,
     record_event,
     resume_projection,
 )
@@ -294,6 +296,34 @@ def test_legacy_v1_event_remains_readable(tmp_path) -> None:
     )
 
     assert recent_events(tmp_path)[0]["event_id"] == "legacy-event"
+
+
+def test_client_instance_and_canonical_ack_are_durable(tmp_path) -> None:
+    first = lifecycle_client_instance_id(tmp_path)
+    second = lifecycle_client_instance_id(tmp_path)
+    local_digest = digest("local-event")
+    record_canonical_ack(
+        tmp_path,
+        {
+            "event_id": "event-1",
+            "local_event_digest": local_digest,
+            "canonical_digest": digest("canonical-event"),
+            "acknowledged_at": NOW.isoformat(),
+        },
+    )
+
+    assert first == second
+    ack = lifecycle_root(tmp_path) / "acked" / f"{local_digest.removeprefix('sha256:')}.json"
+    assert json.loads(ack.read_text(encoding="utf-8"))["event_id"] == "event-1"
+
+
+def test_invalid_persisted_client_instance_is_rejected(tmp_path) -> None:
+    root = lifecycle_root(tmp_path)
+    root.mkdir(parents=True)
+    (root / "client-instance-id").write_text("   ", encoding="utf-8")
+
+    with pytest.raises(ValidationFailed, match="client_instance_id"):
+        lifecycle_client_instance_id(tmp_path)
 
 
 def test_concurrent_writers_allocate_unique_contiguous_sequences(tmp_path) -> None:

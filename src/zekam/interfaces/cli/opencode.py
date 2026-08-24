@@ -9,9 +9,17 @@ import typer
 from rich.console import Console
 
 from zekam.application.home import resolve_home
-from zekam.application.opencode_lifecycle import record_event, resume_projection
+from zekam.application.opencode_lifecycle import (
+    lifecycle_client_instance_id,
+    oldest_unacknowledged_events,
+    record_canonical_ack,
+    record_event,
+    resume_projection,
+)
 from zekam.domain.errors import ZekamError
-from zekam.interfaces.cli.session import HOME_HELP, fail_from
+from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
+from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
 
 app = typer.Typer(name="opencode", help="OpenCode lifecycle ve continuity koprusu")
 console = Console()
@@ -63,3 +71,37 @@ def resume_command(
 ) -> None:
     """Model-bagimsiz OpenCode kesinti ozetini yazar."""
     console.print_json(json.dumps(resume_projection(resolve_home(home)), ensure_ascii=False))
+
+
+@app.command("forward")
+def forward_command(
+    limit: Annotated[int, typer.Option("--limit", min=1, max=500)] = 80,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Yerel v2 lifecycle olaylarini canonical PostgreSQL'e idempotent iletir."""
+    resolved_home = resolve_home(home)
+    events = list(oldest_unacknowledged_events(resolved_home, limit=limit))
+    acknowledgements: list[dict[str, str]] = []
+    try:
+        with RealmSession(home, realm) as context:
+            repository = ClientLifecycleRepository(context.connection, context.realm_id)
+            instance_id = lifecycle_client_instance_id(resolved_home)
+            for event in events:
+                document = repository.ingest(event, client_instance_id=instance_id).as_dict()
+                record_canonical_ack(resolved_home, document)
+                acknowledgements.append(document)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(
+        json.dumps(
+            {
+                "status": "acknowledged",
+                "forwarded": len(acknowledgements),
+                "canonical_ack_digests": [
+                    item["canonical_digest"] for item in acknowledgements
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )

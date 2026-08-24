@@ -8,11 +8,12 @@ import os
 import re
 import tempfile
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.identifiers import new_uuid7
 
@@ -38,6 +39,47 @@ _ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|(?:^|\s)/(?:Users|home|root|etc|
 
 def lifecycle_root(home: Path) -> Path:
     return home / "global" / "runtime" / "opencode-lifecycle"
+
+
+def lifecycle_client_instance_id(home: Path) -> str:
+    """Makine-yerel, secret olmayan kalici OpenCode instance kimligi."""
+    root = lifecycle_root(home)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "client-instance-id"
+    if path.is_file():
+        return _bounded(path.read_text(encoding="utf-8"), label="client_instance_id") or ""
+    value = f"opencode-{new_uuid7()}"
+    descriptor, temporary = tempfile.mkstemp(prefix=".client-instance-", dir=root)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+            output.write(value + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        with suppress(FileExistsError):
+            os.link(temporary, path)
+        return path.read_text(encoding="utf-8").strip()
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def record_canonical_ack(home: Path, ack: dict[str, str]) -> None:
+    """Canonical ACK receipt'ini local spool retention bilgisi olarak yazar."""
+    root = lifecycle_root(home) / "acked"
+    root.mkdir(parents=True, exist_ok=True)
+    local_digest = ack["local_event_digest"]
+    parse_digest(local_digest)
+    name = local_digest.removeprefix("sha256:") + ".json"
+    content = json.dumps(ack, ensure_ascii=False, sort_keys=True) + "\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=".ack-", dir=root)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        Path(temporary).replace(root / name)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def _bounded(value: str | None, *, label: str, maximum: int = 160) -> str | None:
@@ -456,4 +498,38 @@ def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
         return ()
     events = _verified_events(root, quarantine_invalid=True)
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]), reverse=True)
+    return tuple(events[:limit])
+
+
+def oldest_unacknowledged_events(
+    home: Path, *, limit: int = 80
+) -> tuple[dict[str, Any], ...]:
+    """Return the oldest local v2 chain prefix that lacks a durable canonical ACK."""
+
+    if limit < 1 or limit > 500:
+        raise ValidationFailed("OpenCode lifecycle forward limiti 1..500 olmali")
+    root = lifecycle_root(home)
+    if not root.is_dir():
+        return ()
+    acknowledged: set[str] = set()
+    ack_root = root / "acked"
+    if ack_root.is_dir():
+        for path in ack_root.glob("*.json"):
+            try:
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+                local_digest = str(receipt["local_event_digest"])
+                parse_digest(local_digest)
+                parse_digest(str(receipt["canonical_digest"]))
+            except (OSError, KeyError, TypeError, ValueError, ValidationFailed):
+                continue
+            acknowledged.add(local_digest)
+    events = [
+        event
+        for event in _verified_events(root, quarantine_invalid=True)
+        if event.get("schema") == SCHEMA
+        and str(event["event_digest"]) not in acknowledged
+    ]
+    # Sequence is the authority for each session chain. Session id provides a stable
+    # grouping so a backlog larger than one CLI batch always starts at its oldest head.
+    events.sort(key=lambda item: (str(item["session_id"]), int(item["sequence"])))
     return tuple(events[:limit])

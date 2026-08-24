@@ -56,13 +56,13 @@ class RealmSession:
 
     def __exit__(
         self,
-        _exc_type: type[BaseException] | None,
+        exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        _traceback: TracebackType | None,
+        traceback: TracebackType | None,
     ) -> None:
-        # Alt cizgi oneki bilincli: protokol bu parametreleri dayatir, kapanis
-        # icin gerekli olan tek sey `exc` ve o da ExitStack tarafindan ele alinir.
-        self._stack.close()
+        # Exception bilgisini connection context'ine iletmek transaction rollback'i icin
+        # zorunludur. ``close()`` her cikisi basarili gibi gosterip kismi commit uretebilir.
+        self._stack.__exit__(exc_type, exc, traceback)
 
 
 def sqlite_repository(home: str | None, realm: str) -> SQLitePersistence | None:
