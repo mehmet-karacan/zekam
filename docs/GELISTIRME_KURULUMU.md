@@ -635,8 +635,10 @@ Kurallar:
   olamaz. Failure dersi en az iki bağımsız gözlem ister.
 - Mevcut bilgi sessizce ezilmez: supersession eski içeriği korur, ilişki kurar.
   İçerik/sınıf/kapsam değiştirilemez (sütun yetkisi + trigger); kayıt silinemez.
-- Arama exact/FTS/vektör/varlık/zaman bileşenlerini birleştirir ve **her sonucun
-  gerekçesini** taşır.
+- Arama knowledge ile aynı `RetrievalService` çekirdeğinde exact/FTS/vektör
+  kanallarını RRF ve opsiyonel reranker ile birleştirir; tek trace biçimi taşır.
+  Bellek adapterı scope/review/geçerlilik filtresini kanal `LIMIT`lerinden önce
+  uygular; varlık ve zaman gerekçeleri sonuç açıklamasında korunur.
 - Hijyen salt okunurdur; otomatik silme yoktur.
 - Mem0 opsiyonel adaptördür ve otorite değildir: drift durumunda native kayıt
   geçerlidir, senkron hatası native kaydı etkilemez.

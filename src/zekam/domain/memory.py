@@ -354,8 +354,16 @@ class MemoryQuery:
             return False
         if record.key.is_ephemeral:
             return False
-        if record.key.scope is MemoryScope.PROJECT and not self.allow_cross_project:
-            return record.key.project_ref == self.key.project_ref
+        if record.key.scope is MemoryScope.PROJECT:
+            return self.allow_cross_project or record.key.project_ref == self.key.project_ref
+        if record.key.scope is MemoryScope.WORK_ITEM:
+            # Cross-project izni proje bellegini genisletebilir; baska bir isin
+            # ozel bellegine gecis yetkisi vermez.
+            return (
+                self.key.scope is MemoryScope.WORK_ITEM
+                and record.key.project_ref == self.key.project_ref
+                and record.key.work_ref == self.key.work_ref
+            )
         return True
 
 

@@ -29,6 +29,7 @@ from zekam.domain.memory import (
     SyncState,
     supersede,
 )
+from zekam.domain.retrieval import FusedHit
 
 NOW = dt.datetime(2026, 8, 21, tzinfo=dt.UTC)
 EVIDENCE = (MemoryEvidence(kind="test", reference="tests/x.py", digest_value=digest("e")),)
@@ -255,6 +256,81 @@ def test_temporal_sorgu_gecerliligi_uygular() -> None:
     )
     query = MemoryQuery(text="migration", key=_key(), at=NOW)
     assert NativeMemoryEngine().search(query, records=[expired], now=NOW) == ()
+
+
+def test_ortak_core_uygunsuz_yuksek_sirali_adaylari_once_filtreler() -> None:
+    allowed = _record(memory_id="allowed", content="izinli sonuc")
+    foreign = tuple(
+        _record(memory_id=f"foreign-{index}", key=_key(project="baska-proje"))
+        for index in range(20)
+    )
+    vector_ranks = {
+        **{record.memory_id: index for index, record in enumerate(foreign, start=1)},
+        "allowed": 21,
+    }
+    query = MemoryQuery(text="vektor sorgusu", key=_key(), limit=1)
+
+    hits, trace = NativeMemoryEngine().search_with_trace(
+        query, records=(*foreign, allowed), vector_ranks=vector_ranks, now=NOW
+    )
+
+    assert [hit.record.memory_id for hit in hits] == ["allowed"]
+    assert trace.source_type == "memory"
+    assert trace.per_channel["dense"] == 1
+    assert "ortak RRF" in " ".join(hits[0].reasons)
+
+
+def test_work_item_bellegi_kardes_ise_sizmaz() -> None:
+    sibling_key = MemoryKey(
+        scope=MemoryScope.WORK_ITEM,
+        realm_ref="varsayilan",
+        project_ref="zekam",
+        work_ref="W-2",
+    )
+    sibling = _record(key=sibling_key)
+    query = MemoryQuery(text="Migration", key=_key(MemoryScope.WORK_ITEM))
+    assert NativeMemoryEngine().search(query, records=[sibling], now=NOW) == ()
+
+
+def test_memory_reranker_hatasi_ortak_fusion_sirasina_doner() -> None:
+    def broken(query: str, hits: tuple[FusedHit, ...]) -> tuple[FusedHit, ...]:
+        raise RuntimeError("reranker unavailable")
+
+    record = _record(memory_id="m-rerank")
+    query = MemoryQuery(text="Migration", key=_key())
+    hits, trace = NativeMemoryEngine(reranker=broken).search_with_trace(
+        query, records=[record], lexical_hits=frozenset({record.memory_id}), now=NOW
+    )
+    assert [hit.record.memory_id for hit in hits] == ["m-rerank"]
+    assert trace.reranker_failed is True
+
+
+def test_exact_memory_sonucu_reranker_ile_asagi_dusmez() -> None:
+    exact = _record(memory_id="exact", content="SKYRSM-5661 task detayi")
+    dense_only = _record(memory_id="dense", content="baska bir kayit")
+
+    def reverse(query: str, hits: tuple[FusedHit, ...]) -> tuple[FusedHit, ...]:
+        return tuple(reversed(hits))
+
+    query = MemoryQuery(text="SKYRSM-5661", key=_key())
+    hits, trace = NativeMemoryEngine(reranker=reverse).search_with_trace(
+        query,
+        records=[exact, dense_only],
+        vector_ranks={"dense": 1, "exact": 2},
+        now=NOW,
+    )
+    assert [hit.record.memory_id for hit in hits] == ["exact", "dense"]
+    assert trace.reranker_used is True
+    assert set(trace.as_dict()) == {
+        "source_type",
+        "identifiers",
+        "per_channel",
+        "fused_count",
+        "after_dedupe",
+        "reranker_used",
+        "reranker_failed",
+        "dropped_for_budget",
+    }
 
 
 # -- T05: hijyen --------------------------------------------------------------

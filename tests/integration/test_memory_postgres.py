@@ -257,6 +257,107 @@ def test_fts_ve_vektor_arama_calisir(realm_session: tuple[Any, Any], tmp_path: P
     assert any("FTS" in reason for reason in hits[0].reasons)
 
 
+def test_retrieval_sql_scope_filtresini_limitten_once_uygular(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    allowed_repo = _repository(connection, realm, tmp_path)
+    foreign_source = tmp_path / "foreign-source"
+    foreign_source.mkdir()
+    foreign_project = ProjectIntegrationService(connection, realm).register(
+        source_path=foreign_source
+    )
+    foreign_repo = MemoryRepository(
+        connection,
+        realm.id,
+        "varsayilan",
+        foreign_project.id,
+        foreign_project.slug,
+    )
+    engine = NativeMemoryEngine()
+    allowed = engine.write(
+        _candidate("ortak arama terimi izinli", candidate_id="z-allowed"),
+        now=NOW,
+        memory_id="z-allowed",
+    )
+    allowed_id = allowed_repo.store_record(allowed)
+    allowed_repo.store_embedding(allowed_id, PROFILE, _vector(99), now=NOW)
+
+    foreign_key = MemoryKey(
+        scope=MemoryScope.PROJECT,
+        realm_ref="varsayilan",
+        project_ref=foreign_project.slug,
+    )
+    for index in range(20):
+        foreign = engine.write(
+            _candidate(
+                f"ortak arama terimi yabanci {index}",
+                candidate_id=f"a-foreign-{index:02d}",
+                key=foreign_key,
+            ),
+            now=NOW,
+            memory_id=f"a-foreign-{index:02d}",
+        )
+        foreign_id = foreign_repo.store_record(foreign)
+        foreign_repo.store_embedding(foreign_id, PROFILE, _vector(index + 1), now=NOW)
+
+    query = MemoryQuery(text="ortak arama terimi", key=_key(), limit=1)
+    exact = allowed_repo.retrieval_exact_ranks(query.text, query, at=NOW, limit=1)
+    lexical = allowed_repo.retrieval_lexical_ranks(query.text, query, at=NOW, limit=1)
+    dense = allowed_repo.retrieval_vector_ranks(_vector(99), PROFILE, query, at=NOW, limit=1)
+    candidate_ids = tuple(dict.fromkeys((*exact, *lexical, *dense)))
+    records = allowed_repo.retrieval_records_by_ids(candidate_ids, query, at=NOW)
+
+    assert [record.memory_id for record in records] == ["z-allowed"]
+    assert exact == {"z-allowed": 1}
+    assert lexical == {"z-allowed": 1}
+    assert dense == {"z-allowed": 1}
+    hits, trace = engine.search_with_trace(
+        query, records=records, lexical_ranks=lexical, vector_ranks=dense, now=NOW
+    )
+    assert [hit.record.memory_id for hit in hits] == ["z-allowed"]
+    assert trace.source_type == "memory"
+
+
+def test_retrieval_eski_ilgili_kaydi_corpus_on_limitiyle_dislamaz(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    repository = _repository(connection, realm, tmp_path)
+    engine = NativeMemoryEngine()
+    old_time = NOW - dt.timedelta(days=1)
+    exact = engine.write(
+        _candidate("SKYRSM-5661", candidate_id="old-exact"),
+        now=old_time,
+        memory_id="old-exact",
+    )
+    repository.store_record(exact)
+    for index in range(201):
+        irrelevant = engine.write(
+            _candidate(
+                f"yeni fakat ilgisiz kayit {index}",
+                candidate_id=f"new-{index:03d}",
+            ),
+            now=NOW,
+            memory_id=f"new-{index:03d}",
+        )
+        repository.store_record(irrelevant)
+
+    query = MemoryQuery(text="SKYRSM-5661 task detaylarini getir", key=_key(), limit=1)
+    exact_ranks = repository.retrieval_exact_ranks(query.text, query, at=NOW, limit=1)
+    lexical_ranks = repository.retrieval_lexical_ranks(query.text, query, at=NOW, limit=1)
+    candidate_ids = tuple(dict.fromkeys((*exact_ranks, *lexical_ranks)))
+    records = repository.retrieval_records_by_ids(candidate_ids, query, at=NOW)
+    hits, trace = engine.search_with_trace(
+        query, records=records, lexical_ranks=lexical_ranks, now=NOW
+    )
+
+    assert exact_ranks == {"old-exact": 1}
+    assert lexical_ranks == {}
+    assert [hit.record.memory_id for hit in hits] == ["old-exact"]
+    assert trace.per_channel == {"exact": 1, "lexical": 0, "dense": 0}
+
+
 def test_temporal_sorgu_gecerli_kayitlari_dondurur(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:

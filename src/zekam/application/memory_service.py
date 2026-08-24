@@ -12,6 +12,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from zekam.application.memory_retrieval_adapter import MemoryRetrievalAdapter
+from zekam.application.retrieval_service import Reranker, RetrievalService, RetrievalTrace
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.memory import (
@@ -101,6 +103,7 @@ class NativeMemoryEngine:
 
     gate: PromotionGate = field(default_factory=PromotionGate)
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
+    reranker: Reranker | None = None
 
     def write(
         self,
@@ -134,50 +137,75 @@ class NativeMemoryEngine:
         *,
         records: Sequence[MemoryRecord],
         lexical_hits: frozenset[str] = frozenset(),
+        lexical_ranks: dict[str, int] | None = None,
         vector_ranks: dict[str, int] | None = None,
         now: dt.datetime | None = None,
     ) -> tuple[MemoryHit, ...]:
-        """Exact, FTS, vektor, varlik ve zaman bilesenlerini birlestirir.
+        """Ortak retrieval core'u ile arar; eski sonuc sozlesmesini korur."""
 
-        Her sonucun **neden secildigi** gorunur; skor tek basina yeterli degildir.
-        """
+        hits, _ = self.search_with_trace(
+            query,
+            records=records,
+            lexical_hits=lexical_hits,
+            lexical_ranks=lexical_ranks,
+            vector_ranks=vector_ranks,
+            now=now,
+        )
+        return hits
+
+    def search_with_trace(
+        self,
+        query: MemoryQuery,
+        *,
+        records: Sequence[MemoryRecord],
+        lexical_hits: frozenset[str] = frozenset(),
+        lexical_ranks: dict[str, int] | None = None,
+        vector_ranks: dict[str, int] | None = None,
+        now: dt.datetime | None = None,
+    ) -> tuple[tuple[MemoryHit, ...], RetrievalTrace]:
+        """Scope/review/gecerlilik filtresinden sonra tek ortak core'u calistirir."""
 
         moment = now or dt.datetime.now(dt.UTC)
-        ranks = vector_ranks or {}
-        hits: list[MemoryHit] = []
-        for record in records:
-            if record.state is not MemoryState.ACTIVE:
-                continue
-            if not query.permits(record):
-                continue
-            if query.at is not None and not record.is_valid_at(query.at):
-                continue
+        effective_at = query.at or moment
+        # Guvenlik filtresi candidate generation'dan once uygulanir. Adapter
+        # baska realm, kapsam, state veya gecersiz review kaydini hic gormez.
+        eligible = tuple(
+            record
+            for record in records
+            if record.state is MemoryState.ACTIVE
+            and query.permits(record)
+            and record.is_valid_at(effective_at)
+        )
+        by_id = {record.memory_id: record for record in eligible}
+        adapter = MemoryRetrievalAdapter(
+            records=eligible,
+            query_text=query.text,
+            query_entities=query.entities,
+            lexical_hits=lexical_hits,
+            lexical_ranks=lexical_ranks,
+            vector_ranks=vector_ranks,
+        )
+        fused, trace = RetrievalService(adapter, reranker=self.reranker, limit=query.limit).search(
+            query.text
+        )
 
-            score = 0.0
-            reasons: list[str] = []
-            if query.text and query.text.lower() in record.content.lower():
-                score += 1.0
-                reasons.append("exact metin eslesmesi")
-            if record.memory_id in lexical_hits:
-                score += 0.6
+        results: list[MemoryHit] = []
+        for fused_hit in fused[: query.limit]:
+            record = by_id[fused_hit.chunk_id]
+            reasons = [f"ortak RRF skoru {fused_hit.score:.6f}"]
+            if fused_hit.exact_match:
+                reasons.append("exact metin veya varlik eslesmesi")
+            if any(str(channel) == "lexical" for channel in fused_hit.channels):
                 reasons.append("FTS eslesmesi")
-            rank = ranks.get(record.memory_id)
-            if rank is not None:
-                score += 1.0 / (1 + rank)
-                reasons.append(f"vektor sirasi {rank}")
+            if any(str(channel) == "dense" for channel in fused_hit.channels):
+                source_rank = (vector_ranks or {}).get(record.memory_id)
+                reasons.append(f"vektor sirasi {source_rank}")
             shared = set(query.entities) & set(record.entities)
             if shared:
-                score += 0.4 * len(shared)
                 reasons.append(f"varlik eslesmesi: {', '.join(sorted(shared))}")
-            if record.is_valid_at(moment):
-                score += 0.2
-                reasons.append("zaman araliginda gecerli")
-
-            if reasons:
-                hits.append(MemoryHit(record=record, score=score, reasons=tuple(reasons)))
-
-        hits.sort(key=lambda item: (-item.score, item.record.memory_id))
-        return tuple(hits[: query.limit])
+            reasons.append("zaman araliginda gecerli")
+            results.append(MemoryHit(record=record, score=fused_hit.score, reasons=tuple(reasons)))
+        return tuple(results), trace
 
     def hygiene(
         self,

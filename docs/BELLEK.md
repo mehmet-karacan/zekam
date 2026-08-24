@@ -76,9 +76,15 @@ aralığı temporal sorguyu bozar, bu yüzden açık hata verilir.
 
 ## Hibrit arama ve açıklama
 
-Bileşenler: exact metin, PostgreSQL FTS, pgvector sırası, varlık eşleşmesi ve
-zaman geçerliliği. Her sonuç **neden seçildiğini** taşır; gerekçesiz sonuç
-döndürülmez.
+Bellek ve bilgi kaynakları aynı `RetrievalService` çekirdeğini kullanır:
+exact + lexical + dense adayları RRF ile birleşir, opsiyonel reranker aynı
+fail-safe kuralları uygular ve tek `RetrievalTrace` biçimi üretilir. Kaynak türü
+yalnız ince bir adapterdır; ayrı bir skor/fusion politikası tanımlayamaz.
+
+Bellek scope, state, bağımsız review ve zaman geçerliliği filtreleri exact, FTS
+ve pgvector aday üretimi ile `LIMIT` işleminden **önce** uygulanır. Böylece başka
+proje/iş veya stale kayıtlar izinli sonucu aday kümesinden dışarı itemez. Her
+sonuç ortak RRF gerekçesi ile exact/FTS/vektör/varlık/zaman açıklamasını taşır.
 
 ## Hijyen
 

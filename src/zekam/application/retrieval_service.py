@@ -32,7 +32,11 @@ Reranker = Callable[[str, tuple[FusedHit, ...]], tuple[FusedHit, ...]]
 
 
 class SearchBackend(Protocol):
-    """Kanal aramalarini saglayan altyapi."""
+    """Kaynak turune ozel aday ureten ince adapter sozlesmesi.
+
+    Siralama, fusion ve rerank bu adapterda degil ``RetrievalService`` icinde
+    kalir. Adapter yalniz kendi corpus'unda uc kanalin adaylarini uretir.
+    """
 
     def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]: ...
 
@@ -63,10 +67,12 @@ class RetrievalTrace:
     after_dedupe: int
     reranker_used: bool
     reranker_failed: bool
+    source_type: str = "knowledge"
     dropped_for_budget: tuple[str, ...] = field(default_factory=tuple)
 
     def as_lines(self) -> tuple[str, ...]:
         lines = [
+            f"kaynak turu: {self.source_type}",
             f"exact kimlik: {', '.join(self.identifiers) or '-'}",
             "kanal sonuclari: "
             + ", ".join(f"{name}={count}" for name, count in sorted(self.per_channel.items())),
@@ -82,6 +88,7 @@ class RetrievalTrace:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "source_type": self.source_type,
             "identifiers": list(self.identifiers),
             "per_channel": dict(self.per_channel),
             "fused_count": self.fused_count,
@@ -103,8 +110,10 @@ class RetrievalService:
     def search(self, query: str) -> tuple[tuple[FusedHit, ...], RetrievalTrace]:
         identifiers = extract_identifiers(query)
         channels: dict[RetrievalChannel, tuple[ScoredHit, ...]] = {}
-        if identifiers:
-            channels[RetrievalChannel.EXACT] = self.backend.exact(identifiers, limit=self.limit)
+        # Exact kanal her zaman cagrilir. Knowledge adapteri teknik kimlik yoksa
+        # bos doner; memory gibi adapterlar exact metin/tag eslesmesini de
+        # uygulayabilir. Boylece kaynak turu core akisini degistiremez.
+        channels[RetrievalChannel.EXACT] = self.backend.exact(identifiers, limit=self.limit)
         channels[RetrievalChannel.LEXICAL] = self.backend.lexical(query, limit=self.limit)
         channels[RetrievalChannel.DENSE] = self.backend.dense(query, limit=self.limit)
 
@@ -114,6 +123,7 @@ class RetrievalService:
         reranked, used, failed = self._rerank(query, fused)
         trace = RetrievalTrace(
             identifiers=identifiers,
+            source_type=str(getattr(self.backend, "source_type", "knowledge")),
             per_channel={str(name): len(hits) for name, hits in channels.items()},
             fused_count=len(fused),
             after_dedupe=len(reranked),
@@ -198,6 +208,7 @@ class RetrievalService:
 
         explanation = RetrievalTrace(
             identifiers=trace.identifiers,
+            source_type=trace.source_type,
             per_channel=trace.per_channel,
             fused_count=trace.fused_count,
             after_dedupe=len(unique),

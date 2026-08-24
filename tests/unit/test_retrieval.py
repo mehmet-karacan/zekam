@@ -470,3 +470,4 @@ def test_trace_aciklamasi_kanallari_gosterir() -> None:
     assert "ZEKAM-P12" in lines
     assert "dense=3" in lines
     assert "fusion sonrasi: 4" in lines
+    assert trace.as_dict()["source_type"] == "knowledge"
