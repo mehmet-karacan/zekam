@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import signal
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -453,16 +453,20 @@ def build_worker(
     settings: WorkerSettings,
     handlers: dict[str, Handler] | None = None,
     with_scheduler: bool = True,
+    allow_empty_handlers: bool = False,
 ) -> Worker:
     """Worker'i kanonik baglantilarla kurar."""
 
+    resolved_handlers = dict(handlers or {})
+    if not resolved_handlers and not allow_empty_handlers:
+        raise PolicyViolation("Worker en az bir explicit handler ile baslatilmali")
     host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
     gateway = SchedulerGateway(connection, realm_id) if with_scheduler else None
     return Worker(
         host=host,
         settings=settings,
         scheduler=gateway,
-        handlers=dict(handlers or {}),
+        handlers=resolved_handlers,
     )
 
 
@@ -473,16 +477,22 @@ def default_capabilities() -> tuple[str, ...]:
 
 
 def noop_handler(work: ClaimedWork) -> str:
-    """Yan etkisi olmayan varsayilan isleyici.
+    """Yalniz test ve kontrollu tanilama icin yan etkisiz isleyici.
 
-    Gercek isleyici baglanana kadar is guvenle tamamlanir ve sonucu digest'lenir;
-    sessiz basarisizlik veya sahte basari uretilmez.
+    Production handler registry'sine otomatik baglanmaz. Cagiran taraf bunu
+    acikca enjekte etmedikce bir isi basarili gostermek icin kullanilamaz.
     """
 
     return digest({"job": str(work.job.id), "handled_by": "noop"})
 
 
-def resolve_handlers(names: Sequence[str]) -> dict[str, Handler]:
-    """Verilen is turleri icin varsayilan isleyicileri baglar."""
+def resolve_handlers(
+    names: Sequence[str], *, registry: Mapping[str, Handler] | None = None
+) -> dict[str, Handler]:
+    """Istenen is turlerini explicit registry'den fail-closed cozer."""
 
-    return dict.fromkeys(names, noop_handler)
+    available = dict(registry or {})
+    missing = sorted({name for name in names if name not in available})
+    if missing:
+        raise PolicyViolation(f"Worker handler tanimsiz: {', '.join(missing)}")
+    return {name: available[name] for name in names}

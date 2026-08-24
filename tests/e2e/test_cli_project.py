@@ -126,6 +126,37 @@ def test_add_then_list_shows_project(
     assert "gpu projesi" in rows[0]["aliases"]
 
 
+def test_source_root_returns_exact_bound_real_directory_without_copy(
+    cli_home: Path, source_project: Path, realm_flags: list[str]
+) -> None:
+    _add(cli_home, realm_flags, source_project, "--slug", "gpu", "--alias", "gpu projesi")
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "source-root",
+            "gpu projesi",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert Path(document["source_root"]) == source_project.resolve()
+    assert document["scope"] == "local-only"
+    assert document["project_copy"] is False
+    assert document["detached_worktree"] is False
+    assert document["grants_authority"] is False
+
+    fuzzy = runner.invoke(
+        app,
+        ["project", "source-root", "gpu proj", "--home", str(cli_home), *realm_flags],
+    )
+    assert fuzzy.exit_code != 0
+    assert "belirsiz proje" in (fuzzy.stdout + fuzzy.stderr).casefold()
+
+
 def test_remove_is_dry_run_then_archives_without_deleting_source(
     cli_home: Path, source_project: Path, realm_flags: list[str]
 ) -> None:

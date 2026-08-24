@@ -138,7 +138,8 @@ def tick_command(
                 realm_context.connection,
                 realm_context.realm_id,
                 settings=_settings(label, 1, 2.0),
-                handlers=resolve_handlers([str(item) for item in JobKind]),
+                handlers=(resolve_handlers([str(item) for item in JobKind]) if apply else {}),
+                allow_empty_handlers=not apply,
             )
             result = worker.tick(now=_now()) if apply else worker.plan(now=_now())
     except ZekamError as exc:

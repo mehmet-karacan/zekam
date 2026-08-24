@@ -15,6 +15,7 @@ import pytest
 
 from zekam.application.memory_service import NativeMemoryEngine, ReviewDecision
 from zekam.application.project_integration import ProjectIntegrationService
+from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
 from zekam.domain.memory import (
     MemoryCandidate,
@@ -25,6 +26,7 @@ from zekam.domain.memory import (
     MemoryScope,
     MemoryState,
 )
+from zekam.domain.work import WorkType
 from zekam.infrastructure.postgres.memory_repository import MemoryRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -45,6 +47,30 @@ def _repository(connection: Any, realm: Any, tmp_path: Path) -> MemoryRepository
     source.mkdir()
     project = ProjectIntegrationService(connection, realm).register(source_path=source)
     return MemoryRepository(connection, realm.id, "varsayilan", project.id, "zekam")
+
+
+def _work_repository(
+    connection: Any, realm: Any, tmp_path: Path, *, external_number: str
+) -> tuple[MemoryRepository, Any]:
+    source = tmp_path / external_number.lower()
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    work = WorkGraphService(connection, realm).create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title=f"Bellek {external_number}",
+        external_number=external_number,
+    )
+    repository = MemoryRepository(
+        connection,
+        realm.id,
+        "varsayilan",
+        project.id,
+        project.slug,
+        work.id,
+        external_number,
+    )
+    return repository, work
 
 
 def _key(project: str = "zekam") -> MemoryKey:
@@ -82,6 +108,122 @@ def test_aday_ve_kayit_kalicilasir(realm_session: tuple[Any, Any], tmp_path: Pat
     assert active[0].state is MemoryState.ACTIVE
 
 
+def test_work_item_scope_storage_ve_logical_kimlikleri_ayirir(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    repository, work = _work_repository(connection, realm, tmp_path, external_number="MEM-101")
+    key = MemoryKey(
+        scope=MemoryScope.WORK_ITEM,
+        realm_ref="varsayilan",
+        project_ref=repository.project_ref,
+        work_ref="MEM-101",
+    )
+    candidate = _candidate("Is kapsamli kalici ders", candidate_id="candidate-logical", key=key)
+    candidate_storage_id = repository.store_candidate(candidate)
+    record = NativeMemoryEngine().write(candidate, now=NOW, memory_id="memory-logical")
+    record_storage_id = repository.store_record(record)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select logical_candidate_id, project_id, work_item_id, project_ref, work_ref"
+            " from memory.candidate where id = %s",
+            (candidate_storage_id,),
+        )
+        assert cursor.fetchone() == (
+            "candidate-logical",
+            repository.project_id,
+            work.id,
+            repository.project_ref,
+            "MEM-101",
+        )
+        cursor.execute(
+            "select logical_memory_id, project_id, work_item_id, project_ref, work_ref"
+            " from memory.record where id = %s",
+            (record_storage_id,),
+        )
+        assert cursor.fetchone() == (
+            "memory-logical",
+            repository.project_id,
+            work.id,
+            repository.project_ref,
+            "MEM-101",
+        )
+
+    hydrated = repository.active_records()[0]
+    assert hydrated.memory_id == "memory-logical"
+    assert hydrated.key.work_ref == "MEM-101"
+    assert hydrated.record_digest == record.record_digest
+
+
+def test_ayni_icerik_farkli_work_item_kapsamlarinda_aktif_olabilir(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    source = tmp_path / "ortak-proje"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    work_service = WorkGraphService(connection, realm)
+    first_work = work_service.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Ilk bellek isi",
+        external_number="MEM-201",
+    )
+    second_work = work_service.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Ikinci bellek isi",
+        external_number="MEM-202",
+    )
+    first_repo = MemoryRepository(
+        connection, realm.id, "varsayilan", project.id, project.slug, first_work.id, "MEM-201"
+    )
+    second_repo = MemoryRepository(
+        connection, realm.id, "varsayilan", project.id, project.slug, second_work.id, "MEM-202"
+    )
+
+    def record_for(repository: MemoryRepository, logical_id: str) -> Any:
+        key = MemoryKey(
+            scope=MemoryScope.WORK_ITEM,
+            realm_ref="varsayilan",
+            project_ref=repository.project_ref,
+            work_ref=repository.work_ref,
+        )
+        candidate = _candidate(
+            "Iki iste de gecerli ortak ders",
+            candidate_id=f"candidate-{logical_id}",
+            key=key,
+        )
+        return NativeMemoryEngine().write(candidate, now=NOW, memory_id=logical_id)
+
+    first_repo.store_record(record_for(first_repo, "memory-201"))
+    second_repo.store_record(record_for(second_repo, "memory-202"))
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select count(*) from memory.record"
+            " where realm_id = %s and content = 'Iki iste de gecerli ortak ders'",
+            (realm.id,),
+        )
+        assert cursor.fetchone()[0] == 2
+
+
+def test_repository_work_scope_binding_driftini_reddeder(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    repository, _ = _work_repository(connection, realm, tmp_path, external_number="MEM-301")
+    wrong_key = MemoryKey(
+        scope=MemoryScope.WORK_ITEM,
+        realm_ref="varsayilan",
+        project_ref=repository.project_ref,
+        work_ref="MEM-BASKA",
+    )
+    with pytest.raises(Exception, match="logical is binding"):
+        repository.store_candidate(_candidate("Yanlis is", key=wrong_key))
+
+
 def test_fts_ve_vektor_arama_calisir(realm_session: tuple[Any, Any], tmp_path: Path) -> None:
     realm, connection = realm_session
     repository = _repository(connection, realm, tmp_path)
@@ -97,11 +239,11 @@ def test_fts_ve_vektor_arama_calisir(realm_session: tuple[Any, Any], tmp_path: P
     repository.store_embedding(second_id, PROFILE, _vector(2), now=NOW)
 
     lexical = repository.lexical_search("pgvector")
-    assert first.record_digest in lexical
-    assert second.record_digest not in lexical
+    assert first.memory_id in lexical
+    assert second.memory_id not in lexical
 
     ranks = repository.vector_ranks(_vector(1), PROFILE)
-    assert ranks[first.record_digest] == 1
+    assert ranks[first.memory_id] == 1
 
     hits = engine.search(
         MemoryQuery(text="pgvector", key=_key()),
@@ -146,6 +288,10 @@ def test_supersede_iliski_kurar_ve_icerigi_korur(
     successor_id = repository.store_record(successor)
     repository.supersede(original_id, successor_id, now=later)
 
+    hydrated_original = repository.get_by_logical_id(original.memory_id)
+    assert hydrated_original.memory_id == original.memory_id
+    assert hydrated_original.superseded_by == successor.memory_id
+
     with connection.cursor() as cursor:
         cursor.execute(
             "select state, superseded_by, content from memory.record where id = %s",
@@ -166,15 +312,15 @@ def test_kanitsiz_kayit_veritabanina_yazilamaz(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     realm, connection = realm_session
-    _repository(connection, realm, tmp_path)
+    repository = _repository(connection, realm, tmp_path)
     with pytest.raises(psycopg.errors.CheckViolation), connection.cursor() as cursor:
         cursor.execute(
             "insert into memory.record"
-            " (id, realm_id, scope, memory_class, content, state, revision, evidence,"
-            "  record_digest, created_at)"
-            " values (gen_random_uuid(), %s, 'project', 'episodic', 'metin', 'active', 1,"
-            "  '[]'::jsonb, %s, now())",
-            (realm.id, digest("r")),
+            " (id, realm_id, logical_memory_id, scope, project_id, project_ref, memory_class,"
+            "  content, state, revision, evidence, record_digest, created_at)"
+            " values (gen_random_uuid(), %s, 'negative-no-evidence', 'project', %s, %s,"
+            "  'episodic', 'metin', 'active', 1, '[]'::jsonb, %s, now())",
+            (realm.id, repository.project_id, repository.project_ref, digest("r")),
         )
     connection.rollback()
 
@@ -183,15 +329,22 @@ def test_review_olmadan_semantic_kayit_yazilamaz(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     realm, connection = realm_session
-    _repository(connection, realm, tmp_path)
+    repository = _repository(connection, realm, tmp_path)
     with pytest.raises(psycopg.errors.CheckViolation), connection.cursor() as cursor:
         cursor.execute(
             "insert into memory.record"
-            " (id, realm_id, scope, memory_class, content, state, revision, evidence,"
-            "  author_ref, reviewed_by, record_digest, created_at)"
-            " values (gen_random_uuid(), %s, 'project', 'semantic', 'metin', 'active', 1,"
-            "  %s::jsonb, 'agent-a', 'agent-a', %s, now())",
-            (realm.id, '[{"kind": "test"}]', digest("r2")),
+            " (id, realm_id, logical_memory_id, scope, project_id, project_ref, memory_class,"
+            "  content, state, revision, evidence, author_ref, reviewed_by, record_digest,"
+            "  created_at) values (gen_random_uuid(), %s, 'negative-review', 'project', %s,"
+            "  %s, 'semantic', 'metin', 'active', 1, %s::jsonb, 'agent-a', 'agent-a', %s,"
+            "  now())",
+            (
+                realm.id,
+                repository.project_id,
+                repository.project_ref,
+                '[{"kind": "test"}]',
+                digest("r2"),
+            ),
         )
     connection.rollback()
 
@@ -202,9 +355,10 @@ def test_gecici_kapsam_aktif_kayit_yazamaz(realm_session: tuple[Any, Any], tmp_p
     with pytest.raises(psycopg.errors.CheckViolation), connection.cursor() as cursor:
         cursor.execute(
             "insert into memory.record"
-            " (id, realm_id, scope, memory_class, content, state, revision, evidence,"
-            "  record_digest, created_at)"
-            " values (gen_random_uuid(), %s, 'agent', 'episodic', 'metin', 'active', 1,"
+            " (id, realm_id, logical_memory_id, scope, memory_class, content, state, revision,"
+            "  evidence, record_digest, created_at)"
+            " values (gen_random_uuid(), %s, 'negative-agent', 'agent', 'episodic', 'metin',"
+            "  'active', 1,"
             "  %s::jsonb, %s, now())",
             (realm.id, '[{"kind": "test"}]', digest("r3")),
         )
@@ -213,15 +367,15 @@ def test_gecici_kapsam_aktif_kayit_yazamaz(realm_session: tuple[Any, Any], tmp_p
 
 def test_bellek_authority_alani_zorlanir(realm_session: tuple[Any, Any], tmp_path: Path) -> None:
     realm, connection = realm_session
-    _repository(connection, realm, tmp_path)
+    repository = _repository(connection, realm, tmp_path)
     with pytest.raises(psycopg.errors.CheckViolation), connection.cursor() as cursor:
         cursor.execute(
             "insert into memory.record"
-            " (id, realm_id, scope, memory_class, content, state, revision, evidence,"
-            "  record_digest, grants_authority, created_at)"
-            " values (gen_random_uuid(), %s, 'project', 'episodic', 'metin', 'candidate', 1,"
-            "  '[]'::jsonb, %s, true, now())",
-            (realm.id, digest("r4")),
+            " (id, realm_id, logical_memory_id, scope, project_id, project_ref, memory_class,"
+            "  content, state, revision, evidence, record_digest, grants_authority, created_at)"
+            " values (gen_random_uuid(), %s, 'negative-authority', 'project', %s, %s,"
+            "  'episodic', 'metin', 'candidate', 1, '[]'::jsonb, %s, true, now())",
+            (realm.id, repository.project_id, repository.project_ref, digest("r4")),
         )
     connection.rollback()
 

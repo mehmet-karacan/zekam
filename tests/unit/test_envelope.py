@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from uuid import uuid4
 
 import pytest
 
 from zekam.domain.envelope import (
     ENVELOPE_SCHEMA,
+    ENVELOPE_SCHEMA_V1,
     AgentResultEnvelope,
     AgentRole,
     EnvelopeEvidence,
@@ -82,6 +84,17 @@ def test_result_digest_changes_with_status() -> None:
     assert completed.result_digest != partial.result_digest
 
 
+@pytest.mark.parametrize("field", ["token_count", "cost_micros", "latency_ms"])
+def test_result_digest_binds_measurements(field: str) -> None:
+    assert _envelope(**{field: 1}).result_digest != _envelope(**{field: 2}).result_digest
+
+
+def test_result_digest_binds_produced_at() -> None:
+    first = dt.datetime(2026, 8, 24, 10, tzinfo=dt.UTC)
+    second = first + dt.timedelta(seconds=1)
+    assert _envelope(now=first).result_digest != _envelope(now=second).result_digest
+
+
 # -- ayristirma ----------------------------------------------------------------------
 
 
@@ -90,6 +103,51 @@ def test_valid_document_is_parsed() -> None:
     parsed = parse_envelope(document)
     assert parsed.agent_id == "builder-1"
     assert parsed.status is EnvelopeStatus.COMPLETED
+    assert parsed.produced_at.isoformat().replace("+00:00", "Z") == document["produced_at"]
+
+
+def test_tampered_measurement_is_rejected() -> None:
+    document = _envelope(token_count=1).as_dict()
+    document["token_count"] = 2
+    with pytest.raises(ValidationFailed, match="result_digest"):
+        parse_envelope(document)
+
+
+def test_fake_supplied_digest_is_rejected() -> None:
+    document = _envelope().as_dict()
+    document["result_digest"] = "sha256:" + "f" * 64
+    with pytest.raises(ValidationFailed, match="result_digest"):
+        parse_envelope(document)
+
+
+@pytest.mark.parametrize("field", ["result_digest", "produced_at"])
+def test_v2_integrity_field_is_required(field: str) -> None:
+    document = _envelope().as_dict()
+    del document[field]
+    with pytest.raises(ValidationFailed, match="zorunlu alanlari eksik"):
+        parse_envelope(document)
+
+
+def test_naive_produced_at_is_rejected() -> None:
+    document = _envelope().as_dict()
+    document["produced_at"] = "2026-08-24T10:00:00"
+    with pytest.raises(ValidationFailed, match="timezone"):
+        parse_envelope(document)
+
+
+def test_v1_document_is_verified_with_legacy_projection() -> None:
+    legacy = AgentResultEnvelope(
+        schema=ENVELOPE_SCHEMA_V1,
+        agent_id="legacy-builder",
+        role=AgentRole.BUILDER,
+        status=EnvelopeStatus.COMPLETED,
+        summary="eski sonuc",
+        evidence=EVIDENCE,
+        token_count=10,
+    )
+    parsed = parse_envelope(legacy.as_dict())
+    assert parsed.schema == ENVELOPE_SCHEMA_V1
+    assert parsed.token_count == 10
 
 
 def test_missing_required_field_is_rejected() -> None:
@@ -126,7 +184,7 @@ def test_free_text_is_not_an_envelope() -> None:
 
 
 def test_schema_constant_is_versioned() -> None:
-    assert ENVELOPE_SCHEMA.endswith("/v1")
+    assert ENVELOPE_SCHEMA.endswith("/v2")
 
 
 # -- fan-in ---------------------------------------------------------------------------

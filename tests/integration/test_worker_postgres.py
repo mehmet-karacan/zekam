@@ -113,26 +113,29 @@ def test_bos_kuyrukta_is_alinmaz(realm_session: tuple[Any, Any], tmp_path: Path)
     realm, connection = realm_session
     _project(connection, realm, tmp_path)
     worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=False
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=False,
+        allow_empty_handlers=True,
     )
     result = worker.tick(now=NOW)
     assert result.accepted_work is False
     assert result.skipped_reason == "kuyruk bos"
 
 
-def test_isleyicisi_olmayan_is_basarisiz_olur(
+def test_isleyicisi_olmayan_worker_baslamaz(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     """Sessiz basari uretilmez; isleyici yoksa is failed olur."""
 
     realm, connection = realm_session
-    project = _project(connection, realm, tmp_path)
-    worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=False
-    )
-    worker.host.jobs.enqueue(_job(project.id, realm))
-    result = worker.tick(now=NOW)
-    assert result.outcome is AttemptOutcome.FAILED
+    _project(connection, realm, tmp_path)
+    with pytest.raises(PolicyViolation, match="explicit handler"):
+        build_worker(
+            connection, realm.id, settings=_settings(), handlers={}, with_scheduler=False
+        )
 
 
 def test_isleyici_hatasi_terminal_duruma_cevrilir(
@@ -192,6 +195,7 @@ def test_kuyruk_dolunca_is_alinmaz(realm_session: tuple[Any, Any], tmp_path: Pat
         settings=_settings(max_queue_depth=5),
         handlers={},
         with_scheduler=False,
+        allow_empty_handlers=True,
     )
     result = worker.tick(now=NOW, queue_depth=5)
     assert result.accepted_work is False
@@ -202,7 +206,12 @@ def test_zamanlanmis_is_tetiklenir_ve_kalicilasir(realm_session: tuple[Any, Any]
     realm, connection = realm_session
     definition_id = _definition(connection, realm, "model-health")
     worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=True
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
     )
 
     result = worker.tick(now=NOW)
@@ -226,7 +235,12 @@ def test_ayni_tetikleme_ikinci_dongude_tekrarlanmaz(realm_session: tuple[Any, An
     realm, connection = realm_session
     definition_id = _definition(connection, realm, "memory-hygiene", interval="1h")
     worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=True
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
     )
 
     first = worker.tick(now=NOW)
@@ -251,7 +265,12 @@ def test_duraklatilmis_tanim_tetiklenmez(realm_session: tuple[Any, Any]) -> None
             "update ops.job_definition set state = 'paused' where id = %s", (definition_id,)
         )
     worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=True
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
     )
     assert worker.tick(now=NOW).triggered_jobs == ()
 
@@ -269,7 +288,12 @@ def test_kacirilan_calisma_olay_olarak_kaydedilir(realm_session: tuple[Any, Any]
         last_run_at=NOW - dt.timedelta(hours=6),
     )
     worker = build_worker(
-        connection, realm.id, settings=_settings(), handlers={}, with_scheduler=True
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
     )
     result = worker.tick(now=NOW)
     assert result.triggered_jobs == ()
@@ -310,7 +334,9 @@ def test_zarif_kapanma_dongusu_durdurur(realm_session: tuple[Any, Any], tmp_path
         connection,
         realm.id,
         settings=_settings(max_iterations=None),
-        handlers=resolve_handlers([str(JobKind.READ_ONLY)]),
+        handlers=resolve_handlers(
+            [str(JobKind.READ_ONLY)], registry={str(JobKind.READ_ONLY): noop_handler}
+        ),
         with_scheduler=False,
     )
     worker.shutdown = ShutdownSignal()

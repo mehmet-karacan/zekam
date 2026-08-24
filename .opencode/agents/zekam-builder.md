@@ -4,11 +4,31 @@ mode: subagent
 permission:
   edit: allow
   bash:
-    "*": allow
+    "*": ask
+    "git -C * status*": allow
+    "git -C * log*": allow
+    "git -C * show*": allow
+    "git -C * diff*": allow
+    "git -C * branch --show-current*": allow
+    "git -C * rev-parse*": allow
+    "pytest *": allow
+    "python -m pytest *": allow
+    "npm --prefix * test*": allow
+    "npm --prefix * run lint*": allow
+    "mvn -f * test*": allow
+    "gradle -p * test*": allow
+    "gradlew -p * test*": allow
     "*git commit*": deny
     "*git push*": deny
+    "*git clone*": deny
+    "*git worktree add*": deny
+    "*Copy-Item*": deny
+    "*robocopy*": deny
+    "*xcopy*": deny
   webfetch: deny
-  external_directory: allow
+  external_directory:
+    "*": deny
+    "C:/innova/projeler/**": allow
   task: deny
 ---
 Yalnız exact Task Plan step'i, logical resource lock'u, current lease/fence ve authorization

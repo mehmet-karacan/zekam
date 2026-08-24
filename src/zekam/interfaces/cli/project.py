@@ -4,7 +4,7 @@ Kurallar:
 
 - Harici kaynak koku hicbir komutta yazilmaz.
 - `add`, `remove`, `restore`, `rebind` ve `scan` mutation'dir; `--uygula` olmadan plan yazar.
-- `list`, `show`, `resolve` ve `resume` salt okunurdur ve onay istemez.
+- `list`, `show`, `source-root`, `resolve` ve `resume` salt okunurdur ve onay istemez.
 """
 
 from __future__ import annotations
@@ -862,6 +862,30 @@ def show_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@app.command("source-root")
+def source_root_command(
+    query: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Registry'de bagli bu makineye ozel exact gercek kaynak kokunu cozer."""
+    try:
+        with RealmSession(home, realm) as realm_context:
+            project_id = _resolve_exact_project_id(realm_context, query)
+            root = _service(realm_context).resolve_source_root(project_id)
+            document = {
+                "project_id": str(project_id),
+                "source_root": str(root),
+                "scope": "local-only",
+                "project_copy": False,
+                "detached_worktree": False,
+                "grants_authority": False,
+            }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False))
 
 
 @app.command("scan")

@@ -13,6 +13,7 @@ Sozlesme (`harness/SUBAGENT_VE_RESULT_ENVELOPE.md`):
 from __future__ import annotations
 
 import datetime as dt
+import hmac
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -22,7 +23,10 @@ from uuid import UUID
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
-ENVELOPE_SCHEMA = "zekam-agent-result-envelope/v1"
+ENVELOPE_SCHEMA_V1 = "zekam-agent-result-envelope/v1"
+ENVELOPE_SCHEMA_V2 = "zekam-agent-result-envelope/v2"
+ENVELOPE_SCHEMA = ENVELOPE_SCHEMA_V2
+SUPPORTED_ENVELOPE_SCHEMAS = frozenset({ENVELOPE_SCHEMA_V1, ENVELOPE_SCHEMA_V2})
 
 
 class EnvelopeStatus(StrEnum):
@@ -117,7 +121,7 @@ class AgentResultEnvelope:
     produced_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
 
     def __post_init__(self) -> None:
-        if self.schema != ENVELOPE_SCHEMA:
+        if self.schema not in SUPPORTED_ENVELOPE_SCHEMAS:
             raise ValidationFailed(f"Desteklenmeyen envelope semasi: {self.schema}")
         if not self.agent_id.strip():
             raise ValidationFailed("Agent kimligi bos olamaz")
@@ -129,6 +133,10 @@ class AgentResultEnvelope:
             raise ValidationFailed("Blocked envelope blocker aciklamasi tasimali")
         if self.token_count < 0 or self.cost_micros < 0 or self.latency_ms < 0:
             raise ValidationFailed("Olcumler negatif olamaz")
+        if self.produced_at.tzinfo is None or self.produced_at.tzinfo.utcoffset(
+            self.produced_at
+        ) is None:
+            raise ValidationFailed("Envelope produced_at timezone tasimali")
 
     @classmethod
     def create(
@@ -168,7 +176,7 @@ class AgentResultEnvelope:
         return self.status in SUCCESS_STATUSES
 
     def body(self) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "schema": self.schema,
             "agent_id": self.agent_id,
             "role": self.role.value,
@@ -179,18 +187,46 @@ class AgentResultEnvelope:
             "blockers": list(self.blockers),
             "produced_resources": list(self.produced_resources),
         }
+        if self.schema == ENVELOPE_SCHEMA_V2:
+            body.update(
+                {
+                    "token_count": self.token_count,
+                    "cost_micros": self.cost_micros,
+                    "latency_ms": self.latency_ms,
+                    "produced_at": self.produced_at.astimezone(dt.UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                }
+            )
+        return body
 
     @property
     def result_digest(self) -> str:
         return digest(self.body())
 
     def as_dict(self) -> dict[str, Any]:
-        return self.body() | {
-            "result_digest": self.result_digest,
-            "token_count": self.token_count,
-            "cost_micros": self.cost_micros,
-            "latency_ms": self.latency_ms,
-        }
+        document = self.body() | {"result_digest": self.result_digest}
+        if self.schema == ENVELOPE_SCHEMA_V1:
+            document.update(
+                {
+                    "token_count": self.token_count,
+                    "cost_micros": self.cost_micros,
+                    "latency_ms": self.latency_ms,
+                }
+            )
+        return document
+
+
+def _parse_produced_at(value: Any) -> dt.datetime:
+    if not isinstance(value, str):
+        raise ValidationFailed("Envelope produced_at RFC3339 metni olmali")
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationFailed("Envelope produced_at gecersiz") from exc
+    if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+        raise ValidationFailed("Envelope produced_at timezone tasimali")
+    return parsed
 
 
 def parse_envelope(document: dict[str, Any]) -> AgentResultEnvelope:
@@ -201,7 +237,12 @@ def parse_envelope(document: dict[str, Any]) -> AgentResultEnvelope:
     """
     if not isinstance(document, dict):
         raise ValidationFailed("Envelope bir sozluk olmali")
-    required = {"schema", "agent_id", "role", "status", "summary"}
+    required = {"schema", "agent_id", "role", "status", "summary", "result_digest"}
+    schema = document.get("schema")
+    if schema == ENVELOPE_SCHEMA_V2:
+        required |= {"token_count", "cost_micros", "latency_ms", "produced_at"}
+    elif schema != ENVELOPE_SCHEMA_V1:
+        raise ValidationFailed(f"Desteklenmeyen envelope semasi: {schema}")
     missing = required - set(document)
     if missing:
         raise ValidationFailed(f"Envelope zorunlu alanlari eksik: {sorted(missing)}")
@@ -215,6 +256,7 @@ def parse_envelope(document: dict[str, Any]) -> AgentResultEnvelope:
             "token_count",
             "cost_micros",
             "latency_ms",
+            "produced_at",
             "result_digest",
         }
     )
@@ -235,7 +277,7 @@ def parse_envelope(document: dict[str, Any]) -> AgentResultEnvelope:
         )
         for item in document.get("evidence", [])
     )
-    return AgentResultEnvelope(
+    envelope = AgentResultEnvelope(
         schema=str(document["schema"]),
         agent_id=str(document["agent_id"]),
         role=role,
@@ -248,7 +290,17 @@ def parse_envelope(document: dict[str, Any]) -> AgentResultEnvelope:
         token_count=int(document.get("token_count", 0)),
         cost_micros=int(document.get("cost_micros", 0)),
         latency_ms=int(document.get("latency_ms", 0)),
+        produced_at=(
+            _parse_produced_at(document["produced_at"])
+            if schema == ENVELOPE_SCHEMA_V2
+            else dt.datetime.now(dt.UTC)
+        ),
     )
+    supplied_digest = str(document["result_digest"])
+    parse_digest(supplied_digest)
+    if not hmac.compare_digest(supplied_digest, envelope.result_digest):
+        raise ValidationFailed("Envelope result_digest canonical body ile uyusmuyor")
+    return envelope
 
 
 @dataclass(frozen=True, slots=True)

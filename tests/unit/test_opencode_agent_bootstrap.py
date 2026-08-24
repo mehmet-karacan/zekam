@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from zekam.application.opencode_agent_bootstrap import (
     DEFAULT_AGENT,
@@ -41,16 +42,23 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         "zekam-router.md",
         "zekam-verifier.md",
     } <= installed
+    for agent_path in agents.glob("*.md"):
+        body = agent_path.read_text(encoding="utf-8")
+        frontmatter = body.split("---", 2)[1]
+        assert isinstance(yaml.safe_load(frontmatter), dict), agent_path.name
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     assert "webfetch: allow" in coordinator
     assert '"*": allow' in coordinator
     assert "edit: allow" in coordinator
-    assert "external_directory: allow" in coordinator
+    assert '"C:/innova/projeler/**": allow' in coordinator
     assert '"zekam-builder": allow' in coordinator
     assert "tekrar onay istemeden" in coordinator
     assert '"*git commit*": deny' in coordinator
     assert '"*git push*": deny' in coordinator
+    assert '"*git clone*": deny' in coordinator
+    assert '"*git worktree add*": deny' in coordinator
+    assert '"*Copy-Item*": deny' in coordinator
     assert '"git commit *": deny' in coordinator
     assert '"git push *": deny' in coordinator
     assert "detached worktree veya gecici proje klonu olusturma" in coordinator
@@ -58,6 +66,8 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
     assert '"zekam-router": allow' in coordinator
     assert '"zekam-implementer-*": allow' in coordinator
+    assert "zekam project source-root" in coordinator
+    assert "Tum inceleme, Git kaniti, test ve kod degisikliklerini" in coordinator
     model_agents = [name for name in installed if name.startswith("zekam-implementer-")]
     assert model_agents
     model_agent = (agents / model_agents[0]).read_text(encoding="utf-8")
@@ -65,8 +75,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "hidden: true" in model_agent
     assert "canonical_model_id=" in model_agent
     assert "edit: allow" in model_agent
-    assert "external_directory: allow" in model_agent
+    assert '"C:/innova/projeler/**": allow' in model_agent
     assert '"*git commit*": deny' in model_agent
+    assert '"*git clone*": deny' in model_agent
+    assert '"*git worktree add*": deny' in model_agent
     plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
     assert plugin.is_file()
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
@@ -76,6 +88,13 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
     assert '"*": ask' in verifier
+    assert '"C:/innova/projeler/**": allow' in verifier
+    assert '"zekam project source-root *": allow' in verifier
+    researcher = (agents / "zekam-researcher.md").read_text(encoding="utf-8")
+    assert '"C:/innova/projeler/**": allow' in researcher
+    assert '"zekam project source-root *": allow' in researcher
+    assert '"git -C * log*": allow' in researcher
+    assert "kopya, mirror, clone" in researcher
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
     assert repeat.agents_to_update == ()
@@ -127,10 +146,14 @@ def test_repository_policy_allows_tools_but_denies_commit_and_push() -> None:
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
     permission = config["permission"]
     assert permission["edit"] == "allow"
-    assert permission["external_directory"] == "allow"
-    assert permission["bash"]["*"] == "allow"
+    assert permission["external_directory"]["*"] == "deny"
+    assert permission["external_directory"]["C:/innova/projeler/**"] == "allow"
+    assert permission["bash"]["*"] == "ask"
     assert permission["bash"]["*git commit*"] == "deny"
     assert permission["bash"]["*git push*"] == "deny"
+    assert permission["bash"]["*git clone*"] == "deny"
+    assert permission["bash"]["*git worktree add*"] == "deny"
+    assert permission["bash"]["*Copy-Item*"] == "deny"
 
     manifest = (root / "PROJE_MANIFESTI.yaml").read_text(encoding="utf-8")
     assert "mutation_workspace: exact-bound-real-source-root" in manifest
