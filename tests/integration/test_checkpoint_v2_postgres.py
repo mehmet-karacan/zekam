@@ -744,6 +744,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
     )
     assert prepared.disposition.value == "recovery-required"
     assert prepared.checkpoint_id == first.checkpoint_id
+    assert prepared.sandbox == common["sandbox"]
     assert prepared.reconciliation_actions[0].claim_id == claim_two
     assert prepared.reacquire_resources == ()
     assert prepared.actions[0].kind == "reconcile-effect"

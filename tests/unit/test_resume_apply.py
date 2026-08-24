@@ -14,6 +14,7 @@ import zekam.application.resume_apply_service as apply_module
 from zekam.application.resume_apply_service import ResumeApplyService
 from zekam.domain.agents import AssignmentStatus
 from zekam.domain.canonical import digest
+from zekam.domain.checkpoint_v2 import SandboxBindingV2, SandboxDisposition
 from zekam.domain.clients import ClientDescriptor, ClientKind
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.resume import (
@@ -159,6 +160,106 @@ def test_stale_revalidation_consumes_no_authority_and_never_dispatches(
     assert governance.authorization_reads == 0
     assert governance.consumptions == 0
     assert adapter.calls == 0
+
+
+def test_dirty_sandbox_live_guard_olmadan_apply_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    now = dt.datetime(2026, 8, 24, tzinfo=dt.UTC)
+    dirty = SandboxBindingV2(
+        SandboxDisposition.DIRTY,
+        "workspace-1",
+        "revision-1",
+        digest("patch"),
+        digest("dirty-state"),
+    )
+    original = plan(now, sandbox=dirty)
+    repository_calls = {"create": 0}
+
+    class Repository:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def lock_work(self, _: UUID) -> None:
+            pass
+
+        def find_exact(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def create(self, *_: Any, **__: Any) -> None:
+            repository_calls["create"] += 1
+
+    class Coordinator:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def prepare(self, *_: Any, **__: Any) -> ResumePlan:
+            return original
+
+    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
+    request = ResumeApplyRequest(
+        original, original.plan_digest, uid(11), uid(12), "worker", ("database.write",)
+    )
+    with pytest.raises(PolicyViolation, match="sandbox live binding guard"):
+        ResumeApplyService(Connection(), Governance(), EnvironmentGuard()).apply(  # type: ignore[arg-type]
+            request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now
+        )
+    assert repository_calls["create"] == 0
+
+
+def test_dirty_sandbox_live_guard_drifti_effectten_once_reddeder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    now = dt.datetime(2026, 8, 24, tzinfo=dt.UTC)
+    dirty = SandboxBindingV2(
+        SandboxDisposition.DIRTY,
+        "workspace-1",
+        "revision-1",
+        digest("patch"),
+        digest("dirty-state"),
+    )
+    original = plan(now, sandbox=dirty)
+    calls: list[SandboxBindingV2] = []
+
+    class Repository:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def lock_work(self, _: UUID) -> None:
+            pass
+
+        def find_exact(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def create(self, *_: Any, **__: Any) -> None:
+            raise AssertionError("sandbox drift apply kaydi uretmemeli")
+
+    class Coordinator:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def prepare(self, *_: Any, **__: Any) -> ResumePlan:
+            return original
+
+    class RejectingGuard:
+        def assert_checkpoint_binding(self, binding: SandboxBindingV2) -> None:
+            calls.append(binding)
+            raise PolicyViolation("resume sandbox patch veya dirty state drift")
+
+        def hold_checkpoint_binding(self, binding: SandboxBindingV2):  # type: ignore[no-untyped-def]
+            return nullcontext()
+
+    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
+    request = ResumeApplyRequest(
+        original, original.plan_digest, uid(11), uid(12), "worker", ("database.write",)
+    )
+    with pytest.raises(PolicyViolation, match="dirty state drift"):
+        ResumeApplyService(
+            Connection(), Governance(), EnvironmentGuard(), sandbox_binding_guard=RejectingGuard()
+        ).apply(request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now)
+    assert calls == [dirty]
 
 
 def test_expired_or_non_continue_plan_stops_before_database_and_dispatch(tmp_path: Path) -> None:

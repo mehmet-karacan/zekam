@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
-from zekam.domain.checkpoint_v2 import OpenEffect, Resumability, StaleDigestBindings
+from zekam.domain.checkpoint_v2 import (
+    OpenEffect,
+    Resumability,
+    SandboxBindingV2,
+    SandboxDisposition,
+    StaleDigestBindings,
+)
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
 
@@ -177,6 +183,9 @@ class ResumeObservation:
     context_recipe: str | None
     observed_at: dt.datetime
     valid_until: dt.datetime
+    sandbox: SandboxBindingV2 = field(
+        default_factory=lambda: SandboxBindingV2(SandboxDisposition.NOT_APPLICABLE)
+    )
     legacy_limited: bool = False
 
     def __post_init__(self) -> None:
@@ -217,6 +226,9 @@ class ResumePlan:
     blockers: tuple[str, ...]
     observed_at: dt.datetime
     valid_until: dt.datetime
+    sandbox: SandboxBindingV2 = field(
+        default_factory=lambda: SandboxBindingV2(SandboxDisposition.NOT_APPLICABLE)
+    )
     grants_authority: bool = False
     carries_active_lease: bool = False
     approval_inherited: bool = False
@@ -258,6 +270,7 @@ class ResumePlan:
                 "read": list(self.logical_read_resources),
                 "write": list(self.logical_write_resources),
             },
+            "sandbox": self.sandbox.body(),
             "runtime": self.runtime.body() | {"snapshot_digest": self.runtime.snapshot_digest},
             "target_client_id": self.target_client_id,
             "next_step_id": self.next_step_id,

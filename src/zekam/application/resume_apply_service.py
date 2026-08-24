@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from zekam.application.agent_dispatch import CanonicalAgentDispatchService
 from zekam.application.environment_snapshot_service import EnvironmentEffectGuard
@@ -14,6 +15,7 @@ from zekam.application.governance import EffectRequest, GovernanceService
 from zekam.application.resume_coordinator import ResumeCoordinator
 from zekam.domain.agents import AgentInvocation, AssignmentStatus
 from zekam.domain.canonical import digest
+from zekam.domain.checkpoint_v2 import SandboxBindingV2, SandboxDisposition
 from zekam.domain.clients import DispatchRequest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.identifiers import new_uuid7
@@ -53,6 +55,14 @@ def _result(plan_digest: str, event: ResumeApplyEvent) -> ResumeApplyResult:
     )
 
 
+class SandboxBindingGuard(Protocol):
+    def assert_checkpoint_binding(self, binding: SandboxBindingV2) -> None: ...
+
+    def hold_checkpoint_binding(
+        self, binding: SandboxBindingV2
+    ) -> AbstractContextManager[None]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ResumeApplyService:
     """Revalidate, consume one-shot authority, reacquire and dispatch exactly once."""
@@ -60,6 +70,7 @@ class ResumeApplyService:
     connection: Any
     governance: GovernanceService
     environment_guard: EnvironmentEffectGuard | None = None
+    sandbox_binding_guard: SandboxBindingGuard | None = None
 
     def apply(
         self,
@@ -121,6 +132,10 @@ class ResumeApplyService:
             )
             if fresh.plan_digest != request.supplied_plan_digest:
                 raise PolicyViolation("Resume apply exact plan revalidation drift")
+            if plan.sandbox.disposition is not SandboxDisposition.NOT_APPLICABLE:
+                if self.sandbox_binding_guard is None:
+                    raise PolicyViolation("Resume apply sandbox live binding guard ister")
+                self.sandbox_binding_guard.assert_checkpoint_binding(plan.sandbox)
             if self.environment_guard is None:
                 raise PolicyViolation("Resume apply live environment force probe ister")
             self.environment_guard.assert_envelope_current(
@@ -174,6 +189,10 @@ class ResumeApplyService:
                 or not assignment.is_child
             ):
                 raise PolicyViolation("Resume apply assignment scope/state drift")
+            if plan.sandbox.disposition is not SandboxDisposition.NOT_APPLICABLE:
+                if self.sandbox_binding_guard is None:
+                    raise PolicyViolation("Resume apply sandbox live binding guard ister")
+                self.sandbox_binding_guard.assert_checkpoint_binding(plan.sandbox)
 
             invocation_id = new_uuid7(now=moment)
             execution_identity = (
@@ -258,14 +277,25 @@ class ResumeApplyService:
         with self.connection.transaction():
             repository.append_event(dispatched_event)
 
+        guard_context: AbstractContextManager[None] = nullcontext()
+        live_sandbox_guard = self.sandbox_binding_guard
+        if plan.sandbox.disposition is not SandboxDisposition.NOT_APPLICABLE:
+            if live_sandbox_guard is None:
+                raise PolicyViolation("Resume apply sandbox live binding guard ister")
+            guard_context = live_sandbox_guard.hold_checkpoint_binding(plan.sandbox)
         try:
-            dispatch = CanonicalAgentDispatchService(assignments).dispatch(
-                assignment,
-                invocation,
-                adapter,
-                cwd=cwd,
-                timeout_seconds=timeout_seconds,
-            )
+            with guard_context:
+                if plan.sandbox.disposition is not SandboxDisposition.NOT_APPLICABLE:
+                    if live_sandbox_guard is None:
+                        raise PolicyViolation("Resume apply sandbox live binding guard ister")
+                    live_sandbox_guard.assert_checkpoint_binding(plan.sandbox)
+                dispatch = CanonicalAgentDispatchService(assignments).dispatch(
+                    assignment,
+                    invocation,
+                    adapter,
+                    cwd=cwd,
+                    timeout_seconds=timeout_seconds,
+                )
         except Exception as dispatch_error:
             recovery_event = ResumeApplyEvent(
                 apply_id=apply_id,

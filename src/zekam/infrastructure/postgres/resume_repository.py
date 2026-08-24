@@ -13,6 +13,8 @@ from zekam.domain.checkpoint_v2 import (
     OpenEffect,
     OpenEffectState,
     Resumability,
+    SandboxBindingV2,
+    SandboxDisposition,
     StaleDigestBindings,
 )
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
@@ -80,7 +82,9 @@ class ResumeRepository:
                 " c.logical_read_resources,c.logical_write_resources,c.job_id,c.attempt_id,"
                 " work.validate_checkpoint_v2(c.realm_id,c.id),rd.role,c.run_id,c.assignment_id,"
                 " c.execution_envelope_id,c.execution_envelope_digest,c.observed_lease_id,"
-                " c.observed_fencing_token,j.state,l.expires_at,r.deadline,et.expires_at"
+                " c.observed_fencing_token,j.state,l.expires_at,r.deadline,et.expires_at,"
+                " c.sandbox_disposition,c.sandbox_id,c.base_revision,c.patch_digest,"
+                " c.dirty_state_digest"
                 " from work.checkpoint_v2 c"
                 " join models.model_route_decision rd on rd.realm_id=c.realm_id"
                 " and rd.id=c.route_decision_id"
@@ -303,6 +307,9 @@ class ResumeRepository:
                 context_recipe=f"resume:{client_id.strip().lower()}:{row[28]}",
                 observed_at=moment,
                 valid_until=valid_until,
+                sandbox=SandboxBindingV2(
+                    SandboxDisposition(str(row[39])), row[40], row[41], row[42], row[43]
+                ),
             )
 
     def snapshot_digest(self, observation: ResumeObservation) -> str:
@@ -314,6 +321,7 @@ class ResumeRepository:
                 "checkpoint_digest": observation.checkpoint_digest,
                 "current_plan_digest": observation.current_plan_digest,
                 "current_bindings": observation.current_bindings.body(),
+                "sandbox": observation.sandbox.body(),
                 "observed_at": observation.observed_at,
             }
         )

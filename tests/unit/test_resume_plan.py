@@ -13,6 +13,8 @@ from zekam.domain.checkpoint_v2 import (
     OpenEffect,
     OpenEffectState,
     Resumability,
+    SandboxBindingV2,
+    SandboxDisposition,
     StaleDigestBindings,
 )
 from zekam.domain.errors import PolicyViolation
@@ -215,6 +217,21 @@ def test_every_semantic_drift_changes_plan_digest() -> None:
     changed = prepare(observation(current_plan_id=uid(50), current_plan_digest=digest("new-plan")))
     assert baseline.plan_digest != changed.plan_digest
     assert changed.disposition is ResumeDisposition.SAFE_REPLAN
+
+
+def test_sandbox_binding_resume_planina_exact_tasinir_ve_digest_semantigidir() -> None:
+    dirty = SandboxBindingV2(
+        SandboxDisposition.DIRTY,
+        "workspace-1",
+        "revision-1",
+        digest("patch"),
+        digest("dirty-state"),
+    )
+    baseline = prepare(observation())
+    bound = prepare(observation(sandbox=dirty))
+    assert bound.sandbox == dirty
+    assert bound.body()["sandbox"] == dirty.body()
+    assert bound.plan_digest != baseline.plan_digest
 
 
 def test_observation_clock_and_validity_are_exact_plan_semantics() -> None:

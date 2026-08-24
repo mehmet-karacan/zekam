@@ -237,6 +237,7 @@ class ResumeCoordinator:
             reacquire_resources=reacquire,
             logical_read_resources=observation.logical_read_resources,
             logical_write_resources=observation.logical_write_resources,
+            sandbox=observation.sandbox,
             runtime=observation.runtime,
             target_client_id=observation.target_client_id,
             next_step_id=(

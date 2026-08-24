@@ -7,12 +7,14 @@ authorization ve runtime claim/receipt zincirinden gecer.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from zekam.domain.canonical import digest, digest_of_bytes
+from zekam.domain.canonical import digest
+from zekam.domain.checkpoint_v2 import SandboxBindingV2, SandboxDisposition
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import (
     DeliveryDecision,
@@ -128,11 +130,86 @@ class SandboxDeliveryService:
             workspace_id=workspace.spec.workspace_id,
             base_revision=workspace.worktree.revision,
             changed_paths=changed,
-            patch_digest=digest_of_bytes(patch.encode("utf-8")),
+            patch_digest=self.manager.patch_digest(workspace.worktree),
             created_at=now,
         )
         artifact.assert_within(workspace.spec.policy.allowlist)
         return artifact, patch
+
+    def checkpoint_binding(
+        self,
+        workspace: PreparedWorkspace,
+        *,
+        artifact: PatchArtifact | None = None,
+    ) -> SandboxBindingV2:
+        """Canli bound-source durumunu checkpoint v2 binding'ine derler."""
+
+        current = fingerprint(workspace.worktree.path)
+        if current.head != workspace.worktree.revision:
+            raise PolicyViolation("sandbox checkpoint base revision drift")
+        if not current.dirty:
+            if artifact is not None:
+                raise PolicyViolation("clean sandbox patch artifact tasiyamaz")
+            return SandboxBindingV2(
+                SandboxDisposition.CLEAN,
+                workspace.spec.workspace_id,
+                workspace.worktree.revision,
+            )
+        if artifact is None:
+            raise PolicyViolation("dirty sandbox exact patch artifact ister")
+        if (
+            artifact.workspace_id != workspace.spec.workspace_id
+            or artifact.base_revision != workspace.worktree.revision
+            or artifact.changed_paths != self.manager.changed_paths(workspace.worktree)
+            or artifact.patch_digest != self.manager.patch_digest(workspace.worktree)
+        ):
+            raise PolicyViolation("sandbox checkpoint patch provenance drift")
+        return SandboxBindingV2(
+            SandboxDisposition.DIRTY,
+            workspace.spec.workspace_id,
+            workspace.worktree.revision,
+            artifact.patch_digest,
+            self.manager.dirty_state_digest(workspace.worktree),
+        )
+
+    def assert_checkpoint_binding(self, binding: SandboxBindingV2) -> None:
+        """Resume apply oncesi checkpoint binding'ini canli source-root ile dogrular."""
+
+        if binding.disposition is SandboxDisposition.NOT_APPLICABLE:
+            raise PolicyViolation("bound-source resume sandbox binding ister")
+        if binding.sandbox_id is None or binding.base_revision is None:
+            raise PolicyViolation("resume sandbox identity ve base revision ister")
+        worktree = ManagedWorktree(
+            workspace_id=binding.sandbox_id,
+            path=self.manager.source_root,
+            revision=binding.base_revision,
+        )
+        current = fingerprint(worktree.path)
+        if current.head != binding.base_revision:
+            raise PolicyViolation("resume sandbox base revision drift")
+        if binding.disposition is SandboxDisposition.CLEAN:
+            if current.dirty:
+                raise PolicyViolation("resume clean sandbox dirty state drift")
+            return
+        if (
+            not current.dirty
+            or binding.patch_digest != self.manager.patch_digest(worktree)
+            or binding.dirty_state_digest != self.manager.dirty_state_digest(worktree)
+        ):
+            raise PolicyViolation("resume sandbox patch veya dirty state drift")
+
+    @contextmanager
+    def hold_checkpoint_binding(self, binding: SandboxBindingV2) -> Iterator[None]:
+        """Source-root exclusive lease'i live validation ve effect boyunca tutar."""
+
+        if binding.sandbox_id is None or binding.base_revision is None:
+            raise PolicyViolation("resume sandbox identity ve base revision ister")
+        lease = self.manager.create(binding.sandbox_id, revision=binding.base_revision)
+        try:
+            self.assert_checkpoint_binding(binding)
+            yield
+        finally:
+            self.manager.remove(lease)
 
     def deliver(
         self,
@@ -163,9 +240,14 @@ class SandboxDeliveryService:
         except PolicyViolation as exc:
             outcome, detail = DeliveryOutcome.DRIFTED, str(exc)
         else:
-            apply_ok = bool(patch.strip())
+            apply_ok = (
+                bool(artifact.changed_paths)
+                and patch == self.manager.diff(workspace.worktree)
+                and artifact.patch_digest == self.manager.patch_digest(workspace.worktree)
+                and artifact.changed_paths == self.manager.changed_paths(workspace.worktree)
+            )
             if not apply_ok:
-                outcome, detail = DeliveryOutcome.REJECTED, "degisiklik kaniti bos"
+                outcome, detail = DeliveryOutcome.REJECTED, "degisiklik kaniti drift veya bos"
             elif not tests_passed:
                 outcome, detail = DeliveryOutcome.REJECTED, "bagimsiz test kaniti yok"
 

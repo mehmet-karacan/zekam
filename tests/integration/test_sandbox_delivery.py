@@ -6,13 +6,16 @@ Bu testler gercek source repository ve gercek alt surec kullanir; mock degildir.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from zekam.application.sandbox_delivery import SandboxDeliveryService, default_policy
+from zekam.domain.checkpoint_v2 import SandboxDisposition
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import ProcessSpec, WorkspaceSpec
 from zekam.infrastructure.git.worktree import WorktreeManager, fingerprint
@@ -143,6 +146,78 @@ def test_symlink_kacisi_reddedilir(service: SandboxDeliveryService, source_repo:
         service.discard(workspace)
 
 
+def test_source_icindeki_symlink_bile_yazma_hedefi_olamaz(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    try:
+        (source_repo / "hedef").mkdir()
+        link = source_repo / "src" / "ic-link"
+        try:
+            link.symlink_to(source_repo / "hedef", target_is_directory=True)
+        except OSError:
+            pytest.skip("Windows'ta symlink olusturmak yonetici yetkisi ister")
+        with pytest.raises(PolicyViolation, match="symlink veya reparse"):
+            workspace.resolve_write("src/ic-link/dosya.txt")
+    finally:
+        service.discard(workspace)
+
+
+def test_tracked_degisiklik_symlink_kapisini_atlayamaz(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    try:
+        (source_repo / "hedef").mkdir()
+        link = source_repo / "src" / "tracked-link"
+        try:
+            link.symlink_to(source_repo / "hedef", target_is_directory=True)
+        except OSError:
+            pytest.skip("Windows'ta symlink olusturmak yonetici yetkisi ister")
+        _git(source_repo, "add", "src/tracked-link")
+        with pytest.raises(PolicyViolation, match="symlink veya reparse"):
+            service.build_artifact(workspace, artifact_id="tracked-link", now=NOW)
+    finally:
+        service.discard(workspace)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction/reparse testi")
+def test_windows_junction_reparse_yazma_hedefi_olamaz(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    try:
+        target = source_repo / "junction-hedef"
+        target.mkdir()
+        link = source_repo / "src" / "junction"
+        completed = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            pytest.skip("Windows junction olusturulamadi")
+        with pytest.raises(PolicyViolation, match="symlink veya reparse"):
+            workspace.resolve_write("src/junction/dosya.txt")
+    finally:
+        service.discard(workspace)
+
+
+def test_ayni_source_rootunda_paralel_builder_lease_reddedilir(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    first = service.prepare(_spec(source_repo))
+    try:
+        with pytest.raises(PolicyViolation, match="baska builder"):
+            service.prepare(replace(_spec(source_repo), workspace_id="w-2"))
+    finally:
+        service.discard(first)
+
+    second = service.prepare(replace(_spec(source_repo), workspace_id="w-2"))
+    service.discard(second)
+
+
 def test_stale_revision_ile_workspace_hazirlanmaz(
     service: SandboxDeliveryService, source_repo: Path
 ) -> None:
@@ -258,6 +333,63 @@ def test_yama_uretimi_apply_check_test_ve_receipt_akisi(
         assert (source_repo / "src" / "modul.py").read_text(encoding="utf-8") == "DEGER = 2\n"
     finally:
         service.discard(workspace)
+
+
+def test_checkpoint_binding_canli_patch_base_ve_dirty_statei_dogrular(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    clean = service.checkpoint_binding(workspace)
+    assert clean.disposition is SandboxDisposition.CLEAN
+    service.assert_checkpoint_binding(clean)
+
+    (workspace.worktree.path / "src" / "modul.py").write_text(
+        "DEGER = 20\n", encoding="utf-8", newline="\n"
+    )
+    artifact, _ = service.build_artifact(workspace, artifact_id="checkpoint-patch", now=NOW)
+    dirty = service.checkpoint_binding(workspace, artifact=artifact)
+    assert dirty.disposition is SandboxDisposition.DIRTY
+    assert dirty.base_revision == workspace.worktree.revision
+    assert dirty.patch_digest == artifact.patch_digest
+    assert dirty.dirty_state_digest is not None
+    service.assert_checkpoint_binding(dirty)
+
+    with pytest.raises(PolicyViolation, match="patch provenance drift"):
+        service.checkpoint_binding(
+            workspace, artifact=replace(artifact, patch_digest="sha256:" + "0" * 64)
+        )
+
+    (workspace.worktree.path / "src" / "modul.py").write_text(
+        "DEGER = 21\n", encoding="utf-8", newline="\n"
+    )
+    with pytest.raises(PolicyViolation, match="patch veya dirty state drift"):
+        service.assert_checkpoint_binding(dirty)
+
+
+def test_untracked_icerik_patch_ve_dirty_state_digestine_dahildir(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    new_file = workspace.worktree.path / "src" / "yeni.py"
+    new_file.write_text("DEGER = 1\n", encoding="utf-8", newline="\n")
+    artifact, patch = service.build_artifact(workspace, artifact_id="untracked", now=NOW)
+    assert artifact.changed_paths == ("src/yeni.py",)
+    assert patch == ""
+    binding = service.checkpoint_binding(workspace, artifact=artifact)
+    service.assert_checkpoint_binding(binding)
+
+    new_file.write_text("DEGER = 2\n", encoding="utf-8", newline="\n")
+    with pytest.raises(PolicyViolation, match="patch veya dirty state drift"):
+        service.assert_checkpoint_binding(binding)
+
+
+def test_untracked_allowlist_disina_sizamaz(
+    service: SandboxDeliveryService, source_repo: Path
+) -> None:
+    workspace = service.prepare(_spec(source_repo, ("src",)))
+    (workspace.worktree.path / "yasak.txt").write_text("yasak\n", encoding="utf-8")
+    with pytest.raises(PolicyViolation, match="allowlist"):
+        service.build_artifact(workspace, artifact_id="untracked-outside", now=NOW)
 
 
 def test_basarisiz_test_teslimi_reddeder(
