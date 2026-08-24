@@ -182,7 +182,8 @@ class MemoryRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 f"select {_RECORD_COLUMNS}{_RECORD_JOIN}"
-                " where r.realm_id = %s and r.logical_memory_id = %s",
+                " where r.realm_id = %s and r.logical_memory_id = %s"
+                " order by r.revision desc limit 1",
                 (self.realm_id, logical_memory_id),
             )
             row = cursor.fetchone()

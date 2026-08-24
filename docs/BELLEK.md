@@ -1,5 +1,28 @@
 # Bellek: native motor, promotion kapısı ve Mem0 adaptörü
 
+## Transactional promotion v2
+
+Kalıcı belleğe yükseltme yalnız `MemoryPromotionService.prepare/apply` yüzeyinden yapılır.
+`prepare` salt okunur candidate/predecessor snapshot'ı, normalized review ve iki outbox
+hedefini exact `plan_digest` içine bağlar. `apply` aynı candidate ve predecessor satırlarını
+yeniden okuyup `FOR UPDATE` ile kilitler; tek kullanımlık authorization'ın realm, plan,
+effect ve iki exact resource kapsamını doğrular.
+
+Başarılı transaction şu kanıtların tamamını birlikte üretir:
+
+- immutable `memory.review`;
+- yeni `memory.record` ve `memory.revision`;
+- her kanıt için sıralı `memory.evidence_link`;
+- varsa predecessor supersession ve exact `supersedes` relation;
+- bir embedding ve bir external-sync `memory.promotion_outbox` kaydı;
+- `memory.promotion_receipt` ve `security.audit_event`.
+
+Deferred PostgreSQL constraint trigger receipt, candidate, authorization, revision, evidence,
+outbox, supersession ve audit zincirini commit anında tekrar doğrular. Zincirin herhangi bir
+adımı başarısızsa authorization consumption dahil bütün promotion geri alınır. Eski migration'a
+dönüş yalnız aynı logical family'de birden fazla revision yoksa mümkündür; aksi durumda rollback
+unique constraint ile fail-closed durur ve önce forward-fix gerekir.
+
 ## Bellek otorite değildir
 
 `grants_authority` her zaman `false`'tur ve bu bir check constraint'idir. Bellek
