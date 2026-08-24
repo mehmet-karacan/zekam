@@ -34,7 +34,8 @@ class ContextContinuityRepository:
                 " (id, realm_id, project_id, work_item_id, token_budget, selected, omitted,"
                 "  candidate_fingerprint, manifest_digest, grants_authority, created_at)"
                 " values (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, false, %s)"
-                " on conflict (realm_id, manifest_digest) do nothing returning id",
+                " on conflict (realm_id, project_id, work_item_id, manifest_digest)"
+                " do nothing returning id",
                 (
                     record_id,
                     self.realm_id,
@@ -52,10 +53,20 @@ class ContextContinuityRepository:
             if row is not None:
                 return UUID(str(row[0]))
             cursor.execute(
-                "select id from work.context_manifest where manifest_digest = %s",
-                (manifest.manifest_digest,),
+                "select id from work.context_manifest"
+                " where realm_id = %s and project_id = %s and work_item_id = %s"
+                " and manifest_digest = %s",
+                (
+                    self.realm_id,
+                    self.project_id,
+                    self.work_item_id,
+                    manifest.manifest_digest,
+                ),
             )
-            return UUID(str(cursor.fetchone()[0]))
+            existing = cursor.fetchone()
+            if existing is None:
+                raise ConcurrencyConflict("Context manifest scoped conflict kaydi bulunamadi")
+            return UUID(str(existing[0]))
 
     def journal_head(self) -> tuple[int, str] | None:
         with self.connection.cursor() as cursor:

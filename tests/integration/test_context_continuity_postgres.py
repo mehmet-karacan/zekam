@@ -35,6 +35,50 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 20, tzinfo=dt.UTC)
 
 
+def test_context_manifest_identity_is_scoped_to_exact_work(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    source = tmp_path / "scoped-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    work = WorkGraphService(connection, realm)
+    first_work = work.create_item(project_id=project.id, type=WorkType.TASK, title="First")
+    second_work = work.create_item(project_id=project.id, type=WorkType.TASK, title="Second")
+    manifest = compile_context(
+        (
+            ContextCandidate(
+                "same-candidate",
+                AuthorityLevel.VERIFIED,
+                NOW,
+                "revision-1",
+                digest("same-evidence"),
+                10,
+                True,
+            ),
+        ),
+        token_budget=20,
+        minimum_authority=AuthorityLevel.OBSERVED,
+        now=NOW,
+    )
+
+    first_id = ContextContinuityRepository(
+        connection, realm.id, project.id, first_work.id
+    ).store_manifest(manifest)
+    second_id = ContextContinuityRepository(
+        connection, realm.id, project.id, second_work.id
+    ).store_manifest(manifest)
+
+    assert first_id != second_id
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select work_item_id from work.context_manifest"
+            " where realm_id = %s and manifest_digest = %s order by work_item_id",
+            (realm.id, manifest.manifest_digest),
+        )
+        assert {row[0] for row in cursor.fetchall()} == {first_work.id, second_work.id}
+
+
 def test_context_continuity_repository_chain_checkpoint_handoff_and_terminal_gate(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
