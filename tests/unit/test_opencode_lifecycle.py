@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from zekam.application.opencode_lifecycle import record_event, resume_projection
+from zekam.application.opencode_lifecycle import (
+    SCHEMA_V1,
+    lifecycle_root,
+    recent_events,
+    record_event,
+    resume_projection,
+)
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
 
 NOW = dt.datetime(2026, 8, 23, 12, 0, tzinfo=dt.UTC)
@@ -221,6 +229,8 @@ def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path) -> None:
     path.write_text(json.dumps(document), encoding="utf-8")
     assert event.session_id == "ses_1"
     assert resume_projection(tmp_path)["sessions"] == []
+    quarantine = tmp_path / "global" / "runtime" / "opencode-lifecycle" / "quarantine"
+    assert list(quarantine.glob("*.json"))
 
     with pytest.raises(ValidationFailed, match="portable"):
         record_event(
@@ -230,3 +240,78 @@ def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path) -> None:
             resource="C:/secret.txt",
             now=NOW,
         )
+
+
+def test_v2_events_form_a_monotonic_hash_chain(tmp_path) -> None:
+    first = record_event(tmp_path, event_type="session.created", session_id="ses_1", now=NOW)
+    second = record_event(
+        tmp_path,
+        event_type="session.idle",
+        session_id="ses_1",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+
+    assert first.sequence == 1
+    assert first.previous_digest is None
+    assert second.sequence == 2
+    assert second.previous_digest == first.document()["event_digest"]
+
+
+def test_each_session_has_an_independent_hash_chain(tmp_path) -> None:
+    first = record_event(tmp_path, event_type="session.created", session_id="ses_a", now=NOW)
+    second = record_event(tmp_path, event_type="session.created", session_id="ses_b", now=NOW)
+
+    assert (first.sequence, first.previous_digest) == (1, None)
+    assert (second.sequence, second.previous_digest) == (1, None)
+
+
+def test_legacy_v1_event_remains_readable(tmp_path) -> None:
+    root = lifecycle_root(tmp_path)
+    root.mkdir(parents=True)
+    body = {
+        "schema": SCHEMA_V1,
+        "event_id": "legacy-event",
+        "event_type": "session.created",
+        "session_id": "legacy-session",
+        "parent_session_id": None,
+        "agent": None,
+        "model_ref": None,
+        "tool": None,
+        "resource": None,
+        "status": None,
+        "error_category": None,
+        "completed_summary": None,
+        "pending_summary": None,
+        "next_action": None,
+        "task_label": None,
+        "occurred_at": NOW.isoformat(),
+        "contains_prompt": False,
+        "contains_response": False,
+        "grants_authority": False,
+    }
+    (root / "legacy.json").write_text(
+        json.dumps(body | {"event_digest": digest(body)}), encoding="utf-8"
+    )
+
+    assert recent_events(tmp_path)[0]["event_id"] == "legacy-event"
+
+
+def test_concurrent_writers_allocate_unique_contiguous_sequences(tmp_path) -> None:
+    def write(index: int):
+        return record_event(
+            tmp_path,
+            event_type="session.status",
+            session_id="ses_concurrent",
+            now=NOW + dt.timedelta(milliseconds=index),
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        events = tuple(pool.map(write, range(24)))
+
+    assert sorted(item.sequence for item in events) == list(range(1, 25))
+    stored = sorted(recent_events(tmp_path, limit=24), key=lambda item: item["sequence"])
+    assert [item["sequence"] for item in stored] == list(range(1, 25))
+    assert all(
+        stored[index]["previous_digest"] == stored[index - 1]["event_digest"]
+        for index in range(1, len(stored))
+    )

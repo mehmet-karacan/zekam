@@ -35,6 +35,8 @@ _LEGACY_MANAGED_DESCRIPTIONS = (
 )
 
 _LIFECYCLE_PLUGIN = r"""import { tool } from "@opencode-ai/plugin"
+import { mkdir, readFile, readdir, rename, rm, unlink } from "node:fs/promises"
+import { join } from "node:path"
 
 const pending = new Map()
 
@@ -59,6 +61,94 @@ const portable = (value, directory) => {
 }
 
 export const ZekamLifecycle = async ({ directory }) => {
+  const userHome = Bun.env.USERPROFILE ?? Bun.env.HOME ?? directory
+  const home = Bun.env.ZEKAM_HOME ?? join(userHome, ".zekam")
+  const spool = join(home, "global", "runtime", "opencode-plugin-spool")
+  const quarantine = join(spool, "quarantine")
+  await mkdir(quarantine, { recursive: true })
+
+  const persist = async (path, document) => {
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`
+    await Bun.write(temporary, JSON.stringify(document))
+    await rename(temporary, path)
+  }
+  const enqueue = async (args) => {
+    const id = crypto.randomUUID()
+    const path = join(spool, `${Date.now()}-${id}.json`)
+    await persist(path, { schema: "zekam-opencode-plugin-spool/v1", id, args, attempts: 0 })
+    return path
+  }
+  const drain = async () => {
+    const lockPath = join(spool, ".drain.lock")
+    const ownerToken = crypto.randomUUID()
+    const candidate = join(spool, `.drain.candidate.${ownerToken}`)
+    let ownsLock = false
+    const owner = JSON.stringify({ pid: process.pid, ownerToken })
+    await mkdir(candidate)
+    await Bun.write(join(candidate, "owner.json"), owner)
+    try {
+      await rename(candidate, lockPath)
+      ownsLock = true
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error
+      let currentOwner
+      try {
+        currentOwner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"))
+      } catch {
+        await rm(candidate, { recursive: true, force: true })
+        return
+      }
+      let alive = false
+      if (Number.isInteger(currentOwner?.pid)) {
+        try { process.kill(currentOwner.pid, 0); alive = true } catch (probe) {
+          alive = probe?.code === "EPERM"
+        }
+      }
+      if (alive) {
+        await rm(candidate, { recursive: true, force: true })
+        return
+      }
+      const abandoned = join(quarantine, `.drain.lock.${crypto.randomUUID()}`)
+      try {
+        await rename(lockPath, abandoned)
+        await rename(candidate, lockPath)
+        ownsLock = true
+      } catch {
+        await rm(candidate, { recursive: true, force: true })
+        return
+      }
+    }
+    try {
+    const names = (await readdir(spool)).filter((name) => name.endsWith(".json")).sort()
+    for (const name of names) {
+      const path = join(spool, name)
+      let item
+      try { item = await Bun.file(path).json() } catch {
+        await rename(path, join(quarantine, name))
+        continue
+      }
+      try {
+        const process = Bun.spawn(["zekam", ...item.args], { stdout: "ignore", stderr: "ignore" })
+        const exitCode = await process.exited
+        if (exitCode === 0) {
+          await unlink(path)
+          continue
+        }
+      } catch {}
+      item.attempts = Number(item.attempts ?? 0) + 1
+      if (item.attempts >= 5) await rename(path, join(quarantine, name))
+      else await persist(path, item)
+      break
+    }
+    } finally {
+      if (ownsLock) {
+        let current
+        try { current = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) } catch {}
+        if (current?.ownerToken === ownerToken) await rm(lockPath, { recursive: true, force: true })
+      }
+      await rm(candidate, { recursive: true, force: true })
+    }
+  }
   const emit = async (type, data = {}) => {
     const session = sessionID(data)
     if (!session) return
@@ -80,10 +170,8 @@ export const ZekamLifecycle = async ({ directory }) => {
       ["--task-label", text(data.title) ?? text(data.info?.title)],
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
-    try {
-      const process = Bun.spawn(["zekam", ...args], { stdout: "ignore", stderr: "ignore" })
-      await process.exited
-    } catch {}
+    await enqueue(args)
+    await drain()
   }
 
   return {
@@ -103,7 +191,7 @@ export const ZekamLifecycle = async ({ directory }) => {
             pending: args.pending,
             nextAction: args.next_action,
           })
-          return "Zekam continuity checkpoint kaydedildi"
+          return "Zekam continuity checkpoint yerel dayanikli kuyruga alindi"
         },
       }),
     },

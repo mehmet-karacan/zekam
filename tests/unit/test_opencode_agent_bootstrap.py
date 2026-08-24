@@ -91,6 +91,17 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
     assert "session.error" in plugin.read_text(encoding="utf-8")
     assert '"--task-label"' in plugin.read_text(encoding="utf-8")
+    plugin_body = plugin.read_text(encoding="utf-8")
+    assert "opencode-plugin-spool" in plugin_body
+    assert "attempts >= 5" in plugin_body
+    assert "ownerToken" in plugin_body
+    assert "process.kill(currentOwner.pid, 0)" in plugin_body
+    assert "await rename(lockPath, abandoned)" in plugin_body
+    assert "current?.ownerToken === ownerToken" in plugin_body
+    assert "quarantine" in plugin_body
+    assert "exitCode === 0" in plugin_body
+    assert "yerel dayanikli kuyruga alindi" in plugin_body
+    assert "continuity checkpoint kaydedildi" not in plugin_body
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
     assert '"*": ask' in verifier

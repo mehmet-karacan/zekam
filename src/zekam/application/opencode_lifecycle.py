@@ -7,15 +7,17 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, BinaryIO
 
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.identifiers import new_uuid7
 
-SCHEMA = "zekam-opencode-lifecycle-event/v1"
+SCHEMA_V1 = "zekam-opencode-lifecycle-event/v1"
+SCHEMA = "zekam-opencode-lifecycle-event/v2"
 _ID = re.compile(r"^[A-Za-z0-9_./:-]{1,160}$")
 _EVENTS = frozenset(
     {
@@ -95,6 +97,8 @@ class OpenCodeLifecycleEvent:
     next_action: str | None
     task_label: str | None
     occurred_at: dt.datetime
+    sequence: int
+    previous_digest: str | None
 
     def __post_init__(self) -> None:
         if self.event_type not in _EVENTS:
@@ -119,6 +123,8 @@ class OpenCodeLifecycleEvent:
             _safe_summary(value, label=label)
         if self.occurred_at.tzinfo is None:
             raise ValidationFailed("OpenCode lifecycle zamani timezone ister")
+        if self.sequence < 1 or (self.sequence == 1) != (self.previous_digest is None):
+            raise ValidationFailed("OpenCode lifecycle sequence/previous zinciri gecersiz")
 
     def body(self) -> dict[str, Any]:
         return {
@@ -138,6 +144,8 @@ class OpenCodeLifecycleEvent:
             "next_action": self.next_action,
             "task_label": self.task_label,
             "occurred_at": self.occurred_at.astimezone(dt.UTC).isoformat(),
+            "sequence": self.sequence,
+            "previous_digest": self.previous_digest,
             "contains_prompt": False,
             "contains_response": False,
             "grants_authority": False,
@@ -166,7 +174,19 @@ def record_event(
     task_label: str | None = None,
     now: dt.datetime | None = None,
 ) -> OpenCodeLifecycleEvent:
-    event = OpenCodeLifecycleEvent(
+    root = lifecycle_root(home)
+    root.mkdir(parents=True, exist_ok=True)
+    lock = _acquire_lock(root)
+    try:
+        existing = _verified_events(root, quarantine_invalid=True)
+        stream_events = [
+            item
+            for item in existing
+            if item.get("schema") == SCHEMA and item.get("session_id") == session_id
+        ]
+        sequence = len(stream_events) + 1
+        previous_digest = None if not stream_events else str(stream_events[-1]["event_digest"])
+        event = OpenCodeLifecycleEvent(
         event_id=str(new_uuid7()),
         event_type=event_type,
         session_id=session_id,
@@ -181,22 +201,126 @@ def record_event(
         pending_summary=_safe_summary(pending_summary, label="pending_summary"),
         next_action=_safe_summary(next_action, label="next_action"),
         task_label=_safe_summary(task_label, label="task_label"),
-        occurred_at=now or dt.datetime.now(dt.UTC),
-    )
-    root = lifecycle_root(home)
-    root.mkdir(parents=True, exist_ok=True)
-    content = json.dumps(event.document(), ensure_ascii=False, sort_keys=True) + "\n"
-    descriptor, temporary = tempfile.mkstemp(prefix=".event-", dir=root)
+            occurred_at=now or dt.datetime.now(dt.UTC),
+            sequence=sequence,
+            previous_digest=previous_digest,
+        )
+        content = json.dumps(event.document(), ensure_ascii=False, sort_keys=True) + "\n"
+        descriptor, temporary = tempfile.mkstemp(prefix=".event-", dir=root)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+            Path(temporary).replace(root / f"{event.sequence:020d}-{event.event_id}.json")
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+        return event
+    finally:
+        _release_lock(lock)
+
+
+def _try_platform_lock(stream: BinaryIO) -> bool:
+    stream.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        try:
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    import fcntl
+
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        Path(temporary).replace(root / f"{event.event_id}.json")
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
-    return event
+        lock_ex = int(getattr(fcntl, "LOCK_EX"))  # noqa: B009
+        lock_nb = int(getattr(fcntl, "LOCK_NB"))  # noqa: B009
+        fcntl.flock(stream.fileno(), lock_ex | lock_nb)  # type: ignore[attr-defined]
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_lock(root: Path, *, timeout_seconds: float = 10.0) -> BinaryIO:
+    lock = root / ".writer.lock"
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            stream = lock.open("a+b")
+        except PermissionError:
+            time.sleep(0.005)
+            continue
+        if _try_platform_lock(stream):
+            return stream
+        stream.close()
+        time.sleep(0.005)
+    raise ValidationFailed("OpenCode lifecycle writer lock zaman asimi")
+
+
+def _release_lock(stream: BinaryIO) -> None:
+    stream.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        lock_un = int(getattr(fcntl, "LOCK_UN"))  # noqa: B009
+        fcntl.flock(stream.fileno(), lock_un)  # type: ignore[attr-defined]
+    stream.close()
+
+
+def _quarantine(root: Path, path: Path, reason: str) -> None:
+    target = root / "quarantine"
+    target.mkdir(exist_ok=True)
+    receipt = {"file": path.name, "reason": reason, "observed_at": dt.datetime.now(dt.UTC)}
+    receipt_path = target / f"{path.name}.reason.json"
+    receipt_path.write_text(
+        json.dumps(receipt, ensure_ascii=False, default=str, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    path.replace(target / path.name)
+
+
+def _verified_events(root: Path, *, quarantine_invalid: bool) -> list[dict[str, Any]]:
+    verified: list[dict[str, Any]] = []
+    previous_by_session: dict[str, str] = {}
+    expected_by_session: dict[str, int] = {}
+    for path in sorted(root.glob("*.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+            event_digest = document.pop("event_digest")
+        except (OSError, KeyError, UnicodeDecodeError, json.JSONDecodeError):
+            if quarantine_invalid:
+                _quarantine(root, path, "unreadable")
+            continue
+        schema = document.get("schema")
+        valid = event_digest == digest(document)
+        reason = "digest-mismatch"
+        if valid and schema == SCHEMA:
+            session_id = str(document.get("session_id", ""))
+            expected_sequence = expected_by_session.get(session_id, 1)
+            previous = previous_by_session.get(session_id)
+            valid = (
+                document.get("sequence") == expected_sequence
+                and document.get("previous_digest") == previous
+            )
+            reason = "chain-mismatch"
+        elif valid and schema != SCHEMA_V1:
+            valid = False
+            reason = "schema-unsupported"
+        if not valid:
+            if quarantine_invalid:
+                _quarantine(root, path, reason)
+            continue
+        verified.append(document | {"event_digest": event_digest})
+        if schema == SCHEMA:
+            session_id = str(document["session_id"])
+            previous_by_session[session_id] = str(event_digest)
+            expected_by_session[session_id] = expected_by_session.get(session_id, 1) + 1
+    return verified
 
 
 _ACTIVE_TOOL_TTL = dt.timedelta(seconds=45)
@@ -330,15 +454,6 @@ def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
     root = lifecycle_root(home)
     if not root.is_dir():
         return ()
-    events: list[dict[str, Any]] = []
-    for path in sorted(root.glob("*.json"), reverse=True)[:limit]:
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        event_digest = document.pop("event_digest", None)
-        if document.get("schema") != SCHEMA or event_digest != digest(document):
-            continue
-        events.append(document | {"event_digest": event_digest})
+    events = _verified_events(root, quarantine_invalid=True)
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]), reverse=True)
-    return tuple(events)
+    return tuple(events[:limit])
