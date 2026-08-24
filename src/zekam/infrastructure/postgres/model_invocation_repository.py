@@ -30,14 +30,16 @@ class ModelInvocationRepository:
                 " (id,realm_id,project_id,work_item_id,plan_id,step_id,execution_envelope_id,"
                 " execution_envelope_digest,run_id,job_id,attempt_id,"
                 " assignment_id,role,risk,route_decision_digest,model_id,provider_ref,"
-                " context_manifest_digest,context_packet_digest,checkpoint_digest,source_revision,"
+                " context_manifest_digest,context_fragment_set_digest,"
+                " model_visible_payload_digest,context_packet_digest,checkpoint_digest,"
+                " source_revision,"
                 " policy_digest,payload_digest,authorization_scope_digest,output_schema_digest,"
                 " idempotency_key,max_input_tokens,max_output_tokens,max_cost_micros,deadline,"
                 " route_expires_at,"
                 " source_label,missing_bindings,binding_status,tool_contract_digest,"
                 " environment_digest,"
                 " permission_profile_digest,tool_set_digest,created_at,manifest_digest)"
-                " values (" + ",".join(["%s"] * 40) + ")"
+                " values (" + ",".join(["%s"] * 42) + ")"
                 " on conflict do nothing returning id",
                 (
                     item.id,
@@ -58,6 +60,8 @@ class ModelInvocationRepository:
                     item.model_id,
                     item.provider_ref,
                     item.context_manifest_digest,
+                    item.context_fragment_set_digest,
+                    item.model_visible_payload_digest,
                     item.context_packet_digest,
                     item.checkpoint_digest,
                     item.source_revision,
@@ -152,6 +156,27 @@ class ModelInvocationRepository:
             )
             if cursor.fetchone() is None:
                 raise PolicyViolation("Gateway enforce execution envelope stale veya gecersiz")
+
+    def assert_current_context_fragment_set(self, item: ModelRequestManifest) -> None:
+        if item.context_fragment_set_digest is None or item.context_manifest_digest is None:
+            raise PolicyViolation("Gateway enforce canonical context fragment set ister")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select 1 from work.context_fragment_set s"
+                " join work.context_manifest m on m.realm_id=s.realm_id"
+                " and m.id=s.context_manifest_id"
+                " where s.realm_id=%s and s.project_id=%s and s.work_item_id=%s"
+                " and s.fragment_set_digest=%s and m.manifest_digest=%s",
+                (
+                    self.realm_id,
+                    item.project_id,
+                    item.work_item_id,
+                    item.context_fragment_set_digest,
+                    item.context_manifest_digest,
+                ),
+            )
+            if cursor.fetchone() is None:
+                raise PolicyViolation("Gateway context fragment set stale veya gecersiz")
 
     def record_audit(
         self,

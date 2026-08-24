@@ -8,10 +8,20 @@ from uuid import uuid4
 import pytest
 from psycopg.errors import CheckViolation, InsufficientPrivilege
 
+from zekam.application.context_materializer import FragmentMaterialization, materialize_fragments
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.domain.canonical import digest
+from zekam.domain.context_continuity import AuthorityLevel, ContextCandidate, compile_context
+from zekam.domain.context_fragment import (
+    ContextContentKind,
+    ContextRole,
+    ContextVisibility,
+)
 from zekam.domain.model_invocation import GatewayMode, GatewaySourceLabel, ModelRequestManifest
 from zekam.infrastructure.postgres.connection import configure_session, connect
+from zekam.infrastructure.postgres.context_continuity_repository import (
+    ContextContinuityRepository,
+)
 from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -82,6 +92,8 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "model_id": "provider/model",
         "provider_ref": "provider:x",
         "context_manifest_digest": D,
+        "context_fragment_set_digest": None,
+        "model_visible_payload_digest": None,
         "context_packet_digest": D,
         "checkpoint_digest": D,
         "source_revision": "abc123",
@@ -97,7 +109,12 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "route_expires_at": now + dt.timedelta(minutes=5),
         "created_at": now,
         "source_label": GatewaySourceLabel.MODEL_CAPABILITY,
-        "missing_bindings": ("execution_envelope_digest", "execution_envelope_id"),
+        "missing_bindings": (
+            "context_fragment_set_digest",
+            "execution_envelope_digest",
+            "execution_envelope_id",
+            "model_visible_payload_digest",
+        ),
     }
     values.update(changes)
     return ModelRequestManifest.create(**values)
@@ -110,10 +127,88 @@ def test_manifest_idempotency_append_only_and_default_audit(invocation_scope) ->
     assert repository.mode() is GatewayMode.AUDIT
     assert repository.store_manifest(item) == (item.id, True)
     assert repository.store_manifest(item) == (item.id, False)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select context_fragment_set_digest,model_visible_payload_digest,payload_digest"
+            " from models.request_manifest where realm_id=%s and id=%s",
+            (realm.id, item.id),
+        )
+        assert cursor.fetchone() == (None, None, D)
     with pytest.raises(InsufficientPrivilege), connection.cursor() as cursor:
         cursor.execute(
             "update models.request_manifest set model_id='other' where id=%s", (item.id,)
         )
+
+
+def test_manifest_rejects_nonexistent_canonical_fragment_set_binding(
+    invocation_scope,
+) -> None:  # type: ignore[no-untyped-def]
+    realm, connection, *_ = invocation_scope
+    item = _manifest(
+        invocation_scope,
+        context_fragment_set_digest=D,
+        model_visible_payload_digest=D,
+        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+    )
+    with pytest.raises(CheckViolation):
+        ModelInvocationRepository(connection, realm.id).store_manifest(item)
+
+
+def test_manifest_rejects_canonical_fragment_set_from_another_work(
+    invocation_scope,
+) -> None:  # type: ignore[no-untyped-def]
+    realm, connection, project_id, *_ = invocation_scope
+    other_work_id = uuid4()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.work_item(id,realm_id,project_id,type,state,title,record_digest)"
+            " values(%s,%s,%s,'task','active','other work',%s)",
+            (other_work_id, realm.id, project_id, D),
+        )
+    content = "cross work context"
+    candidate = ContextCandidate(
+        "cross-work",
+        AuthorityLevel.VERIFIED,
+        dt.datetime.now(dt.UTC),
+        "revision/cross-work",
+        digest(content),
+        3,
+        True,
+    )
+    manifest = compile_context(
+        (candidate,),
+        token_budget=10,
+        minimum_authority=AuthorityLevel.OBSERVED,
+        now=candidate.observed_at,
+    )
+    fragment_set = materialize_fragments(
+        manifest,
+        (candidate,),
+        (
+            FragmentMaterialization(
+                "cross-work",
+                ContextContentKind.WORK_CONTEXT,
+                ContextRole.USER,
+                ContextVisibility.MODEL,
+                "work/cross-work",
+                content,
+            ),
+        ),
+    )
+    context_repository = ContextContinuityRepository(
+        connection, realm.id, project_id, other_work_id
+    )
+    context_repository.store_manifest(manifest)
+    context_repository.store_fragment_set(fragment_set, created_at=candidate.observed_at)
+    item = _manifest(
+        invocation_scope,
+        context_manifest_digest=manifest.manifest_digest,
+        context_fragment_set_digest=fragment_set.fragment_set_digest,
+        model_visible_payload_digest=D,
+        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+    )
+    with pytest.raises(CheckViolation):
+        ModelInvocationRepository(connection, realm.id).store_manifest(item)
 
 
 def test_enforce_activation_requires_zero_unbound_or_bypass(invocation_scope) -> None:  # type: ignore[no-untyped-def]
@@ -136,10 +231,12 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
         "assignment_id",
         "authorization_scope_digest",
         "checkpoint_digest",
+        "context_fragment_set_digest",
         "context_manifest_digest",
         "context_packet_digest",
         "execution_envelope_digest",
         "execution_envelope_id",
+        "model_visible_payload_digest",
         "output_schema_digest",
         "policy_digest",
         "route_decision_digest",
@@ -155,6 +252,8 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
         route_decision_digest=None,
         route_expires_at=None,
         context_manifest_digest=None,
+        context_fragment_set_digest=None,
+        model_visible_payload_digest=None,
         context_packet_digest=None,
         checkpoint_digest=None,
         policy_digest=None,

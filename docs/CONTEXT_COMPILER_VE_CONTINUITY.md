@@ -67,3 +67,26 @@ High/critical assignment icin tarihsel verifier invocation/receipt'i yeni sonuca
 devredilmez. Current result ve execution envelope'a exact post-result verifier
 binding'i kanonik olarak yoksa completion checkpoint'i uretilmez; receipt korunur,
 is policy recovery'ye alinir ve yeniden dispatch yasak kalir.
+
+## ContextFragment v2 ve model-visible payload
+
+Secilmis her context candidate materialization sirasinda tek bir typed fragment'a
+donusur. Fragment; kapali content-kind registry degeri, provider role'u, bitisik
+order, visibility, authority seviyesi, logical source ref, source revision,
+content digest ve token sayisini tasir. Fragment authority uretmez ve ham content
+PostgreSQL'e yazilmaz. Unknown kind/role/visibility, eksik veya duplicate selected
+candidate, content digest drift'i ve kesik order fail-closed reddedilir.
+
+`work.context_fragment_set` ve `work.context_fragment` append-only ve realm-scoped
+kanonik metadata kayitlaridir. Deferred completeness trigger'i set icindeki exact
+fragment sayisi ile `0..n-1` order partition'ini transaction sonunda zorlar. Set,
+manifest, proje ve Work kapsamlarinin birbirine ait oldugu DB trigger'i ile kontrol
+edilir; replay yalniz ayni set digest'i ile idempotenttir.
+
+Provider serializer yalniz `model-visible` fragment'lari exact order ile final
+payload'a yerlestirir. Base payload'in gizlice ikinci bir `messages` listesi tasimasi,
+eksik/fazla content veya content digest drift'i reddedilir. Uretilen final request
+payload digest'i hem `model_visible_payload_digest` hem `payload_digest` olarak
+`ModelRequestManifest v2` icinde ayni degere baglanir. Enforce gateway,
+`context_fragment_set_digest` veya bu exact payload binding'i eksikse effect'i
+baslatmaz; audit modu eksigi `missing_bindings` olarak gorunur tutar.

@@ -15,6 +15,7 @@ from zekam.application.provider_adapter import (
 )
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.domain.canonical import digest
+from zekam.domain.context_fragment import ModelVisiblePayloadBinding
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import (
     GatewayInvocationPermit,
@@ -77,6 +78,7 @@ class ModelGateway:
         work: ClaimedWork,
         authorization: Authorization,
         *,
+        payload_binding: ModelVisiblePayloadBinding | None = None,
         now: dt.datetime | None = None,
     ) -> ModelRequestManifest:
         job = work.job
@@ -94,6 +96,12 @@ class ModelGateway:
             "route_decision_digest": self.bindings.route_decision_digest,
             "route_expires_at": self.bindings.route_expires_at,
             "context_manifest_digest": self.bindings.context_manifest_digest,
+            "context_fragment_set_digest": (
+                None if payload_binding is None else payload_binding.fragment_set_digest
+            ),
+            "model_visible_payload_digest": (
+                None if payload_binding is None else payload_binding.request_payload_digest
+            ),
             "context_packet_digest": self.bindings.context_packet_digest,
             "checkpoint_digest": self.bindings.checkpoint_digest,
             "policy_digest": self.bindings.policy_digest,
@@ -105,6 +113,16 @@ class ModelGateway:
             "max_cost_micros": self.bindings.max_cost_micros,
         }
         missing = tuple(sorted(key for key, value in values.items() if value is None))
+        if (
+            payload_binding is not None
+            and payload_binding.request_payload_digest != prepared.call.payload_digest
+        ):
+            raise PolicyViolation("Model-visible payload digest provider call ile eslesmiyor")
+        if (
+            payload_binding is not None
+            and payload_binding.context_manifest_digest != self.bindings.context_manifest_digest
+        ):
+            raise PolicyViolation("Context fragment set execution manifest ile eslesmiyor")
         return ModelRequestManifest.create(
             realm_id=job.realm_id,
             project_id=job.project_id,
@@ -138,6 +156,13 @@ class ModelGateway:
         call: ProviderCall | MultipartProviderCall,
         effect: Callable[[GatewayInvocationPermit], ProviderCallResult],
     ) -> tuple[UUID, ProviderCallResult]:
+        if manifest.payload_digest != call.payload_digest:
+            raise PolicyViolation("Model gateway manifest payload digest mismatch")
+        if (
+            manifest.model_visible_payload_digest is not None
+            and manifest.model_visible_payload_digest != call.payload_digest
+        ):
+            raise PolicyViolation("Model gateway model-visible payload binding mismatch")
         manifest_id, _ = self.repository.store_manifest(manifest)
         if manifest_id != manifest.id:
             raise PolicyViolation("Model gateway manifest replay kimligi uyusmuyor")
@@ -156,6 +181,7 @@ class ModelGateway:
             if manifest.missing_bindings:
                 raise PolicyViolation("Model gateway enforce eksik binding reddi")
             self.repository.assert_current_envelope(manifest)
+            self.repository.assert_current_context_fragment_set(manifest)
         ledger_attempt_id = self.repository.record_attempt(
             manifest_id=manifest.id,
             effect_claim_id=claim_id,

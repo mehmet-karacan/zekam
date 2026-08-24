@@ -10,6 +10,7 @@ import pytest
 from zekam.application.model_gateway import ModelGateway
 from zekam.application.provider_adapter import ProviderCall
 from zekam.domain.canonical import digest
+from zekam.domain.context_fragment import ModelVisiblePayloadBinding
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import (
     GatewayBindingStatus,
@@ -27,6 +28,7 @@ class _GatewayRepository:
         self.result: dict[str, object] | None = None
         self.mode_value = mode
         self.envelope_asserted = False
+        self.fragment_set_asserted = False
 
     def store_manifest(self, item: ModelRequestManifest) -> tuple[object, bool]:
         return item.id, True
@@ -39,6 +41,9 @@ class _GatewayRepository:
 
     def assert_current_envelope(self, item: ModelRequestManifest) -> None:
         self.envelope_asserted = True
+
+    def assert_current_context_fragment_set(self, item: ModelRequestManifest) -> None:
+        self.fragment_set_asserted = True
 
     def envelope_bindings(self, envelope_id):  # type: ignore[no-untyped-def]
         now = dt.datetime.now(dt.UTC)
@@ -89,6 +94,8 @@ def _manifest(**changes):  # type: ignore[no-untyped-def]
         "model_id": "provider/model",
         "provider_ref": "provider:x",
         "context_manifest_digest": D,
+        "context_fragment_set_digest": D,
+        "model_visible_payload_digest": D,
         "context_packet_digest": D,
         "checkpoint_digest": D,
         "source_revision": "abc123",
@@ -119,6 +126,8 @@ def test_manifest_digest_is_immutable_and_missing_bindings_drive_status() -> Non
     item.assert_digest()
     with pytest.raises(PolicyViolation, match="supplied digest mismatch"):
         replace(item, model_id="other/model")
+    with pytest.raises(PolicyViolation, match="request payload"):
+        _manifest(model_visible_payload_digest=digest("different-payload"))
 
 
 def test_gateway_permit_is_process_local_and_exact() -> None:
@@ -134,8 +143,11 @@ def test_gateway_permit_is_process_local_and_exact() -> None:
 def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
     repository = _GatewayRepository()
     gateway = ModelGateway(repository=repository, source_label=GatewaySourceLabel.PROVIDER_CONTRACT)  # type: ignore[arg-type]
-    item = _manifest()
     call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
+    item = _manifest(
+        payload_digest=call.payload_digest,
+        model_visible_payload_digest=call.payload_digest,
+    )
 
     with pytest.raises(RuntimeError, match="transport failed"):
         gateway.invoke(
@@ -154,12 +166,14 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
 def test_gateway_enforce_rejects_envelopeless_manifest_before_effect() -> None:
     repository = _GatewayRepository(GatewayMode.ENFORCE)
     gateway = ModelGateway(repository=repository, source_label=GatewaySourceLabel.PROVIDER_CONTRACT)  # type: ignore[arg-type]
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
     item = _manifest(
         execution_envelope_id=None,
         execution_envelope_digest=None,
+        payload_digest=call.payload_digest,
+        model_visible_payload_digest=call.payload_digest,
         missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
     )
-    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
     called = False
 
     def effect(_permit):  # type: ignore[no-untyped-def]
@@ -211,6 +225,7 @@ def test_gateway_loads_envelope_budgets_and_prepares_bound_manifest() -> None:
         prepared,  # type: ignore[arg-type]
         SimpleNamespace(job=job, attempt_id=uuid4()),  # type: ignore[arg-type]
         authorization,  # type: ignore[arg-type]
+        payload_binding=ModelVisiblePayloadBinding(D, D, ("fragment/request",), D),
         now=now,
     )
     assert item.missing_bindings == ()
@@ -220,6 +235,55 @@ def test_gateway_loads_envelope_budgets_and_prepares_bound_manifest() -> None:
         1000,
     )
     assert item.deadline == gateway.bindings.deadline
+
+
+def test_gateway_enforce_marks_missing_typed_payload_binding_and_rejects_effect() -> None:
+    repository = _GatewayRepository(GatewayMode.ENFORCE)
+    gateway = ModelGateway.from_execution_envelope(
+        repository,  # type: ignore[arg-type]
+        GatewaySourceLabel.PROVIDER_CONTRACT,
+        uuid4(),
+    )
+    now = dt.datetime.now(dt.UTC)
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "call-1", {"input": "x"})
+    manifest = gateway.prepare(
+        SimpleNamespace(
+            plan=SimpleNamespace(
+                model_id="provider/model", provider_ref="provider:x", call_id="call-1"
+            ),
+            call=call,
+        ),  # type: ignore[arg-type]
+        SimpleNamespace(
+            job=SimpleNamespace(
+                realm_id=uuid4(),
+                project_id=uuid4(),
+                work_item_id=uuid4(),
+                plan_id=uuid4(),
+                step_id="build",
+                id=uuid4(),
+                assignment_id=uuid4(),
+            ),
+            attempt_id=uuid4(),
+        ),  # type: ignore[arg-type]
+        SimpleNamespace(
+            scope=SimpleNamespace(body=lambda: {"scope": "test"}),
+            risk="medium",
+            expires_at=now + dt.timedelta(minutes=5),
+        ),  # type: ignore[arg-type]
+        now=now,
+    )
+    assert manifest.missing_bindings == (
+        "context_fragment_set_digest",
+        "model_visible_payload_digest",
+    )
+    with pytest.raises(PolicyViolation, match="eksik binding"):
+        gateway.invoke(
+            manifest,
+            claim_id=uuid4(),
+            authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            call=call,
+            effect=lambda _permit: (_ for _ in ()).throw(AssertionError("effect cagrilmamali")),
+        )
 
 
 def test_gateway_rejects_authorization_shorter_than_envelope_deadline() -> None:

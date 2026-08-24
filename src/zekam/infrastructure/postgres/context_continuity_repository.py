@@ -6,14 +6,22 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.canonical import canonical_json
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.context_continuity import (
+    AuthorityLevel,
     Checkpoint,
     ContextManifest,
     ContinuitySnapshot,
     EvidenceReference,
     FinalizedHandoff,
     JournalEntry,
+)
+from zekam.domain.context_fragment import (
+    ContextContentKind,
+    ContextFragment,
+    ContextFragmentSet,
+    ContextRole,
+    ContextVisibility,
 )
 from zekam.domain.errors import ConcurrencyConflict
 from zekam.domain.identifiers import new_uuid7
@@ -67,6 +75,150 @@ class ContextContinuityRepository:
             if existing is None:
                 raise ConcurrencyConflict("Context manifest scoped conflict kaydi bulunamadi")
             return UUID(str(existing[0]))
+
+    def store_fragment_set(
+        self,
+        fragment_set: ContextFragmentSet,
+        *,
+        created_at: Any,
+    ) -> UUID:
+        set_id = new_uuid7(now=created_at)
+        with self.connection.transaction(), self.connection.cursor() as cursor:
+            cursor.execute(
+                "select id from work.context_manifest"
+                " where realm_id=%s and project_id=%s and work_item_id=%s"
+                " and manifest_digest=%s",
+                (
+                    self.realm_id,
+                    self.project_id,
+                    self.work_item_id,
+                    fragment_set.context_manifest_digest,
+                ),
+            )
+            manifest_row = cursor.fetchone()
+            if manifest_row is None:
+                raise ConcurrencyConflict("Context fragment manifest exact scope'ta bulunamadi")
+            manifest_id = UUID(str(manifest_row[0]))
+            cursor.execute(
+                "insert into work.context_fragment_set"
+                " (id,realm_id,project_id,work_item_id,context_manifest_id,fragment_count,"
+                " fragment_set_digest,created_at) values (%s,%s,%s,%s,%s,%s,%s,%s)"
+                " on conflict (realm_id,context_manifest_id) do nothing returning id",
+                (
+                    set_id,
+                    self.realm_id,
+                    self.project_id,
+                    self.work_item_id,
+                    manifest_id,
+                    len(fragment_set.fragments),
+                    fragment_set.fragment_set_digest,
+                    created_at,
+                ),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    "select id,fragment_set_digest from work.context_fragment_set"
+                    " where realm_id=%s and context_manifest_id=%s",
+                    (self.realm_id, manifest_id),
+                )
+                existing = cursor.fetchone()
+                if existing is None or str(existing[1]) != fragment_set.fragment_set_digest:
+                    raise ConcurrencyConflict("Context fragment set replay digest mismatch")
+                return UUID(str(existing[0]))
+            for fragment in fragment_set.fragments:
+                cursor.execute(
+                    "insert into work.context_fragment"
+                    " (id,realm_id,project_id,work_item_id,fragment_set_id,context_manifest_id,"
+                    " fragment_id,candidate_id,content_kind,role,fragment_order,visibility,"
+                    " authority,source_ref,source_revision,content_digest,token_count,required,"
+                    " grants_authority,fragment_digest,created_at)"
+                    " values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                    " false,%s,%s)",
+                    (
+                        new_uuid7(now=created_at),
+                        self.realm_id,
+                        self.project_id,
+                        self.work_item_id,
+                        set_id,
+                        manifest_id,
+                        fragment.fragment_id,
+                        fragment.candidate_id,
+                        fragment.content_kind.value,
+                        fragment.role.value,
+                        fragment.order,
+                        fragment.visibility.value,
+                        int(fragment.authority),
+                        fragment.source_ref,
+                        fragment.source_revision,
+                        fragment.content_digest,
+                        fragment.token_count,
+                        fragment.required,
+                        digest(fragment.body()),
+                        created_at,
+                    ),
+                )
+            cursor.execute(
+                "select count(*),min(fragment_order),max(fragment_order)"
+                " from work.context_fragment where realm_id=%s and fragment_set_id=%s",
+                (self.realm_id, set_id),
+            )
+            count, minimum, maximum = cursor.fetchone()
+            if (int(count), int(minimum), int(maximum)) != (
+                len(fragment_set.fragments),
+                0,
+                len(fragment_set.fragments) - 1,
+            ):
+                raise ConcurrencyConflict("Context fragment persistence exact order mismatch")
+        return set_id
+
+    def load_fragment_set(self, set_id: UUID) -> ContextFragmentSet:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select m.manifest_digest,s.fragment_count,s.fragment_set_digest"
+                " from work.context_fragment_set s"
+                " join work.context_manifest m on m.realm_id=s.realm_id"
+                " and m.id=s.context_manifest_id"
+                " where s.realm_id=%s and s.project_id=%s and s.work_item_id=%s and s.id=%s",
+                (self.realm_id, self.project_id, self.work_item_id, set_id),
+            )
+            parent = cursor.fetchone()
+            if parent is None:
+                raise ConcurrencyConflict("Context fragment set exact scope'ta bulunamadi")
+            cursor.execute(
+                "select fragment_id,candidate_id,content_kind,role,fragment_order,visibility,"
+                " authority,source_ref,source_revision,content_digest,token_count,required,"
+                " grants_authority from work.context_fragment"
+                " where realm_id=%s and fragment_set_id=%s order by fragment_order",
+                (self.realm_id, set_id),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != int(parent[1]):
+            raise ConcurrencyConflict("Context fragment set kayit sayisi mismatch")
+        result = ContextFragmentSet(
+            str(parent[0]),
+            tuple(
+                ContextFragment(
+                    fragment_id=str(row[0]),
+                    candidate_id=str(row[1]),
+                    content_kind=ContextContentKind(str(row[2])),
+                    role=ContextRole(str(row[3])),
+                    order=int(row[4]),
+                    visibility=ContextVisibility(str(row[5])),
+                    authority=AuthorityLevel(int(row[6])),
+                    source_ref=str(row[7]),
+                    source_revision=str(row[8]),
+                    content_digest=str(row[9]),
+                    token_count=int(row[10]),
+                    required=bool(row[11]),
+                    grants_authority=bool(row[12]),
+                )
+                for row in rows
+            ),
+        )
+        if result.fragment_set_digest != str(parent[2]):
+            raise ConcurrencyConflict("Context fragment set persisted digest mismatch")
+        return result
 
     def journal_head(self) -> tuple[int, str] | None:
         with self.connection.cursor() as cursor:

@@ -98,6 +98,8 @@ class ModelRequestManifest:
     model_id: str
     provider_ref: str
     context_manifest_digest: str | None
+    context_fragment_set_digest: str | None
+    model_visible_payload_digest: str | None
     context_packet_digest: str | None
     checkpoint_digest: str | None
     source_revision: str | None
@@ -156,6 +158,8 @@ class ModelRequestManifest:
             "route_decision_digest": self.route_decision_digest,
             "route_expires_at": self.route_expires_at,
             "context_manifest_digest": self.context_manifest_digest,
+            "context_fragment_set_digest": self.context_fragment_set_digest,
+            "model_visible_payload_digest": self.model_visible_payload_digest,
             "context_packet_digest": self.context_packet_digest,
             "checkpoint_digest": self.checkpoint_digest,
             "policy_digest": self.policy_digest,
@@ -175,6 +179,8 @@ class ModelRequestManifest:
             self.execution_envelope_digest,
             self.route_decision_digest,
             self.context_manifest_digest,
+            self.context_fragment_set_digest,
+            self.model_visible_payload_digest,
             self.context_packet_digest,
             self.checkpoint_digest,
             self.policy_digest,
@@ -189,6 +195,11 @@ class ModelRequestManifest:
         for digest_value in digest_values:
             if digest_value is not None:
                 parse_digest(digest_value)
+        if (
+            self.model_visible_payload_digest is not None
+            and self.model_visible_payload_digest != self.payload_digest
+        ):
+            raise PolicyViolation("Model-visible payload digest request payload ile eslesmiyor")
         if self.manifest_digest:
             self.assert_digest()
 
@@ -198,7 +209,7 @@ class ModelRequestManifest:
 
     def body(self) -> dict[str, Any]:
         return {
-            "schema": "zekam-model-request/v1",
+            "schema": "zekam-model-request/v2",
             "id": str(self.id),
             "realm_id": str(self.realm_id),
             "project_id": str(self.project_id),
@@ -219,6 +230,8 @@ class ModelRequestManifest:
             "model_id": self.model_id,
             "provider_ref": self.provider_ref,
             "context_manifest_digest": self.context_manifest_digest,
+            "context_fragment_set_digest": self.context_fragment_set_digest,
+            "model_visible_payload_digest": self.model_visible_payload_digest,
             "context_packet_digest": self.context_packet_digest,
             "checkpoint_digest": self.checkpoint_digest,
             "source_revision": self.source_revision,
@@ -252,6 +265,8 @@ class ModelRequestManifest:
 
     @classmethod
     def create(cls, **values: Any) -> ModelRequestManifest:
+        values.setdefault("context_fragment_set_digest", None)
+        values.setdefault("model_visible_payload_digest", None)
         item = cls(id=values.pop("id", uuid4()), manifest_digest="", **values)
         fields = {
             name: getattr(item, name)

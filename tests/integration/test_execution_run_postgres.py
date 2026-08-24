@@ -20,6 +20,13 @@ from zekam.domain.context_continuity import (
     ContextCandidate,
     compile_context,
 )
+from zekam.domain.context_fragment import (
+    ContextContentKind,
+    ContextFragment,
+    ContextFragmentSet,
+    ContextRole,
+    ContextVisibility,
+)
 from zekam.domain.execution_run import (
     CheckpointDisposition,
     ContextPacket,
@@ -80,9 +87,28 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         minimum_authority=AuthorityLevel.OBSERVED,
         now=now,
     )
-    manifest_id = ContextContinuityRepository(
-        connection, realm.id, project.id, work.id
-    ).store_manifest(manifest)
+    continuity_repository = ContextContinuityRepository(connection, realm.id, project.id, work.id)
+    manifest_id = continuity_repository.store_manifest(manifest)
+    fragment_set = ContextFragmentSet(
+        manifest.manifest_digest,
+        (
+            ContextFragment(
+                fragment_id="fragment/required-source",
+                candidate_id="required-source",
+                content_kind=ContextContentKind.WORK_CONTEXT,
+                role=ContextRole.USER,
+                order=0,
+                visibility=ContextVisibility.MODEL,
+                authority=AuthorityLevel.VERIFIED,
+                source_ref="work/current",
+                source_revision="revision-1",
+                content_digest=digest("source-content"),
+                token_count=10,
+                required=True,
+            ),
+        ),
+    )
+    continuity_repository.store_fragment_set(fragment_set, created_at=now)
     repository = ExecutionRunRepository(connection, realm.id)
     run = ExecutionRun.create(
         realm_id=realm.id,
@@ -412,6 +438,8 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         model_id=model.model_id,
         provider_ref=provider_binding.provider_ref,
         context_manifest_digest=manifest.manifest_digest,
+        context_fragment_set_digest=fragment_set.fragment_set_digest,
+        model_visible_payload_digest=digest("payload-3"),
         context_packet_digest=packet.packet_digest,
         checkpoint_digest=checkpoint.checkpoint_digest,
         source_revision="revision-1",
@@ -432,6 +460,7 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     assert invocation.store_manifest(request_manifest)[1] is True
     invocation.activate_enforce(policy_digest)
     invocation.assert_current_envelope(request_manifest)
+    invocation.assert_current_context_fragment_set(request_manifest)
     bound_gateway = ModelGateway.from_execution_envelope(
         invocation, GatewaySourceLabel.PROVIDER_CONTRACT, bound_envelope.id
     )
