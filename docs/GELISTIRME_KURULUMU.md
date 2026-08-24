@@ -137,6 +137,10 @@ veya `corrupt` olur; geçersizse çıkış kodu 2'dir.
 zekam project add /kaynak/proje --slug gpu --name "GPU Fusion" --alias "gpu projesi"
 zekam project add /kaynak/proje --slug gpu --uygula     # gercek kayit
 zekam project list --json
+zekam project remove gpu                    # dry-run; kaynak ve gecmis silinmez
+zekam project remove gpu --uygula           # projeyi arsivler
+zekam project list --include-archived --json
+zekam project restore gpu --uygula          # arsivden geri getirir; rebind gerekebilir
 zekam project resolve "gpu projesi"
 zekam project scan gpu --uygula
 zekam project show gpu

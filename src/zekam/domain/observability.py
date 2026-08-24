@@ -94,6 +94,20 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         "db upgrade", "Migration'lari uygular", mutating=True, requires_apply_flag=True
     ),
     CommandContract("project add", "Proje kaydeder", mutating=True, requires_apply_flag=True),
+    CommandContract(
+        "project remove",
+        "Projeyi arsivler",
+        mutating=True,
+        requires_apply_flag=True,
+        requires_authorization=True,
+    ),
+    CommandContract(
+        "project restore",
+        "Arsivlenmis projeyi geri getirir",
+        mutating=True,
+        requires_apply_flag=True,
+        requires_authorization=True,
+    ),
     CommandContract("project list", "Projeleri listeler", mutating=False),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),

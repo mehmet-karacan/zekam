@@ -12,8 +12,10 @@ import pytest
 from typer.testing import CliRunner
 
 from zekam.application.config import DatabaseSettings
+from zekam.domain.policy import Capability, CapabilityKind
 from zekam.domain.realm import Actor, ActorKind
 from zekam.infrastructure.postgres.core_repository import ActorRepository
+from zekam.infrastructure.postgres.security_repository import CapabilityRepository
 from zekam.interfaces.cli.main import app
 from zekam.interfaces.cli.session import RealmSession
 
@@ -71,6 +73,21 @@ def _add(cli_home: Path, realm_flags: list[str], source: Path, *extra: str) -> N
     assert result.exit_code == 0, result.stdout
 
 
+def _add_human_actor(cli_home: Path, realm_flags: list[str]) -> str:
+    with RealmSession(str(cli_home), realm_flags[1]) as context:
+        actor = Actor.create(realm=context.realm, kind=ActorKind.HUMAN, slug="project-owner")
+        ActorRepository(context.connection, context.realm_id).add(actor)
+        CapabilityRepository(context.connection, context.realm_id).append(
+            Capability.create(
+                realm_id=context.realm_id,
+                name="database.write",
+                revision=1,
+                kind=CapabilityKind.DATABASE,
+            )
+        )
+    return str(actor.id)
+
+
 def test_add_dry_run_writes_plan_and_registers_nothing(
     cli_home: Path, source_project: Path, realm_flags: list[str]
 ) -> None:
@@ -107,6 +124,223 @@ def test_add_then_list_shows_project(
     rows = json.loads(listing.stdout)
     assert [row["slug"] for row in rows] == ["gpu"]
     assert "gpu projesi" in rows[0]["aliases"]
+
+
+def test_remove_is_dry_run_then_archives_without_deleting_source(
+    cli_home: Path, source_project: Path, realm_flags: list[str]
+) -> None:
+    _add(cli_home, realm_flags, source_project, "--slug", "gpu", "--alias", "gpu projesi")
+    actor_id = _add_human_actor(cli_home, realm_flags)
+
+    dry = runner.invoke(
+        app, ["project", "remove", "gpu projesi", "--home", str(cli_home), *realm_flags]
+    )
+    assert dry.exit_code == 0, dry.stdout
+    assert '"applied": false' in dry.stdout
+
+    applied = runner.invoke(
+        app,
+        [
+            "project",
+            "remove",
+            "gpu projesi",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert applied.exit_code == 0, applied.stdout + applied.stderr
+    applied_document = json.loads(applied.stdout)
+    assert applied_document["target_status"] == "archived"
+    runtime = applied_document["runtime"]
+    assert source_project.is_dir()
+
+    visible = runner.invoke(
+        app, ["project", "list", "--home", str(cli_home), *realm_flags, "--json"]
+    )
+    assert json.loads(visible.stdout) == []
+    archived = runner.invoke(
+        app,
+        [
+            "project",
+            "list",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--json",
+            "--include-archived",
+        ],
+    )
+    assert json.loads(archived.stdout)[0]["status"] == "archived"
+
+    with (
+        RealmSession(str(cli_home), realm_flags[1]) as context,
+        context.connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "select binding.status, state.stage, count(local_binding.binding_id)"
+            " from projects.project project"
+            " join projects.source_binding binding on binding.project_id = project.id"
+            " join projects.integration_state state on state.project_id = project.id"
+            " left join projects.source_binding_local local_binding"
+            " on local_binding.binding_id = binding.id"
+            " where project.slug = 'gpu' group by binding.status, state.stage"
+        )
+        assert cursor.fetchone() == ("unbound", "unbound", 0)
+        cursor.execute(
+            "select auth.state, job.state, receipt.status, work.state"
+            " from security.authorization auth"
+            " join runtime.job job on job.id = %s"
+            " join runtime.effect_receipt receipt on receipt.id = %s"
+            " join work.work_item work on work.id = %s"
+            " where auth.id = %s",
+            (
+                runtime["job_id"],
+                runtime["receipt_id"],
+                runtime["work_id"],
+                runtime["authorization_id"],
+            ),
+        )
+        assert cursor.fetchone() == ("consumed", "completed", "completed", "completed")
+
+    resolved = runner.invoke(
+        app, ["project", "resolve", "gpu", "--home", str(cli_home), *realm_flags]
+    )
+    assert resolved.exit_code == 4
+
+
+def test_restore_reactivates_archived_project(
+    cli_home: Path, source_project: Path, realm_flags: list[str]
+) -> None:
+    _add(cli_home, realm_flags, source_project, "--slug", "gpu")
+    actor_id = _add_human_actor(cli_home, realm_flags)
+    removed = runner.invoke(
+        app,
+        [
+            "project",
+            "remove",
+            "gpu",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert removed.exit_code == 0, removed.stdout + removed.stderr
+
+    restored = runner.invoke(
+        app,
+        [
+            "project",
+            "restore",
+            "gpu",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert restored.exit_code == 0, restored.stdout
+    assert json.loads(restored.stdout)["target_status"] == "active"
+
+    listing = runner.invoke(
+        app, ["project", "list", "--home", str(cli_home), *realm_flags, "--json"]
+    )
+    assert json.loads(listing.stdout)[0]["status"] == "active"
+
+
+def test_remove_rejects_fuzzy_match_and_revision_drift(
+    cli_home: Path, source_project: Path, realm_flags: list[str]
+) -> None:
+    _add(cli_home, realm_flags, source_project, "--slug", "gpu-fusion")
+    actor_id = _add_human_actor(cli_home, realm_flags)
+
+    fuzzy = runner.invoke(
+        app,
+        [
+            "project",
+            "remove",
+            "gpu fusio",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert fuzzy.exit_code == 6
+    assert "exact" in fuzzy.stderr
+
+    drift = runner.invoke(
+        app,
+        [
+            "project",
+            "remove",
+            "gpu-fusion",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--expected-revision",
+            "99",
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert drift.exit_code == 6
+
+    listing = runner.invoke(
+        app, ["project", "list", "--home", str(cli_home), *realm_flags, "--json"]
+    )
+    assert json.loads(listing.stdout)[0]["status"] == "active"
+    with (
+        RealmSession(str(cli_home), realm_flags[1]) as context,
+        context.connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "select binding.status, state.stage, count(local_binding.binding_id)"
+            " from projects.project project"
+            " join projects.source_binding binding on binding.project_id = project.id"
+            " join projects.integration_state state on state.project_id = project.id"
+            " left join projects.source_binding_local local_binding"
+            " on local_binding.binding_id = binding.id"
+            " where project.slug = 'gpu-fusion' group by binding.status, state.stage"
+        )
+        assert cursor.fetchone() == ("bound", "bound", 1)
+        cursor.execute(
+            "select job.state, receipt.status, work.state"
+            " from runtime.effect_claim claim"
+            " join runtime.effect_receipt receipt on receipt.claim_id = claim.id"
+            " join runtime.job job on job.id = claim.job_id"
+            " join work.work_item work on work.id = job.work_item_id"
+            " where job.project_id = (select id from projects.project where slug='gpu-fusion')"
+            " and claim.operation = 'project-remove' order by claim.claimed_at desc limit 1"
+        )
+        assert cursor.fetchone() == ("failed", "failed", "cancelled")
+
+    retry = runner.invoke(
+        app,
+        [
+            "project",
+            "remove",
+            "gpu-fusion",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+            "--actor",
+            actor_id,
+            "--uygula",
+        ],
+    )
+    assert retry.exit_code == 0, retry.stdout + retry.stderr
 
 
 def test_resolve_alias_returns_exact_match(

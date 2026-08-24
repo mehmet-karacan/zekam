@@ -109,11 +109,143 @@ class ProjectRepository:
             rows = cursor.fetchall()
         return tuple(_project_from_row(row) for row in rows)
 
-    def set_status(self, project_id: UUID, status: LifecycleStatus) -> None:
+    def set_status(
+        self,
+        project_id: UUID,
+        status: LifecycleStatus,
+        *,
+        expected_revision: int | None = None,
+    ) -> Project:
+        revision_clause = "" if expected_revision is None else " and revision = %s"
+        parameters: tuple[Any, ...] = (
+            status.value,
+            self.realm_id,
+            project_id,
+            status.value,
+        )
+        if expected_revision is not None:
+            parameters += (expected_revision,)
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "update projects.project set status = %s, revision = revision + 1 where id = %s",
-                (status.value, project_id),
+                "update projects.project set status = %s, revision = revision + 1"
+                " where realm_id = %s and id = %s and status <> %s" + revision_clause,
+                parameters,
+            )
+            if cursor.rowcount != 1:
+                raise PolicyViolation(
+                    "Proje durumu, revision veya hedef durum degisti; islem reddedildi"
+                )
+        return self.get(project_id)
+
+    def archive_preflight(
+        self,
+        project_id: UUID,
+        *,
+        exclude_work_id: UUID | None = None,
+        exclude_job_id: UUID | None = None,
+    ) -> dict[str, int]:
+        """Arsivleme blocker'larini salt okunur ve sanitize sayilarla raporlar."""
+
+        work_exclusion = "" if exclude_work_id is None else " and id <> %s"
+        job_exclusion = "" if exclude_job_id is None else " and id <> %s"
+        work_parameters: tuple[Any, ...] = (self.realm_id, project_id)
+        job_parameters: tuple[Any, ...] = (self.realm_id, project_id)
+        if exclude_work_id is not None:
+            work_parameters += (exclude_work_id,)
+        if exclude_job_id is not None:
+            job_parameters += (exclude_job_id,)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from work.work_item where realm_id = %s and project_id = %s"
+                " and state in ('proposed','ready','active','blocked','verification')"
+                + work_exclusion,
+                work_parameters,
+            )
+            open_work = int(cursor.fetchone()[0])
+            cursor.execute(
+                "select count(*) from runtime.job where realm_id = %s and project_id = %s"
+                " and state in ('ready','running','recovery-required')" + job_exclusion,
+                job_parameters,
+            )
+            active_jobs = int(cursor.fetchone()[0])
+            cursor.execute(
+                "select count(*) from runtime.lease lease"
+                " join runtime.job job on job.realm_id = lease.realm_id and job.id = lease.job_id"
+                " where job.realm_id = %s and job.project_id = %s and lease.expires_at > now()"
+                + ("" if exclude_job_id is None else " and job.id <> %s"),
+                job_parameters,
+            )
+            live_leases = int(cursor.fetchone()[0])
+            cursor.execute(
+                "select count(*) from runtime.resource_lock lock"
+                " join runtime.job job on job.realm_id = lock.realm_id and job.id = lock.job_id"
+                " where job.realm_id = %s and job.project_id = %s"
+                + ("" if exclude_job_id is None else " and job.id <> %s"),
+                job_parameters,
+            )
+            resource_locks = int(cursor.fetchone()[0])
+            cursor.execute(
+                "select count(*) from runtime.claim_without_receipt pending"
+                " join runtime.job job on job.realm_id = pending.realm_id"
+                " and job.id = pending.job_id"
+                " where job.realm_id = %s and job.project_id = %s"
+                + ("" if exclude_job_id is None else " and job.id <> %s"),
+                job_parameters,
+            )
+            pending_receipts = int(cursor.fetchone()[0])
+        return {
+            "open_work": open_work,
+            "active_jobs": active_jobs,
+            "live_leases": live_leases,
+            "resource_locks": resource_locks,
+            "pending_receipts": pending_receipts,
+        }
+
+    def archive(
+        self,
+        project_id: UUID,
+        *,
+        expected_revision: int,
+        exclude_work_id: UUID | None = None,
+        exclude_job_id: UUID | None = None,
+    ) -> Project:
+        """Projeyi kaynak ve tarihceyi silmeden arsivler."""
+
+        with self.connection.transaction(), self.connection.cursor() as cursor:
+            cursor.execute(
+                "select id from projects.project where realm_id = %s and id = %s for update",
+                (self.realm_id, project_id),
+            )
+            if cursor.fetchone() is None:
+                raise NotFound("Proje bulunamadi")
+            blockers = self.archive_preflight(
+                project_id,
+                exclude_work_id=exclude_work_id,
+                exclude_job_id=exclude_job_id,
+            )
+            if any(blockers.values()):
+                raise PolicyViolation(
+                    "Aktif baglari bulunan proje arsivlenemez: "
+                    + ", ".join(f"{key}={value}" for key, value in blockers.items())
+                )
+            cursor.execute(
+                "delete from projects.source_binding_local local_binding using "
+                "projects.source_binding binding where local_binding.realm_id = %s"
+                " and local_binding.binding_id = binding.id and binding.project_id = %s",
+                (self.realm_id, project_id),
+            )
+            cursor.execute(
+                "update projects.source_binding set status = 'unbound'"
+                " where realm_id = %s and project_id = %s and status <> 'unbound'",
+                (self.realm_id, project_id),
+            )
+            cursor.execute(
+                "update projects.integration_state set stage = 'unbound',"
+                " observed_revision_id = null where realm_id = %s and project_id = %s",
+                (self.realm_id, project_id),
+            )
+            return self.set_status(
+                project_id, LifecycleStatus.ARCHIVED, expected_revision=expected_revision
             )
 
     # -- alias ------------------------------------------------------------------
@@ -508,6 +640,11 @@ class ProjectResolver:
 
     connection: Any
     realm_id: UUID
+    include_archived: bool = False
+
+    @property
+    def _status_sql(self) -> str:
+        return "" if self.include_archived else " and status <> 'archived'"
 
     def resolve(self, query: str) -> ProjectResolution:
         text = query.strip()
@@ -553,7 +690,9 @@ class ProjectResolver:
             return None
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select id, slug, display_name from projects.project where id = %s", (identifier,)
+                "select id, slug, display_name from projects.project where id = %s"
+                + self._status_sql,
+                (identifier,),
             )
             row = cursor.fetchone()
         if row is None:
@@ -565,7 +704,9 @@ class ProjectResolver:
     def _by_slug(self, text: str) -> ProjectCandidate | None:
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select id, slug, display_name from projects.project where slug = %s", (text,)
+                "select id, slug, display_name from projects.project where slug = %s"
+                + self._status_sql,
+                (text,),
             )
             row = cursor.fetchone()
         if row is None:
@@ -586,7 +727,8 @@ class ProjectResolver:
                 "select p.id, p.slug, p.display_name, a.alias"
                 " from projects.project_alias a"
                 " join projects.project p on p.id = a.project_id"
-                " where a.normalized = %s",
+                " where a.normalized = %s"
+                + ("" if self.include_archived else " and p.status <> 'archived'"),
                 (normalized,),
             )
             row = cursor.fetchone()
@@ -618,6 +760,7 @@ class ProjectResolver:
                            'slug' as matched_on,
                            similarity(p.slug, %(q)s) as score
                     from projects.project p
+                    where (%(include_archived)s or p.status <> 'archived')
                     union all
                     select p.id,
                            p.slug,
@@ -626,11 +769,16 @@ class ProjectResolver:
                            similarity(a.normalized, %(q)s) as score
                     from projects.project_alias a
                     join projects.project p on p.id = a.project_id
+                    where (%(include_archived)s or p.status <> 'archived')
                 ) ranked
                 where score >= %(threshold)s
                 order by score desc, slug
                 """,
-                {"q": normalized, "threshold": FUZZY_CANDIDATE_THRESHOLD},
+                {
+                    "q": normalized,
+                    "threshold": FUZZY_CANDIDATE_THRESHOLD,
+                    "include_archived": self.include_archived,
+                },
             )
             rows = cursor.fetchall()
 
