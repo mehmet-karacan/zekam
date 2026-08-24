@@ -149,6 +149,8 @@ def _gateway_evidence(
         "checkpoint_digest",
         "context_manifest_digest",
         "context_packet_digest",
+        "execution_envelope_digest",
+        "execution_envelope_id",
         "max_cost_micros",
         "max_input_tokens",
         "max_output_tokens",
@@ -161,6 +163,8 @@ def _gateway_evidence(
         "source_revision",
     )
     manifest = ModelRequestManifest.create(
+        execution_envelope_id=None,
+        execution_envelope_digest=None,
         realm_id=service.realm.id,
         project_id=uuid4(),
         work_item_id=uuid4(),

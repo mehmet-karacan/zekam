@@ -86,6 +86,8 @@ class ModelRequestManifest:
     work_item_id: UUID
     plan_id: UUID
     step_id: str
+    execution_envelope_id: UUID | None
+    execution_envelope_digest: str | None
     run_id: UUID | None
     job_id: UUID
     attempt_id: UUID
@@ -146,6 +148,8 @@ class ModelRequestManifest:
         if tuple(sorted(set(self.missing_bindings))) != self.missing_bindings:
             raise ValidationFailed("Eksik binding listesi unique ve sirali olmali")
         required_bindings = {
+            "execution_envelope_digest": self.execution_envelope_digest,
+            "execution_envelope_id": self.execution_envelope_id,
             "run_id": self.run_id,
             "assignment_id": self.assignment_id,
             "role": self.role,
@@ -168,6 +172,7 @@ class ModelRequestManifest:
         if self.missing_bindings != expected_missing:
             raise ValidationFailed("Eksik binding listesi manifest alanlariyla exact eslesmeli")
         digest_values: tuple[str | None, ...] = (
+            self.execution_envelope_digest,
             self.route_decision_digest,
             self.context_manifest_digest,
             self.context_packet_digest,
@@ -200,6 +205,10 @@ class ModelRequestManifest:
             "work_item_id": str(self.work_item_id),
             "plan_id": str(self.plan_id),
             "step_id": self.step_id,
+            "execution_envelope_id": (
+                None if self.execution_envelope_id is None else str(self.execution_envelope_id)
+            ),
+            "execution_envelope_digest": self.execution_envelope_digest,
             "run_id": None if self.run_id is None else str(self.run_id),
             "job_id": str(self.job_id),
             "attempt_id": str(self.attempt_id),

@@ -34,6 +34,8 @@ T = TypeVar("T")
 
 @dataclass(frozen=True, slots=True)
 class ModelGatewayBindings:
+    execution_envelope_id: UUID | None = None
+    execution_envelope_digest: str | None = None
     run_id: UUID | None = None
     role: str | None = None
     route_decision_digest: str | None = None
@@ -44,6 +46,10 @@ class ModelGatewayBindings:
     source_revision: str | None = None
     policy_digest: str | None = None
     output_schema_digest: str | None = None
+    max_input_tokens: int | None = None
+    max_output_tokens: int | None = None
+    max_cost_micros: int | None = None
+    deadline: dt.datetime | None = None
 
 
 @dataclass(slots=True)
@@ -51,6 +57,19 @@ class ModelGateway:
     repository: ModelInvocationRepository
     source_label: GatewaySourceLabel
     bindings: ModelGatewayBindings = ModelGatewayBindings()
+
+    @classmethod
+    def from_execution_envelope(
+        cls,
+        repository: ModelInvocationRepository,
+        source_label: GatewaySourceLabel,
+        envelope_id: UUID,
+    ) -> ModelGateway:
+        return cls(
+            repository=repository,
+            source_label=source_label,
+            bindings=ModelGatewayBindings(**repository.envelope_bindings(envelope_id)),
+        )
 
     def prepare(
         self,
@@ -64,7 +83,11 @@ class ModelGateway:
         if job.work_item_id is None or job.plan_id is None or job.step_id is None:
             raise PolicyViolation("Model gateway exact work/plan/step binding ister")
         moment = now or dt.datetime.now(dt.UTC)
+        if self.bindings.deadline is not None and authorization.expires_at < self.bindings.deadline:
+            raise PolicyViolation("Authorization execution envelope deadline'ini kapsamiyor")
         values = {
+            "execution_envelope_id": self.bindings.execution_envelope_id,
+            "execution_envelope_digest": self.bindings.execution_envelope_digest,
             "run_id": self.bindings.run_id,
             "assignment_id": job.assignment_id,
             "role": self.bindings.role,
@@ -77,9 +100,9 @@ class ModelGateway:
             "authorization_scope_digest": digest(authorization.scope.body()),
             "output_schema_digest": self.bindings.output_schema_digest,
             "source_revision": self.bindings.source_revision,
-            "max_input_tokens": None,
-            "max_output_tokens": None,
-            "max_cost_micros": None,
+            "max_input_tokens": self.bindings.max_input_tokens,
+            "max_output_tokens": self.bindings.max_output_tokens,
+            "max_cost_micros": self.bindings.max_cost_micros,
         }
         missing = tuple(sorted(key for key, value in values.items() if value is None))
         return ModelRequestManifest.create(
@@ -95,7 +118,11 @@ class ModelGateway:
             provider_ref=prepared.plan.provider_ref,
             payload_digest=prepared.call.payload_digest,
             idempotency_key=digest({"job_id": str(job.id), "call_id": prepared.plan.call_id}),
-            deadline=min(authorization.expires_at, moment + dt.timedelta(minutes=15)),
+            deadline=(
+                self.bindings.deadline
+                if self.bindings.deadline is not None
+                else min(authorization.expires_at, moment + dt.timedelta(minutes=15))
+            ),
             source_label=self.source_label,
             missing_bindings=missing,
             created_at=moment,
@@ -125,8 +152,10 @@ class ModelGateway:
             ),
             payload_digest=call.payload_digest,
         )
-        if self.repository.mode() is GatewayMode.ENFORCE and manifest.missing_bindings:
-            raise PolicyViolation("Model gateway enforce eksik binding reddi")
+        if self.repository.mode() is GatewayMode.ENFORCE:
+            if manifest.missing_bindings:
+                raise PolicyViolation("Model gateway enforce eksik binding reddi")
+            self.repository.assert_current_envelope(manifest)
         ledger_attempt_id = self.repository.record_attempt(
             manifest_id=manifest.id,
             effect_claim_id=claim_id,

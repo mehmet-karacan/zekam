@@ -23,8 +23,10 @@ D = "sha256:" + "a" * 64
 
 
 class _GatewayRepository:
-    def __init__(self) -> None:
+    def __init__(self, mode: GatewayMode = GatewayMode.AUDIT) -> None:
         self.result: dict[str, object] | None = None
+        self.mode_value = mode
+        self.envelope_asserted = False
 
     def store_manifest(self, item: ModelRequestManifest) -> tuple[object, bool]:
         return item.id, True
@@ -33,7 +35,31 @@ class _GatewayRepository:
         return uuid4()
 
     def mode(self) -> GatewayMode:
-        return GatewayMode.AUDIT
+        return self.mode_value
+
+    def assert_current_envelope(self, item: ModelRequestManifest) -> None:
+        self.envelope_asserted = True
+
+    def envelope_bindings(self, envelope_id):  # type: ignore[no-untyped-def]
+        now = dt.datetime.now(dt.UTC)
+        return {
+            "execution_envelope_id": envelope_id,
+            "execution_envelope_digest": D,
+            "run_id": uuid4(),
+            "role": "builder",
+            "route_decision_digest": D,
+            "route_expires_at": now + dt.timedelta(minutes=5),
+            "context_manifest_digest": D,
+            "context_packet_digest": D,
+            "checkpoint_digest": D,
+            "source_revision": "abc123",
+            "policy_digest": D,
+            "output_schema_digest": D,
+            "max_input_tokens": 100,
+            "max_output_tokens": 20,
+            "max_cost_micros": 1000,
+            "deadline": now + dt.timedelta(minutes=4),
+        }
 
     def record_attempt(self, **values: object) -> object:
         return uuid4()
@@ -51,6 +77,8 @@ def _manifest(**changes):  # type: ignore[no-untyped-def]
         "work_item_id": uuid4(),
         "plan_id": uuid4(),
         "step_id": "build",
+        "execution_envelope_id": uuid4(),
+        "execution_envelope_digest": D,
         "run_id": uuid4(),
         "job_id": uuid4(),
         "attempt_id": uuid4(),
@@ -123,6 +151,114 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
     assert repository.result["failure_digest"] == digest({"category": "RuntimeError"})
 
 
+def test_gateway_enforce_rejects_envelopeless_manifest_before_effect() -> None:
+    repository = _GatewayRepository(GatewayMode.ENFORCE)
+    gateway = ModelGateway(repository=repository, source_label=GatewaySourceLabel.PROVIDER_CONTRACT)  # type: ignore[arg-type]
+    item = _manifest(
+        execution_envelope_id=None,
+        execution_envelope_digest=None,
+        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+    )
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
+    called = False
+
+    def effect(_permit):  # type: ignore[no-untyped-def]
+        nonlocal called
+        called = True
+        raise AssertionError("effect cagrilmamali")
+
+    with pytest.raises(PolicyViolation, match="eksik binding"):
+        gateway.invoke(
+            item,
+            claim_id=uuid4(),
+            authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            call=call,
+            effect=effect,
+        )
+    assert called is False
+    assert repository.envelope_asserted is False
+
+
+def test_gateway_loads_envelope_budgets_and_prepares_bound_manifest() -> None:
+    repository = _GatewayRepository(GatewayMode.ENFORCE)
+    gateway = ModelGateway.from_execution_envelope(
+        repository,  # type: ignore[arg-type]
+        GatewaySourceLabel.PROVIDER_CONTRACT,
+        uuid4(),
+    )
+    now = dt.datetime.now(dt.UTC)
+    job = SimpleNamespace(
+        realm_id=uuid4(),
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        plan_id=uuid4(),
+        step_id="build",
+        id=uuid4(),
+        assignment_id=uuid4(),
+    )
+    prepared = SimpleNamespace(
+        plan=SimpleNamespace(
+            model_id="provider/model", provider_ref="provider:x", call_id="call-1"
+        ),
+        call=SimpleNamespace(payload_digest=D),
+    )
+    authorization = SimpleNamespace(
+        scope=SimpleNamespace(body=lambda: {"scope": "test"}),
+        risk="medium",
+        expires_at=now + dt.timedelta(minutes=5),
+    )
+    item = gateway.prepare(
+        prepared,  # type: ignore[arg-type]
+        SimpleNamespace(job=job, attempt_id=uuid4()),  # type: ignore[arg-type]
+        authorization,  # type: ignore[arg-type]
+        now=now,
+    )
+    assert item.missing_bindings == ()
+    assert (item.max_input_tokens, item.max_output_tokens, item.max_cost_micros) == (
+        100,
+        20,
+        1000,
+    )
+    assert item.deadline == gateway.bindings.deadline
+
+
+def test_gateway_rejects_authorization_shorter_than_envelope_deadline() -> None:
+    repository = _GatewayRepository(GatewayMode.ENFORCE)
+    gateway = ModelGateway.from_execution_envelope(
+        repository,  # type: ignore[arg-type]
+        GatewaySourceLabel.PROVIDER_CONTRACT,
+        uuid4(),
+    )
+    now = dt.datetime.now(dt.UTC)
+    with pytest.raises(PolicyViolation, match="deadline"):
+        gateway.prepare(
+            SimpleNamespace(
+                plan=SimpleNamespace(
+                    model_id="provider/model", provider_ref="provider:x", call_id="call-1"
+                ),
+                call=SimpleNamespace(payload_digest=D),
+            ),  # type: ignore[arg-type]
+            SimpleNamespace(
+                job=SimpleNamespace(
+                    realm_id=uuid4(),
+                    project_id=uuid4(),
+                    work_item_id=uuid4(),
+                    plan_id=uuid4(),
+                    step_id="build",
+                    id=uuid4(),
+                    assignment_id=uuid4(),
+                ),
+                attempt_id=uuid4(),
+            ),  # type: ignore[arg-type]
+            SimpleNamespace(
+                scope=SimpleNamespace(body=lambda: {"scope": "test"}),
+                risk="medium",
+                expires_at=now + dt.timedelta(minutes=1),
+            ),  # type: ignore[arg-type]
+            now=now,
+        )
+
+
 def test_legacy_audit_manifest_uses_none_and_exact_missing_bindings() -> None:
     missing = (
         "assignment_id",
@@ -130,6 +266,8 @@ def test_legacy_audit_manifest_uses_none_and_exact_missing_bindings() -> None:
         "checkpoint_digest",
         "context_manifest_digest",
         "context_packet_digest",
+        "execution_envelope_digest",
+        "execution_envelope_id",
         "output_schema_digest",
         "policy_digest",
         "route_decision_digest",
@@ -138,6 +276,8 @@ def test_legacy_audit_manifest_uses_none_and_exact_missing_bindings() -> None:
     )
     item = _manifest(
         run_id=None,
+        execution_envelope_id=None,
+        execution_envelope_digest=None,
         assignment_id=None,
         route_decision_digest=None,
         route_expires_at=None,

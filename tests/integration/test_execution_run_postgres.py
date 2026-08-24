@@ -9,11 +9,17 @@ from uuid import UUID
 import pytest
 from psycopg import Error as PsycopgError
 
+from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
-from zekam.domain.context_continuity import AuthorityLevel, ContextCandidate, compile_context
+from zekam.domain.context_continuity import (
+    AuthorityLevel,
+    Checkpoint,
+    ContextCandidate,
+    compile_context,
+)
 from zekam.domain.execution_run import (
     CheckpointDisposition,
     ContextPacket,
@@ -22,6 +28,7 @@ from zekam.domain.execution_run import (
     ExecutionRun,
     ProviderBindingSnapshot,
 )
+from zekam.domain.model_invocation import GatewaySourceLabel, ModelRequestManifest
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
@@ -33,6 +40,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
+from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 
@@ -354,6 +362,81 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     )
     assert repository.create_envelope(first_envelope)[1] is True
     assert repository.create_envelope(second_envelope)[1] is True
+    checkpoint = Checkpoint(
+        "gateway-bound-checkpoint",
+        str(project.id),
+        str(work.id),
+        str(plan.id),
+        "revision-1",
+        ("build",),
+        (),
+        ("build",),
+        (),
+        manifest.manifest_digest,
+        digest("journal-head"),
+        "invoke-model",
+        dt.datetime.now(dt.UTC),
+    )
+    checkpoint_id = ContextContinuityRepository(
+        connection, realm.id, project.id, work.id
+    ).store_checkpoint(checkpoint, task_plan_id=plan.id, job_id=envelope_job_id)
+    bound_envelope = ExecutionEnvelope.create(
+        request_ordinal=3,
+        idempotency_key="call-3",
+        payload_digest=digest("payload-3"),
+        checkpoint_id=checkpoint_id,
+        checkpoint_digest=checkpoint.checkpoint_digest,
+        checkpoint_disposition=CheckpointDisposition.BOUND,
+        **{
+            key: value
+            for key, value in common.items()
+            if key not in {"checkpoint_id", "checkpoint_digest", "checkpoint_disposition"}
+        },
+    )
+    repository.create_envelope(bound_envelope)
+    request_manifest = ModelRequestManifest.create(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        plan_id=plan.id,
+        step_id="build",
+        execution_envelope_id=bound_envelope.id,
+        execution_envelope_digest=bound_envelope.envelope_digest,
+        run_id=run.id,
+        job_id=envelope_job_id,
+        attempt_id=attempt_id,
+        assignment_id=builder_id,
+        role="builder",
+        risk="medium",
+        route_decision_digest=route_digest,
+        model_id=model.model_id,
+        provider_ref=provider_binding.provider_ref,
+        context_manifest_digest=manifest.manifest_digest,
+        context_packet_digest=packet.packet_digest,
+        checkpoint_digest=checkpoint.checkpoint_digest,
+        source_revision="revision-1",
+        policy_digest=policy_digest,
+        payload_digest=digest("payload-3"),
+        authorization_scope_digest=digest("authorization"),
+        output_schema_digest=digest("schema"),
+        idempotency_key="call-3",
+        max_input_tokens=100,
+        max_output_tokens=50,
+        max_cost_micros=1_000,
+        deadline=run.deadline,
+        route_expires_at=target.expires_at,
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+        created_at=dt.datetime.now(dt.UTC),
+    )
+    invocation = ModelInvocationRepository(connection, realm.id)
+    assert invocation.store_manifest(request_manifest)[1] is True
+    invocation.activate_enforce(policy_digest)
+    invocation.assert_current_envelope(request_manifest)
+    bound_gateway = ModelGateway.from_execution_envelope(
+        invocation, GatewaySourceLabel.PROVIDER_CONTRACT, bound_envelope.id
+    )
+    assert bound_gateway.bindings.execution_envelope_digest == bound_envelope.envelope_digest
+    assert bound_gateway.bindings.max_cost_micros == bound_envelope.max_cost_micros
     with pytest.raises(PsycopgError):
         repository.create_envelope(
             ExecutionEnvelope.create(

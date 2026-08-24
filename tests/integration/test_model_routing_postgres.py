@@ -144,11 +144,11 @@ def test_migrations_23_through_current_can_down_and_reapply(
     from zekam.infrastructure.postgres.connection import connect
 
     with connect(migrated_database) as connection:
-        for head in range(31, 22, -1):
+        for head in range(32, 22, -1):
             assert migrations.status(connection).head == head
             migrations.downgrade(connection, target=head)
         migrations.upgrade(connection)
-        assert migrations.status(connection).head == 31
+        assert migrations.status(connection).head == 32
 
 
 def test_context_policy_decision_roundtrip_is_append_only(

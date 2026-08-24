@@ -22,8 +22,13 @@ class ModelInvocationRepository:
         item.assert_digest()
         with self.connection.transaction(), self.connection.cursor() as cursor:
             cursor.execute(
+                "select pg_advisory_xact_lock_shared(hashtextextended(%s,0))",
+                (str(self.realm_id),),
+            )
+            cursor.execute(
                 "insert into models.request_manifest"
-                " (id,realm_id,project_id,work_item_id,plan_id,step_id,run_id,job_id,attempt_id,"
+                " (id,realm_id,project_id,work_item_id,plan_id,step_id,execution_envelope_id,"
+                " execution_envelope_digest,run_id,job_id,attempt_id,"
                 " assignment_id,role,risk,route_decision_digest,model_id,provider_ref,"
                 " context_manifest_digest,context_packet_digest,checkpoint_digest,source_revision,"
                 " policy_digest,payload_digest,authorization_scope_digest,output_schema_digest,"
@@ -32,7 +37,7 @@ class ModelInvocationRepository:
                 " source_label,missing_bindings,binding_status,tool_contract_digest,"
                 " environment_digest,"
                 " permission_profile_digest,tool_set_digest,created_at,manifest_digest)"
-                " values (" + ",".join(["%s"] * 38) + ")"
+                " values (" + ",".join(["%s"] * 40) + ")"
                 " on conflict do nothing returning id",
                 (
                     item.id,
@@ -41,6 +46,8 @@ class ModelInvocationRepository:
                     item.work_item_id,
                     item.plan_id,
                     item.step_id,
+                    item.execution_envelope_id,
+                    item.execution_envelope_digest,
                     item.run_id,
                     item.job_id,
                     item.attempt_id,
@@ -83,6 +90,68 @@ class ModelInvocationRepository:
                 (self.realm_id, item.manifest_digest),
             )
             return UUID(str(cursor.fetchone()[0])), False
+
+    def envelope_bindings(self, envelope_id: UUID) -> dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select e.id,e.envelope_digest,e.run_id,e.role,e.route_decision_digest,"
+                "e.route_expires_at,e.context_manifest_digest,e.context_packet_digest,"
+                "e.checkpoint_digest,e.source_revision,e.policy_digest,e.output_schema_digest,"
+                "e.max_input_tokens,e.max_output_tokens,e.max_cost_micros,e.deadline"
+                " from runtime.execution_envelope e"
+                " join runtime.execution_run r on r.realm_id=e.realm_id and r.id=e.run_id"
+                " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
+                " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
+                " join runtime.lease l on l.realm_id=e.realm_id and l.id=e.lease_id"
+                " where e.realm_id=%s and e.id=%s and r.state='active'"
+                " and j.state='running' and a.status='active'"
+                " and l.expires_at>statement_timestamp()"
+                " and e.route_expires_at>statement_timestamp()"
+                " and e.deadline>statement_timestamp()",
+                (self.realm_id, envelope_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise PolicyViolation("Gateway execution envelope bulunamadi veya stale")
+        names = (
+            "execution_envelope_id",
+            "execution_envelope_digest",
+            "run_id",
+            "role",
+            "route_decision_digest",
+            "route_expires_at",
+            "context_manifest_digest",
+            "context_packet_digest",
+            "checkpoint_digest",
+            "source_revision",
+            "policy_digest",
+            "output_schema_digest",
+            "max_input_tokens",
+            "max_output_tokens",
+            "max_cost_micros",
+            "deadline",
+        )
+        return dict(zip(names, row, strict=True))
+
+    def assert_current_envelope(self, item: ModelRequestManifest) -> None:
+        if item.execution_envelope_id is None or item.execution_envelope_digest is None:
+            raise PolicyViolation("Gateway enforce canonical execution envelope ister")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select 1 from runtime.execution_envelope e"
+                " join runtime.execution_run r on r.realm_id=e.realm_id and r.id=e.run_id"
+                " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
+                " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
+                " join runtime.lease l on l.realm_id=e.realm_id and l.id=e.lease_id"
+                " where e.realm_id=%s and e.id=%s and e.envelope_digest=%s"
+                " and r.state='active' and j.state='running' and a.status='active'"
+                " and l.expires_at>statement_timestamp()"
+                " and e.route_expires_at>statement_timestamp()"
+                " and e.deadline>statement_timestamp()",
+                (self.realm_id, item.execution_envelope_id, item.execution_envelope_digest),
+            )
+            if cursor.fetchone() is None:
+                raise PolicyViolation("Gateway enforce execution envelope stale veya gecersiz")
 
     def record_audit(
         self,

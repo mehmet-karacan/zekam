@@ -70,6 +70,8 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "work_item_id": work_id,
         "plan_id": uuid4(),
         "step_id": "invoke",
+        "execution_envelope_id": None,
+        "execution_envelope_digest": None,
         "run_id": uuid4(),
         "job_id": job_id,
         "attempt_id": attempt_id,
@@ -95,6 +97,7 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "route_expires_at": now + dt.timedelta(minutes=5),
         "created_at": now,
         "source_label": GatewaySourceLabel.MODEL_CAPABILITY,
+        "missing_bindings": ("execution_envelope_digest", "execution_envelope_id"),
     }
     values.update(changes)
     return ModelRequestManifest.create(**values)
@@ -135,6 +138,8 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
         "checkpoint_digest",
         "context_manifest_digest",
         "context_packet_digest",
+        "execution_envelope_digest",
+        "execution_envelope_id",
         "output_schema_digest",
         "policy_digest",
         "route_decision_digest",
@@ -144,6 +149,8 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
     item = _manifest(
         invocation_scope,
         run_id=None,
+        execution_envelope_id=None,
+        execution_envelope_digest=None,
         assignment_id=None,
         route_decision_digest=None,
         route_expires_at=None,
@@ -169,17 +176,21 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
 def test_enforce_activation_succeeds_for_clean_realm(invocation_scope) -> None:  # type: ignore[no-untyped-def]
     realm, connection, *_ = invocation_scope
     repository = ModelInvocationRepository(connection, realm.id)
-    item = _manifest(invocation_scope)
-    repository.store_manifest(item)
+    repository.activate_enforce(D)
+    assert repository.mode() is GatewayMode.ENFORCE
+
+
+def test_enforce_activation_rejects_bound_audit_without_manifest(invocation_scope) -> None:  # type: ignore[no-untyped-def]
+    realm, connection, *_ = invocation_scope
+    repository = ModelInvocationRepository(connection, realm.id)
     repository.record_audit(
-        source_label=item.source_label.value,
+        source_label=GatewaySourceLabel.MODEL_CAPABILITY.value,
         disposition="bound",
-        manifest_id=item.id,
         call_digest=D,
         payload_digest=D,
     )
-    repository.activate_enforce(D)
-    assert repository.mode() is GatewayMode.ENFORCE
+    with pytest.raises(CheckViolation):
+        repository.activate_enforce(D)
 
 
 def test_concurrent_manifest_replay_is_singleton(invocation_scope, migrated_database) -> None:  # type: ignore[no-untyped-def]
