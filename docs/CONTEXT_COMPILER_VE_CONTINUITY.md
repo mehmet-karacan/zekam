@@ -20,3 +20,19 @@ ContinuitySnapshot ve FinalizedHandoff authority, aktif lease, approval, authori
 absolute path veya transcript taşımaz. Client/model değişiminde yalnız bounded first reads,
 safe actions ve evidence digest'leri kullanılır. Yeni worker Work/lease/authorization durumunu
 kanonik repository'den yeniden edinmek zorundadır; handoff bunu devralmaz.
+
+## ResumeCoordinator prepare
+
+`zekam work resume-plan <proje> <is-ref> --client <istemci> --json` checkpoint v2
+head'ini ve current Work/Task Plan/routing context/migration/journal durumunu tek
+`REPEATABLE READ, READ ONLY` PostgreSQL snapshot'ında okur. Çıktı; selected checkpoint,
+stale dimension reason code'ları, receiptless effect reconciliation aksiyonları,
+yeniden edinilmesi gereken lease/resource-lock/authorization gereksinimleri, exact
+sonraki step DAG'i ve `resume_plan_digest` taşır.
+
+`prepare` plan kaydetmez, audit veya queue satırı yazmaz, effect başlatmaz ve mevcut
+lease/approval/authorization'i devralmaz. Receiptless effect varsa normal retry/dispatch
+üretmez; `recovery-required` ile fail-closed kalır. Migration/integrity drift'i insan
+incelemesine, source/dependency/plan drift'i replan'a, yalnız context/route drift'i
+recompile'a gider. Planın uygulanması ayrı bir mutation protokolüdür ve P0-012 kapsamında
+exact plan digest revalidation ile ele alınır.

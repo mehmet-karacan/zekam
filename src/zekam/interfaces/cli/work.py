@@ -17,11 +17,13 @@ from rich.table import Table
 from zekam.application.home import resolve_home
 from zekam.application.opencode_lifecycle import resume_projection
 from zekam.application.realm_context import RealmContext
+from zekam.application.resume_coordinator import ResumeCoordinator
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.work import AcceptanceCriterion, EvidenceRef, RelationKind, WorkState, WorkType
 from zekam.infrastructure.postgres.project_repository import ProjectResolver
+from zekam.infrastructure.postgres.resume_repository import ResumeRepository
 from zekam.interfaces.cli.session import (
     EXIT_AMBIGUOUS,
     EXIT_NOT_FOUND,
@@ -281,6 +283,44 @@ def resume_command(
     table.add_row("bloklu is", str(len(document["blocked"])))
     table.add_row("son olay", str(len(document["recent_activity"])))
     table.add_row("sonraki guvenli aksiyon", document["next_safe_action"])
+    console.print(table)
+
+
+@app.command("resume-plan")
+def resume_plan_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    client: Annotated[str, typer.Option("--client", help="Hedef istemci kimligi")],
+    output_json: Annotated[bool, typer.Option("--json", help="JSON yazar")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Mutation yapmadan exact checkpoint tabanli resume plani uretir."""
+    try:
+        if sqlite_repository(home, realm) is not None:
+            raise ZekamError("Resume plan checkpoint v2 PostgreSQL kaniti ister")
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            plan = ResumeCoordinator(
+                ResumeRepository(realm_context.connection, realm_context.realm_id)
+            ).prepare(work_item_id, client_id=client)
+            document = plan.as_dict()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+        return
+    table = Table(title="Resume plani (salt okunur)")
+    table.add_column("Alan")
+    table.add_column("Deger")
+    table.add_row("durum", plan.disposition.value)
+    table.add_row("checkpoint", str(plan.checkpoint_id))
+    table.add_row("sonraki step", plan.next_step_id or "-")
+    table.add_row("engel", ", ".join(plan.blockers) or "-")
+    table.add_row("plan digest", plan.plan_digest)
+    table.add_row("authority", "false")
     console.print(table)
 
 

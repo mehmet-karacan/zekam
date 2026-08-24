@@ -11,6 +11,7 @@ from psycopg import Error as PsycopgError
 
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
+from zekam.application.resume_coordinator import ResumeCoordinator
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
 from zekam.domain.checkpoint_v2 import (
@@ -51,6 +52,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import ContextC
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
+from zekam.infrastructure.postgres.resume_repository import ResumeRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -582,6 +584,58 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         first.checkpoint_digest,
     )
     assert repository.is_complete(first.checkpoint_id)
+    before_counts: tuple[int, ...]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select (select count(*) from runtime.job),"
+            " (select count(*) from security.authorization),"
+            " (select count(*) from runtime.lease),"
+            " (select count(*) from work.checkpoint_v2)"
+        )
+        before_counts = tuple(int(value) for value in cursor.fetchone())
+    prepared = ResumeCoordinator(ResumeRepository(connection, realm.id)).prepare(
+        work.id, client_id="claude", observed_at=now
+    )
+    assert prepared.disposition.value == "recovery-required"
+    assert prepared.checkpoint_id == first.checkpoint_id
+    assert prepared.reconciliation_actions[0].claim_id == claim_two
+    assert prepared.reacquire_resources == ()
+    assert prepared.actions[0].kind == "reconcile-effect"
+    assert not prepared.grants_authority
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select (select count(*) from runtime.job),"
+            " (select count(*) from security.authorization),"
+            " (select count(*) from runtime.lease),"
+            " (select count(*) from work.checkpoint_v2)"
+        )
+        after_counts = tuple(int(value) for value in cursor.fetchone())
+    assert after_counts == before_counts
+    ambiguous = CheckpointV2(
+        checkpoint_id=uuid4(),
+        checkpoint_key="alternate-progress",
+        revision=1,
+        previous_checkpoint_id=None,
+        previous_checkpoint_digest=None,
+        completed_steps=("research",),
+        pending_steps=("build",),
+        step_results=(research_result,),
+        open_effects=(
+            OpenEffect(
+                claim_two, digest("effect:two"), OpenEffectState.STARTED_NO_TERMINAL_RECEIPT
+            ),
+        ),
+        next_safe_action=NextSafeActionV2("reconcile", "build", "receipt pending"),
+        **{key: value for key, value in common.items() if key not in {"checkpoint_key"}},
+    )
+    assert repository.store(ambiguous) == (ambiguous.checkpoint_id, True)
+    ambiguous_plan = ResumeCoordinator(ResumeRepository(connection, realm.id)).prepare(
+        work.id, client_id="claude", observed_at=now
+    )
+    assert ambiguous_plan.disposition.value == "manual-review"
+    assert ambiguous_plan.selected_checkpoint_reason == "ambiguous-or-invalid-v2-head"
+    assert ambiguous_plan.reconciliation_actions == ()
+    assert ambiguous_plan.actions == ()
     with pytest.raises(PsycopgError), connection.cursor() as cursor:
         cursor.execute(
             "update work.checkpoint_v2 set step_id='forged' where id=%s", (first.checkpoint_id,)

@@ -189,6 +189,7 @@ zekam work transition gpu 123 completed --kanit "test=pytest 482 passed" --uygul
 zekam work next
 zekam work today
 zekam work resume --json
+zekam work resume-plan gpu 123 --client opencode --json
 ```
 
 Kurallar:
@@ -210,6 +211,8 @@ Kurallar:
 - Talep/defect numarası **exact** aranır; benzerlik numarayı değiştiremez.
 - Task Plan yetki vermez: `grants_authority` her zaman `false` ve bunu değiştirmeyi
   denemek veritabanı constraint'ine takılır.
+- `work resume-plan` salt okunur checkpoint v2 planlamasıdır; lease, approval veya
+  authorization taşımaz ve `resume_plan_digest` dışında mutation kanıtı üretmez.
 
 ## 11. Governance: policy, secret, yetki
 
