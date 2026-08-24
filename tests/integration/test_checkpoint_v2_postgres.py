@@ -1,0 +1,792 @@
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from psycopg import Error as PsycopgError
+
+from zekam.application.model_registry import load_inventory
+from zekam.application.project_integration import ProjectIntegrationService
+from zekam.application.work_graph import WorkGraphService
+from zekam.domain.canonical import digest
+from zekam.domain.checkpoint_v2 import (
+    CheckpointV2,
+    NextSafeActionV2,
+    OpenEffect,
+    OpenEffectState,
+    Resumability,
+    SandboxBindingV2,
+    SandboxDisposition,
+    StaleDigestBindings,
+    StepResultV2,
+)
+from zekam.domain.context_continuity import (
+    AuthorityLevel,
+    ContextCandidate,
+    JournalEntry,
+    compile_context,
+)
+from zekam.domain.execution_run import (
+    CheckpointDisposition,
+    ContextPacket,
+    ContextPacketSection,
+    ExecutionEnvelope,
+    ExecutionRun,
+    ProviderBindingSnapshot,
+)
+from zekam.domain.model_routing import (
+    AgentRole,
+    ExecutionTargetSnapshot,
+    ProjectRoutingContext,
+    RoleRoutingPolicy,
+    RoutingLayer,
+)
+from zekam.domain.work import EffectKind, PlanStep, WorkType
+from zekam.infrastructure.postgres.checkpoint_v2_repository import CheckpointV2Repository
+from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
+from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
+from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
+from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
+
+pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+
+
+def test_checkpoint_v2_evidence_revision_and_terminal_gate(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    now = dt.datetime.now(dt.UTC)
+    source = tmp_path / "checkpoint-v2-source"
+    source.mkdir()
+    project_service = ProjectIntegrationService(connection, realm)
+    project = project_service.register(source_path=source)
+    scan = project_service.scan(project.id, now=now)
+    graph = WorkGraphService(connection, realm)
+    work = graph.create_item(project_id=project.id, type=WorkType.TASK, title="Checkpoint v2")
+    policy_digest = digest("checkpoint-policy")
+    plan = graph.create_plan(
+        work.id,
+        source_revision=scan.revision.revision,
+        policy_digest=policy_digest,
+        steps=(
+            PlanStep("research", "Research", EffectKind.NONE),
+            PlanStep("build", "Build", EffectKind.FILE_WRITE, depends_on=("research",)),
+        ),
+    )
+    manifest = compile_context(
+        (
+            ContextCandidate(
+                "source",
+                AuthorityLevel.VERIFIED,
+                now,
+                scan.revision.revision,
+                digest("source"),
+                1,
+                True,
+            ),
+        ),
+        token_budget=5,
+        minimum_authority=AuthorityLevel.OBSERVED,
+        now=now,
+    )
+    continuity = ContextContinuityRepository(connection, realm.id, project.id, work.id)
+    journal = JournalEntry(1, str(work.id), "checkpoint-start", digest("journal"), None, False, now)
+    continuity.append_journal(journal, expected_head=None)
+    manifest_id = continuity.store_manifest(manifest)
+    selected = manifest.selected[0]
+    packet = ContextPacket.create(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        manifest_id=manifest_id,
+        manifest_digest=manifest.manifest_digest,
+        sections=(ContextPacketSection(selected.candidate_id, selected.content_digest, 1),),
+        created_at=now,
+    )
+    execution = ExecutionRunRepository(connection, realm.id)
+    execution.create_packet(packet)
+    run = ExecutionRun.create(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        plan_id=plan.id,
+        client_id="codex",
+        session_id="checkpoint-test",
+        source_revision=scan.revision.revision,
+        policy_digest=policy_digest,
+        max_input_tokens=10,
+        max_output_tokens=10,
+        max_cost_micros=100,
+        deadline=now + dt.timedelta(minutes=10),
+        created_at=now,
+    )
+    execution.create_run(run)
+    execution.activate_run(run.id, started_at=now)
+
+    model = next(record for record in load_inventory().records if record.enabled)
+    ModelInventoryRepository(connection, realm.id).upsert(model)
+    routing = ModelRoutingRepository(connection, realm.id)
+    routing_context = ProjectRoutingContext(
+        project_id=project.id,
+        source_revision_id=scan.revision.id,
+        source_revision=scan.revision.revision,
+        tree_digest=scan.revision.tree_digest,
+        capability_profile_digest=scan.profile.digest,
+        dependency_digest=digest("dependencies"),
+        framework_digest=digest("frameworks"),
+        technology_digest=digest("technology"),
+        architecture_digest=digest("architecture"),
+        rules_digest=digest("rules"),
+        suite_digest=digest("suite"),
+        inventory_digest=digest("inventory"),
+        policy_digest=policy_digest,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    routing_context_id, _ = routing.store_project_context(routing_context)
+    role_policy = RoleRoutingPolicy(
+        role=AgentRole.IMPLEMENTER,
+        target_layer=RoutingLayer.GENERAL,
+        required_layers=(RoutingLayer.GENERAL,),
+        top_k=1,
+        fallback_model_ids=(),
+        max_cost=10,
+        max_latency_ms=30_000,
+        independent_from_roles=(),
+        policy_digest=policy_digest,
+    )
+    role_policy_id = routing.store_role_policy(role_policy, effective_from=now)
+    target = ExecutionTargetSnapshot(
+        client_id="codex",
+        slot="default",
+        execution_mode="native-sequential",
+        model_selectable=True,
+        structured_result=True,
+        cancellation=True,
+        max_concurrency=1,
+        cost_evidence_digest=digest("cost"),
+        capability_digest=digest("capability"),
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    target_id, _ = routing.store_execution_target(target)
+    (
+        route_id,
+        builder_id,
+        verifier_id,
+        builder_invocation,
+        verifier_invocation,
+        colliding_verifier_invocation,
+        research_builder_id,
+        research_job_id,
+        research_attempt_id,
+        research_lease_id,
+        foreign_claim_id,
+        foreign_receipt_id,
+        job_id,
+        attempt_id,
+    ) = (uuid4() for _ in range(14))
+    lease_id = uuid4()
+    route_digest = digest("route")
+    result_digest = digest("result")
+    claim_one, claim_two, receipt_one, receipt_two = (uuid4() for _ in range(4))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into models.model_route_decision"
+            "(id,realm_id,role_policy_id,execution_target_id,role,target_layer,inventory_digest,"
+            "routing_policy_digest,policy_digest,execution_target_digest,status,primary_model_id,"
+            "evidence_digest,decided_at) values"
+            "(%s,%s,%s,%s,'implementer','general',%s,%s,%s,%s,'selected',%s,%s,%s)",
+            (
+                route_id,
+                realm.id,
+                role_policy_id,
+                target_id,
+                digest("inventory"),
+                policy_digest,
+                policy_digest,
+                target.snapshot_digest,
+                model.model_id,
+                route_digest,
+                now,
+            ),
+        )
+        coordinator_id = uuid4()
+        for assignment_id, parent_id, role, risk, agent, step_id in (
+            (coordinator_id, None, "coordinator", "medium", "coordinator", "build"),
+            (builder_id, coordinator_id, "builder", "high", "builder", "build"),
+            (
+                research_builder_id,
+                coordinator_id,
+                "builder",
+                "medium",
+                "research-builder",
+                "research",
+            ),
+            (
+                verifier_id,
+                coordinator_id,
+                "verifier",
+                "medium",
+                "independent-verifier",
+                "build",
+            ),
+        ):
+            cursor.execute(
+                "insert into agents.assignment"
+                "(id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,role,"
+                "agent_ref,status,risk,instruction_digest,context_manifest_digest,"
+                "assignment_digest,created_at) values"
+                "(%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s,%s)",
+                (
+                    assignment_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    plan.id,
+                    step_id,
+                    parent_id,
+                    role,
+                    agent,
+                    risk,
+                    digest(f"instruction:{role}:{step_id}"),
+                    manifest.manifest_digest,
+                    digest(f"assignment:{role}:{step_id}"),
+                    now,
+                ),
+            )
+        cursor.execute(
+            "insert into runtime.job"
+            "(id,realm_id,project_id,work_item_id,plan_id,step_id,kind,state,attempt_count,"
+            "idempotency_key,assignment_id,run_id) values"
+            "(%s,%s,%s,%s,%s,'research','read-only','running',1,%s,%s,%s)",
+            (
+                research_job_id,
+                realm.id,
+                project.id,
+                work.id,
+                plan.id,
+                f"job-{research_job_id}",
+                research_builder_id,
+                run.id,
+            ),
+        )
+        cursor.execute(
+            "insert into runtime.job"
+            "(id,realm_id,project_id,work_item_id,plan_id,step_id,kind,state,attempt_count,"
+            "idempotency_key,assignment_id,run_id) values"
+            "(%s,%s,%s,%s,%s,'build','mutation','running',1,%s,%s,%s)",
+            (job_id, realm.id, project.id, work.id, plan.id, f"job-{job_id}", builder_id, run.id),
+        )
+        cursor.execute(
+            "insert into runtime.job_attempt"
+            "(id,realm_id,job_id,attempt_number,fencing_token,worker_label,started_at)"
+            " values(%s,%s,%s,1,1,'research-test',%s)",
+            (research_attempt_id, realm.id, research_job_id, now),
+        )
+        cursor.execute(
+            "insert into runtime.job_attempt"
+            "(id,realm_id,job_id,attempt_number,fencing_token,worker_label,started_at)"
+            " values(%s,%s,%s,1,1,'checkpoint-test',%s)",
+            (attempt_id, realm.id, job_id, now),
+        )
+        cursor.execute(
+            "insert into runtime.lease"
+            "(id,realm_id,job_id,attempt_id,owner_digest,fencing_token,worker_label,expires_at,"
+            "heartbeat_at,created_at) values(%s,%s,%s,%s,%s,1,'research-test',%s,%s,%s)",
+            (
+                research_lease_id,
+                realm.id,
+                research_job_id,
+                research_attempt_id,
+                digest("research-owner"),
+                now + dt.timedelta(minutes=5),
+                now,
+                now,
+            ),
+        )
+        cursor.execute(
+            "insert into runtime.lease"
+            "(id,realm_id,job_id,attempt_id,owner_digest,fencing_token,worker_label,expires_at,"
+            "heartbeat_at,created_at) values(%s,%s,%s,%s,%s,1,'checkpoint-test',%s,%s,%s)",
+            (
+                lease_id,
+                realm.id,
+                job_id,
+                attempt_id,
+                digest("owner"),
+                now + dt.timedelta(minutes=5),
+                now,
+                now,
+            ),
+        )
+        for claim_id, key in ((claim_one, "one"), (claim_two, "two")):
+            cursor.execute(
+                "insert into runtime.effect_claim"
+                "(id,realm_id,job_id,attempt_id,operation,effect_digest,authorization_digest,"
+                "idempotency_key,resources,execution_identity,fencing_token,adapter_digest,"
+                "claim_digest,claimed_at) values"
+                "(%s,%s,%s,%s,'write',%s,%s,%s,'[]'::jsonb,'checkpoint-test',1,%s,%s,%s)",
+                (
+                    claim_id,
+                    realm.id,
+                    job_id,
+                    attempt_id,
+                    digest(f"effect:{key}"),
+                    digest("authorization"),
+                    f"claim-{claim_id}",
+                    digest("adapter"),
+                    digest(f"claim:{key}"),
+                    now,
+                ),
+            )
+        cursor.execute(
+            "insert into runtime.effect_claim"
+            "(id,realm_id,job_id,attempt_id,operation,effect_digest,authorization_digest,"
+            "idempotency_key,resources,execution_identity,fencing_token,adapter_digest,"
+            "claim_digest,claimed_at) values"
+            "(%s,%s,%s,%s,'read',%s,%s,%s,'[]'::jsonb,'research-test',1,%s,%s,%s)",
+            (
+                foreign_claim_id,
+                realm.id,
+                research_job_id,
+                research_attempt_id,
+                digest("foreign-effect"),
+                digest("research-authorization"),
+                f"claim-{foreign_claim_id}",
+                digest("research-adapter"),
+                digest("foreign-claim"),
+                now,
+            ),
+        )
+        cursor.execute(
+            "insert into runtime.effect_receipt"
+            "(id,realm_id,claim_id,status,result_digest) values(%s,%s,%s,'completed',%s)",
+            (foreign_receipt_id, realm.id, foreign_claim_id, result_digest),
+        )
+        cursor.execute(
+            "insert into runtime.effect_receipt"
+            "(id,realm_id,claim_id,status,result_digest) values(%s,%s,%s,'completed',%s)",
+            (receipt_one, realm.id, claim_one, result_digest),
+        )
+        cursor.execute(
+            "insert into agents.invocation"
+            "(id,realm_id,assignment_id,client_id,execution_identity,invocation_digest,created_at)"
+            " values(%s,%s,%s,'codex','shared-run',%s,%s)",
+            (builder_invocation, realm.id, builder_id, digest("builder-invocation"), now),
+        )
+    connection.commit()
+
+    provider = ProviderBindingSnapshot.create(
+        realm_id=realm.id,
+        model_id=model.model_id,
+        provider_ref=f"model:{model.model_id}",
+        endpoint_ref=model.endpoint_ref,
+        operation="invoke",
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    execution.create_provider_binding(provider)
+    research_envelope = ExecutionEnvelope.create(
+        realm_id=realm.id,
+        run_id=run.id,
+        job_id=research_job_id,
+        attempt_id=research_attempt_id,
+        lease_id=research_lease_id,
+        fencing_token=1,
+        request_ordinal=1,
+        idempotency_key="research-call-1",
+        assignment_id=research_builder_id,
+        role="builder",
+        route_decision_id=route_id,
+        route_decision_digest=route_digest,
+        route_expires_at=target.expires_at,
+        model_id=model.model_id,
+        provider_binding_id=provider.id,
+        provider_binding_digest=provider.binding_digest,
+        provider_ref=provider.provider_ref,
+        context_manifest_id=manifest_id,
+        context_manifest_digest=manifest.manifest_digest,
+        context_packet_id=packet.id,
+        context_packet_digest=packet.packet_digest,
+        checkpoint_id=None,
+        checkpoint_digest=None,
+        checkpoint_disposition=CheckpointDisposition.NOT_APPLICABLE_GENESIS,
+        source_revision=scan.revision.revision,
+        policy_digest=policy_digest,
+        authorization_scope_digest=digest("research-authorization"),
+        output_schema_digest=digest("research-schema"),
+        payload_digest=digest("research-payload"),
+        max_input_tokens=10,
+        max_output_tokens=10,
+        max_cost_micros=100,
+        deadline=run.deadline,
+        created_at=now,
+    )
+    execution.create_envelope(research_envelope)
+    envelope = ExecutionEnvelope.create(
+        realm_id=realm.id,
+        run_id=run.id,
+        job_id=job_id,
+        attempt_id=attempt_id,
+        lease_id=lease_id,
+        fencing_token=1,
+        request_ordinal=1,
+        idempotency_key="checkpoint-call-1",
+        assignment_id=builder_id,
+        role="builder",
+        route_decision_id=route_id,
+        route_decision_digest=route_digest,
+        route_expires_at=target.expires_at,
+        model_id=model.model_id,
+        provider_binding_id=provider.id,
+        provider_binding_digest=provider.binding_digest,
+        provider_ref=provider.provider_ref,
+        context_manifest_id=manifest_id,
+        context_manifest_digest=manifest.manifest_digest,
+        context_packet_id=packet.id,
+        context_packet_digest=packet.packet_digest,
+        checkpoint_id=None,
+        checkpoint_digest=None,
+        checkpoint_disposition=CheckpointDisposition.NOT_APPLICABLE_GENESIS,
+        source_revision=scan.revision.revision,
+        policy_digest=policy_digest,
+        authorization_scope_digest=digest("authorization"),
+        output_schema_digest=digest("schema"),
+        payload_digest=digest("payload"),
+        max_input_tokens=10,
+        max_output_tokens=10,
+        max_cost_micros=100,
+        deadline=run.deadline,
+        created_at=now,
+    )
+    execution.create_envelope(envelope)
+
+    with connection.cursor() as cursor:
+        cursor.execute("select checksum from core.schema_migrations order by version desc limit 1")
+        migration_checksum = str(cursor.fetchone()[0])
+    bindings = StaleDigestBindings(
+        routing_context_snapshot_id=routing_context_id,
+        source_revision=scan.revision.revision,
+        policy_digest=policy_digest,
+        capability_profile_digest=scan.profile.digest,
+        dependency_snapshot_digest=digest("dependencies"),
+        migration_head_digest=digest(migration_checksum),
+        model_route_decision_digest=route_digest,
+        context_manifest_digest=manifest.manifest_digest,
+        context_packet_digest=packet.packet_digest,
+        architecture_digest=digest("architecture"),
+        rules_digest=digest("rules"),
+        test_suite_digest=digest("suite"),
+        model_inventory_digest=digest("inventory"),
+        journal_head_digest=journal.entry_digest,
+    )
+    common = {
+        "checkpoint_key": "build-progress",
+        "realm_id": realm.id,
+        "project_id": project.id,
+        "work_item_id": work.id,
+        "intent_digest": digest("intent"),
+        "plan_id": plan.id,
+        "plan_digest": plan.plan_digest,
+        "step_id": "build",
+        "run_id": run.id,
+        "job_id": job_id,
+        "attempt_id": attempt_id,
+        "assignment_id": builder_id,
+        "execution_envelope_id": envelope.id,
+        "execution_envelope_digest": envelope.envelope_digest,
+        "route_decision_id": route_id,
+        "context_manifest_id": manifest_id,
+        "context_packet_id": packet.id,
+        "bindings": bindings,
+        "plan_steps": ("research", "build"),
+        "logical_read_resources": (),
+        "logical_write_resources": (),
+        "sandbox": SandboxBindingV2(SandboxDisposition.NOT_APPLICABLE),
+        "tokens_used": 0,
+        "cost_micros_used": 0,
+        "attempts_used": 1,
+        "deadline": run.deadline,
+        "rollback_or_recovery": (),
+        "resumability": Resumability.RECONCILIATION_REQUIRED,
+        "observed_lease_id": lease_id,
+        "observed_fencing_token": 1,
+        "created_at": now,
+    }
+    research_result = StepResultV2(
+        "research",
+        digest("research-result"),
+        EffectKind.NONE,
+        research_job_id,
+        research_attempt_id,
+        research_builder_id,
+        research_envelope.id,
+        research_envelope.envelope_digest,
+    )
+    research_checkpoint = CheckpointV2(
+        checkpoint_id=uuid4(),
+        revision=1,
+        previous_checkpoint_id=None,
+        previous_checkpoint_digest=None,
+        completed_steps=("research",),
+        pending_steps=("build",),
+        step_results=(research_result,),
+        open_effects=(),
+        next_safe_action=NextSafeActionV2("dispatch", "build", "research tamamlandi"),
+        **(
+            common
+            | {
+                "step_id": "research",
+                "job_id": research_job_id,
+                "attempt_id": research_attempt_id,
+                "assignment_id": research_builder_id,
+                "execution_envelope_id": research_envelope.id,
+                "execution_envelope_digest": research_envelope.envelope_digest,
+                "resumability": Resumability.SAFE_CONTINUE,
+                "observed_lease_id": research_lease_id,
+            }
+        ),
+    )
+    repository = CheckpointV2Repository(connection, realm.id)
+    assert repository.store(research_checkpoint) == (research_checkpoint.checkpoint_id, True)
+    with connection.cursor() as cursor:
+        cursor.execute("update runtime.job set state='completed' where id=%s", (research_job_id,))
+    connection.commit()
+
+    first = CheckpointV2(
+        checkpoint_id=uuid4(),
+        revision=2,
+        previous_checkpoint_id=research_checkpoint.checkpoint_id,
+        previous_checkpoint_digest=research_checkpoint.checkpoint_digest,
+        completed_steps=("research",),
+        pending_steps=("build",),
+        step_results=(research_result,),
+        open_effects=(
+            OpenEffect(
+                claim_two, digest("effect:two"), OpenEffectState.STARTED_NO_TERMINAL_RECEIPT
+            ),
+        ),
+        next_safe_action=NextSafeActionV2("reconcile", "build", "receipt pending"),
+        **common,
+    )
+    assert repository.store(first) == (first.checkpoint_id, True)
+    assert repository.store(first) == (first.checkpoint_id, False)
+    assert repository.latest(first.checkpoint_key) == (
+        first.checkpoint_id,
+        2,
+        first.checkpoint_digest,
+    )
+    assert repository.is_complete(first.checkpoint_id)
+    with pytest.raises(PsycopgError), connection.cursor() as cursor:
+        cursor.execute(
+            "update work.checkpoint_v2 set step_id='forged' where id=%s", (first.checkpoint_id,)
+        )
+    connection.rollback()
+
+    incomplete = CheckpointV2(
+        checkpoint_id=uuid4(),
+        revision=3,
+        previous_checkpoint_id=first.checkpoint_id,
+        previous_checkpoint_digest=first.checkpoint_digest,
+        completed_steps=("research", "build"),
+        pending_steps=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.FILE_WRITE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+                (receipt_one,),
+            ),
+        ),
+        open_effects=(
+            OpenEffect(
+                claim_two, digest("effect:two"), OpenEffectState.STARTED_NO_TERMINAL_RECEIPT
+            ),
+        ),
+        next_safe_action=None,
+        resumability=Resumability.SAFE_CONTINUE,
+        **{key: value for key, value in common.items() if key != "resumability"},
+    )
+    with pytest.raises(PsycopgError):
+        repository.store(incomplete)
+    connection.rollback()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into runtime.effect_receipt"
+            "(id,realm_id,claim_id,status,result_digest) values(%s,%s,%s,'completed',%s)",
+            (receipt_two, realm.id, claim_two, result_digest),
+        )
+        cursor.execute(
+            "insert into agents.invocation"
+            "(id,realm_id,assignment_id,client_id,execution_identity,invocation_digest,created_at)"
+            " values(%s,%s,%s,'codex','verifier-run',%s,%s)",
+            (verifier_invocation, realm.id, verifier_id, digest("verifier-invocation"), now),
+        )
+        cursor.execute(
+            "insert into agents.result_receipt"
+            "(realm_id,assignment_id,invocation_id,envelope_digest) values(%s,%s,%s,%s)",
+            (realm.id, verifier_id, verifier_invocation, digest("verifier-result")),
+        )
+        cursor.execute(
+            "insert into agents.invocation"
+            "(id,realm_id,assignment_id,client_id,execution_identity,invocation_digest,created_at)"
+            " values(%s,%s,%s,'codex','shared-run',%s,%s)",
+            (
+                colliding_verifier_invocation,
+                realm.id,
+                verifier_id,
+                digest("colliding-verifier-invocation"),
+                now,
+            ),
+        )
+        cursor.execute(
+            "insert into agents.result_receipt"
+            "(realm_id,assignment_id,invocation_id,envelope_digest) values(%s,%s,%s,%s)",
+            (
+                realm.id,
+                verifier_id,
+                colliding_verifier_invocation,
+                digest("colliding-verifier-result"),
+            ),
+        )
+    connection.commit()
+
+    forged_effect = replace(
+        incomplete,
+        open_effects=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.NONE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+            ),
+        ),
+    )
+    with pytest.raises(PsycopgError):
+        repository.store(forged_effect)
+    connection.rollback()
+
+    mixed_receipt = replace(
+        incomplete,
+        open_effects=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.FILE_WRITE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+                (receipt_one, receipt_two, foreign_receipt_id),
+                (verifier_invocation,),
+                True,
+            ),
+        ),
+    )
+    with pytest.raises(PsycopgError):
+        repository.store(mixed_receipt)
+    connection.rollback()
+
+    colliding_verifier = replace(
+        incomplete,
+        open_effects=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.FILE_WRITE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+                (receipt_one, receipt_two),
+                (verifier_invocation, colliding_verifier_invocation),
+                True,
+            ),
+        ),
+    )
+    with pytest.raises(PsycopgError):
+        repository.store(colliding_verifier)
+    connection.rollback()
+
+    stale_context = replace(
+        incomplete,
+        open_effects=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.FILE_WRITE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+                (receipt_one, receipt_two),
+                (verifier_invocation,),
+                True,
+            ),
+        ),
+        bindings=replace(bindings, dependency_snapshot_digest=digest("forged-dependencies")),
+    )
+    with pytest.raises(PsycopgError):
+        repository.store(stale_context)
+    connection.rollback()
+
+    completed = replace(
+        incomplete,
+        open_effects=(),
+        step_results=(
+            research_result,
+            StepResultV2(
+                "build",
+                result_digest,
+                EffectKind.FILE_WRITE,
+                job_id,
+                attempt_id,
+                builder_id,
+                envelope.id,
+                envelope.envelope_digest,
+                (receipt_one, receipt_two),
+                (verifier_invocation,),
+                True,
+            ),
+        ),
+    )
+    assert repository.store(completed) == (completed.checkpoint_id, True)
+    assert repository.is_complete(completed.checkpoint_id)
+    with connection.cursor() as cursor:
+        cursor.execute("update runtime.job set state='completed' where id=%s", (job_id,))
+    connection.commit()
+
+
+def test_checkpoint_v2_latest_returns_none_for_unknown_key(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    repository = CheckpointV2Repository(connection, realm.id)
+    assert repository.latest("missing") is None
