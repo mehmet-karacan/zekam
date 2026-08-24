@@ -105,3 +105,16 @@ Mem0 **opsiyoneldir ve otorite değildir**. Adaptör yalnız kopya tutar:
 
 `resolve` her zaman native kaydı döndürür. Harici motor kesintisi bellek
 katmanını durdurmaz.
+## Kullanim ve dogrulanmis sonuc telemetrisi
+
+Bir retrieval hit'i tek basina kullanim sayilmaz. `memory.usage_event`, yalnizca
+`memory` turundeki model-visible fragment exact request manifestine baglandiktan ve
+model invocation terminal olarak dogrulandiktan sonra PostgreSQL tarafinda turetilir.
+Olay append-only'dir; `memory.record.last_used_at` yalniz bu ledgerin yeniden
+uretilebilir projection'idir ve uygulama rolu tarafindan dogrudan yazilamaz.
+
+`memory.usage_outcome`, ayni proje/is/adim icin kanonik checkpoint v2 zinciri
+bagimsiz verifier receipt'iyle tamamlandiginda usage olayina otomatik baglanir.
+Caller-supplied `verified` bayragi veya serbest outcome digest'i kabul edilmez.
+`memory.usage_effectiveness` gorunumu usage ve verified outcome sayaclarini ham
+icerik tasimadan sorgulanabilir kilar.

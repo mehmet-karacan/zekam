@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 from psycopg import Error as PsycopgError
 
+from zekam.application.context_materializer import FragmentMaterialization, materialize_fragments
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.resume_coordinator import ResumeCoordinator
@@ -31,6 +32,7 @@ from zekam.domain.context_continuity import (
     JournalEntry,
     compile_context,
 )
+from zekam.domain.context_fragment import ContextContentKind, ContextRole, ContextVisibility
 from zekam.domain.execution_environment import (
     AssignmentEnvironmentBinding,
     ExecutionEnvironmentSnapshot,
@@ -47,6 +49,15 @@ from zekam.domain.execution_run import (
     ExecutionRun,
     ProviderBindingSnapshot,
 )
+from zekam.domain.memory import (
+    MemoryClass,
+    MemoryEvidence,
+    MemoryKey,
+    MemoryRecord,
+    MemoryScope,
+    MemoryState,
+)
+from zekam.domain.model_invocation import GatewaySourceLabel, ModelRequestManifest
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
@@ -56,6 +67,7 @@ from zekam.domain.model_routing import (
 )
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.resume_apply import ResumeApplyEvent, ResumeApplyPhase, ResumeApplyState
+from zekam.domain.runtime import EffectClaim, EffectReceipt
 from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.tool_registry import CompiledToolSet
 from zekam.domain.work import EffectKind, PlanStep, WorkType
@@ -63,10 +75,14 @@ from zekam.infrastructure.postgres.checkpoint_v2_repository import CheckpointV2R
 from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
+from zekam.infrastructure.postgres.memory_repository import MemoryRepository
+from zekam.infrastructure.postgres.memory_telemetry_repository import MemoryTelemetryRepository
+from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 from zekam.infrastructure.postgres.resume_apply_repository import ResumeApplyRepository
 from zekam.infrastructure.postgres.resume_repository import ResumeRepository
+from zekam.infrastructure.postgres.runtime_repository import EffectLedger
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
@@ -1037,3 +1053,445 @@ def test_checkpoint_v2_latest_returns_none_for_unknown_key(
     realm, connection = realm_session
     repository = CheckpointV2Repository(connection, realm.id)
     assert repository.latest("missing") is None
+
+
+def test_memory_usage_correlates_only_after_canonical_independent_checkpoint_verification(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def consume(scope: dict[str, Any]) -> None:
+        realm = scope["realm"]
+        connection = scope["connection"]
+        now = scope["now"]
+        project = scope["project"]
+        work = scope["work"]
+        plan = scope["plan"]
+        model = scope["model"]
+        research_checkpoint = scope["research_checkpoint"]
+        research_job_id = scope["research_job_id"]
+        research_attempt_id = scope["research_attempt_id"]
+        research_builder_id = scope["research_builder_id"]
+        coordinator_id = scope["coordinator_id"]
+
+        record = MemoryRecord(
+            memory_id="checkpoint-outcome-memory",
+            key=MemoryKey(MemoryScope.PROJECT, realm.slug, project_ref=project.slug),
+            memory_class=MemoryClass.SEMANTIC,
+            content="Bagimsiz checkpoint sonucu bellek yararini dogrular",
+            state=MemoryState.ACTIVE,
+            revision=1,
+            created_at=now - dt.timedelta(minutes=1),
+            evidence=(MemoryEvidence("test", "memory/outcome", digest("usage-evidence")),),
+            reviewed_by="memory-reviewer",
+            author_ref="memory-author",
+            valid_from=now - dt.timedelta(minutes=1),
+        )
+        record_id = MemoryRepository(
+            connection, realm.id, realm.slug, project.id, project.slug
+        ).store_record(record)
+        candidate = ContextCandidate(
+            "verified-memory",
+            AuthorityLevel.VERIFIED,
+            now,
+            record.record_digest,
+            digest(record.content),
+            6,
+            True,
+        )
+        context_manifest = compile_context(
+            (candidate,),
+            token_budget=10,
+            minimum_authority=AuthorityLevel.OBSERVED,
+            now=now,
+        )
+        fragment_set = materialize_fragments(
+            context_manifest,
+            (candidate,),
+            (
+                FragmentMaterialization(
+                    "verified-memory",
+                    ContextContentKind.MEMORY,
+                    ContextRole.USER,
+                    ContextVisibility.MODEL,
+                    f"memory-record/{record_id}",
+                    record.content,
+                ),
+            ),
+        )
+        continuity = ContextContinuityRepository(connection, realm.id, project.id, work.id)
+        continuity.store_manifest(context_manifest)
+        continuity.store_fragment_set(fragment_set, created_at=now)
+
+        actor = ActorRepository(connection, realm.id).add(
+            Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="usage-runtime", now=now)
+        )
+        effect_digest = digest("usage-provider-effect")
+        authorization = Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=work.id,
+            plan_id=plan.id,
+            plan_digest=plan.plan_digest,
+            effect_digest=effect_digest,
+            scope=AuthorizationScope(
+                allowed_effects=("provider-call",), provider_refs=("provider:test",)
+            ),
+            risk="medium",
+            lifetime=dt.timedelta(minutes=5),
+            now=now,
+        )
+        AuthorizationRepository(connection, realm.id).issue(authorization)
+        claim = EffectClaim.create(
+            realm_id=realm.id,
+            job_id=research_job_id,
+            attempt_id=research_attempt_id,
+            operation="provider.invoke",
+            effect_digest=effect_digest,
+            authorization_digest=authorization.authorization_digest,
+            idempotency_key=f"memory-outcome-{uuid4()}",
+            resources=(),
+            execution_identity="memory-outcome:1",
+            fencing_token=1,
+            adapter_digest=digest("memory-outcome-adapter"),
+            now=now,
+        )
+        ledger = EffectLedger(connection, realm.id)
+        ledger.claim(claim, authorization_id=authorization.id)
+        receipt = EffectReceipt.completed(
+            realm_id=realm.id,
+            claim=claim,
+            result_digest=digest("memory-provider-result"),
+            now=now,
+        )
+        ledger.receipt(receipt)
+        assert (
+            AuthorizationRepository(connection, realm.id)
+            .consume(
+                authorization.id,
+                effect_digest=effect_digest,
+                consumed_by="model-gateway",
+                now=now,
+            )
+            .consumed
+        )
+        request = ModelRequestManifest.create(
+            realm_id=realm.id,
+            project_id=project.id,
+            work_item_id=work.id,
+            plan_id=plan.id,
+            step_id="research",
+            execution_envelope_id=None,
+            execution_envelope_digest=None,
+            run_id=scope["run"].id,
+            job_id=research_job_id,
+            attempt_id=research_attempt_id,
+            assignment_id=research_builder_id,
+            role="builder",
+            risk="medium",
+            route_decision_digest=scope["route_digest"],
+            model_id=model.model_id,
+            provider_ref="provider:test",
+            context_manifest_digest=context_manifest.manifest_digest,
+            context_fragment_set_digest=fragment_set.fragment_set_digest,
+            model_visible_payload_digest=digest("memory-visible-payload"),
+            context_packet_digest=scope["packet"].packet_digest,
+            checkpoint_digest=None,
+            source_revision=scope["scan"].revision.revision,
+            policy_digest=scope["policy_digest"],
+            payload_digest=digest("memory-visible-payload"),
+            authorization_scope_digest=digest("memory-authorization-scope"),
+            output_schema_digest=digest("memory-output-schema"),
+            idempotency_key=f"memory-request-{uuid4()}",
+            max_input_tokens=10,
+            max_output_tokens=10,
+            max_cost_micros=100,
+            deadline=scope["run"].deadline,
+            route_expires_at=scope["target"].expires_at,
+            source_label=GatewaySourceLabel.MODEL_CAPABILITY,
+            missing_bindings=(
+                "checkpoint_digest",
+                "execution_envelope_digest",
+                "execution_envelope_id",
+            ),
+            created_at=now,
+        )
+        invocation_repository = ModelInvocationRepository(connection, realm.id)
+        invocation_repository.store_manifest(request)
+        invocation_attempt_id = invocation_repository.record_attempt(
+            manifest_id=request.id,
+            effect_claim_id=claim.id,
+            authorization_id=authorization.id,
+        )
+        invocation_result_id = uuid4()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "insert into models.invocation_result"
+                " (id,realm_id,manifest_id,attempt_id,effect_receipt_id,state,response_digest,"
+                "created_at) values(%s,%s,%s,%s,%s,'verified',%s,%s)",
+                (
+                    invocation_result_id,
+                    realm.id,
+                    request.id,
+                    invocation_attempt_id,
+                    receipt.id,
+                    receipt.result_digest,
+                    now,
+                ),
+            )
+            cursor.execute("select id from memory.usage_event where record_id=%s", (record_id,))
+            usage_id = cursor.fetchone()[0]
+            cursor.execute(
+                "select count(*) from memory.usage_outcome where usage_event_id=%s", (usage_id,)
+            )
+            assert int(cursor.fetchone()[0]) == 0
+
+        # Same work/step, but a different plan/run/job must never inherit this
+        # checkpoint's verified outcome.
+        foreign_plan_id, foreign_run_id, foreign_assignment_id = (uuid4() for _ in range(3))
+        foreign_job_id, foreign_runtime_attempt_id = (uuid4() for _ in range(2))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "insert into work.task_plan"
+                " (id,realm_id,project_id,work_item_id,revision,source_revision,policy_digest,"
+                "steps,effect_digest,plan_digest,created_at) values"
+                " (%s,%s,%s,%s,2,%s,%s,"
+                ' \'[{"step_id":"research","effect":"provider-call"}]\'::jsonb,'
+                "%s,%s,%s)",
+                (
+                    foreign_plan_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    scope["scan"].revision.revision,
+                    scope["policy_digest"],
+                    digest("foreign-plan-effect"),
+                    digest("foreign-plan"),
+                    now,
+                ),
+            )
+            cursor.execute(
+                "insert into runtime.execution_run"
+                " (id,realm_id,project_id,work_item_id,plan_id,client_id,source_revision,"
+                "policy_digest,max_input_tokens,max_output_tokens,max_cost_micros,deadline,state,"
+                "run_digest,created_at,started_at) values"
+                " (%s,%s,%s,%s,%s,'codex',%s,%s,10,10,100,%s,'active',%s,%s,%s)",
+                (
+                    foreign_run_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    foreign_plan_id,
+                    scope["scan"].revision.revision,
+                    scope["policy_digest"],
+                    scope["run"].deadline,
+                    digest("foreign-run"),
+                    now,
+                    now,
+                ),
+            )
+            cursor.execute(
+                "insert into agents.assignment"
+                " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,"
+                "role,agent_ref,status,risk,instruction_digest,context_manifest_digest,"
+                "assignment_digest,created_at) values"
+                " (%s,%s,%s,%s,%s,'research',%s,'builder','foreign-builder','active','medium',"
+                "%s,%s,%s,%s)",
+                (
+                    foreign_assignment_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    foreign_plan_id,
+                    coordinator_id,
+                    digest("foreign-instruction"),
+                    context_manifest.manifest_digest,
+                    digest("foreign-assignment"),
+                    now,
+                ),
+            )
+            cursor.execute(
+                "insert into runtime.job"
+                " (id,realm_id,project_id,work_item_id,plan_id,step_id,kind,state,attempt_count,"
+                "idempotency_key,assignment_id,run_id) values"
+                " (%s,%s,%s,%s,%s,'research','provider-call','running',1,%s,%s,%s)",
+                (
+                    foreign_job_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    foreign_plan_id,
+                    f"foreign-job-{foreign_job_id}",
+                    foreign_assignment_id,
+                    foreign_run_id,
+                ),
+            )
+            cursor.execute(
+                "insert into runtime.job_attempt"
+                " (id,realm_id,job_id,attempt_number,fencing_token,worker_label,started_at)"
+                " values(%s,%s,%s,1,1,'foreign-worker',%s)",
+                (foreign_runtime_attempt_id, realm.id, foreign_job_id, now),
+            )
+        foreign_effect = digest("foreign-provider-effect")
+        foreign_authorization = Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=work.id,
+            plan_id=foreign_plan_id,
+            plan_digest=digest("foreign-plan"),
+            effect_digest=foreign_effect,
+            scope=AuthorizationScope(
+                allowed_effects=("provider-call",), provider_refs=("provider:test",)
+            ),
+            risk="medium",
+            lifetime=dt.timedelta(minutes=5),
+            now=now,
+        )
+        AuthorizationRepository(connection, realm.id).issue(foreign_authorization)
+        foreign_claim = EffectClaim.create(
+            realm_id=realm.id,
+            job_id=foreign_job_id,
+            attempt_id=foreign_runtime_attempt_id,
+            operation="provider.invoke",
+            effect_digest=foreign_effect,
+            authorization_digest=foreign_authorization.authorization_digest,
+            idempotency_key=f"foreign-memory-{uuid4()}",
+            resources=(),
+            execution_identity="foreign-memory:1",
+            fencing_token=1,
+            adapter_digest=digest("foreign-adapter"),
+            now=now,
+        )
+        ledger.claim(foreign_claim, authorization_id=foreign_authorization.id)
+        foreign_receipt = EffectReceipt.completed(
+            realm_id=realm.id,
+            claim=foreign_claim,
+            result_digest=digest("foreign-provider-result"),
+            now=now,
+        )
+        ledger.receipt(foreign_receipt)
+        assert (
+            AuthorizationRepository(connection, realm.id)
+            .consume(
+                foreign_authorization.id,
+                effect_digest=foreign_effect,
+                consumed_by="model-gateway",
+                now=now,
+            )
+            .consumed
+        )
+        foreign_request = ModelRequestManifest.create(
+            **{
+                name: getattr(request, name)
+                for name in request.__dataclass_fields__
+                if name not in {"id", "manifest_digest"}
+            }
+            | {
+                "plan_id": foreign_plan_id,
+                "run_id": foreign_run_id,
+                "job_id": foreign_job_id,
+                "attempt_id": foreign_runtime_attempt_id,
+                "assignment_id": foreign_assignment_id,
+                "idempotency_key": f"foreign-request-{uuid4()}",
+            }
+        )
+        invocation_repository.store_manifest(foreign_request)
+        foreign_invocation_attempt = invocation_repository.record_attempt(
+            manifest_id=foreign_request.id,
+            effect_claim_id=foreign_claim.id,
+            authorization_id=foreign_authorization.id,
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "insert into models.invocation_result"
+                " (id,realm_id,manifest_id,attempt_id,effect_receipt_id,state,response_digest,"
+                "created_at) values(%s,%s,%s,%s,%s,'verified',%s,%s)",
+                (
+                    uuid4(),
+                    realm.id,
+                    foreign_request.id,
+                    foreign_invocation_attempt,
+                    foreign_receipt.id,
+                    foreign_receipt.result_digest,
+                    now,
+                ),
+            )
+            cursor.execute(
+                "select id from memory.usage_event where record_id=%s and task_plan_id=%s",
+                (record_id, foreign_plan_id),
+            )
+            foreign_usage_id = cursor.fetchone()[0]
+
+        verifier_assignment_id = uuid4()
+        verifier_invocation_id = uuid4()
+        verifier_envelope = digest("memory-outcome-verifier-envelope")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "insert into agents.assignment"
+                " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,"
+                "role,agent_ref,status,risk,instruction_digest,context_manifest_digest,"
+                "assignment_digest,created_at) values"
+                " (%s,%s,%s,%s,%s,'research',%s,'verifier','memory-outcome-verifier',"
+                "'active','medium',%s,%s,%s,%s)",
+                (
+                    verifier_assignment_id,
+                    realm.id,
+                    project.id,
+                    work.id,
+                    plan.id,
+                    coordinator_id,
+                    digest("memory-verifier-instruction"),
+                    context_manifest.manifest_digest,
+                    digest("memory-verifier-assignment"),
+                    now,
+                ),
+            )
+            cursor.execute(
+                "insert into agents.invocation"
+                " (id,realm_id,assignment_id,client_id,execution_identity,invocation_digest,"
+                "created_at) values(%s,%s,%s,'codex','memory-verifier-run',%s,%s)",
+                (
+                    verifier_invocation_id,
+                    realm.id,
+                    verifier_assignment_id,
+                    digest("memory-verifier-invocation"),
+                    now,
+                ),
+            )
+            cursor.execute(
+                "insert into agents.result_receipt"
+                " (realm_id,assignment_id,invocation_id,envelope_digest) values(%s,%s,%s,%s)",
+                (realm.id, verifier_assignment_id, verifier_invocation_id, verifier_envelope),
+            )
+            cursor.execute(
+                "insert into work.checkpoint_v2_step_verification"
+                " (realm_id,checkpoint_id,step_id,verifier_assignment_id,"
+                "verifier_invocation_id,envelope_digest) values(%s,%s,'research',%s,%s,%s)",
+                (
+                    realm.id,
+                    research_checkpoint.checkpoint_id,
+                    verifier_assignment_id,
+                    verifier_invocation_id,
+                    verifier_envelope,
+                ),
+            )
+        connection.commit()
+        outcomes = MemoryTelemetryRepository(connection, realm.id).outcomes_for_record(record_id)
+        assert len(outcomes) == 1
+        assert outcomes[0].outcome_status == "verified-success"
+        assert outcomes[0].usage_event_id == usage_id
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from memory.usage_outcome where usage_event_id=%s",
+                (foreign_usage_id,),
+            )
+            assert int(cursor.fetchone()[0]) == 0
+        captured["done"] = True
+
+    global E2E_FIXTURE_CONSUMER
+    E2E_FIXTURE_CONSUMER = consume
+    try:
+        test_checkpoint_v2_evidence_revision_and_terminal_gate(realm_session, tmp_path)
+    finally:
+        E2E_FIXTURE_CONSUMER = None
+    assert captured == {"done": True}
