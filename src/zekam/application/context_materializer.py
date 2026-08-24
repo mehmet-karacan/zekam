@@ -76,7 +76,6 @@ def materialize_recipe_fragments(
             or candidate.source_revision != selected.source_revision
             or candidate.content_digest != selected.content_digest
             or candidate.token_count != selected.token_count
-            or candidate.score(packet.manifest.created_at) != selected.score
             or candidate.candidate_digest != selected.candidate_digest
         ):
             raise PolicyViolation("Recipe selected candidate kind/source binding drift")
@@ -100,7 +99,7 @@ def materialize_recipe_fragments(
                 source_revision=candidate.source_revision,
                 content_digest=candidate.content_digest,
                 token_count=candidate.token_count,
-                required=selected.reason == "required-first",
+                required="required" in selected.reason_codes,
             )
         )
     return ContextFragmentSet(packet.manifest.manifest_digest, tuple(fragments))
@@ -176,8 +175,8 @@ def serialize_model_visible_payload(
             or fragment.source_revision != selected.source_revision
             or fragment.content_digest != selected.content_digest
             or fragment.token_count != selected.token_count
-            or int(fragment.authority) != selected.score[0]
-            or fragment.required != (selected.reason == "required-first")
+            or fragment.authority is not selected.authority
+            or fragment.required != ("required" in selected.reason_codes)
         ):
             raise PolicyViolation("Provider fragment recipe projection drift")
     payload = dict(base_payload or {})

@@ -5,14 +5,23 @@ from dataclasses import replace
 
 import pytest
 
-from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.context_materializer import (
     FragmentMaterialization,
     materialize_fragments,
     materialize_recipe_fragments,
     serialize_model_visible_payload,
 )
-from zekam.application.context_recipe import ContextRecipeRole, RecipeContextPacket
+from zekam.application.context_ranking import (
+    ContextCandidateSetIssuer,
+    ContextRankingRequest,
+    ContextRankingSnapshotIssuer,
+    count_context_tokens,
+)
+from zekam.application.context_recipe import (
+    ContextRecipeRegistry,
+    ContextRecipeRole,
+    RecipeContextPacket,
+)
 from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
@@ -96,18 +105,45 @@ def _recipe_materialized() -> tuple[RecipeContextPacket, ContextFragmentSet, dic
             observed_at=NOW,
             source_revision=f"revision/{kind.value}",
             content_digest=digest(content),
-            token_count=5,
+            token_count=count_context_tokens(content),
             kind=kind,
             source_ref=f"context/{kind.value}",
+            scope_ref="work/fragment",
         )
         for kind, content in raw.items()
     )
-    packet = ContextContinuityService().compile(
-        candidates,
-        role=ContextRecipeRole.COORDINATOR,
+    snapshot = ContextRankingSnapshotIssuer.issue(
+        request=ContextRankingRequest(
+            role="coordinator",
+            target_identity_refs=(),
+            step_scope_ref="step/fragment",
+            work_scope_ref="work/fragment",
+            project_scope_ref="project/fragment",
+            realm_scope_ref="realm/fragment",
+            current_source_revision=None,
+            compatible_source_revisions=(),
+            task_terms=(),
+            tokenizer_profile_digest=candidates[0].tokenizer_profile_digest,
+        ),
+        realm_ref="realm/fragment",
+        project_ref="project/fragment",
+        work_ref="work/fragment",
+        step_ref="step/fragment",
+        assignment_id="00000000-0000-0000-0000-000000000004",
+        assignment_digest=digest("assignment/fragment"),
+        source_snapshot_digest=digest("source/fragment"),
+        captured_at=NOW,
+        expires_at=NOW + dt.timedelta(minutes=5),
+    )
+    raw_contents = {kind.value: content for kind, content in raw.items()}
+    candidate_set = ContextCandidateSetIssuer.issue(snapshot, candidates, raw_contents, now=NOW)
+    packet = ContextRecipeRegistry().compile(
+        ContextRecipeRole.COORDINATOR,
+        candidate_set,
         token_budget=100,
         minimum_authority=AuthorityLevel.OBSERVED,
         now=NOW,
+        ranking_snapshot=snapshot,
     )
     selected_contents = {item.candidate_id: raw[item.kind] for item in packet.manifest.selected}
     fragment_set = materialize_recipe_fragments(packet, candidates, selected_contents)

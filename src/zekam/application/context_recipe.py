@@ -10,13 +10,25 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
+from zekam.application.context_compiler import compile_context_v2
+from zekam.application.context_ranking import (
+    ContextCandidateSet,
+    ContextCandidateSetIssuer,
+    ContextRankingSnapshot,
+    ContextRankingSnapshotIssuer,
+)
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
     ContextCandidateKind,
     ContextManifest,
-    compile_context,
+    ContextOmission,
+    OmittedReason,
+)
+from zekam.domain.context_scoring import (
+    CONTEXT_SCORING_POLICY_DIGEST,
+    CONTEXT_SCORING_POLICY_VERSION,
 )
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 
@@ -271,6 +283,19 @@ class ContextRecipeRegistry:
             raise PolicyViolation("Context recipe packet stale veya cross-role replay")
         manifest = packet.manifest
         selected = manifest.selected
+        if (
+            manifest.compiler_version != CONTEXT_SCORING_POLICY_VERSION
+            or manifest.scoring_policy_digest != CONTEXT_SCORING_POLICY_DIGEST
+            or manifest.compiler_metrics is None
+        ):
+            raise PolicyViolation("Context recipe packet scoring policy stale veya eksik")
+        excluded_omissions = {
+            item.candidate_id
+            for item in manifest.omitted
+            if item.reason is OmittedReason.RECIPE_EXCLUDED
+        }
+        if tuple(sorted(excluded_omissions)) != tuple(sorted(packet.recipe_excluded)):
+            raise PolicyViolation("Context recipe packet excluded partition drift")
         if manifest.token_budget > min(packet.requested_token_budget, current.maximum_token_budget):
             raise PolicyViolation("Context recipe packet effective budget limiti asildi")
         if len({item.candidate_id for item in selected}) != len(selected):
@@ -283,9 +308,9 @@ class ContextRecipeRegistry:
         ):
             raise PolicyViolation("Coordinator packet source/codebase context iceremez")
         if any(
-            item.reason not in {"required-first", "authority-freshness-score"}
-            or item.score[0] < int(current.minimum_authority)
-            or item.score[2] != item.candidate_id
+            item.reason != "context-score-v2"
+            or int(item.authority) < int(current.minimum_authority)
+            or item.score[-1] != item.candidate_id
             for item in selected
         ):
             raise PolicyViolation("Context recipe packet selection provenance gecersiz")
@@ -299,7 +324,7 @@ class ContextRecipeRegistry:
                 raise PolicyViolation(f"Context recipe packet per-kind token limiti asildi: {kind}")
         for kind in current.required_kinds:
             matching = tuple(item for item in selected if item.kind is kind)
-            if len(matching) != 1 or matching[0].reason != "required-first":
+            if len(matching) != 1 or "required" not in matching[0].reason_codes:
                 raise PolicyViolation(f"Context recipe packet required kind tekil olmali: {kind}")
 
     @staticmethod
@@ -314,12 +339,16 @@ class ContextRecipeRegistry:
     def compile(
         self,
         role: ContextRecipeRole,
-        candidates: tuple[ContextCandidate, ...],
+        candidate_set: ContextCandidateSet,
         *,
         token_budget: int,
         minimum_authority: AuthorityLevel,
         now: dt.datetime,
+        ranking_snapshot: ContextRankingSnapshot,
     ) -> RecipeContextPacket:
+        ContextCandidateSetIssuer.verify(candidate_set, ranking_snapshot, now=now)
+        candidates = candidate_set.candidates
+        contents = candidate_set.content_mapping()
         recipe = self.for_role(role)
         if token_budget < 1:
             raise ValidationFailed("Context recipe token budget pozitif olmali")
@@ -342,9 +371,22 @@ class ContextRecipeRegistry:
             raise PolicyViolation(f"Context recipe required kind eksik: {names}")
         for kind in recipe.allowed_kinds:
             matching = tuple(item for item in eligible if item.kind is kind)
-            if len(matching) > recipe.per_kind_candidate_limit:
+            groups: dict[tuple[object, ...], ContextCandidate] = {}
+            for item in matching:
+                key = (
+                    item.scope_ref,
+                    item.source_revision,
+                    item.content_digest,
+                    item.applicable_roles,
+                )
+                previous = groups.get(key)
+                if previous is not None and previous.token_count != item.token_count:
+                    raise PolicyViolation("Exact duplicate context token count drift")
+                groups.setdefault(key, item)
+            unique = tuple(groups.values())
+            if len(unique) > recipe.per_kind_candidate_limit:
                 raise PolicyViolation(f"Context recipe per-kind candidate limiti asildi: {kind}")
-            if sum(item.token_count for item in matching) > recipe.per_kind_token_limit:
+            if sum(item.token_count for item in unique) > recipe.per_kind_token_limit:
                 raise PolicyViolation(f"Context recipe per-kind token limiti asildi: {kind}")
         for kind in recipe.required_kinds:
             if sum(item.kind is kind for item in eligible) != 1:
@@ -366,15 +408,49 @@ class ContextRecipeRegistry:
             replace(item, required=item.required or item.candidate_id in required_ids)
             for item in eligible
         )
-        manifest = compile_context(
-            typed,
+        all_typed = tuple(
+            next(
+                (
+                    typed_item
+                    for typed_item in typed
+                    if typed_item.candidate_id == item.candidate_id
+                ),
+                item,
+            )
+            for item in candidates
+        )
+        ContextRankingSnapshotIssuer.verify(ranking_snapshot, now=now)
+        request = ranking_snapshot.request
+        if request.role != role.value:
+            raise PolicyViolation("Context ranking snapshot role drift")
+        manifest = compile_context_v2(
+            all_typed,
+            ranking_request=request,
             token_budget=min(token_budget, recipe.maximum_token_budget),
             minimum_authority=max(minimum_authority, recipe.minimum_authority),
             now=now,
             recipe_id=recipe.recipe_id,
             recipe_digest=recipe.recipe_digest,
             target_role=role.value,
+            pre_omitted=tuple(
+                ContextOmission(
+                    item.candidate_id,
+                    OmittedReason.RECIPE_EXCLUDED,
+                    item.token_count,
+                )
+                for item in candidates
+                if item.kind not in recipe.allowed_kinds
+            ),
+            contents=contents,
+            ranking_snapshot_digest=ranking_snapshot.snapshot_digest,
+            candidate_set_digest=candidate_set.candidate_set_digest,
         )
+        for kind in recipe.allowed_kinds:
+            selected_matching = tuple(item for item in manifest.selected if item.kind is kind)
+            if len(selected_matching) > recipe.per_kind_candidate_limit:
+                raise PolicyViolation(f"Context recipe per-kind candidate limiti asildi: {kind}")
+            if sum(item.token_count for item in selected_matching) > recipe.per_kind_token_limit:
+                raise PolicyViolation(f"Context recipe per-kind token limiti asildi: {kind}")
         packet_body = {
             "schema": "zekam-recipe-context-packet/v1",
             "recipe_id": recipe.recipe_id,

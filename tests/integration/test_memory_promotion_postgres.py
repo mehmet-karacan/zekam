@@ -556,6 +556,8 @@ def test_multi_revision_downgrade_fails_closed_without_data_loss(
         connection.commit()
         with connection.cursor() as cursor:
             cursor.execute("reset role")
+        while migrations.status(connection).head > 39:
+            migrations.downgrade(connection, target=migrations.status(connection).head)
         migrations.downgrade(connection, target=39)
         with pytest.raises(Exception, match="forward-fix: multi-revision family exists"):
             migrations.downgrade(connection, target=38)

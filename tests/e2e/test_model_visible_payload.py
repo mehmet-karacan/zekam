@@ -7,12 +7,17 @@ from uuid import uuid4
 
 import pytest
 
-from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.context_materializer import (
     materialize_recipe_fragments,
     serialize_model_visible_payload,
 )
-from zekam.application.context_recipe import ContextRecipeRole
+from zekam.application.context_ranking import (
+    ContextCandidateSetIssuer,
+    ContextRankingRequest,
+    ContextRankingSnapshotIssuer,
+    count_context_tokens,
+)
+from zekam.application.context_recipe import ContextRecipeRegistry, ContextRecipeRole
 from zekam.application.model_gateway import ModelGateway, ModelGatewayBindings
 from zekam.application.provider_adapter import ProviderCall
 from zekam.domain.canonical import digest
@@ -38,18 +43,45 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
             observed_at=NOW,
             source_revision=f"revision/{kind.value}",
             content_digest=digest(content),
-            token_count=7,
+            token_count=count_context_tokens(content),
             kind=kind,
             source_ref=f"context/{kind.value}",
+            scope_ref="work/gateway",
         )
         for kind, content in contents.items()
     )
-    packet = ContextContinuityService().compile(
-        candidates,
-        role=ContextRecipeRole.COORDINATOR,
+    snapshot = ContextRankingSnapshotIssuer.issue(
+        request=ContextRankingRequest(
+            role="coordinator",
+            target_identity_refs=(),
+            step_scope_ref="step/gateway",
+            work_scope_ref="work/gateway",
+            project_scope_ref="project/gateway",
+            realm_scope_ref="realm/gateway",
+            current_source_revision=None,
+            compatible_source_revisions=(),
+            task_terms=(),
+            tokenizer_profile_digest=candidates[0].tokenizer_profile_digest,
+        ),
+        realm_ref="realm/gateway",
+        project_ref="project/gateway",
+        work_ref="work/gateway",
+        step_ref="step/gateway",
+        assignment_id="00000000-0000-0000-0000-000000000003",
+        assignment_digest=digest("assignment/gateway"),
+        source_snapshot_digest=digest("source/gateway"),
+        captured_at=NOW,
+        expires_at=NOW + dt.timedelta(minutes=5),
+    )
+    raw_contents = {item.value: content for item, content in contents.items()}
+    candidate_set = ContextCandidateSetIssuer.issue(snapshot, candidates, raw_contents, now=NOW)
+    packet = ContextRecipeRegistry().compile(
+        ContextRecipeRole.COORDINATOR,
+        candidate_set,
         token_budget=100,
         minimum_authority=AuthorityLevel.VERIFIED,
         now=NOW,
+        ranking_snapshot=snapshot,
     )
     context_manifest = packet.manifest
     selected_contents = {

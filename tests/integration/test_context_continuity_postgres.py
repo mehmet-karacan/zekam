@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 from dataclasses import replace
 from pathlib import Path
@@ -13,14 +14,16 @@ from psycopg.errors import CheckViolation
 
 from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.context_materializer import FragmentMaterialization, materialize_fragments
+from zekam.application.context_recipe import ContextRecipeRole
 from zekam.application.execution import ExecutionHost
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     Checkpoint,
     ContextCandidate,
+    ContextCandidateKind,
     ContinuitySnapshot,
     EvidenceReference,
     FinalizedHandoff,
@@ -33,15 +36,499 @@ from zekam.domain.context_fragment import (
     ContextRole,
     ContextVisibility,
 )
-from zekam.domain.errors import ConcurrencyConflict
+from zekam.domain.context_scoring import ContextCompilerMetricsV2
+from zekam.domain.errors import ConcurrencyConflict, PolicyViolation
 from zekam.domain.runtime import AttemptOutcome, Job, JobKind
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
+from zekam.infrastructure.postgres.context_ranking_repository import ContextRankingRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 20, tzinfo=dt.UTC)
+
+
+def _insert_context_source_revisions(cursor: Any, realm_id: Any, work_item_id: Any) -> None:
+    entity_types = (
+        "context.system_policy",
+        "context.run_status",
+        "context.architecture_rule",
+        "context.dependency_manifest",
+        "context.source_slice",
+        "context.source_diff",
+        "context.effect_receipt",
+        "context.test_evidence",
+    )
+    for entity_type in entity_types:
+        payload = {
+            "schema": "zekam-context-source/v1",
+            "entity_type": entity_type,
+            "work_item_id": str(work_item_id),
+            "evidence": f"canonical evidence for {entity_type}",
+        }
+        cursor.execute(
+            "insert into core.revision"
+            " (id,realm_id,entity_type,entity_id,revision,payload,payload_digest,"
+            " previous_digest,reason,recorded_at)"
+            " values (%s,%s,%s,%s,1,%s,%s,null,'context compiler acceptance',%s)",
+            (
+                uuid4(),
+                realm_id,
+                entity_type,
+                work_item_id,
+                canonical_json(payload),
+                digest(payload),
+                NOW,
+            ),
+        )
+
+
+def test_context_ranking_snapshot_yalniz_current_canonical_assignmenttan_uretilir(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    source = tmp_path / "ranking-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    work = WorkGraphService(connection, realm)
+    item = work.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Oracle migration inspect",
+    )
+    plan = work.create_plan(
+        item.id,
+        source_revision="revision/current",
+        policy_digest=digest("policy/ranking"),
+        steps=(PlanStep("inspect", "Inspect", EffectKind.NONE),),
+    )
+    assignment_id = uuid4()
+    assignment_digest = digest("assignment/ranking")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into agents.assignment"
+            " (id,realm_id,project_id,work_item_id,plan_id,step_id,role,agent_ref,status,"
+            " risk,instruction_digest,context_manifest_digest,assignment_digest,created_at)"
+            " values (%s,%s,%s,%s,%s,'inspect','coordinator','coordinator','active',"
+            " 'medium',%s,%s,%s,%s)",
+            (
+                assignment_id,
+                realm.id,
+                project.id,
+                item.id,
+                plan.id,
+                digest("instruction/ranking"),
+                digest("context/ranking"),
+                assignment_digest,
+                NOW,
+            ),
+        )
+    snapshot = ContextRankingRepository(
+        connection, realm.id, project.id, item.id
+    ).issue_current_snapshot(assignment_id)
+    assert snapshot.request.role == "coordinator"
+    assert snapshot.request.current_source_revision == "revision/current"
+    assert snapshot.request.work_scope_ref == f"work/{item.id}"
+    assert snapshot.assignment_digest == assignment_digest
+    assert "oracle" in snapshot.request.task_terms
+    ContextRankingRepository(connection, realm.id, project.id, item.id).assert_current_snapshot(
+        snapshot
+    )
+    forged_snapshot_body = snapshot.body()
+    forged_snapshot_body["request"]["role"] = "builder"
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_ranking_snapshot"
+            " (realm_id,project_id,work_item_id,assignment_id,assignment_digest,"
+            " source_snapshot_digest,snapshot_digest,canonical_body,captured_at,expires_at)"
+            " values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                realm.id,
+                project.id,
+                item.id,
+                assignment_id,
+                snapshot.assignment_digest,
+                snapshot.source_snapshot_digest,
+                digest(forged_snapshot_body),
+                canonical_json(forged_snapshot_body),
+                snapshot.captured_at,
+                snapshot.expires_at,
+            ),
+        )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "update agents.assignment set status='completed',terminal_at=%s"
+            " where realm_id=%s and id=%s",
+            (NOW, realm.id, assignment_id),
+        )
+    with pytest.raises(Exception, match="bulunamadi"):
+        ContextRankingRepository(connection, realm.id, project.id, item.id).issue_current_snapshot(
+            assignment_id
+        )
+    with pytest.raises(Exception, match="bulunamadi"):
+        ContextRankingRepository(connection, realm.id, project.id, item.id).assert_current_snapshot(
+            snapshot
+        )
+
+
+def test_context_compiler_v2_metrics_roundtrip_ve_db_partition_gate(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    source = tmp_path / "compiler-v2-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    item = WorkGraphService(connection, realm).create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Compiler v2 metrics",
+    )
+    plan = WorkGraphService(connection, realm).create_plan(
+        item.id,
+        source_revision="revision/current",
+        policy_digest=digest("policy/compiler-v2"),
+        steps=(PlanStep("build", "Build", EffectKind.NONE),),
+    )
+    assignment_id = uuid4()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into agents.assignment"
+            " (id,realm_id,project_id,work_item_id,plan_id,step_id,role,agent_ref,status,"
+            " risk,instruction_digest,context_manifest_digest,assignment_digest,created_at)"
+            " values (%s,%s,%s,%s,%s,'build','coordinator','coordinator','active',"
+            " 'medium',%s,%s,%s,%s)",
+            (
+                assignment_id,
+                realm.id,
+                project.id,
+                item.id,
+                plan.id,
+                digest("instruction/compiler-v2"),
+                digest("context/compiler-v2"),
+                digest("assignment/compiler-v2"),
+                NOW,
+            ),
+        )
+    ranking_repository = ContextRankingRepository(connection, realm.id, project.id, item.id)
+    snapshot = ranking_repository.issue_current_snapshot(assignment_id)
+    with pytest.raises(PolicyViolation, match="canonical source eksik"):
+        ranking_repository.issue_candidate_set(snapshot)
+    with connection.cursor() as cursor:
+        _insert_context_source_revisions(cursor, realm.id, item.id)
+    candidate_set = ranking_repository.issue_candidate_set(snapshot)
+    candidates = candidate_set.candidates
+    forged_body = {**candidate_set.body(), "extra": True}
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_candidate_set"
+            " (realm_id,project_id,work_item_id,ranking_snapshot_digest,"
+            " candidate_set_digest,candidate_fingerprint,candidate_count,candidate_tokens,"
+            " canonical_body,captured_at,expires_at) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                realm.id,
+                project.id,
+                item.id,
+                snapshot.snapshot_digest,
+                digest(forged_body),
+                candidate_set.candidate_fingerprint,
+                len(candidate_set.candidates),
+                sum(row.token_count for row in candidates),
+                canonical_json(forged_body),
+                candidate_set.captured_at,
+                candidate_set.expires_at,
+            ),
+        )
+    forged_provenance_body = copy.deepcopy(candidate_set.body())
+    forged_provenance_body["candidates"][0]["provenance"]["conflict_refs"] = ["conflict/forged"]
+    forged_provenance_body["candidates"][0]["candidate_digest"] = digest(
+        forged_provenance_body["candidates"][0]["provenance"]
+    )
+    forged_provenance_body["candidate_fingerprint"] = digest(
+        [row["candidate_digest"] for row in forged_provenance_body["candidates"]]
+    )
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_candidate_set"
+            " (realm_id,project_id,work_item_id,ranking_snapshot_digest,"
+            " candidate_set_digest,candidate_fingerprint,candidate_count,candidate_tokens,"
+            " canonical_body,captured_at,expires_at) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                realm.id,
+                project.id,
+                item.id,
+                snapshot.snapshot_digest,
+                digest(forged_provenance_body),
+                forged_provenance_body["candidate_fingerprint"],
+                len(candidate_set.candidates),
+                sum(row.token_count for row in candidates),
+                canonical_json(forged_provenance_body),
+                candidate_set.captured_at,
+                candidate_set.expires_at,
+            ),
+        )
+    refreshed_payload = {
+        "schema": "zekam-context-source/v1",
+        "entity_type": "context.run_status",
+        "work_item_id": str(item.id),
+        "evidence": "canonical run status revision two",
+    }
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select payload_digest from core.revision"
+            " where realm_id=%s and entity_type='context.run_status' and entity_id=%s"
+            " and revision=1",
+            (realm.id, item.id),
+        )
+        previous_digest = cursor.fetchone()[0]
+        cursor.execute(
+            "insert into core.revision"
+            " (id,realm_id,entity_type,entity_id,revision,payload,payload_digest,"
+            " previous_digest,reason,recorded_at)"
+            " values (%s,%s,'context.run_status',%s,2,%s,%s,%s,'status advanced',%s)",
+            (
+                uuid4(),
+                realm.id,
+                item.id,
+                canonical_json(refreshed_payload),
+                digest(refreshed_payload),
+                previous_digest,
+                NOW + dt.timedelta(seconds=1),
+            ),
+        )
+    with pytest.raises(PolicyViolation, match="source revision stale"):
+        ContextContinuityService().compile(
+            candidate_set,
+            role=ContextRecipeRole.COORDINATOR,
+            token_budget=20_000,
+            minimum_authority=AuthorityLevel.OBSERVED,
+            now=NOW,
+            ranking_snapshot=snapshot,
+            repository=ranking_repository,
+        )
+    candidate_set = ranking_repository.issue_candidate_set(snapshot)
+    candidates = candidate_set.candidates
+    packet = ContextContinuityService().compile(
+        candidate_set,
+        role=ContextRecipeRole.COORDINATOR,
+        token_budget=20_000,
+        minimum_authority=AuthorityLevel.OBSERVED,
+        now=NOW,
+        ranking_snapshot=snapshot,
+        repository=ranking_repository,
+    )
+    manifest = packet.manifest
+    repository = ContextContinuityRepository(connection, realm.id, project.id, item.id)
+    manifest_id = repository.store_manifest(manifest)
+    assert manifest.compiler_metrics is not None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select compiler_version,scoring_policy_digest,compiler_metrics,"
+            " compiler_metrics_digest from work.context_manifest"
+            " where realm_id=%s and id=%s",
+            (realm.id, manifest_id),
+        )
+        version, policy_digest, metrics, metrics_digest = cursor.fetchone()
+        assert version == 2
+        assert policy_digest == manifest.scoring_policy_digest
+        assert metrics["duplicate_suppressed_tokens"] == 0
+        assert metrics_digest == manifest.compiler_metrics.metrics_digest
+    empty_metrics = ContextCompilerMetricsV2(
+        input_count=0,
+        input_tokens=0,
+        eligible_count=0,
+        eligible_tokens=0,
+        selected_count=0,
+        selected_tokens=0,
+        omitted_count=0,
+        omitted_tokens=0,
+        required_total=0,
+        required_selected=0,
+        duplicate_suppressed_count=0,
+        duplicate_suppressed_tokens=0,
+        token_budget=manifest.token_budget,
+        token_utilization_ppm=0,
+        token_efficiency_ppm=0,
+        duplicate_token_ratio_ppm=0,
+        omission_counts=(),
+    )
+    forged_partition_body = {
+        **manifest.body(),
+        "selected": [],
+        "omitted": [],
+        "compiler_metrics": empty_metrics.body(),
+    }
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_manifest"
+            " (id,realm_id,project_id,work_item_id,token_budget,selected,omitted,"
+            " candidate_fingerprint,manifest_digest,compiler_version,scoring_policy_digest,"
+            " compiler_metrics,compiler_metrics_digest,compiler_metrics_canonical,"
+            " manifest_canonical,ranking_snapshot_digest,candidate_set_digest,"
+            " grants_authority,created_at)"
+            " values (%s,%s,%s,%s,%s,'[]','[]',%s,%s,2,%s,%s,%s,%s,%s,%s,%s,false,%s)",
+            (
+                uuid4(),
+                realm.id,
+                project.id,
+                item.id,
+                manifest.token_budget,
+                manifest.candidate_fingerprint,
+                digest(forged_partition_body),
+                manifest.scoring_policy_digest,
+                canonical_json(empty_metrics.body()),
+                empty_metrics.metrics_digest,
+                canonical_json(empty_metrics.body()),
+                canonical_json(forged_partition_body),
+                manifest.ranking_snapshot_digest,
+                manifest.candidate_set_digest,
+                manifest.created_at,
+            ),
+        )
+    forged_semantic_body = copy.deepcopy(manifest.body())
+    forged_semantic_body["selected"][0]["kind"] = "architecture-rule"
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_manifest"
+            " (id,realm_id,project_id,work_item_id,token_budget,selected,omitted,"
+            " candidate_fingerprint,manifest_digest,compiler_version,scoring_policy_digest,"
+            " compiler_metrics,compiler_metrics_digest,compiler_metrics_canonical,"
+            " manifest_canonical,ranking_snapshot_digest,candidate_set_digest,"
+            " grants_authority,created_at)"
+            " values (%s,%s,%s,%s,%s,%s,%s,%s,%s,2,%s,%s,%s,%s,%s,%s,%s,false,%s)",
+            (
+                uuid4(),
+                realm.id,
+                project.id,
+                item.id,
+                manifest.token_budget,
+                canonical_json(forged_semantic_body["selected"]),
+                canonical_json(forged_semantic_body["omitted"]),
+                manifest.candidate_fingerprint,
+                digest(forged_semantic_body),
+                manifest.scoring_policy_digest,
+                canonical_json(manifest.compiler_metrics.body()),
+                manifest.compiler_metrics.metrics_digest,
+                canonical_json(manifest.compiler_metrics.body()),
+                canonical_json(forged_semantic_body),
+                manifest.ranking_snapshot_digest,
+                manifest.candidate_set_digest,
+                manifest.created_at,
+            ),
+        )
+    with pytest.raises(CheckViolation), connection.transaction(), connection.cursor() as cursor:
+        cursor.execute(
+            "insert into work.context_manifest"
+            " (id,realm_id,project_id,work_item_id,token_budget,selected,omitted,"
+            " candidate_fingerprint,manifest_digest,compiler_version,scoring_policy_digest,"
+            " compiler_metrics,compiler_metrics_digest,compiler_metrics_canonical,"
+            " manifest_canonical,ranking_snapshot_digest,grants_authority,created_at)"
+            " select %s,realm_id,project_id,work_item_id,token_budget,selected,omitted,"
+            " candidate_fingerprint,%s,compiler_version,scoring_policy_digest,"
+            " jsonb_set(compiler_metrics,'{selected_count}','0'),compiler_metrics_digest,"
+            " compiler_metrics_canonical,manifest_canonical,ranking_snapshot_digest,"
+            " false,created_at from work.context_manifest where realm_id=%s and id=%s",
+            (uuid4(), digest("forged-manifest"), realm.id, manifest_id),
+        )
+
+
+def test_context_compiler_production_yolu_dort_rolu_kanonik_kaynaklarla_derler(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    source = tmp_path / "compiler-v2-four-role"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    work = WorkGraphService(connection, realm)
+    item = work.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Four role production context acceptance",
+    )
+    plan = work.create_plan(
+        item.id,
+        source_revision="revision/four-role",
+        policy_digest=digest("policy/four-role"),
+        steps=(PlanStep("build", "Build and verify", EffectKind.NONE),),
+    )
+    with connection.cursor() as cursor:
+        _insert_context_source_revisions(cursor, realm.id, item.id)
+    assignment_ids = {role: uuid4() for role in ContextRecipeRole}
+    with connection.cursor() as cursor:
+        for role in ContextRecipeRole:
+            cursor.execute(
+                "insert into agents.assignment"
+                " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,"
+                " role,agent_ref,status,risk,instruction_digest,context_manifest_digest,"
+                " assignment_digest,created_at)"
+                " values (%s,%s,%s,%s,%s,'build',%s,%s,%s,'active','medium',%s,%s,%s,%s)",
+                (
+                    assignment_ids[role],
+                    realm.id,
+                    project.id,
+                    item.id,
+                    plan.id,
+                    None
+                    if role is ContextRecipeRole.COORDINATOR
+                    else assignment_ids[ContextRecipeRole.COORDINATOR],
+                    role.value,
+                    f"agent/{role.value}",
+                    digest(f"instruction/{role.value}"),
+                    digest(f"context/{role.value}"),
+                    digest(f"assignment/{role.value}"),
+                    NOW,
+                ),
+            )
+    required_by_role = {
+        ContextRecipeRole.COORDINATOR: {
+            ContextCandidateKind.SYSTEM_POLICY,
+            ContextCandidateKind.WORK_CONTRACT,
+            ContextCandidateKind.RUN_STATUS,
+        },
+        ContextRecipeRole.RESEARCHER: {
+            ContextCandidateKind.SYSTEM_POLICY,
+            ContextCandidateKind.WORK_CONTRACT,
+        },
+        ContextRecipeRole.BUILDER: {
+            ContextCandidateKind.SYSTEM_POLICY,
+            ContextCandidateKind.WORK_CONTRACT,
+            ContextCandidateKind.ARCHITECTURE_RULE,
+            ContextCandidateKind.DEPENDENCY_MANIFEST,
+            ContextCandidateKind.SOURCE_SLICE,
+        },
+        ContextRecipeRole.VERIFIER: {
+            ContextCandidateKind.SYSTEM_POLICY,
+            ContextCandidateKind.WORK_CONTRACT,
+            ContextCandidateKind.SOURCE_DIFF,
+            ContextCandidateKind.EFFECT_RECEIPT,
+            ContextCandidateKind.TEST_EVIDENCE,
+        },
+    }
+    for role in ContextRecipeRole:
+        repository = ContextRankingRepository(connection, realm.id, project.id, item.id)
+        snapshot = repository.issue_current_snapshot(assignment_ids[role])
+        candidate_set = repository.issue_candidate_set(snapshot)
+        packet = ContextContinuityService().compile(
+            candidate_set,
+            role=role,
+            token_budget=20_000,
+            minimum_authority=AuthorityLevel.OBSERVED,
+            now=NOW,
+            ranking_snapshot=snapshot,
+            repository=repository,
+        )
+        selected_kinds = {entry.kind for entry in packet.manifest.selected}
+        assert required_by_role[role] <= selected_kinds
+        assert packet.manifest.compiler_metrics is not None
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from work.context_manifest"
+                " where realm_id=%s and project_id=%s and work_item_id=%s"
+                " and manifest_digest=%s"
+                " and manifest_canonical::jsonb->>'target_role'=%s",
+                (realm.id, project.id, item.id, packet.manifest.manifest_digest, role.value),
+            )
+            assert cursor.fetchone()[0] == 1
 
 
 def _insert_fragment_row(

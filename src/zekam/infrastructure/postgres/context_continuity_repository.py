@@ -40,8 +40,13 @@ class ContextContinuityRepository:
             cursor.execute(
                 "insert into work.context_manifest"
                 " (id, realm_id, project_id, work_item_id, token_budget, selected, omitted,"
-                "  candidate_fingerprint, manifest_digest, grants_authority, created_at)"
-                " values (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, false, %s)"
+                "  candidate_fingerprint, manifest_digest, compiler_version,"
+                "  scoring_policy_digest, compiler_metrics, compiler_metrics_digest,"
+                "  compiler_metrics_canonical,manifest_canonical,ranking_snapshot_digest,"
+                "  candidate_set_digest,"
+                "  grants_authority, created_at)"
+                " values (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s,"
+                "  %s::jsonb, %s, %s, %s, %s, %s, false, %s)"
                 " on conflict (realm_id, project_id, work_item_id, manifest_digest)"
                 " do nothing returning id",
                 (
@@ -54,6 +59,26 @@ class ContextContinuityRepository:
                     canonical_json([item.as_dict() for item in manifest.omitted]),
                     manifest.candidate_fingerprint,
                     manifest.manifest_digest,
+                    manifest.compiler_version,
+                    manifest.scoring_policy_digest,
+                    (
+                        None
+                        if manifest.compiler_metrics is None
+                        else canonical_json(manifest.compiler_metrics.body())
+                    ),
+                    (
+                        None
+                        if manifest.compiler_metrics is None
+                        else manifest.compiler_metrics.metrics_digest
+                    ),
+                    (
+                        None
+                        if manifest.compiler_metrics is None
+                        else canonical_json(manifest.compiler_metrics.body())
+                    ),
+                    canonical_json(manifest.body()) if manifest.compiler_version == 2 else None,
+                    manifest.ranking_snapshot_digest,
+                    manifest.candidate_set_digest,
                     manifest.created_at,
                 ),
             )

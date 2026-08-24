@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+from zekam.application.context_ranking import ContextCandidateSet, ContextRankingSnapshot
 from zekam.application.context_recipe import (
     ContextRecipeRegistry,
     ContextRecipeRole,
@@ -13,11 +15,15 @@ from zekam.application.context_recipe import (
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     Checkpoint,
-    ContextCandidate,
     ContinuitySnapshot,
     FinalizedHandoff,
     validate_resume,
 )
+
+if TYPE_CHECKING:
+    from zekam.infrastructure.postgres.context_ranking_repository import (
+        ContextRankingRepository,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,19 +44,22 @@ class ContextContinuityService:
 
     def compile(
         self,
-        candidates: tuple[ContextCandidate, ...],
+        candidate_set: ContextCandidateSet,
         *,
         role: ContextRecipeRole,
         token_budget: int,
         minimum_authority: AuthorityLevel,
         now: dt.datetime,
+        ranking_snapshot: ContextRankingSnapshot,
+        repository: ContextRankingRepository,
     ) -> RecipeContextPacket:
-        return self.recipe_registry.compile(
-            role,
-            candidates,
+        del now
+        return repository.compile_current(
+            ranking_snapshot,
+            candidate_set,
+            role=role,
             token_budget=token_budget,
             minimum_authority=minimum_authority,
-            now=now,
         )
 
     def resume(

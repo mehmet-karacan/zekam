@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
+from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
+from zekam.domain.context_scoring import ContextCompilerMetricsV2
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
 MAX_FRESHNESS_SECONDS = 30 * 24 * 60 * 60
@@ -26,6 +28,9 @@ EVIDENCE_KINDS = frozenset(
         "benchmark",
         "commit",
     }
+)
+DEFAULT_TOKENIZER_PROFILE_DIGEST = digest(
+    {"schema": "zekam-tokenizer-profile/v1", "profile": "utf8-byte-count"}
 )
 _SENSITIVE = re.compile(
     r"(?:secret|credential|password|private[-_ ]?key|owner[-_ ]?token|"
@@ -46,6 +51,14 @@ class OmittedReason(StrEnum):
     STALE = "stale"
     INSUFFICIENT_AUTHORITY = "insufficient-authority"
     SUPERSEDED = "superseded"
+    RECIPE_EXCLUDED = "recipe-excluded"
+    DUPLICATE = "duplicate"
+    IDENTITY_MISMATCH = "identity-mismatch"
+    SCOPE_MISMATCH = "scope-mismatch"
+    SOURCE_REVISION_MISMATCH = "source-revision-mismatch"
+    CONFLICT = "conflict"
+    ROLE_MISMATCH = "role-mismatch"
+    LOW_RELEVANCE = "low-relevance"
 
 
 class ContextCandidateKind(StrEnum):
@@ -118,6 +131,14 @@ class ContextCandidate:
     evidence_refs: tuple[EvidenceReference, ...] = ()
     kind: ContextCandidateKind = ContextCandidateKind.GENERAL
     source_ref: str = "context/unspecified"
+    identity_refs: tuple[str, ...] = ()
+    scope_ref: str = "scope/unspecified"
+    applicable_roles: tuple[str, ...] = ()
+    task_terms: tuple[str, ...] = ()
+    compatible_source_revisions: tuple[str, ...] = ()
+    conflict_refs: tuple[str, ...] = ()
+    canonical_revision_id: str | None = None
+    tokenizer_profile_digest: str = DEFAULT_TOKENIZER_PROFILE_DIGEST
 
     def __post_init__(self) -> None:
         _safe_logical(self.candidate_id, "Context candidate")
@@ -134,6 +155,24 @@ class ContextCandidate:
         if not isinstance(self.kind, ContextCandidateKind):
             raise ValidationFailed("Context candidate kind registry disinda")
         _safe_logical(self.source_ref, "Context candidate source")
+        _safe_logical(self.scope_ref, "Context candidate scope")
+        for values, label in (
+            (self.identity_refs, "Context identity ref"),
+            (self.applicable_roles, "Context applicable role"),
+            (self.task_terms, "Context task term"),
+            (self.compatible_source_revisions, "Context compatible revision"),
+            (self.conflict_refs, "Context conflict ref"),
+        ):
+            if len(set(values)) != len(values):
+                raise ValidationFailed(f"{label} degerleri tekil olmali")
+            for value in values:
+                _safe_logical(value, label)
+        parse_digest(self.tokenizer_profile_digest)
+        if self.canonical_revision_id is not None:
+            try:
+                UUID(self.canonical_revision_id)
+            except ValueError as exc:
+                raise ValidationFailed("Context canonical revision UUID gecersiz") from exc
 
     def score(self, now: dt.datetime) -> tuple[int, int, str]:
         """Float kullanmadan authority-first, freshness-second kararli score."""
@@ -142,22 +181,32 @@ class ContextCandidate:
         return int(self.authority), freshness, self.candidate_id
 
     @property
+    def provenance_body(self) -> dict[str, Any]:
+        return {
+            "id": self.candidate_id,
+            "digest": self.content_digest,
+            "revision": self.source_revision,
+            "source_ref": self.source_ref,
+            "tokens": self.token_count,
+            "authority": int(self.authority),
+            "observed_at": self.observed_at,
+            "valid_until": self.valid_until,
+            "superseded": self.superseded,
+            "evidence_refs": [ref.as_dict() for ref in self.evidence_refs],
+            "kind": self.kind.value,
+            "identity_refs": sorted(self.identity_refs),
+            "scope_ref": self.scope_ref,
+            "applicable_roles": sorted(self.applicable_roles),
+            "task_terms": sorted(self.task_terms),
+            "compatible_source_revisions": sorted(self.compatible_source_revisions),
+            "conflict_refs": sorted(self.conflict_refs),
+            "canonical_revision_id": self.canonical_revision_id,
+            "tokenizer_profile_digest": self.tokenizer_profile_digest,
+        }
+
+    @property
     def candidate_digest(self) -> str:
-        return digest(
-            {
-                "id": self.candidate_id,
-                "digest": self.content_digest,
-                "revision": self.source_revision,
-                "source_ref": self.source_ref,
-                "tokens": self.token_count,
-                "authority": int(self.authority),
-                "observed_at": self.observed_at,
-                "valid_until": self.valid_until,
-                "superseded": self.superseded,
-                "evidence_refs": [ref.as_dict() for ref in self.evidence_refs],
-                "kind": self.kind.value,
-            }
-        )
+        return digest(self.provenance_body)
 
     def rejection(self, now: dt.datetime, minimum: AuthorityLevel) -> OmittedReason | None:
         if self.superseded:
@@ -178,7 +227,7 @@ class ContextSelection:
     candidate_id: str
     content_digest: str
     token_count: int
-    score: tuple[int, int, str]
+    score: tuple[int | str, ...]
     reason: str
     kind: ContextCandidateKind = ContextCandidateKind.GENERAL
     source_ref: str = "context/unspecified"
@@ -186,6 +235,8 @@ class ContextSelection:
     candidate_digest: str = (
         "sha256:4cc1a7fe85cc58f8f2c659675ddcb6a3622b7b423ff6cf12ca11c852d7a86435"
     )
+    authority: AuthorityLevel = AuthorityLevel.UNTRUSTED
+    reason_codes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ContextCandidateKind):
@@ -193,6 +244,10 @@ class ContextSelection:
         _safe_logical(self.source_ref, "Context selection source")
         _safe_logical(self.source_revision, "Context selection revision")
         parse_digest(self.candidate_digest)
+        if not isinstance(self.authority, AuthorityLevel):
+            raise ValidationFailed("Context selection authority registry disinda")
+        if len(set(self.reason_codes)) != len(self.reason_codes):
+            raise ValidationFailed("Context selection reason codes tekil olmali")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -205,6 +260,8 @@ class ContextSelection:
             "source_ref": self.source_ref,
             "source_revision": self.source_revision,
             "candidate_digest": self.candidate_digest,
+            "authority": int(self.authority),
+            "reason_codes": list(self.reason_codes),
         }
 
 
@@ -212,9 +269,24 @@ class ContextSelection:
 class ContextOmission:
     candidate_id: str
     reason: OmittedReason
+    token_count: int = 0
+    canonical_candidate_id: str | None = None
+    group_digest: str | None = None
 
-    def as_dict(self) -> dict[str, str]:
-        return {"candidate_id": self.candidate_id, "reason": self.reason.value}
+    def __post_init__(self) -> None:
+        if self.token_count < 0:
+            raise ValidationFailed("Context omission token count negatif olamaz")
+        if self.group_digest is not None:
+            parse_digest(self.group_digest)
+
+    def as_dict(self) -> dict[str, str | int | None]:
+        return {
+            "candidate_id": self.candidate_id,
+            "reason": self.reason.value,
+            "token_count": self.token_count,
+            "canonical_candidate_id": self.canonical_candidate_id,
+            "group_digest": self.group_digest,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +299,11 @@ class ContextManifest:
     recipe_id: str | None = None
     recipe_digest: str | None = None
     target_role: str | None = None
+    compiler_version: int = 1
+    scoring_policy_digest: str | None = None
+    compiler_metrics: ContextCompilerMetricsV2 | None = None
+    ranking_snapshot_digest: str | None = None
+    candidate_set_digest: str | None = None
     grants_authority: bool = False
 
     def __post_init__(self) -> None:
@@ -242,6 +319,28 @@ class ContextManifest:
             _safe_logical(self.recipe_id or "", "Context recipe")
             _safe_logical(self.target_role or "", "Context target role")
             parse_digest(self.recipe_digest or "")
+        if self.compiler_version not in {1, 2}:
+            raise ValidationFailed("Context compiler version desteklenmiyor")
+        if self.compiler_version == 2:
+            if (
+                self.scoring_policy_digest is None
+                or self.compiler_metrics is None
+                or self.ranking_snapshot_digest is None
+                or self.candidate_set_digest is None
+            ):
+                raise ValidationFailed(
+                    "Context compiler v2 policy, metrics ve ranking snapshot ister"
+                )
+            parse_digest(self.scoring_policy_digest)
+            parse_digest(self.ranking_snapshot_digest)
+            parse_digest(self.candidate_set_digest)
+        elif (
+            self.scoring_policy_digest is not None
+            or self.compiler_metrics is not None
+            or self.ranking_snapshot_digest is not None
+            or self.candidate_set_digest is not None
+        ):
+            raise ValidationFailed("Context compiler v1 v2 metrics tasiyamaz")
 
     @property
     def manifest_digest(self) -> str:
@@ -249,7 +348,7 @@ class ContextManifest:
 
     def body(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": self.compiler_version,
             "token_budget": self.token_budget,
             "selected": [item.as_dict() for item in self.selected],
             "omitted": [item.as_dict() for item in self.omitted],
@@ -258,6 +357,13 @@ class ContextManifest:
             "recipe_id": self.recipe_id,
             "recipe_digest": self.recipe_digest,
             "target_role": self.target_role,
+            "compiler_version": self.compiler_version,
+            "scoring_policy_digest": self.scoring_policy_digest,
+            "compiler_metrics": (
+                None if self.compiler_metrics is None else self.compiler_metrics.body()
+            ),
+            "ranking_snapshot_digest": self.ranking_snapshot_digest,
+            "candidate_set_digest": self.candidate_set_digest,
             "grants_authority": False,
         }
 
@@ -324,6 +430,8 @@ def compile_context(
                 item.source_ref,
                 item.source_revision,
                 item.candidate_digest,
+                item.authority,
+                ("required",) if item.required else ("authority", "freshness", "stable-id"),
             )
         )
         remaining -= item.token_count
