@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
 
 from zekam.domain.canonical import digest
 from zekam.domain.clients import (
+    ClientCapabilityManifest,
     ClientDescriptor,
     ClientKind,
+    ClientPermissionManifest,
     DispatchOutcome,
     DispatchRequest,
     DispatchResult,
@@ -23,7 +26,12 @@ from zekam.domain.commit_policy import (
     evaluate_push,
 )
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
-from zekam.infrastructure.clients.adapters import opencode_adapter
+from zekam.infrastructure.clients.adapters import (
+    SubprocessClientAdapter,
+    claude_code_adapter,
+    codex_adapter,
+    opencode_adapter,
+)
 
 GOOD_MESSAGE = """ozellik: sandbox teslim akisini ekle
 
@@ -42,6 +50,26 @@ Risk:
 Geri donus:
 - git worktree remove ile geri alinir.
 """
+
+
+def test_client_capability_manifest_digest_kararli_ve_authority_free() -> None:
+    manifest = ClientCapabilityManifest(
+        "codex",
+        ClientKind.CODEX,
+        "1.0",
+        ("code", "structured-result"),
+    )
+    assert (
+        manifest.capability_digest
+        == ClientCapabilityManifest(
+            "codex",
+            ClientKind.CODEX,
+            "1.0",
+            ("code", "structured-result"),
+        ).capability_digest
+    )
+    assert manifest.as_dict()["grants_authority"] is False
+    assert manifest.unsupported(("code", "tool-use")) == ("tool-use",)
 
 
 def _descriptor(**kwargs: object) -> ClientDescriptor:
@@ -95,6 +123,32 @@ def test_beyan_edilmeyen_yetenek_cikarim_yoluyla_varsayilmaz() -> None:
 
 def test_opencode_paralel_dispatch_yetenegini_acikca_beyan_eder() -> None:
     assert opencode_adapter("opencode.exe").descriptor.supports("parallel-dispatch") is True
+
+
+@pytest.mark.parametrize(
+    "factory,executable",
+    (
+        (codex_adapter, "codex.exe"),
+        (claude_code_adapter, "claude.exe"),
+        (opencode_adapter, "opencode.exe"),
+    ),
+)
+def test_client_adapter_factory_permission_manifestini_korur(
+    factory: Callable[..., SubprocessClientAdapter],
+    executable: str,
+) -> None:
+    manifest = ClientPermissionManifest(
+        "managed-runtime",
+        ("filesystem.read", "process.run"),
+        managed=True,
+    )
+
+    adapter = factory(executable, permission_manifest=manifest)
+
+    assert adapter.descriptor.permission_manifest == manifest
+    assert adapter.descriptor.as_dict()["permission_manifest_digest"] == (
+        manifest.permission_digest
+    )
 
 
 def test_adapter_sonucu_authority_veremez() -> None:

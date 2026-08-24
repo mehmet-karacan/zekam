@@ -10,6 +10,7 @@ import pytest
 import zekam.infrastructure.postgres.client_lifecycle_repository as lifecycle_repository_module
 from zekam.application.opencode_lifecycle import record_event
 from zekam.domain.canonical import digest as canonical_digest
+from zekam.domain.clients import ClientKind, ClientLifecycleEvent
 from zekam.domain.errors import ConcurrencyConflict, ValidationFailed
 from zekam.domain.realm import Realm
 from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
@@ -18,6 +19,80 @@ from zekam.infrastructure.postgres.core_repository import RealmRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 24, 12, 0, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize("client_kind", (ClientKind.CODEX, ClientKind.CLAUDE_CODE))
+def test_ortak_lifecycle_contract_farkli_clientlari_normalize_eder(
+    realm_session: tuple[Any, Any], client_kind: ClientKind
+) -> None:
+    realm, connection = realm_session
+    event = ClientLifecycleEvent(
+        client_id=client_kind.value,
+        client_kind=client_kind,
+        session_id=f"session-{client_kind.value}",
+        sequence=1,
+        previous_digest=None,
+        event_type="session.created",
+        payload_digest=canonical_digest("transcript-free-payload"),
+        occurred_at=NOW,
+    )
+    acknowledgement = ClientLifecycleRepository(connection, realm.id).ingest(
+        event.as_dict(),
+        client_instance_id=client_kind.value,
+        client_kind=client_kind,
+        now=NOW,
+    )
+    assert acknowledgement.local_event_digest == event.event_digest
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select client_kind,payload->>'transcript_included',grants_authority"
+            " from client.lifecycle_stream s join client.lifecycle_event e"
+            " on e.realm_id=s.realm_id and e.stream_id=s.id"
+            " where e.realm_id=%s and e.id=%s",
+            (realm.id, acknowledgement.event_id),
+        )
+        assert cursor.fetchone() == (client_kind.value, "false", False)
+
+    with pytest.raises(ValidationFailed, match="client kind binding"):
+        ClientLifecycleRepository(connection, realm.id).ingest(
+            event.as_dict(),
+            client_instance_id=client_kind.value,
+            client_kind=ClientKind.OPENCODE,
+            now=NOW,
+        )
+
+
+def test_ortak_lifecycle_exact_client_instance_binding_ister(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    event = ClientLifecycleEvent(
+        client_id="codex-worker-7",
+        client_kind=ClientKind.CODEX,
+        session_id="session-instance-binding",
+        sequence=1,
+        previous_digest=None,
+        event_type="session.created",
+        payload_digest=canonical_digest("instance-binding"),
+        occurred_at=NOW,
+    )
+    repository = ClientLifecycleRepository(connection, realm.id)
+
+    with pytest.raises(ValidationFailed, match="identity binding"):
+        repository.ingest(
+            event.as_dict(),
+            client_instance_id="codex-worker-8",
+            client_kind=ClientKind.CODEX,
+            now=NOW,
+        )
+
+    acknowledgement = repository.ingest(
+        event.as_dict(),
+        client_instance_id="codex-worker-7",
+        client_kind=ClientKind.CODEX,
+        now=NOW,
+    )
+    assert acknowledgement.local_event_digest == event.event_digest
 
 
 def test_ingest_is_ordered_idempotent_and_acknowledged(

@@ -7,13 +7,14 @@ strict JSON envelope'dur ve free-text authoritative degildir.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
 #: Beyan edilebilen yetenekler. Bilinmeyen yetenek cikarim yoluyla eklenmez.
@@ -27,6 +28,15 @@ KNOWN_CAPABILITIES = frozenset(
         "cancellation",
         "model-selection",
         "sandbox-write",
+    }
+)
+KNOWN_CLIENT_PERMISSIONS = frozenset(
+    {
+        "filesystem.read",
+        "filesystem.write",
+        "network.access",
+        "process.run",
+        "tool.execute",
     }
 )
 
@@ -70,6 +80,89 @@ class ClientKind(StrEnum):
     INTERNAL = "internal"
 
 
+@dataclass(frozen=True, slots=True)
+class ClientCapabilityManifest:
+    """Bir istemcinin versioned, authority-free capability kaniti."""
+
+    client_id: str
+    kind: ClientKind
+    version: str
+    capabilities: tuple[str, ...]
+    protocol_version: str = "zekam-client-adapter/v1"
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.client_id.strip() or not self.version.strip():
+            raise ValidationFailed("client capability kimligi ve surumu bos olamaz")
+        if self.grants_authority:
+            raise PolicyViolation("client capability manifest authority veremez")
+        normalized = tuple(sorted(set(self.capabilities)))
+        if normalized != self.capabilities or not normalized:
+            raise ValidationFailed("client capability listesi sirali, unique ve dolu olmali")
+        unknown = set(normalized) - KNOWN_CAPABILITIES
+        if unknown:
+            raise ValidationFailed("bilinmeyen client capability beyani")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "protocol_version": self.protocol_version,
+            "client_id": self.client_id,
+            "kind": self.kind.value,
+            "version": self.version,
+            "capabilities": list(self.capabilities),
+            "grants_authority": False,
+        }
+
+    @property
+    def capability_digest(self) -> str:
+        return digest(self.as_dict())
+
+    def unsupported(self, required: tuple[str, ...]) -> tuple[str, ...]:
+        unknown = set(required) - KNOWN_CAPABILITIES
+        if unknown:
+            raise ValidationFailed("bilinmeyen required client capability")
+        return tuple(sorted(set(required) - set(self.capabilities)))
+
+
+@dataclass(frozen=True, slots=True)
+class ClientPermissionManifest:
+    """Client runtime permission profilinin explicit, authority-free kesiti."""
+
+    profile_id: str
+    permissions: tuple[str, ...]
+    managed: bool
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.profile_id.strip():
+            raise ValidationFailed("client permission profile id bos olamaz")
+        normalized = tuple(sorted(set(self.permissions)))
+        if normalized != self.permissions:
+            raise ValidationFailed("client permission listesi kanonik olmali")
+        if set(normalized) - KNOWN_CLIENT_PERMISSIONS:
+            raise ValidationFailed("bilinmeyen client permission")
+        if self.grants_authority:
+            raise PolicyViolation("client permission manifest authority veremez")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "profile_id": self.profile_id,
+            "permissions": list(self.permissions),
+            "managed": self.managed,
+            "grants_authority": False,
+        }
+
+    @property
+    def permission_digest(self) -> str:
+        return digest(self.as_dict())
+
+    def unsupported(self, required: tuple[str, ...]) -> tuple[str, ...]:
+        unknown = set(required) - KNOWN_CLIENT_PERMISSIONS
+        if unknown:
+            raise ValidationFailed("bilinmeyen required client permission")
+        return tuple(sorted(set(required) - set(self.permissions)))
+
+
 class DispatchOutcome(StrEnum):
     SUCCESS = "success"
     PARTIAL = "partial"
@@ -77,6 +170,57 @@ class DispatchOutcome(StrEnum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed-out"
     UNSUPPORTED = "unsupported"
+
+
+@dataclass(frozen=True, slots=True)
+class ClientLifecycleEvent:
+    """Tum istemciler icin transcript-free lifecycle event envelope'u."""
+
+    client_id: str
+    client_kind: ClientKind
+    session_id: str
+    sequence: int
+    previous_digest: str | None
+    event_type: str
+    payload_digest: str
+    occurred_at: dt.datetime
+    transcript_included: bool = False
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.client_id.strip() or not self.session_id.strip() or not self.event_type.strip():
+            raise ValidationFailed("client lifecycle kimlik ve event type ister")
+        if self.sequence < 1 or (self.sequence == 1) != (self.previous_digest is None):
+            raise ValidationFailed("client lifecycle sequence/previous zinciri gecersiz")
+        if self.previous_digest is not None:
+            parse_digest(self.previous_digest)
+        parse_digest(self.payload_digest)
+        if self.occurred_at.tzinfo is None:
+            raise ValidationFailed("client lifecycle zamani timezone-aware olmali")
+        if self.transcript_included or self.grants_authority:
+            raise PolicyViolation("client lifecycle transcript veya authority tasiyamaz")
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-client-lifecycle-event/v1",
+            "client_id": self.client_id,
+            "client_kind": self.client_kind.value,
+            "session_id": self.session_id,
+            "sequence": self.sequence,
+            "previous_digest": self.previous_digest,
+            "event_type": self.event_type,
+            "payload_digest": self.payload_digest,
+            "occurred_at": self.occurred_at.isoformat(),
+            "transcript_included": False,
+            "grants_authority": False,
+        }
+
+    @property
+    def event_digest(self) -> str:
+        return digest(self.body())
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.body() | {"event_digest": self.event_digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +232,7 @@ class ClientDescriptor:
     executable: str
     capabilities: frozenset[str]
     version: str | None = None
+    permission_manifest: ClientPermissionManifest | None = None
 
     def __post_init__(self) -> None:
         if not self.client_id.strip():
@@ -120,11 +265,25 @@ class ClientDescriptor:
             "executable": self.executable,
             "capabilities": sorted(self.capabilities),
             "version": self.version,
+            "permission_manifest_digest": (
+                None
+                if self.permission_manifest is None
+                else self.permission_manifest.permission_digest
+            ),
         }
 
     @property
     def descriptor_digest(self) -> str:
         return digest(self.as_dict())
+
+    @property
+    def capability_manifest(self) -> ClientCapabilityManifest:
+        return ClientCapabilityManifest(
+            client_id=self.client_id,
+            kind=self.kind,
+            version=self.version or "unknown",
+            capabilities=tuple(sorted(self.capabilities)),
+        )
 
 
 @dataclass(frozen=True, slots=True)

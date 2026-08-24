@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from zekam.domain.canonical import canonical_json, digest, parse_digest
+from zekam.domain.clients import ClientKind
 from zekam.domain.errors import ConcurrencyConflict, ValidationFailed
 from zekam.domain.identifiers import new_uuid7
 
@@ -39,6 +40,7 @@ class ClientLifecycleRepository:
         document: Mapping[str, Any],
         *,
         client_instance_id: str,
+        client_kind: ClientKind | None = None,
         now: dt.datetime | None = None,
     ) -> LifecycleAck:
         local_digest = str(document.get("event_digest", ""))
@@ -46,12 +48,46 @@ class ClientLifecycleRepository:
         body = {key: value for key, value in document.items() if key != "event_digest"}
         if digest(body) != local_digest:
             raise ValidationFailed("Lifecycle supplied digest canonical body ile uyusmuyor")
-        if body.get("schema") != "zekam-opencode-lifecycle-event/v2":
-            raise ValidationFailed("Canonical ingest yalniz lifecycle v2 kabul eder")
+        schema = body.get("schema")
+        if schema == "zekam-opencode-lifecycle-event/v2":
+            observed_kind = ClientKind.OPENCODE
+        elif schema == "zekam-client-lifecycle-event/v1":
+            expected_fields = {
+                "schema",
+                "client_id",
+                "client_kind",
+                "session_id",
+                "sequence",
+                "previous_digest",
+                "event_type",
+                "payload_digest",
+                "occurred_at",
+                "transcript_included",
+                "grants_authority",
+            }
+            if set(body) != expected_fields:
+                raise ValidationFailed("Canonical lifecycle schema disi alan tasiyor")
+            try:
+                observed_kind = ClientKind(str(body.get("client_kind")))
+            except ValueError as exc:
+                raise ValidationFailed("Canonical lifecycle client kind gecersiz") from exc
+            if (
+                body.get("transcript_included") is not False
+                or body.get("grants_authority") is not False
+            ):
+                raise ValidationFailed("Canonical lifecycle transcript/authority tasiyamaz")
+            if body.get("client_id") != client_instance_id:
+                raise ValidationFailed("Canonical lifecycle client identity binding uyusmuyor")
+        else:
+            raise ValidationFailed("Canonical ingest desteklenen lifecycle schema ister")
+        if client_kind is not None and client_kind is not observed_kind:
+            raise ValidationFailed("Lifecycle client kind binding uyusmuyor")
         sequence = int(body["sequence"])
         previous = body.get("previous_digest")
         session_id = str(body["session_id"])
         occurred_at = dt.datetime.fromisoformat(str(body["occurred_at"]))
+        if occurred_at.tzinfo is None:
+            raise ValidationFailed("Canonical lifecycle zamani timezone-aware olmali")
         acknowledged_at = now or dt.datetime.now(dt.UTC)
 
         # connect() autocommit kullanir; stream head, event ve ACK tek transaction olmadan
@@ -82,10 +118,11 @@ class ClientLifecycleRepository:
                     "insert into client.lifecycle_stream"
                     " (id,realm_id,client_kind,client_instance_id,session_id,head_sequence,"
                     " head_digest,created_at,updated_at)"
-                    " values (%s,%s,'opencode',%s,%s,0,null,%s,%s)",
+                    " values (%s,%s,%s,%s,%s,0,null,%s,%s)",
                     (
                         stream_id,
                         self.realm_id,
+                        observed_kind.value,
                         client_instance_id,
                         session_id,
                         acknowledged_at,

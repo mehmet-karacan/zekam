@@ -23,7 +23,7 @@ from zekam.domain.context_fragment import (
     ContextRole,
     ContextVisibility,
 )
-from zekam.domain.errors import ConcurrencyConflict
+from zekam.domain.errors import ConcurrencyConflict, PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 
 
@@ -332,7 +332,12 @@ class ContextContinuityRepository:
                 " c.source_revision, c.plan_steps, c.completed_steps, c.pending_steps,"
                 " c.step_results,"
                 " c.context_manifest_digest, c.journal_head_digest, c.next_safe_action,"
-                " c.created_at"
+                " c.created_at, h.source_client_capability_digest,"
+                " h.target_client_capability_digest,h.source_client_permission_digest,"
+                " h.target_client_permission_digest,h.unsupported_capabilities,"
+                " h.unsupported_permissions,h.required_replan_items,"
+                " h.target_route_decision_id,h.target_route_decision_digest,"
+                " h.target_route_valid_until,h.target_route_fresh"
                 " from work.finalized_handoff h"
                 " join work.continuity_snapshot s"
                 " on s.id = h.snapshot_id and s.realm_id = h.realm_id"
@@ -388,6 +393,17 @@ class ContextContinuityRepository:
             checkpoint_digest=str(row[5]),
             source_revision=str(row[6]),
             created_at=row[7],
+            source_client_capability_digest=row[29],
+            target_client_capability_digest=row[30],
+            source_client_permission_digest=row[31],
+            target_client_permission_digest=row[32],
+            unsupported_capabilities=tuple(row[33]),
+            unsupported_permissions=tuple(row[34]),
+            required_replan_items=tuple(row[35]),
+            target_route_decision_id=row[36],
+            target_route_decision_digest=row[37],
+            target_route_valid_until=row[38],
+            target_route_fresh=bool(row[39]),
         )
         if (
             handoff.handoff_digest != handoff_digest
@@ -428,6 +444,8 @@ class ContextContinuityRepository:
         return record_id
 
     def store_handoff(self, handoff: FinalizedHandoff, *, snapshot_id: UUID) -> UUID:
+        if handoff.from_client != handoff.to_client and not handoff.cross_client_ready:
+            raise PolicyViolation("Cross-client handoff capability ve fresh route kaniti ister")
         record_id = new_uuid7(now=handoff.created_at)
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -435,9 +453,14 @@ class ContextContinuityRepository:
                 " (id, realm_id, project_id, work_item_id, snapshot_id, from_client, to_client,"
                 "  from_model_ref, to_model_ref, snapshot_digest, checkpoint_digest,"
                 "  source_revision, handoff_digest, transcript_included, grants_authority,"
-                "  carries_active_lease, approval_inherited, reacquire_required, created_at)"
+                "  carries_active_lease, approval_inherited, reacquire_required, created_at,"
+                "  source_client_capability_digest,target_client_capability_digest,"
+                "  source_client_permission_digest,target_client_permission_digest,"
+                "  unsupported_capabilities,unsupported_permissions,required_replan_items,"
+                "  target_route_decision_id,target_route_decision_digest,"
+                "  target_route_valid_until,target_route_fresh)"
                 " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false,"
-                " false, false, false, true, %s)",
+                " false, false, false, true, %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     record_id,
                     self.realm_id,
@@ -453,6 +476,17 @@ class ContextContinuityRepository:
                     handoff.source_revision,
                     handoff.handoff_digest,
                     handoff.created_at,
+                    handoff.source_client_capability_digest,
+                    handoff.target_client_capability_digest,
+                    handoff.source_client_permission_digest,
+                    handoff.target_client_permission_digest,
+                    list(handoff.unsupported_capabilities),
+                    list(handoff.unsupported_permissions),
+                    list(handoff.required_replan_items),
+                    handoff.target_route_decision_id,
+                    handoff.target_route_decision_digest,
+                    handoff.target_route_valid_until,
+                    handoff.target_route_fresh,
                 ),
             )
         return record_id

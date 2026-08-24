@@ -615,6 +615,25 @@ class ContinuitySnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetRouteBinding:
+    """Canonical model route decision'in cross-client devam kesiti."""
+
+    decision_id: UUID
+    evidence_digest: str
+    target_model_ref: str
+    valid_until: dt.datetime
+    observed_at: dt.datetime
+
+    def __post_init__(self) -> None:
+        parse_digest(self.evidence_digest)
+        _safe_logical(self.target_model_ref, "Target route model")
+        if self.valid_until.tzinfo is None or self.observed_at.tzinfo is None:
+            raise ValidationFailed("Target route zamanlari timezone-aware olmali")
+        if self.observed_at >= self.valid_until:
+            raise PolicyViolation("Target route binding fresh degil")
+
+
+@dataclass(frozen=True, slots=True)
 class FinalizedHandoff:
     from_client: str
     to_client: str
@@ -624,6 +643,17 @@ class FinalizedHandoff:
     checkpoint_digest: str
     source_revision: str
     created_at: dt.datetime
+    source_client_capability_digest: str | None = None
+    target_client_capability_digest: str | None = None
+    source_client_permission_digest: str | None = None
+    target_client_permission_digest: str | None = None
+    unsupported_capabilities: tuple[str, ...] = ()
+    unsupported_permissions: tuple[str, ...] = ()
+    required_replan_items: tuple[str, ...] = ()
+    target_route_decision_id: UUID | None = None
+    target_route_decision_digest: str | None = None
+    target_route_valid_until: dt.datetime | None = None
+    target_route_fresh: bool = False
     transcript_included: bool = False
     grants_authority: bool = False
     carries_active_lease: bool = False
@@ -649,26 +679,96 @@ class FinalizedHandoff:
             _safe_logical(value, "Handoff identity")
         parse_digest(self.snapshot_digest)
         parse_digest(self.checkpoint_digest)
+        for optional_digest in (
+            self.source_client_capability_digest,
+            self.target_client_capability_digest,
+            self.source_client_permission_digest,
+            self.target_client_permission_digest,
+            self.target_route_decision_digest,
+        ):
+            if optional_digest is not None:
+                parse_digest(optional_digest)
+        if tuple(sorted(set(self.unsupported_capabilities))) != self.unsupported_capabilities:
+            raise ValidationFailed("Handoff unsupported capability listesi kanonik olmali")
+        if tuple(sorted(set(self.unsupported_permissions))) != self.unsupported_permissions:
+            raise ValidationFailed("Handoff unsupported permission listesi kanonik olmali")
+        if tuple(sorted(set(self.required_replan_items))) != self.required_replan_items:
+            raise ValidationFailed("Handoff replan listesi kanonik olmali")
+        if self.target_route_valid_until is not None:
+            if self.target_route_valid_until.tzinfo is None:
+                raise ValidationFailed("Handoff route expiry timezone-aware olmali")
+            if self.target_route_fresh != (self.created_at < self.target_route_valid_until):
+                raise ValidationFailed("Handoff route freshness expiry ile uyusmuyor")
+        elif self.target_route_fresh:
+            raise ValidationFailed("Fresh handoff target route expiry ister")
+
+    @property
+    def cross_client_ready(self) -> bool:
+        if self.from_client == self.to_client:
+            return True
+        return bool(
+            self.source_client_capability_digest
+            and self.target_client_capability_digest
+            and self.source_client_permission_digest
+            and self.target_client_permission_digest
+            and self.target_route_decision_id
+            and self.target_route_decision_digest
+            and self.target_route_valid_until
+            and self.target_route_fresh
+            and not self.unsupported_capabilities
+            and not self.unsupported_permissions
+            and not self.required_replan_items
+        )
+
+    @property
+    def legacy_limited(self) -> bool:
+        return (
+            self.from_client != self.to_client
+            and self.source_client_capability_digest is None
+            and self.target_client_capability_digest is None
+            and self.source_client_permission_digest is None
+            and self.target_client_permission_digest is None
+            and self.target_route_decision_id is None
+            and self.target_route_decision_digest is None
+            and self.target_route_valid_until is None
+            and not self.target_route_fresh
+            and not self.unsupported_capabilities
+            and not self.unsupported_permissions
+            and not self.required_replan_items
+        )
 
     @property
     def handoff_digest(self) -> str:
-        return digest(
-            {
-                "from_client": self.from_client,
-                "to_client": self.to_client,
-                "from_model_ref": self.from_model_ref,
-                "to_model_ref": self.to_model_ref,
-                "snapshot_digest": self.snapshot_digest,
-                "checkpoint_digest": self.checkpoint_digest,
-                "source_revision": self.source_revision,
-                "created_at": self.created_at,
-                "transcript_included": False,
-                "grants_authority": False,
-                "carries_active_lease": False,
-                "approval_inherited": False,
-                "reacquire_required": True,
+        body = {
+            "from_client": self.from_client,
+            "to_client": self.to_client,
+            "from_model_ref": self.from_model_ref,
+            "to_model_ref": self.to_model_ref,
+            "snapshot_digest": self.snapshot_digest,
+            "checkpoint_digest": self.checkpoint_digest,
+            "source_revision": self.source_revision,
+            "created_at": self.created_at,
+            "transcript_included": False,
+            "grants_authority": False,
+            "carries_active_lease": False,
+            "approval_inherited": False,
+            "reacquire_required": True,
+        }
+        if not self.legacy_limited:
+            body |= {
+                "source_client_capability_digest": self.source_client_capability_digest,
+                "target_client_capability_digest": self.target_client_capability_digest,
+                "source_client_permission_digest": self.source_client_permission_digest,
+                "target_client_permission_digest": self.target_client_permission_digest,
+                "unsupported_capabilities": list(self.unsupported_capabilities),
+                "unsupported_permissions": list(self.unsupported_permissions),
+                "required_replan_items": list(self.required_replan_items),
+                "target_route_decision_id": self.target_route_decision_id,
+                "target_route_decision_digest": self.target_route_decision_digest,
+                "target_route_valid_until": self.target_route_valid_until,
+                "target_route_fresh": self.target_route_fresh,
             }
-        )
+        return digest(body)
 
 
 def validate_resume(
@@ -678,6 +778,8 @@ def validate_resume(
     *,
     current_source_revision: str,
 ) -> None:
+    if handoff.from_client != handoff.to_client and not handoff.cross_client_ready:
+        raise PolicyViolation("Cross-client handoff capability/route replan kapisini gecemedi")
     if handoff.snapshot_digest != snapshot.snapshot_digest:
         raise ValidationFailed("Handoff snapshot digest mismatch")
     if handoff.checkpoint_digest != checkpoint.checkpoint_digest:

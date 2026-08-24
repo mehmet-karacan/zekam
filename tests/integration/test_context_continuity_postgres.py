@@ -16,9 +16,11 @@ from zekam.application.context_continuity_service import ContextContinuityServic
 from zekam.application.context_materializer import FragmentMaterialization, materialize_fragments
 from zekam.application.context_recipe import ContextRecipeRole
 from zekam.application.execution import ExecutionHost
+from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.clients import ClientDescriptor, ClientKind, ClientPermissionManifest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     Checkpoint,
@@ -26,7 +28,6 @@ from zekam.domain.context_continuity import (
     ContextCandidateKind,
     ContinuitySnapshot,
     EvidenceReference,
-    FinalizedHandoff,
     JournalEntry,
     compile_context,
 )
@@ -38,12 +39,28 @@ from zekam.domain.context_fragment import (
 )
 from zekam.domain.context_scoring import ContextCompilerMetricsV2
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation
+from zekam.domain.model_routing import (
+    AgentRole,
+    CandidateDisposition,
+    ExecutionTargetSnapshot,
+    LayerCandidateEvidence,
+    LayeredModelDecision,
+    LayeredRouteRequest,
+    RoleRoutingPolicy,
+    RouteStatus,
+    RoutingLayer,
+)
 from zekam.domain.runtime import AttemptOutcome, Job, JobKind
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
 from zekam.infrastructure.postgres.context_ranking_repository import ContextRankingRepository
+from zekam.infrastructure.postgres.cross_client_route_guard import (
+    PostgresCrossClientRouteGuard,
+)
+from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
+from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 20, tzinfo=dt.UTC)
@@ -913,30 +930,160 @@ def test_context_continuity_repository_chain_checkpoint_handoff_and_terminal_gat
         NOW,
     )
     snapshot_id = repository.store_snapshot(snapshot, checkpoint_id=checkpoint_id)
-    handoff = FinalizedHandoff(
+    routing = ModelRoutingRepository(connection, realm.id)
+    model = next(item for item in load_inventory().records if item.enabled)
+    ModelInventoryRepository(connection, realm.id).upsert(model)
+    route_policy_digest = digest("cross-client-role-policy")
+    route_policy = RoleRoutingPolicy(
+        role=AgentRole.IMPLEMENTER,
+        target_layer=RoutingLayer.GENERAL,
+        required_layers=(RoutingLayer.GENERAL,),
+        top_k=1,
+        fallback_model_ids=(),
+        max_cost=10,
+        max_latency_ms=30_000,
+        independent_from_roles=(),
+        policy_digest=route_policy_digest,
+    )
+    route_policy_id = routing.store_role_policy(route_policy, effective_from=NOW)
+    execution_target = ExecutionTargetSnapshot(
+        client_id="claude-code",
+        slot="cross-client",
+        execution_mode="native-sequential",
+        model_selectable=True,
+        structured_result=True,
+        cancellation=True,
+        max_concurrency=1,
+        cost_evidence_digest=digest("cross-client-cost"),
+        capability_digest=digest("cross-client-execution-capability"),
+        captured_at=NOW,
+        expires_at=NOW + dt.timedelta(minutes=10),
+    )
+    execution_target_id, _ = routing.store_execution_target(execution_target)
+    route_request = LayeredRouteRequest(
+        role=AgentRole.IMPLEMENTER,
+        target_layer=RoutingLayer.GENERAL,
+        workload=None,
+        technology=None,
+        project_id=None,
+        project_context_digest=None,
+        inventory_digest=digest("cross-client-inventory"),
+        routing_policy_digest=route_policy_digest,
+        policy_digest=digest("cross-client-policy"),
+        execution_target_digest=execution_target.snapshot_digest,
+    )
+    route_evidence = digest("cross-client-route")
+    route_decision = LayeredModelDecision(
+        request=route_request,
+        policy_digest=route_policy_digest,
+        status=RouteStatus.SELECTED,
+        primary_model_id=model.model_id,
+        fallback_model_id=None,
+        candidates=(
+            LayerCandidateEvidence(
+                model_id=model.model_id,
+                layer_scores=((RoutingLayer.GENERAL, 1.0),),
+                evidence_digests=(digest("cross-client-candidate"),),
+                rejection_reasons=(),
+                disposition=CandidateDisposition.PRIMARY,
+            ),
+        ),
+        evidence_digest=route_evidence,
+    )
+    route_id, _ = routing.record_decision(
+        route_decision,
+        role_policy_id=route_policy_id,
+        execution_target_id=execution_target_id,
+        decided_at=NOW,
+    )
+    route_guard = PostgresCrossClientRouteGuard(connection, realm.id)
+    continuity = ContextContinuityService(route_guard=route_guard)
+    source_client = ClientDescriptor(
+        ClientKind.CODEX,
         "codex",
+        "codex",
+        frozenset({"code", "structured-result"}),
+        "1",
+        ClientPermissionManifest("codex-test", ("filesystem.read", "process.run"), managed=True),
+    )
+    target_client = ClientDescriptor(
+        ClientKind.CLAUDE_CODE,
+        "claude-code",
         "claude",
-        "model-ref-a",
-        "model-ref-b",
-        snapshot.snapshot_digest,
-        checkpoint.checkpoint_digest,
-        "revision-1",
-        NOW,
+        frozenset({"code", "structured-result"}),
+        "1",
+        ClientPermissionManifest("claude-test", ("filesystem.read", "process.run"), managed=True),
+    )
+    handoff = continuity.finalize_cross_client_handoff(
+        source_client=source_client,
+        target_client=target_client,
+        source_model_ref="model-ref-a",
+        target_model_ref=model.model_id,
+        snapshot=snapshot,
+        checkpoint=checkpoint,
+        required_capabilities=("code", "structured-result"),
+        required_permissions=("filesystem.read", "process.run"),
+        target_route_decision_id=route_id,
+        created_at=NOW,
     )
     repository.store_handoff(handoff, snapshot_id=snapshot_id)
     loaded_handoff, loaded_snapshot, loaded_checkpoint = repository.load_resume_bundle(
         handoff.handoff_digest
     )
-    resumed = ContextContinuityService().resume(
+    resumed = continuity.resume(
         handoff=loaded_handoff,
         snapshot=loaded_snapshot,
         checkpoint=loaded_checkpoint,
         current_source_revision="revision-1",
+        target_client=target_client,
+        observed_at=NOW,
     )
-    assert resumed.client == "claude"
-    assert resumed.model_ref == "model-ref-b"
+    assert resumed.client == "claude-code"
+    assert resumed.model_ref == model.model_id
     assert resumed.reacquire_work is True
     assert loaded_checkpoint.plan_steps == ("read", "build")
+    with pytest.raises(PolicyViolation, match="current/fresh degil"):
+        route_guard.require_current(
+            route_id,
+            target_model_ref=model.model_id,
+            target_client_id="opencode",
+            project_id=str(project.id),
+            at=NOW,
+        )
+    forged = replace(
+        handoff,
+        target_route_decision_digest=digest("forged-cross-client-route"),
+    )
+    with pytest.raises(Exception, match="canonical route drift"), connection.transaction():
+        repository.store_handoff(forged, snapshot_id=snapshot_id)
+
+    newer_decision = replace(
+        route_decision,
+        evidence_digest=digest("newer-cross-client-route"),
+    )
+    routing.record_decision(
+        newer_decision,
+        role_policy_id=route_policy_id,
+        execution_target_id=execution_target_id,
+        decided_at=NOW + dt.timedelta(seconds=1),
+    )
+    with pytest.raises(PolicyViolation, match="current/fresh degil"):
+        continuity.resume(
+            handoff=loaded_handoff,
+            snapshot=loaded_snapshot,
+            checkpoint=loaded_checkpoint,
+            current_source_revision="revision-1",
+            target_client=target_client,
+            observed_at=NOW + dt.timedelta(seconds=2),
+        )
+    with pytest.raises(PolicyViolation, match="current/fresh degil"):
+        route_guard.require_current(
+            route_id,
+            target_model_ref=model.model_id,
+            target_client_id="claude-code",
+            project_id=str(project.id),
+            at=None,
+        )
     with connection.cursor() as cursor:
         cursor.execute(
             "select state from runtime.job where id = %s",

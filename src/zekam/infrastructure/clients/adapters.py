@@ -7,6 +7,7 @@ calisir. Beyan edilmeyen yetenek cikarim yoluyla varsayilmaz.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,8 +15,11 @@ from typing import Any, Protocol
 
 from zekam.domain.clients import (
     CanonicalDispatchPermit,
+    ClientCapabilityManifest,
     ClientDescriptor,
     ClientKind,
+    ClientLifecycleEvent,
+    ClientPermissionManifest,
     DispatchOutcome,
     DispatchRequest,
     DispatchResult,
@@ -26,15 +30,32 @@ from zekam.domain.sandbox import ProcessSpec
 from zekam.infrastructure.process import runner
 
 
-class ClientAdapter(Protocol):
-    """Bir istemciyi cagirmanin adapter sozlesmesi."""
+class ClientLifecycleAdapter(Protocol):
+    """Istemci kimligi, capability'si, lifecycle'i ve dispatch ortak sozlesmesi."""
 
     @property
     def descriptor(self) -> ClientDescriptor: ...
 
+    @property
+    def capability_manifest(self) -> ClientCapabilityManifest: ...
+
+    def lifecycle_event(
+        self,
+        *,
+        session_id: str,
+        sequence: int,
+        previous_digest: str | None,
+        event_type: str,
+        payload_digest: str,
+        occurred_at: dt.datetime,
+    ) -> ClientLifecycleEvent: ...
+
     def dispatch(
         self, request: DispatchRequest, *, cwd: Path, permit: CanonicalDispatchPermit
     ) -> DispatchResult: ...
+
+
+ClientAdapter = ClientLifecycleAdapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +73,31 @@ class SubprocessClientAdapter:
     launcher: tuple[str, ...] = ()
     #: Adapter'a ozel, secret icermeyen ortam degiskenleri.
     env: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def capability_manifest(self) -> ClientCapabilityManifest:
+        return self.descriptor.capability_manifest
+
+    def lifecycle_event(
+        self,
+        *,
+        session_id: str,
+        sequence: int,
+        previous_digest: str | None,
+        event_type: str,
+        payload_digest: str,
+        occurred_at: dt.datetime,
+    ) -> ClientLifecycleEvent:
+        return ClientLifecycleEvent(
+            client_id=self.descriptor.client_id,
+            client_kind=self.descriptor.kind,
+            session_id=session_id,
+            sequence=sequence,
+            previous_digest=previous_digest,
+            event_type=event_type,
+            payload_digest=payload_digest,
+            occurred_at=occurred_at,
+        )
 
     def build_spec(self, request: DispatchRequest) -> ProcessSpec:
         return ProcessSpec(
@@ -116,7 +162,12 @@ class SubprocessClientAdapter:
             raise PolicyViolation("istemci iptal yetenegi beyan etmiyor; timeout ele alinamaz")
 
 
-def codex_adapter(executable: str, *, cancellation: bool = True) -> SubprocessClientAdapter:
+def codex_adapter(
+    executable: str,
+    *,
+    cancellation: bool = True,
+    permission_manifest: ClientPermissionManifest | None = None,
+) -> SubprocessClientAdapter:
     capabilities = {"chat", "code", "tool-use", "structured-result", "sandbox-write"}
     if cancellation:
         capabilities.add("cancellation")
@@ -126,11 +177,16 @@ def codex_adapter(executable: str, *, cancellation: bool = True) -> SubprocessCl
             client_id="codex",
             executable=executable,
             capabilities=frozenset(capabilities),
+            permission_manifest=permission_manifest,
         )
     )
 
 
-def claude_code_adapter(executable: str) -> SubprocessClientAdapter:
+def claude_code_adapter(
+    executable: str,
+    *,
+    permission_manifest: ClientPermissionManifest | None = None,
+) -> SubprocessClientAdapter:
     return SubprocessClientAdapter(
         ClientDescriptor(
             kind=ClientKind.CLAUDE_CODE,
@@ -147,11 +203,16 @@ def claude_code_adapter(executable: str) -> SubprocessClientAdapter:
                     "sandbox-write",
                 }
             ),
+            permission_manifest=permission_manifest,
         )
     )
 
 
-def opencode_adapter(executable: str) -> SubprocessClientAdapter:
+def opencode_adapter(
+    executable: str,
+    *,
+    permission_manifest: ClientPermissionManifest | None = None,
+) -> SubprocessClientAdapter:
     return SubprocessClientAdapter(
         ClientDescriptor(
             kind=ClientKind.OPENCODE,
@@ -160,6 +221,7 @@ def opencode_adapter(executable: str) -> SubprocessClientAdapter:
             capabilities=frozenset(
                 {"chat", "code", "structured-result", "model-selection", "parallel-dispatch"}
             ),
+            permission_manifest=permission_manifest,
         )
     )
 
