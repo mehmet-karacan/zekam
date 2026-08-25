@@ -12,6 +12,7 @@ from zekam.domain.model_routing import (
     AgentRole,
     CandidateDisposition,
     LayeredRouteRequest,
+    ModelFamilyPolicy,
     ProjectRoutingContext,
     RoleRoutingPolicy,
     RouteCapabilityBinding,
@@ -154,6 +155,13 @@ def _requirements() -> RouteCapabilityRequirements:
         minimum_structured_output_score=0.8,
         minimum_long_session_seconds=30,
         minimum_long_session_score=0.75,
+    )
+
+
+def _family_policy() -> ModelFamilyPolicy:
+    return ModelFamilyPolicy(
+        model_families=(("model-a", "qwen"), ("model-b", "deepseek")),
+        same_family_allowed_risks=("low", "medium"),
     )
 
 
@@ -330,6 +338,129 @@ def test_capability_suite_registry_profile_evaluator_and_source_drift_fail_close
 def test_capability_requirement_types_fail_closed(changes: dict[str, object]) -> None:
     with pytest.raises(ValidationFailed):
         RouteCapabilityRequirements(**changes)  # type: ignore[arg-type]
+
+
+def test_high_risk_verifier_rejects_same_family_and_selects_distinct_family() -> None:
+    family_policy = _family_policy()
+    request = _request(
+        role=AgentRole.VERIFIER,
+        risk="high",
+        family_policy_digest=family_policy.policy_digest,
+        excluded_model_families=("qwen",),
+        excluded_model_ids=("builder-model",),
+        excluded_execution_identities=("builder-execution",),
+    )
+    policy = replace(
+        _policy(),
+        role=AgentRole.VERIFIER,
+        independent_from_roles=(AgentRole.IMPLEMENTER,),
+    )
+    qualifications = tuple(
+        replace(item, role=AgentRole.VERIFIER)
+        for item in _all_layers("model-a", 0.9) + _all_layers("model-b", 0.8)
+    )
+    decision = decide_layered_model(
+        request,
+        policy,
+        qualifications,
+        family_policy=family_policy,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.SELECTED
+    assert decision.primary_model_id == "model-b"
+    same_family = next(item for item in decision.candidates if item.model_id == "model-a")
+    assert "same-family-verifier" in same_family.rejection_reasons
+
+
+def test_low_risk_policy_explicitly_allows_same_family_verifier() -> None:
+    family_policy = _family_policy()
+    request = _request(
+        role=AgentRole.VERIFIER,
+        risk="low",
+        family_policy_digest=family_policy.policy_digest,
+        excluded_model_families=("qwen",),
+        excluded_model_ids=("builder-model",),
+        excluded_execution_identities=("builder-execution",),
+    )
+    policy = replace(
+        _policy(),
+        role=AgentRole.VERIFIER,
+        independent_from_roles=(AgentRole.IMPLEMENTER,),
+    )
+    qualifications = tuple(
+        replace(item, role=AgentRole.VERIFIER) for item in _all_layers("model-a", 0.9)
+    )
+    decision = decide_layered_model(
+        request,
+        policy,
+        qualifications,
+        family_policy=family_policy,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.SELECTED
+    assert decision.primary_model_id == "model-a"
+
+
+def test_family_policy_digest_drift_is_rejected() -> None:
+    with pytest.raises(PolicyViolation, match="family policy drift"):
+        decide_layered_model(
+            _request(family_policy_digest=digest("old-family-policy")),
+            _policy(),
+            _all_layers("model-a", 0.9),
+            family_policy=_family_policy(),
+            now=NOW,
+        )
+
+
+def test_high_risk_verifier_without_family_evidence_is_pending() -> None:
+    request = _request(
+        role=AgentRole.VERIFIER,
+        risk="critical",
+        excluded_model_ids=("builder-model",),
+        excluded_execution_identities=("builder-execution",),
+    )
+    policy = replace(
+        _policy(),
+        role=AgentRole.VERIFIER,
+        independent_from_roles=(AgentRole.IMPLEMENTER,),
+    )
+    qualifications = tuple(
+        replace(item, role=AgentRole.VERIFIER) for item in _all_layers("model-a", 0.9)
+    )
+    decision = decide_layered_model(request, policy, qualifications, now=NOW)
+    assert decision.status is RouteStatus.PENDING
+    assert "family-independence-evidence-missing" in decision.candidates[0].rejection_reasons
+
+
+def test_high_risk_same_family_requires_explicit_policy_allowance() -> None:
+    family_policy = ModelFamilyPolicy(
+        model_families=(("model-a", "qwen"),),
+        same_family_allowed_risks=("high",),
+    )
+    request = _request(
+        role=AgentRole.VERIFIER,
+        risk="high",
+        family_policy_digest=family_policy.policy_digest,
+        excluded_model_families=("qwen",),
+        excluded_model_ids=("builder-model",),
+        excluded_execution_identities=("builder-execution",),
+    )
+    policy = replace(
+        _policy(),
+        role=AgentRole.VERIFIER,
+        independent_from_roles=(AgentRole.IMPLEMENTER,),
+    )
+    qualifications = tuple(
+        replace(item, role=AgentRole.VERIFIER) for item in _all_layers("model-a", 0.9)
+    )
+    decision = decide_layered_model(
+        request,
+        policy,
+        qualifications,
+        family_policy=family_policy,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.SELECTED
 
 
 def test_stale_health_qualification_policy_and_inventory_drift_fail_closed() -> None:

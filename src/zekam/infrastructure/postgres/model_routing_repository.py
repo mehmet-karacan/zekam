@@ -468,11 +468,12 @@ class ModelRoutingRepository:
                 " minimum_long_session_score,capability_evidence_role,"
                 " capability_source_revision,capability_suite_digest,"
                 " capability_registry_digest,capability_execution_profile_digest,"
-                " capability_evaluator_provenance_digest,status,primary_model_id,"
+                " capability_evaluator_provenance_digest,risk,family_policy_digest,"
+                " excluded_model_families,status,primary_model_id,"
                 " fallback_model_id, evidence_digest, authority_granted, decided_at)"
                 " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
                 " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                " %s, %s, false, %s)"
+                " %s, %s, %s, %s, %s, false, %s)"
                 " on conflict (realm_id, evidence_digest) do nothing returning id",
                 (
                     record_id,
@@ -514,6 +515,9 @@ class ModelRoutingRepository:
                     None
                     if request.capability_binding is None
                     else request.capability_binding.evaluator_provenance_digest,
+                    request.risk,
+                    request.family_policy_digest,
+                    list(request.excluded_model_families),
                     decision.status.value,
                     decision.primary_model_id,
                     decision.fallback_model_id,
@@ -582,6 +586,7 @@ class ModelRoutingRepository:
         project_id: UUID | None = None,
         workload: str | None = None,
         technology: str | None = None,
+        risk: str | None = None,
     ) -> StoredRouteDecision | None:
         try:
             project_predicate = (
@@ -602,9 +607,12 @@ class ModelRoutingRepository:
             parameters = (
                 scope_parameters if workload is None else (*scope_parameters, workload, technology)
             )
+            risk_predicate = "" if risk is None else " and d.risk = %s"
+            if risk is not None:
+                parameters = (*parameters, risk)
             return self._load_decision(
                 "d.role = %s and d.target_layer = %s"
-                f"{project_predicate}{workload_predicate}"
+                f"{project_predicate}{workload_predicate}{risk_predicate}"
                 " order by d.decided_at desc, d.id desc limit 1",
                 parameters,
             )
@@ -624,6 +632,7 @@ class ModelRoutingRepository:
                 " d.capability_evidence_role,d.capability_source_revision,"
                 " d.capability_suite_digest,d.capability_registry_digest,"
                 " d.capability_execution_profile_digest,d.capability_evaluator_provenance_digest,"
+                " d.risk,d.family_policy_digest,d.excluded_model_families,"
                 " d.status, d.primary_model_id,d.fallback_model_id,d.evidence_digest"
                 " from models.model_route_decision d"
                 " left join projects.routing_context_snapshot c"
@@ -686,15 +695,18 @@ class ModelRoutingRepository:
                     evaluator_provenance_digest=str(row[26]),
                 )
             ),
+            risk=str(row[27]),
+            family_policy_digest=str(row[28]) if row[28] is not None else None,
+            excluded_model_families=tuple(str(value) for value in row[29]),
         )
         decision = LayeredModelDecision(
             request=request,
             policy_digest=str(row[11]),
-            status=RouteStatus(str(row[27])),
-            primary_model_id=str(row[28]) if row[28] is not None else None,
-            fallback_model_id=str(row[29]) if row[29] is not None else None,
+            status=RouteStatus(str(row[30])),
+            primary_model_id=str(row[31]) if row[31] is not None else None,
+            fallback_model_id=str(row[32]) if row[32] is not None else None,
             candidates=candidates,
-            evidence_digest=str(row[30]),
+            evidence_digest=str(row[33]),
         )
         return StoredRouteDecision(
             id=UUID(str(row[0])),

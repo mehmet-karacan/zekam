@@ -1,0 +1,23 @@
+schema: zekam-model-family-policy/v1
+same_family_allowed_risks: [low, medium]
+models:
+  2d13d348-ab24-4738-a19c-6b4be323f836: qwen
+  224d14fe-d5d1-45aa-8430-392621c555fb: gpt-oss
+  979c8117-ab95-4f02-ac9b-154284828e27: whisper
+  e5fdb4ae-3485-4623-b628-c6a3e11d92ee: qwen
+  b5d7a6bd-0341-4407-846f-abd3026db96d: qwen
+  7622a967-8c01-4172-af52-e16b4a5b3fd0: bge
+  f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4: qwen
+  52397247-4df7-4a16-ae09-3cafc362e196: gemma
+  176bc319-901d-4bc6-b36e-73e0b7fa9203: minimax
+  5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f: qwen
+  9890d36b-95b0-4073-88c5-33a7f1b8adf3: gpt-oss
+  5499ecda-bf10-4553-9776-4bc97ee2c00e: bge
+  d871eceb-96e0-4fd1-89d1-e2a5c8516b60: minimax
+  25aa0a2c-caea-4104-a863-d29276fcb187: llama
+  d088c86d-4eae-4345-b2c8-4298ae2ffc59: e5-mistral
+  6a9f0333-c9b5-4bb9-b638-35c59594ca4d: kimi
+  9a15b1c2-9eac-47cb-9a0b-03a64ce6e094: qwen
+  ff35d826-952e-4731-b752-1c80c8cf8d8c: qwen
+  61cd22f6-1687-45c2-9e5a-598d40a05e9d: deepseek
+  7fe96e76-6599-4a8d-a6f1-af5d6353242e: bge

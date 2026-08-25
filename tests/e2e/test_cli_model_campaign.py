@@ -21,6 +21,7 @@ from zekam.application.governance import (
     GovernanceService,
     default_capabilities,
 )
+from zekam.application.model_family_policy import load_model_family_policy
 from zekam.application.model_registry import load_inventory
 from zekam.application.opencode_benchmark_campaign import (
     BENCHMARK_SECRET_REF_NAME,
@@ -705,6 +706,46 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
         reviewer_document["result"]["primary_model_id"],
     }
 
+    high_risk_routes: dict[str, dict[str, Any]] = {}
+    for high_risk_role in ("implementer", "reviewer", "verifier"):
+        result = _run(
+            campaign_home,
+            campaign_realm_flags,
+            "model",
+            "route",
+            "decide",
+            "--project",
+            "gpu-fusion",
+            "--role",
+            high_risk_role,
+            "--layer",
+            "general",
+            "--risk",
+            "high",
+            "--uygula",
+        )
+        assert result.exit_code == 0, f"{result.stderr} {result.exception!r}"
+        high_risk_routes[high_risk_role] = json.loads(result.stdout)
+        assert high_risk_routes[high_risk_role]["route"]["status"] == "selected"
+    family_policy = load_model_family_policy()
+    prior_families = {
+        family_policy.family_for(model_id)
+        for role_name in ("implementer", "reviewer")
+        for model_id in (
+            high_risk_routes[role_name]["result"]["primary_model_id"],
+            high_risk_routes[role_name]["result"]["fallback_model_id"],
+        )
+        if model_id is not None
+    }
+    verifier_family = family_policy.family_for(
+        high_risk_routes["verifier"]["result"]["primary_model_id"]
+    )
+    assert verifier_family not in prior_families
+    assert any(
+        "same-family-verifier" in candidate["rejection_reasons"]
+        for candidate in high_risk_routes["verifier"]["route"]["candidates"]
+    )
+
     workload = _run(
         campaign_home,
         campaign_realm_flags,
@@ -749,6 +790,33 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
     decision_replay = _run(campaign_home, campaign_realm_flags, *decision_args)
     assert decision_replay.exit_code == 0, decision_replay.stderr
     assert json.loads(decision_replay.stdout)["result"]["replay"] is True
+
+    high_project_decision = _run(
+        campaign_home,
+        campaign_realm_flags,
+        *decision_args,
+        "--risk",
+        "high",
+    )
+    assert high_project_decision.exit_code == 0, high_project_decision.stderr
+    assert json.loads(high_project_decision.stdout)["result"]["inserted"] is True
+    for status_risk in ("medium", "high"):
+        route_status = _run(
+            campaign_home,
+            campaign_realm_flags,
+            "model",
+            "route",
+            "status",
+            "--project",
+            "gpu-fusion",
+            "--risk",
+            status_risk,
+        )
+        assert route_status.exit_code == 0, route_status.stderr
+        status_document = json.loads(route_status.stdout)
+        assert status_document["risk"] == status_risk
+        assert status_document["decisions"]
+        assert {item["risk"] for item in status_document["decisions"]} == {status_risk}
 
     resolved_route = _run(
         campaign_home,
@@ -900,7 +968,7 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
             " and step_id='model-route-decide' and state='completed' and max_attempts=1",
             (realm.id,),
         )
-        assert int(cursor.fetchone()[0]) == 5
+        assert int(cursor.fetchone()[0]) == 9
 
 
 def test_campaign_transport_failure_is_recovery_required_and_not_retried(

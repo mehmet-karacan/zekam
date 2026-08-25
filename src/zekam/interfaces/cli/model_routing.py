@@ -24,6 +24,7 @@ from zekam.application.layered_model_routing import (
     preview_route,
 )
 from zekam.application.model_capability_benchmark import load_capability_registry
+from zekam.application.model_family_policy import load_model_family_policy
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.project_routing_targets import load_project_routing_targets
@@ -547,6 +548,7 @@ def _preview(
     technology: str | None,
     excluded_models: tuple[str, ...],
     excluded_executions: tuple[str, ...],
+    risk: str,
 ) -> tuple[PreparedProjectRoutingContext, RoutePreview, LayeredRouteRequest, UUID, UUID]:
     prepared = _prepared(context, project)
     repository = ModelRoutingRepository(context.connection, context.realm_id)
@@ -570,6 +572,8 @@ def _preview(
         raise PolicyViolation("Role independence exclusions kanonik onceki route'tan turetilir")
     derived_models: set[str] = set()
     derived_executions: set[str] = set()
+    derived_families: set[str] = set()
+    family_policy = load_model_family_policy()
     for prior_role in policy.independent_from_roles:
         prior = repository.latest_decision(
             prior_role,
@@ -579,6 +583,7 @@ def _preview(
             ),
             workload=scoped_workload,
             technology=scoped_technology,
+            risk=risk,
         )
         if prior is None or prior.decision.primary_model_id is None:
             continue
@@ -591,6 +596,11 @@ def _preview(
             if item is not None
         }
         derived_models.update(selected_models)
+        for model_id in selected_models:
+            family = family_policy.family_for(model_id)
+            if family is None:
+                raise PolicyViolation("Prior route model family policy binding eksik")
+            derived_families.add(family)
         derived_executions.update(
             item.tested_execution_identity
             for item in repository.qualifications_for(prior.decision.request)
@@ -647,6 +657,9 @@ def _preview(
         execution_target_digest=execution_target[1].snapshot_digest,
         capability_requirements=capability_requirements,
         capability_binding=capability_binding,
+        risk=risk,
+        family_policy_digest=family_policy.policy_digest,
+        excluded_model_families=tuple(sorted(derived_families)),
         excluded_model_ids=tuple(sorted(derived_models)),
         excluded_execution_identities=tuple(sorted(derived_executions)),
     )
@@ -671,6 +684,7 @@ def _route_options(
     technology: str | None,
     realm: str,
     home: str | None,
+    risk: str,
 ) -> tuple[PreparedProjectRoutingContext, RoutePreview, LayeredRouteRequest, UUID, UUID]:
     with RealmSession(home, realm) as context:
         return _preview(
@@ -683,6 +697,7 @@ def _route_options(
             technology=technology,
             excluded_models=(),
             excluded_executions=(),
+            risk=risk,
         )
 
 
@@ -695,6 +710,7 @@ def preview_command(
     technology: Annotated[str | None, typer.Option("--technology")] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    risk: Annotated[str, typer.Option("--risk")] = "medium",
 ) -> None:
     """Kanit kesisimini salt okunur gosterir; eksikte pending doner."""
 
@@ -707,6 +723,7 @@ def preview_command(
             technology,
             realm,
             home,
+            risk,
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -728,6 +745,7 @@ def decide_command(
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    risk: Annotated[str, typer.Option("--risk")] = "medium",
 ) -> None:
     """Karari preview eder veya exact DB authority ile append-only kaydeder."""
 
@@ -743,6 +761,7 @@ def decide_command(
                 technology=technology,
                 excluded_models=(),
                 excluded_executions=(),
+                risk=risk,
             )
             document: dict[str, Any] = {"route": preview.sanitized(), "applied": False}
             if apply:
@@ -815,6 +834,9 @@ def decide_command(
                             "routing_policy_digest": request.routing_policy_digest,
                             "policy_digest": request.policy_digest,
                             "execution_target_digest": request.execution_target_digest,
+                            "risk": request.risk,
+                            "family_policy_digest": request.family_policy_digest,
+                            "excluded_model_families": request.excluded_model_families,
                             "excluded_model_ids": request.excluded_model_ids,
                             "excluded_execution_identities": (
                                 request.excluded_execution_identities
@@ -847,6 +869,7 @@ def status_command(
     project: Annotated[str, typer.Option("--project")],
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    risk: Annotated[str, typer.Option("--risk")] = "medium",
 ) -> None:
     """Project context ve rol karar durumlarini salt okunur raporlar."""
 
@@ -858,11 +881,13 @@ def status_command(
             with context.connection.cursor() as cursor:
                 cursor.execute(
                     "select distinct on (role, workload, technology) id, role, workload,"
-                    " technology, status, primary_model_id, fallback_model_id, evidence_digest"
+                    " technology, risk, status, primary_model_id, fallback_model_id,"
+                    " evidence_digest"
                     " from models.model_route_decision where realm_id=%s"
                     " and target_layer='project' and project_id=%s"
+                    " and risk=%s"
                     " order by role, workload, technology, decided_at desc, id desc",
-                    (context.realm_id, prepared.context.project_id),
+                    (context.realm_id, prepared.context.project_id, risk),
                 )
                 decision_rows = cursor.fetchall()
             decisions = [
@@ -871,15 +896,17 @@ def status_command(
                     "role": str(row[1]),
                     "workload": str(row[2]),
                     "technology": str(row[3]),
-                    "status": str(row[4]),
-                    "primary_model_id": None if row[5] is None else str(row[5]),
-                    "fallback_model_id": None if row[6] is None else str(row[6]),
-                    "evidence_digest": str(row[7]),
+                    "risk": str(row[4]),
+                    "status": str(row[5]),
+                    "primary_model_id": None if row[6] is None else str(row[6]),
+                    "fallback_model_id": None if row[7] is None else str(row[7]),
+                    "evidence_digest": str(row[8]),
                 }
                 for row in decision_rows
             ]
             document = {
                 "project": prepared.project_slug,
+                "risk": risk,
                 "current_context_digest": prepared.context.context_digest,
                 "persisted_context_digest": None if latest is None else latest[1].context_digest,
                 "context_current": latest is not None
@@ -901,6 +928,7 @@ def resolve_command(
     technology: Annotated[str | None, typer.Option("--technology")] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    risk: Annotated[str, typer.Option("--risk")] = "medium",
 ) -> None:
     """Latest persisted project route kararini authority vermeden cozer."""
 
@@ -926,6 +954,7 @@ def resolve_command(
                 ),
                 workload=scoped_workload,
                 technology=scoped_technology,
+                risk=risk,
             )
             if stored is None:
                 raise PolicyViolation("Persisted project route karari yok; pending")
@@ -953,6 +982,7 @@ def resolve_command(
                 technology=scoped_technology,
                 excluded_models=(),
                 excluded_executions=(),
+                risk=risk,
             )
             if (
                 stored.execution_target_id != current_execution_target_id

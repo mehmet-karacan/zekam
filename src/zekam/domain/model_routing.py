@@ -56,6 +56,42 @@ class RouteCapabilityDimension(StrEnum):
     LONG_SESSION = "long-session"
 
 
+RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")
+
+
+@dataclass(frozen=True, slots=True)
+class ModelFamilyPolicy:
+    model_families: tuple[tuple[str, str], ...]
+    same_family_allowed_risks: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        model_ids = tuple(model_id for model_id, _ in self.model_families)
+        if not model_ids or len(model_ids) != len(set(model_ids)):
+            raise ValidationFailed("Model family policy model seti bos veya tekrarli")
+        for model_id, family in self.model_families:
+            _nonblank(model_id, "Model family model id")
+            _nonblank(family, "Model family")
+            if family != family.casefold():
+                raise ValidationFailed("Model family normalize olmali")
+        if len(self.same_family_allowed_risks) != len(set(self.same_family_allowed_risks)) or any(
+            risk not in RISK_LEVELS for risk in self.same_family_allowed_risks
+        ):
+            raise ValidationFailed("Same-family risk policy gecersiz")
+
+    @property
+    def policy_digest(self) -> str:
+        return digest(
+            {
+                "schema": "zekam-model-family-policy/v1",
+                "model_families": [list(item) for item in self.model_families],
+                "same_family_allowed_risks": list(self.same_family_allowed_risks),
+            }
+        )
+
+    def family_for(self, model_id: str) -> str | None:
+        return dict(self.model_families).get(model_id)
+
+
 class StaleReason(StrEnum):
     SOURCE_REVISION = "source-revision"
     TREE = "tree"
@@ -530,6 +566,9 @@ class LayeredRouteRequest:
         default_factory=RouteCapabilityRequirements
     )
     capability_binding: RouteCapabilityBinding | None = None
+    risk: str = "medium"
+    family_policy_digest: str | None = None
+    excluded_model_families: tuple[str, ...] = ()
     excluded_model_ids: tuple[str, ...] = ()
     excluded_execution_identities: tuple[str, ...] = ()
 
@@ -561,6 +600,16 @@ class LayeredRouteRequest:
             self.capability_binding is not None
         ):
             raise ValidationFailed("Route capability gereksinimi current binding ister")
+        if self.risk not in RISK_LEVELS:
+            raise ValidationFailed("Route risk gecersiz")
+        if self.family_policy_digest is not None:
+            parse_digest(self.family_policy_digest)
+        if len(self.excluded_model_families) != len(set(self.excluded_model_families)) or any(
+            not value or value != value.casefold() for value in self.excluded_model_families
+        ):
+            raise ValidationFailed("Route excluded model family seti gecersiz")
+        if self.excluded_model_families and self.family_policy_digest is None:
+            raise ValidationFailed("Route family exclusion policy digest ister")
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,6 +679,7 @@ def decide_layered_model(
     policy: RoleRoutingPolicy,
     qualifications: tuple[RoutingQualification, ...],
     capability_evidence: tuple[RouteCapabilityEvidence, ...] = (),
+    family_policy: ModelFamilyPolicy | None = None,
     *,
     now: dt.datetime | None = None,
 ) -> LayeredModelDecision:
@@ -641,6 +691,10 @@ def decide_layered_model(
         raise PolicyViolation("Routing request/policy scope mismatch")
     if policy.policy_digest != request.routing_policy_digest:
         raise PolicyViolation("Routing role policy drift")
+    if (family_policy is None) != (request.family_policy_digest is None):
+        raise PolicyViolation("Routing family policy binding eksik")
+    if family_policy is not None and family_policy.policy_digest != request.family_policy_digest:
+        raise PolicyViolation("Routing family policy drift")
     independence_missing = bool(policy.independent_from_roles) and (
         not request.excluded_model_ids or not request.excluded_execution_identities
     )
@@ -659,6 +713,20 @@ def decide_layered_model(
         reasons: list[str] = []
         if independence_missing:
             reasons.append("independence-evidence-missing")
+        model_family = None if family_policy is None else family_policy.family_for(model_id)
+        if family_policy is not None and model_family is None:
+            reasons.append("model-family-missing")
+        if (
+            request.role is AgentRole.VERIFIER
+            and request.risk in {"high", "critical"}
+            and (
+                family_policy is None or request.risk not in family_policy.same_family_allowed_risks
+            )
+        ):
+            if not request.excluded_model_families:
+                reasons.append("family-independence-evidence-missing")
+            elif model_family in request.excluded_model_families:
+                reasons.append("same-family-verifier")
         selected: list[RoutingQualification] = []
         for layer in policy.required_layers:
             layer_rows = [item for item in rows if item.layer is layer]
@@ -814,6 +882,9 @@ def decide_layered_model(
                     if request.capability_binding is None
                     else request.capability_binding.as_dict()
                 ),
+                "risk": request.risk,
+                "family_policy_digest": request.family_policy_digest,
+                "excluded_model_families": list(request.excluded_model_families),
                 "excluded_model_ids": list(request.excluded_model_ids),
                 "excluded_execution_identities": list(request.excluded_execution_identities),
             },

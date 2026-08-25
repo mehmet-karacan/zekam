@@ -17,6 +17,7 @@ from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
     LayeredRouteRequest,
+    ModelFamilyPolicy,
     ProjectRoutingContext,
     RoleRoutingPolicy,
     RouteCapabilityBinding,
@@ -187,6 +188,10 @@ def test_context_policy_decision_roundtrip_is_append_only(
         expires_at=NOW + dt.timedelta(days=7),
     )
     execution_target_id, _ = repository.store_execution_target(execution_target)
+    family_policy = ModelFamilyPolicy(
+        model_families=(("model-a", "qwen"),),
+        same_family_allowed_risks=("low", "medium"),
+    )
     request = LayeredRouteRequest(
         role=AgentRole.IMPLEMENTER,
         target_layer=RoutingLayer.PROJECT,
@@ -213,8 +218,11 @@ def test_context_policy_decision_roundtrip_is_append_only(
             execution_profile_digest=digest("capability-profile"),
             evaluator_provenance_digest=digest("capability-verifier"),
         ),
+        risk="high",
+        family_policy_digest=family_policy.policy_digest,
+        excluded_model_families=("qwen",),
     )
-    decision = decide_layered_model(request, policy, (), now=NOW)
+    decision = decide_layered_model(request, policy, (), family_policy=family_policy, now=NOW)
     decision_id, decision_inserted = repository.record_decision(
         decision,
         role_policy_id=policy_id,

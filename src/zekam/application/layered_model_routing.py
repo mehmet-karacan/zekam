@@ -9,6 +9,7 @@ from uuid import UUID
 
 from zekam.application.capability_profile import profile_from_mapping
 from zekam.application.model_benchmark_service import load_fixture_registry
+from zekam.application.model_family_policy import load_model_family_policy
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.project_routing_context import (
     ProjectRoutingEvidence,
@@ -205,8 +206,14 @@ def preview_route(
         _, policy = stored_policy
     qualifications = repository.qualifications_for(request)
     capability_evidence = repository.capability_evidence_for(request)
+    family_policy = None if request.family_policy_digest is None else load_model_family_policy()
     decision = decide_layered_model(
-        request, policy, qualifications, capability_evidence, now=moment
+        request,
+        policy,
+        qualifications,
+        capability_evidence,
+        family_policy,
+        now=moment,
     )
     stale: tuple[StaleReason, ...] = ()
     if request.project_id is not None and current_context is not None:
