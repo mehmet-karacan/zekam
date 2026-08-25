@@ -3,6 +3,7 @@
 import asyncio
 import ipaddress
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -103,6 +104,12 @@ def create_app(
             *trusted_lan_hosts,
         ],
     )
+    from zekam.interfaces.api.app_server import install_app_server_routes
+
+    install_app_server_routes(
+        app,
+        store_factory=_app_server_store_factory(context, realm_id),
+    )
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Any:
@@ -198,3 +205,20 @@ def _runtime_reader(
     )
 
     return PostgresObservatoryProjectionReader(context.settings.database, realm_id)
+
+
+def _app_server_store_factory(context: ApplicationContext, realm_id: UUID | None) -> Any:
+    if realm_id is None or context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
+        return None
+
+    @contextmanager
+    def factory() -> Any:
+        from zekam.infrastructure.postgres.app_server_repository import (
+            PostgresAppNotificationRepository,
+        )
+        from zekam.infrastructure.postgres.connection import session
+
+        with session(context.settings.database, realm_id=realm_id) as connection:
+            yield PostgresAppNotificationRepository(connection, realm_id)
+
+    return factory

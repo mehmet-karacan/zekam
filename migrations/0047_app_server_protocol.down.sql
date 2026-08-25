@@ -1,0 +1,14 @@
+drop trigger if exists app_server_client_lifecycle_publish on client.lifecycle_event;
+drop trigger if exists app_server_execution_run_publish on runtime.execution_run;
+drop trigger if exists app_server_work_item_publish on work.work_item;
+drop trigger if exists notification_event_guard on app_server.notification_event;
+drop trigger if exists notification_event_update_guard on app_server.notification_event;
+drop trigger if exists notification_event_delete_guard on app_server.notification_event;
+drop function if exists app_server.enforce_notification_event();
+drop function if exists app_server.publish_client_lifecycle();
+drop function if exists app_server.publish_execution_run();
+drop function if exists app_server.publish_work_item();
+drop function if exists app_server.publish_notification(uuid,uuid,text,jsonb,timestamptz);
+drop table if exists app_server.notification_event;
+drop table if exists app_server.notification_stream;
+drop schema if exists app_server;

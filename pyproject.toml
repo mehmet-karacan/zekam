@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML>=6.0",
+    "jsonschema>=4.23",
     # Kalite kapilari: bagimlilik audit ve olu kod taramasi.
     "pip-audit>=2.7",
     "vulture>=2.11",
@@ -58,6 +59,7 @@ packages = ["src/zekam"]
 [tool.hatch.build.targets.wheel.force-include]
 "config" = "zekam/_config"
 "migrations" = "zekam/migrations"
+"schemas" = "zekam/schemas"
 
 [tool.ruff]
 line-length = 100

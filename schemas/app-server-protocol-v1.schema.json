@@ -1,0 +1,818 @@
+{
+  "$defs": {
+    "appNotification": {
+      "additionalProperties": false,
+      "properties": {
+        "event_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "event_type": {
+          "pattern": "^[a-z][a-z0-9_.\\-/]{0,127}$",
+          "type": "string"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "previous_digest": {
+          "oneOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema": {
+          "const": "zekam-app-notification/v1"
+        },
+        "sequence": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "event_id",
+        "sequence",
+        "previous_digest",
+        "event_type",
+        "payload",
+        "occurred_at",
+        "grants_authority",
+        "event_digest"
+      ],
+      "type": "object"
+    },
+    "errorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/protocolError"
+        },
+        "id": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "type": "object"
+    },
+    "forkPrepareRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "experimental/session-fork.prepare"
+            },
+            "params": {
+              "additionalProperties": false,
+              "maxProperties": 0,
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "forkPrepareResult": {
+      "additionalProperties": false,
+      "properties": {
+        "carries_authority": {
+          "const": false
+        },
+        "carries_lease": {
+          "const": false
+        },
+        "carries_receipt": {
+          "const": false
+        },
+        "disposition": {
+          "const": "prepare-only"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "read_only": {
+          "const": true
+        },
+        "schema": {
+          "const": "zekam-session-fork-prepare/v1"
+        }
+      },
+      "required": [
+        "schema",
+        "disposition",
+        "carries_authority",
+        "carries_lease",
+        "carries_receipt",
+        "read_only",
+        "grants_authority"
+      ],
+      "type": "object"
+    },
+    "futureNotification": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/notificationFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "not": {
+                "enum": [
+                  "initialized",
+                  "server/notification"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "identifier": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "initializeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.\\-/]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "client_id": {
+          "pattern": "^[A-Za-z0-9_.-]{1,80}$",
+          "type": "string"
+        },
+        "client_version": {
+          "pattern": "^[A-Za-z0-9_.-]{1,80}$",
+          "type": "string"
+        },
+        "experimental_methods": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.\\-/]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "protocol_version": {
+          "const": "1.0"
+        },
+        "replay_cursor": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schema_bundle_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_id",
+        "client_version",
+        "protocol_version",
+        "schema_bundle_digest",
+        "capabilities",
+        "experimental_methods",
+        "replay_cursor"
+      ],
+      "type": "object"
+    },
+    "initializeRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "initialize"
+            },
+            "params": {
+              "$ref": "#/$defs/initializeParams"
+            }
+          }
+        }
+      ]
+    },
+    "initializeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "experimental_methods": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "ingress_limit": {
+          "type": "integer"
+        },
+        "max_frame_bytes": {
+          "type": "integer"
+        },
+        "outbound_limit": {
+          "type": "integer"
+        },
+        "protocol_version": {
+          "const": "1.0"
+        },
+        "read_only": {
+          "const": true
+        },
+        "replay_limit": {
+          "type": "integer"
+        },
+        "schema": {
+          "const": "zekam-app-server-protocol/v1"
+        },
+        "schema_bundle_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "connection_id",
+        "protocol_version",
+        "schema_bundle_digest",
+        "capabilities",
+        "experimental_methods",
+        "ingress_limit",
+        "outbound_limit",
+        "replay_limit",
+        "max_frame_bytes",
+        "read_only",
+        "grants_authority"
+      ],
+      "type": "object"
+    },
+    "initializedNotification": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/notificationFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "initialized"
+            },
+            "params": {
+              "additionalProperties": false,
+              "maxProperties": 0,
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "notification": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/initializedNotification"
+        },
+        {
+          "$ref": "#/$defs/serverNotification"
+        },
+        {
+          "$ref": "#/$defs/futureNotification"
+        }
+      ]
+    },
+    "notificationFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "pattern": "^[a-z][a-z0-9_.\\-/]{0,127}$",
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "projectReadRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "project/read"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "project_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id"
+              ],
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "protocolError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "data": {
+          "additionalProperties": true,
+          "properties": {
+            "category": {
+              "enum": [
+                "parse-error",
+                "invalid-request",
+                "method-not-found",
+                "not-initialized",
+                "already-initialized",
+                "schema-mismatch",
+                "overloaded",
+                "policy-denied",
+                "experimental-not-enabled",
+                "cursor-expired"
+              ]
+            },
+            "grants_authority": {
+              "const": false
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "category",
+            "retryable",
+            "grants_authority"
+          ],
+          "type": "object"
+        },
+        "message": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "type": "object"
+    },
+    "readResult": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_reread": {
+          "const": true
+        },
+        "found": {
+          "type": "boolean"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "kind": {
+          "enum": [
+            "project",
+            "work",
+            "session"
+          ]
+        },
+        "read_only": {
+          "const": true
+        },
+        "reference": {
+          "type": "string"
+        },
+        "schema": {
+          "const": "zekam-app-read-projection/v1"
+        },
+        "value": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "kind",
+        "reference",
+        "found",
+        "value",
+        "canonical_reread",
+        "read_only",
+        "grants_authority"
+      ],
+      "type": "object"
+    },
+    "replayRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "notifications/replay"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "after_sequence": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "limit": {
+                  "maximum": 1000,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "after_sequence",
+                "limit"
+              ],
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "replayResult": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_cursor": {
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/appNotification"
+          },
+          "type": "array"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "head_cursor": {
+          "type": "integer"
+        },
+        "next_cursor": {
+          "type": "integer"
+        },
+        "read_only": {
+          "const": true
+        },
+        "schema": {
+          "const": "zekam-notification-replay/v1"
+        }
+      },
+      "required": [
+        "schema",
+        "events",
+        "next_cursor",
+        "connection_cursor",
+        "head_cursor",
+        "read_only",
+        "grants_authority"
+      ],
+      "type": "object"
+    },
+    "request": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/initializeRequest"
+        },
+        {
+          "$ref": "#/$defs/statusRequest"
+        },
+        {
+          "$ref": "#/$defs/replayRequest"
+        },
+        {
+          "$ref": "#/$defs/projectReadRequest"
+        },
+        {
+          "$ref": "#/$defs/workReadRequest"
+        },
+        {
+          "$ref": "#/$defs/sessionReadRequest"
+        },
+        {
+          "$ref": "#/$defs/forkPrepareRequest"
+        }
+      ]
+    },
+    "requestFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "pattern": "^[a-z][a-z0-9_.\\-/]{0,127}$",
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "response": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/resultResponse"
+        },
+        {
+          "$ref": "#/$defs/errorResponse"
+        }
+      ]
+    },
+    "resultResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/initializeResult"
+            },
+            {
+              "$ref": "#/$defs/statusResult"
+            },
+            {
+              "$ref": "#/$defs/replayResult"
+            },
+            {
+              "$ref": "#/$defs/readResult"
+            },
+            {
+              "$ref": "#/$defs/forkPrepareResult"
+            }
+          ]
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "type": "object"
+    },
+    "serverNotification": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/notificationFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "server/notification"
+            },
+            "params": {
+              "$ref": "#/$defs/appNotification"
+            }
+          }
+        }
+      ]
+    },
+    "sessionReadRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "session/read"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "session_id": {
+                  "maxLength": 160,
+                  "minLength": 1,
+                  "pattern": ".*\\S.*",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session_id",
+                "limit"
+              ],
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "statusRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "server/status"
+            },
+            "params": {
+              "additionalProperties": false,
+              "maxProperties": 0,
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "statusResult": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "client_id": {
+          "type": "string"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "grants_authority": {
+          "const": false
+        },
+        "notification_head": {
+          "type": "integer"
+        },
+        "phase": {
+          "const": "ready"
+        },
+        "read_only": {
+          "const": true
+        },
+        "replay_cursor": {
+          "type": "integer"
+        },
+        "schema": {
+          "const": "zekam-app-server-status/v1"
+        }
+      },
+      "required": [
+        "schema",
+        "connection_id",
+        "phase",
+        "client_id",
+        "capabilities",
+        "replay_cursor",
+        "notification_head",
+        "read_only",
+        "grants_authority"
+      ],
+      "type": "object"
+    },
+    "workReadRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestFrame"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "work/read"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "work_item_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "work_item_id"
+              ],
+              "type": "object"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$id": "https://zekam.local/schemas/app-server-protocol-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/notification"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ],
+  "properties": {
+    "error": {},
+    "id": {},
+    "jsonrpc": {},
+    "method": {},
+    "params": {},
+    "result": {}
+  },
+  "title": "Zekam App Server Protocol v1",
+  "type": "object"
+}
