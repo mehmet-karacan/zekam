@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
+from uuid import UUID
 
 from zekam.application.transcript_corpus_import import ContentAddressedStore
 from zekam.domain.canonical import digest, digest_of_bytes
@@ -48,6 +50,24 @@ def build_markdown_projection(
         for item in ordered
     )
     return MarkdownProjectionBundle(project_id, snapshot, generation, ordered, files)
+
+
+class MarkdownProjectionRecordSource(Protocol):
+    def load_project_records(
+        self, project_id: UUID, *, limit: int = 500
+    ) -> tuple[ProjectionRecord, ...]: ...
+
+
+def rebuild_markdown_projection_from_database(
+    source: MarkdownProjectionRecordSource,
+    project_id: UUID,
+    *,
+    limit: int = 500,
+) -> MarkdownProjectionBundle:
+    """Rebuild a read-only projection from one canonical DB snapshot."""
+
+    records = source.load_project_records(project_id, limit=limit)
+    return build_markdown_projection(str(project_id), records)
 
 
 @dataclass(frozen=True, slots=True)

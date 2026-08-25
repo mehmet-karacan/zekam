@@ -68,6 +68,35 @@ class ProjectionSourceRef:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectionRelationRef:
+    relation_id: str
+    direction: str
+    kind: str
+    other_entity_id: str
+    relation_digest: str
+
+    def __post_init__(self) -> None:
+        for value, field in (
+            (self.relation_id, "relation id"),
+            (self.kind, "relation kind"),
+            (self.other_entity_id, "relation other entity"),
+        ):
+            _literal(value, field)
+        if self.direction not in {"outgoing", "incoming"}:
+            raise ValidationFailed("projection relation direction gecersiz")
+        parse_digest(self.relation_digest)
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "relation_id": self.relation_id,
+            "direction": self.direction,
+            "kind": self.kind,
+            "other_entity_id": self.other_entity_id,
+            "relation_digest": self.relation_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectionRecord:
     entity_type: str
     entity_id: str
@@ -76,6 +105,7 @@ class ProjectionRecord:
     summary: str
     source_refs: tuple[ProjectionSourceRef, ...]
     related_entity_ids: tuple[str, ...] = ()
+    relation_refs: tuple[ProjectionRelationRef, ...] = ()
 
     def __post_init__(self) -> None:
         for value, field in (
@@ -98,6 +128,20 @@ class ProjectionRecord:
             raise ValidationFailed("projection iliskileri tekil ve sirali olmali")
         for value in self.related_entity_ids:
             _literal(value, "related entity id")
+        for relation in self.relation_refs:
+            relation.__post_init__()
+        expected_relations = tuple(
+            sorted(
+                set(self.relation_refs),
+                key=lambda item: tuple(item.as_dict().values()),
+            )
+        )
+        if expected_relations != self.relation_refs:
+            raise ValidationFailed("projection relation refs tekil ve sirali olmali")
+        if self.relation_refs:
+            expected_related = tuple(sorted({item.other_entity_id for item in self.relation_refs}))
+            if self.related_entity_ids != expected_related:
+                raise ValidationFailed("projection relation refs related entity setiyle uyusmuyor")
 
     @property
     def record_digest(self) -> str:
@@ -112,6 +156,7 @@ class ProjectionRecord:
             "summary": self.summary,
             "source_refs": [item.as_dict() for item in self.source_refs],
             "related_entity_ids": list(self.related_entity_ids),
+            "relation_refs": [item.as_dict() for item in self.relation_refs],
         }
 
 
@@ -123,7 +168,14 @@ def render_projection_record(
         f"- `{r.source_type}:{r.source_id}@{r.source_revision}` - `{r.record_digest}`"
         for r in record.source_refs
     )
-    related = "\n".join(f"- [[{value}]]" for value in record.related_entity_ids) or "- Yok"
+    if record.relation_refs:
+        related = "\n".join(
+            f"- `{item.direction}` `{item.kind}` [[{item.other_entity_id}]] "
+            f"- `{item.relation_id}` `{item.relation_digest}`"
+            for item in record.relation_refs
+        )
+    else:
+        related = "\n".join(f"- [[{value}]]" for value in record.related_entity_ids) or "- Yok"
     text = f"""---
 title: {_yaml(record.title)}
 tags:
