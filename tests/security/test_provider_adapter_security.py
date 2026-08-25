@@ -146,6 +146,10 @@ def _gateway_evidence(
     created_at = dt.datetime.now(dt.UTC)
     missing = (
         "assignment_id",
+        "catalog_digest",
+        "catalog_provider_id",
+        "catalog_snapshot_digest",
+        "catalog_snapshot_id",
         "checkpoint_digest",
         "context_fragment_set_digest",
         "context_manifest_digest",

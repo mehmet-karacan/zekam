@@ -276,6 +276,10 @@ def test_correlation_chain_and_orphan_detector_use_canonical_rows(
         cursor.execute("set role zekam_app")
         missing = [
             "authorization_scope_digest",
+            "catalog_digest",
+            "catalog_provider_id",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
             "checkpoint_digest",
             "context_fragment_set_digest",
             "context_packet_digest",

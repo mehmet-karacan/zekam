@@ -15,6 +15,7 @@ from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.model_catalog import ModelCatalogSnapshot, observe_availability
 
 
 class RoutingLayer(StrEnum):
@@ -645,11 +646,28 @@ class LayeredModelDecision:
     fallback_model_id: str | None
     candidates: tuple[LayerCandidateEvidence, ...]
     evidence_digest: str
+    catalog_provider_id: str | None = None
+    catalog_digest: str | None = None
+    catalog_snapshot_digest: str | None = None
+    catalog_snapshot_id: UUID | None = None
     authority_granted: bool = False
 
     def __post_init__(self) -> None:
         parse_digest(self.policy_digest)
         parse_digest(self.evidence_digest)
+        catalog_values = (
+            self.catalog_provider_id,
+            self.catalog_digest,
+            self.catalog_snapshot_digest,
+            self.catalog_snapshot_id,
+        )
+        if any(value is not None for value in catalog_values) != all(
+            value is not None for value in catalog_values
+        ):
+            raise ValidationFailed("Route catalog binding ya tam ya bos olmali")
+        if self.catalog_digest is not None:
+            parse_digest(self.catalog_digest)
+            parse_digest(self.catalog_snapshot_digest or "")
         if self.authority_granted:
             raise PolicyViolation("Routing decision authority uretemez")
         if self.status is RouteStatus.PENDING and (
@@ -680,6 +698,8 @@ def decide_layered_model(
     qualifications: tuple[RoutingQualification, ...],
     capability_evidence: tuple[RouteCapabilityEvidence, ...] = (),
     family_policy: ModelFamilyPolicy | None = None,
+    catalog_snapshot: ModelCatalogSnapshot | None = None,
+    require_catalog: bool = False,
     *,
     now: dt.datetime | None = None,
 ) -> LayeredModelDecision:
@@ -711,6 +731,10 @@ def decide_layered_model(
     for model_id in sorted(by_model):
         rows = by_model[model_id]
         reasons: list[str] = []
+        if require_catalog or catalog_snapshot is not None:
+            availability = observe_availability(catalog_snapshot, model_id, now=moment)
+            if not availability.available:
+                reasons.append(availability.reason or "availability-missing")
         if independence_missing:
             reasons.append("independence-evidence-missing")
         model_family = None if family_policy is None else family_policy.family_for(model_id)
@@ -887,6 +911,15 @@ def decide_layered_model(
                 "excluded_model_families": list(request.excluded_model_families),
                 "excluded_model_ids": list(request.excluded_model_ids),
                 "excluded_execution_identities": list(request.excluded_execution_identities),
+                "catalog_provider_id": (
+                    None if catalog_snapshot is None else catalog_snapshot.provider_id
+                ),
+                "catalog_digest": (
+                    None if catalog_snapshot is None else catalog_snapshot.catalog_digest
+                ),
+                "catalog_snapshot_digest": (
+                    None if catalog_snapshot is None else catalog_snapshot.snapshot_digest
+                ),
             },
             "policy_digest": policy.policy_digest,
             "primary": None if primary is None else primary.model_id,
@@ -911,4 +944,10 @@ def decide_layered_model(
         fallback_model_id=None if fallback is None else fallback.model_id,
         candidates=finalized,
         evidence_digest=evidence,
+        catalog_provider_id=(None if catalog_snapshot is None else catalog_snapshot.provider_id),
+        catalog_digest=(None if catalog_snapshot is None else catalog_snapshot.catalog_digest),
+        catalog_snapshot_digest=(
+            None if catalog_snapshot is None else catalog_snapshot.snapshot_digest
+        ),
+        catalog_snapshot_id=(None if catalog_snapshot is None else catalog_snapshot.id),
     )

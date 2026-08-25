@@ -44,6 +44,10 @@ class ModelGatewayBindings:
     run_id: UUID | None = None
     role: str | None = None
     route_decision_digest: str | None = None
+    catalog_provider_id: str | None = None
+    catalog_digest: str | None = None
+    catalog_snapshot_digest: str | None = None
+    catalog_snapshot_id: UUID | None = None
     route_expires_at: dt.datetime | None = None
     context_manifest_digest: str | None = None
     context_packet_digest: str | None = None
@@ -112,6 +116,10 @@ class ModelGateway:
             "assignment_id": job.assignment_id,
             "role": self.bindings.role,
             "route_decision_digest": self.bindings.route_decision_digest,
+            "catalog_provider_id": self.bindings.catalog_provider_id,
+            "catalog_digest": self.bindings.catalog_digest,
+            "catalog_snapshot_digest": self.bindings.catalog_snapshot_digest,
+            "catalog_snapshot_id": self.bindings.catalog_snapshot_id,
             "route_expires_at": self.bindings.route_expires_at,
             "context_manifest_digest": self.bindings.context_manifest_digest,
             "context_fragment_set_digest": (
@@ -252,6 +260,7 @@ class ModelGateway:
             self.repository.assert_current_envelope(manifest)
             self.repository.assert_current_context_fragment_set(manifest)
             self.repository.assert_current_tool_set(manifest)
+            self.repository.assert_current_catalog(manifest)
         ledger_attempt_id = self.repository.record_attempt(
             manifest_id=manifest.id,
             effect_claim_id=claim_id,

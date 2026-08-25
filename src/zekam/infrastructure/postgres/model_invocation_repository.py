@@ -30,6 +30,7 @@ class ModelInvocationRepository:
                 " (id,realm_id,project_id,work_item_id,plan_id,step_id,execution_envelope_id,"
                 " execution_envelope_digest,run_id,job_id,attempt_id,"
                 " assignment_id,role,risk,route_decision_digest,model_id,provider_ref,"
+                " catalog_provider_id,catalog_digest,catalog_snapshot_digest,catalog_snapshot_id,"
                 " context_manifest_digest,context_fragment_set_digest,"
                 " model_visible_payload_digest,context_packet_digest,checkpoint_digest,"
                 " source_revision,"
@@ -42,7 +43,7 @@ class ModelInvocationRepository:
                 " tool_visible_payload_digest,tool_visible_payload_mode,"
                 " turn_execution_snapshot_digest,config_effective_digest,hook_set_digest,"
                 " created_at,manifest_digest)"
-                " values (" + ",".join(["%s"] * 47) + ")"
+                " values (" + ",".join(["%s"] * 51) + ")"
                 " on conflict do nothing returning id",
                 (
                     item.id,
@@ -62,6 +63,10 @@ class ModelInvocationRepository:
                     item.route_decision_digest,
                     item.model_id,
                     item.provider_ref,
+                    item.catalog_provider_id,
+                    item.catalog_digest,
+                    item.catalog_snapshot_digest,
+                    item.catalog_snapshot_id,
                     item.context_manifest_digest,
                     item.context_fragment_set_digest,
                     item.model_visible_payload_digest,
@@ -113,6 +118,8 @@ class ModelInvocationRepository:
                 "e.turn_execution_snapshot_digest,t.execution_environment_snapshot_digest,"
                 "env.permission_profile_digest,tool_set.tool_set_digest,"
                 "t.config_effective_digest,t.hook_set_digest"
+                ",d.catalog_provider_id,d.catalog_digest,d.catalog_snapshot_digest,"
+                "d.catalog_snapshot_id"
                 " from runtime.execution_envelope e"
                 " left join runtime.turn_execution_snapshot t on t.realm_id=e.realm_id"
                 " and t.id=e.turn_execution_snapshot_id"
@@ -124,6 +131,8 @@ class ModelInvocationRepository:
                 " join runtime.job j on j.realm_id=e.realm_id and j.id=e.job_id"
                 " join agents.assignment a on a.realm_id=e.realm_id and a.id=e.assignment_id"
                 " join runtime.lease l on l.realm_id=e.realm_id and l.id=e.lease_id"
+                " left join models.model_route_decision d on d.realm_id=e.realm_id"
+                " and d.evidence_digest=e.route_decision_digest"
                 " where e.realm_id=%s and e.id=%s and r.state='active'"
                 " and j.state='running' and a.status='active'"
                 " and l.expires_at>statement_timestamp()"
@@ -172,8 +181,39 @@ class ModelInvocationRepository:
             "tool_set_digest",
             "config_effective_digest",
             "hook_set_digest",
+            "catalog_provider_id",
+            "catalog_digest",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
         )
         return dict(zip(names, row, strict=True))
+
+    def assert_current_catalog(self, item: ModelRequestManifest) -> None:
+        if item.catalog_snapshot_id is None:
+            raise PolicyViolation("Gateway enforce model catalog snapshot ister")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select 1 from models.catalog_snapshot s"
+                " where s.realm_id=%s and s.id=%s and s.provider_id=%s"
+                " and s.catalog_digest=%s and s.snapshot_digest=%s"
+                " and s.fetch_status<>'failed' and s.expires_at>statement_timestamp()"
+                " and s.id=(select current_snapshot.id from models.catalog_snapshot"
+                " current_snapshot where current_snapshot.realm_id=s.realm_id"
+                " and current_snapshot.provider_id=s.provider_id"
+                " order by current_snapshot.fetched_at desc,current_snapshot.id desc limit 1)"
+                " and exists(select 1 from jsonb_array_elements(s.entries) entry"
+                " where entry->>'model_id'=%s)",
+                (
+                    self.realm_id,
+                    item.catalog_snapshot_id,
+                    item.catalog_provider_id,
+                    item.catalog_digest,
+                    item.catalog_snapshot_digest,
+                    item.model_id,
+                ),
+            )
+            if cursor.fetchone() is None:
+                raise PolicyViolation("Gateway catalog stale/missing/model unavailable")
 
     def assert_current_envelope(self, item: ModelRequestManifest) -> None:
         if item.execution_envelope_id is None or item.execution_envelope_digest is None:

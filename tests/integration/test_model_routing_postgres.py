@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,6 +14,13 @@ from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.model_benchmark import BenchmarkPlan, BenchmarkSuite, SuiteKind
+from zekam.domain.model_catalog import (
+    CatalogFetchStatus,
+    CatalogSource,
+    CatalogVisibility,
+    ModelCatalogEntry,
+    ModelCatalogSnapshot,
+)
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
@@ -29,6 +37,7 @@ from zekam.domain.model_routing import (
 from zekam.infrastructure.postgres import migrations
 from zekam.infrastructure.postgres.connection import configure_session, reset_role
 from zekam.infrastructure.postgres.model_benchmark_repository import BenchmarkRepository
+from zekam.infrastructure.postgres.model_catalog_repository import ModelCatalogRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 
@@ -222,7 +231,37 @@ def test_context_policy_decision_roundtrip_is_append_only(
         family_policy_digest=family_policy.policy_digest,
         excluded_model_families=("qwen",),
     )
-    decision = decide_layered_model(request, policy, (), family_policy=family_policy, now=NOW)
+    catalog = ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=realm.id,
+        provider_id="aihub",
+        entries=(
+            ModelCatalogEntry(
+                "model-a",
+                CatalogVisibility.AUTHENTICATED,
+                True,
+                "chat-completions",
+                ("text",),
+            ),
+        ),
+        etag=None,
+        fetched_at=NOW,
+        expires_at=NOW + dt.timedelta(days=1),
+        client_version="zekam-test/1",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+    )
+    ModelCatalogRepository(connection, realm.id).store(catalog)
+    decision = decide_layered_model(
+        request,
+        policy,
+        (),
+        family_policy=family_policy,
+        catalog_snapshot=catalog,
+        require_catalog=True,
+        now=NOW,
+    )
     decision_id, decision_inserted = repository.record_decision(
         decision,
         role_policy_id=policy_id,
@@ -232,6 +271,7 @@ def test_context_policy_decision_roundtrip_is_append_only(
     )
     assert decision_inserted is True
     assert repository.decision(decision_id).decision == decision
+    assert decision.catalog_snapshot_id == catalog.id
     replay, replayed = repository.record_decision(
         decision,
         role_policy_id=policy_id,
@@ -240,6 +280,30 @@ def test_context_policy_decision_roundtrip_is_append_only(
         decided_at=NOW,
     )
     assert replay == decision_id and replayed is False
+    newer_catalog = ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=realm.id,
+        provider_id=catalog.provider_id,
+        entries=catalog.entries,
+        etag=None,
+        fetched_at=NOW + dt.timedelta(seconds=1),
+        expires_at=NOW + dt.timedelta(days=1),
+        client_version="zekam-test/2",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+        prior_snapshot_id=catalog.id,
+    )
+    ModelCatalogRepository(connection, realm.id).store(newer_catalog)
+    with pytest.raises(PsycopgError):
+        repository.record_decision(
+            replace(decision, evidence_digest=digest("superseded-catalog-route")),
+            role_policy_id=policy_id,
+            project_context_id=context_id,
+            execution_target_id=execution_target_id,
+            decided_at=NOW + dt.timedelta(seconds=2),
+        )
+    connection.rollback()
     with connection.cursor() as cursor:
         with pytest.raises(PsycopgError):
             cursor.execute(

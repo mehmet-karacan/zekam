@@ -1281,6 +1281,10 @@ def test_memory_usage_correlates_only_after_canonical_independent_checkpoint_ver
             route_expires_at=scope["target"].expires_at,
             source_label=GatewaySourceLabel.MODEL_CAPABILITY,
             missing_bindings=(
+                "catalog_digest",
+                "catalog_provider_id",
+                "catalog_snapshot_digest",
+                "catalog_snapshot_id",
                 "checkpoint_digest",
                 "execution_envelope_digest",
                 "execution_envelope_id",

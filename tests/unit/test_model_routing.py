@@ -8,6 +8,13 @@ import pytest
 
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.model_catalog import (
+    CatalogFetchStatus,
+    CatalogSource,
+    CatalogVisibility,
+    ModelCatalogEntry,
+    ModelCatalogSnapshot,
+)
 from zekam.domain.model_routing import (
     AgentRole,
     CandidateDisposition,
@@ -119,6 +126,30 @@ def _all_layers(model: str, score: float) -> tuple[RoutingQualification, ...]:
     return tuple(_qualification(model, layer, score) for layer in RoutingLayer)
 
 
+def _catalog(*models: str, fetched_at: dt.datetime = NOW) -> ModelCatalogSnapshot:
+    return ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=uuid4(),
+        provider_id="litellm",
+        entries=tuple(
+            ModelCatalogEntry(
+                model,
+                CatalogVisibility.AUTHENTICATED,
+                True,
+                "chat-completions",
+            )
+            for model in sorted(models)
+        ),
+        etag=None,
+        fetched_at=fetched_at,
+        expires_at=fetched_at + dt.timedelta(hours=1),
+        client_version="zekam-test/1",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+    )
+
+
 def _capability(
     model: str,
     dimension: RouteCapabilityDimension,
@@ -185,6 +216,46 @@ def test_three_layer_intersection_selects_primary_and_explicit_fallback() -> Non
         "model-b": CandidateDisposition.FALLBACK,
     }
     assert decision.authority_granted is False
+
+
+def test_catalog_availability_filters_primary_and_fallback_and_binds_digest() -> None:
+    catalog = _catalog("model-b")
+    decision = decide_layered_model(
+        _request(),
+        _policy(),
+        _all_layers("model-a", 0.9) + _all_layers("model-b", 0.8),
+        catalog_snapshot=catalog,
+        require_catalog=True,
+        now=NOW,
+    )
+    assert decision.primary_model_id == "model-b"
+    assert decision.fallback_model_id is None
+    rejected = next(item for item in decision.candidates if item.model_id == "model-a")
+    assert "availability-missing" in rejected.rejection_reasons
+    assert decision.catalog_digest == catalog.catalog_digest
+    assert decision.catalog_snapshot_digest == catalog.snapshot_digest
+
+
+def test_required_missing_or_stale_catalog_never_auto_falls_back() -> None:
+    missing = decide_layered_model(
+        _request(),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        require_catalog=True,
+        now=NOW,
+    )
+    stale = decide_layered_model(
+        _request(),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        catalog_snapshot=_catalog("model-a", fetched_at=NOW - dt.timedelta(hours=2)),
+        require_catalog=True,
+        now=NOW,
+    )
+    assert missing.status is RouteStatus.PENDING
+    assert missing.candidates[0].rejection_reasons[0] == "catalog-missing"
+    assert stale.status is RouteStatus.PENDING
+    assert stale.candidates[0].rejection_reasons[0] == "catalog-stale"
 
 
 def test_missing_project_layer_is_pending_and_never_guesses() -> None:

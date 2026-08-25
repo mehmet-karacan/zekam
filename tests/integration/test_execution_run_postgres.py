@@ -10,6 +10,7 @@ import pytest
 from psycopg import Error as PsycopgError
 
 from zekam.application.execution import ExecutionHost
+from zekam.application.model_catalog import catalog_refresh_plan_digest
 from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
@@ -46,6 +47,17 @@ from zekam.domain.execution_run import (
     ExecutionRun,
     ProviderBindingSnapshot,
 )
+from zekam.domain.model_catalog import (
+    CatalogFetchProvenance,
+    CatalogFetchStatus,
+    CatalogReceiptStatus,
+    CatalogRefreshStrategy,
+    CatalogSource,
+    CatalogVisibility,
+    ModelCatalogEntry,
+    ModelCatalogSnapshot,
+    catalog_fetch_response_digest,
+)
 from zekam.domain.model_invocation import GatewaySourceLabel, ModelRequestManifest
 from zekam.domain.model_routing import (
     AgentRole,
@@ -53,7 +65,9 @@ from zekam.domain.model_routing import (
     RoleRoutingPolicy,
     RoutingLayer,
 )
-from zekam.domain.runtime import EffectClaim
+from zekam.domain.realm import Actor, ActorKind
+from zekam.domain.runtime import EffectClaim, EffectReceipt
+from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.tool_registry import (
     CompiledToolSet,
     ToolDispatchBinding,
@@ -67,11 +81,14 @@ from zekam.infrastructure.postgres.connection import configure_session, connect
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
+from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
+from zekam.infrastructure.postgres.model_catalog_repository import ModelCatalogRepository
 from zekam.infrastructure.postgres.model_invocation_repository import ModelInvocationRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 from zekam.infrastructure.postgres.runtime_repository import EffectLedger
+from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -272,6 +289,28 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         expires_at=now + dt.timedelta(minutes=10),
     )
     repository.create_provider_binding(provider_binding)
+    catalog = ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=realm.id,
+        provider_id="aihub",
+        entries=(
+            ModelCatalogEntry(
+                model.model_id,
+                CatalogVisibility.AUTHENTICATED,
+                True,
+                "chat-completions",
+                ("text",),
+            ),
+        ),
+        etag=None,
+        fetched_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+        client_version="zekam-test/1",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+    )
+    ModelCatalogRepository(connection, realm.id).store(catalog)
     decision_id = UUID(int=run.id.int + 4)
     route_digest = digest("selected-route")
     coordinator_id = UUID(int=run.id.int + 5)
@@ -284,8 +323,10 @@ def test_execution_run_and_exact_context_packet_roundtrip(
             "insert into models.model_route_decision"
             "(id,realm_id,role_policy_id,execution_target_id,role,target_layer,"
             "inventory_digest,routing_policy_digest,policy_digest,execution_target_digest,"
+            "catalog_provider_id,catalog_digest,catalog_snapshot_digest,catalog_snapshot_id,"
             "status,primary_model_id,evidence_digest,decided_at) values"
-            "(%s,%s,%s,%s,'implementer','general',%s,%s,%s,%s,'selected',%s,%s,%s)",
+            "(%s,%s,%s,%s,'implementer','general',%s,%s,%s,%s,%s,%s,%s,%s,"
+            "'selected',%s,%s,%s)",
             (
                 decision_id,
                 realm.id,
@@ -295,6 +336,10 @@ def test_execution_run_and_exact_context_packet_roundtrip(
                 policy_digest,
                 policy_digest,
                 target.snapshot_digest,
+                catalog.provider_id,
+                catalog.catalog_digest,
+                catalog.snapshot_digest,
+                catalog.id,
                 model.model_id,
                 route_digest,
                 now,
@@ -729,6 +774,10 @@ def test_execution_run_and_exact_context_packet_roundtrip(
         role="builder",
         risk="medium",
         route_decision_digest=route_digest,
+        catalog_provider_id=catalog.provider_id,
+        catalog_digest=catalog.catalog_digest,
+        catalog_snapshot_digest=catalog.snapshot_digest,
+        catalog_snapshot_id=catalog.id,
         model_id=model.model_id,
         provider_ref=provider_binding.provider_ref,
         context_manifest_digest=manifest.manifest_digest,
@@ -780,11 +829,22 @@ def test_execution_run_and_exact_context_packet_roundtrip(
     invocation.activate_enforce(policy_digest)
     invocation.assert_current_envelope(request_manifest)
     invocation.assert_current_context_fragment_set(request_manifest)
+    invocation.assert_current_catalog(request_manifest)
+    catalog_forged_values = {
+        name: getattr(request_manifest, name)
+        for name in request_manifest.__dataclass_fields__
+        if name not in {"id", "manifest_digest"}
+    }
+    catalog_forged_values["catalog_digest"] = digest("forged-catalog")
+    catalog_forged_values["idempotency_key"] = "call-3-forged-catalog"
+    with pytest.raises(PolicyViolation, match="catalog stale"):
+        invocation.assert_current_catalog(ModelRequestManifest.create(**catalog_forged_values))
     bound_gateway = ModelGateway.from_execution_envelope(
         invocation, GatewaySourceLabel.PROVIDER_CONTRACT, bound_envelope.id
     )
     assert bound_gateway.bindings.execution_envelope_digest == bound_envelope.envelope_digest
     assert bound_gateway.bindings.max_cost_micros == bound_envelope.max_cost_micros
+    assert bound_gateway.bindings.catalog_snapshot_id == catalog.id
     tool_claim = EffectClaim.create(
         realm_id=realm.id,
         job_id=envelope_job_id,
@@ -900,6 +960,134 @@ def test_execution_run_and_exact_context_packet_roundtrip(
             )
         )
     connection.rollback()
+    newer_catalog = ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=realm.id,
+        provider_id=catalog.provider_id,
+        entries=catalog.entries,
+        etag=None,
+        fetched_at=now + dt.timedelta(seconds=1),
+        expires_at=now + dt.timedelta(minutes=10),
+        client_version="zekam-test/2",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+        prior_snapshot_id=catalog.id,
+    )
+    ModelCatalogRepository(connection, realm.id).store(newer_catalog)
+    superseded_values = {
+        name: getattr(request_manifest, name)
+        for name in request_manifest.__dataclass_fields__
+        if name not in {"id", "manifest_digest"}
+    }
+    superseded_values["idempotency_key"] = "call-3-superseded-catalog"
+    with pytest.raises(PsycopgError):
+        invocation.store_manifest(ModelRequestManifest.create(**superseded_values))
+    connection.rollback()
+    with pytest.raises(PolicyViolation, match="catalog stale"):
+        invocation.assert_current_catalog(request_manifest)
+    remote_plan_digest = catalog_refresh_plan_digest(
+        provider_id=catalog.provider_id,
+        strategy=CatalogRefreshStrategy.FORCE_PROBE,
+        client_version="zekam-test/remote",
+        ttl_seconds=600,
+        prior_snapshot_digest=newer_catalog.snapshot_digest,
+    )
+    actor = Actor.create(
+        realm=realm,
+        kind=ActorKind.SERVICE,
+        slug="catalog-fetcher",
+        display_name="Catalog fetcher",
+        now=now,
+    )
+    ActorRepository(connection, realm.id).add(actor)
+    authorization = Authorization.issue(
+        realm_id=realm.id,
+        actor_id=actor.id,
+        plan_digest=remote_plan_digest,
+        effect_digest=remote_plan_digest,
+        scope=AuthorizationScope(
+            allowed_resources=(f"provider.catalog:{catalog.provider_id}",),
+            allowed_effects=("model-catalog-refresh",),
+            provider_refs=(catalog.provider_id,),
+        ),
+        risk="low",
+        lifetime=dt.timedelta(minutes=5),
+        now=now,
+    )
+    authorizations = AuthorizationRepository(connection, realm.id)
+    authorizations.issue(authorization)
+    consumed = authorizations.consume(
+        authorization.id,
+        effect_digest=remote_plan_digest,
+        consumed_by="catalog-fetcher",
+        now=now + dt.timedelta(milliseconds=1),
+    )
+    assert consumed.consumed is True
+    remote_claim = EffectClaim.create(
+        realm_id=realm.id,
+        job_id=envelope_job_id,
+        attempt_id=attempt_id,
+        operation="model-catalog-refresh",
+        effect_digest=remote_plan_digest,
+        authorization_digest=authorization.authorization_digest,
+        idempotency_key="remote-catalog-refresh",
+        resources=(),
+        execution_identity="catalog-fetcher:1",
+        fencing_token=1,
+        adapter_digest=digest("catalog-adapter"),
+        now=now + dt.timedelta(milliseconds=2),
+    )
+    ledger = EffectLedger(connection, realm.id)
+    ledger.claim(remote_claim, authorization_id=authorization.id)
+    remote_response_digest = catalog_fetch_response_digest(
+        status_code=200,
+        entries=catalog.entries,
+        etag="remote-etag",
+        error_category=None,
+    )
+    remote_receipt = EffectReceipt.completed(
+        realm_id=realm.id,
+        claim=remote_claim,
+        result_digest=remote_response_digest,
+        adapter_evidence_digest=digest("catalog-adapter-evidence"),
+        now=now + dt.timedelta(milliseconds=3),
+    )
+    ledger.receipt(remote_receipt)
+    remote_catalog = ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=realm.id,
+        provider_id=catalog.provider_id,
+        entries=catalog.entries,
+        etag="remote-etag",
+        fetched_at=now + dt.timedelta(seconds=2),
+        expires_at=now + dt.timedelta(minutes=10, seconds=2),
+        client_version="zekam-test/remote",
+        source=CatalogSource.REMOTE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+        prior_snapshot_id=newer_catalog.id,
+        fetch_provenance=CatalogFetchProvenance(
+            plan_digest=remote_plan_digest,
+            strategy=CatalogRefreshStrategy.FORCE_PROBE,
+            ttl_seconds=600,
+            prior_snapshot_digest=newer_catalog.snapshot_digest,
+            authorization_id=authorization.id,
+            authorization_digest=authorization.authorization_digest,
+            claim_id=remote_claim.id,
+            claim_digest=remote_claim.claim_digest,
+            receipt_id=remote_receipt.id,
+            receipt_status=CatalogReceiptStatus.COMPLETED,
+            status_code=200,
+            response_etag="remote-etag",
+            response_digest=remote_response_digest,
+            adapter_evidence_digest=remote_receipt.adapter_evidence_digest or "",
+        ),
+    )
+    assert ModelCatalogRepository(connection, realm.id).store(remote_catalog) == (
+        remote_catalog.id,
+        True,
+    )
     repository.finish_run(run.id, state="completed", terminal_at=now + dt.timedelta(seconds=2))
 
 

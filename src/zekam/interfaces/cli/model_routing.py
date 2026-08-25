@@ -6,7 +6,7 @@ import datetime as dt
 import json
 from collections.abc import Callable
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import typer
 from rich.console import Console
@@ -34,6 +34,13 @@ from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.context_continuity import Checkpoint
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.model_capability_benchmark import CapabilityCohortPlan
+from zekam.domain.model_catalog import (
+    CatalogFetchStatus,
+    CatalogSource,
+    CatalogVisibility,
+    ModelCatalogEntry,
+    ModelCatalogSnapshot,
+)
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
@@ -51,6 +58,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.model_capability_repository import ModelCapabilityRepository
+from zekam.infrastructure.postgres.model_catalog_repository import ModelCatalogRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 from zekam.infrastructure.postgres.project_repository import ProjectResolver
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
@@ -130,6 +138,71 @@ def _latest_campaign_id(context: RealmContext) -> UUID:
     return UUID(str(row[0]))
 
 
+def _campaign_catalog_snapshot(
+    context: RealmContext,
+    campaign_id: UUID,
+    *,
+    now: dt.datetime,
+) -> ModelCatalogSnapshot:
+    """Kanonik kampanya uyelerini package availability snapshot'ina donusturur."""
+
+    with context.connection.cursor() as cursor:
+        cursor.execute(
+            "select c.provider_ref,c.revision,m.canonical_model_id,m.modality"
+            " from models.opencode_benchmark_campaign c"
+            " join models.opencode_benchmark_campaign_member m"
+            " on m.realm_id=c.realm_id and m.campaign_id=c.id"
+            " where c.realm_id=%s and c.id=%s and m.canonical_model_id is not null"
+            " order by m.canonical_model_id",
+            (context.realm_id, campaign_id),
+        )
+        rows = cursor.fetchall()
+    if not rows:
+        raise PolicyViolation("Campaign package catalog canonical model tasimiyor")
+    provider_id = str(rows[0][0])
+    revision = int(rows[0][1])
+    if any(str(row[0]) != provider_id or int(row[1]) != revision for row in rows):
+        raise PolicyViolation("Campaign package catalog provider/revision drift")
+    entries = tuple(
+        ModelCatalogEntry(
+            model_id=str(row[2]),
+            visibility=CatalogVisibility.AUTHENTICATED,
+            authentication_required=True,
+            endpoint_class=str(row[3]),
+            capabilities=(str(row[3]),),
+        )
+        for row in rows
+    )
+    latest = ModelCatalogRepository(context.connection, context.realm_id).latest(provider_id)
+    return ModelCatalogSnapshot(
+        id=uuid4(),
+        realm_id=context.realm_id,
+        provider_id=provider_id,
+        entries=entries,
+        etag=None,
+        fetched_at=now,
+        expires_at=now + dt.timedelta(days=7),
+        client_version=f"campaign-{revision}",
+        source=CatalogSource.PACKAGE,
+        fetch_status=CatalogFetchStatus.FETCHED,
+        error_category=None,
+        prior_snapshot_id=None if latest is None else latest.id,
+    )
+
+
+def _campaign_provider_id(context: RealmContext, campaign_id: UUID) -> str:
+    with context.connection.cursor() as cursor:
+        cursor.execute(
+            "select provider_ref from models.opencode_benchmark_campaign"
+            " where realm_id=%s and id=%s",
+            (context.realm_id, campaign_id),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        raise PolicyViolation("Routing campaign provider bulunamadi")
+    return str(row[0])
+
+
 def _execution_target(home: str | None, *, now: dt.datetime) -> ExecutionTargetSnapshot:
     clients = tuple(
         item for item in build_context(home=home).settings.clients if item.name == "opencode"
@@ -167,6 +240,7 @@ def _existing_prepare_result(
     prepared: PreparedProjectRoutingContext,
     *,
     expected_target: ExecutionTargetSnapshot,
+    expected_catalog: ModelCatalogSnapshot,
     prepare_key: str,
 ) -> dict[str, Any] | None:
     """Return a zero-effect replay result when every persisted input is current."""
@@ -186,6 +260,16 @@ def _existing_prepare_result(
         expected_target.snapshot_digest, at=now
     )
     if execution_target is None:
+        return None
+    catalog = ModelCatalogRepository(context.connection, context.realm_id).latest(
+        expected_catalog.provider_id
+    )
+    if (
+        catalog is None
+        or not catalog.is_fresh(now=now)
+        or catalog.source is not CatalogSource.PACKAGE
+        or catalog.catalog_digest != expected_catalog.catalog_digest
+    ):
         return None
     with context.connection.cursor() as cursor:
         cursor.execute(
@@ -233,6 +317,9 @@ def _existing_prepare_result(
         "policy_ids": [str(item[0]) for item in policies if item is not None],
         "execution_target_id": str(execution_target[0]),
         "execution_target_inserted": False,
+        "catalog_snapshot_id": str(catalog.id),
+        "catalog_digest": catalog.catalog_digest,
+        "catalog_inserted": False,
         "general_qualification_ids": [str(item) for item in qualification_ids],
         "general_qualification_count": len(qualification_ids),
         "workload_project_qualification_state": "pending",
@@ -433,10 +520,18 @@ def prepare_command(
             if apply:
                 repository = ModelRoutingRepository(context.connection, context.realm_id)
                 execution_target = _execution_target(home, now=prepared.context.captured_at)
+                campaign_id = _latest_campaign_id(context)
+                catalog_snapshot = _campaign_catalog_snapshot(
+                    context,
+                    campaign_id,
+                    now=dt.datetime.now(dt.UTC),
+                )
                 prepare_key = digest(
                     {
                         "context": prepared.context.context_digest,
                         "execution_target": execution_target.snapshot_digest,
+                        "campaign_id": str(campaign_id),
+                        "catalog_digest": catalog_snapshot.catalog_digest,
                     }
                 )
                 existing = _existing_prepare_result(
@@ -444,6 +539,7 @@ def prepare_command(
                     repository,
                     prepared,
                     expected_target=execution_target,
+                    expected_catalog=catalog_snapshot,
                     prepare_key=prepare_key,
                 )
                 if existing is not None:
@@ -453,11 +549,11 @@ def prepare_command(
                     else:
                         console.print(document)
                     return
-                campaign_id = _latest_campaign_id(context)
                 resources = (
                     f"project:{prepared.context.project_id}",
                     f"db-object:model-routing:context:{prepared.context.context_digest}",
                     f"db-object:model-routing:campaign:{campaign_id}",
+                    f"db-object:model-catalog:{catalog_snapshot.catalog_digest}",
                 )
 
                 def mutation(_work_id: UUID, _plan_id: UUID) -> tuple[str, str, dict[str, Any]]:
@@ -465,6 +561,9 @@ def prepare_command(
                     execution_target_id, execution_target_inserted = (
                         repository.store_execution_target(execution_target)
                     )
+                    catalog_id, catalog_inserted = ModelCatalogRepository(
+                        context.connection, context.realm_id
+                    ).store(catalog_snapshot)
                     with context.connection.cursor() as cursor:
                         cursor.execute(
                             "select distinct model_id"
@@ -502,6 +601,9 @@ def prepare_command(
                         "context_inserted": inserted,
                         "execution_target_id": str(execution_target_id),
                         "execution_target_inserted": execution_target_inserted,
+                        "catalog_snapshot_id": str(catalog_id),
+                        "catalog_digest": catalog_snapshot.catalog_digest,
+                        "catalog_inserted": catalog_inserted,
                         "policy_ids": [str(item) for item in policy_ids],
                         "general_qualification_ids": [str(item) for item in qualification_ids],
                         "general_qualification_count": len(qualification_ids),
@@ -669,6 +771,7 @@ def _preview(
             repository,
             request,
             current_context=(prepared.context if target_layer is RoutingLayer.PROJECT else None),
+            provider_id=_campaign_provider_id(context, _latest_campaign_id(context)),
         ),
         request,
         policy_id,

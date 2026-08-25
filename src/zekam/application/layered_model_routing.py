@@ -32,6 +32,7 @@ from zekam.domain.model_routing import (
     StaleReason,
     decide_layered_model,
 )
+from zekam.infrastructure.postgres.model_catalog_repository import ModelCatalogRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 
 CONTEXT_TTL = dt.timedelta(days=7)
@@ -196,6 +197,7 @@ def preview_route(
     request: LayeredRouteRequest,
     *,
     current_context: ProjectRoutingContext | None = None,
+    provider_id: str | None = None,
     now: dt.datetime | None = None,
 ) -> RoutePreview:
     moment = now or dt.datetime.now(dt.UTC)
@@ -207,12 +209,19 @@ def preview_route(
     qualifications = repository.qualifications_for(request)
     capability_evidence = repository.capability_evidence_for(request)
     family_policy = None if request.family_policy_digest is None else load_model_family_policy()
+    catalog_snapshot = (
+        None
+        if provider_id is None
+        else ModelCatalogRepository(repository.connection, repository.realm_id).latest(provider_id)
+    )
     decision = decide_layered_model(
         request,
         policy,
         qualifications,
         capability_evidence,
         family_policy,
+        catalog_snapshot=catalog_snapshot,
+        require_catalog=provider_id is not None,
         now=moment,
     )
     stale: tuple[StaleReason, ...] = ()

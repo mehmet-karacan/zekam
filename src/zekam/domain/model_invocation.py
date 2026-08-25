@@ -95,6 +95,10 @@ class ModelRequestManifest:
     role: str | None
     risk: str
     route_decision_digest: str | None
+    catalog_provider_id: str | None
+    catalog_digest: str | None
+    catalog_snapshot_digest: str | None
+    catalog_snapshot_id: UUID | None
     model_id: str
     provider_ref: str
     context_manifest_digest: str | None
@@ -154,6 +158,23 @@ class ModelRequestManifest:
                 raise ValidationFailed("Model manifest limitleri pozitif olmali")
         if tuple(sorted(set(self.missing_bindings))) != self.missing_bindings:
             raise ValidationFailed("Eksik binding listesi unique ve sirali olmali")
+        catalog_bindings = (
+            self.catalog_provider_id,
+            self.catalog_digest,
+            self.catalog_snapshot_digest,
+            self.catalog_snapshot_id,
+        )
+        if any(value is not None for value in catalog_bindings) != all(
+            value is not None for value in catalog_bindings
+        ):
+            raise ValidationFailed("Model manifest catalog binding ya tam ya bos olmali")
+        if self.catalog_provider_id is not None and (
+            not self.catalog_provider_id.strip()
+            or self.catalog_provider_id != self.catalog_provider_id.strip()
+            or "://" in self.catalog_provider_id
+            or "\\" in self.catalog_provider_id
+        ):
+            raise ValidationFailed("Model manifest catalog provider portable olmali")
         required_bindings = {
             "execution_envelope_digest": self.execution_envelope_digest,
             "execution_envelope_id": self.execution_envelope_id,
@@ -161,6 +182,10 @@ class ModelRequestManifest:
             "assignment_id": self.assignment_id,
             "role": self.role,
             "route_decision_digest": self.route_decision_digest,
+            "catalog_provider_id": self.catalog_provider_id,
+            "catalog_digest": self.catalog_digest,
+            "catalog_snapshot_digest": self.catalog_snapshot_digest,
+            "catalog_snapshot_id": self.catalog_snapshot_id,
             "route_expires_at": self.route_expires_at,
             "context_manifest_digest": self.context_manifest_digest,
             "context_fragment_set_digest": self.context_fragment_set_digest,
@@ -196,6 +221,8 @@ class ModelRequestManifest:
         digest_values: tuple[str | None, ...] = (
             self.execution_envelope_digest,
             self.route_decision_digest,
+            self.catalog_digest,
+            self.catalog_snapshot_digest,
             self.context_manifest_digest,
             self.context_fragment_set_digest,
             self.model_visible_payload_digest,
@@ -251,6 +278,12 @@ class ModelRequestManifest:
             "role": self.role,
             "risk": self.risk,
             "route_decision_digest": self.route_decision_digest,
+            "catalog_provider_id": self.catalog_provider_id,
+            "catalog_digest": self.catalog_digest,
+            "catalog_snapshot_digest": self.catalog_snapshot_digest,
+            "catalog_snapshot_id": (
+                None if self.catalog_snapshot_id is None else str(self.catalog_snapshot_id)
+            ),
             "model_id": self.model_id,
             "provider_ref": self.provider_ref,
             "context_manifest_digest": self.context_manifest_digest,
@@ -294,6 +327,10 @@ class ModelRequestManifest:
 
     @classmethod
     def create(cls, **values: Any) -> ModelRequestManifest:
+        values.setdefault("catalog_provider_id", None)
+        values.setdefault("catalog_digest", None)
+        values.setdefault("catalog_snapshot_digest", None)
+        values.setdefault("catalog_snapshot_id", None)
         values.setdefault("context_fragment_set_digest", None)
         values.setdefault("model_visible_payload_digest", None)
         values.setdefault("tool_visible_payload_digest", None)

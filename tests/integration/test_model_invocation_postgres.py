@@ -155,6 +155,10 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "role": "builder",
         "risk": "medium",
         "route_decision_digest": D,
+        "catalog_provider_id": None,
+        "catalog_digest": None,
+        "catalog_snapshot_digest": None,
+        "catalog_snapshot_id": None,
         "model_id": "provider/model",
         "provider_ref": "provider:x",
         "context_manifest_digest": D,
@@ -176,6 +180,10 @@ def _manifest(scope, **changes):  # type: ignore[no-untyped-def]
         "created_at": now,
         "source_label": GatewaySourceLabel.MODEL_CAPABILITY,
         "missing_bindings": (
+            "catalog_digest",
+            "catalog_provider_id",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
             "context_fragment_set_digest",
             "execution_envelope_digest",
             "execution_envelope_id",
@@ -240,7 +248,14 @@ def test_manifest_rejects_nonexistent_canonical_fragment_set_binding(
         invocation_scope,
         context_fragment_set_digest=D,
         model_visible_payload_digest=D,
-        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+        missing_bindings=(
+            "catalog_digest",
+            "catalog_provider_id",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
+            "execution_envelope_digest",
+            "execution_envelope_id",
+        ),
     )
     with pytest.raises(CheckViolation):
         ModelInvocationRepository(connection, realm.id).store_manifest(item)
@@ -297,7 +312,14 @@ def test_manifest_rejects_canonical_fragment_set_from_another_work(
         context_manifest_digest=manifest.manifest_digest,
         context_fragment_set_digest=fragment_set.fragment_set_digest,
         model_visible_payload_digest=D,
-        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+        missing_bindings=(
+            "catalog_digest",
+            "catalog_provider_id",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
+            "execution_envelope_digest",
+            "execution_envelope_id",
+        ),
     )
     with pytest.raises(CheckViolation):
         ModelInvocationRepository(connection, realm.id).store_manifest(item)
@@ -322,6 +344,10 @@ def test_legacy_unbound_manifest_persists_without_forged_identity(invocation_sco
     missing = (
         "assignment_id",
         "authorization_scope_digest",
+        "catalog_digest",
+        "catalog_provider_id",
+        "catalog_snapshot_digest",
+        "catalog_snapshot_id",
         "checkpoint_digest",
         "context_fragment_set_digest",
         "context_manifest_digest",
@@ -470,7 +496,14 @@ def test_verified_invocation_records_only_model_visible_memory_usage(
         context_manifest_digest=context_manifest.manifest_digest,
         context_fragment_set_digest=fragment_set.fragment_set_digest,
         model_visible_payload_digest=D,
-        missing_bindings=("execution_envelope_digest", "execution_envelope_id"),
+        missing_bindings=(
+            "catalog_digest",
+            "catalog_provider_id",
+            "catalog_snapshot_digest",
+            "catalog_snapshot_id",
+            "execution_envelope_digest",
+            "execution_envelope_id",
+        ),
     )
     invocation_repository = ModelInvocationRepository(connection, realm.id)
     invocation_repository.store_manifest(request)

@@ -469,11 +469,10 @@ class ModelRoutingRepository:
                 " capability_source_revision,capability_suite_digest,"
                 " capability_registry_digest,capability_execution_profile_digest,"
                 " capability_evaluator_provenance_digest,risk,family_policy_digest,"
-                " excluded_model_families,status,primary_model_id,"
+                " excluded_model_families,catalog_provider_id,catalog_digest,"
+                " catalog_snapshot_digest,catalog_snapshot_id,status,primary_model_id,"
                 " fallback_model_id, evidence_digest, authority_granted, decided_at)"
-                " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                " %s, %s, %s, %s, %s, false, %s)"
+                " values (" + ",".join(["%s"] * 38 + ["false", "%s"]) + ")"
                 " on conflict (realm_id, evidence_digest) do nothing returning id",
                 (
                     record_id,
@@ -518,6 +517,10 @@ class ModelRoutingRepository:
                     request.risk,
                     request.family_policy_digest,
                     list(request.excluded_model_families),
+                    decision.catalog_provider_id,
+                    decision.catalog_digest,
+                    decision.catalog_snapshot_digest,
+                    decision.catalog_snapshot_id,
                     decision.status.value,
                     decision.primary_model_id,
                     decision.fallback_model_id,
@@ -528,7 +531,8 @@ class ModelRoutingRepository:
             inserted = cursor.fetchone()
             if inserted is None:
                 cursor.execute(
-                    "select id, role_policy_id, project_context_id, execution_target_id"
+                    "select id,role_policy_id,project_context_id,execution_target_id,"
+                    "catalog_snapshot_id"
                     " from models.model_route_decision"
                     " where realm_id = %s and evidence_digest = %s",
                     (self.realm_id, decision.evidence_digest),
@@ -540,6 +544,7 @@ class ModelRoutingRepository:
                     UUID(str(existing[1])) != role_policy_id
                     or _uuid(existing[2]) != (project_context_id)
                     or _uuid(existing[3]) != execution_target_id
+                    or _uuid(existing[4]) != decision.catalog_snapshot_id
                 ):
                     raise ConcurrencyConflict("Route decision replay scope drift")
                 return UUID(str(existing[0])), False
@@ -633,7 +638,9 @@ class ModelRoutingRepository:
                 " d.capability_suite_digest,d.capability_registry_digest,"
                 " d.capability_execution_profile_digest,d.capability_evaluator_provenance_digest,"
                 " d.risk,d.family_policy_digest,d.excluded_model_families,"
-                " d.status, d.primary_model_id,d.fallback_model_id,d.evidence_digest"
+                " d.status,d.primary_model_id,d.fallback_model_id,d.evidence_digest,"
+                " d.catalog_provider_id,d.catalog_digest,d.catalog_snapshot_digest,"
+                " d.catalog_snapshot_id"
                 " from models.model_route_decision d"
                 " left join projects.routing_context_snapshot c"
                 "  on c.realm_id = d.realm_id and c.id = d.project_context_id"
@@ -707,6 +714,10 @@ class ModelRoutingRepository:
             fallback_model_id=str(row[32]) if row[32] is not None else None,
             candidates=candidates,
             evidence_digest=str(row[33]),
+            catalog_provider_id=None if row[34] is None else str(row[34]),
+            catalog_digest=None if row[35] is None else str(row[35]),
+            catalog_snapshot_digest=None if row[36] is None else str(row[36]),
+            catalog_snapshot_id=_uuid(row[37]),
         )
         return StoredRouteDecision(
             id=UUID(str(row[0])),

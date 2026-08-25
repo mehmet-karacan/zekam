@@ -13,7 +13,7 @@ from zekam.application.provider_adapter import ProviderCall, ProviderCallResult
 from zekam.domain.canonical import digest
 from zekam.domain.context_fragment import ModelVisiblePayloadBinding
 from zekam.domain.diagnostic_trace import TraceEventType
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import (
     GatewayBindingStatus,
     GatewayMode,
@@ -42,6 +42,7 @@ class _GatewayRepository:
         self.envelope_asserted = False
         self.fragment_set_asserted = False
         self.tool_set_asserted = False
+        self.catalog_asserted = False
         self.attempt_values: dict[str, object] | None = None
         self.compiled_tools = CompiledToolSet.create(
             realm_id=uuid4(),
@@ -69,6 +70,9 @@ class _GatewayRepository:
     def assert_current_tool_set(self, item: ModelRequestManifest) -> None:
         self.tool_set_asserted = True
 
+    def assert_current_catalog(self, item: ModelRequestManifest) -> None:
+        self.catalog_asserted = True
+
     def envelope_bindings(self, envelope_id):  # type: ignore[no-untyped-def]
         now = dt.datetime.now(dt.UTC)
         return {
@@ -77,6 +81,10 @@ class _GatewayRepository:
             "run_id": uuid4(),
             "role": "builder",
             "route_decision_digest": D,
+            "catalog_provider_id": "provider",
+            "catalog_digest": D,
+            "catalog_snapshot_digest": D,
+            "catalog_snapshot_id": uuid4(),
             "route_expires_at": now + dt.timedelta(minutes=5),
             "context_manifest_digest": D,
             "context_packet_digest": D,
@@ -134,6 +142,10 @@ def _manifest(**changes):  # type: ignore[no-untyped-def]
         "role": "builder",
         "risk": "medium",
         "route_decision_digest": D,
+        "catalog_provider_id": "provider",
+        "catalog_digest": D,
+        "catalog_snapshot_digest": D,
+        "catalog_snapshot_id": uuid4(),
         "model_id": "provider/model",
         "provider_ref": "provider:x",
         "context_manifest_digest": D,
@@ -179,6 +191,8 @@ def test_manifest_digest_is_immutable_and_missing_bindings_drive_status() -> Non
         replace(item, model_id="other/model")
     with pytest.raises(PolicyViolation, match="request payload"):
         _manifest(model_visible_payload_digest=digest("different-payload"))
+    with pytest.raises(ValidationFailed, match="catalog binding"):
+        _manifest(catalog_snapshot_id=None, missing_bindings=("catalog_snapshot_id",))
 
 
 def test_gateway_permit_is_process_local_and_exact() -> None:
@@ -465,6 +479,10 @@ def test_legacy_audit_manifest_uses_none_and_exact_missing_bindings() -> None:
     missing = (
         "assignment_id",
         "authorization_scope_digest",
+        "catalog_digest",
+        "catalog_provider_id",
+        "catalog_snapshot_digest",
+        "catalog_snapshot_id",
         "checkpoint_digest",
         "context_manifest_digest",
         "context_packet_digest",
@@ -481,6 +499,10 @@ def test_legacy_audit_manifest_uses_none_and_exact_missing_bindings() -> None:
         execution_envelope_id=None,
         execution_envelope_digest=None,
         assignment_id=None,
+        catalog_provider_id=None,
+        catalog_digest=None,
+        catalog_snapshot_digest=None,
+        catalog_snapshot_id=None,
         route_decision_digest=None,
         route_expires_at=None,
         context_manifest_digest=None,
