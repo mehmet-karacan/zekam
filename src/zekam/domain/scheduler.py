@@ -75,6 +75,7 @@ REQUIRED_JOBS = (
     "backup-verify",
     "retention-review",
     "diagnostic-trace-purge",
+    "chaos-campaign",
 )
 
 #: Kanonik bakim isleri icin varsayilan araliklar. Anahtarlar REQUIRED_JOBS ile
@@ -93,6 +94,7 @@ REQUIRED_JOB_INTERVALS: dict[str, str] = {
     "backup-verify": "1d",
     "retention-review": "7d",
     "diagnostic-trace-purge": "1d",
+    "chaos-campaign": "7d",
 }
 
 _INTERVAL = re.compile(r"^(?P<value>[1-9]\d*)(?P<unit>[mhd])$")

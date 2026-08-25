@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated
@@ -18,6 +19,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.chaos_command_composition import compose_command_chaos_handler
 from zekam.application.diagnostic_trace_composition import (
     compose_diagnostic_trace_purge_handler,
 )
@@ -104,7 +106,11 @@ def _scheduled_handlers(context: RealmContext, home: str | None) -> dict[str, Sc
         realm_id=context.realm_id,
         home=resolve_home(home),
     )
-    return {} if handler is None else {"diagnostic-trace-purge": handler}
+    handlers = {} if handler is None else {"diagnostic-trace-purge": handler}
+    chaos_config = os.environ.get("ZEKAM_CHAOS_DRIVER_CONFIG")
+    if chaos_config:
+        handlers["chaos-campaign"] = compose_command_chaos_handler(Path(chaos_config))
+    return handlers
 
 
 def _recovery_plan(input_file: Path) -> RecoveryReconciliationPlan:

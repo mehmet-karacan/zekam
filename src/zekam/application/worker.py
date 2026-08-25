@@ -401,7 +401,7 @@ class Worker:
                 continue
             handler = self.scheduled_handlers.get(definition.job_name)
             if handler is None:
-                if definition.job_name != "diagnostic-trace-purge":
+                if definition.job_name not in {"diagnostic-trace-purge", "chaos-campaign"}:
                     self.scheduler.touch_definition(definition_id, now=now)
                     self.scheduler.finish_run(
                         run_id, state="succeeded", detail="tetikleme kaydedildi", now=now

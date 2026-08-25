@@ -283,6 +283,32 @@ def test_trace_purge_handler_olmadan_basari_uydurmaz(
         assert cursor.fetchone()[0] == "failure"
 
 
+def test_chaos_campaign_handler_olmadan_basari_uydurmaz(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    definition_id = _definition(connection, realm, "chaos-campaign", interval="7d")
+    worker = build_worker(
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
+    )
+
+    result = worker.tick(now=NOW)
+    assert result.triggered_jobs == ()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select state, detail from ops.job_run where definition_id = %s",
+            (definition_id,),
+        )
+        state, detail = cursor.fetchone()
+        assert state == "failed"
+        assert "handler tanimsiz" in detail
+
+
 def test_trace_purge_handler_gercekten_calistirilir(
     realm_session: tuple[Any, Any],
 ) -> None:
