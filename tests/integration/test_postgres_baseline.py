@@ -63,7 +63,25 @@ def test_trigram_similarity_is_available(postgres_settings: DatabaseSettings) ->
 def test_server_timezone_is_utc(postgres_settings: DatabaseSettings) -> None:
     with connect(postgres_settings) as connection, connection.cursor() as cursor:
         cursor.execute("show timezone")
-        assert cursor.fetchone()[0].upper() == "UTC"
+        timezone_name = str(cursor.fetchone()[0])
+        cursor.execute(
+            "select "
+            "extract(epoch from (timezone(current_setting('TimeZone'), "
+            "timestamptz '2026-01-01 00:00:00+00') - timestamp '2026-01-01 00:00:00'))::int, "
+            "extract(epoch from (timezone(current_setting('TimeZone'), "
+            "timestamptz '2026-07-01 00:00:00+00') - timestamp '2026-07-01 00:00:00'))::int"
+        )
+        winter_offset_seconds, summer_offset_seconds = cursor.fetchone()
+    assert timezone_name.casefold() in {
+        "utc",
+        "etc/utc",
+        "etc/gmt",
+        "gmt",
+        "uct",
+        "universal",
+        "zulu",
+    }
+    assert (winter_offset_seconds, summer_offset_seconds) == (0, 0)
 
 
 def test_doctor_connection_check_passes(postgres_settings: DatabaseSettings) -> None:

@@ -59,7 +59,15 @@ def test_package_acceptance_workflow_has_cross_platform_artifact_and_container_g
     quality = yaml.safe_load(
         (ROOT / ".github" / "workflows" / "quality.yml").read_text(encoding="utf-8")
     )
-    assert quality["jobs"]["postgres-acceptance"]["env"]["PGPASSWORD"]
+    postgres_env = quality["jobs"]["postgres-acceptance"]["env"]
+    assert postgres_env["PGPASSWORD"]
+    assert postgres_env["ZEKAM_DATABASE_PASSWORD"] == postgres_env["PGPASSWORD"]
+    assert "ZEKAM_TEST_DATABASE_PASSWORD" not in postgres_env
+    postgres_steps = json.dumps(quality["jobs"]["postgres-acceptance"]["steps"])
+    assert "zekam db upgrade --uygula" in postgres_steps
+    assert postgres_steps.index("zekam db upgrade --uygula") < postgres_steps.index(
+        "python -m pytest -m postgres"
+    )
 
 
 def test_runtime_container_installs_wheel_and_does_not_copy_source() -> None:

@@ -51,7 +51,7 @@ jobs:
       ZEKAM_TEST_DATABASE_PORT: "5434"
       ZEKAM_TEST_DATABASE_NAME: zekam
       ZEKAM_TEST_DATABASE_USER: zekam
-      ZEKAM_TEST_DATABASE_PASSWORD: zekam-ci-only
+      ZEKAM_DATABASE_PASSWORD: zekam-ci-only
       PGPASSWORD: zekam-ci-only
     steps:
       - uses: actions/checkout@v4
@@ -60,4 +60,5 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev,db,api]"
+      - run: zekam db upgrade --uygula
       - run: python -m pytest -m postgres
