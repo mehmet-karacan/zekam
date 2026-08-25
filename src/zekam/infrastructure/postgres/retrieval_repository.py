@@ -37,6 +37,10 @@ def _locator_from(payload: dict[str, Any]) -> Locator:
         symbol=payload.get("symbol"),
         object_name=payload.get("object_name"),
         relative_path=payload.get("relative_path"),
+        entry_path=payload.get("entry_path"),
+        timestamp_start_ms=payload.get("timestamp_start_ms"),
+        timestamp_end_ms=payload.get("timestamp_end_ms"),
+        video_id=payload.get("video_id"),
     )
 
 

@@ -78,6 +78,9 @@ class UnitKind(StrEnum):
     SYMBOL = "symbol"
     CONFIGURATION = "configuration"
     DB_OBJECT = "db-object"
+    TRANSCRIPT_SEGMENT = "transcript-segment"
+    TRANSCRIPT_HEADING = "transcript-heading"
+    METADATA = "metadata"
 
 
 class IngestionStage(StrEnum):
@@ -181,6 +184,10 @@ class Locator:
     symbol: str | None = None
     object_name: str | None = None
     relative_path: str | None = None
+    entry_path: str | None = None
+    timestamp_start_ms: int | None = None
+    timestamp_end_ms: int | None = None
+    video_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.page is not None and self.page < 1:
@@ -205,6 +212,22 @@ class Locator:
             raise ValidationFailed("satir araligi gecersiz")
         if self.relative_path is not None:
             assert_safe_relative(self.relative_path, "locator relative path")
+        if self.entry_path is not None:
+            assert_safe_relative(self.entry_path, "locator entry path")
+        timestamp_start = self.timestamp_start_ms
+        timestamp_end = self.timestamp_end_ms
+        if timestamp_end is not None and timestamp_start is None:
+            raise ValidationFailed("timestamp bitisi baslangic olmadan kullanilamaz")
+        if timestamp_start is not None and timestamp_start < 0:
+            raise ValidationFailed("timestamp baslangici negatif olamaz")
+        if (
+            timestamp_end is not None
+            and timestamp_start is not None
+            and timestamp_end <= timestamp_start
+        ):
+            raise ValidationFailed("timestamp araligi gecersiz")
+        if self.video_id is not None and not self.video_id.strip():
+            raise ValidationFailed("video kimligi bos olamaz")
 
     @property
     def is_empty(self) -> bool:
@@ -218,6 +241,9 @@ class Locator:
                 self.symbol,
                 self.object_name,
                 self.relative_path,
+                self.entry_path,
+                self.timestamp_start_ms is not None,
+                self.video_id,
             )
         )
 
@@ -232,6 +258,10 @@ class Locator:
             "symbol": self.symbol,
             "object_name": self.object_name,
             "relative_path": self.relative_path,
+            "entry_path": self.entry_path,
+            "timestamp_start_ms": self.timestamp_start_ms,
+            "timestamp_end_ms": self.timestamp_end_ms,
+            "video_id": self.video_id,
         }
 
 

@@ -25,6 +25,44 @@ _HEADING = re.compile(r"^(#{1,6})\s+(?P<text>\S.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+\S")
 #: Fenced kod blogu siniri.
 _FENCE = re.compile(r"^\s*```")
+_TRANSCRIPT_RANGE = re.compile(
+    r"^\s*\[?(?P<start>\d{1,4}:\d{2}(?::\d{2}(?:[.,]\d{1,3})?)?)\s*"
+    r"(?:-->|-|\N{EN DASH})\s*"
+    r"(?P<end>\d{1,4}:\d{2}(?::\d{2}(?:[.,]\d{1,3})?)?)\]?"
+    r"\s*(?:[:\N{EM DASH}]\s*)?(?P<text>\S.*)$"
+)
+_TRANSCRIPT_SINGLE = re.compile(
+    r"^\s*\[?(?P<start>\d{1,4}:\d{2}(?::\d{2}(?:[.,]\d{1,3})?)?)\]?"
+    r"\s*(?:[-:\N{EN DASH}\N{EM DASH}]\s*)?(?P<text>\S.*)$"
+)
+_TRANSCRIPT_METADATA = re.compile(
+    r"^\s*(?:title|video[ _-]?id|date|language|baslik|video[ _-]?kimligi|tarih|dil)\s*:\s*\S",
+    re.IGNORECASE,
+)
+
+
+def _timestamp_ms(value: str) -> int:
+    """`MM:SS` veya `HH:MM:SS(.mmm)` degerini kesin milisaniyeye cevirir."""
+
+    normalized = value.replace(",", ".")
+    parts = normalized.split(":")
+    if len(parts) not in {2, 3}:
+        raise ValidationFailed("timestamp bicimi gecersiz")
+    seconds_text = parts[-1]
+    seconds_parts = seconds_text.split(".", 1)
+    seconds = int(seconds_parts[0])
+    if seconds >= 60:
+        raise ValidationFailed("timestamp saniyesi 60'tan kucuk olmali")
+    milliseconds = int(seconds_parts[1].ljust(3, "0")) if len(seconds_parts) == 2 else 0
+    if len(parts) == 2:
+        minutes = int(parts[0])
+        hours = 0
+    else:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        if minutes >= 60:
+            raise ValidationFailed("timestamp dakikasi 60'tan kucuk olmali")
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds
 
 
 class Parser(Protocol):
@@ -166,6 +204,158 @@ class MarkdownParser:
         flush(len(lines) + 1)
         if not units:
             raise ValidationFailed("markdown kaynagi bos")
+        return tuple(units)
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampTranscriptParser:
+    """Zaman damgali transcript metnini citation-bound birimlere ayirir.
+
+    Parser speaker veya timestamp tahmin etmez. Kaynakta acik tek timestamp ya
+    da aralik varsa onu korur; parse edilemeyen satirlar yalniz line locator alir.
+    """
+
+    entry_path: str
+    video_id: str | None = None
+    max_merged_lines: int = 8
+    max_merged_chars: int = 4000
+    parser_ref: str = "zekam.parser.timestamp-transcript"
+    parser_version: str = "1"
+
+    def __post_init__(self) -> None:
+        from zekam.domain.knowledge import assert_safe_relative
+
+        assert_safe_relative(self.entry_path, "transcript entry path")
+        if self.video_id is not None and not self.video_id.strip():
+            raise ValidationFailed("video kimligi bos olamaz")
+        if self.max_merged_lines < 1 or self.max_merged_chars < 1:
+            raise ValidationFailed("transcript birlestirme siniri pozitif olmali")
+
+    @property
+    def parser_profile(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-parser-profile/v1",
+            "adapter": self.parser_ref,
+            "adapter_version": self.parser_version,
+            "encoding": "utf-8",
+            "timestamp_formats": ["MM:SS", "HH:MM:SS", "HH:MM:SS.mmm"],
+            "speaker_inference": False,
+            "max_merged_lines": self.max_merged_lines,
+            "max_merged_chars": self.max_merged_chars,
+        }
+
+    def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
+        lines = _decode(payload).splitlines()
+        units: list[ContentUnit] = []
+        plain: list[tuple[int, str]] = []
+
+        def locator(
+            line_start: int,
+            line_end: int,
+            *,
+            timestamp_start_ms: int | None = None,
+            timestamp_end_ms: int | None = None,
+        ) -> Locator:
+            return Locator(
+                entry_path=self.entry_path,
+                line_start=line_start,
+                line_end=line_end,
+                timestamp_start_ms=timestamp_start_ms,
+                timestamp_end_ms=timestamp_end_ms,
+                video_id=self.video_id,
+            )
+
+        def append(kind: UnitKind, text: str, item_locator: Locator) -> None:
+            units.append(
+                ContentUnit(
+                    unit_id=f"transcript-{len(units)}",
+                    kind=kind,
+                    text=text,
+                    locator=item_locator,
+                    order=len(units),
+                )
+            )
+
+        def flush_plain() -> None:
+            nonlocal plain
+            if not plain:
+                return
+            append(
+                UnitKind.PARAGRAPH,
+                "\n".join(text for _, text in plain),
+                locator(plain[0][0], plain[-1][0]),
+            )
+            plain = []
+
+        def add_plain(line_number: int, line: str) -> None:
+            pending_chars = sum(len(text) for _, text in plain) + len(plain) + len(line)
+            if plain and (
+                len(plain) >= self.max_merged_lines or pending_chars > self.max_merged_chars
+            ):
+                flush_plain()
+            plain.append((line_number, line))
+
+        for line_number, raw_line in enumerate(lines, start=1):
+            line = raw_line.strip()
+            if not line:
+                flush_plain()
+                continue
+            match = _TRANSCRIPT_RANGE.match(raw_line)
+            if match is not None:
+                try:
+                    start_ms = _timestamp_ms(match.group("start"))
+                    end_ms = _timestamp_ms(match.group("end"))
+                except ValidationFailed:
+                    # Bicim timestamp'e benzese de parse edilemiyorsa satir korunur.
+                    add_plain(line_number, line)
+                    continue
+                if end_ms <= start_ms:
+                    add_plain(line_number, line)
+                    continue
+                flush_plain()
+                append(
+                    UnitKind.TRANSCRIPT_SEGMENT,
+                    match.group("text").strip(),
+                    locator(
+                        line_number,
+                        line_number,
+                        timestamp_start_ms=start_ms,
+                        timestamp_end_ms=end_ms,
+                    ),
+                )
+                continue
+            single = _TRANSCRIPT_SINGLE.match(raw_line)
+            if single is not None:
+                try:
+                    start_ms = _timestamp_ms(single.group("start"))
+                except ValidationFailed:
+                    add_plain(line_number, line)
+                    continue
+                flush_plain()
+                append(
+                    UnitKind.TRANSCRIPT_SEGMENT,
+                    single.group("text").strip(),
+                    locator(
+                        line_number,
+                        line_number,
+                        timestamp_start_ms=start_ms,
+                    ),
+                )
+            elif _TRANSCRIPT_METADATA.match(raw_line):
+                flush_plain()
+                append(UnitKind.METADATA, line, locator(line_number, line_number))
+            elif line.startswith("#") and line.lstrip("#").strip():
+                flush_plain()
+                append(
+                    UnitKind.TRANSCRIPT_HEADING,
+                    line.lstrip("#").strip(),
+                    locator(line_number, line_number),
+                )
+            else:
+                add_plain(line_number, line)
+        flush_plain()
+        if not units:
+            raise ValidationFailed("transcript kaynagi bos")
         return tuple(units)
 
 

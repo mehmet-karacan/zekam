@@ -171,7 +171,8 @@ def chunk_units(
         )
         tokens = estimate_tokens(unit.text)
 
-        if whole or unit.kind is UnitKind.HEADING:
+        locator_bound = unit.locator.entry_path is not None
+        if whole or unit.kind is UnitKind.HEADING or locator_bound:
             flush()
             chunks.extend(_emit(unit, document_id, profile, len(chunks), split=False))
             continue

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ import psycopg
 import pytest
 
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
-from zekam.application.knowledge_parsers import default_router
+from zekam.application.knowledge_parsers import TimestampTranscriptParser, default_router
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.retrieval_service import GoldenCase, RetrievalService, evaluate
 from zekam.domain.canonical import digest, digest_of_bytes
@@ -22,6 +23,7 @@ from zekam.domain.errors import ValidationFailed
 from zekam.domain.knowledge import Artifact, IngestionStage, SourceFormat
 from zekam.domain.retrieval import (
     ChunkProfile,
+    Citation,
     RetrievalChannel,
     ScoredHit,
     bge_m3_profile,
@@ -173,6 +175,42 @@ def test_exact_kimlik_kanali_calisir(indexed: dict[str, Any]) -> None:
     assert hits, "exact kimlik bulunmali"
     bodies = repository.views(tuple(hit.chunk_id for hit in hits))
     assert any("ZEKAM-P12-T04" in view.text for view in bodies.values())
+
+
+def test_timestamp_locator_postgres_store_retrieve_citation_round_trip(
+    indexed: dict[str, Any],
+) -> None:
+    repository: RetrievalRepository = indexed["retrieval"]
+    connection = indexed["connection"]
+    realm = indexed["realm"]
+    parser = TimestampTranscriptParser(entry_path="avenoxai/video-1.txt", video_id="1hHOgnmAHlE")
+    units = parser.parse(b"[05:12-07:08] Citation round trip\n")
+    chunks = chunk_units(
+        units,
+        document_id="timestamp-roundtrip",
+        profile=ChunkProfile(name="timestamp-roundtrip", max_tokens=64, overlap_tokens=8),
+    )
+    chunks = tuple(replace(chunk, order=100 + index) for index, chunk in enumerate(chunks))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select id from knowledge.normalized_document "
+            "where realm_id = %s order by created_at limit 1",
+            (realm.id,),
+        )
+        document_id = cursor.fetchone()[0]
+    repository.store_chunks(chunks, document_id=document_id, now=NOW)
+
+    view = repository.views((chunks[0].chunk_id,))[chunks[0].chunk_id]
+    citation = Citation(
+        chunk_id=view.chunk_id,
+        document_id=view.document_id,
+        locator=view.locator,
+        content_digest=view.content_digest,
+    ).as_dict()
+
+    assert citation["locator"] == units[0].locator.as_dict()
+    assert citation["locator"]["timestamp_start_ms"] == 312_000
+    assert citation["locator"]["timestamp_end_ms"] == 428_000
 
 
 def test_dense_arama_profil_kapsaminda_calisir(indexed: dict[str, Any]) -> None:
