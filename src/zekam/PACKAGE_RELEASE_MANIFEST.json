@@ -1,7 +1,7 @@
 {
   "agent_template_digest": "sha256:02b08ee7e986963d250426629c4c1fabeffae2072432bede8b06bc9c35978e78",
   "build_provenance_digest": "sha256:b03253a7b60f49d7f20b073551e290c1f247c49e847b35106e489fa1b34c91ac",
-  "config_bundle_digest": "sha256:454e06d33a2fcc4b51ba713384fe882716b5f53951dee347fa1a4fb26ef168ca",
+  "config_bundle_digest": "sha256:5be5fa60b05c707f033a903694f52a9b31f369857ff4ab0f18fcf350b4421849",
   "entrypoints": [
     "zekam"
   ],

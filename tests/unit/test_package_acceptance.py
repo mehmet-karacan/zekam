@@ -11,6 +11,7 @@ import pytest
 from scripts.package_smoke import _sdist_manifest, isolated_environment
 
 from zekam.application.package_acceptance import (
+    _file_bundle,
     build_package_manifest,
     load_package_manifest,
     verify_package_manifest,
@@ -80,6 +81,17 @@ def test_tracked_manifest_exactly_matches_source_package_resources() -> None:
 
     assert shipped.body() == current.body()
     assert verify_package_manifest(package_root).manifest_digest == current.manifest_digest
+
+
+def test_file_bundle_digest_is_newline_platform_independent(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    target = bundle / "migration.sql"
+    target.write_bytes(b"select 1;\r\nselect 2;\r\n")
+    windows_digest = _file_bundle(bundle, "*.sql")
+    target.write_bytes(b"select 1;\nselect 2;\n")
+
+    assert _file_bundle(bundle, "*.sql") == windows_digest
 
 
 def test_manifest_parser_is_exact_and_tamper_fails_verification(tmp_path: Path) -> None:

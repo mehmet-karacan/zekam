@@ -27,7 +27,12 @@ def _file_bundle(root: Path, pattern: str = "*") -> str:
         entries.append(
             {
                 "path": path.relative_to(root).as_posix(),
-                "content_digest": digest_of_bytes(path.read_bytes()),
+                "content_digest": digest_of_bytes(
+                    path.read_text(encoding="utf-8")
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                    .encode("utf-8")
+                ),
             }
         )
     if not entries:
