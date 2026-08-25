@@ -7,6 +7,7 @@ ve pytest fazini gorunur yapar.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from collections.abc import Sequence
@@ -16,6 +17,9 @@ from typing import Any
 import pytest
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9_./:\[\](), =+-]")
+# Script dogrudan calistirildiginda pytest capture baslamadan once runner pipe'ini
+# kopyalar. Hook bu descriptor'a yazar; test stdout capture'ini acmaz.
+_ANNOTATION_FD = os.dup((sys.__stdout__ or sys.stdout).fileno())
 
 
 def _safe(value: object, *, limit: int = 500) -> str:
@@ -38,6 +42,9 @@ def _property(value: object, *, limit: int = 500) -> str:
 class GitHubFailureAnnotations:
     """Failed test/collection kimligini payload siz annotation'a cevirir."""
 
+    def __init__(self, *, output_fd: int = _ANNOTATION_FD) -> None:
+        self._output_fd = output_fd
+
     def pytest_runtest_logreport(self, report: Any) -> None:
         if not report.failed:
             return
@@ -54,8 +61,8 @@ class GitHubFailureAnnotations:
             return
         self._emit(nodeid=report.nodeid, phase="collect")
 
-    @staticmethod
     def _emit(
+        self,
         *,
         nodeid: object,
         phase: object,
@@ -65,10 +72,10 @@ class GitHubFailureAnnotations:
         metadata = " "
         if path is not None and line is not None:
             metadata = f" file={_property(path)},line={line},"
-        print(
-            f"::error{metadata}title=pytest failure::{_safe(nodeid)} [{_safe(phase, limit=32)}]",
-            flush=True,
+        command = (
+            f"::error{metadata}title=pytest failure::{_safe(nodeid)} [{_safe(phase, limit=32)}]\n"
         )
+        os.write(self._output_fd, command.encode("utf-8", errors="replace"))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from scripts import ci_pytest
@@ -18,10 +21,14 @@ class _Report:
     longrepr: str = "ZEKAM_DATABASE_PASSWORD=cok-gizli"
 
 
+def _reporter() -> GitHubFailureAnnotations:
+    return GitHubFailureAnnotations(output_fd=sys.stdout.fileno())
+
+
 def test_failure_annotation_only_exposes_sanitized_nodeid_and_phase(
-    capsys: pytest.CaptureFixture[str],
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    GitHubFailureAnnotations().pytest_runtest_logreport(
+    _reporter().pytest_runtest_logreport(
         _Report(
             failed=True,
             nodeid="tests/unit/test_ornek.py::test_satir[param\nsecret]",
@@ -30,7 +37,7 @@ def test_failure_annotation_only_exposes_sanitized_nodeid_and_phase(
         )
     )
 
-    output = capsys.readouterr().out
+    output = capfd.readouterr().out
     assert output == (
         "::error file=tests/unit/test_ornek.py,line=12,title=pytest failure::"
         "tests/unit/test_ornek.py::test_satir[param secret] [call]\n"
@@ -38,8 +45,8 @@ def test_failure_annotation_only_exposes_sanitized_nodeid_and_phase(
     assert "cok-gizli" not in output
 
 
-def test_success_report_does_not_emit_annotation(capsys: pytest.CaptureFixture[str]) -> None:
-    GitHubFailureAnnotations().pytest_runtest_logreport(
+def test_success_report_does_not_emit_annotation(capfd: pytest.CaptureFixture[str]) -> None:
+    _reporter().pytest_runtest_logreport(
         _Report(
             failed=False,
             nodeid="tests/unit/test_ornek.py::test_ok",
@@ -48,13 +55,13 @@ def test_success_report_does_not_emit_annotation(capsys: pytest.CaptureFixture[s
         )
     )
 
-    assert capsys.readouterr().out == ""
+    assert capfd.readouterr().out == ""
 
 
 def test_collection_failure_annotation_has_no_exception_payload(
-    capsys: pytest.CaptureFixture[str],
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    GitHubFailureAnnotations().pytest_collectreport(
+    _reporter().pytest_collectreport(
         _Report(
             failed=True,
             nodeid="tests/unit/test_bozuk.py",
@@ -63,7 +70,7 @@ def test_collection_failure_annotation_has_no_exception_payload(
         )
     )
 
-    output = capsys.readouterr().out
+    output = capfd.readouterr().out
     assert output == "::error title=pytest failure::tests/unit/test_bozuk.py [collect]\n"
     assert "cok-gizli" not in output
 
@@ -84,9 +91,9 @@ def test_main_propagates_pytest_exit_code(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_annotation_property_escapes_metadata_injection(
-    capsys: pytest.CaptureFixture[str],
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    GitHubFailureAnnotations().pytest_runtest_logreport(
+    _reporter().pytest_runtest_logreport(
         _Report(
             failed=True,
             nodeid="tests/unit/test_spoof.py::test_fail",
@@ -95,9 +102,26 @@ def test_annotation_property_escapes_metadata_injection(
         )
     )
 
-    output = capsys.readouterr().out
+    output = capfd.readouterr().out
     assert output.startswith(
         "::error file=C%3A\\repo\\x.py%2Cline=1%2Ctitle=spoof%250Ainjected,line=9,"
     )
     assert output.count("title=") == 2
     assert ",title=spoof" not in output
+
+
+def test_wrapper_annotation_bypasses_nested_pytest_capture(tmp_path: Path) -> None:
+    failing_test = tmp_path / "test_nested_failure.py"
+    failing_test.write_text("def test_nested_failure():\n    assert False\n", encoding="utf-8")
+    wrapper = Path(ci_pytest.__file__).resolve()
+
+    result = subprocess.run(
+        [sys.executable, str(wrapper), str(failing_test), "-q"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "::error file=" in result.stdout
+    assert "test_nested_failure.py::test_nested_failure [call]" in result.stdout
