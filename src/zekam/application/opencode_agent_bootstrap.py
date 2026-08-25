@@ -569,6 +569,20 @@ _AGENT_TEMPLATES: Mapping[str, str] = {
 }
 
 
+def opencode_template_bundle() -> dict[str, str]:
+    """Return the exact OpenCode resources shipped by the installed package.
+
+    The release manifest digests this public, deterministic projection.  Bootstrap
+    continues to consume the same constants, so acceptance cannot accidentally
+    verify a second template copy that runtime never installs.
+    """
+
+    return {
+        **{f"agents/{name}": body for name, body in sorted(_AGENT_TEMPLATES.items())},
+        "plugins/zekam-lifecycle.js": _LIFECYCLE_PLUGIN,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class OpenCodeAgentBootstrapPlan:
     """Yalniz plan: uygulama disinda dosya degistirmez."""

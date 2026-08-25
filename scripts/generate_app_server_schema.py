@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from zekam.domain.app_server_protocol import protocol_schema_bundle
+from zekam.protocol.generation import render_protocol_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "schemas" / "app-server-protocol-v1.schema.json"
 
 
 def rendered_schema() -> str:
-    return json.dumps(protocol_schema_bundle(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    return render_protocol_artifacts()["schema-bundle.json"]
 
 
 def main() -> int:

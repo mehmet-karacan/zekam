@@ -1,0 +1,15 @@
+{
+  "methods": [
+    "experimental/session-fork.prepare",
+    "initialize",
+    "initialized",
+    "notifications/replay",
+    "project/read",
+    "server/notification",
+    "server/status",
+    "session/read",
+    "work/read"
+  ],
+  "protocol_version": "1.0",
+  "schema": "zekam-protocol-event-methods/v1"
+}

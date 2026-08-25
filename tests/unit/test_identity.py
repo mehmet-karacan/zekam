@@ -45,6 +45,14 @@ def test_wheel_includes_complete_fresh_migration_set() -> None:
     down = [path for path in migrations if path.name.endswith(".down.sql")]
 
     assert force_include["migrations"] == "zekam/migrations"
+    assert force_include["modeller"] == "zekam/modeller"
     versions = [int(path.name[:4]) for path in up]
     assert versions == list(range(1, max(versions) + 1))
     assert len(down) == max(versions)
+
+
+def test_distribution_and_runtime_version_have_one_value() -> None:
+    root = Path(__file__).resolve().parents[2]
+    document = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert document["project"]["version"] == __import__("zekam").__version__

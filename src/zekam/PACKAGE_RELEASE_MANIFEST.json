@@ -1,0 +1,13 @@
+{
+  "agent_template_digest": "sha256:02b08ee7e986963d250426629c4c1fabeffae2072432bede8b06bc9c35978e78",
+  "build_provenance_digest": "sha256:b03253a7b60f49d7f20b073551e290c1f247c49e847b35106e489fa1b34c91ac",
+  "config_bundle_digest": "sha256:454e06d33a2fcc4b51ba713384fe882716b5f53951dee347fa1a4fb26ef168ca",
+  "entrypoints": [
+    "zekam"
+  ],
+  "included_migrations_digest": "sha256:f3f29c5d69eb1b86f9486c81ab5ffe0906805a37b19c64398573872a0e0e6b9b",
+  "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
+  "python": ">=3.12",
+  "schema": "zekam-package-manifest/v2",
+  "version": "0.1.0"
+}

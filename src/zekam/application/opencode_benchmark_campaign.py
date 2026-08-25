@@ -68,9 +68,12 @@ BENCHMARK_SECRET_REF_NAME = "opencode-litellm-benchmark"
 
 
 def default_scope_file() -> Path:
-    from zekam.application.config import core_root
+    from zekam.application.config import core_root, package_root
 
-    return core_root() / "config" / "opencode_benchmark_scope.yaml"
+    repository_copy = core_root() / "config" / "opencode_benchmark_scope.yaml"
+    if repository_copy.is_file():
+        return repository_copy
+    return package_root() / "_config" / "opencode_benchmark_scope.yaml"
 
 
 @dataclass(frozen=True, slots=True)

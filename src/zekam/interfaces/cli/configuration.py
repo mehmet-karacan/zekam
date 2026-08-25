@@ -27,6 +27,34 @@ console = Console()
 error_console = Console(stderr=True)
 
 
+@profile_app.command("list")
+def list_permission_profiles(
+    output_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+) -> None:
+    """Installed built-in permission profile catalogunu salt okunur listeler."""
+
+    profiles = tuple(sorted(builtin_permission_profiles(), key=lambda item: item.name))
+    document = {
+        "schema": "zekam-permission-profile-list/v1",
+        "profiles": [
+            {
+                "name": profile.name,
+                "revision": profile.revision,
+                "managed": profile.managed,
+                "profile_digest": profile.profile_digest,
+            }
+            for profile in profiles
+        ],
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if output_json:
+        console.print_json(json.dumps(document, sort_keys=True))
+        return
+    for profile in profiles:
+        console.print(f"{profile.name}@{profile.revision} {profile.profile_digest}")
+
+
 @config_app.command("explain")
 def explain_config(
     field: Annotated[str | None, typer.Argument(help="Opsiyonel dotted field path")] = None,

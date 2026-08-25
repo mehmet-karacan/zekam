@@ -61,6 +61,7 @@ packages = ["src/zekam"]
 "config" = "zekam/_config"
 "migrations" = "zekam/migrations"
 "schemas" = "zekam/schemas"
+"modeller" = "zekam/modeller"
 
 [tool.ruff]
 line-length = 100

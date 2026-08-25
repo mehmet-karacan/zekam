@@ -7,7 +7,7 @@ kullanilmaz. Durum degistiren komutlar `--uygula` ister.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import typer
@@ -265,10 +265,34 @@ def resume_command(
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """`nerede kaldik` sorusunu kanonik kayittan yanitlar."""
+    document: dict[str, Any]
     try:
-        with RealmSession(home, realm) as realm_context:
-            document = _service(realm_context).where_did_we_stop()
-            document["client_continuity"] = resume_projection(resolve_home(home))
+        sqlite = sqlite_repository(home, realm)
+        if sqlite is not None:
+            items = sqlite.list_work()
+            open_items = [
+                {
+                    "id": item.id,
+                    "project_id": item.project_id,
+                    "type": item.kind,
+                    "state": item.state,
+                    "title": item.title,
+                    "revision": item.revision,
+                }
+                for item in items
+                if item.state not in {"completed", "cancelled"}
+            ]
+            document = {
+                "source": "sqlite-work-graph",
+                "open_items": open_items,
+                "blocked": [item for item in open_items if item["state"] == "blocked"],
+                "recent_activity": [],
+                "next_safe_action": ("ready work item sec" if open_items else "acik is bulunmuyor"),
+            }
+        else:
+            with RealmSession(home, realm) as realm_context:
+                document = _service(realm_context).where_did_we_stop()
+        document["client_continuity"] = resume_projection(resolve_home(home))
     except ZekamError as exc:
         raise fail_from(exc) from exc
 

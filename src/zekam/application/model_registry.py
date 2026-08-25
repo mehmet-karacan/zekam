@@ -39,9 +39,12 @@ INVENTORY_SCHEMA = "zekam-model-inventory/v1"
 
 def default_inventory_file() -> Path:
     """Core dagitimindaki kanonik envanter dosyasi."""
-    from zekam.application.config import core_root
+    from zekam.application.config import core_root, package_root
 
-    return core_root() / "modeller" / "KANONIK_MODEL_ENVANTERI.yaml"
+    repository_copy = core_root() / "modeller" / "KANONIK_MODEL_ENVANTERI.yaml"
+    if repository_copy.is_file():
+        return repository_copy
+    return package_root() / "modeller" / "KANONIK_MODEL_ENVANTERI.yaml"
 
 
 def _protocol(raw: str | None) -> ProviderProtocol:

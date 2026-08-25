@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.zekam
+dist
+build
+__pycache__
+*.pyc
+*.pyo
+*.log
+*.env

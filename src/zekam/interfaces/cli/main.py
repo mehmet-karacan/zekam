@@ -43,6 +43,7 @@ from zekam.interfaces.cli import model as model_commands
 from zekam.interfaces.cli import opencode as opencode_commands
 from zekam.interfaces.cli import oracle as oracle_commands
 from zekam.interfaces.cli import project as project_commands
+from zekam.interfaces.cli import protocol as protocol_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import surface as surface_commands
@@ -75,6 +76,7 @@ error_console = Console(stderr=True)
 
 app.add_typer(db_commands.app)
 app.add_typer(project_commands.app)
+app.add_typer(protocol_commands.app)
 app.add_typer(work_commands.app)
 app.add_typer(governance_commands.policy_app)
 app.add_typer(governance_commands.secret_app)

@@ -116,6 +116,29 @@ def load_json(path: Path) -> Any:
         return json.load(stream)
 
 
+def schema_root_is_strict(document: dict[str, Any]) -> bool:
+    """Prove that every root union branch rejects unknown object fields."""
+
+    definitions = document.get("$defs", {})
+
+    def strict(node: Any, seen: frozenset[str] = frozenset()) -> bool:
+        if not isinstance(node, dict):
+            return False
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            name = reference.rsplit("/", maxsplit=1)[-1]
+            if name in seen:
+                return False
+            return strict(definitions.get(name), seen | {name})
+        for keyword in ("anyOf", "oneOf"):
+            branches = node.get(keyword)
+            if isinstance(branches, list) and branches:
+                return all(strict(branch, seen) for branch in branches)
+        return node.get("type") == "object" and node.get("additionalProperties") is False
+
+    return strict(document)
+
+
 def projection_digest(values: set[str]) -> str:
     payload = json.dumps(sorted(values), ensure_ascii=True, separators=(",", ":"))
     return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
@@ -383,7 +406,7 @@ def main() -> int:
     for path in json_files:
         try:
             data = load_json(path)
-            if data.get("additionalProperties") is not False:
+            if not schema_root_is_strict(data):
                 warnings.append(f"Schema root strict degil: {path.name}")
         except Exception as exc:
             json_errors.append(f"{path.name}: {exc}")

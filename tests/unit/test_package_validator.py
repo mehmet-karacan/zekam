@@ -9,11 +9,30 @@ from pathlib import Path
 
 import pytest
 import yaml
-from scripts.paket_dogrula import removed_product_identity_hits, validate_portable_phase_baseline
+from scripts.paket_dogrula import (
+    removed_product_identity_hits,
+    schema_root_is_strict,
+    validate_portable_phase_baseline,
+)
 
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_schema_strictness_resolves_every_root_union_reference() -> None:
+    strict_object = {"type": "object", "additionalProperties": False}
+    document = {
+        "$defs": {
+            "strict": strict_object,
+            "union": {"anyOf": [{"$ref": "#/$defs/strict"}, strict_object]},
+        },
+        "anyOf": [{"$ref": "#/$defs/union"}],
+    }
+    assert schema_root_is_strict(document)
+
+    document["$defs"]["union"]["anyOf"].append({"type": "object", "additionalProperties": True})
+    assert not schema_root_is_strict(document)
 
 
 def test_portable_phase_baseline_passes_without_local_state() -> None:

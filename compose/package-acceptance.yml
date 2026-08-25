@@ -1,0 +1,40 @@
+name: zekam-package-acceptance
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_DB: zekam
+      POSTGRES_USER: zekam
+      POSTGRES_PASSWORD: package-acceptance-only
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zekam -d zekam"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  zekam:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VCS_REF: ${ZEKAM_SOURCE_REVISION:-unknown}
+        PROTOCOL_SCHEMA_DIGEST: ${ZEKAM_PROTOCOL_SCHEMA_DIGEST:-unknown}
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/lib/zekam
+    environment:
+      ZEKAM_DATABASE_HOST: postgres
+      ZEKAM_DATABASE_PORT: "5432"
+      ZEKAM_DATABASE_NAME: zekam
+      ZEKAM_DATABASE_USER: zekam
+      ZEKAM_DATABASE_PASSWORD: package-acceptance-only
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8769:8769"
