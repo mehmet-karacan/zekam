@@ -1054,6 +1054,65 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
     assert repository.is_complete(completed.checkpoint_id)
     with connection.cursor() as cursor:
         cursor.execute("update runtime.job set state='completed' where id=%s", (job_id,))
+        memory_candidate_id = uuid4()
+        cursor.execute(
+            "insert into memory.candidate"
+            " (id,realm_id,scope,project_id,work_item_id,logical_candidate_id,project_ref,"
+            "work_ref,memory_class,content,author_ref,evidence,created_at)"
+            " select %s,w.realm_id,'work-item',w.project_id,w.id,%s,p.slug,"
+            "coalesce(w.external_number,'work-digest:'||w.record_digest),'working',"
+            "'verified causal checkpoint','causal-verifier',"
+            "jsonb_build_array(jsonb_build_object('reference',%s::text)),%s"
+            " from work.work_item w join projects.project p"
+            " on p.realm_id=w.realm_id and p.id=w.project_id"
+            " where w.realm_id=%s and w.id=%s",
+            (
+                memory_candidate_id,
+                f"causal-checkpoint:{completed.checkpoint_id}",
+                f"db:work.checkpoint_v2/{completed.checkpoint_id}",
+                now,
+                realm.id,
+                work.id,
+            ),
+        )
+        cursor.execute(
+            "select source_node_id,target_node_id,kind from ops.causal_edge where "
+            "(source_node_id=%s and target_node_id=%s) or "
+            "(source_node_id=%s and target_node_id=%s) or "
+            "(source_node_id=%s and target_node_id=%s)",
+            (
+                f"effect-receipt:{receipt_two}",
+                f"agent-result:{verifier_invocation}",
+                f"agent-result:{verifier_invocation}",
+                f"checkpoint:{completed.checkpoint_id}",
+                f"checkpoint:{completed.checkpoint_id}",
+                f"memory-candidate:{memory_candidate_id}",
+            ),
+        )
+        causal_edges = set(cursor.fetchall())
+        cursor.execute(
+            "select evidence,evidence->0->>'reference' from memory.candidate where id=%s",
+            (memory_candidate_id,),
+        )
+        stored_evidence = cursor.fetchone()
+        assert stored_evidence[1] == f"db:work.checkpoint_v2/{completed.checkpoint_id}"
+        assert causal_edges == {
+            (
+                f"effect-receipt:{receipt_two}",
+                f"agent-result:{verifier_invocation}",
+                "verified-step-effect",
+            ),
+            (
+                f"agent-result:{verifier_invocation}",
+                f"checkpoint:{completed.checkpoint_id}",
+                "verified-checkpoint-step",
+            ),
+            (
+                f"checkpoint:{completed.checkpoint_id}",
+                f"memory-candidate:{memory_candidate_id}",
+                "evidenced-memory-candidate",
+            ),
+        }
     connection.commit()
 
 

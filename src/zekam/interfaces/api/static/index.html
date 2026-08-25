@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#07100f">
   <title>Zekam — Neuro Observatory</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=11">
+  <link rel="stylesheet" href="/assets/styles.css?v=12">
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true">
@@ -192,6 +192,18 @@
         </div>
         <div id="event-list" class="event-list" aria-live="polite"></div>
       </article>
+      <section class="causal-panel panel-edge" aria-labelledby="causal-title">
+        <div class="panel-title-row">
+          <div>
+            <p class="eyebrow">KANONIK KORELASYON</p>
+            <h3 id="causal-title">Nedensellik Zinciri</h3>
+          </div>
+          <span id="orphan-count" class="counter-pill">0 bosluk</span>
+        </div>
+        <p id="causal-summary" class="causal-summary">Canli realm baglantisi bekleniyor.</p>
+        <div id="causal-chain-list" class="causal-chain-list" aria-live="polite"></div>
+        <div id="orphan-list" class="orphan-list" aria-live="polite"></div>
+      </section>
       <div class="agent-contract">
         <p class="eyebrow">GERÇEKLİK SIRASI</p>
         <ol>
@@ -205,6 +217,6 @@
   </div>
 
   <noscript>Bu gözlem arayüzü Canvas grafiği ve canlı SSE akışı için JavaScript gerektirir.</noscript>
-  <script src="/assets/app.js?v=11" defer></script>
+  <script src="/assets/app.js?v=12" defer></script>
 </body>
 </html>

@@ -136,6 +136,8 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         requires_apply_flag=True,
     ),
     CommandContract("report today", "Gunun raporunu okur", mutating=False),
+    CommandContract("report causal-chain", "Isin kanonik nedensellik zincirini okur", False),
+    CommandContract("report orphaned-state", "Gecikmis yapisal kanit bosluklarini okur", False),
     CommandContract("backup verify", "Yedek butunlugunu dogrular", mutating=False),
     CommandContract("ui serve", "Salt okunur Neuro Observatory arayuzunu baslatir", mutating=False),
     CommandContract("worker settings", "Worker sinirlarini gosterir", mutating=False),
@@ -382,6 +384,140 @@ class DerivedGraph:
     @property
     def graph_digest(self) -> str:
         return digest(self.as_dict())
+
+
+@dataclass(frozen=True, slots=True)
+class CausalNode:
+    """Sanitized canonical identity in an end-to-end correlation chain."""
+
+    node_id: str
+    kind: str
+    state: str
+    occurred_at: dt.datetime
+    canonical_ref: str
+    work_item_id: str | None = None
+    job_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not all(value.strip() for value in (self.node_id, self.kind, self.state)):
+            raise ValidationFailed("causal dugum kimligi/turu/durumu bos olamaz")
+        if self.occurred_at.tzinfo is None:
+            raise ValidationFailed("causal dugum zamani timezone-aware olmali")
+        if not self.canonical_ref.startswith("db:"):
+            raise ValidationFailed("causal dugum kanonik DB referansi ister")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "kind": self.kind,
+            "state": self.state,
+            "occurred_at": self.occurred_at.isoformat(),
+            "canonical_ref": self.canonical_ref,
+            "work_item_id": self.work_item_id,
+            "job_id": self.job_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CausalEdge:
+    source_node_id: str
+    target_node_id: str
+    kind: str
+
+    def __post_init__(self) -> None:
+        if self.source_node_id == self.target_node_id:
+            raise ValidationFailed("causal kenar kendine baglanamaz")
+        values = (self.source_node_id, self.target_node_id, self.kind)
+        if not all(value.strip() for value in values):
+            raise ValidationFailed("causal kenar kimlikleri bos olamaz")
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "source_node_id": self.source_node_id,
+            "target_node_id": self.target_node_id,
+            "kind": self.kind,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CausalOrphan:
+    """A delayed structural evidence gap, never an authority decision."""
+
+    orphan_kind: str
+    severity: str
+    node_id: str
+    canonical_ref: str
+    observed_at: dt.datetime
+    reason: str
+    work_item_id: str | None = None
+    job_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.severity not in {"medium", "high", "critical"}:
+            raise ValidationFailed("orphan severity taninmiyor")
+        if self.observed_at.tzinfo is None:
+            raise ValidationFailed("orphan zamani timezone-aware olmali")
+        if not self.canonical_ref.startswith("db:"):
+            raise ValidationFailed("orphan kanonik DB referansi ister")
+        if not all(value.strip() for value in (self.orphan_kind, self.node_id, self.reason)):
+            raise ValidationFailed("orphan turu/dugumu/nedeni bos olamaz")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "orphan_kind": self.orphan_kind,
+            "severity": self.severity,
+            "node_id": self.node_id,
+            "canonical_ref": self.canonical_ref,
+            "observed_at": self.observed_at.isoformat(),
+            "reason": self.reason,
+            "work_item_id": self.work_item_id,
+            "job_id": self.job_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CausalProjection:
+    """Bounded, reproducible causal graph and orphan projection."""
+
+    nodes: tuple[CausalNode, ...] = ()
+    edges: tuple[CausalEdge, ...] = ()
+    orphans: tuple[CausalOrphan, ...] = ()
+    source_digest: str = field(default_factory=lambda: digest({"causal": "empty"}))
+    available: bool = False
+    detail: str = "causal-not-configured"
+    truncated: bool = False
+    derived: bool = True
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.derived or self.grants_authority:
+            raise PolicyViolation("causal projection derived ve authoritysiz olmali")
+        parse_digest(self.source_digest)
+        if len(self.nodes) > 256 or len(self.edges) > 512 or len(self.orphans) > 128:
+            raise ValidationFailed("causal projection bounded siniri asti")
+        known = {node.node_id for node in self.nodes}
+        if len(known) != len(self.nodes):
+            raise ValidationFailed("causal dugum kimligi tekrar edemez")
+        unknown_edge = any(
+            edge.source_node_id not in known or edge.target_node_id not in known
+            for edge in self.edges
+        )
+        if unknown_edge:
+            raise ValidationFailed("causal kenar bilinmeyen dugume isaret ediyor")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-causal-projection/v1",
+            "nodes": [item.as_dict() for item in self.nodes],
+            "edges": [item.as_dict() for item in self.edges],
+            "orphans": [item.as_dict() for item in self.orphans],
+            "source_digest": self.source_digest,
+            "available": self.available,
+            "detail": self.detail,
+            "truncated": self.truncated,
+            "derived": True,
+            "grants_authority": False,
+        }
 
 
 @dataclass(frozen=True, slots=True)

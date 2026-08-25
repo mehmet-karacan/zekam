@@ -63,6 +63,13 @@ def test_unsafe_heading_falls_back_to_filename_and_body_is_not_exposed(tmp_path:
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert document["graph"]["derived"] is True
+    assert document["schema"] == "zekam-observatory-snapshot/v2"
+    assert document["causal"]["schema"] == "zekam-causal-projection/v1"
+    assert document["causal"]["grants_authority"] is False
+    schema_path = Path("schemas/observatory_snapshot.schema.json")
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert set(schema["required"]) <= set(document)
+    assert set(schema["properties"]["causal"]["required"]) <= set(document["causal"])
 
 
 def test_unconfigured_runtime_keeps_six_required_tiles(tmp_path: Path) -> None:

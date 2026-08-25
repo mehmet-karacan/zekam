@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from psycopg.errors import InvalidParameterValue
 
 from zekam.application.config import DatabaseSettings
 from zekam.domain.errors import ConfigurationError, ValidationFailed
@@ -214,3 +215,23 @@ def test_ledger_records_checksum_and_duration(blank_database: DatabaseSettings) 
         assert name == available[version].name
         assert duration_ms >= 0
         assert applied_by
+
+
+def test_causal_observability_objects_are_read_only_and_bounded(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select relname,reloptions from pg_class c "
+                "join pg_namespace n on n.oid=c.relnamespace "
+                "where n.nspname='ops' and relname in ('causal_node','causal_edge','causal_orphan')"
+            )
+            views = {row[0]: row[1] or [] for row in cursor.fetchall()}
+            cursor.execute("select count(*) from ops.causal_chain(gen_random_uuid(),256)")
+            assert cursor.fetchone() == (0,)
+            with pytest.raises(InvalidParameterValue):
+                cursor.execute("select count(*) from ops.causal_chain(gen_random_uuid(),513)")
+    assert set(views) == {"causal_node", "causal_edge", "causal_orphan"}
+    assert all("security_invoker=true" in options for options in views.values())

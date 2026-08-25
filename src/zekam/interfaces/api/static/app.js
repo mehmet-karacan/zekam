@@ -295,6 +295,49 @@
     `).join("");
   }
 
+  function renderCausal(causal) {
+    const projection = causal || {};
+    const nodes = projection.nodes || [];
+    const edges = projection.edges || [];
+    const orphans = projection.orphans || [];
+    const list = document.getElementById("orphan-list");
+    const chain = document.getElementById("causal-chain-list");
+    document.getElementById("orphan-count").textContent = `${orphans.length} bosluk`;
+    document.getElementById("causal-summary").textContent = projection.available
+      ? `${nodes.length} kanonik kayit · ${edges.length} exact bag · ${projection.truncated ? "sinirli gorunum" : "tam gorunum"}`
+      : `Dogrulanamadi · ${projection.detail || "canli realm yok"}`;
+    const latestWork = nodes.find((item) => item.work_item_id)?.work_item_id;
+    const nodeMap = new Map(nodes.map((item) => [item.node_id, item]));
+    const chainEdges = edges.filter((edge) => {
+      const source = nodeMap.get(edge.source_node_id);
+      const target = nodeMap.get(edge.target_node_id);
+      return source && target && source.work_item_id === latestWork && target.work_item_id === latestWork;
+    }).slice(0, 12);
+    chain.innerHTML = chainEdges.length
+      ? chainEdges.map((edge) => {
+          const source = nodeMap.get(edge.source_node_id);
+          const target = nodeMap.get(edge.target_node_id);
+          return `
+          <div class="causal-step" data-source="${escapeHtml(edge.source_node_id)}" data-target="${escapeHtml(edge.target_node_id)}">
+            <div><strong>${escapeHtml(source.kind)} · ${escapeHtml(source.node_id.slice(-12))}</strong><small>${fmtTime(source.occurred_at)} · ${escapeHtml(source.state)}</small></div>
+            <span class="causal-direction">→ ${escapeHtml(edge.kind)} →</span>
+            <div><strong>${escapeHtml(target.kind)} · ${escapeHtml(target.node_id.slice(-12))}</strong><small>${fmtTime(target.occurred_at)} · ${escapeHtml(target.state)}</small></div>
+          </div>
+        `;
+        }).join("")
+      : '<div class="causal-clear">Kanonik korelasyon zinciri yok.</div>';
+    if (!orphans.length) {
+      list.innerHTML = '<div class="causal-clear">Gecikme esigini asan yapisal kanit boslugu yok.</div>';
+      return;
+    }
+    list.innerHTML = orphans.slice(0, 12).map((item) => `
+      <article class="orphan-row severity-${escapeHtml(item.severity)}">
+        <div><strong>${escapeHtml(item.orphan_kind)}</strong><small>${escapeHtml(item.reason)}</small></div>
+        <span>${escapeHtml(item.severity)}</span>
+      </article>
+    `).join("");
+  }
+
   function renderReports(reports) {
     const list = document.getElementById("report-list");
     const rows = reports || [];
@@ -415,7 +458,7 @@
   }
 
   function applySnapshot(snapshot) {
-    if (!snapshot || snapshot.schema !== "zekam-observatory-snapshot/v1") return;
+    if (!snapshot || snapshot.schema !== "zekam-observatory-snapshot/v2") return;
     state.snapshot = snapshot;
     document.body.classList.toggle("live-network-mode", state.liveMode);
     const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
@@ -477,6 +520,7 @@
     renderClients(snapshot.agents || [], snapshot.events || []);
     renderAgents(snapshot.agents || []);
     renderEvents(snapshot.events || []);
+    renderCausal(snapshot.causal);
     renderReports(snapshot.reports || []);
 
     const runtime = snapshot.runtime || {};

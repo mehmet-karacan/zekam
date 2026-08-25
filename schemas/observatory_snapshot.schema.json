@@ -15,11 +15,12 @@
     "agents",
     "events",
     "reports",
+    "causal",
     "runtime",
     "safety"
   ],
   "properties": {
-    "schema": { "const": "zekam-observatory-snapshot/v1" },
+    "schema": { "const": "zekam-observatory-snapshot/v2" },
     "generated_at": { "type": "string", "format": "date-time" },
     "projection_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "read_only": { "const": true },
@@ -145,6 +146,65 @@
           "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
           "modified_at": { "type": "string", "format": "date-time" },
           "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        }
+      }
+    },
+    "causal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "nodes", "edges", "orphans", "source_digest", "available", "detail", "truncated", "derived", "grants_authority"],
+      "properties": {
+        "schema": { "const": "zekam-causal-projection/v1" },
+        "source_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "available": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "truncated": { "type": "boolean" },
+        "derived": { "const": true },
+        "grants_authority": { "const": false },
+        "nodes": {
+          "type": "array", "maxItems": 256,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["node_id", "kind", "state", "occurred_at", "canonical_ref", "work_item_id", "job_id"],
+            "properties": {
+              "node_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "state": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "occurred_at": { "type": "string", "format": "date-time" },
+              "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "work_item_id": { "type": ["string", "null"] },
+              "job_id": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "edges": {
+          "type": "array", "maxItems": 512,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["source_node_id", "target_node_id", "kind"],
+            "properties": {
+              "source_node_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "target_node_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 128 }
+            }
+          }
+        },
+        "orphans": {
+          "type": "array", "maxItems": 128,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["orphan_kind", "severity", "node_id", "canonical_ref", "observed_at", "reason", "work_item_id", "job_id"],
+            "properties": {
+              "orphan_kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "severity": { "enum": ["medium", "high", "critical"] },
+              "node_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "observed_at": { "type": "string", "format": "date-time" },
+              "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "work_item_id": { "type": ["string", "null"] },
+              "job_id": { "type": ["string", "null"] }
+            }
+          }
         }
       }
     },

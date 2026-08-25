@@ -23,6 +23,7 @@ from zekam.application.opencode_lifecycle import recent_events, resume_projectio
 from zekam.domain.canonical import digest
 from zekam.domain.observability import (
     REQUIRED_TILES,
+    CausalProjection,
     DerivedGraph,
     GraphEdge,
     GraphNode,
@@ -30,7 +31,7 @@ from zekam.domain.observability import (
     ProjectionTile,
 )
 
-SNAPSHOT_SCHEMA = "zekam-observatory-snapshot/v1"
+SNAPSHOT_SCHEMA = "zekam-observatory-snapshot/v2"
 MAX_MARKDOWN_BYTES = 64 * 1024
 MAX_DOCUMENT_NODES = 180
 MAX_DOCUMENT_EDGES = 360
@@ -172,6 +173,7 @@ class RuntimeProjection:
     edges: tuple[GraphEdge, ...] = field(default_factory=tuple)
     agents: tuple[ObservatoryAgent, ...] = field(default_factory=tuple)
     events: tuple[ObservatoryEvent, ...] = field(default_factory=tuple)
+    causal: CausalProjection = field(default_factory=CausalProjection)
     source_digest: str = field(default_factory=lambda: digest({"runtime": "empty"}))
     available: bool = False
     detail: str = "runtime-not-configured"
@@ -460,6 +462,7 @@ class ObservatorySnapshot:
     agents: tuple[ObservatoryAgent, ...]
     events: tuple[ObservatoryEvent, ...]
     reports: tuple[ObservatoryReport, ...]
+    causal: CausalProjection
     runtime_available: bool
     runtime_detail: str
     read_only: bool = True
@@ -482,6 +485,7 @@ class ObservatorySnapshot:
             "agents": [item.as_dict() for item in self.agents],
             "events": [item.as_dict() for item in self.events],
             "reports": [item.as_dict() for item in self.reports],
+            "causal": self.causal.as_dict(),
             "runtime": {
                 "available": self.runtime_available,
                 "detail": self.runtime_detail,
@@ -582,6 +586,7 @@ class ObservatoryService:
                 )[:MAX_EVENTS]
             ),
             reports=repository.reports[:MAX_REPORTS],
+            causal=runtime.causal,
             runtime_available=runtime.available,
             runtime_detail=runtime.detail,
         )

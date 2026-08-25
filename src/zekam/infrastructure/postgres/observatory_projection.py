@@ -16,7 +16,16 @@ from zekam.application.observatory import (
     runtime_projection_digest,
     sanitize_observatory_label,
 )
-from zekam.domain.observability import GraphEdge, GraphNode, ProjectionTile
+from zekam.domain.canonical import digest
+from zekam.domain.observability import (
+    CausalEdge,
+    CausalNode,
+    CausalOrphan,
+    CausalProjection,
+    GraphEdge,
+    GraphNode,
+    ProjectionTile,
+)
 from zekam.infrastructure.postgres.connection import session
 
 _WORK_LIMIT = 48
@@ -27,6 +36,9 @@ _MEMORY_LIMIT = 24
 _SCHEDULER_LIMIT = 16
 _EVENT_LIMIT = 80
 _AGENT_LIMIT = 32
+_CAUSAL_NODE_LIMIT = 256
+_CAUSAL_EDGE_LIMIT = 512
+_ORPHAN_LIMIT = 128
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +60,7 @@ class PostgresObservatoryProjectionReader:
             nodes, edges = self._graph(connection)
             agents = self._agents(connection)
             events = self._events(connection)
+            causal = self._causal(connection)
 
         material = {
             "realm_id": str(self.realm_id),
@@ -56,6 +69,7 @@ class PostgresObservatoryProjectionReader:
             "edges": [item.as_dict() for item in edges],
             "agents": [item.as_dict() for item in agents],
             "events": [item.as_dict() for item in events],
+            "causal": causal.as_dict(),
         }
         return RuntimeProjection(
             generated_at=generated_at,
@@ -64,6 +78,7 @@ class PostgresObservatoryProjectionReader:
             edges=edges,
             agents=agents,
             events=events,
+            causal=causal,
             source_digest=runtime_projection_digest(material),
             available=True,
             detail="postgresql-realm-projection",
@@ -456,6 +471,88 @@ class PostgresObservatoryProjectionReader:
         )
         events.sort(key=lambda item: item.occurred_at, reverse=True)
         return tuple(events[:_EVENT_LIMIT])
+
+    def _causal(self, connection: Any) -> CausalProjection:
+        """Read a bounded FK-derived chain and delayed evidence gaps."""
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select node_id,kind,state,occurred_at,canonical_ref,work_item_id,job_id "
+                "from ops.causal_node order by occurred_at desc,node_id limit %s",
+                (_CAUSAL_NODE_LIMIT,),
+            )
+            node_rows = cursor.fetchall()
+            selected_node_ids = [str(row[0]) for row in node_rows]
+            if selected_node_ids:
+                cursor.execute(
+                    "select source_node_id,target_node_id,kind from ops.causal_edge "
+                    "where source_node_id=any(%s::text[]) and target_node_id=any(%s::text[]) "
+                    "order by source_node_id,target_node_id,kind limit %s",
+                    (selected_node_ids, selected_node_ids, _CAUSAL_EDGE_LIMIT),
+                )
+                edge_rows = cursor.fetchall()
+            else:
+                edge_rows = []
+            cursor.execute(
+                "select orphan_kind,severity,node_id,canonical_ref,work_item_id,job_id,"
+                "observed_at,reason from ops.causal_orphan "
+                "order by case severity when 'critical' then 0 when 'high' then 1 else 2 end,"
+                "observed_at limit %s",
+                (_ORPHAN_LIMIT,),
+            )
+            orphan_rows = cursor.fetchall()
+
+        nodes = tuple(
+            CausalNode(
+                node_id=str(row[0]),
+                kind=str(row[1]),
+                state=str(row[2]),
+                occurred_at=_required_datetime(row[3]),
+                canonical_ref=str(row[4]),
+                work_item_id=None if row[5] is None else str(row[5]),
+                job_id=None if row[6] is None else str(row[6]),
+            )
+            for row in node_rows
+        )
+        known = {item.node_id for item in nodes}
+        edges = tuple(
+            CausalEdge(str(row[0]), str(row[1]), str(row[2]))
+            for row in edge_rows
+            if str(row[0]) in known and str(row[1]) in known
+        )
+        orphans = tuple(
+            CausalOrphan(
+                orphan_kind=str(row[0]),
+                severity=str(row[1]),
+                node_id=str(row[2]),
+                canonical_ref=str(row[3]),
+                work_item_id=None if row[4] is None else str(row[4]),
+                job_id=None if row[5] is None else str(row[5]),
+                observed_at=_required_datetime(row[6]),
+                reason=str(row[7]),
+            )
+            for row in orphan_rows
+        )
+        material = {
+            "nodes": [item.as_dict() for item in nodes],
+            "edges": [item.as_dict() for item in edges],
+            "orphans": [item.as_dict() for item in orphans],
+        }
+        return CausalProjection(
+            nodes=nodes,
+            edges=edges,
+            orphans=orphans,
+            source_digest=digest(material),
+            available=True,
+            detail=(
+                "postgresql-canonical-correlation-truncated"
+                if len(node_rows) == _CAUSAL_NODE_LIMIT or len(edge_rows) == _CAUSAL_EDGE_LIMIT
+                else "postgresql-canonical-correlation"
+            ),
+            truncated=(
+                len(node_rows) == _CAUSAL_NODE_LIMIT or len(edge_rows) == _CAUSAL_EDGE_LIMIT
+            ),
+        )
 
 
 def _bounded_label(value: str, limit: int = 96) -> str:

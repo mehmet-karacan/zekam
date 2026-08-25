@@ -47,6 +47,13 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert "Math.sqrt((index + 1) / rows.length) * clusterRadius" in script
     assert "|| left.node_id.localeCompare(right.node_id)" in script
     assert "rail-event-panel" in index
+    assert "causal-title" in index
+    assert "function renderCausal(causal)" in script
+    assert "snapshot.causal" in script
+    assert "edge.source_node_id" in script
+    assert "edge.target_node_id" in script
+    assert "causal-direction" in script
+    assert "fmtTime(source.occurred_at)" in script
     assert "agent-pulse-panel" in index
     assert index.index("agent-pulse-panel") < index.index("rail-event-panel")
     assert 'kind: "tool"' in script
@@ -66,6 +73,7 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert 'window.matchMedia("(max-width: 1000px)").matches' in script
     assert "panelGeometryObserver.observe(brainStage)" in script
     assert "height: var(--primary-panel-height, 100vh)" in style
+    assert "overflow-y: auto" in style
     assert "margin-top: var(--primary-panel-offset, 0)" in style
     assert ".agent-rail { position: relative; top: auto;" in style
     assert ".agent-rail { position: relative; width: 100%; height: auto; margin-top: 0;" in style
@@ -99,12 +107,12 @@ def test_observatory_assets_are_packaged_and_self_contained() -> None:
     assert ".client-grid { grid-template-columns: repeat(3" in style
     assert "@media (max-width: 1000px)" in style
     assert ".client-grid, .agent-list { grid-template-columns: 1fr; }" in style
-    assert "zekam-observatory-snapshot/v1" in script
+    assert "zekam-observatory-snapshot/v2" in script
     assert "@media (prefers-reduced-motion: reduce)" in style
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=11" in index
-    assert "/assets/app.js?v=11" in index
+    assert "/assets/styles.css?v=12" in index
+    assert "/assets/app.js?v=12" in index
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:

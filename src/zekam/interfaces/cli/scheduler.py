@@ -213,3 +213,133 @@ def today_command(
         for line in section.get("lines") or ["kayit yok"]:
             console.print(f"- {line}")
         console.print("")
+
+
+def _causal_chain_rows(connection: Any, work_ref: str) -> tuple[str, list[dict[str, Any]], bool]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select id::text from work.work_item where id::text=%s or external_number=%s "
+            "order by id limit 2",
+            (work_ref, work_ref),
+        )
+        matches = cursor.fetchall()
+        if len(matches) != 1:
+            reason = "bulunamadi" if not matches else "belirsiz"
+            raise ZekamError(f"work referansi {reason}: {work_ref}")
+        work_id = str(matches[0][0])
+        cursor.execute(
+            "select record_type,node_id,source_node_id,target_node_id,kind,state,"
+            "occurred_at,canonical_ref,truncated from ops.causal_chain(%s::uuid,256)",
+            (work_id,),
+        )
+        query_rows = cursor.fetchall()
+        rows = [
+            {
+                "record_type": str(row[0]),
+                "node_id": None if row[1] is None else str(row[1]),
+                "source_node_id": None if row[2] is None else str(row[2]),
+                "target_node_id": None if row[3] is None else str(row[3]),
+                "kind": str(row[4]),
+                "state": None if row[5] is None else str(row[5]),
+                "occurred_at": None if row[6] is None else row[6].isoformat(),
+                "canonical_ref": None if row[7] is None else str(row[7]),
+            }
+            for row in query_rows
+        ]
+        truncated = any(bool(row[8]) for row in query_rows)
+    return work_id, rows, truncated
+
+
+def _orphan_rows(connection: Any) -> list[dict[str, Any]]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select orphan_kind,severity,node_id,canonical_ref,work_item_id,job_id,"
+            "observed_at,reason from ops.causal_orphan "
+            "order by case severity when 'critical' then 0 when 'high' then 1 else 2 end,"
+            "observed_at limit 256"
+        )
+        return [
+            {
+                "orphan_kind": str(row[0]),
+                "severity": str(row[1]),
+                "node_id": str(row[2]),
+                "canonical_ref": str(row[3]),
+                "work_item_id": None if row[4] is None else str(row[4]),
+                "job_id": None if row[5] is None else str(row[5]),
+                "observed_at": row[6].isoformat(),
+                "reason": str(row[7]),
+            }
+            for row in cursor.fetchall()
+        ]
+
+
+@report_app.command("causal-chain")
+def causal_chain_command(
+    work: Annotated[str, typer.Option("--work", help="Work UUID veya external number")],
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Bir isin kanonik, salt okunur nedensellik zincirini gosterir."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            work_id, rows, truncated = _causal_chain_rows(realm_context.connection, work)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    document = {
+        "schema": "zekam-causal-chain-report/v1",
+        "work_item_id": work_id,
+        "records": rows,
+        "truncated": truncated,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+        return
+    table = Table(title=f"Causal chain · {work_id}")
+    table.add_column("Tur")
+    table.add_column("Kaynak / Dugum")
+    table.add_column("Bag / Durum")
+    table.add_column("Hedef / Zaman")
+    for row in rows:
+        table.add_row(
+            row["record_type"],
+            row["node_id"] or row["source_node_id"] or "-",
+            row["kind"] if row["state"] is None else f"{row['kind']} · {row['state']}",
+            row["target_node_id"] or row["occurred_at"] or "-",
+        )
+    console.print(table)
+
+
+@report_app.command("orphaned-state")
+def orphaned_state_command(
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Gecikme esigini asmis yapisal kanit bosluklarini gosterir."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            rows = _orphan_rows(realm_context.connection)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    document = {
+        "schema": "zekam-orphaned-state-report/v1",
+        "orphans": rows,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+        return
+    table = Table(title=f"Orphaned state · {len(rows)}")
+    table.add_column("Seviye")
+    table.add_column("Tur")
+    table.add_column("Dugum")
+    table.add_column("Neden")
+    for row in rows:
+        table.add_row(row["severity"], row["orphan_kind"], row["node_id"], row["reason"])
+    console.print(table)

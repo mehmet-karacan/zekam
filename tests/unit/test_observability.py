@@ -11,6 +11,10 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.observability import (
     CANONICAL_COMMANDS,
     REQUIRED_TILES,
+    CausalEdge,
+    CausalNode,
+    CausalOrphan,
+    CausalProjection,
     CommandContract,
     DerivedGraph,
     GraphEdge,
@@ -233,6 +237,43 @@ def test_dugum_kanonik_referans_ister() -> None:
 def test_kenar_kendine_baglanamaz() -> None:
     with pytest.raises(ValidationFailed):
         GraphEdge("w1", "w1", "self")
+
+
+def test_causal_projection_bounded_authoritysiz_ve_exact_baglidir() -> None:
+    nodes = (
+        CausalNode("work:w1", "work", "active", NOW, "db:work.work_item/w1", "w1"),
+        CausalNode("job:j1", "job", "running", NOW, "db:runtime.job/j1", "w1", "j1"),
+    )
+    orphan = CausalOrphan(
+        "running-job-without-live-lease",
+        "critical",
+        "job:j1",
+        "db:runtime.job/j1",
+        NOW,
+        "running job has no unexpired exact-fence lease",
+        "w1",
+        "j1",
+    )
+    projection = CausalProjection(
+        nodes=nodes,
+        edges=(CausalEdge("work:w1", "job:j1", "scheduled-job"),),
+        orphans=(orphan,),
+        source_digest=digest("causal"),
+        available=True,
+        detail="canonical",
+    )
+    assert projection.as_dict()["grants_authority"] is False
+    assert projection.as_dict()["orphans"][0]["severity"] == "critical"
+    with pytest.raises(ValidationFailed, match="bilinmeyen"):
+        CausalProjection(
+            nodes=nodes,
+            edges=(CausalEdge("work:w1", "receipt:r1", "receipt"),),
+            source_digest=digest("invalid"),
+        )
+    with pytest.raises(PolicyViolation):
+        CausalProjection(source_digest=digest("authority"), grants_authority=True)
+    with pytest.raises(ValidationFailed, match="tekrar"):
+        CausalProjection(nodes=(nodes[0], nodes[0]), source_digest=digest("duplicate"))
 
 
 # -- T03: MCP -----------------------------------------------------------------
