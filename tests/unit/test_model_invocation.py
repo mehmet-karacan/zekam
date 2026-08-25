@@ -31,6 +31,7 @@ class _GatewayRepository:
         self.envelope_asserted = False
         self.fragment_set_asserted = False
         self.tool_set_asserted = False
+        self.attempt_values: dict[str, object] | None = None
         self.compiled_tools = CompiledToolSet.create(
             realm_id=uuid4(),
             role="builder",
@@ -85,6 +86,7 @@ class _GatewayRepository:
         }
 
     def record_attempt(self, **values: object) -> object:
+        self.attempt_values = values
         return uuid4()
 
     def record_result(self, **values: object) -> object:
@@ -187,6 +189,7 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
         model_visible_payload_digest=call.payload_digest,
     )
 
+    loop_attempt_id = uuid4()
     with pytest.raises(RuntimeError, match="transport failed"):
         gateway.invoke(
             item,
@@ -194,8 +197,11 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
             authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
             call=call,
             effect=lambda _permit: (_ for _ in ()).throw(RuntimeError("transport failed")),
+            loop_attempt_id=loop_attempt_id,
         )
 
+    assert repository.attempt_values is not None
+    assert repository.attempt_values["loop_attempt_id"] == loop_attempt_id
     assert repository.result is not None
     assert repository.result["state"] == "reconciliation-required"
     assert repository.result["failure_digest"] == digest({"category": "RuntimeError"})

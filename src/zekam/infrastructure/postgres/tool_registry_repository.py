@@ -27,6 +27,13 @@ class ToolRegistryRepository:
     connection: Any
     realm_id: UUID
 
+    def bind_loop_dispatch(self, attempt_id: UUID, dispatch_id: UUID) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select runtime.bind_loop_dispatch(%s,'tool',%s)",
+                (attempt_id, dispatch_id),
+            )
+
     def store_spec(self, item: ToolSpecRevision) -> tuple[UUID, bool]:
         self._realm(item.realm_id)
         item.assert_digest()

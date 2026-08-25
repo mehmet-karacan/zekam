@@ -78,6 +78,7 @@ class Store:
     def __init__(self, values):  # type: ignore[no-untyped-def]
         self.values = values
         self.gates: list[str] = []
+        self.loop_bindings: list[tuple[object, object]] = []
 
     @contextmanager
     def locked_dispatch_bundle(self, *_):  # type: ignore[no-untyped-def]
@@ -86,6 +87,9 @@ class Store:
     def record_dispatch_gate(self, _binding, *, disposition, checked_at):  # type: ignore[no-untyped-def]
         assert checked_at.tzinfo is not None
         self.gates.append(disposition)
+
+    def bind_loop_dispatch(self, attempt_id, dispatch_id):  # type: ignore[no-untyped-def]
+        self.loop_bindings.append((attempt_id, dispatch_id))
 
 
 class Adapter:
@@ -110,6 +114,21 @@ def test_exact_spec_runtime_binding_dispatches_with_unforgeable_permit() -> None
     assert ToolDispatchService(store).dispatch(binding, adapter, now=now) == "ok"  # type: ignore[arg-type]
     assert store.gates == ["passed"]
     assert adapter.calls == 1
+
+
+def test_tool_loop_binding_is_persisted_before_gate_and_effect() -> None:
+    now, compiled, spec, runtime, binding = bundle()
+    store = Store((compiled, spec, runtime))
+    adapter = Adapter((binding.tool_id, binding.revision, binding.runtime_digest))
+    attempt_id = uuid4()
+    assert (
+        ToolDispatchService(store).dispatch(  # type: ignore[arg-type]
+            binding, adapter, now=now, loop_attempt_id=attempt_id
+        )
+        == "ok"
+    )
+    assert store.loop_bindings == [(attempt_id, binding.effect_claim_id)]
+    assert store.gates == ["passed"]
 
 
 @pytest.mark.parametrize("drift", ("spec", "runtime", "revision", "set"))

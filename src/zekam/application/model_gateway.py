@@ -213,6 +213,7 @@ class ModelGateway:
         authorization: Authorization,
         call: ProviderCall | MultipartProviderCall,
         effect: Callable[[GatewayInvocationPermit], ProviderCallResult],
+        loop_attempt_id: UUID | None = None,
     ) -> tuple[UUID, ProviderCallResult]:
         if manifest.payload_digest != call.payload_digest:
             raise PolicyViolation("Model gateway manifest payload digest mismatch")
@@ -250,6 +251,7 @@ class ModelGateway:
             manifest_id=manifest.id,
             effect_claim_id=claim_id,
             authorization_id=authorization.id,
+            loop_attempt_id=loop_attempt_id,
         )
         permit = _issue_gateway_permit(manifest, attempt_id=ledger_attempt_id, claim_id=claim_id)
         try:

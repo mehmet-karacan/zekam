@@ -6,6 +6,7 @@ import datetime as dt
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
+from uuid import UUID
 
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.tool_registry import (
@@ -34,6 +35,8 @@ class ToolRegistryStore(Protocol):
         checked_at: dt.datetime,
     ) -> None: ...
 
+    def bind_loop_dispatch(self, attempt_id: UUID, dispatch_id: UUID) -> None: ...
+
 
 class ToolRuntimeAdapter(Protocol[ResultT]):
     def runtime_binding(self) -> tuple[str, int, str]: ...
@@ -51,6 +54,7 @@ class ToolDispatchService:
         adapter: ToolRuntimeAdapter[ResultT],
         *,
         now: dt.datetime | None = None,
+        loop_attempt_id: UUID | None = None,
     ) -> ResultT:
         moment = now or dt.datetime.now(dt.UTC)
         with self.repository.locked_dispatch_bundle(binding) as (compiled, spec, runtime):
@@ -61,6 +65,8 @@ class ToolDispatchService:
                 binding.runtime_digest,
             ):
                 raise PolicyViolation("Executable adapter runtime revision mismatch")
+            if loop_attempt_id is not None:
+                self.repository.bind_loop_dispatch(loop_attempt_id, binding.effect_claim_id)
             self.repository.record_dispatch_gate(binding, disposition="passed", checked_at=moment)
             permit = _issue_tool_execution_permit(binding)
             return adapter.execute(binding, permit=permit)

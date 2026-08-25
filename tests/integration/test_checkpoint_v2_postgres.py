@@ -227,6 +227,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
         attempt_id,
     ) = (uuid4() for _ in range(14))
     lease_id = uuid4()
+    colliding_verifier_id = uuid4()
     route_digest = digest("route")
     result_digest = digest("result")
     claim_one, claim_two, receipt_one, receipt_two = (uuid4() for _ in range(4))
@@ -269,6 +270,14 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
                 "verifier",
                 "medium",
                 "independent-verifier",
+                "build",
+            ),
+            (
+                colliding_verifier_id,
+                coordinator_id,
+                "verifier",
+                "medium",
+                "independent-verifier-collision-probe",
                 "build",
             ),
         ):
@@ -910,7 +919,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
             (
                 colliding_verifier_invocation,
                 realm.id,
-                verifier_id,
+                colliding_verifier_id,
                 digest("colliding-verifier-invocation"),
                 now,
             ),
@@ -920,7 +929,7 @@ def test_checkpoint_v2_evidence_revision_and_terminal_gate(
             "(realm_id,assignment_id,invocation_id,envelope_digest) values(%s,%s,%s,%s)",
             (
                 realm.id,
-                verifier_id,
+                colliding_verifier_id,
                 colliding_verifier_invocation,
                 digest("colliding-verifier-result"),
             ),

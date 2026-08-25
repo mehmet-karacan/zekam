@@ -317,9 +317,15 @@ class ModelInvocationRepository:
         effect_claim_id: UUID,
         authorization_id: UUID,
         state: str = "sent",
+        loop_attempt_id: UUID | None = None,
     ) -> UUID:
         attempt_id = uuid4()
         with self.connection.transaction(), self.connection.cursor() as cursor:
+            if loop_attempt_id is not None:
+                cursor.execute(
+                    "select runtime.bind_loop_dispatch(%s,'model',%s)",
+                    (loop_attempt_id, attempt_id),
+                )
             cursor.execute(
                 "insert into models.invocation_attempt"
                 " (id,realm_id,manifest_id,ordinal,effect_claim_id,authorization_id,state)"

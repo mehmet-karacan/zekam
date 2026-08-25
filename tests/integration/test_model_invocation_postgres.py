@@ -206,6 +206,32 @@ def test_manifest_idempotency_append_only_and_default_audit(invocation_scope) ->
         )
 
 
+def test_repeated_semantic_model_attempt_loop_admission_olmadan_reddedilir(
+    invocation_scope,
+) -> None:  # type: ignore[no-untyped-def]
+    realm, connection, *_ = invocation_scope
+    repository = ModelInvocationRepository(connection, realm.id)
+    first = _manifest(invocation_scope)
+    second = _manifest(invocation_scope)
+    repository.store_manifest(first)
+    repository.store_manifest(second)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "insert into models.invocation_attempt"
+            " (id,realm_id,manifest_id,ordinal,state) values(%s,%s,%s,1,'prepared')",
+            (uuid4(), realm.id, first.id),
+        )
+    with (
+        pytest.raises(Exception, match="repeated semantic model dispatch"),
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "insert into models.invocation_attempt"
+            " (id,realm_id,manifest_id,ordinal,state) values(%s,%s,%s,1,'prepared')",
+            (uuid4(), realm.id, second.id),
+        )
+
+
 def test_manifest_rejects_nonexistent_canonical_fragment_set_binding(
     invocation_scope,
 ) -> None:  # type: ignore[no-untyped-def]
