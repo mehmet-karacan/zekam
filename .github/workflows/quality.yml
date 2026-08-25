@@ -52,6 +52,7 @@ jobs:
       ZEKAM_TEST_DATABASE_NAME: zekam
       ZEKAM_TEST_DATABASE_USER: zekam
       ZEKAM_TEST_DATABASE_PASSWORD: zekam-ci-only
+      PGPASSWORD: zekam-ci-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -281,7 +281,8 @@ class CapabilityProcessWorker:
         if os.name == "nt":
             windows_job = _create_windows_job()
             kwargs["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_BREAKAWAY_FROM_JOB
+                int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP"))  # noqa: B009
+                | _CREATE_BREAKAWAY_FROM_JOB
             )
         else:
             kwargs["start_new_session"] = True
@@ -338,8 +339,11 @@ class CapabilityProcessWorker:
             process.kill()
             return
         try:
-            process_group = os.getpgid(process.pid)  # type: ignore[attr-defined]
-            os.killpg(process_group, signal.SIGKILL)  # type: ignore[attr-defined]
+            process_group = getattr(os, "getpgid")(process.pid)  # noqa: B009
+            getattr(os, "killpg")(  # noqa: B009
+                process_group,
+                getattr(signal, "SIGKILL"),  # noqa: B009
+            )
         except OSError:
             if process.poll() is None:
                 process.kill()
@@ -533,7 +537,9 @@ def _wait_for(process: subprocess.Popen[bytes], deadline: float, overflow: threa
 
 
 def _windows_kernel32() -> Any:
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = getattr(ctypes, "WinDLL")(  # noqa: B009
+        "kernel32", use_last_error=True
+    )
     kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
     kernel32.CreateJobObjectW.restype = ctypes.c_void_p
     kernel32.SetInformationJobObject.argtypes = (

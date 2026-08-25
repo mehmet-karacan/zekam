@@ -270,7 +270,11 @@ def _try_platform_lock(stream: BinaryIO) -> bool:
         import msvcrt
 
         try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            getattr(msvcrt, "locking")(  # noqa: B009
+                stream.fileno(),
+                getattr(msvcrt, "LK_NBLCK"),  # noqa: B009
+                1,
+            )
         except OSError:
             return False
         return True
@@ -279,7 +283,7 @@ def _try_platform_lock(stream: BinaryIO) -> bool:
     try:
         lock_ex = int(getattr(fcntl, "LOCK_EX"))  # noqa: B009
         lock_nb = int(getattr(fcntl, "LOCK_NB"))  # noqa: B009
-        fcntl.flock(stream.fileno(), lock_ex | lock_nb)  # type: ignore[attr-defined]
+        getattr(fcntl, "flock")(stream.fileno(), lock_ex | lock_nb)  # noqa: B009
     except OSError:
         return False
     return True
@@ -306,12 +310,16 @@ def _release_lock(stream: BinaryIO) -> None:
     if os.name == "nt":
         import msvcrt
 
-        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        getattr(msvcrt, "locking")(  # noqa: B009
+            stream.fileno(),
+            getattr(msvcrt, "LK_UNLCK"),  # noqa: B009
+            1,
+        )
     else:
         import fcntl
 
         lock_un = int(getattr(fcntl, "LOCK_UN"))  # noqa: B009
-        fcntl.flock(stream.fileno(), lock_un)  # type: ignore[attr-defined]
+        getattr(fcntl, "flock")(stream.fileno(), lock_un)  # noqa: B009
     stream.close()
 
 

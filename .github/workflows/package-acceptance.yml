@@ -246,9 +246,12 @@ jobs:
       - name: Rehearse physical backup and restore
         shell: bash
         run: |
-          pg_dump --format=custom --file=zekam.dump zekam
-          createdb zekam_restored
-          pg_restore --exit-on-error --dbname=zekam_restored zekam.dump
+          pg_client=(docker run --rm --network host \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -v "$PWD:/evidence" -w /evidence pgvector/pgvector:pg18)
+          "${pg_client[@]}" pg_dump --format=custom --file=/evidence/zekam.dump zekam
+          "${pg_client[@]}" createdb zekam_restored
+          "${pg_client[@]}" pg_restore --exit-on-error --dbname=zekam_restored /evidence/zekam.dump
           ZEKAM_DATABASE_NAME=zekam_restored python -I scripts/package_database_rehearsal.py \
             verify-restored --require-installed-wheel > restore-rehearsal.json
       - uses: actions/upload-artifact@v4

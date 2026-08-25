@@ -124,13 +124,18 @@ class WorktreeManager:
             if os.name == "nt":
                 import msvcrt
 
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                getattr(msvcrt, "locking")(  # noqa: B009
+                    stream.fileno(),
+                    getattr(msvcrt, "LK_NBLCK"),  # noqa: B009
+                    1,
+                )
             else:
                 import fcntl
 
-                fcntl.flock(  # type: ignore[attr-defined]
+                getattr(fcntl, "flock")(  # noqa: B009
                     stream.fileno(),
-                    fcntl.LOCK_EX | fcntl.LOCK_NB,  # type: ignore[attr-defined]
+                    getattr(fcntl, "LOCK_EX")  # noqa: B009
+                    | getattr(fcntl, "LOCK_NB"),  # noqa: B009
                 )
         except (OSError, ImportError) as exc:
             stream.close()
@@ -144,13 +149,17 @@ class WorktreeManager:
             if os.name == "nt":
                 import msvcrt
 
-                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                getattr(msvcrt, "locking")(  # noqa: B009
+                    stream.fileno(),
+                    getattr(msvcrt, "LK_UNLCK"),  # noqa: B009
+                    1,
+                )
             else:
                 import fcntl
 
-                fcntl.flock(  # type: ignore[attr-defined]
+                getattr(fcntl, "flock")(  # noqa: B009
                     stream.fileno(),
-                    fcntl.LOCK_UN,  # type: ignore[attr-defined]
+                    getattr(fcntl, "LOCK_UN"),  # noqa: B009
                 )
         finally:
             stream.close()

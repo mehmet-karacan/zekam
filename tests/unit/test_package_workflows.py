@@ -53,7 +53,13 @@ def test_package_acceptance_workflow_has_cross_platform_artifact_and_container_g
     assert "upgrade-rollback" in rendered
     assert "pg_dump" in rendered
     assert "pg_restore" in rendered
+    assert "pgvector/pgvector:pg18" in rendered
     assert "verify-restored" in rendered
+
+    quality = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "quality.yml").read_text(encoding="utf-8")
+    )
+    assert quality["jobs"]["postgres-acceptance"]["env"]["PGPASSWORD"]
 
 
 def test_runtime_container_installs_wheel_and_does_not_copy_source() -> None:
