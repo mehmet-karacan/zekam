@@ -200,7 +200,10 @@ def test_capability_runtime_terminal_paths_are_fully_sealed(
     configured = {
         row.model_id: row.backend_model for row in inventory.records if row.model_id is not None
     }
-    discovery = discover_campaign(verifier_provenance_digest=digest("capability-e2e"))
+    discovery = discover_campaign(
+        config_file=config,
+        verifier_provenance_digest=digest("capability-e2e"),
+    )
     text_ids = [
         row.canonical_model_id
         for row in discovery.targets
