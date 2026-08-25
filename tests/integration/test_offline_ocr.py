@@ -13,7 +13,13 @@ from zekam.infrastructure.knowledge.document_parsers import (
     _tesseract_version,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        shutil.which("tesseract") is None,
+        reason="Gercek OCR entegrasyonu icin optional Tesseract binary gerekli",
+    ),
+]
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "knowledge"
 
 

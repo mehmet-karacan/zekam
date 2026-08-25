@@ -43,6 +43,7 @@ from zekam.application.model_capability_live import (
 from zekam.application.model_registry import load_inventory
 from zekam.application.opencode_benchmark_campaign import (
     discover_campaign,
+    load_campaign_scope,
     prepare_campaign_manifest,
 )
 from zekam.domain.canonical import canonical_json, digest
@@ -222,14 +223,40 @@ def test_public_fixture_text_does_not_disclose_hidden_answer_concepts() -> None:
         assert not any(term in public_text for term in hidden_terms)
 
 
-def test_live_manifest_prepares_exact_static_168_slots() -> None:
+def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
     plan = _plan(tuple(f"model-{index}" for index in range(7)))
     _, _, fixtures = _loaded()
     # The real campaign builder/inventory mapping is exercised in campaign E2E.
     # Here a production seven-model plan is covered by the CLI integration tests;
     # arbitrary fake ids must fail closed instead of producing partial authority.
-    discovery = discover_campaign(verifier_provenance_digest=digest("test-verifier"))
-    campaign = prepare_campaign_manifest(discovery)
+    scope = load_campaign_scope()
+    config = tmp_path / "opencode.json"
+    config.write_text(
+        json.dumps(
+            {
+                "enabled_providers": [scope.provider_id],
+                "provider": {
+                    scope.provider_id: {
+                        "options": {
+                            "baseURL": "https://aihub-api.turktelekom.com.tr/v1",
+                            "apiKey": "{env:ZEKAM_TEST_AIHUB_KEY}",
+                        },
+                        "models": {
+                            target.configured_model_id: {"name": target.configured_model_id}
+                            for target in scope.targets
+                        },
+                    }
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    discovery = discover_campaign(
+        config_file=config,
+        verifier_provenance_digest=digest("test-verifier"),
+    )
+    campaign = prepare_campaign_manifest(discovery, config_file=config)
     inventory = load_inventory()
     eligible = tuple(
         target.canonical_model_id
