@@ -28,6 +28,7 @@ class AssignmentStatus(StrEnum):
     FAILED = "failed"
     BLOCKED = "blocked"
     CANCELLED = "cancelled"
+    RECOVERY_REQUIRED = "recovery-required"
 
 
 TERMINAL_ASSIGNMENT_STATUSES = frozenset(
