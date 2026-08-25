@@ -40,7 +40,7 @@ jobs:
           POSTGRES_USER: zekam
           POSTGRES_PASSWORD: zekam-ci-only
         ports:
-          - 5434:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U zekam -d zekam"
           --health-interval 5s
@@ -48,7 +48,7 @@ jobs:
           --health-retries 20
     env:
       ZEKAM_TEST_DATABASE_HOST: 127.0.0.1
-      ZEKAM_TEST_DATABASE_PORT: "5434"
+      ZEKAM_TEST_DATABASE_PORT: "5433"
       ZEKAM_TEST_DATABASE_NAME: zekam
       ZEKAM_TEST_DATABASE_USER: zekam
       ZEKAM_DATABASE_PASSWORD: zekam-ci-only

@@ -63,6 +63,13 @@ def test_package_acceptance_workflow_has_cross_platform_artifact_and_container_g
     assert postgres_env["PGPASSWORD"]
     assert postgres_env["ZEKAM_DATABASE_PASSWORD"] == postgres_env["PGPASSWORD"]
     assert "ZEKAM_TEST_DATABASE_PASSWORD" not in postgres_env
+    default_config = yaml.safe_load(
+        (ROOT / "config" / "zekam.default.yaml").read_text(encoding="utf-8")
+    )
+    canonical_port = str(default_config["database"]["port"])
+    service_ports = quality["jobs"]["postgres-acceptance"]["services"]["postgres"]["ports"]
+    assert postgres_env["ZEKAM_TEST_DATABASE_PORT"] == canonical_port
+    assert service_ports == [f"{canonical_port}:5432"]
     postgres_steps = json.dumps(quality["jobs"]["postgres-acceptance"]["steps"])
     assert "zekam db upgrade --uygula" in postgres_steps
     assert postgres_steps.index("zekam db upgrade --uygula") < postgres_steps.index(
