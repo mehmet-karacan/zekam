@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 from psycopg import Error as PsycopgError
 
+from zekam.application.tool_dispatch import DeferredToolSearchService
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.tool_registry import (
@@ -213,3 +214,99 @@ def test_database_recomputes_digests_and_rejects_forged_dispatch_evidence(
             ),
         )
     connection.rollback()
+
+
+def test_deferred_search_uses_exact_compiled_role_profile_and_current_runtime(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    repository = ToolRegistryRepository(connection, realm.id)
+    now = dt.datetime.now(dt.UTC)
+    spec = ToolSpecRevision.create(
+        realm_id=realm.id,
+        tool_id="jira.issue.lookup",
+        revision=1,
+        name="Jira issue lookup",
+        description="Find exact Jira issue metadata by key",
+        input_schema_digest=digest("deferred-input"),
+        output_schema_digest=digest("deferred-output"),
+        created_at=now,
+    )
+    runtime = ToolRuntimeRevision.create(
+        realm_id=realm.id,
+        tool_id=spec.tool_id,
+        revision=1,
+        adapter_ref="mcp:jira/issue",
+        executable_revision="jira@1",
+        executable_digest=digest("deferred-runtime"),
+        permission_capabilities=("jira.read",),
+        parallel_supported=True,
+        captured_at=now - dt.timedelta(seconds=1),
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    repository.store_spec(spec)
+    repository.store_runtime(runtime)
+    compiled = CompiledToolSet.create(
+        realm_id=realm.id,
+        role="researcher",
+        permission_profile_digest=digest("jira-read-profile"),
+        entries=(
+            ToolSetEntry(
+                spec.tool_id,
+                spec.revision,
+                ToolExposure.DEFERRED_SEARCH,
+                spec.spec_digest,
+                runtime.runtime_digest,
+            ),
+        ),
+        created_at=now,
+    )
+    repository.store_compiled_set(compiled)
+    service = DeferredToolSearchService(repository)
+    matches = service.search(
+        tool_set_digest=compiled.tool_set_digest,
+        role=compiled.role,
+        permission_profile_digest=compiled.permission_profile_digest,
+        query="exact jira issue",
+        now=now,
+    )
+    assert tuple(match.tool_id for match in matches) == (spec.tool_id,)
+    assert matches[0].permission_capabilities == ("jira.read",)
+    with pytest.raises(PolicyViolation, match="query/limit/time"):
+        service.search(
+            tool_set_digest=compiled.tool_set_digest,
+            role=compiled.role,
+            permission_profile_digest=compiled.permission_profile_digest,
+            query="jira",
+            now=now - dt.timedelta(seconds=31),
+        )
+    with pytest.raises(PolicyViolation, match="role/permission"):
+        service.search(
+            tool_set_digest=compiled.tool_set_digest,
+            role="builder",
+            permission_profile_digest=compiled.permission_profile_digest,
+            query="jira",
+            now=now,
+        )
+
+    newer = ToolRuntimeRevision.create(
+        realm_id=realm.id,
+        tool_id=spec.tool_id,
+        revision=2,
+        adapter_ref="mcp:jira/issue",
+        executable_revision="jira@2",
+        executable_digest=digest("deferred-runtime-v2"),
+        permission_capabilities=("jira.read",),
+        parallel_supported=True,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    repository.store_runtime(newer)
+    with pytest.raises(PolicyViolation, match="current runtime compiled revision drift"):
+        service.search(
+            tool_set_digest=compiled.tool_set_digest,
+            role=compiled.role,
+            permission_profile_digest=compiled.permission_profile_digest,
+            query="jira",
+            now=now + dt.timedelta(microseconds=1),
+        )

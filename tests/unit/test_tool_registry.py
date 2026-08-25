@@ -7,7 +7,11 @@ from uuid import uuid4
 
 import pytest
 
-from zekam.application.tool_dispatch import ToolDispatchService
+from zekam.application.tool_dispatch import (
+    DeferredToolSearchService,
+    ToolDispatchService,
+    ToolDispatchWavePlanner,
+)
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.tool_registry import (
@@ -236,3 +240,171 @@ def test_model_tool_serializer_rejects_prepopulated_tool_section() -> None:
     _now, compiled, _spec, _runtime, _binding = bundle()
     with pytest.raises(PolicyViolation, match="onceden doldurulmus"):
         compiled.compile_model_payload().serialize_request({"tools": []})
+
+
+def test_thousand_tool_registry_keeps_initial_payload_direct_only() -> None:
+    now, compiled, _spec, _runtime, _binding = bundle()
+    base = compiled.entries[0]
+    entries = tuple(
+        replace(
+            base,
+            tool_id=f"tool.{index:04d}",
+            exposure=ToolExposure.DIRECT if index % 100 == 0 else ToolExposure.DEFERRED_SEARCH,
+            spec_digest=digest(f"spec:{index}"),
+            runtime_digest=digest(f"runtime:{index}"),
+        )
+        for index in range(1000)
+    )
+    large = CompiledToolSet.create(
+        realm_id=compiled.realm_id,
+        role=compiled.role,
+        permission_profile_digest=compiled.permission_profile_digest,
+        entries=entries,
+        created_at=now,
+    )
+    payload = large.compile_model_payload()
+    assert len(large.entries) == 1000
+    assert tuple(entry["tool_id"] for entry in payload.entries) == tuple(
+        f"tool.{index:04d}" for index in range(0, 1000, 100)
+    )
+
+
+def test_deferred_search_returns_exact_metadata_and_profile_changes_digest() -> None:
+    now, compiled, spec, runtime, _binding = bundle()
+    deferred = CompiledToolSet.create(
+        realm_id=compiled.realm_id,
+        role=compiled.role,
+        permission_profile_digest=compiled.permission_profile_digest,
+        entries=(replace(compiled.entries[0], exposure=ToolExposure.DEFERRED_SEARCH),),
+        created_at=now,
+    )
+
+    class DeferredStore:
+        def deferred_catalog(self, **_):  # type: ignore[no-untyped-def]
+            return deferred, ((spec, runtime),)
+
+    matches = DeferredToolSearchService(DeferredStore()).search(  # type: ignore[arg-type]
+        tool_set_digest=deferred.tool_set_digest,
+        role=deferred.role,
+        permission_profile_digest=deferred.permission_profile_digest,
+        query="exact jira issue",
+        now=now,
+    )
+    assert len(matches) == 1
+    assert matches[0].tool_id == "jira.search"
+    assert matches[0].description == "Exact Jira issue search"
+    assert matches[0].permission_capabilities == ("jira.read",)
+    with pytest.raises(PolicyViolation, match="query/limit/time"):
+        DeferredToolSearchService(DeferredStore()).search(  # type: ignore[arg-type]
+            tool_set_digest=deferred.tool_set_digest,
+            role=deferred.role,
+            permission_profile_digest=deferred.permission_profile_digest,
+            query="jira",
+            now=now - dt.timedelta(seconds=31),
+        )
+    changed_profile = CompiledToolSet.create(
+        realm_id=deferred.realm_id,
+        role=deferred.role,
+        permission_profile_digest=digest("permission:restricted"),
+        entries=deferred.entries,
+        created_at=now,
+    )
+    changed_role = CompiledToolSet.create(
+        realm_id=deferred.realm_id,
+        role="builder",
+        permission_profile_digest=deferred.permission_profile_digest,
+        entries=deferred.entries,
+        created_at=now,
+    )
+    assert (
+        len(
+            {
+                deferred.tool_set_digest,
+                changed_profile.tool_set_digest,
+                changed_role.tool_set_digest,
+            }
+        )
+        == 3
+    )
+
+
+def test_nonparallel_tool_is_isolated_from_parallel_dispatch_wave() -> None:
+    now, compiled, spec, runtime, binding = bundle()
+    second_spec = ToolSpecRevision.create(
+        realm_id=compiled.realm_id,
+        tool_id="shell.write",
+        revision=1,
+        name="Shell write",
+        description="Write one bounded file",
+        input_schema_digest=digest("shell-input"),
+        output_schema_digest=digest("shell-output"),
+        created_at=now,
+    )
+    second_runtime = ToolRuntimeRevision.create(
+        realm_id=compiled.realm_id,
+        tool_id=second_spec.tool_id,
+        revision=1,
+        adapter_ref="native:shell/write",
+        executable_revision="shell@1",
+        executable_digest=digest("shell-binary"),
+        permission_capabilities=("filesystem.write",),
+        parallel_supported=False,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    entries = (
+        compiled.entries[0],
+        ToolSetEntry(
+            second_spec.tool_id,
+            second_spec.revision,
+            ToolExposure.DIRECT,
+            second_spec.spec_digest,
+            second_runtime.runtime_digest,
+        ),
+    )
+    wave_set = CompiledToolSet.create(
+        realm_id=compiled.realm_id,
+        role=compiled.role,
+        permission_profile_digest=compiled.permission_profile_digest,
+        entries=entries,
+        created_at=now,
+    )
+    bindings = (
+        replace(binding, tool_set_digest=wave_set.tool_set_digest),
+        ToolDispatchBinding(
+            uuid4(),
+            binding.turn_execution_snapshot_digest,
+            wave_set.tool_set_digest,
+            second_spec.tool_id,
+            second_spec.revision,
+            second_spec.spec_digest,
+            second_runtime.runtime_digest,
+            digest("shell-command"),
+        ),
+        replace(
+            binding,
+            effect_claim_id=uuid4(),
+            tool_set_digest=wave_set.tool_set_digest,
+            input_digest=digest("jira-second"),
+        ),
+    )
+
+    class WaveStore:
+        @contextmanager
+        def locked_wave_bundles(self, requested):  # type: ignore[no-untyped-def]
+            by_tool = {
+                spec.tool_id: (wave_set, spec, runtime),
+                second_spec.tool_id: (wave_set, second_spec, second_runtime),
+            }
+            yield tuple(by_tool[item.tool_id] for item in requested)
+
+    planner = ToolDispatchWavePlanner(WaveStore())  # type: ignore[arg-type]
+    plan = planner.plan(bindings, max_parallelism=3, now=now)
+    replay = planner.plan(tuple(reversed(bindings)), max_parallelism=3, now=now)
+    assert tuple(tuple(item.tool_id for item in wave.bindings) for wave in plan.waves) == (
+        ("jira.search", "jira.search"),
+        ("shell.write",),
+    )
+    assert replay.body() == plan.body()
+    assert replay.plan_digest == plan.plan_digest == plan.computed_digest
+    assert plan.grants_authority is False

@@ -209,6 +209,104 @@ class ToolSetEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class DeferredToolMatch:
+    tool_id: str
+    revision: int
+    name: str
+    description: str
+    spec_digest: str
+    runtime_digest: str
+    permission_capabilities: tuple[str, ...]
+    score: int
+
+    def __post_init__(self) -> None:
+        _text(self.tool_id, "tool_id")
+        _text(self.name, "name")
+        _text(self.description, "description", maximum=4000)
+        _digest(self.spec_digest)
+        _digest(self.runtime_digest)
+        if self.revision < 1 or self.score < 1:
+            raise ValidationFailed("Deferred tool match revision/score gecersiz")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDispatchWave:
+    ordinal: int
+    bindings: tuple[ToolDispatchBinding, ...]
+
+    def __post_init__(self) -> None:
+        if self.ordinal < 1 or not self.bindings:
+            raise ValidationFailed("Tool dispatch wave ordinal ve uye ister")
+        identities = tuple(
+            (binding.effect_claim_id, binding.tool_id, binding.input_digest)
+            for binding in self.bindings
+        )
+        if len(set(identities)) != len(identities):
+            raise ValidationFailed("Tool dispatch wave duplicate binding iceremez")
+
+    def body(self) -> dict[str, object]:
+        return {
+            "ordinal": self.ordinal,
+            "bindings": [
+                {
+                    "effect_claim_id": str(binding.effect_claim_id),
+                    "turn_execution_snapshot_digest": binding.turn_execution_snapshot_digest,
+                    "tool_set_digest": binding.tool_set_digest,
+                    "tool_id": binding.tool_id,
+                    "revision": binding.revision,
+                    "spec_digest": binding.spec_digest,
+                    "runtime_digest": binding.runtime_digest,
+                    "input_digest": binding.input_digest,
+                }
+                for binding in self.bindings
+            ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDispatchPlan:
+    turn_execution_snapshot_digest: str
+    tool_set_digest: str
+    max_parallelism: int
+    waves: tuple[ToolDispatchWave, ...]
+    plan_digest: str
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        _digest(self.turn_execution_snapshot_digest)
+        _digest(self.tool_set_digest)
+        if self.max_parallelism < 1 or not self.waves:
+            raise ValidationFailed("Tool dispatch plan parallelism ve wave ister")
+        if tuple(wave.ordinal for wave in self.waves) != tuple(range(1, len(self.waves) + 1)):
+            raise ValidationFailed("Tool dispatch plan wave sirasi canonical olmali")
+        if self.grants_authority:
+            raise PolicyViolation("Tool dispatch plan authority uretemez")
+        if self.plan_digest:
+            _digest(self.plan_digest)
+            if self.plan_digest != self.computed_digest:
+                raise PolicyViolation("Tool dispatch plan digest mismatch")
+
+    def body(self) -> dict[str, object]:
+        return {
+            "schema": "zekam-tool-dispatch-plan/v1",
+            "turn_execution_snapshot_digest": self.turn_execution_snapshot_digest,
+            "tool_set_digest": self.tool_set_digest,
+            "max_parallelism": self.max_parallelism,
+            "waves": [wave.body() for wave in self.waves],
+            "grants_authority": False,
+        }
+
+    @property
+    def computed_digest(self) -> str:
+        return digest(self.body())
+
+    @classmethod
+    def create(cls, **values: object) -> ToolDispatchPlan:
+        draft = cls(**values, plan_digest="")  # type: ignore[arg-type]
+        return replace(draft, plan_digest=draft.computed_digest)
+
+
+@dataclass(frozen=True, slots=True)
 class CompiledToolSet:
     id: UUID
     realm_id: UUID

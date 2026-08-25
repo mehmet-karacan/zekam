@@ -138,6 +138,47 @@ class ToolRegistryRepository:
             )
             yield self._current_dispatch_bundle(binding)
 
+    @contextmanager
+    def locked_wave_bundles(self, bindings: tuple[ToolDispatchBinding, ...]):  # type: ignore[no-untyped-def]
+        ordered_lock_ids = sorted({binding.tool_id for binding in bindings})
+        with self.connection.transaction(), self.connection.cursor() as cursor:
+            for tool_id in ordered_lock_ids:
+                cursor.execute(
+                    "select pg_advisory_xact_lock(hashtextextended(%s,0))",
+                    (f"{self.realm_id}:{tool_id}",),
+                )
+            yield tuple(self._current_dispatch_bundle(binding) for binding in bindings)
+
+    def deferred_catalog(
+        self,
+        *,
+        tool_set_digest: str,
+        role: str,
+        permission_profile_digest: str,
+        now: dt.datetime,
+    ) -> tuple[
+        CompiledToolSet,
+        tuple[tuple[ToolSpecRevision, ToolRuntimeRevision], ...],
+    ]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select id,role,permission_profile_digest,entries,created_at,tool_set_digest"
+                " from tools.compiled_set where realm_id=%s and tool_set_digest=%s"
+                " and role=%s and permission_profile_digest=%s",
+                (self.realm_id, tool_set_digest, role, permission_profile_digest),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise PolicyViolation("Deferred search compiled role/permission binding bulunamadi")
+        compiled = self._compiled_from_row(row)
+        catalog: list[tuple[ToolSpecRevision, ToolRuntimeRevision]] = []
+        for entry in compiled.entries:
+            if entry.exposure is not ToolExposure.DEFERRED_SEARCH:
+                continue
+            spec, runtime = self._exact_current_revision(entry, now=now)
+            catalog.append((spec, runtime))
+        return compiled, tuple(catalog)
+
     def _current_dispatch_bundle(
         self, binding: ToolDispatchBinding
     ) -> tuple[CompiledToolSet, ToolSpecRevision, ToolRuntimeRevision]:
@@ -176,25 +217,7 @@ class ToolRegistryRepository:
             set_row = cursor.fetchone()
             if set_row is None:
                 raise PolicyViolation("Compiled tool set bulunamadi")
-            entries = tuple(
-                ToolSetEntry(
-                    str(value["tool_id"]),
-                    int(value["revision"]),
-                    ToolExposure(str(value["exposure"])),
-                    str(value["spec_digest"]),
-                    str(value["runtime_digest"]),
-                )
-                for value in set_row[3]
-            )
-            compiled = CompiledToolSet(
-                UUID(str(set_row[0])),
-                self.realm_id,
-                str(set_row[1]),
-                str(set_row[2]),
-                entries,
-                set_row[4],
-                str(set_row[5]),
-            )
+            compiled = self._compiled_from_row(set_row)
             entry = compiled.entry(binding.tool_id)
             cursor.execute(
                 "select id,tool_id,revision,name,description,input_schema_digest,"
@@ -241,6 +264,83 @@ class ToolRegistryRepository:
             str(runtime_row[10]),
         )
         return compiled, spec, runtime
+
+    def _compiled_from_row(self, row: Any) -> CompiledToolSet:
+        entries = tuple(
+            ToolSetEntry(
+                str(value["tool_id"]),
+                int(value["revision"]),
+                ToolExposure(str(value["exposure"])),
+                str(value["spec_digest"]),
+                str(value["runtime_digest"]),
+            )
+            for value in row[3]
+        )
+        compiled = CompiledToolSet(
+            UUID(str(row[0])),
+            self.realm_id,
+            str(row[1]),
+            str(row[2]),
+            entries,
+            row[4],
+            str(row[5]),
+        )
+        compiled.assert_digest()
+        return compiled
+
+    def _exact_current_revision(
+        self, entry: ToolSetEntry, *, now: dt.datetime
+    ) -> tuple[ToolSpecRevision, ToolRuntimeRevision]:
+        if now.tzinfo is None:
+            raise PolicyViolation("Deferred tool search zamani timezone-aware olmali")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select id,tool_id,revision,name,description,input_schema_digest,"
+                "output_schema_digest,created_at,spec_digest from tools.spec_revision"
+                " where realm_id=%s and tool_id=%s and revision=%s and spec_digest=%s",
+                (self.realm_id, entry.tool_id, entry.revision, entry.spec_digest),
+            )
+            spec_row = cursor.fetchone()
+            cursor.execute(
+                "select id,tool_id,revision,adapter_ref,executable_revision,executable_digest,"
+                "permission_capabilities,parallel_supported,captured_at,expires_at,runtime_digest"
+                " from tools.runtime_revision where realm_id=%s and tool_id=%s"
+                " and captured_at<=statement_timestamp() and expires_at>statement_timestamp()"
+                " order by revision desc,captured_at desc,id desc limit 1",
+                (self.realm_id, entry.tool_id),
+            )
+            runtime_row = cursor.fetchone()
+        if spec_row is None or runtime_row is None:
+            raise PolicyViolation("Deferred tool exact spec veya current runtime bulunamadi")
+        spec = ToolSpecRevision(
+            UUID(str(spec_row[0])),
+            self.realm_id,
+            str(spec_row[1]),
+            int(spec_row[2]),
+            str(spec_row[3]),
+            str(spec_row[4]),
+            str(spec_row[5]),
+            str(spec_row[6]),
+            spec_row[7],
+            str(spec_row[8]),
+        )
+        runtime = ToolRuntimeRevision(
+            UUID(str(runtime_row[0])),
+            self.realm_id,
+            str(runtime_row[1]),
+            int(runtime_row[2]),
+            str(runtime_row[3]),
+            str(runtime_row[4]),
+            str(runtime_row[5]),
+            tuple(str(value) for value in runtime_row[6]),
+            bool(runtime_row[7]),
+            runtime_row[8],
+            runtime_row[9],
+            str(runtime_row[10]),
+        )
+        if runtime.runtime_digest != entry.runtime_digest:
+            raise PolicyViolation("Deferred tool current runtime compiled revision drift")
+        return spec, runtime
 
     def record_dispatch_gate(
         self,
