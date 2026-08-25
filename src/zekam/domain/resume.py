@@ -241,6 +241,14 @@ class ResumePlan:
             raise ValidationFailed("Resume plan zamanlari timezone-aware olmali")
         if not self.target_client_id.strip():
             raise ValidationFailed("Resume plan target client ister")
+        self.runtime.__post_init__()
+        self.sandbox.__post_init__()
+        for stale_dimension in self.stale_dimensions:
+            stale_dimension.__post_init__()
+        for reconciliation_action in self.reconciliation_actions:
+            reconciliation_action.__post_init__()
+        for resume_action in self.actions:
+            resume_action.__post_init__()
         ids = tuple(item.action_id for item in self.actions)
         if len(ids) != len(set(ids)):
             raise ValidationFailed("Resume action kimlikleri tekil olmali")

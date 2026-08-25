@@ -6,6 +6,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 from zekam.domain.checkpoint_v2 import Resumability
+from zekam.domain.errors import PolicyViolation
 from zekam.domain.resume import (
     DriftDecision,
     ReconciliationAction,
@@ -79,6 +80,8 @@ def _disposition(
         return ResumeDisposition.MANUAL_REVIEW, ("resume.legacy-checkpoint-limited",)
     if not observation.checkpoint_integrity:
         return ResumeDisposition.MANUAL_REVIEW, ("resume.checkpoint-integrity-failed",)
+    if observation.observed_at >= observation.runtime.deadline:
+        return ResumeDisposition.MANUAL_REVIEW, ("resume.budget-exhausted",)
     if observation.observed_at >= observation.valid_until:
         return ResumeDisposition.WAITING, ("resume.plan-validity-expired",)
     if observation.work_state in {"cancelled", "archived"}:
@@ -183,6 +186,9 @@ class ResumeCoordinator:
             client_id=client_id,
             observed_at=observed_at,
         )
+        repository_realm = getattr(self.repository, "realm_id", observation.realm_id)
+        if observation.realm_id != repository_realm:
+            raise PolicyViolation("resume.cross-realm-binding")
         stale = _stale_dimensions(observation)
         disposition, blockers = _disposition(observation, stale)
         reconciliation = (
