@@ -73,8 +73,11 @@ def test_package_acceptance_workflow_has_cross_platform_artifact_and_container_g
     postgres_steps = json.dumps(quality["jobs"]["postgres-acceptance"]["steps"])
     assert "zekam db upgrade --uygula" in postgres_steps
     assert postgres_steps.index("zekam db upgrade --uygula") < postgres_steps.index(
-        "python -m pytest -m postgres"
+        "python scripts/ci_pytest.py -m postgres"
     )
+    source_steps = json.dumps(quality["jobs"]["source-quality"]["steps"])
+    assert "python scripts/ci_pytest.py" in source_steps
+    assert "not postgres" in source_steps
 
 
 def test_runtime_container_installs_wheel_and_does_not_copy_source() -> None:
