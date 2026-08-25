@@ -22,6 +22,16 @@ from typing import Any
 import yaml
 
 from zekam.application.environment import environment_value
+from zekam.domain.canonical import digest
+from zekam.domain.config_provenance import (
+    ConfigLayer,
+    ConfigProvenanceGraph,
+    ManagedFieldRequirement,
+    ManagedRequirementMode,
+    PermissionProfileRevision,
+    builtin_permission_profiles,
+    compile_config_provenance,
+)
 from zekam.domain.errors import ConfigurationError
 
 CONFIG_SCHEMA = "zekam-config/v1"
@@ -127,6 +137,7 @@ class RuntimeSettings:
 
     log_level: str = "INFO"
     network_default: str = "deny"
+    permission_profile: str = "workspace-write-no-network"
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +185,8 @@ class Settings:
     clients: tuple[ClientSettings, ...] = ()
     object_store_relative: str = "global/artifacts"
     sources: tuple[str, ...] = ()
+    config_provenance: ConfigProvenanceGraph | None = None
+    permission_profile: PermissionProfileRevision | None = None
 
     def sanitized(self) -> dict[str, Any]:
         """Secret icermeyen rapor gorunumu."""
@@ -183,6 +196,7 @@ class Settings:
             "runtime": {
                 "log_level": self.runtime.log_level,
                 "network_default": self.runtime.network_default,
+                "permission_profile": self.runtime.permission_profile,
             },
             "knowledge": {
                 "embedding_model_ref": self.knowledge.embedding_model_ref,
@@ -192,6 +206,26 @@ class Settings:
             "clients": [client.sanitized() for client in self.clients],
             "object_store_relative": self.object_store_relative,
             "sources": list(self.sources),
+            "config_provenance": (
+                None
+                if self.config_provenance is None
+                else {
+                    "layer_stack": list(self.config_provenance.layer_stack),
+                    "effective_digest": self.config_provenance.effective_digest,
+                    "graph_digest": self.config_provenance.graph_digest,
+                }
+            ),
+            "permission_profile": (
+                None
+                if self.permission_profile is None
+                else {
+                    "name": self.permission_profile.name,
+                    "revision": self.permission_profile.revision,
+                    "profile_digest": self.permission_profile.profile_digest,
+                    "managed": self.permission_profile.managed,
+                    "grants_authority": False,
+                }
+            ),
         }
 
 
@@ -332,6 +366,8 @@ def load_settings(
     home: Path,
     environ: Mapping[str, str] | None = None,
     default_file: Path | None = None,
+    session_overrides: Mapping[str, Any] | None = None,
+    session_permission_capabilities: tuple[str, ...] = (),
 ) -> Settings:
     """Yapilandirmayi belirlenen oncelik sirasiyla yukler."""
     environ = os.environ if environ is None else environ
@@ -343,22 +379,57 @@ def load_settings(
     user_path = home / USER_CONFIG_FILE
 
     sources: list[str] = []
-    document: dict[str, Any] = {}
+    layers: list[ConfigLayer] = []
 
     default_document = _load_yaml(default_path)
     if default_document:
         sources.append("core-default")
-        document = _deep_merge(document, default_document)
+        layers.append(ConfigLayer("core-default", 10, default_document))
 
     user_document = _load_yaml(user_path)
     if user_document:
         sources.append("user-config")
-        document = _deep_merge(document, user_document)
+        layers.append(ConfigLayer("user-config", 20, user_document))
+
+    managed_profile_name = "workspace-write-no-network"
+    managed_document = {
+        "runtime": {
+            "network_default": "deny",
+            "permission_profile": managed_profile_name,
+        }
+    }
+    managed_requirements = tuple(
+        ManagedFieldRequirement(path, ManagedRequirementMode.EXACT, digest(value))
+        for path, value in (
+            ("runtime.network_default", "deny"),
+            ("runtime.permission_profile", managed_profile_name),
+        )
+    )
+    sources.append("managed-policy")
+    layers.append(
+        ConfigLayer(
+            "managed-policy",
+            30,
+            managed_document,
+            managed=True,
+            requirements=managed_requirements,
+        )
+    )
 
     env_document = _env_overrides(environ)
     if env_document:
         sources.append("environment")
-        document = _deep_merge(document, env_document)
+        layers.append(ConfigLayer("environment", 40, env_document))
+
+    if session_overrides:
+        _assert_no_secret_keys(session_overrides)
+        sources.append("session")
+        layers.append(ConfigLayer("session", 50, dict(session_overrides)))
+
+    if not layers:
+        layers.append(ConfigLayer("implicit-default", 0, {}))
+    provenance = compile_config_provenance(tuple(layers))
+    document = provenance.effective_document
 
     database_document = dict(document.get("database") or {})
     try:
@@ -386,7 +457,17 @@ def load_settings(
     runtime = RuntimeSettings(
         log_level=str(runtime_document.get("log_level", "INFO")).upper(),
         network_default=str(runtime_document.get("network_default", "deny")),
+        permission_profile=str(runtime_document.get("permission_profile", managed_profile_name)),
     )
+    profile_matches = tuple(
+        profile
+        for profile in builtin_permission_profiles()
+        if profile.name == runtime.permission_profile
+    )
+    if len(profile_matches) != 1:
+        raise ConfigurationError("Named permission profile bulunamadi")
+    permission_profile = profile_matches[0]
+    permission_profile.resolve_session(session_permission_capabilities)
 
     knowledge_document = dict(document.get("knowledge") or {})
     knowledge = KnowledgeSettings(
@@ -409,6 +490,8 @@ def load_settings(
         clients=clients,
         object_store_relative=object_store_relative,
         sources=tuple(sources),
+        config_provenance=provenance,
+        permission_profile=permission_profile,
     )
 
 

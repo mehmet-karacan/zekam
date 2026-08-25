@@ -17,7 +17,7 @@ from zekam.application.config import (
     default_config_file,
     load_settings,
 )
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.errors import ConfigurationError, PolicyViolation
 
 pytestmark = pytest.mark.unit
 
@@ -45,7 +45,7 @@ def test_user_config_overrides_core_default(home_root: Path) -> None:
     )
     settings = load_settings(home=home_root, environ={})
     assert settings.database.port == 6543
-    assert settings.sources == ("core-default", "user-config")
+    assert settings.sources == ("core-default", "user-config", "managed-policy")
 
 
 def test_removed_product_config_schema_is_rejected(home_root: Path) -> None:
@@ -62,7 +62,60 @@ def test_environment_overrides_user_config(home_root: Path) -> None:
     )
     settings = load_settings(home=home_root, environ={"ZEKAM_DATABASE_PORT": "7777"})
     assert settings.database.port == 7777
-    assert settings.sources == ("core-default", "user-config", "environment")
+    assert settings.sources == (
+        "core-default",
+        "user-config",
+        "managed-policy",
+        "environment",
+    )
+
+
+def test_managed_runtime_policy_and_profile_are_applied_by_normal_loader(
+    home_root: Path,
+) -> None:
+    settings = load_settings(home=home_root, environ={})
+    assert settings.runtime.network_default == "deny"
+    assert settings.runtime.permission_profile == "workspace-write-no-network"
+    assert settings.permission_profile is not None
+    assert settings.permission_profile.managed is True
+    assert settings.permission_profile.grants_authority is False
+    assert "managed-policy" in settings.sources
+    field = settings.config_provenance.explain("runtime.network_default")
+    assert field.origin == "managed-policy"
+    assert field.managed_requirement is not None
+
+
+def test_session_cannot_open_managed_network_or_permission_profile(home_root: Path) -> None:
+    with pytest.raises(PolicyViolation, match="Managed exact"):
+        load_settings(
+            home=home_root,
+            environ={},
+            session_overrides={"runtime": {"network_default": "allow"}},
+        )
+    with pytest.raises(PolicyViolation, match="Managed exact"):
+        load_settings(
+            home=home_root,
+            environ={},
+            session_overrides={"runtime": {"permission_profile": "read-only"}},
+        )
+    with pytest.raises(PolicyViolation, match="managed deny"):
+        load_settings(
+            home=home_root,
+            environ={},
+            session_permission_capabilities=("network.access",),
+        )
+
+
+def test_safe_session_override_is_provenance_visible(home_root: Path) -> None:
+    settings = load_settings(
+        home=home_root,
+        environ={},
+        session_overrides={"runtime": {"log_level": "DEBUG"}},
+        session_permission_capabilities=("filesystem.read",),
+    )
+    assert settings.runtime.log_level == "DEBUG"
+    assert settings.sources[-1] == "session"
+    assert settings.config_provenance.explain("runtime.log_level").origin == "session"
 
 
 def test_invalid_environment_value_is_rejected(home_root: Path) -> None:

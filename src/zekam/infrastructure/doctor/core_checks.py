@@ -91,7 +91,10 @@ class ConfigCheck:
 
     def run(self) -> CheckResult:
         evidence = self.settings.sanitized()
-        if not self.settings.sources:
+        configuration_sources = tuple(
+            source for source in self.settings.sources if source != "managed-policy"
+        )
+        if not configuration_sources:
             return CheckResult(
                 check_id=self.check_id,
                 category=self.category,

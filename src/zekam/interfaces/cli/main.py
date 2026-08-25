@@ -34,6 +34,7 @@ from zekam.domain.errors import ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.interfaces.cli import ask as ask_commands
 from zekam.interfaces.cli import backup as backup_commands
+from zekam.interfaces.cli import configuration as configuration_commands
 from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import governance as governance_commands
 from zekam.interfaces.cli import jira as jira_commands
@@ -81,6 +82,8 @@ app.add_typer(model_commands.app)
 app.add_typer(oracle_commands.app)
 app.add_typer(opencode_commands.app)
 app.add_typer(backup_commands.app)
+app.add_typer(configuration_commands.config_app)
+app.add_typer(configuration_commands.permission_app)
 app.add_typer(ask_commands.app)
 app.command("ask")(ask_commands.ask_command)
 app.add_typer(sandbox_commands.sandbox_app)
