@@ -16,6 +16,34 @@ TRANSCRIPT_SOURCE_TYPE = "external-video-transcript"
 TRANSCRIPT_TRUST = "untrusted-observed"
 
 
+def transcript_source_version_digest(
+    *,
+    archive_digest: str,
+    entry_digest: str,
+    parser_ref: str,
+    parser_version: str,
+    parser_profile_digest: str,
+    source_policy_digest: str,
+) -> str:
+    """Archive/entry/parser/policy bagli source revision kimligi."""
+
+    for value in (archive_digest, entry_digest, parser_profile_digest, source_policy_digest):
+        parse_digest(value)
+    if not parser_ref.strip() or not parser_version.strip():
+        raise ValidationFailed("source version parser kimligi bos olamaz")
+    return digest(
+        {
+            "schema": "zekam-transcript-source-version/v1",
+            "archive_digest": archive_digest,
+            "entry_digest": entry_digest,
+            "parser_ref": parser_ref,
+            "parser_version": parser_version,
+            "parser_profile_digest": parser_profile_digest,
+            "source_policy_digest": source_policy_digest,
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptCorpusEntry:
     """Arsivdeki tek transcript dosyasinin raw ve normalize kimligi."""
@@ -182,16 +210,13 @@ class TranscriptCorpusImportManifest:
 
         if entry not in self.entries:
             raise ValidationFailed("source version entry manifestte bulunmuyor")
-        return digest(
-            {
-                "schema": "zekam-transcript-source-version/v1",
-                "archive_digest": self.archive_digest,
-                "entry_digest": entry.entry_digest,
-                "parser_ref": self.parser_ref,
-                "parser_version": self.parser_version,
-                "parser_profile_digest": self.parser_profile_digest,
-                "source_policy_digest": self.source_policy_digest,
-            }
+        return transcript_source_version_digest(
+            archive_digest=self.archive_digest,
+            entry_digest=entry.entry_digest,
+            parser_ref=self.parser_ref,
+            parser_version=self.parser_version,
+            parser_profile_digest=self.parser_profile_digest,
+            source_policy_digest=self.source_policy_digest,
         )
 
     @property

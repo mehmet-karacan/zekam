@@ -80,7 +80,7 @@ class TranscriptArchiveScan:
         for (path, payload), entry in zip(self.entry_payloads, self.manifest.entries, strict=True):
             if path != entry.relative_path or digest_of_bytes(payload) != entry.file_digest:
                 raise ValidationFailed("scan entry payload zinciri manifest ile uyusmuyor")
-            normalized_text, normalized_payload = _normalize_text(payload)
+            normalized_text, normalized_payload = normalize_transcript_payload(payload)
             if digest_of_bytes(normalized_payload) != entry.content_digest:
                 raise ValidationFailed("scan normalized content digest ile uyusmuyor")
             metadata = _metadata(normalized_text)
@@ -103,7 +103,7 @@ class TranscriptArchiveScan:
                 raise ValidationFailed("scan parser profile manifest ile uyusmuyor")
 
 
-def _normalize_text(payload: bytes) -> tuple[str, bytes]:
+def normalize_transcript_payload(payload: bytes) -> tuple[str, bytes]:
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -251,7 +251,7 @@ def scan_transcript_archive(
     parser_ref: str | None = None
     parser_version: str | None = None
     for relative_path, raw in raw_entries:
-        normalized_text, normalized_payload = _normalize_text(raw)
+        normalized_text, normalized_payload = normalize_transcript_payload(raw)
         metadata = _metadata(normalized_text)
         parser = TimestampTranscriptParser(
             entry_path=relative_path,
