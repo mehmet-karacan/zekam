@@ -325,7 +325,7 @@ def _execute_live_episode(
         for row in live_manifest.slots
         if row.model_id == model_id and row.task_digest == task_digest
     )
-    with RealmSession(home, realm) as context:
+    with RealmSession(home, realm, enable_runtime_trace=True) as context:
         runtime_repository = ModelCapabilityRuntimeRepository(context.connection, context.realm_id)
         stored = {
             row.slot.turn_number: row
@@ -374,6 +374,7 @@ def _execute_live_episode(
             context.connection,
             context.realm_id,
             worker_label=f"capability-{episode_key}",
+            trace_sink=context.trace_sink,
         )
         claimed = host.acquire_work(
             capabilities=(f"provider.capability.{episode_key}",),
@@ -557,6 +558,7 @@ def _execute_live_episode(
                 gateway=ModelGateway(
                     ModelInvocationRepository(context.connection, context.realm_id),
                     GatewaySourceLabel.MODEL_CAPABILITY,
+                    trace_sink=context.trace_sink,
                 ),
                 defer_job_recovery=True,
             ).invoke(

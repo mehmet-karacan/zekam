@@ -33,5 +33,16 @@ knowledge:
   embedding_dimension: 1024
   embedding_distance: cosine
 
+# Raw diagnostic trace explicit opt-in olmadan hicbir payload saklamaz.
+diagnostic_trace:
+  enabled: false
+  retention_days: 7
+  max_payload_bytes: 1048576
+  max_events: 10000
+  max_total_bytes: 67108864
+  encryption_key_ref: null
+  export_allowed: false
+  redaction_profile: strict-v1
+
 # Yerel istemciler yalniz ad ve mevcut absolute executable path metadata'si tasir.
 clients: []

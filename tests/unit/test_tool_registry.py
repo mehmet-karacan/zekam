@@ -7,12 +7,14 @@ from uuid import uuid4
 
 import pytest
 
+from zekam.application.diagnostic_trace import TraceWriteResult
 from zekam.application.tool_dispatch import (
     DeferredToolSearchService,
     ToolDispatchService,
     ToolDispatchWavePlanner,
 )
 from zekam.domain.canonical import digest
+from zekam.domain.diagnostic_trace import TraceEventType
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.tool_registry import (
     CompiledToolSet,
@@ -111,13 +113,27 @@ class Adapter:
         return "ok"
 
 
+class TraceSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def record(self, **values):  # type: ignore[no-untyped-def]
+        self.events.append(values)
+        return TraceWriteResult("recorded", uuid4(), uuid4(), digest(values["event_type"].value))
+
+
 def test_exact_spec_runtime_binding_dispatches_with_unforgeable_permit() -> None:
     now, compiled, spec, runtime, binding = bundle()
     store = Store((compiled, spec, runtime))
     adapter = Adapter((binding.tool_id, binding.revision, binding.runtime_digest))
-    assert ToolDispatchService(store).dispatch(binding, adapter, now=now) == "ok"  # type: ignore[arg-type]
+    trace = TraceSink()
+    assert ToolDispatchService(store, trace).dispatch(binding, adapter, now=now) == "ok"  # type: ignore[arg-type]
     assert store.gates == ["passed"]
     assert adapter.calls == 1
+    assert [item["event_type"] for item in trace.events] == [
+        TraceEventType.TOOL_REQUEST,
+        TraceEventType.TOOL_RESULT,
+    ]
 
 
 def test_tool_loop_binding_is_persisted_before_gate_and_effect() -> None:

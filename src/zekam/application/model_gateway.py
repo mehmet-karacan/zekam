@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 from uuid import UUID
 
+from zekam.application.diagnostic_trace import RuntimeTraceSink
 from zekam.application.environment_snapshot_service import EnvironmentEffectGuard
 from zekam.application.provider_adapter import (
     MultipartProviderCall,
@@ -17,6 +18,7 @@ from zekam.application.provider_adapter import (
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.domain.canonical import digest
 from zekam.domain.context_fragment import ModelVisiblePayloadBinding
+from zekam.domain.diagnostic_trace import TraceEventType, TraceVisibility
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import (
     GatewayInvocationPermit,
@@ -67,6 +69,7 @@ class ModelGateway:
     source_label: GatewaySourceLabel
     bindings: ModelGatewayBindings = ModelGatewayBindings()
     environment_guard: EnvironmentEffectGuard | None = None
+    trace_sink: RuntimeTraceSink | None = None
 
     @classmethod
     def from_execution_envelope(
@@ -76,12 +79,14 @@ class ModelGateway:
         envelope_id: UUID,
         *,
         environment_guard: EnvironmentEffectGuard | None = None,
+        trace_sink: RuntimeTraceSink | None = None,
     ) -> ModelGateway:
         return cls(
             repository=repository,
             source_label=source_label,
             bindings=ModelGatewayBindings(**repository.envelope_bindings(envelope_id)),
             environment_guard=environment_guard,
+            trace_sink=trace_sink,
         )
 
     def prepare(
@@ -254,9 +259,49 @@ class ModelGateway:
             loop_attempt_id=loop_attempt_id,
         )
         permit = _issue_gateway_permit(manifest, attempt_id=ledger_attempt_id, claim_id=claim_id)
+        request_trace = None
+        if self.trace_sink is not None:
+            request_payload = (
+                dict(call.payload)
+                if isinstance(call, ProviderCall)
+                else {
+                    "multipart_body_digest": call.payload.body_digest,
+                    "content_type": call.payload.content_type,
+                }
+            )
+            request_trace = self.trace_sink.record(
+                event_type=TraceEventType.MODEL_REQUEST,
+                visibility=(
+                    TraceVisibility.MODEL_VISIBLE
+                    if isinstance(call, ProviderCall)
+                    else TraceVisibility.DIAGNOSTIC_ONLY
+                ),
+                payload=request_payload,
+                correlation={
+                    "manifest_id": str(manifest.id),
+                    "run_id": str(manifest.run_id),
+                    "assignment_id": str(manifest.assignment_id),
+                    "attempt_id": str(ledger_attempt_id),
+                },
+                occurred_at=dt.datetime.now(dt.UTC),
+            )
         try:
             result = effect(permit)
         except Exception as exc:
+            if self.trace_sink is not None:
+                correlation = {
+                    "manifest_id": str(manifest.id),
+                    "attempt_id": str(ledger_attempt_id),
+                }
+                if request_trace is not None and request_trace.event_id is not None:
+                    correlation["parent_event_id"] = str(request_trace.event_id)
+                self.trace_sink.record(
+                    event_type=TraceEventType.ERROR,
+                    visibility=TraceVisibility.DIAGNOSTIC_ONLY,
+                    payload={"category": type(exc).__name__},
+                    correlation=correlation,
+                    occurred_at=dt.datetime.now(dt.UTC),
+                )
             self.repository.record_result(
                 manifest_id=manifest.id,
                 attempt_id=ledger_attempt_id,
@@ -265,6 +310,20 @@ class ModelGateway:
                 failure_digest=digest({"category": type(exc).__name__}),
             )
             raise
+        if self.trace_sink is not None:
+            correlation = {
+                "manifest_id": str(manifest.id),
+                "attempt_id": str(ledger_attempt_id),
+            }
+            if request_trace is not None and request_trace.event_id is not None:
+                correlation["parent_event_id"] = str(request_trace.event_id)
+            self.trace_sink.record(
+                event_type=TraceEventType.MODEL_RESPONSE,
+                visibility=TraceVisibility.MODEL_VISIBLE,
+                payload=dict(result.response),
+                correlation=correlation,
+                occurred_at=dt.datetime.now(dt.UTC),
+            )
         return ledger_attempt_id, result
 
     def record_terminal(

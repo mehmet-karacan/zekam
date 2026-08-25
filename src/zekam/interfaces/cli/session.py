@@ -7,6 +7,7 @@ tanimlamaz.
 from __future__ import annotations
 
 from contextlib import ExitStack
+from dataclasses import replace
 from types import TracebackType
 
 import typer
@@ -14,6 +15,7 @@ from rich.console import Console
 
 from zekam.application.composition import build_context
 from zekam.application.config import PersistenceBackend
+from zekam.application.diagnostic_trace_composition import compose_diagnostic_trace_sink
 from zekam.application.realm_context import RealmContext, attach_realm
 from zekam.domain.errors import NotFound, ZekamError
 from zekam.domain.identity import PRODUCT
@@ -40,10 +42,18 @@ class RealmSession:
     ve baglanti beklenmedik sekilde kapanir.
     """
 
-    def __init__(self, home: str | None, realm: str, *, create_realm: bool = False) -> None:
+    def __init__(
+        self,
+        home: str | None,
+        realm: str,
+        *,
+        create_realm: bool = False,
+        enable_runtime_trace: bool = False,
+    ) -> None:
         self._context = build_context(home=home)
         self._realm_slug = realm
         self._create_realm = create_realm
+        self._enable_runtime_trace = enable_runtime_trace
         self._stack = ExitStack()
 
     def __enter__(self) -> RealmContext:
@@ -52,7 +62,18 @@ class RealmSession:
                 "Bu komut SQLite minimum profilinde desteklenmiyor; PostgreSQL'e fallback yok"
             )
         connection = self._stack.enter_context(connect(self._context.settings.database))
-        return attach_realm(connection, slug=self._realm_slug, create_if_missing=self._create_realm)
+        realm_context = attach_realm(
+            connection, slug=self._realm_slug, create_if_missing=self._create_realm
+        )
+        trace_sink = None
+        if self._enable_runtime_trace:
+            trace_sink = compose_diagnostic_trace_sink(
+                connection=connection,
+                realm_id=realm_context.realm_id,
+                home=self._context.home,
+                settings=self._context.settings.diagnostic_trace,
+            )
+        return replace(realm_context, trace_sink=trace_sink)
 
     def __exit__(
         self,

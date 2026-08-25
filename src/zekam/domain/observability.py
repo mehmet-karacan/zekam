@@ -138,6 +138,13 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract("report today", "Gunun raporunu okur", mutating=False),
     CommandContract("report causal-chain", "Isin kanonik nedensellik zincirini okur", False),
     CommandContract("report orphaned-state", "Gecikmis yapisal kanit bosluklarini okur", False),
+    CommandContract("trace start", "Encrypted diagnostic trace manifesti olusturur", True, True),
+    CommandContract("trace stop", "Diagnostic trace bundle'ini kapatir", True, True),
+    CommandContract("trace explain", "Trace metadata ve reduction digestlerini okur", False),
+    CommandContract("trace reduce", "Closed trace bundle'ini offline reduce eder", True, True),
+    CommandContract(
+        "trace purge-expired", "Expired encrypted trace payloadlarini siler", True, True
+    ),
     CommandContract("backup verify", "Yedek butunlugunu dogrular", mutating=False),
     CommandContract("ui serve", "Salt okunur Neuro Observatory arayuzunu baslatir", mutating=False),
     CommandContract("worker settings", "Worker sinirlarini gosterir", mutating=False),

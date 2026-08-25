@@ -32,7 +32,8 @@ from zekam.domain.config_provenance import (
     builtin_permission_profiles,
     compile_config_provenance,
 )
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.diagnostic_trace import DiagnosticTracePolicy
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 
 CONFIG_SCHEMA = "zekam-config/v1"
 USER_CONFIG_FILE = "config.yaml"
@@ -150,6 +151,20 @@ class KnowledgeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class DiagnosticTraceSettings:
+    """Raw trace varsayilan kapalidir; yalniz secret-free policy metadata tasir."""
+
+    enabled: bool = False
+    retention_days: int = 7
+    max_payload_bytes: int = 1_048_576
+    max_events: int = 10_000
+    max_total_bytes: int = 64 * 1_048_576
+    encryption_key_ref: str | None = None
+    export_allowed: bool = False
+    redaction_profile: str = "strict-v1"
+
+
+@dataclass(frozen=True, slots=True)
 class ClientSettings:
     """Yerel istemcinin secret-free executable kaydi."""
 
@@ -182,6 +197,7 @@ class Settings:
     database: DatabaseSettings
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
     knowledge: KnowledgeSettings = field(default_factory=KnowledgeSettings)
+    diagnostic_trace: DiagnosticTraceSettings = field(default_factory=DiagnosticTraceSettings)
     clients: tuple[ClientSettings, ...] = ()
     object_store_relative: str = "global/artifacts"
     sources: tuple[str, ...] = ()
@@ -202,6 +218,16 @@ class Settings:
                 "embedding_model_ref": self.knowledge.embedding_model_ref,
                 "embedding_dimension": self.knowledge.embedding_dimension,
                 "embedding_distance": self.knowledge.embedding_distance,
+            },
+            "diagnostic_trace": {
+                "enabled": self.diagnostic_trace.enabled,
+                "retention_days": self.diagnostic_trace.retention_days,
+                "max_payload_bytes": self.diagnostic_trace.max_payload_bytes,
+                "max_events": self.diagnostic_trace.max_events,
+                "max_total_bytes": self.diagnostic_trace.max_total_bytes,
+                "encryption_key_ref": self.diagnostic_trace.encryption_key_ref,
+                "export_allowed": self.diagnostic_trace.export_allowed,
+                "redaction_profile": self.diagnostic_trace.redaction_profile,
             },
             "clients": [client.sanitized() for client in self.clients],
             "object_store_relative": self.object_store_relative,
@@ -478,6 +504,35 @@ def load_settings(
         embedding_distance=str(knowledge_document.get("embedding_distance", "cosine")),
     )
 
+    trace_document = dict(document.get("diagnostic_trace") or {})
+    diagnostic_trace = DiagnosticTraceSettings(
+        enabled=bool(trace_document.get("enabled", False)),
+        retention_days=int(trace_document.get("retention_days", 7)),
+        max_payload_bytes=int(trace_document.get("max_payload_bytes", 1_048_576)),
+        max_events=int(trace_document.get("max_events", 10_000)),
+        max_total_bytes=int(trace_document.get("max_total_bytes", 64 * 1_048_576)),
+        encryption_key_ref=(
+            None
+            if trace_document.get("encryption_key_ref") is None
+            else str(trace_document["encryption_key_ref"])
+        ),
+        export_allowed=bool(trace_document.get("export_allowed", False)),
+        redaction_profile=str(trace_document.get("redaction_profile", "strict-v1")),
+    )
+    try:
+        DiagnosticTracePolicy(
+            enabled=diagnostic_trace.enabled,
+            retention_days=diagnostic_trace.retention_days,
+            max_payload_bytes=diagnostic_trace.max_payload_bytes,
+            max_events=diagnostic_trace.max_events,
+            max_total_bytes=diagnostic_trace.max_total_bytes,
+            encryption_key_ref=diagnostic_trace.encryption_key_ref,
+            export_allowed=diagnostic_trace.export_allowed,
+            redaction_profile=diagnostic_trace.redaction_profile,
+        )
+    except (PolicyViolation, ValidationFailed) as exc:
+        raise ConfigurationError("Diagnostic trace ayarlari gecersiz") from exc
+
     storage_document = dict(document.get("storage") or {})
     object_store_relative = str(storage_document.get("object_store_relative", "global/artifacts"))
     clients = _parse_clients(document)
@@ -487,6 +542,7 @@ def load_settings(
         database=database,
         runtime=runtime,
         knowledge=knowledge,
+        diagnostic_trace=diagnostic_trace,
         clients=clients,
         object_store_relative=object_store_relative,
         sources=tuple(sources),

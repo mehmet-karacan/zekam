@@ -253,6 +253,68 @@ def test_ayni_tetikleme_ikinci_dongude_tekrarlanmaz(realm_session: tuple[Any, An
         assert cursor.fetchone()[0] == 1
 
 
+def test_trace_purge_handler_olmadan_basari_uydurmaz(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    definition_id = _definition(connection, realm, "diagnostic-trace-purge", interval="1d")
+    worker = build_worker(
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        with_scheduler=True,
+        allow_empty_handlers=True,
+    )
+
+    result = worker.tick(now=NOW)
+    assert result.triggered_jobs == ()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select state, detail from ops.job_run where definition_id = %s",
+            (definition_id,),
+        )
+        state, detail = cursor.fetchone()
+        assert state == "failed"
+        assert "handler tanimsiz" in detail
+        cursor.execute(
+            "select kind from ops.scheduler_incident where job_name = 'diagnostic-trace-purge'"
+        )
+        assert cursor.fetchone()[0] == "failure"
+
+
+def test_trace_purge_handler_gercekten_calistirilir(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    definition_id = _definition(connection, realm, "diagnostic-trace-purge", interval="1d")
+    calls: list[dt.datetime] = []
+
+    def purge(moment: dt.datetime) -> str:
+        calls.append(moment)
+        return "2 trace ve 5 payload silindi"
+
+    worker = build_worker(
+        connection,
+        realm.id,
+        settings=_settings(),
+        handlers={},
+        scheduled_handlers={"diagnostic-trace-purge": purge},
+        with_scheduler=True,
+        allow_empty_handlers=True,
+    )
+
+    result = worker.tick(now=NOW)
+    assert result.triggered_jobs == ("diagnostic-trace-purge",)
+    assert calls == [NOW]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select state, detail from ops.job_run where definition_id = %s",
+            (definition_id,),
+        )
+        assert cursor.fetchone() == ("succeeded", "2 trace ve 5 payload silindi")
+
+
 def test_duraklatilmis_tanim_tetiklenmez(realm_session: tuple[Any, Any]) -> None:
     realm, connection = realm_session
     definition_id = _definition(connection, realm, "night-research")

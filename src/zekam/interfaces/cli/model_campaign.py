@@ -1426,7 +1426,7 @@ def run_command(
         fixtures_by_digest = {item.fixture_digest: item for item in registry.fixtures}
         fixture_root = default_fixture_file().parent.resolve(strict=True)
 
-        with RealmSession(home, realm) as context:
+        with RealmSession(home, realm, enable_runtime_trace=True) as context:
             graph = WorkGraphService(context.connection, context.realm)
             work_item = graph.items.get(work_id)
             if work_item.project_id != project_id:
@@ -1602,6 +1602,7 @@ def run_command(
                 context.connection,
                 context.realm_id,
                 worker_label="opencode-aihub-campaign",
+                trace_sink=context.trace_sink,
             )
             job, job_created = host.jobs.enqueue(
                 Job.create(
@@ -1641,6 +1642,7 @@ def run_command(
                 gateway=ModelGateway(
                     ModelInvocationRepository(context.connection, context.realm_id),
                     GatewaySourceLabel.MODEL_CAMPAIGN,
+                    trace_sink=context.trace_sink,
                 ),
                 defer_job_recovery=True,
             )

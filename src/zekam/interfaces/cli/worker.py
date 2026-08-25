@@ -18,12 +18,18 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.diagnostic_trace_composition import (
+    compose_diagnostic_trace_purge_handler,
+)
+from zekam.application.home import resolve_home
+from zekam.application.realm_context import RealmContext
 from zekam.application.recovery_reconciliation import (
     FailedReceiptReconciliationService,
     RecoveryReconciliationPlan,
     RecoveryReconciliationService,
 )
 from zekam.application.worker import (
+    ScheduledHandler,
     ShutdownSignal,
     WorkerSettings,
     build_worker,
@@ -92,6 +98,15 @@ def _settings(label: str, iterations: int | None, poll: float) -> WorkerSettings
     )
 
 
+def _scheduled_handlers(context: RealmContext, home: str | None) -> dict[str, ScheduledHandler]:
+    handler = compose_diagnostic_trace_purge_handler(
+        connection=context.connection,
+        realm_id=context.realm_id,
+        home=resolve_home(home),
+    )
+    return {} if handler is None else {"diagnostic-trace-purge": handler}
+
+
 def _recovery_plan(input_file: Path) -> RecoveryReconciliationPlan:
     try:
         document = json.loads(input_file.read_text(encoding="utf-8"))
@@ -139,6 +154,7 @@ def tick_command(
                 realm_context.realm_id,
                 settings=_settings(label, 1, 2.0),
                 handlers={},
+                scheduled_handlers=_scheduled_handlers(realm_context, home),
                 # A one-shot tick may legitimately observe an empty queue even when
                 # no executable handler plugin is installed.  If it does claim work,
                 # Worker.tick still rejects the missing exact handler explicitly.
@@ -182,6 +198,7 @@ def run_command(
                 realm_context.realm_id,
                 settings=_settings(label, iterations, poll),
                 handlers=resolve_handlers([str(item) for item in JobKind]),
+                scheduled_handlers=_scheduled_handlers(realm_context, home),
             )
             shutdown = ShutdownSignal()
             shutdown.install()

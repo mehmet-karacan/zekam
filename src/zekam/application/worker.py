@@ -36,6 +36,7 @@ from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 #: Bir is birimini isleyen fonksiyon. Basari durumunda result digest doner.
 Handler = Callable[[ClaimedWork], str]
+ScheduledHandler = Callable[[dt.datetime], str]
 
 DEFAULT_POLL_SECONDS = 2.0
 DEFAULT_LEASE_SECONDS = 60
@@ -269,6 +270,7 @@ class Worker:
     settings: WorkerSettings
     scheduler: SchedulerGateway | None = None
     handlers: dict[str, Handler] = field(default_factory=dict)
+    scheduled_handlers: dict[str, ScheduledHandler] = field(default_factory=dict)
     shutdown: ShutdownSignal = field(default_factory=ShutdownSignal)
     cancellations: dict[UUID, CancellationRequest] = field(default_factory=dict)
     _active: int = 0
@@ -397,10 +399,40 @@ class Worker:
             run_id = self.scheduler.record_trigger(definition_id, plan, now=now)
             if run_id is None:
                 continue
+            handler = self.scheduled_handlers.get(definition.job_name)
+            if handler is None:
+                if definition.job_name != "diagnostic-trace-purge":
+                    self.scheduler.touch_definition(definition_id, now=now)
+                    self.scheduler.finish_run(
+                        run_id, state="succeeded", detail="tetikleme kaydedildi", now=now
+                    )
+                    triggered.append(definition.job_name)
+                    continue
+                detail = f"Zamanlanmis handler tanimsiz: {definition.job_name}"
+                self.scheduler.finish_run(run_id, state="failed", detail=detail, now=now)
+                self.scheduler.record_incident(
+                    definition.job_name,
+                    kind="failure",
+                    detail=detail,
+                    next_safe_action="exact scheduled handler'i worker composition'a baglayin",
+                    now=now,
+                )
+                continue
+            try:
+                detail = handler(now)
+            except Exception as exc:
+                failure = f"Scheduled handler basarisiz: {type(exc).__name__}"
+                self.scheduler.finish_run(run_id, state="failed", detail=failure, now=now)
+                self.scheduler.record_incident(
+                    definition.job_name,
+                    kind="failure",
+                    detail=failure,
+                    next_safe_action="incident kanitini inceleyip guvenli yeniden deneme yapin",
+                    now=now,
+                )
+                continue
             self.scheduler.touch_definition(definition_id, now=now)
-            self.scheduler.finish_run(
-                run_id, state="succeeded", detail="tetikleme kaydedildi", now=now
-            )
+            self.scheduler.finish_run(run_id, state="succeeded", detail=detail, now=now)
             triggered.append(definition.job_name)
         return tuple(triggered)
 
@@ -452,6 +484,7 @@ def build_worker(
     *,
     settings: WorkerSettings,
     handlers: dict[str, Handler] | None = None,
+    scheduled_handlers: dict[str, ScheduledHandler] | None = None,
     with_scheduler: bool = True,
     allow_empty_handlers: bool = False,
 ) -> Worker:
@@ -467,6 +500,7 @@ def build_worker(
         settings=settings,
         scheduler=gateway,
         handlers=resolved_handlers,
+        scheduled_handlers=dict(scheduled_handlers or {}),
     )
 
 

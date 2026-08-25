@@ -349,7 +349,7 @@ def opencode_embedding_probe_command(
             raise PolicyViolation("OpenCode embedding credential locator hazir degil")
         manifest, prepared = build_opencode_embedding_probe_manifest(configurations)
         source_head, source_revision = _provider_source_revision()
-        with RealmSession(home, realm) as realm_context:
+        with RealmSession(home, realm, enable_runtime_trace=True) as realm_context:
             governance = GovernanceService(
                 realm_context.connection, realm_context.realm, actor_id=actor_id
             )
@@ -442,6 +442,7 @@ def opencode_embedding_probe_command(
                 realm_context.connection,
                 realm_context.realm_id,
                 worker_label="opencode-embedding-probe",
+                trace_sink=realm_context.trace_sink,
             )
             job, _ = host.jobs.enqueue(
                 Job.create(
@@ -469,6 +470,7 @@ def opencode_embedding_probe_command(
                 gateway=ModelGateway(
                     ModelInvocationRepository(realm_context.connection, realm_context.realm_id),
                     GatewaySourceLabel.OPENCODE_EMBEDDING,
+                    trace_sink=realm_context.trace_sink,
                 ),
             )
             executions = []
@@ -1227,7 +1229,7 @@ def provider_live_run_command(
             inventory=inventory,
             environ=os.environ,
         )
-        with RealmSession(home, realm) as realm_context:
+        with RealmSession(home, realm, enable_runtime_trace=True) as realm_context:
             secret_repository = SecretRefRepository(
                 realm_context.connection, realm_context.realm_id
             )
@@ -1294,6 +1296,7 @@ def provider_live_run_command(
                 realm_context.connection,
                 realm_context.realm_id,
                 worker_label="provider-contract-live",
+                trace_sink=realm_context.trace_sink,
             )
             job, _ = host.jobs.enqueue(
                 Job.create(
@@ -1321,6 +1324,7 @@ def provider_live_run_command(
                 gateway=ModelGateway(
                     ModelInvocationRepository(realm_context.connection, realm_context.realm_id),
                     GatewaySourceLabel.PROVIDER_CONTRACT,
+                    trace_sink=realm_context.trace_sink,
                 ),
             )
             executions = []

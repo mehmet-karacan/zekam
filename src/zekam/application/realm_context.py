@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from zekam.application.diagnostic_trace import RuntimeTraceSink
 from zekam.domain.errors import NotFound
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.realm import DEFAULT_REALM_SLUG, LifecycleStatus, Realm
@@ -72,6 +73,7 @@ class RealmContext:
 
     realm: Realm
     connection: Any
+    trace_sink: RuntimeTraceSink | None = None
 
     @property
     def realm_id(self) -> UUID:

@@ -7,10 +7,12 @@ from uuid import uuid4
 
 import pytest
 
+from zekam.application.diagnostic_trace import TraceWriteResult
 from zekam.application.model_gateway import ModelGateway
-from zekam.application.provider_adapter import ProviderCall
+from zekam.application.provider_adapter import ProviderCall, ProviderCallResult
 from zekam.domain.canonical import digest
 from zekam.domain.context_fragment import ModelVisiblePayloadBinding
+from zekam.domain.diagnostic_trace import TraceEventType
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import (
     GatewayBindingStatus,
@@ -22,6 +24,15 @@ from zekam.domain.model_invocation import (
 from zekam.domain.tool_registry import CompiledToolSet
 
 D = "sha256:" + "a" * 64
+
+
+class _TraceSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def record(self, **values):  # type: ignore[no-untyped-def]
+        self.events.append(values)
+        return TraceWriteResult("recorded", uuid4(), uuid4(), digest(values["event_type"].value))
 
 
 class _GatewayRepository:
@@ -182,7 +193,12 @@ def test_gateway_permit_is_process_local_and_exact() -> None:
 
 def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
     repository = _GatewayRepository()
-    gateway = ModelGateway(repository=repository, source_label=GatewaySourceLabel.PROVIDER_CONTRACT)  # type: ignore[arg-type]
+    trace = _TraceSink()
+    gateway = ModelGateway(  # type: ignore[arg-type]
+        repository=repository,
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+        trace_sink=trace,
+    )
     call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
     item = _manifest(
         payload_digest=call.payload_digest,
@@ -205,6 +221,45 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
     assert repository.result is not None
     assert repository.result["state"] == "reconciliation-required"
     assert repository.result["failure_digest"] == digest({"category": "RuntimeError"})
+    assert [item["event_type"] for item in trace.events] == [
+        TraceEventType.MODEL_REQUEST,
+        TraceEventType.ERROR,
+    ]
+
+
+def test_gateway_trace_records_final_provider_request_and_response() -> None:
+    repository = _GatewayRepository()
+    trace = _TraceSink()
+    gateway = ModelGateway(  # type: ignore[arg-type]
+        repository=repository,
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+        trace_sink=trace,
+    )
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
+    item = _manifest(
+        payload_digest=call.payload_digest,
+        model_visible_payload_digest=call.payload_digest,
+    )
+    response = ProviderCallResult(
+        response={"output": "ok"},
+        response_digest=digest({"output": "ok"}),
+        outbound_request_id=uuid4(),
+        authorization_id=uuid4(),
+    )
+    _, actual = gateway.invoke(
+        item,
+        claim_id=uuid4(),
+        authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+        call=call,
+        effect=lambda _permit: response,
+    )
+    assert actual is response
+    assert [event["event_type"] for event in trace.events] == [
+        TraceEventType.MODEL_REQUEST,
+        TraceEventType.MODEL_RESPONSE,
+    ]
+    assert trace.events[0]["payload"] == {"input": "x"}
+    assert trace.events[1]["payload"] == {"output": "ok"}
 
 
 def test_gateway_enforce_rejects_envelopeless_manifest_before_effect() -> None:

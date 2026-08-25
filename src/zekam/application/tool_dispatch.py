@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Protocol, TypeVar
 from uuid import UUID
 
+from zekam.application.diagnostic_trace import RuntimeTraceSink
+from zekam.domain.diagnostic_trace import TraceEventType, TraceVisibility
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.tool_registry import (
     CompiledToolSet,
@@ -213,6 +215,7 @@ class ToolDispatchWavePlanner:
 @dataclass(frozen=True, slots=True)
 class ToolDispatchService:
     repository: ToolRegistryStore
+    trace_sink: RuntimeTraceSink | None = None
 
     def dispatch(
         self,
@@ -235,4 +238,46 @@ class ToolDispatchService:
                 self.repository.bind_loop_dispatch(loop_attempt_id, binding.effect_claim_id)
             self.repository.record_dispatch_gate(binding, disposition="passed", checked_at=moment)
             permit = _issue_tool_execution_permit(binding)
-            return adapter.execute(binding, permit=permit)
+            request_trace = None
+            if self.trace_sink is not None:
+                request_trace = self.trace_sink.record(
+                    event_type=TraceEventType.TOOL_REQUEST,
+                    visibility=TraceVisibility.RUNTIME_ONLY,
+                    payload={
+                        "tool_id": binding.tool_id,
+                        "revision": binding.revision,
+                        "runtime_digest": binding.runtime_digest,
+                    },
+                    correlation={
+                        "dispatch_id": str(binding.effect_claim_id),
+                        "snapshot_digest": binding.turn_execution_snapshot_digest,
+                    },
+                    occurred_at=moment,
+                )
+            try:
+                result = adapter.execute(binding, permit=permit)
+            except Exception as exc:
+                if self.trace_sink is not None:
+                    correlation = {"dispatch_id": str(binding.effect_claim_id)}
+                    if request_trace is not None and request_trace.event_id is not None:
+                        correlation["parent_event_id"] = str(request_trace.event_id)
+                    self.trace_sink.record(
+                        event_type=TraceEventType.ERROR,
+                        visibility=TraceVisibility.DIAGNOSTIC_ONLY,
+                        payload={"category": type(exc).__name__, "tool_id": binding.tool_id},
+                        correlation=correlation,
+                        occurred_at=dt.datetime.now(dt.UTC),
+                    )
+                raise
+            if self.trace_sink is not None:
+                correlation = {"dispatch_id": str(binding.effect_claim_id)}
+                if request_trace is not None and request_trace.event_id is not None:
+                    correlation["parent_event_id"] = str(request_trace.event_id)
+                self.trace_sink.record(
+                    event_type=TraceEventType.TOOL_RESULT,
+                    visibility=TraceVisibility.RUNTIME_ONLY,
+                    payload={"tool_id": binding.tool_id, "result_type": type(result).__name__},
+                    correlation=correlation,
+                    occurred_at=dt.datetime.now(dt.UTC),
+                )
+            return result

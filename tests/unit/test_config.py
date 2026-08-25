@@ -36,6 +36,26 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     assert settings.database.backend is PersistenceBackend.POSTGRESQL
     assert settings.knowledge.embedding_dimension == 1024
     assert settings.knowledge.embedding_distance == "cosine"
+    assert settings.diagnostic_trace.enabled is False
+    assert settings.diagnostic_trace.encryption_key_ref is None
+
+
+def test_diagnostic_trace_requires_explicit_key_ref_when_enabled(home_root: Path) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ndiagnostic_trace:\n  enabled: true\n",
+    )
+    with pytest.raises(ConfigurationError, match="Diagnostic trace"):
+        load_settings(home=home_root, environ={})
+
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ndiagnostic_trace:\n"
+        "  enabled: true\n  encryption_key_ref: secretref:trace-v1\n",
+    )
+    settings = load_settings(home=home_root, environ={})
+    assert settings.diagnostic_trace.enabled is True
+    assert settings.diagnostic_trace.encryption_key_ref == "secretref:trace-v1"
 
 
 def test_user_config_overrides_core_default(home_root: Path) -> None:

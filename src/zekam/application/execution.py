@@ -20,6 +20,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from zekam.application.diagnostic_trace import RuntimeTraceSink
 from zekam.application.tool_dispatch import ToolDispatchService, ToolRuntimeAdapter
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
@@ -127,6 +128,7 @@ class ExecutionHost:
     connection: Any
     realm_id: UUID
     worker_label: str = "worker"
+    trace_sink: RuntimeTraceSink | None = None
 
     @property
     def jobs(self) -> JobRepository:
@@ -241,7 +243,9 @@ class ExecutionHost:
         """Exact claim/turn/spec/current-runtime kapisindan tool effect'i calistirir."""
 
         repository = ToolRegistryRepository(self.connection, self.realm_id)
-        return ToolDispatchService(repository).dispatch(binding, adapter, now=now)
+        return ToolDispatchService(repository, trace_sink=self.trace_sink).dispatch(
+            binding, adapter, now=now
+        )
 
     def record_success(
         self,
