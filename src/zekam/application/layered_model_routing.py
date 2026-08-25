@@ -204,7 +204,10 @@ def preview_route(
     else:
         _, policy = stored_policy
     qualifications = repository.qualifications_for(request)
-    decision = decide_layered_model(request, policy, qualifications, now=moment)
+    capability_evidence = repository.capability_evidence_for(request)
+    decision = decide_layered_model(
+        request, policy, qualifications, capability_evidence, now=moment
+    )
     stale: tuple[StaleReason, ...] = ()
     if request.project_id is not None and current_context is not None:
         latest = repository.latest_context(request.project_id)

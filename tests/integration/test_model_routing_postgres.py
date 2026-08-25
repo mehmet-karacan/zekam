@@ -19,10 +19,14 @@ from zekam.domain.model_routing import (
     LayeredRouteRequest,
     ProjectRoutingContext,
     RoleRoutingPolicy,
+    RouteCapabilityBinding,
+    RouteCapabilityDimension,
+    RouteCapabilityRequirements,
     RoutingLayer,
     decide_layered_model,
 )
 from zekam.infrastructure.postgres import migrations
+from zekam.infrastructure.postgres.connection import configure_session, reset_role
 from zekam.infrastructure.postgres.model_benchmark_repository import BenchmarkRepository
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
@@ -194,6 +198,21 @@ def test_context_policy_decision_roundtrip_is_append_only(
         routing_policy_digest=policy.policy_digest,
         policy_digest=context.policy_digest,
         execution_target_digest=execution_target.snapshot_digest,
+        capability_requirements=RouteCapabilityRequirements(
+            minimum_context_tokens=1024,
+            minimum_tool_score=0.7,
+            minimum_structured_output_score=0.8,
+            minimum_long_session_seconds=30,
+            minimum_long_session_score=0.75,
+        ),
+        capability_binding=RouteCapabilityBinding(
+            evidence_role=AgentRole.IMPLEMENTER,
+            source_revision="revision-1",
+            suite_digest=digest("capability-suite"),
+            registry_digest=digest("capability-registry"),
+            execution_profile_digest=digest("capability-profile"),
+            evaluator_provenance_digest=digest("capability-verifier"),
+        ),
     )
     decision = decide_layered_model(request, policy, (), now=NOW)
     decision_id, decision_inserted = repository.record_decision(
@@ -220,6 +239,143 @@ def test_context_policy_decision_roundtrip_is_append_only(
                 (decision_id,),
             )
         connection.rollback()
+
+
+def test_canonical_capability_episode_is_derived_as_four_route_dimensions(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    suite_id, cohort_id, campaign_id, episode_id, scorecard_id = (uuid4() for _ in range(5))
+    tasks = tuple(digest(f"capability-task:{index}") for index in range(3))
+    episode_evidence = digest("route-capability-episode")
+    dimensions = {task: [item.value for item in RouteCapabilityDimension] for task in tasks}
+    reset_role(connection)
+    with connection.transaction(), connection.cursor() as cursor:
+        cursor.execute("set local session_replication_role=replica")
+        cursor.execute(
+            "insert into models.capability_benchmark_suite"
+            " (id,realm_id,registry_digest,execution_profile_digest,"
+            " evaluator_provenance_digest,task_digests,task_roles,task_budgets,"
+            " task_route_dimensions,task_count,max_duration_seconds,max_model_turns,"
+            " max_input_tokens,max_output_tokens,max_tool_calls,max_parallelism,suite_digest)"
+            " values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,3,60,8,8192,"
+            " 2048,8,1,%s)",
+            (
+                suite_id,
+                realm.id,
+                digest("capability-registry"),
+                digest("capability-profile"),
+                digest("capability-verifier"),
+                list(tasks),
+                canonical_json(dict.fromkeys(tasks, "implementer")),
+                canonical_json(
+                    {
+                        task: {"duration_seconds": 60, "output_tokens": 2048, "tool_calls": 8}
+                        for task in tasks
+                    }
+                ),
+                canonical_json(dimensions),
+                digest("capability-suite"),
+            ),
+        )
+        cursor.execute(
+            "insert into models.capability_benchmark_cohort"
+            " (id,realm_id,suite_id,source_campaign_id,source_revision,inventory_digest,"
+            " policy_digest,verifier_provenance_digest,model_ids,provider_call_budget,"
+            " start_skew_budget_ms,plan_digest,created_at)"
+            " values (%s,%s,%s,%s,'revision-1',%s,%s,%s,array['model-a'],24,100,%s,%s)",
+            (
+                cohort_id,
+                realm.id,
+                suite_id,
+                campaign_id,
+                digest("inventory"),
+                digest("model-security-policy"),
+                digest("capability-verifier"),
+                digest("capability-plan"),
+                NOW,
+            ),
+        )
+        cursor.execute(
+            "insert into models.capability_benchmark_episode"
+            " (id,realm_id,cohort_id,model_id,task_digest,role,status,started_at,"
+            " duration_ms,start_skew_ms,model_turn_count,input_token_count,output_token_count,"
+            " correctness,completion,sustained_progress,context_retention,self_correction,"
+            " tool_efficiency,safety,hidden_acceptance_ratio,sustained_progress_auc,"
+            " longest_stagnation_ms,regression_count,noop_ratio,checkpoint_count,"
+            " self_correction_count,tool_call_count,checkpoint_receipt_digests,"
+            " tool_receipt_digests,response_digest,verifier_model_id,"
+            " verifier_execution_identity,verifier_provenance_digest,evidence_digest,"
+            " acceptance_evidence_digest,created_at)"
+            " values (%s,%s,%s,'model-a',%s,'implementer','passed',%s,45000,10,4,4096,"
+            " 1024,1,1,0.9,0.9,0.8,0.8,1,0.9,0.85,1000,0,0.1,2,1,2,%s,%s,%s,"
+            " 'independent-verifier','verifier:execution',%s,%s,%s,%s)",
+            (
+                episode_id,
+                realm.id,
+                cohort_id,
+                tasks[0],
+                NOW,
+                [digest("checkpoint-1"), digest("checkpoint-2")],
+                [digest("tool-1"), digest("tool-2")],
+                digest("response"),
+                digest("capability-verifier"),
+                episode_evidence,
+                digest("acceptance"),
+                NOW,
+            ),
+        )
+        cursor.execute(
+            "insert into models.capability_benchmark_scorecard"
+            " (id,realm_id,cohort_id,model_id,episode_evidence_digests,general_score,"
+            " role_scores,completion_rate,mean_duration_ms,evidence_digest,created_at)"
+            " values (%s,%s,%s,'model-a',%s,0.9,'{\"implementer\":0.9}'::jsonb,1,"
+            " 45000,%s,%s)",
+            (
+                scorecard_id,
+                realm.id,
+                cohort_id,
+                [episode_evidence],
+                digest("scorecard"),
+                NOW,
+            ),
+        )
+    configure_session(connection, realm_id=realm.id)
+    request = LayeredRouteRequest(
+        role=AgentRole.IMPLEMENTER,
+        target_layer=RoutingLayer.GENERAL,
+        workload=None,
+        technology=None,
+        project_id=None,
+        project_context_digest=None,
+        inventory_digest=digest("inventory"),
+        routing_policy_digest=digest("routing-policy"),
+        policy_digest=digest("model-security-policy"),
+        execution_target_digest=digest("execution-target"),
+        capability_requirements=RouteCapabilityRequirements(
+            minimum_context_tokens=1024,
+            minimum_tool_score=0.7,
+            minimum_structured_output_score=0.8,
+            minimum_long_session_seconds=30,
+            minimum_long_session_score=0.75,
+        ),
+        capability_binding=RouteCapabilityBinding(
+            evidence_role=AgentRole.IMPLEMENTER,
+            source_revision="revision-1",
+            suite_digest=digest("capability-suite"),
+            registry_digest=digest("capability-registry"),
+            execution_profile_digest=digest("capability-profile"),
+            evaluator_provenance_digest=digest("capability-verifier"),
+        ),
+    )
+    evidence = ModelRoutingRepository(connection, realm.id).capability_evidence_for(request)
+    assert {item.dimension for item in evidence} == set(RouteCapabilityDimension)
+    by_dimension = {item.dimension: item for item in evidence}
+    assert by_dimension[RouteCapabilityDimension.CONTEXT].observed_quantity == 4096
+    assert by_dimension[RouteCapabilityDimension.TOOL].receipt_count == 2
+    assert by_dimension[RouteCapabilityDimension.STRUCTURED_OUTPUT].score == pytest.approx(0.9)
+    assert by_dimension[RouteCapabilityDimension.LONG_SESSION].observed_quantity == 45
+    assert by_dimension[RouteCapabilityDimension.LONG_SESSION].receipt_count == 2
 
 
 def test_execution_target_expiry_and_capability_change_are_not_current(

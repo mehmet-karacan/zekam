@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 
 from zekam.application.composition import build_context
+from zekam.application.config import core_root
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import DEFAULT_POLICY_NAME, EffectRequest, GovernanceService
 from zekam.application.layered_model_routing import (
@@ -22,6 +23,7 @@ from zekam.application.layered_model_routing import (
     prepare_project_context,
     preview_route,
 )
+from zekam.application.model_capability_benchmark import load_capability_registry
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.project_routing_targets import load_project_routing_targets
@@ -30,10 +32,12 @@ from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.context_continuity import Checkpoint
 from zekam.domain.errors import PolicyViolation, ZekamError
+from zekam.domain.model_capability_benchmark import CapabilityCohortPlan
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
     LayeredRouteRequest,
+    RouteCapabilityBinding,
     RoutingLayer,
 )
 from zekam.domain.realm import DEFAULT_REALM_SLUG, ActorKind, LifecycleStatus
@@ -45,6 +49,7 @@ from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository
+from zekam.infrastructure.postgres.model_capability_repository import ModelCapabilityRepository
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 from zekam.infrastructure.postgres.project_repository import ProjectResolver
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
@@ -599,6 +604,34 @@ def _preview(
         raise PolicyViolation(
             "Persisted OpenCode execution target current executable/capability ile stale"
         )
+    routing_targets = load_project_routing_targets()
+    capability_requirements = routing_targets.requirements_for(role)
+    capability_source = ModelCapabilityRepository(
+        context.connection, context.realm_id
+    ).latest_source()
+    registry, execution_profile, _ = load_capability_registry(
+        core_root() / "config" / "model_capability_benchmark.yaml",
+        repository_root=core_root(),
+    )
+    capability_plan = CapabilityCohortPlan(
+        source_campaign_id=capability_source.campaign_id,
+        source_revision=capability_source.source_revision,
+        inventory_digest=capability_source.inventory_digest,
+        policy_digest=capability_source.policy_digest,
+        verifier_provenance_digest=capability_source.verifier_provenance_digest,
+        model_ids=capability_source.model_ids,
+        registry=registry,
+        execution_profile=execution_profile,
+        max_parallelism=len(capability_source.model_ids),
+    )
+    capability_binding = RouteCapabilityBinding(
+        evidence_role=routing_targets.evidence_role_for(role),
+        source_revision=capability_plan.source_revision,
+        suite_digest=capability_plan.suite_digest,
+        registry_digest=registry.registry_digest,
+        execution_profile_digest=execution_profile.profile_digest,
+        evaluator_provenance_digest=execution_profile.evaluator_provenance_digest,
+    )
     request = LayeredRouteRequest(
         role=role,
         target_layer=target_layer,
@@ -612,6 +645,8 @@ def _preview(
         routing_policy_digest=policy.policy_digest,
         policy_digest=prepared.context.policy_digest,
         execution_target_digest=execution_target[1].snapshot_digest,
+        capability_requirements=capability_requirements,
+        capability_binding=capability_binding,
         excluded_model_ids=tuple(sorted(derived_models)),
         excluded_execution_identities=tuple(sorted(derived_executions)),
     )

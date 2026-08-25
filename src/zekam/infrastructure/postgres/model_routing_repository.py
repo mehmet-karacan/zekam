@@ -18,6 +18,10 @@ from zekam.domain.model_routing import (
     LayeredRouteRequest,
     ProjectRoutingContext,
     RoleRoutingPolicy,
+    RouteCapabilityBinding,
+    RouteCapabilityDimension,
+    RouteCapabilityEvidence,
+    RouteCapabilityRequirements,
     RouteStatus,
     RoutingLayer,
     RoutingQualification,
@@ -416,6 +420,31 @@ class ModelRoutingRepository:
             rows = cursor.fetchall()
         return tuple(_qualification(row) for row in rows)
 
+    def capability_evidence_for(
+        self, request: LayeredRouteRequest
+    ) -> tuple[RouteCapabilityEvidence, ...]:
+        if not request.capability_requirements.required_dimensions:
+            return ()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select model_id,role,dimension,score,observed_quantity,receipt_count,"
+                " inventory_digest,policy_digest,source_revision,suite_digest,registry_digest,"
+                " execution_profile_digest,evaluator_provenance_digest,source_scorecard_digest,"
+                " episode_evidence_digests,observed_at,expires_at"
+                " from models.route_capability_evidence where realm_id=%s"
+                " and role=%s and dimension=any(%s::text[])"
+                " order by model_id,role,dimension,observed_at",
+                (
+                    self.realm_id,
+                    request.capability_binding.evidence_role.value
+                    if request.capability_binding is not None
+                    else None,
+                    [item.value for item in request.capability_requirements.required_dimensions],
+                ),
+            )
+            rows = cursor.fetchall()
+        return tuple(_capability_evidence(row) for row in rows)
+
     def record_decision(
         self,
         decision: LayeredModelDecision,
@@ -434,10 +463,16 @@ class ModelRoutingRepository:
                 " project_context_id, role, target_layer, workload, technology,"
                 " inventory_digest, routing_policy_digest, policy_digest,"
                 " execution_target_digest, excluded_model_ids,"
-                " excluded_execution_identities, status, primary_model_id,"
+                " excluded_execution_identities,minimum_context_tokens,minimum_tool_score,"
+                " minimum_structured_output_score,minimum_long_session_seconds,"
+                " minimum_long_session_score,capability_evidence_role,"
+                " capability_source_revision,capability_suite_digest,"
+                " capability_registry_digest,capability_execution_profile_digest,"
+                " capability_evaluator_provenance_digest,status,primary_model_id,"
                 " fallback_model_id, evidence_digest, authority_granted, decided_at)"
                 " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                " %s, %s, %s, %s, %s, %s, false, %s)"
+                " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                " %s, %s, false, %s)"
                 " on conflict (realm_id, evidence_digest) do nothing returning id",
                 (
                     record_id,
@@ -456,6 +491,29 @@ class ModelRoutingRepository:
                     request.execution_target_digest,
                     list(request.excluded_model_ids),
                     list(request.excluded_execution_identities),
+                    request.capability_requirements.minimum_context_tokens,
+                    request.capability_requirements.minimum_tool_score,
+                    request.capability_requirements.minimum_structured_output_score,
+                    request.capability_requirements.minimum_long_session_seconds,
+                    request.capability_requirements.minimum_long_session_score,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.evidence_role.value,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.source_revision,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.suite_digest,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.registry_digest,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.execution_profile_digest,
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.evaluator_provenance_digest,
                     decision.status.value,
                     decision.primary_model_id,
                     decision.fallback_model_id,
@@ -560,8 +618,13 @@ class ModelRoutingRepository:
                 " d.role, d.target_layer, d.workload, d.technology, d.project_id,"
                 " c.context_digest, d.inventory_digest, d.routing_policy_digest,"
                 " d.policy_digest, d.execution_target_digest, d.excluded_model_ids,"
-                " d.excluded_execution_identities, d.status, d.primary_model_id,"
-                " d.fallback_model_id, d.evidence_digest"
+                " d.excluded_execution_identities,d.minimum_context_tokens,"
+                " d.minimum_tool_score,d.minimum_structured_output_score,"
+                " d.minimum_long_session_seconds,d.minimum_long_session_score,"
+                " d.capability_evidence_role,d.capability_source_revision,"
+                " d.capability_suite_digest,d.capability_registry_digest,"
+                " d.capability_execution_profile_digest,d.capability_evaluator_provenance_digest,"
+                " d.status, d.primary_model_id,d.fallback_model_id,d.evidence_digest"
                 " from models.model_route_decision d"
                 " left join projects.routing_context_snapshot c"
                 "  on c.realm_id = d.realm_id and c.id = d.project_context_id"
@@ -604,15 +667,34 @@ class ModelRoutingRepository:
             execution_target_digest=str(row[13]),
             excluded_model_ids=tuple(str(value) for value in row[14]),
             excluded_execution_identities=tuple(str(value) for value in row[15]),
+            capability_requirements=RouteCapabilityRequirements(
+                minimum_context_tokens=int(row[16]),
+                minimum_tool_score=float(row[17]),
+                minimum_structured_output_score=float(row[18]),
+                minimum_long_session_seconds=int(row[19]),
+                minimum_long_session_score=float(row[20]),
+            ),
+            capability_binding=(
+                None
+                if row[21] is None
+                else RouteCapabilityBinding(
+                    evidence_role=AgentRole(str(row[21])),
+                    source_revision=str(row[22]),
+                    suite_digest=str(row[23]),
+                    registry_digest=str(row[24]),
+                    execution_profile_digest=str(row[25]),
+                    evaluator_provenance_digest=str(row[26]),
+                )
+            ),
         )
         decision = LayeredModelDecision(
             request=request,
             policy_digest=str(row[11]),
-            status=RouteStatus(str(row[16])),
-            primary_model_id=str(row[17]) if row[17] is not None else None,
-            fallback_model_id=str(row[18]) if row[18] is not None else None,
+            status=RouteStatus(str(row[27])),
+            primary_model_id=str(row[28]) if row[28] is not None else None,
+            fallback_model_id=str(row[29]) if row[29] is not None else None,
             candidates=candidates,
-            evidence_digest=str(row[19]),
+            evidence_digest=str(row[30]),
         )
         return StoredRouteDecision(
             id=UUID(str(row[0])),
@@ -702,4 +784,26 @@ def _qualification(row: Any) -> RoutingQualification:
         unsafe=bool(row[20]),
         valid_from=row[21],
         expires_at=row[22],
+    )
+
+
+def _capability_evidence(row: Any) -> RouteCapabilityEvidence:
+    return RouteCapabilityEvidence(
+        model_id=str(row[0]),
+        role=AgentRole(str(row[1])),
+        dimension=RouteCapabilityDimension(str(row[2])),
+        score=float(row[3]),
+        observed_quantity=int(row[4]),
+        receipt_count=int(row[5]),
+        inventory_digest=str(row[6]),
+        policy_digest=str(row[7]),
+        source_revision=str(row[8]),
+        suite_digest=str(row[9]),
+        registry_digest=str(row[10]),
+        execution_profile_digest=str(row[11]),
+        evaluator_provenance_digest=str(row[12]),
+        source_scorecard_digest=str(row[13]),
+        episode_evidence_digests=tuple(str(value) for value in row[14]),
+        observed_at=row[15],
+        expires_at=row[16],
     )

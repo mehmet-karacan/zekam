@@ -8,7 +8,7 @@ the routing decision.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -47,6 +47,13 @@ class CandidateDisposition(StrEnum):
     FALLBACK = "fallback"
     ELIGIBLE = "eligible"
     REJECTED = "rejected"
+
+
+class RouteCapabilityDimension(StrEnum):
+    CONTEXT = "context"
+    TOOL = "tool"
+    STRUCTURED_OUTPUT = "structured-output"
+    LONG_SESSION = "long-session"
 
 
 class StaleReason(StrEnum):
@@ -347,6 +354,167 @@ class RoutingQualification:
 
 
 @dataclass(frozen=True, slots=True)
+class RouteCapabilityRequirements:
+    minimum_context_tokens: int = 0
+    minimum_tool_score: float = 0
+    minimum_structured_output_score: float = 0
+    minimum_long_session_seconds: int = 0
+    minimum_long_session_score: float = 0
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.minimum_context_tokens, bool)
+            or not isinstance(self.minimum_context_tokens, int)
+            or isinstance(self.minimum_long_session_seconds, bool)
+            or not isinstance(self.minimum_long_session_seconds, int)
+        ):
+            raise ValidationFailed("Route capability miktar esigi tam sayi olmali")
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in (
+                self.minimum_tool_score,
+                self.minimum_structured_output_score,
+                self.minimum_long_session_score,
+            )
+        ):
+            raise ValidationFailed("Route capability puan esigi sayisal olmali")
+        if self.minimum_context_tokens < 0 or self.minimum_long_session_seconds < 0:
+            raise ValidationFailed("Route capability miktar esigi negatif olamaz")
+        scores = (
+            self.minimum_tool_score,
+            self.minimum_structured_output_score,
+            self.minimum_long_session_score,
+        )
+        if any(not 0 <= value <= 1 for value in scores):
+            raise ValidationFailed("Route capability puan esigi 0..1 olmali")
+        if (self.minimum_long_session_seconds == 0) != (self.minimum_long_session_score == 0):
+            raise ValidationFailed("Long-session sure ve puan esikleri birlikte verilmelidir")
+
+    @property
+    def required_dimensions(self) -> tuple[RouteCapabilityDimension, ...]:
+        return tuple(
+            dimension
+            for dimension, required in (
+                (RouteCapabilityDimension.CONTEXT, self.minimum_context_tokens > 0),
+                (RouteCapabilityDimension.TOOL, self.minimum_tool_score > 0),
+                (
+                    RouteCapabilityDimension.STRUCTURED_OUTPUT,
+                    self.minimum_structured_output_score > 0,
+                ),
+                (RouteCapabilityDimension.LONG_SESSION, self.minimum_long_session_seconds > 0),
+            )
+            if required
+        )
+
+    def as_dict(self) -> dict[str, int | float]:
+        return {
+            "minimum_context_tokens": self.minimum_context_tokens,
+            "minimum_tool_score": self.minimum_tool_score,
+            "minimum_structured_output_score": self.minimum_structured_output_score,
+            "minimum_long_session_seconds": self.minimum_long_session_seconds,
+            "minimum_long_session_score": self.minimum_long_session_score,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RouteCapabilityBinding:
+    evidence_role: AgentRole
+    source_revision: str
+    suite_digest: str
+    registry_digest: str
+    execution_profile_digest: str
+    evaluator_provenance_digest: str
+
+    def __post_init__(self) -> None:
+        if not self.source_revision.strip() or "://" in self.source_revision:
+            raise ValidationFailed("Route capability source revision gecersiz")
+        _digests(
+            self.suite_digest,
+            self.registry_digest,
+            self.execution_profile_digest,
+            self.evaluator_provenance_digest,
+        )
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "evidence_role": self.evidence_role.value,
+            "source_revision": self.source_revision,
+            "suite_digest": self.suite_digest,
+            "registry_digest": self.registry_digest,
+            "execution_profile_digest": self.execution_profile_digest,
+            "evaluator_provenance_digest": self.evaluator_provenance_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RouteCapabilityEvidence:
+    model_id: str
+    role: AgentRole
+    dimension: RouteCapabilityDimension
+    score: float
+    observed_quantity: int
+    receipt_count: int
+    inventory_digest: str
+    policy_digest: str
+    source_revision: str
+    suite_digest: str
+    registry_digest: str
+    execution_profile_digest: str
+    evaluator_provenance_digest: str
+    source_scorecard_digest: str
+    episode_evidence_digests: tuple[str, ...]
+    observed_at: dt.datetime
+    expires_at: dt.datetime
+
+    def __post_init__(self) -> None:
+        _nonblank(self.model_id, "Capability model id")
+        if not 0 <= self.score <= 1 or min(self.observed_quantity, self.receipt_count) < 0:
+            raise ValidationFailed("Route capability olcumu gecersiz")
+        _digests(
+            self.inventory_digest,
+            self.policy_digest,
+            self.suite_digest,
+            self.registry_digest,
+            self.execution_profile_digest,
+            self.evaluator_provenance_digest,
+            self.source_scorecard_digest,
+            *self.episode_evidence_digests,
+        )
+        if not self.episode_evidence_digests:
+            raise ValidationFailed("Route capability episode kaniti ister")
+        if not self.source_revision.strip() or "://" in self.source_revision:
+            raise ValidationFailed("Route capability source revision gecersiz")
+        _aware(self.observed_at, "Capability observed_at")
+        _aware(self.expires_at, "Capability expires_at")
+        if self.expires_at <= self.observed_at:
+            raise ValidationFailed("Capability expiry observation sonrasinda olmali")
+
+    @property
+    def evidence_digest(self) -> str:
+        return digest(
+            {
+                "model_id": self.model_id,
+                "role": self.role,
+                "dimension": self.dimension,
+                "score": self.score,
+                "observed_quantity": self.observed_quantity,
+                "receipt_count": self.receipt_count,
+                "inventory_digest": self.inventory_digest,
+                "policy_digest": self.policy_digest,
+                "source_revision": self.source_revision,
+                "suite_digest": self.suite_digest,
+                "registry_digest": self.registry_digest,
+                "execution_profile_digest": self.execution_profile_digest,
+                "evaluator_provenance_digest": self.evaluator_provenance_digest,
+                "source_scorecard_digest": self.source_scorecard_digest,
+                "episode_evidence_digests": list(self.episode_evidence_digests),
+                "observed_at": self.observed_at,
+                "expires_at": self.expires_at,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LayeredRouteRequest:
     role: AgentRole
     target_layer: RoutingLayer
@@ -358,6 +526,10 @@ class LayeredRouteRequest:
     routing_policy_digest: str
     policy_digest: str
     execution_target_digest: str
+    capability_requirements: RouteCapabilityRequirements = field(
+        default_factory=RouteCapabilityRequirements
+    )
+    capability_binding: RouteCapabilityBinding | None = None
     excluded_model_ids: tuple[str, ...] = ()
     excluded_execution_identities: tuple[str, ...] = ()
 
@@ -385,6 +557,10 @@ class LayeredRouteRequest:
             raise ValidationFailed("Project route exact project/context/workload/technology ister")
         if self.project_context_digest is not None:
             parse_digest(self.project_context_digest)
+        if bool(self.capability_requirements.required_dimensions) != (
+            self.capability_binding is not None
+        ):
+            raise ValidationFailed("Route capability gereksinimi current binding ister")
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,6 +629,7 @@ def decide_layered_model(
     request: LayeredRouteRequest,
     policy: RoleRoutingPolicy,
     qualifications: tuple[RoutingQualification, ...],
+    capability_evidence: tuple[RouteCapabilityEvidence, ...] = (),
     *,
     now: dt.datetime | None = None,
 ) -> LayeredModelDecision:
@@ -469,9 +646,12 @@ def decide_layered_model(
     )
 
     by_model: dict[str, list[RoutingQualification]] = {}
-    for item in qualifications:
-        if _qualification_matches(item, request):
-            by_model.setdefault(item.model_id, []).append(item)
+    for qualification in qualifications:
+        if _qualification_matches(qualification, request):
+            by_model.setdefault(qualification.model_id, []).append(qualification)
+    capabilities_by_model: dict[str, list[RouteCapabilityEvidence]] = {}
+    for capability in capability_evidence:
+        capabilities_by_model.setdefault(capability.model_id, []).append(capability)
 
     candidates: list[LayerCandidateEvidence] = []
     for model_id in sorted(by_model):
@@ -486,11 +666,11 @@ def decide_layered_model(
                 reasons.append(f"missing:{layer.value}")
                 continue
             newest_at = max(item.valid_from for item in layer_rows)
-            newest = [item for item in layer_rows if item.valid_from == newest_at]
-            if len({item.evidence_digest for item in newest}) != 1:
+            newest_qualifications = [item for item in layer_rows if item.valid_from == newest_at]
+            if len({item.evidence_digest for item in newest_qualifications}) != 1:
                 reasons.append(f"ambiguous:{layer.value}")
                 continue
-            current = newest[0]
+            current = newest_qualifications[0]
             if moment < current.valid_from or moment > current.expires_at:
                 reasons.append(f"stale:{layer.value}")
             if current.inventory_digest != request.inventory_digest:
@@ -508,12 +688,75 @@ def decide_layered_model(
             if current.tested_execution_identity in request.excluded_execution_identities:
                 reasons.append("execution-independence")
             selected.append(current)
+        selected_capabilities: list[RouteCapabilityEvidence] = []
+        for dimension in request.capability_requirements.required_dimensions:
+            if request.capability_binding is None:
+                raise PolicyViolation("Route capability binding beklenmedik sekilde eksik")
+            dimension_rows = [
+                item
+                for item in capabilities_by_model.get(model_id, ())
+                if item.dimension is dimension
+                and item.role is request.capability_binding.evidence_role
+            ]
+            if not dimension_rows:
+                reasons.append(f"capability-missing:{dimension.value}")
+                continue
+            newest_at = max(item.observed_at for item in dimension_rows)
+            newest_capabilities = [item for item in dimension_rows if item.observed_at == newest_at]
+            if len({item.evidence_digest for item in newest_capabilities}) != 1:
+                reasons.append(f"capability-ambiguous:{dimension.value}")
+                continue
+            current_capability = newest_capabilities[0]
+            if moment < current_capability.observed_at or moment > current_capability.expires_at:
+                reasons.append(f"capability-stale:{dimension.value}")
+            if current_capability.inventory_digest != request.inventory_digest:
+                reasons.append(f"capability-inventory-drift:{dimension.value}")
+            if current_capability.policy_digest != request.policy_digest:
+                reasons.append(f"capability-policy-drift:{dimension.value}")
+            binding = request.capability_binding
+            if current_capability.source_revision != binding.source_revision:
+                reasons.append(f"capability-source-drift:{dimension.value}")
+            if current_capability.suite_digest != binding.suite_digest:
+                reasons.append(f"capability-suite-drift:{dimension.value}")
+            if current_capability.registry_digest != binding.registry_digest:
+                reasons.append(f"capability-registry-drift:{dimension.value}")
+            if current_capability.execution_profile_digest != binding.execution_profile_digest:
+                reasons.append(f"capability-profile-drift:{dimension.value}")
+            if current_capability.evaluator_provenance_digest != (
+                binding.evaluator_provenance_digest
+            ):
+                reasons.append(f"capability-evaluator-drift:{dimension.value}")
+            requirements = request.capability_requirements
+            if (
+                dimension is RouteCapabilityDimension.CONTEXT
+                and current_capability.observed_quantity < requirements.minimum_context_tokens
+            ):
+                reasons.append("context-capacity")
+            elif dimension is RouteCapabilityDimension.TOOL:
+                if current_capability.score < requirements.minimum_tool_score:
+                    reasons.append("tool-score")
+                if current_capability.receipt_count < 1:
+                    reasons.append("tool-receipt-missing")
+            elif (
+                dimension is RouteCapabilityDimension.STRUCTURED_OUTPUT
+                and current_capability.score < requirements.minimum_structured_output_score
+            ):
+                reasons.append("structured-output-score")
+            elif dimension is RouteCapabilityDimension.LONG_SESSION:
+                if current_capability.observed_quantity < requirements.minimum_long_session_seconds:
+                    reasons.append("long-session-duration")
+                if current_capability.score < requirements.minimum_long_session_score:
+                    reasons.append("long-session-score")
+                if current_capability.receipt_count < 1:
+                    reasons.append("long-session-checkpoint-missing")
+            selected_capabilities.append(current_capability)
         unique_reasons = tuple(dict.fromkeys(reasons))
         candidates.append(
             LayerCandidateEvidence(
                 model_id=model_id,
                 layer_scores=tuple((item.layer, item.score) for item in selected),
-                evidence_digests=tuple(item.evidence_digest for item in selected),
+                evidence_digests=tuple(item.evidence_digest for item in selected)
+                + tuple(item.evidence_digest for item in selected_capabilities),
                 rejection_reasons=unique_reasons,
                 disposition=(
                     CandidateDisposition.REJECTED
@@ -565,6 +808,12 @@ def decide_layered_model(
                 "routing_policy_digest": request.routing_policy_digest,
                 "policy_digest": request.policy_digest,
                 "execution_target_digest": request.execution_target_digest,
+                "capability_requirements": request.capability_requirements.as_dict(),
+                "capability_binding": (
+                    None
+                    if request.capability_binding is None
+                    else request.capability_binding.as_dict()
+                ),
                 "excluded_model_ids": list(request.excluded_model_ids),
                 "excluded_execution_identities": list(request.excluded_execution_identities),
             },

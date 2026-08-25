@@ -21,6 +21,7 @@ tasks:
     fixture_source: config/benchmark-fixtures/capability-code-repair.v1.json
     max_duration_seconds: 300
     max_output_tokens: 16384
+    route_dimensions: [context, tool, structured-output, long-session]
   - task_id: review-root-cause
     version: 1
     role: reviewer
@@ -28,6 +29,7 @@ tasks:
     fixture_source: config/benchmark-fixtures/capability-review-root-cause.v1.json
     max_duration_seconds: 300
     max_output_tokens: 12288
+    route_dimensions: [context, tool, structured-output, long-session]
   - task_id: research-contradiction
     version: 1
     role: researcher
@@ -35,3 +37,4 @@ tasks:
     fixture_source: config/benchmark-fixtures/capability-research-contradiction.v1.json
     max_duration_seconds: 300
     max_output_tokens: 12288
+    route_dimensions: [context, tool, structured-output, long-session]

@@ -1,4 +1,4 @@
-schema: zekam-project-routing-targets/v1
+schema: zekam-project-routing-targets/v2
 projects:
   - gpu-fusion
   - plsql-java-transformer
@@ -8,3 +8,32 @@ projects:
   - schema-transform-platform
   - sky-microservis
   - sky-ui
+capability_requirements:
+  implementer:
+    evidence_role: implementer
+    minimum_context_tokens: 1024
+    minimum_tool_score: 0.70
+    minimum_structured_output_score: 0.75
+    minimum_long_session_seconds: 30
+    minimum_long_session_score: 0.70
+  reviewer:
+    evidence_role: reviewer
+    minimum_context_tokens: 1024
+    minimum_tool_score: 0.50
+    minimum_structured_output_score: 0.80
+    minimum_long_session_seconds: 30
+    minimum_long_session_score: 0.75
+  researcher:
+    evidence_role: researcher
+    minimum_context_tokens: 2048
+    minimum_tool_score: 0.50
+    minimum_structured_output_score: 0.75
+    minimum_long_session_seconds: 60
+    minimum_long_session_score: 0.70
+  verifier:
+    evidence_role: reviewer
+    minimum_context_tokens: 1024
+    minimum_tool_score: 0.50
+    minimum_structured_output_score: 0.85
+    minimum_long_session_seconds: 30
+    minimum_long_session_score: 0.80

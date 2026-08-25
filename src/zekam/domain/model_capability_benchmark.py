@@ -16,7 +16,7 @@ from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.domain.model_routing import AgentRole
+from zekam.domain.model_routing import AgentRole, RouteCapabilityDimension
 
 
 class CapabilityEpisodeStatus(StrEnum):
@@ -104,6 +104,7 @@ class CapabilityTaskSpec:
     forbidden_markers: tuple[str, ...]
     minimum_self_corrections: int
     max_tool_calls: int
+    route_dimensions: tuple[RouteCapabilityDimension, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.workload.strip() or self.version < 1:
@@ -139,6 +140,8 @@ class CapabilityTaskSpec:
             raise ValidationFailed("Capability forbidden marker seti tekrarli")
         if self.minimum_self_corrections < 0 or self.max_tool_calls < 0:
             raise ValidationFailed("Capability correction/tool butcesi negatif olamaz")
+        if len(self.route_dimensions) != len(set(self.route_dimensions)):
+            raise ValidationFailed("Capability route dimension seti tekrarli olamaz")
 
     @property
     def task_digest(self) -> str:
@@ -161,6 +164,7 @@ class CapabilityTaskSpec:
             "forbidden_markers": list(self.forbidden_markers),
             "minimum_self_corrections": self.minimum_self_corrections,
             "max_tool_calls": self.max_tool_calls,
+            "route_dimensions": sorted(item.value for item in self.route_dimensions),
         }
 
 
@@ -237,6 +241,17 @@ class CapabilityCohortPlan:
     def maximum_wall_seconds(self) -> int:
         waves = (len(self.model_ids) + self.max_parallelism - 1) // self.max_parallelism
         return waves * sum(task.max_duration_seconds for task in self.registry.tasks)
+
+    @property
+    def suite_digest(self) -> str:
+        return digest(
+            {
+                "registry_digest": self.registry.registry_digest,
+                "execution_profile_digest": self.execution_profile.profile_digest,
+                "task_digests": sorted(task.task_digest for task in self.registry.tasks),
+                "max_parallelism": self.max_parallelism,
+            }
+        )
 
     @property
     def plan_digest(self) -> str:

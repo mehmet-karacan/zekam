@@ -31,7 +31,7 @@ from zekam.domain.model_capability_benchmark import (
     CapabilityTaskRegistry,
     CapabilityTaskSpec,
 )
-from zekam.domain.model_routing import AgentRole
+from zekam.domain.model_routing import AgentRole, RouteCapabilityDimension
 
 CAPABILITY_TASK_SCHEMA = "zekam-capability-task/v1"
 CAPABILITY_RESPONSE_SCHEMA_DIGEST = digest(
@@ -394,8 +394,12 @@ def load_capability_registry(
             "fixture_source",
             "max_duration_seconds",
             "max_output_tokens",
+            "route_dimensions",
         }:
             raise ValidationFailed("Capability task registry exact shape gecersiz")
+        route_dimensions = task_doc["route_dimensions"]
+        if not isinstance(route_dimensions, list) or not route_dimensions:
+            raise ValidationFailed("Capability route dimension listesi bos veya gecersiz")
         source = repository_root / str(task_doc["fixture_source"])
         try:
             resolved = source.resolve(strict=True)
@@ -469,6 +473,7 @@ def load_capability_registry(
             forbidden_markers=tuple(fixture_doc["forbidden_markers"]),
             minimum_self_corrections=int(fixture_doc["minimum_self_corrections"]),
             max_tool_calls=int(fixture_doc["max_tool_calls"]),
+            route_dimensions=_route_dimensions(route_dimensions),
         )
         tasks.append(task)
         fixtures[task.task_digest] = CapabilityFixture(
@@ -477,6 +482,13 @@ def load_capability_registry(
             payload=fixture_doc,
         )
     return CapabilityTaskRegistry(int(document["schema_version"]), tuple(tasks)), profile, fixtures
+
+
+def _route_dimensions(values: list[Any]) -> tuple[RouteCapabilityDimension, ...]:
+    try:
+        return tuple(RouteCapabilityDimension(str(value)) for value in values)
+    except ValueError as exc:
+        raise ValidationFailed("Capability route dimension degeri gecersiz") from exc
 
 
 @dataclass(slots=True)

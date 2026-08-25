@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.canonical import digest
 from zekam.domain.errors import ConcurrencyConflict, NotFound, PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.model_capability_benchmark import (
@@ -77,14 +76,7 @@ class ModelCapabilityRepository:
         return labels
 
     def ensure_plan(self, plan: CapabilityCohortPlan) -> tuple[UUID, UUID, bool]:
-        suite_digest = digest(
-            {
-                "registry_digest": plan.registry.registry_digest,
-                "execution_profile_digest": plan.execution_profile.profile_digest,
-                "task_digests": sorted(task.task_digest for task in plan.registry.tasks),
-                "max_parallelism": plan.max_parallelism,
-            }
-        )
+        suite_digest = plan.suite_digest
         suite_id = new_uuid7()
         cohort_id = new_uuid7()
         task_digests = sorted(task.task_digest for task in plan.registry.tasks)
@@ -93,9 +85,11 @@ class ModelCapabilityRepository:
                 "insert into models.capability_benchmark_suite"
                 " (id,realm_id,registry_digest,execution_profile_digest,"
                 "  evaluator_provenance_digest,task_digests,task_roles,task_budgets,"
+                "  task_route_dimensions,"
                 "  task_count,max_duration_seconds,max_model_turns,max_input_tokens,"
                 "  max_output_tokens,max_tool_calls,max_parallelism,suite_digest)"
-                " values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s)"
+                " values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,"
+                " %s,%s,%s,%s,%s,%s,%s,%s)"
                 " on conflict (realm_id,suite_digest) do nothing returning id",
                 (
                     suite_id,
@@ -115,6 +109,15 @@ class ModelCapabilityRepository:
                                 "output_tokens": task.max_output_tokens,
                                 "tool_calls": task.max_tool_calls,
                             }
+                            for task in plan.registry.tasks
+                        },
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        {
+                            task.task_digest: sorted(
+                                dimension.value for dimension in task.route_dimensions
+                            )
                             for task in plan.registry.tasks
                         },
                         sort_keys=True,

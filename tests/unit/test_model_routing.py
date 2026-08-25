@@ -14,6 +14,10 @@ from zekam.domain.model_routing import (
     LayeredRouteRequest,
     ProjectRoutingContext,
     RoleRoutingPolicy,
+    RouteCapabilityBinding,
+    RouteCapabilityDimension,
+    RouteCapabilityEvidence,
+    RouteCapabilityRequirements,
     RouteStatus,
     RoutingLayer,
     RoutingQualification,
@@ -61,7 +65,25 @@ def _request(**changes: object) -> LayeredRouteRequest:
         "execution_target_digest": digest("execution-target"),
     }
     values.update(changes)
+    requirements = values.get("capability_requirements")
+    if (
+        isinstance(requirements, RouteCapabilityRequirements)
+        and requirements.required_dimensions
+        and "capability_binding" not in values
+    ):
+        values["capability_binding"] = _binding()
     return LayeredRouteRequest(**values)  # type: ignore[arg-type]
+
+
+def _binding(*, role: AgentRole = AgentRole.IMPLEMENTER) -> RouteCapabilityBinding:
+    return RouteCapabilityBinding(
+        evidence_role=role,
+        source_revision="revision-1",
+        suite_digest=digest("capability-suite"),
+        registry_digest=digest("capability-registry"),
+        execution_profile_digest=digest("capability-profile"),
+        evaluator_provenance_digest=digest("capability-evaluator"),
+    )
 
 
 def _qualification(model: str, layer: RoutingLayer, score: float) -> RoutingQualification:
@@ -96,6 +118,49 @@ def _all_layers(model: str, score: float) -> tuple[RoutingQualification, ...]:
     return tuple(_qualification(model, layer, score) for layer in RoutingLayer)
 
 
+def _capability(
+    model: str,
+    dimension: RouteCapabilityDimension,
+    *,
+    score: float = 0.9,
+    quantity: int = 4096,
+    receipts: int = 2,
+) -> RouteCapabilityEvidence:
+    return RouteCapabilityEvidence(
+        model_id=model,
+        role=AgentRole.IMPLEMENTER,
+        dimension=dimension,
+        score=score,
+        observed_quantity=quantity,
+        receipt_count=receipts,
+        inventory_digest=INVENTORY,
+        policy_digest=POLICY,
+        source_revision="revision-1",
+        suite_digest=digest("capability-suite"),
+        registry_digest=digest("capability-registry"),
+        execution_profile_digest=digest("capability-profile"),
+        evaluator_provenance_digest=digest("capability-evaluator"),
+        source_scorecard_digest=digest(f"scorecard:{model}:{dimension.value}"),
+        episode_evidence_digests=(digest(f"episode:{model}:{dimension.value}"),),
+        observed_at=NOW - dt.timedelta(minutes=5),
+        expires_at=NOW + dt.timedelta(days=1),
+    )
+
+
+def _requirements() -> RouteCapabilityRequirements:
+    return RouteCapabilityRequirements(
+        minimum_context_tokens=1024,
+        minimum_tool_score=0.7,
+        minimum_structured_output_score=0.8,
+        minimum_long_session_seconds=30,
+        minimum_long_session_score=0.75,
+    )
+
+
+def _all_capabilities(model: str) -> tuple[RouteCapabilityEvidence, ...]:
+    return tuple(_capability(model, dimension) for dimension in RouteCapabilityDimension)
+
+
 def test_three_layer_intersection_selects_primary_and_explicit_fallback() -> None:
     decision = decide_layered_model(
         _request(),
@@ -123,6 +188,148 @@ def test_missing_project_layer_is_pending_and_never_guesses() -> None:
     assert decision.status is RouteStatus.PENDING
     assert decision.primary_model_id is None
     assert decision.candidates[0].rejection_reasons == ("missing:project",)
+
+
+def test_all_required_capability_dimensions_select_and_bind_evidence() -> None:
+    request = _request(capability_requirements=_requirements())
+    evidence = _all_capabilities("model-a")
+    decision = decide_layered_model(
+        request,
+        _policy(),
+        _all_layers("model-a", 0.9),
+        evidence,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.SELECTED
+    assert decision.primary_model_id == "model-a"
+    assert set(decision.candidates[0].evidence_digests) >= {
+        item.evidence_digest for item in evidence
+    }
+
+
+@pytest.mark.parametrize("missing", tuple(RouteCapabilityDimension))
+def test_missing_capability_dimension_fails_closed(
+    missing: RouteCapabilityDimension,
+) -> None:
+    decision = decide_layered_model(
+        _request(capability_requirements=_requirements()),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        tuple(item for item in _all_capabilities("model-a") if item.dimension is not missing),
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.PENDING
+    assert f"capability-missing:{missing.value}" in decision.candidates[0].rejection_reasons
+
+
+def test_capability_threshold_receipt_staleness_and_drift_fail_closed() -> None:
+    evidence = list(_all_capabilities("model-a"))
+    evidence[0] = replace(evidence[0], observed_quantity=100)
+    evidence[1] = replace(evidence[1], score=0.1, receipt_count=0)
+    evidence[2] = replace(evidence[2], score=0.1, expires_at=NOW - dt.timedelta(seconds=1))
+    evidence[3] = replace(
+        evidence[3],
+        score=0.1,
+        observed_quantity=1,
+        receipt_count=0,
+        inventory_digest=digest("old-inventory"),
+        policy_digest=digest("old-policy"),
+    )
+    decision = decide_layered_model(
+        _request(capability_requirements=_requirements()),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        tuple(evidence),
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.PENDING
+    reasons = set(decision.candidates[0].rejection_reasons)
+    assert {
+        "context-capacity",
+        "tool-score",
+        "tool-receipt-missing",
+        "structured-output-score",
+        "capability-stale:structured-output",
+        "capability-inventory-drift:long-session",
+        "capability-policy-drift:long-session",
+        "long-session-duration",
+        "long-session-score",
+        "long-session-checkpoint-missing",
+    } <= reasons
+
+
+def test_capability_requirements_change_decision_digest() -> None:
+    base = decide_layered_model(_request(), _policy(), _all_layers("model-a", 0.9), now=NOW)
+    required = decide_layered_model(
+        _request(capability_requirements=_requirements()),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        _all_capabilities("model-a"),
+        now=NOW,
+    )
+    assert base.evidence_digest != required.evidence_digest
+
+
+def test_capability_evidence_from_another_role_cannot_route() -> None:
+    decision = decide_layered_model(
+        _request(
+            capability_requirements=_requirements(),
+            capability_binding=_binding(role=AgentRole.REVIEWER),
+        ),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        _all_capabilities("model-a"),
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.PENDING
+    assert set(decision.candidates[0].rejection_reasons) == {
+        f"capability-missing:{dimension.value}" for dimension in RouteCapabilityDimension
+    }
+
+
+def test_capability_suite_registry_profile_evaluator_and_source_drift_fail_closed() -> None:
+    evidence = tuple(
+        replace(
+            item,
+            source_revision="old-revision",
+            suite_digest=digest("old-suite"),
+            registry_digest=digest("old-registry"),
+            execution_profile_digest=digest("old-profile"),
+            evaluator_provenance_digest=digest("old-evaluator"),
+        )
+        for item in _all_capabilities("model-a")
+    )
+    decision = decide_layered_model(
+        _request(capability_requirements=_requirements()),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        evidence,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.PENDING
+    reasons = set(decision.candidates[0].rejection_reasons)
+    for dimension in RouteCapabilityDimension:
+        assert {
+            f"capability-source-drift:{dimension.value}",
+            f"capability-suite-drift:{dimension.value}",
+            f"capability-registry-drift:{dimension.value}",
+            f"capability-profile-drift:{dimension.value}",
+            f"capability-evaluator-drift:{dimension.value}",
+        } <= reasons
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"minimum_context_tokens": 1.5},
+        {"minimum_long_session_seconds": True},
+        {"minimum_tool_score": "0.8"},
+        {"minimum_structured_output_score": False},
+    ),
+)
+def test_capability_requirement_types_fail_closed(changes: dict[str, object]) -> None:
+    with pytest.raises(ValidationFailed):
+        RouteCapabilityRequirements(**changes)  # type: ignore[arg-type]
 
 
 def test_stale_health_qualification_policy_and_inventory_drift_fail_closed() -> None:

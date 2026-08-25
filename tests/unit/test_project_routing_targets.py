@@ -10,6 +10,22 @@ from zekam.application.project_routing_targets import (
     workloads_for_profile,
 )
 from zekam.domain.errors import ValidationFailed
+from zekam.domain.model_routing import AgentRole, RouteCapabilityDimension
+
+
+def _requirements_yaml() -> str:
+    body = "capability_requirements:\n"
+    for role in AgentRole:
+        body += (
+            f"  {role.value}:\n"
+            f"    evidence_role: {role.value}\n"
+            "    minimum_context_tokens: 1024\n"
+            "    minimum_tool_score: 0.5\n"
+            "    minimum_structured_output_score: 0.75\n"
+            "    minimum_long_session_seconds: 30\n"
+            "    minimum_long_session_score: 0.7\n"
+        )
+    return body
 
 
 def _profile() -> CapabilityProfile:
@@ -43,6 +59,10 @@ def test_default_targets_are_exact_requested_eight() -> None:
         "sky-ui",
     )
     assert targets.sanitized()["target_count"] == 8
+    assert targets.requirements_for(AgentRole.IMPLEMENTER).required_dimensions == tuple(
+        RouteCapabilityDimension
+    )
+    assert targets.evidence_role_for(AgentRole.VERIFIER) is AgentRole.REVIEWER
 
 
 def test_workloads_are_derived_from_profile_evidence() -> None:
@@ -52,7 +72,8 @@ def test_workloads_are_derived_from_profile_evidence() -> None:
 def test_duplicate_target_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "targets.yaml"
     path.write_text(
-        "schema: zekam-project-routing-targets/v1\nprojects: [gpu-fusion, gpu-fusion]\n",
+        "schema: zekam-project-routing-targets/v2\n"
+        "projects: [gpu-fusion, gpu-fusion]\n" + _requirements_yaml(),
         encoding="utf-8",
     )
     with pytest.raises(ValidationFailed, match="tekrarli"):
@@ -62,9 +83,10 @@ def test_duplicate_target_is_rejected(tmp_path: Path) -> None:
 def test_missing_reviewed_target_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "targets.yaml"
     path.write_text(
-        "schema: zekam-project-routing-targets/v1\n"
+        "schema: zekam-project-routing-targets/v2\n"
         "projects: [gpu-fusion, plsql-java-transformer, plsql-test-sync, utplsql, "
-        "schema-compare-platform, schema-transform-platform, sky-microservis]\n",
+        "schema-compare-platform, schema-transform-platform, sky-microservis]\n"
+        + _requirements_yaml(),
         encoding="utf-8",
     )
     with pytest.raises(ValidationFailed, match="exact sekiz"):

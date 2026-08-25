@@ -497,10 +497,10 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
             role=task.role,
             status=CapabilityEpisodeStatus.PASSED,
             started_at=dt.datetime.now(dt.UTC),
-            duration_ms=1_000,
+            duration_ms=60_000,
             start_skew_ms=0,
             model_turn_count=2,
-            input_token_count=2_000,
+            input_token_count=4_096,
             output_token_count=1_000,
             correctness=1.0,
             completion=1.0,
@@ -532,10 +532,6 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
             acceptance_evidence_digest=digest((model_id, task.task_digest, "acceptance-evidence")),
         )
         for task in plan.registry.tasks
-    )
-    episodes = (
-        replace(episodes[0], tool_call_count=0, tool_receipt_digests=()),
-        *episodes[1:],
     )
     scorecard = aggregate_capability_episodes(plan, model_id, episodes)
     with connect(migrated_database) as connection:
@@ -588,6 +584,25 @@ def test_campaign_exact_102_calls_are_persisted_and_replay_is_zero_call(
                     second_scorecard.mean_duration_ms,
                     digest("forged-capability-scorecard"),
                 ),
+            )
+        connection.rollback()
+        repository.record_scorecard(cohort_id, second_scorecard)
+
+        for remaining_model in plan.model_ids[2:]:
+            remaining_episodes = tuple(
+                replace(
+                    episode,
+                    model_id=remaining_model,
+                    response_digest=digest((remaining_model, episode.task_digest, "response")),
+                    evidence_digest=digest((remaining_model, episode.task_digest, "evidence")),
+                )
+                for episode in episodes
+            )
+            for episode in remaining_episodes:
+                repository.record_episode(cohort_id, episode)
+            repository.record_scorecard(
+                cohort_id,
+                aggregate_capability_episodes(plan, remaining_model, remaining_episodes),
             )
 
     route = _run(
