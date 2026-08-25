@@ -174,6 +174,16 @@ export const ZekamLifecycle = async ({ directory }) => {
     await enqueue(args)
     await drain()
   }
+  const preCompact = async (session) => {
+    const process = Bun.spawn(
+      ["zekam", "opencode", "pre-compact", "--session", session],
+      { stdout: "ignore", stderr: "ignore" },
+    )
+    const exitCode = await process.exited
+    if (exitCode !== 0) {
+      throw new Error("Zekam canonical pre-compact checkpoint ACK failed")
+    }
+  }
 
   return {
     tool: {
@@ -204,6 +214,9 @@ export const ZekamLifecycle = async ({ directory }) => {
       if (tracked.includes(event.type)) {
         await emit(event.type, props(event))
       }
+    },
+    "experimental.session.compacting": async (input) => {
+      await preCompact(input.sessionID)
     },
     "tool.execute.before": async (input, output) => {
       const resource = output?.args?.filePath ?? output?.args?.path

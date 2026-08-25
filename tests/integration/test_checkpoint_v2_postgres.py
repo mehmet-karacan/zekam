@@ -26,6 +26,7 @@ from zekam.domain.checkpoint_v2 import (
     StaleDigestBindings,
     StepResultV2,
 )
+from zekam.domain.clients import ClientKind, ClientLifecycleEvent
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
@@ -72,6 +73,7 @@ from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.tool_registry import CompiledToolSet
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.checkpoint_v2_repository import CheckpointV2Repository
+from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
 from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
@@ -1555,6 +1557,184 @@ def test_memory_usage_correlates_only_after_canonical_independent_checkpoint_ver
                 (foreign_usage_id,),
             )
             assert int(cursor.fetchone()[0]) == 0
+        captured["done"] = True
+
+    global E2E_FIXTURE_CONSUMER
+    E2E_FIXTURE_CONSUMER = consume
+    try:
+        test_checkpoint_v2_evidence_revision_and_terminal_gate(realm_session, tmp_path)
+    finally:
+        E2E_FIXTURE_CONSUMER = None
+    assert captured == {"done": True}
+
+
+def test_pre_compact_event_atomically_produces_structural_checkpoint_outbox(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def consume(values: dict[str, Any]) -> None:
+        realm = values["realm"]
+        connection = values["connection"]
+        run = values["run"]
+        envelope = values["envelope"]
+        research_checkpoint = values["research_checkpoint"]
+        now = values["now"]
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "insert into runtime.effect_claim"
+                "(id,realm_id,job_id,attempt_id,operation,effect_digest,authorization_digest,"
+                "idempotency_key,resources,execution_identity,fencing_token,adapter_digest,"
+                "claim_digest,claimed_at) values"
+                "(%s,%s,%s,%s,'write',%s,%s,%s,'[]'::jsonb,'checkpoint-test',1,%s,%s,%s)",
+                [
+                    (
+                        uuid4(),
+                        realm.id,
+                        envelope.job_id,
+                        envelope.attempt_id,
+                        digest(f"bounded-effect-{index}"),
+                        digest("authorization"),
+                        f"bounded-claim-{index}",
+                        digest("adapter"),
+                        digest(f"bounded-claim-{index}"),
+                        now + dt.timedelta(microseconds=index),
+                    )
+                    for index in range(130)
+                ],
+            )
+        connection.commit()
+        event = ClientLifecycleEvent(
+            client_id="codex",
+            client_kind=ClientKind.CODEX,
+            session_id="checkpoint-test",
+            sequence=1,
+            previous_digest=None,
+            event_type="session.compacting",
+            payload_digest=digest("content-free-pre-compact"),
+            occurred_at=now + dt.timedelta(seconds=1),
+        )
+        repository = ClientLifecycleRepository(connection, realm.id)
+        acknowledgement = repository.ingest(
+            event.as_dict(),
+            client_instance_id="codex",
+            client_kind=ClientKind.CODEX,
+            now=now + dt.timedelta(seconds=1),
+        )
+        assert acknowledgement.compaction_outbox_id is not None
+        assert acknowledgement.compaction_payload_digest is not None
+        assert (
+            repository.ingest(
+                event.as_dict(),
+                client_instance_id="codex",
+                client_kind=ClientKind.CODEX,
+                now=now + dt.timedelta(seconds=2),
+            )
+            == acknowledgement
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select run_id,job_id,attempt_id,assignment_id,execution_envelope_id,"
+                "route_decision_id,context_manifest_id,context_packet_id,observed_lease_id,"
+                "source_event_digest,structural_payload,payload_digest,state,grants_authority,"
+                "checkpoint_id from work.compaction_checkpoint_outbox"
+                " where realm_id=%s and id=%s",
+                (realm.id, acknowledgement.compaction_outbox_id),
+            )
+            row = cursor.fetchone()
+            cursor.execute(
+                "select count(*) from work.compaction_checkpoint_outbox"
+                " where realm_id=%s and lifecycle_event_id=%s",
+                (realm.id, acknowledgement.event_id),
+            )
+            assert cursor.fetchone()[0] == 1
+        assert tuple(str(value) for value in row[:9]) == (
+            str(run.id),
+            str(envelope.job_id),
+            str(envelope.attempt_id),
+            str(envelope.assignment_id),
+            str(envelope.id),
+            str(envelope.route_decision_id),
+            str(envelope.context_manifest_id),
+            str(envelope.context_packet_id),
+            str(envelope.lease_id),
+        )
+        payload = row[10]
+        assert row[9] == event.event_digest
+        assert row[11] == acknowledgement.compaction_payload_digest
+        assert row[12:] == ("pending", False, None)
+        assert payload["schema"] == "zekam-compaction-checkpoint-draft/v1"
+        assert payload["transcript_included"] is False
+        assert payload["grants_authority"] is False
+        assert payload["source_revision"] == run.source_revision
+        assert payload["execution_envelope_digest"] == envelope.envelope_digest
+        assert len(payload["open_effects"]) == 128
+        assert payload["selection_manifest"]["open_effects"] == {
+            "total": 131,
+            "included": 128,
+            "omitted": 3,
+        }
+        assert payload["selection_manifest"]["strategy"] == "canonical-order-first-128"
+        assert "completed_summary" not in payload
+        assert "pending_summary" not in payload
+        with connection.transaction(), connection.cursor() as cursor:
+            cursor.execute(
+                "select work.valid_compaction_checkpoint_draft(structural_payload),"
+                "work.valid_compaction_checkpoint_draft("
+                "jsonb_set(structural_payload,'{session_id}',to_jsonb(repeat('x',70000))))"
+                " from work.compaction_checkpoint_outbox where realm_id=%s and id=%s",
+                (realm.id, acknowledgement.compaction_outbox_id),
+            )
+            assert cursor.fetchone() == (True, False)
+            cursor.execute("savepoint forged_insert")
+            with pytest.raises(Exception, match="permission denied"):
+                cursor.execute(
+                    "insert into work.compaction_checkpoint_outbox"
+                    "(id,realm_id,lifecycle_event_id,lifecycle_stream_id,run_id,job_id,"
+                    "attempt_id,assignment_id,execution_envelope_id,route_decision_id,"
+                    "context_manifest_id,context_packet_id,observed_lease_id,source_event_digest,"
+                    "structural_payload,payload_digest,state,created_at,grants_authority)"
+                    " select gen_random_uuid(),realm_id,lifecycle_event_id,lifecycle_stream_id,"
+                    "run_id,job_id,attempt_id,assignment_id,execution_envelope_id,route_decision_id,"
+                    "context_manifest_id,context_packet_id,observed_lease_id,source_event_digest,"
+                    "structural_payload,%s,'pending',created_at,false"
+                    " from work.compaction_checkpoint_outbox where realm_id=%s and id=%s",
+                    (
+                        digest("forged-payload"),
+                        realm.id,
+                        acknowledgement.compaction_outbox_id,
+                    ),
+                )
+            cursor.execute("rollback to savepoint forged_insert")
+            cursor.execute("savepoint immutable_payload")
+            with pytest.raises(Exception, match="identity is immutable"):
+                cursor.execute(
+                    "update work.compaction_checkpoint_outbox"
+                    " set structural_payload=jsonb_set(structural_payload,'{session_id}',"
+                    "to_jsonb('forged'::text)) where realm_id=%s and id=%s",
+                    (realm.id, acknowledgement.compaction_outbox_id),
+                )
+            cursor.execute("rollback to savepoint immutable_payload")
+            cursor.execute(
+                "update work.compaction_checkpoint_outbox set state='processing'"
+                " where realm_id=%s and id=%s",
+                (realm.id, acknowledgement.compaction_outbox_id),
+            )
+            cursor.execute("savepoint mismatched_completion")
+            with pytest.raises(Exception, match="completion binding mismatch"):
+                cursor.execute(
+                    "update work.compaction_checkpoint_outbox set state='completed',"
+                    "checkpoint_id=%s,checkpoint_digest=%s,completed_at=%s"
+                    " where realm_id=%s and id=%s",
+                    (
+                        research_checkpoint.checkpoint_id,
+                        research_checkpoint.checkpoint_digest,
+                        now + dt.timedelta(seconds=2),
+                        realm.id,
+                        acknowledgement.compaction_outbox_id,
+                    ),
+                )
+            cursor.execute("rollback to savepoint mismatched_completion")
         captured["done"] = True
 
     global E2E_FIXTURE_CONSUMER

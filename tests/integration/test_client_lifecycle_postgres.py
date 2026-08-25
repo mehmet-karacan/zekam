@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -248,6 +249,54 @@ def test_ack_failure_rolls_back_event_and_stream_head_atomically(
             (realm.id,),
         )
         assert cursor.fetchone()[0] == 0
+
+
+def test_pre_compact_without_exact_execution_binding_is_not_acknowledged(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    created = record_event(
+        tmp_path, event_type="session.created", session_id="ses_unbound_compact", now=NOW
+    ).document()
+    compacted = record_event(
+        tmp_path,
+        event_type="session.compacting",
+        session_id="ses_unbound_compact",
+        now=NOW + dt.timedelta(seconds=1),
+    ).document()
+    repository = ClientLifecycleRepository(connection, realm.id)
+    repository.ingest(created, client_instance_id="client-unbound", now=NOW)
+
+    with pytest.raises(Exception, match="exact active execution binding requires one run"):
+        repository.ingest(
+            compacted,
+            client_instance_id="client-unbound",
+            now=NOW + dt.timedelta(seconds=1),
+        )
+    connection.rollback()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select head_sequence from client.lifecycle_stream"
+            " where realm_id=%s and client_instance_id='client-unbound'",
+            (realm.id,),
+        )
+        assert cursor.fetchone()[0] == 1
+        cursor.execute(
+            "select count(*) from client.lifecycle_ack where realm_id=%s",
+            (realm.id,),
+        )
+        assert cursor.fetchone()[0] == 1
+        cursor.execute(
+            "select count(*) from work.compaction_checkpoint_outbox where realm_id=%s",
+            (realm.id,),
+        )
+        assert cursor.fetchone()[0] == 0
+        cursor.execute(
+            "select count(*) from client.lifecycle_event where realm_id=%s",
+            (realm.id,),
+        )
+        assert cursor.fetchone()[0] == 1
 
 
 def test_cross_realm_lifecycle_rows_are_hidden_by_rls(migrated_database: Any, tmp_path) -> None:

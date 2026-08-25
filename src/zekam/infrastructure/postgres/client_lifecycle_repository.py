@@ -20,14 +20,20 @@ class LifecycleAck:
     local_event_digest: str
     canonical_digest: str
     acknowledged_at: dt.datetime
+    compaction_outbox_id: UUID | None = None
+    compaction_payload_digest: str | None = None
 
     def as_dict(self) -> dict[str, str]:
-        return {
+        result = {
             "event_id": str(self.event_id),
             "local_event_digest": self.local_event_digest,
             "canonical_digest": self.canonical_digest,
             "acknowledged_at": self.acknowledged_at.isoformat(),
         }
+        if self.compaction_outbox_id is not None:
+            result["compaction_outbox_id"] = str(self.compaction_outbox_id)
+            result["compaction_payload_digest"] = str(self.compaction_payload_digest)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,15 +100,24 @@ class ClientLifecycleRepository:
         # crash sonrasi ayrisabilir ve replay kalici head mismatch'e dusebilir.
         with self.connection.transaction(), self.connection.cursor() as cursor:
             cursor.execute(
-                "select e.id,a.canonical_digest,a.acknowledged_at"
+                "select e.id,a.canonical_digest,a.acknowledged_at,o.id,o.payload_digest"
                 " from client.lifecycle_event e join client.lifecycle_ack a"
                 " on a.realm_id=e.realm_id and a.event_id=e.id"
+                " left join work.compaction_checkpoint_outbox o"
+                " on o.realm_id=e.realm_id and o.lifecycle_event_id=e.id"
                 " where e.realm_id=%s and e.event_digest=%s",
                 (self.realm_id, local_digest),
             )
             replay = cursor.fetchone()
             if replay is not None:
-                return LifecycleAck(UUID(str(replay[0])), local_digest, str(replay[1]), replay[2])
+                return LifecycleAck(
+                    UUID(str(replay[0])),
+                    local_digest,
+                    str(replay[1]),
+                    replay[2],
+                    None if replay[3] is None else UUID(str(replay[3])),
+                    None if replay[4] is None else str(replay[4]),
+                )
 
             cursor.execute(
                 "select id,head_sequence,head_digest from client.lifecycle_stream"
@@ -180,4 +195,17 @@ class ClientLifecycleRepository:
                     acknowledged_at,
                 ),
             )
-        return LifecycleAck(event_id, local_digest, canonical_digest, acknowledged_at)
+            cursor.execute(
+                "select id,payload_digest from work.compaction_checkpoint_outbox"
+                " where realm_id=%s and lifecycle_event_id=%s",
+                (self.realm_id, event_id),
+            )
+            compaction = cursor.fetchone()
+        return LifecycleAck(
+            event_id,
+            local_digest,
+            canonical_digest,
+            acknowledged_at,
+            None if compaction is None else UUID(str(compaction[0])),
+            None if compaction is None else str(compaction[1]),
+        )

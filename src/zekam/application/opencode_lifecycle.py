@@ -24,6 +24,7 @@ _EVENTS = frozenset(
     {
         "session.created",
         "session.compacted",
+        "session.compacting",
         "session.checkpoint",
         "session.deleted",
         "session.error",
@@ -451,7 +452,7 @@ def resume_projection(
             current["completed_summary"] = event.get("completed_summary")
             current["pending_summary"] = event.get("pending_summary")
             current["next_safe_action"] = event.get("next_action")
-        elif event["event_type"] in {"session.idle", "session.compacted"}:
+        elif event["event_type"] in {"session.idle", "session.compacted", "session.compacting"}:
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
             current["status"] = "checkpointed"

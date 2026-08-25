@@ -93,6 +93,9 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"--task-label"' in plugin.read_text(encoding="utf-8")
     plugin_body = plugin.read_text(encoding="utf-8")
     assert "opencode-plugin-spool" in plugin_body
+    assert '"experimental.session.compacting"' in plugin_body
+    assert '"pre-compact"' in plugin_body
+    assert "canonical pre-compact checkpoint ACK failed" in plugin_body
     assert "attempts >= 5" in plugin_body
     assert "ownerToken" in plugin_body
     assert "process.kill(currentOwner.pid, 0)" in plugin_body

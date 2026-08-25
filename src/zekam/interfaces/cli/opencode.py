@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -23,6 +24,17 @@ from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fa
 
 app = typer.Typer(name="opencode", help="OpenCode lifecycle ve continuity koprusu")
 console = Console()
+
+
+def _ingest_and_ack(
+    repository: ClientLifecycleRepository,
+    resolved_home: Path,
+    instance_id: str,
+    event: dict[str, object],
+) -> dict[str, str]:
+    document = repository.ingest(event, client_instance_id=instance_id).as_dict()
+    record_canonical_ack(resolved_home, document)
+    return document
 
 
 @app.command("event")
@@ -71,6 +83,42 @@ def resume_command(
 ) -> None:
     """Model-bagimsiz OpenCode kesinti ozetini yazar."""
     console.print_json(json.dumps(resume_projection(resolve_home(home)), ensure_ascii=False))
+
+
+@app.command("pre-compact")
+def pre_compact_command(
+    session_id: Annotated[str, typer.Option("--session")],
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Client compaction oncesi canonical structural outbox ACK kapisi."""
+    resolved_home = resolve_home(home)
+    try:
+        with RealmSession(home, realm) as context:
+            repository = ClientLifecycleRepository(context.connection, context.realm_id)
+            instance_id = lifecycle_client_instance_id(resolved_home)
+            acknowledgement: dict[str, str] | None = None
+            for pending in oldest_unacknowledged_events(resolved_home, limit=500):
+                current = _ingest_and_ack(repository, resolved_home, instance_id, dict(pending))
+                if (
+                    pending.get("event_type") == "session.compacting"
+                    and pending.get("session_id") == session_id
+                ):
+                    acknowledgement = current
+            if acknowledgement is None:
+                event = record_event(
+                    resolved_home,
+                    event_type="session.compacting",
+                    session_id=session_id,
+                )
+                acknowledgement = _ingest_and_ack(
+                    repository, resolved_home, instance_id, event.document()
+                )
+            if "compaction_outbox_id" not in acknowledgement:
+                raise ZekamError("Pre-compact canonical structural outbox ACK uretilmedi")
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps({"status": "checkpoint-acknowledged", **acknowledgement}))
 
 
 @app.command("forward")
