@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -11,11 +12,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from zekam.application.home import HomeLayout
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.research import ResearchReport
+from zekam.infrastructure.postgres.research_repository import ResearchRepository
 
 PROJECTION_SCHEMA = "zekam-research-report-projection/v1"
 _SAFE_REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -45,6 +49,29 @@ class ResearchReportProjection:
             "read_only_projection": True,
             "grants_authority": False,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class StoredResearchReport:
+    record_id: UUID
+    projection: ResearchReportProjection
+
+
+def persist_research_report(
+    repository: ResearchRepository,
+    layout: HomeLayout,
+    project_id: str,
+    question_id: UUID,
+    report: ResearchReport,
+    *,
+    now: dt.datetime,
+) -> StoredResearchReport:
+    """DB authority kaydindan sonra rebuild edilebilir projection uretir."""
+
+    record_id = repository.store_report(question_id, report, now=now)
+    document = repository.report_document(record_id)
+    projection = materialize_research_report(layout, project_id, document)
+    return StoredResearchReport(record_id, projection)
 
 
 def render_research_report(document: Mapping[str, Any]) -> bytes:

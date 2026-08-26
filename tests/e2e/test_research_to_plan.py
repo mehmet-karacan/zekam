@@ -12,8 +12,10 @@ from typing import Any
 
 import pytest
 
+from zekam.application.home import HomeLayout
 from zekam.application.intake_service import IntakeService
 from zekam.application.project_integration import ProjectIntegrationService
+from zekam.application.research_report_projection import persist_research_report
 from zekam.application.research_service import (
     ResearchService,
     assert_no_swallowed_results,
@@ -167,7 +169,16 @@ def test_dogal_dilden_plan_candidate_e2e(realm_session: tuple[Any, Any], tmp_pat
     assert_no_swallowed_results(dispatch, report)
     assert report.status is ReportStatus.ANSWERED
     assert {item.finding_id for item in report.findings} == {"f1", "f2", "f4"}
-    report_id = repository.store_report(question_id, report, now=NOW)
+    persisted = persist_research_report(
+        repository,
+        HomeLayout(tmp_path / ".zekam").ensure(),
+        str(project.id),
+        question_id,
+        report,
+        now=NOW,
+    )
+    report_id = persisted.record_id
+    assert persisted.projection.path.is_file()
     stored_report = repository.report_document(report_id)
     assert stored_report["report_id"] == report.report_id
     assert stored_report["snapshots"] == [item.body() for item in report.snapshots]

@@ -186,9 +186,7 @@ class ResearchRepository:
                 " values (%s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb,"
                 "  %s::jsonb, %s, %s::jsonb,"
                 "  %s, %s, false, %s)"
-                " on conflict (realm_id, report_digest) do update set"
-                " domain_report_id = excluded.domain_report_id, report_body = excluded.report_body"
-                " where research.report.report_body is null returning id",
+                " on conflict (realm_id, report_digest) do nothing returning id",
                 (
                     record_id,
                     self.realm_id,
