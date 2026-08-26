@@ -12,6 +12,7 @@ from zekam import __version__
 from zekam.application.config import Settings, core_root
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
 from zekam.application.home import HomeLayout, assert_separated_from_core
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError
 from zekam.domain.identity import PRODUCT
 
@@ -254,6 +255,185 @@ class GitClientCheck:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class GitRepositoryCheck:
+    """Core repository'nin cached upstream, dirty ve divergence durumunu okur."""
+
+    root: Path
+    check_id: str = "core.git-repository"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        executable = shutil.which("git")
+        if executable is None:
+            return CheckResult(
+                check_id=self.check_id,
+                category=self.category,
+                status=CheckStatus.SKIPPED,
+                summary="Git istemcisi olmadigi icin repository kontrolu atlandi",
+                evidence={"available": False, "network_checked": False},
+            )
+        head = _git_repository_value(executable, self.root, "rev-parse", "HEAD")
+        branch = _git_repository_value(
+            executable, self.root, "rev-parse", "--abbrev-ref", "HEAD"
+        )
+        if head is None or branch is None:
+            return CheckResult(
+                check_id=self.check_id,
+                category=self.category,
+                status=CheckStatus.SKIPPED,
+                summary="Core root Git repository olarak okunamadi",
+                findings=(
+                    Finding(
+                        code="core.git-repository-unavailable",
+                        severity=Severity.WARNING,
+                        title="Git repository durumu okunamadi",
+                        detail="Core root icin HEAD veya branch cozumlenemedi",
+                        next_action="Core root ve Git checkout durumunu dogrulayin",
+                    ),
+                ),
+                evidence={"available": False, "network_checked": False},
+            )
+        dirty_output = _git_repository_value(
+            executable, self.root, "status", "--porcelain=v1", "--untracked-files=all"
+        )
+        dirty_paths = tuple(
+            line[3:] for line in (dirty_output or "").splitlines() if len(line) > 3
+        )
+        upstream = _git_repository_value(
+            executable,
+            self.root,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        )
+        upstream_head = (
+            None
+            if upstream is None
+            else _git_repository_value(executable, self.root, "rev-parse", "@{upstream}")
+        )
+        ahead = 0
+        behind = 0
+        if upstream_head is not None:
+            counts = _git_repository_value(
+                executable,
+                self.root,
+                "rev-list",
+                "--left-right",
+                "--count",
+                "@{upstream}...HEAD",
+            )
+            if counts is not None:
+                left, right = counts.split()
+                behind, ahead = int(left), int(right)
+        plan_digest = digest(
+            {
+                "schema": "zekam-git-repository-repair-plan/v1",
+                "branch": branch,
+                "head": head,
+                "upstream": upstream,
+                "upstream_head": upstream_head,
+                "ahead": ahead,
+                "behind": behind,
+                "dirty_paths": list(dirty_paths),
+                "network_checked": False,
+            }
+        )
+        evidence = {
+            "available": True,
+            "branch": branch,
+            "head": head,
+            "upstream": upstream,
+            "upstream_head": upstream_head,
+            "ahead": ahead,
+            "behind": behind,
+            "dirty_count": len(dirty_paths),
+            "dirty_paths": list(dirty_paths),
+            "network_checked": False,
+            "cached_remote_state": True,
+            "repair_plan_digest": plan_digest,
+            "grants_authority": False,
+        }
+        findings: list[Finding] = []
+        if upstream is None:
+            findings.append(
+                Finding(
+                    code="core.git-upstream-missing",
+                    severity=Severity.WARNING,
+                    title="Git upstream tanimli degil",
+                    detail=f"{branch} dali bir upstream ref izlemiyor",
+                    next_action="Exact remote/branch ile upstream binding planini inceleyin",
+                    authority_required=True,
+                )
+            )
+        if dirty_paths:
+            findings.append(
+                Finding(
+                    code="core.git-worktree-dirty",
+                    severity=Severity.WARNING,
+                    title="Git worktree temiz degil",
+                    detail=f"{len(dirty_paths)} path pull/fast-forward islemini bloke ediyor",
+                    next_action="Dirty path'leri commit, stash veya geri alinabilir sekilde ayirin",
+                    authority_required=True,
+                    evidence={"dirty_paths": list(dirty_paths)},
+                )
+            )
+        if ahead and behind:
+            findings.append(
+                Finding(
+                    code="core.git-upstream-diverged",
+                    severity=Severity.ERROR,
+                    title="Git dali upstream ile ayrismis",
+                    detail=f"{behind} behind, {ahead} ahead; otomatik pull reddedilir",
+                    next_action="Merge/rebase kararini ayri Work/Plan ile verin",
+                    authority_required=True,
+                )
+            )
+        elif behind:
+            findings.append(
+                Finding(
+                    code="core.git-upstream-behind",
+                    severity=Severity.WARNING,
+                    title="Git dali cached upstream gerisinde",
+                    detail=f"Fast-forward adayi: {behind} commit",
+                    next_action=(
+                        f"`zekam doctor --repair-plan` ile remote HEAD'i yenileyin; "
+                        f"exact plan digest: {plan_digest}"
+                    ),
+                    authority_required=True,
+                )
+            )
+        elif ahead:
+            findings.append(
+                Finding(
+                    code="core.git-upstream-ahead",
+                    severity=Severity.WARNING,
+                    title="Git dali upstream ilerisinde",
+                    detail=f"Remote'da olmayan {ahead} local commit var",
+                    next_action="Push icin ayri exact authorization ve verifier kapisini kullanin",
+                    authority_required=True,
+                )
+            )
+        if any(item.severity is Severity.ERROR for item in findings):
+            status = CheckStatus.FAILED
+            summary = "Git repository upstream ile ayrismis"
+        elif findings:
+            status = CheckStatus.DEGRADED
+            summary = "Git repository pull/fast-forward icin hazir degil"
+        else:
+            status = CheckStatus.PASSED
+            summary = "Git repository cached upstream ile senkron ve temiz"
+        return CheckResult(
+            check_id=self.check_id,
+            category=self.category,
+            status=status,
+            summary=summary,
+            findings=tuple(findings),
+            evidence=evidence,
+        )
+
+
 def _git_version(executable: str) -> str | None:
     try:
         completed = subprocess.run(
@@ -286,3 +466,21 @@ def _git_config_value(executable: str, scope: str, key: str) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip() or None
+
+
+def _git_repository_value(executable: str, root: Path, *args: str) -> str | None:
+    """Repository icinde tek bir salt okunur Git komutu calistirir."""
+
+    try:
+        completed = subprocess.run(
+            [executable, "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.rstrip()

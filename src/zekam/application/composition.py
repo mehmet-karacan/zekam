@@ -67,6 +67,7 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
         core_checks.ConfigCheck(settings=context.settings),
         core_checks.HomeLayoutCheck(layout=context.layout, core_path=context.core_path),
         core_checks.GitClientCheck(),
+        core_checks.GitRepositoryCheck(root=context.core_path),
     ]
     if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
         from zekam.infrastructure.doctor import memory_checks, postgres_checks
@@ -76,6 +77,10 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
                 postgres_checks.DriverCheck(),
                 postgres_checks.ConnectionCheck(settings=context.settings.database),
                 postgres_checks.MigrationCheck(settings=context.settings.database),
+                postgres_checks.RoutineIntegrityCheck(
+                    settings=context.settings.database,
+                    directory=context.core_path / "migrations",
+                ),
                 memory_checks.MemoryContinuityCheck(
                     settings=context.settings.database,
                     core_path=context.core_path,

@@ -237,7 +237,6 @@ def detect_drift(
 
 def status(connection: Any, directory: Path | None = None) -> MigrationStatus:
     """Migration durumunu hesaplar. Hicbir sey uygulamaz."""
-    ensure_ledger(connection)
     available = discover_migrations(directory)
     applied = read_applied(connection)
     applied_versions = {record.version for record in applied}
@@ -282,6 +281,7 @@ def upgrade(
     Drift varsa hicbir sey uygulanmaz. Her migration kendi transaction'i icinde
     calisir ve ledger ayni transaction'da yazilir.
     """
+    ensure_ledger(connection)
     current = status(connection, directory)
     if current.drift:
         details = "; ".join(finding.detail for finding in current.drift)

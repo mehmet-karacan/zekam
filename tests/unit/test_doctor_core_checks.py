@@ -122,3 +122,31 @@ def test_git_config_lookup_uses_read_only_argument_order(monkeypatch: pytest.Mon
 
     assert value == "schannel"
     assert observed == ["git.exe", "config", "--global", "--get", "http.sslBackend"]
+
+
+def test_git_repository_check_preserves_first_dirty_path_character(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    values = {
+        ("rev-parse", "HEAD"): "a" * 40,
+        ("rev-parse", "--abbrev-ref", "HEAD"): "main",
+        ("status", "--porcelain=v1", "--untracked-files=all"): " M VALIDATION_RESULT.json",
+        (
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ): "origin/main",
+        ("rev-parse", "@{upstream}"): "a" * 40,
+        ("rev-list", "--left-right", "--count", "@{upstream}...HEAD"): "0 0",
+    }
+    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(
+        core_checks,
+        "_git_repository_value",
+        lambda _executable, _root, *args: values.get(args),
+    )
+
+    result = core_checks.GitRepositoryCheck(root=tmp_path).run()
+
+    assert result.evidence["dirty_paths"] == ["VALIDATION_RESULT.json"]

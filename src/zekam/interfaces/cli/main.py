@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated
+from uuid import UUID
 
 import click
 import typer
@@ -22,6 +23,8 @@ from zekam import __version__
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
 from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
+from zekam.application.doctor_repair import DoctorRepairPlan, build_doctor_repair_plan
+from zekam.application.doctor_repair_runtime import apply_doctor_repair_with_runtime
 from zekam.application.home import resolve_home
 from zekam.application.opencode_agent_bootstrap import (
     apply_opencode_agent_bootstrap,
@@ -31,9 +34,14 @@ from zekam.application.persistence_setup import (
     apply_persistence_setup,
     plan_persistence_setup,
 )
+from zekam.application.project_integration import ProjectIntegrationService
+from zekam.application.realm_context import RealmContext
 from zekam.application.setup import build_setup_plan
-from zekam.domain.errors import ZekamError
+from zekam.domain.errors import NotFound, PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
+from zekam.domain.realm import DEFAULT_REALM_SLUG, ActorKind, LifecycleStatus
+from zekam.infrastructure.postgres.connection import connect
+from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.interfaces.cli import ask as ask_commands
 from zekam.interfaces.cli import backup as backup_commands
 from zekam.interfaces.cli import configuration as configuration_commands
@@ -54,6 +62,7 @@ from zekam.interfaces.cli import trace as trace_commands
 from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
+from zekam.interfaces.cli.session import REALM_HELP, RealmSession
 
 #: Toplam duruma karsilik gelen kararli cikis kodlari.
 EXIT_CODES: dict[OverallStatus, int] = {
@@ -129,20 +138,96 @@ def doctor(
         typer.Option("--category", "-c", help="Yalnizca verilen kategorileri calistirir"),
     ] = None,
     home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+    repair_plan: Annotated[
+        bool,
+        typer.Option(
+            "--repair-plan",
+            help="Mutation yapmadan digest-bound Git/DB onarim planini yazar",
+        ),
+    ] = False,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--uygula",
+            help="Exact --plan-digest ile siradaki tek onarim adimini uygular",
+        ),
+    ] = False,
+    plan_digest: Annotated[
+        str | None,
+        typer.Option("--plan-digest", help="Uygulanacak exact doctor repair plan digest'i"),
+    ] = None,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    project_id: Annotated[
+        UUID | None,
+        typer.Option("--project-id", help="Exact Zekam source project UUID"),
+    ] = None,
+    actor_id: Annotated[
+        UUID | None,
+        typer.Option("--actor-id", help="Exact aktif human actor UUID"),
+    ] = None,
 ) -> None:
-    """Kurulum, bagimlilik ve durum butunlugunu salt okunur raporlar."""
+    """Kurulum ve butunlugu raporlar; mutation yalniz explicit repair ile olur."""
     try:
         context = build_context(home=home)
         service = build_doctor(context)
         report = service.run(categories=category or None)
+        selected_plan: DoctorRepairPlan | None = None
+        applied_result: dict[str, object] | None = None
+        if repair_plan or apply:
+            if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
+                with connect(context.settings.database) as connection:
+                    selected_plan = build_doctor_repair_plan(
+                        core_path=context.core_path,
+                        connection=connection,
+                        migrations_directory=context.core_path / "migrations",
+                    )
+            else:
+                selected_plan = build_doctor_repair_plan(core_path=context.core_path)
+        if apply:
+            if plan_digest is None:
+                raise PolicyViolation("--uygula exact --plan-digest ister")
+            if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
+                raise PolicyViolation("Doctor repair runtime PostgreSQL Work Graph ister")
+            assert selected_plan is not None
+            if selected_plan.plan_digest != plan_digest:
+                raise PolicyViolation("Doctor repair plan digest stale veya exact degil")
+            with RealmSession(home, realm) as realm_context:
+                exact_project_id = _doctor_project_id(
+                    realm_context,
+                    context,
+                    requested=project_id,
+                )
+                exact_actor_id = _doctor_actor_id(realm_context, requested=actor_id)
+                runtime_result = apply_doctor_repair_with_runtime(
+                    realm_context,
+                    context,
+                    repair_plan=selected_plan,
+                    plan_digest=plan_digest,
+                    actor_id=exact_actor_id,
+                    project_id=exact_project_id,
+                )
+                applied_result = runtime_result.as_dict()
+            report = build_doctor(context).run(categories=category or None)
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
 
     if output_json:
-        console.print_json(json.dumps(report.as_dict(), ensure_ascii=False))
+        document = report.as_dict()
+        if selected_plan is not None:
+            document["doctor_repair_plan"] = selected_plan.as_dict()
+        if applied_result is not None:
+            document["doctor_repair_result"] = applied_result
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
     else:
         _render_report(report)
+        if selected_plan is not None:
+            _render_doctor_repair_plan(selected_plan)
+        if applied_result is not None:
+            console.print(
+                "[green]Onarim dogrulandi:[/green] "
+                f"{applied_result['step']} receipt={applied_result['receipt_id']}"
+            )
     raise typer.Exit(EXIT_CODES[report.overall])
 
 
@@ -320,6 +405,56 @@ def _interactive_persistence_choice(
     return PersistenceBackend(str(raw).lower())
 
 
+def _doctor_project_id(
+    realm_context: RealmContext,
+    context: ApplicationContext,
+    *,
+    requested: UUID | None,
+) -> UUID:
+    integration = ProjectIntegrationService(
+        realm_context.connection, realm_context.realm
+    )
+    if requested is not None:
+        integration.projects.get(requested)
+        if integration.resolve_source_root(requested).resolve() != context.core_path.resolve():
+            raise PolicyViolation("--project-id exact Zekam source rootuna bagli degil")
+        return requested
+    candidates: list[UUID] = []
+    for project in integration.projects.list_all():
+        try:
+            root = integration.resolve_source_root(project.id)
+        except (NotFound, PolicyViolation):
+            continue
+        if root.resolve() == context.core_path.resolve():
+            candidates.append(project.id)
+    if len(candidates) != 1:
+        raise PolicyViolation(
+            "Doctor repair exact tek Zekam source project ister; --project-id verin"
+        )
+    return candidates[0]
+
+
+def _doctor_actor_id(
+    realm_context: RealmContext, *, requested: UUID | None
+) -> UUID:
+    actors = ActorRepository(realm_context.connection, realm_context.realm_id)
+    if requested is not None:
+        actor = actors.get(requested)
+        if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
+            raise PolicyViolation("--actor-id aktif human actor olmali")
+        return actor.id
+    candidates = tuple(
+        actor
+        for actor in actors.list_all()
+        if actor.kind is ActorKind.HUMAN and actor.status is LifecycleStatus.ACTIVE
+    )
+    if len(candidates) != 1:
+        raise PolicyViolation(
+            "Doctor repair exact tek aktif human actor ister; --actor-id verin"
+        )
+    return candidates[0].id
+
+
 _SEVERITY_STYLES: dict[Severity, str] = {
     Severity.INFO: "cyan",
     Severity.WARNING: "yellow",
@@ -357,6 +492,27 @@ def _render_report(report: DoctorReport) -> None:
     style = _STATUS_STYLES[report.overall]
     console.print()
     console.print(f"Toplam durum: [{style}]{report.overall.value}[/{style}]")
+
+
+def _render_doctor_repair_plan(plan: DoctorRepairPlan) -> None:
+    document = plan.as_dict()
+    table = Table(title="Doctor repair plani (yetki degildir)")
+    table.add_column("Alan")
+    table.add_column("Deger")
+    table.add_row("Plan digest", plan.plan_digest)
+    table.add_row("Siradaki adim", str(document["next_step"] or "yok"))
+    table.add_row(
+        "Bloke",
+        ", ".join(str(item) for item in document["blocked_reasons"]) or "hayir",
+    )
+    table.add_row("Uygulanabilir", "evet" if document["applicable"] else "hayir")
+    console.print()
+    console.print(table)
+    if document["next_step"] is not None:
+        console.print(
+            "Uygulamak icin exact plan digest ile tekrar calistirin: "
+            f"`{PRODUCT.cli} doctor --uygula --plan-digest {plan.plan_digest}`"
+        )
 
 
 def run() -> None:

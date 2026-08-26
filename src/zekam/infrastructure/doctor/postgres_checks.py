@@ -11,7 +11,7 @@ from pathlib import Path
 from zekam.application.config import DatabaseSettings
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
 from zekam.domain.identity import PRODUCT
-from zekam.infrastructure.postgres import migrations
+from zekam.infrastructure.postgres import migrations, routine_integrity
 from zekam.infrastructure.postgres.connection import (
     PSYCOPG_AVAILABLE,
     ServerInfo,
@@ -233,4 +233,106 @@ class MigrationCheck:
             summary=summary,
             findings=tuple(findings),
             evidence=evidence,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RoutineIntegrityCheck:
+    """Applied migration'lardan beklenen function/procedure setini dogrular."""
+
+    settings: DatabaseSettings
+    directory: Path | None = None
+    check_id: str = "postgres.routine-integrity"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        if not PSYCOPG_AVAILABLE:
+            return CheckResult(
+                check_id=self.check_id,
+                category=self.category,
+                status=CheckStatus.SKIPPED,
+                summary="Surucu olmadigi icin atlandi",
+            )
+        try:
+            with connect(self.settings) as connection:
+                current = routine_integrity.status(connection, self.directory)
+        except Exception as exc:
+            return CheckResult(
+                check_id=self.check_id,
+                category=self.category,
+                status=CheckStatus.SKIPPED,
+                summary="Routine butunlugu okunamadi",
+                findings=(
+                    Finding(
+                        code="postgres.routine-integrity-unavailable",
+                        severity=Severity.WARNING,
+                        title="Function/procedure envanteri okunamadi",
+                        detail=type(exc).__name__,
+                        next_action="Migration ve PostgreSQL baglantisini dogrulayin",
+                    ),
+                ),
+            )
+
+        findings: list[Finding] = []
+        if current.migration_drift:
+            findings.append(
+                Finding(
+                    code="postgres.routine-migration-drift",
+                    severity=Severity.ERROR,
+                    title="Routine kaynagi migration drift nedeniyle guvenilir degil",
+                    detail=f"{len(current.migration_drift)} drift bulgusu",
+                    next_action="Once migration drift'i yeni forward migration ile giderin",
+                    authority_required=True,
+                )
+            )
+        elif current.migration_pending:
+            findings.append(
+                Finding(
+                    code="postgres.routine-migration-pending",
+                    severity=Severity.WARNING,
+                    title="Routine envanteri pending migration gerisinde",
+                    detail=f"{len(current.migration_pending)} migration bekliyor",
+                    next_action=f"Once `{PRODUCT.cli} db upgrade --uygula` kapisini kullanin",
+                    authority_required=True,
+                )
+            )
+        if current.missing:
+            findings.append(
+                Finding(
+                    code="postgres.routine-missing",
+                    severity=Severity.ERROR,
+                    title="Migration'da tanimli function/procedure eksik",
+                    detail=f"{len(current.missing)} routine eksik",
+                    next_action=(
+                        f"`{PRODUCT.cli} doctor --repair-plan --json` ile exact plani alin; "
+                        f"plan digest: {current.repair_plan_digest}"
+                    ),
+                    authority_required=True,
+                    evidence={
+                        "missing": [item.key.as_dict() for item in current.missing],
+                        "repair_plan_digest": current.repair_plan_digest,
+                    },
+                )
+            )
+
+        if current.migration_drift or current.missing:
+            status_value = CheckStatus.FAILED
+            summary = "PostgreSQL function/procedure butunlugu bozuk"
+        elif current.migration_pending:
+            status_value = CheckStatus.DEGRADED
+            summary = "Routine envanteri migration head'ini bekliyor"
+        else:
+            status_value = CheckStatus.PASSED
+            matched_count = len(current.expected) - len(current.missing)
+            summary = (
+                f"PostgreSQL function/procedure envanteri tam "
+                f"({matched_count}/{len(current.expected)})"
+            )
+        return CheckResult(
+            check_id=self.check_id,
+            category=self.category,
+            status=status_value,
+            summary=summary,
+            findings=tuple(findings),
+            evidence=current.as_dict(),
         )
