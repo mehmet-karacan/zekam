@@ -140,3 +140,20 @@ def test_report_serialization_is_json_ready() -> None:
     assert document["schema"] == "zekam-doctor-report/v1"
     assert document["overall"] == "healthy"
     assert document["results"][0]["findings"][0]["code"] == "a.b"
+    assert document["repair_plan"] == [
+        {"finding_code": "a.b", "action": "adim", "authority_required": False}
+    ]
+
+
+def test_repair_plan_deduplicates_equal_actions_in_order() -> None:
+    service = DoctorService(
+        [
+            _StaticCheck(
+                result=_result(
+                    CheckStatus.DEGRADED,
+                    (_finding("a.b", Severity.WARNING), _finding("a.c", Severity.WARNING)),
+                )
+            )
+        ]
+    )
+    assert len(service.run().as_dict()["repair_plan"]) == 1

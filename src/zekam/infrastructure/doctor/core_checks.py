@@ -189,7 +189,7 @@ class HomeLayoutCheck:
 
 @dataclass(frozen=True, slots=True)
 class GitClientCheck:
-    """Git istemcisinin varligini ve surumunu raporlar."""
+    """Git istemcisini ve Windows sistem sertifika deposu kullanimini raporlar."""
 
     check_id: str = "core.git-client"
     category: str = CATEGORY
@@ -214,12 +214,43 @@ class GitClientCheck:
                 evidence={"available": False},
             )
         version = _git_version(executable)
+        ssl_backend = _git_config_value(executable, "--global", "http.sslBackend")
+        evidence = {
+            "available": True,
+            "version": version,
+            "platform": sys.platform,
+            "ssl_backend": ssl_backend,
+        }
+        if sys.platform == "win32" and (ssl_backend or "").casefold() != "schannel":
+            return CheckResult(
+                check_id=self.check_id,
+                category=self.category,
+                status=CheckStatus.DEGRADED,
+                summary="Git Windows sertifika deposunu kullanmiyor",
+                findings=(
+                    Finding(
+                        code="core.git-windows-ca-backend",
+                        severity=Severity.WARNING,
+                        title="Windows Git TLS backend ayari eksik",
+                        detail=(
+                            "Git HTTPS baglantilari Windows sertifika deposu yerine "
+                            f"{ssl_backend or 'varsayilan backend'} kullaniyor"
+                        ),
+                        next_action=(
+                            "`git config --global http.sslBackend schannel` calistirin; "
+                            "sslVerify ayarini kapatmayin"
+                        ),
+                        authority_required=True,
+                    ),
+                ),
+                evidence=evidence,
+            )
         return CheckResult(
             check_id=self.check_id,
             category=self.category,
             status=CheckStatus.PASSED,
             summary=version or "Git kullanilabilir",
-            evidence={"available": True, "version": version},
+            evidence=evidence,
         )
 
 
@@ -235,5 +266,23 @@ def _git_version(executable: str) -> str | None:
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - ortam bagimli
         return None
     if completed.returncode != 0:  # pragma: no cover - ortam bagimli
+        return None
+    return completed.stdout.strip() or None
+
+
+def _git_config_value(executable: str, scope: str, key: str) -> str | None:
+    """Tek bir Git config degerini shell kullanmadan salt okunur getirir."""
+
+    try:
+        completed = subprocess.run(
+            [executable, "config", scope, "--get", key],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - ortam bagimli
+        return None
+    if completed.returncode != 0:
         return None
     return completed.stdout.strip() or None

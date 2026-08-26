@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,3 +82,43 @@ def test_git_client_check_reports_availability() -> None:
     result = core_checks.GitClientCheck().run()
     assert result.status in {CheckStatus.PASSED, CheckStatus.DEGRADED}
     assert "available" in result.evidence
+
+
+def test_windows_git_check_requires_schannel(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(core_checks, "_git_version", lambda _executable: "git version test")
+    monkeypatch.setattr(core_checks, "_git_config_value", lambda *_args: "openssl")
+    monkeypatch.setattr(core_checks.sys, "platform", "win32")
+
+    result = core_checks.GitClientCheck().run()
+
+    assert result.status is CheckStatus.DEGRADED
+    assert result.findings[0].code == "core.git-windows-ca-backend"
+    assert "sslVerify" in result.findings[0].next_action
+
+
+def test_windows_git_check_accepts_schannel(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(core_checks, "_git_version", lambda _executable: "git version test")
+    monkeypatch.setattr(core_checks, "_git_config_value", lambda *_args: "schannel")
+    monkeypatch.setattr(core_checks.sys, "platform", "win32")
+
+    result = core_checks.GitClientCheck().run()
+
+    assert result.status is CheckStatus.PASSED
+    assert result.evidence["ssl_backend"] == "schannel"
+
+
+def test_git_config_lookup_uses_read_only_argument_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[str] = []
+
+    def fake_run(argv: list[str], **_kwargs: object) -> SimpleNamespace:
+        observed.extend(argv)
+        return SimpleNamespace(returncode=0, stdout="schannel\n")
+
+    monkeypatch.setattr(core_checks.subprocess, "run", fake_run)
+
+    value = core_checks._git_config_value("git.exe", "--global", "http.sslBackend")
+
+    assert value == "schannel"
+    assert observed == ["git.exe", "config", "--global", "--get", "http.sslBackend"]

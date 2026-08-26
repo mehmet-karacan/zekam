@@ -122,11 +122,25 @@ class DoctorReport:
         return tuple(finding for result in self.results for finding in result.findings)
 
     def as_dict(self) -> dict[str, Any]:
+        repair_plan: list[dict[str, Any]] = []
+        seen_actions: set[str] = set()
+        for finding in self.findings:
+            if finding.next_action in seen_actions:
+                continue
+            seen_actions.add(finding.next_action)
+            repair_plan.append(
+                {
+                    "finding_code": finding.code,
+                    "action": finding.next_action,
+                    "authority_required": finding.authority_required,
+                }
+            )
         return {
             "schema": self.schema,
             "generated_at": self.generated_at.isoformat(),
             "overall": self.overall.value,
             "results": [result.as_dict() for result in self.results],
+            "repair_plan": repair_plan,
         }
 
 

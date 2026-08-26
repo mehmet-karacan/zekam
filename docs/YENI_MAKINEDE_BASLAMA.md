@@ -6,6 +6,17 @@ sözleşmelerdedir; bu belge onların yerine geçmez.
 
 ## 1. Depoyu al ve ortamı kur
 
+Windows'ta Git HTTPS bağlantıları işletim sisteminin sertifika deposunu kullanmalıdır.
+TLS doğrulamasını kapatmayın; Git for Windows'u bir kez şu şekilde ayarlayın:
+
+```powershell
+git config --global http.sslBackend schannel
+git clone https://github.com/mehmet-karacan/zekam.git
+cd zekam
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e ".[db,api,dev]"
+```
+
 ```bash
 git clone https://github.com/mehmet-karacan/zekam.git
 cd zekam
@@ -55,6 +66,18 @@ veritabanını hedefler. Test tarafı artık bu değişkenleri kendi içinde sil
 `zekam` komutları korumasızdır.
 
 ## 4. Migration ve sağlık
+
+Yeni makinede ortam değişkenleri ve PostgreSQL hazırlandıktan sonra bütün idempotent
+ilk kurulum adımlarını tek akışta önce dry-run olarak görebilir, sonra uygulayabilirsiniz:
+
+```powershell
+zekam setup
+zekam setup --uygula
+```
+
+`setup`, Windows'ta `schannel` ayarını yapar; ardından `init`, migration, policy,
+model envanteri ve scheduler kurulumunu çalıştırıp son `doctor --json` kontrolünü yapar.
+`doctor` hiçbir değişiklik yapmaz ve eksiklerin sıralı `repair_plan` alanını raporlar.
 
 ```bash
 .venv/bin/zekam init

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -30,6 +31,7 @@ from zekam.application.persistence_setup import (
     apply_persistence_setup,
     plan_persistence_setup,
 )
+from zekam.application.setup import build_setup_plan
 from zekam.domain.errors import ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.interfaces.cli import ask as ask_commands
@@ -209,6 +211,81 @@ def init(
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
     console.print(f"[green]Hazir:[/green] {context.home}")
+
+
+@app.command()
+def setup(
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--uygula",
+            help="Git TLS, migration ve runtime ilk kurulum adimlarini gercekten uygular",
+        ),
+    ] = False,
+    output_json: Annotated[bool, typer.Option("--json", help="Sanitize plan JSON yazar")] = False,
+) -> None:
+    """Yeni makine kurulumunu planlar; varsayilan davranis salt okunur dry-run'dir."""
+
+    plan = build_setup_plan()
+    if output_json and not apply:
+        console.print_json(
+            json.dumps(
+                {
+                    "schema": "zekam-setup-plan/v1",
+                    "apply": apply,
+                    "steps": [step.as_dict() for step in plan],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
+    elif not apply:
+        table = Table(title="Yeni makine kurulum plani")
+        table.add_column("Adim")
+        table.add_column("Aciklama")
+        for step in plan:
+            table.add_row(step.step_id, step.description)
+        console.print(table)
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+
+    cli_prefix = (sys.executable, "-m", "zekam.interfaces.cli.main")
+    receipts: list[dict[str, object]] = []
+    for step in plan:
+        argv = step.argv if step.step_id == "windows-git-ca" else (*cli_prefix, *step.argv)
+        completed = subprocess.run(
+            argv,
+            check=False,
+            capture_output=output_json,
+            text=output_json,
+        )
+        receipts.append({"step_id": step.step_id, "returncode": completed.returncode})
+        if completed.returncode != 0:
+            if output_json:
+                console.print_json(
+                    json.dumps(
+                        {
+                            "schema": "zekam-setup-result/v1",
+                            "status": "failed",
+                            "receipts": receipts,
+                        }
+                    )
+                )
+            else:
+                error_console.print(f"[red]Kurulum durdu:[/red] {step.step_id}")
+            raise typer.Exit(completed.returncode)
+        if not output_json:
+            console.print(f"[green]Tamam:[/green] {step.step_id}")
+    if output_json:
+        console.print_json(
+            json.dumps(
+                {
+                    "schema": "zekam-setup-result/v1",
+                    "status": "completed",
+                    "receipts": receipts,
+                }
+            )
+        )
 
 
 def _opencode_executable(context: ApplicationContext) -> Path | None:
