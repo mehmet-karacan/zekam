@@ -17,6 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.home import HomeLayout, resolve_home
 from zekam.application.intake_service import IntakeOutcome, IntakeService
 from zekam.application.opencode_benchmark_campaign import (
     default_scope_file,
@@ -25,10 +26,15 @@ from zekam.application.opencode_benchmark_campaign import (
 )
 from zekam.application.opencode_remote_benchmark import EVALUATOR_PROVENANCE_DIGEST
 from zekam.application.realm_context import RealmContext
+from zekam.application.research_report_projection import (
+    materialize_research_report,
+    projection_path,
+)
 from zekam.application.research_service import default_dag_nodes
 from zekam.domain.errors import ZekamError
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.intake import RequestClass, normalize_text
+from zekam.domain.project import Project
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.research import (
     ResearchBudget,
@@ -50,6 +56,8 @@ from zekam.interfaces.cli.session import (
 )
 
 app = typer.Typer(name="research", help="Kanitli arastirma islemleri", no_args_is_help=True)
+report_app = typer.Typer(name="report", help="Kanonik arastirma raporu gorunurlugu")
+app.add_typer(report_app)
 console = Console()
 
 _ALL_BENCHMARK_CUES = ("tum", "hepsi", "butun", "all", "full")
@@ -303,3 +311,109 @@ def start_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print(f"kaydedildi: {stored}")
+
+
+def _report_scope(realm_context: RealmContext, project: str) -> tuple[Project, ResearchRepository]:
+    found = ProjectRepository(realm_context.connection, realm_context.realm_id).find_by_slug(
+        project
+    )
+    if found is None:
+        raise fail(f"Proje bulunamadi: {project}")
+    repository = ResearchRepository(
+        realm_context.connection,
+        realm_context.realm_id,
+        found.id,
+        UUID(int=0),
+    )
+    return found, repository
+
+
+@report_app.command("list")
+def report_list_command(
+    project: Annotated[str, typer.Argument(help="Proje slug")],
+    limit: Annotated[int, typer.Option("--limit", help="En fazla 500 rapor")] = 100,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """DB authority raporlarini ve projection durumunu bounded listeler."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            found, repository = _report_scope(realm_context, project)
+            layout = HomeLayout(resolve_home(home))
+            rows = []
+            for row in repository.list_reports(limit=limit):
+                report_id = row["report_id"]
+                path = (
+                    None if report_id is None else projection_path(layout, str(found.id), report_id)
+                )
+                rows.append(
+                    dict(
+                        row,
+                        projection_path=None if path is None else str(path),
+                        projected=bool(path and path.is_file()),
+                    )
+                )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    payload = {"reports": rows, "count": len(rows), "grants_authority": False}
+    if as_json:
+        console.print_json(json.dumps(payload, ensure_ascii=False, default=str))
+    else:
+        console.print_json(json.dumps(payload, ensure_ascii=False, default=str))
+
+
+@report_app.command("show")
+def report_show_command(
+    project: Annotated[str, typer.Argument(help="Proje slug")],
+    report: Annotated[UUID, typer.Argument(help="DB report UUID")],
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Raporu DB'den yukler ve digest'ini yeniden dogrular."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            _, repository = _report_scope(realm_context, project)
+            document = repository.report_document(report)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@report_app.command("rebuild")
+def report_rebuild_command(
+    project: Annotated[str, typer.Argument(help="Proje slug")],
+    report: Annotated[UUID, typer.Argument(help="DB report UUID")],
+    apply: Annotated[bool, typer.Option("--uygula", help="Projection dosyasini yazar")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Eksik veya stale Markdown projection'i DB authority kaydindan yeniden kurar."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            found, repository = _report_scope(realm_context, project)
+            document = repository.report_document(report)
+            if not apply:
+                target = projection_path(
+                    HomeLayout(resolve_home(home)), str(found.id), str(document["report_id"])
+                )
+                console.print_json(
+                    json.dumps(
+                        {
+                            "dry_run": True,
+                            "path": str(target),
+                            "report_digest": document["report_digest"],
+                            "grants_authority": False,
+                        }
+                    )
+                )
+                return
+            result = materialize_research_report(
+                HomeLayout(resolve_home(home)), str(found.id), document
+            )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(result.as_dict(), ensure_ascii=False, default=str))

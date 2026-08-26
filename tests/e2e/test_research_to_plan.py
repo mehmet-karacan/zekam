@@ -168,6 +168,10 @@ def test_dogal_dilden_plan_candidate_e2e(realm_session: tuple[Any, Any], tmp_pat
     assert report.status is ReportStatus.ANSWERED
     assert {item.finding_id for item in report.findings} == {"f1", "f2", "f4"}
     report_id = repository.store_report(question_id, report, now=NOW)
+    stored_report = repository.report_document(report_id)
+    assert stored_report["report_id"] == report.report_id
+    assert stored_report["snapshots"] == [item.body() for item in report.snapshots]
+    assert stored_report["report_digest"] == report.report_digest
 
     # 5. Plan candidate: authority yok, exact authorization sart.
     candidate = service.to_plan_candidate(

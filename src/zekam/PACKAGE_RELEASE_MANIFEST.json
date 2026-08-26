@@ -5,7 +5,7 @@
   "entrypoints": [
     "zekam"
   ],
-  "included_migrations_digest": "sha256:1d53b1d8f9a6bfc992acb0114799857cd3db6bd88e59465b208fb272d5c614df",
+  "included_migrations_digest": "sha256:c085309a2102d80365c0b9d17135ae3fe9b7b382c7fc85fe78d33e938a79e692",
   "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
   "python": ">=3.12",
   "schema": "zekam-package-manifest/v2",

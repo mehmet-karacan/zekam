@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.canonical import canonical_json
+from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.errors import NotFound, PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.intake import IntakeResolution
 from zekam.domain.research import (
@@ -178,16 +179,22 @@ class ResearchRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "insert into research.report"
-                " (id, realm_id, question_id, status, findings, unresolved_conflicts,"
+                " (id, realm_id, question_id, domain_report_id, report_body, status,"
+                "  findings, unresolved_conflicts,"
                 "  non_success_results, verifier_ref, verification, report_digest,"
                 "  question_digest, grants_authority, created_at)"
-                " values (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s::jsonb,"
+                " values (%s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s::jsonb,"
+                "  %s::jsonb, %s, %s::jsonb,"
                 "  %s, %s, false, %s)"
-                " on conflict (realm_id, report_digest) do nothing returning id",
+                " on conflict (realm_id, report_digest) do update set"
+                " domain_report_id = excluded.domain_report_id, report_body = excluded.report_body"
+                " where research.report.report_body is null returning id",
                 (
                     record_id,
                     self.realm_id,
                     question_id,
+                    report.report_id,
+                    canonical_json(body),
                     str(report.status),
                     canonical_json(body["findings"]),
                     canonical_json(body["unresolved_conflicts"]),
@@ -202,6 +209,53 @@ class ResearchRepository:
             return self._resolve_id(
                 cursor, "research.report", "report_digest", report.report_digest
             )
+
+    def report_document(self, report_id: UUID) -> dict[str, Any]:
+        """Exact project/realm kapsaminda raporu yukler ve digest'ini yeniden dogrular."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select r.report_body, r.report_digest from research.report r"
+                " join research.question q on q.realm_id = r.realm_id and q.id = r.question_id"
+                " where r.id = %s and r.realm_id = %s and q.project_id = %s",
+                (report_id, self.realm_id, self.project_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise NotFound("Arastirma raporu bulunamadi")
+        if row[0] is None:
+            raise PolicyViolation("Legacy arastirma raporu round-trip govdesi tasimiyor")
+        body = dict(row[0])
+        if digest(body) != str(row[1]):
+            raise PolicyViolation("Arastirma raporu digest drift")
+        return dict(body, report_digest=str(row[1]))
+
+    def list_reports(self, *, limit: int = 100) -> tuple[dict[str, Any], ...]:
+        """Project-scope rapor ozetlerini bounded ve yeniden uretilebilir bicimde verir."""
+
+        if limit < 1 or limit > 500:
+            raise PolicyViolation("Rapor listesi limiti 1..500 olmali")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select r.id, r.domain_report_id, r.status, r.report_digest, r.created_at,"
+                " r.report_body is not null from research.report r"
+                " join research.question q on q.realm_id = r.realm_id and q.id = r.question_id"
+                " where r.realm_id = %s and q.project_id = %s"
+                " order by r.created_at desc, r.id desc limit %s",
+                (self.realm_id, self.project_id, limit),
+            )
+            rows = cursor.fetchall()
+        return tuple(
+            {
+                "id": str(row[0]),
+                "report_id": row[1],
+                "status": str(row[2]),
+                "report_digest": str(row[3]),
+                "created_at": row[4],
+                "roundtrip_available": bool(row[5]),
+            }
+            for row in rows
+        )
 
     def store_plan_candidate(
         self, report_id: UUID, candidate: PlanCandidate, *, now: dt.datetime
