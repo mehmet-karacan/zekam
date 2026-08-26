@@ -259,6 +259,64 @@ def test_v2_events_form_a_monotonic_hash_chain(tmp_path) -> None:
     assert second.previous_digest == first.document()["event_digest"]
 
 
+def test_delivery_id_replay_returns_existing_event_without_duplicate(tmp_path) -> None:
+    first = record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_delivery",
+        delivery_id="delivery-one",
+        now=NOW,
+    )
+    replay = record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_delivery",
+        delivery_id="delivery-one",
+        now=NOW + dt.timedelta(seconds=1),
+    )
+
+    assert replay.event_id == first.event_id
+    assert replay.document()["event_digest"] == first.document()["event_digest"]
+    assert len(recent_events(tmp_path)) == 1
+
+
+def test_delivery_id_payload_drift_is_rejected(tmp_path) -> None:
+    record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_delivery",
+        delivery_id="delivery-one",
+        now=NOW,
+    )
+
+    with pytest.raises(ValidationFailed, match="delivery_id payload drift"):
+        record_event(
+            tmp_path,
+            event_type="session.idle",
+            session_id="ses_delivery",
+            delivery_id="delivery-one",
+            now=NOW + dt.timedelta(seconds=1),
+        )
+
+
+def test_concurrent_delivery_id_replay_is_exactly_once(tmp_path) -> None:
+    def write(_: int):
+        return record_event(
+            tmp_path,
+            event_type="session.status",
+            session_id="ses_delivery",
+            delivery_id="delivery-concurrent",
+            status="running",
+            now=NOW,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        events = tuple(pool.map(write, range(24)))
+
+    assert len({item.event_id for item in events}) == 1
+    assert len(recent_events(tmp_path)) == 1
+
+
 def test_each_session_has_an_independent_hash_chain(tmp_path) -> None:
     first = record_event(tmp_path, event_type="session.created", session_id="ses_a", now=NOW)
     second = record_event(tmp_path, event_type="session.created", session_id="ses_b", now=NOW)

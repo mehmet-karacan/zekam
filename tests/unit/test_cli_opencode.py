@@ -12,6 +12,33 @@ from zekam.application.opencode_lifecycle import lifecycle_root, recent_events, 
 from zekam.infrastructure.postgres.client_lifecycle_repository import LifecycleAck
 
 
+def test_event_command_propagates_delivery_id_for_exact_replay(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(cli_module, "resolve_home", lambda _home: Path(tmp_path))
+
+    for _ in range(2):
+        cli_module.event_command(
+            event_type="session.created",
+            session_id="ses_cli_delivery",
+            delivery_id="delivery-cli-one",
+            parent_session_id=None,
+            agent=None,
+            model_ref=None,
+            tool=None,
+            resource=None,
+            status=None,
+            error_category=None,
+            completed_summary=None,
+            pending_summary=None,
+            next_action=None,
+            task_label=None,
+            home=str(tmp_path),
+        )
+
+    events = recent_events(tmp_path)
+    assert len(events) == 1
+    assert events[0]["delivery_id"] == "delivery-cli-one"
+
+
 def test_forward_writes_local_ack_only_after_canonical_ingest(tmp_path, monkeypatch) -> None:
     event = record_event(
         tmp_path,

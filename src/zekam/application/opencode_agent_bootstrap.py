@@ -24,6 +24,7 @@ _CONFIG_RELATIVE = Path(".config") / "opencode" / "opencode.json"
 _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
 _PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
 _MANAGED_AGENT_MARKER = "# zekam-managed-agent/v1"
+_MANAGED_PLUGIN_MARKER_PREFIX = "// zekam-managed-plugin/v"
 _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Exact approved plan ile bagli gercek proje dosyalarini "
     "degistiren builder subagent",
@@ -34,12 +35,15 @@ _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Proje ve rol icin kanonik model route'unu salt okunur cozen router subagenti",
 )
 
-_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v1
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v2
 import { tool } from "@opencode-ai/plugin"
-import { mkdir, readFile, readdir, rename, rm, unlink } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, rename, rm, unlink } from "node:fs/promises"
+import { hostname } from "node:os"
 import { join } from "node:path"
 
 const pending = new Map()
+let drainInFlight
+let drainRequested = false
 
 const text = (value) => typeof value === "string" && value.length > 0 ? value : undefined
 const props = (event) => event?.properties ?? event ?? {}
@@ -64,6 +68,7 @@ const portable = (value, directory) => {
 export const ZekamLifecycle = async ({ directory }) => {
   const userHome = Bun.env.USERPROFILE ?? Bun.env.HOME ?? directory
   const home = Bun.env.ZEKAM_HOME ?? join(userHome, ".zekam")
+  const zekamExecutable = Bun.env.ZEKAM_EXECUTABLE ?? "zekam"
   const spool = join(home, "global", "runtime", "opencode-plugin-spool")
   const quarantine = join(spool, "quarantine")
   await mkdir(quarantine, { recursive: true })
@@ -76,79 +81,161 @@ export const ZekamLifecycle = async ({ directory }) => {
   const enqueue = async (args) => {
     const id = crypto.randomUUID()
     const path = join(spool, `${Date.now()}-${id}.json`)
-    await persist(path, { schema: "zekam-opencode-plugin-spool/v1", id, args, attempts: 0 })
+    const deliveryArgs = [...args, "--delivery-id", id]
+    await persist(path, {
+      schema: "zekam-opencode-plugin-spool/v2",
+      id,
+      args: deliveryArgs,
+      attempts: 0,
+    })
     return path
   }
-  const drain = async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+  const processAlive = (pid) => {
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    try { process.kill(pid, 0); return true } catch (error) { return error?.code === "EPERM" }
+  }
+  const inspectLock = async (lockPath) => {
+    try {
+      const metadata = await lstat(lockPath)
+      if (!metadata.isDirectory()) return { state: "invalid" }
+      const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"))
+      if (
+        !Number.isInteger(owner?.pid) || owner.pid <= 0 ||
+        typeof owner?.ownerToken !== "string" || owner.ownerToken.length < 16
+      ) return { state: "invalid" }
+      return { state: "owned", owner, alive: processAlive(owner.pid) }
+    } catch (error) {
+      if (error?.code === "ENOENT") return { state: "absent" }
+      return { state: "unreadable", error }
+    }
+  }
+  const acquireLock = async () => {
     const lockPath = join(spool, ".drain.lock")
     const ownerToken = crypto.randomUUID()
     const candidate = join(spool, `.drain.candidate.${ownerToken}`)
-    let ownsLock = false
-    const owner = JSON.stringify({ pid: process.pid, ownerToken })
-    await mkdir(candidate)
-    await Bun.write(join(candidate, "owner.json"), owner)
+    const startedAt = new Date()
+    const owner = JSON.stringify({
+      schema: "zekam-opencode-drain-owner/v2",
+      pid: process.pid,
+      device: hostname(),
+      ownerToken,
+      startedAt: startedAt.toISOString(),
+      expiresAt: new Date(startedAt.getTime() + 60_000).toISOString(),
+    })
     try {
-      await rename(candidate, lockPath)
-      ownsLock = true
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error
-      let currentOwner
-      try {
-        currentOwner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"))
-      } catch {
-        await rm(candidate, { recursive: true, force: true })
-        return
-      }
-      let alive = false
-      if (Number.isInteger(currentOwner?.pid)) {
-        try { process.kill(currentOwner.pid, 0); alive = true } catch (probe) {
-          alive = probe?.code === "EPERM"
+      await mkdir(candidate)
+      await Bun.write(join(candidate, "owner.json"), owner)
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await rename(candidate, lockPath)
+          return { lockPath, ownerToken }
+        } catch (error) {
+          if (!["EEXIST", "ENOTEMPTY", "EPERM"].includes(error?.code)) throw error
+          const current = await inspectLock(lockPath)
+          if (current.state === "absent") {
+            await sleep(10 * (attempt + 1))
+            continue
+          }
+          if (current.state !== "owned") {
+            if (error?.code === "EPERM") throw error
+            return undefined
+          }
+          const expiresAt = Date.parse(current.owner.expiresAt ?? "")
+          const expired = Number.isFinite(expiresAt) && expiresAt <= Date.now()
+          if (current.alive || !expired) {
+            await sleep(10 * (attempt + 1))
+            continue
+          }
+          const abandoned = join(quarantine, `.drain.lock.${crypto.randomUUID()}`)
+          try {
+            await rename(lockPath, abandoned)
+          } catch (takeoverError) {
+            const winner = await inspectLock(lockPath)
+            if (winner.state === "owned") return undefined
+            if (winner.state === "absent") continue
+            throw takeoverError
+          }
         }
       }
-      if (alive) {
-        await rm(candidate, { recursive: true, force: true })
-        return
-      }
-      const abandoned = join(quarantine, `.drain.lock.${crypto.randomUUID()}`)
-      try {
-        await rename(lockPath, abandoned)
-        await rename(candidate, lockPath)
-        ownsLock = true
-      } catch {
-        await rm(candidate, { recursive: true, force: true })
-        return
-      }
-    }
-    try {
-    const names = (await readdir(spool)).filter((name) => name.endsWith(".json")).sort()
-    for (const name of names) {
-      const path = join(spool, name)
-      let item
-      try { item = await Bun.file(path).json() } catch {
-        await rename(path, join(quarantine, name))
-        continue
-      }
-      try {
-        const process = Bun.spawn(["zekam", ...item.args], { stdout: "ignore", stderr: "ignore" })
-        const exitCode = await process.exited
-        if (exitCode === 0) {
-          await unlink(path)
-          continue
-        }
-      } catch {}
-      item.attempts = Number(item.attempts ?? 0) + 1
-      if (item.attempts >= 5) await rename(path, join(quarantine, name))
-      else await persist(path, item)
-      break
-    }
+      return undefined
     } finally {
-      if (ownsLock) {
-        let current
-        try { current = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) } catch {}
-        if (current?.ownerToken === ownerToken) await rm(lockPath, { recursive: true, force: true })
-      }
       await rm(candidate, { recursive: true, force: true })
     }
+  }
+  const releaseLock = async (lock) => {
+    if (!lock) return
+    try {
+      const current = await inspectLock(lock.lockPath)
+      if (current.state === "owned" && current.owner.ownerToken === lock.ownerToken) {
+        await rm(lock.lockPath, { recursive: true, force: true })
+      }
+    } catch {}
+  }
+  const drainOnce = async () => {
+    const lock = await acquireLock()
+    if (!lock) return "contended"
+    let processed = 0
+    try {
+      for (let pass = 0; pass < 8 && processed < 500; pass += 1) {
+        const names = (await readdir(spool)).filter((name) => name.endsWith(".json")).sort()
+        if (names.length === 0) return "quiescent"
+        let progressed = false
+        for (const name of names) {
+          if (processed >= 500) return "bounded"
+          processed += 1
+          const path = join(spool, name)
+          let item
+          try { item = await Bun.file(path).json() } catch {
+            await rename(path, join(quarantine, name))
+            progressed = true
+            continue
+          }
+          try {
+            const child = Bun.spawn([zekamExecutable, ...item.args], {
+              stdout: "ignore",
+              stderr: "ignore",
+            })
+            const exitCode = await child.exited
+            if (exitCode === 0) {
+              await unlink(path)
+              progressed = true
+              continue
+            }
+          } catch {}
+          item.attempts = Number(item.attempts ?? 0) + 1
+          if (item.attempts >= 5) {
+            await rename(path, join(quarantine, name))
+            progressed = true
+            continue
+          }
+          await persist(path, item)
+          return "deferred"
+        }
+        if (!progressed) return "deferred"
+      }
+      return "bounded"
+    } finally {
+      await releaseLock(lock)
+    }
+  }
+  const drain = async () => {
+    drainRequested = true
+    if (drainInFlight) return drainInFlight
+    const flight = (async () => {
+      for (let cycle = 0; cycle < 8; cycle += 1) {
+        drainRequested = false
+        await drainOnce()
+        if (!drainRequested) break
+      }
+    })()
+    drainInFlight = flight
+    try {
+      await flight
+    } finally {
+      if (drainInFlight === flight) drainInFlight = undefined
+    }
+    if (drainRequested) return drain()
   }
   const emit = async (type, data = {}) => {
     const session = sessionID(data)
@@ -172,11 +259,13 @@ export const ZekamLifecycle = async ({ directory }) => {
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
     await enqueue(args)
-    await drain()
+    try { await drain() } catch (error) {
+      console.warn("Zekam lifecycle drain deferred", error?.code ?? "error")
+    }
   }
   const preCompact = async (session) => {
     const process = Bun.spawn(
-      ["zekam", "opencode", "pre-compact", "--session", session],
+      [zekamExecutable, "opencode", "pre-compact", "--session", session],
       { stdout: "ignore", stderr: "ignore" },
     )
     const exitCode = await process.exited
@@ -657,9 +746,7 @@ def plan_opencode_agent_bootstrap(
     plugin_exists = plugin_path.exists()
     plugin_body = plugin_path.read_text(encoding="utf-8") if plugin_path.is_file() else ""
     plugin_matches = plugin_body == _LIFECYCLE_PLUGIN
-    plugin_managed = "// zekam-managed-plugin/v1" in plugin_body or (
-        "export const ZekamLifecycle" in plugin_body and "zekam_checkpoint" in plugin_body
-    )
+    plugin_managed = plugin_body.startswith(_MANAGED_PLUGIN_MARKER_PREFIX)
     plugin_to_create = not plugin_exists or (plugin_managed and not plugin_matches)
     plugin_conflict = plugin_exists and (
         not plugin_path.is_file() or (not plugin_matches and not plugin_managed)

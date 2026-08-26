@@ -108,6 +108,7 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
     checks.extend(
         (
             runtime_checks.ClientsCheck(executables=_client_executables(context)),
+            runtime_checks.OpenCodeSpoolCheck(home=context.home),
             runtime_checks.CommandSurfaceCheck(),
         )
     )

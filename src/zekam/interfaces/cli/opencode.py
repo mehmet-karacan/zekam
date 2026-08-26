@@ -17,6 +17,11 @@ from zekam.application.opencode_lifecycle import (
     record_event,
     resume_projection,
 )
+from zekam.application.opencode_spool import (
+    apply_legacy_candidate_cleanup,
+    inspect_spool,
+    plan_legacy_candidate_cleanup,
+)
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
@@ -24,6 +29,43 @@ from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fa
 
 app = typer.Typer(name="opencode", help="OpenCode lifecycle ve continuity koprusu")
 console = Console()
+
+
+@app.command("spool-status")
+def spool_status_command(
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Plugin spool durumunu path ve payload siz salt okunur raporlar."""
+
+    try:
+        status = inspect_spool(resolve_home(home))
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(status.as_dict(), ensure_ascii=False, default=str))
+
+
+@app.command("spool-cleanup")
+def spool_cleanup_command(
+    expected_plan_digest: Annotated[str | None, typer.Option("--beklenen-plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Exact stale legacy drain adaylarini raw delete olmadan karantinaya tasir."""
+
+    resolved_home = resolve_home(home)
+    try:
+        if not apply:
+            document = plan_legacy_candidate_cleanup(resolved_home).as_dict()
+        else:
+            if expected_plan_digest is None:
+                raise ZekamError("--uygula exact --beklenen-plan-digest ister")
+            document = apply_legacy_candidate_cleanup(
+                resolved_home,
+                expected_plan_digest=expected_plan_digest,
+            ).as_dict()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
 
 
 def _ingest_and_ack(
@@ -41,6 +83,7 @@ def _ingest_and_ack(
 def event_command(
     event_type: Annotated[str, typer.Option("--type")],
     session_id: Annotated[str, typer.Option("--session")],
+    delivery_id: Annotated[str | None, typer.Option("--delivery-id")] = None,
     parent_session_id: Annotated[str | None, typer.Option("--parent")] = None,
     agent: Annotated[str | None, typer.Option("--agent")] = None,
     model_ref: Annotated[str | None, typer.Option("--model")] = None,
@@ -60,6 +103,7 @@ def event_command(
             resolve_home(home),
             event_type=event_type,
             session_id=session_id,
+            delivery_id=delivery_id,
             parent_session_id=parent_session_id,
             agent=agent,
             model_ref=model_ref,

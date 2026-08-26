@@ -126,6 +126,7 @@ def _safe_summary(value: str | None, *, label: str) -> str | None:
 @dataclass(frozen=True, slots=True)
 class OpenCodeLifecycleEvent:
     event_id: str
+    delivery_id: str | None
     event_type: str
     session_id: str
     parent_session_id: str | None
@@ -144,6 +145,7 @@ class OpenCodeLifecycleEvent:
     previous_digest: str | None
 
     def __post_init__(self) -> None:
+        _bounded(self.delivery_id, label="delivery_id")
         if self.event_type not in _EVENTS:
             raise ValidationFailed("OpenCode lifecycle event type desteklenmiyor")
         _bounded(self.session_id, label="session_id")
@@ -173,6 +175,7 @@ class OpenCodeLifecycleEvent:
         return {
             "schema": SCHEMA,
             "event_id": self.event_id,
+            "delivery_id": self.delivery_id,
             "event_type": self.event_type,
             "session_id": self.session_id,
             "parent_session_id": self.parent_session_id,
@@ -204,6 +207,7 @@ def record_event(
     *,
     event_type: str,
     session_id: str,
+    delivery_id: str | None = None,
     parent_session_id: str | None = None,
     agent: str | None = None,
     model_ref: str | None = None,
@@ -217,11 +221,41 @@ def record_event(
     task_label: str | None = None,
     now: dt.datetime | None = None,
 ) -> OpenCodeLifecycleEvent:
+    normalized_delivery = _bounded(delivery_id, label="delivery_id")
+    normalized_resource = _relative_resource(resource)
+    normalized_completed = _safe_summary(completed_summary, label="completed_summary")
+    normalized_pending = _safe_summary(pending_summary, label="pending_summary")
+    normalized_next = _safe_summary(next_action, label="next_action")
+    normalized_label = _safe_summary(task_label, label="task_label")
     root = lifecycle_root(home)
     root.mkdir(parents=True, exist_ok=True)
     lock = _acquire_lock(root)
     try:
         existing = _verified_events(root, quarantine_invalid=True)
+        if normalized_delivery is not None:
+            replay = next(
+                (item for item in existing if item.get("delivery_id") == normalized_delivery),
+                None,
+            )
+            if replay is not None:
+                expected = {
+                    "event_type": event_type,
+                    "session_id": session_id,
+                    "parent_session_id": parent_session_id,
+                    "agent": agent,
+                    "model_ref": model_ref,
+                    "tool": tool,
+                    "resource": normalized_resource,
+                    "status": status,
+                    "error_category": error_category,
+                    "completed_summary": normalized_completed,
+                    "pending_summary": normalized_pending,
+                    "next_action": normalized_next,
+                    "task_label": normalized_label,
+                }
+                if any(replay.get(key) != value for key, value in expected.items()):
+                    raise ValidationFailed("OpenCode lifecycle delivery_id payload drift")
+                return _event_from_document(replay)
         stream_events = [
             item
             for item in existing
@@ -231,19 +265,20 @@ def record_event(
         previous_digest = None if not stream_events else str(stream_events[-1]["event_digest"])
         event = OpenCodeLifecycleEvent(
             event_id=str(new_uuid7()),
+            delivery_id=normalized_delivery,
             event_type=event_type,
             session_id=session_id,
             parent_session_id=parent_session_id,
             agent=agent,
             model_ref=model_ref,
             tool=tool,
-            resource=_relative_resource(resource),
+            resource=normalized_resource,
             status=status,
             error_category=error_category,
-            completed_summary=_safe_summary(completed_summary, label="completed_summary"),
-            pending_summary=_safe_summary(pending_summary, label="pending_summary"),
-            next_action=_safe_summary(next_action, label="next_action"),
-            task_label=_safe_summary(task_label, label="task_label"),
+            completed_summary=normalized_completed,
+            pending_summary=normalized_pending,
+            next_action=normalized_next,
+            task_label=normalized_label,
             occurred_at=now or dt.datetime.now(dt.UTC),
             sequence=sequence,
             previous_digest=previous_digest,
@@ -262,6 +297,31 @@ def record_event(
         return event
     finally:
         _release_lock(lock)
+
+
+def _event_from_document(document: dict[str, Any]) -> OpenCodeLifecycleEvent:
+    """Verified persisted document'i idempotent replay sonucu olarak dondurur."""
+
+    return OpenCodeLifecycleEvent(
+        event_id=str(document["event_id"]),
+        delivery_id=(None if document.get("delivery_id") is None else str(document["delivery_id"])),
+        event_type=str(document["event_type"]),
+        session_id=str(document["session_id"]),
+        parent_session_id=document.get("parent_session_id"),
+        agent=document.get("agent"),
+        model_ref=document.get("model_ref"),
+        tool=document.get("tool"),
+        resource=document.get("resource"),
+        status=document.get("status"),
+        error_category=document.get("error_category"),
+        completed_summary=document.get("completed_summary"),
+        pending_summary=document.get("pending_summary"),
+        next_action=document.get("next_action"),
+        task_label=document.get("task_label"),
+        occurred_at=dt.datetime.fromisoformat(str(document["occurred_at"])),
+        sequence=int(document["sequence"]),
+        previous_digest=document.get("previous_digest"),
+    )
 
 
 def _try_platform_lock(stream: BinaryIO) -> bool:

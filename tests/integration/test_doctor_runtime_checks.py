@@ -7,6 +7,8 @@ almaz, model cagirmaz, policy degistirmez.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -141,6 +143,50 @@ def test_istemci_kontrolu_hepsi_varsa_gecer(tmp_path: Path) -> None:
     assert result.status is CheckStatus.PASSED
 
 
+def test_opencode_spool_check_reports_legacy_candidate_without_mutation(tmp_path: Path) -> None:
+    candidate_id = "00000000-0000-4000-8000-000000000001"
+    candidate = (
+        tmp_path
+        / "global"
+        / "runtime"
+        / "opencode-plugin-spool"
+        / f".drain.candidate.{candidate_id}"
+    )
+    candidate.mkdir(parents=True)
+    (candidate / "owner.json").write_text(
+        json.dumps({"pid": 999_999, "ownerToken": candidate_id}),
+        encoding="utf-8",
+    )
+    old = dt.datetime.now(dt.UTC).timestamp() - 600
+    os.utime(candidate, (old, old))
+
+    result = runtime_checks.OpenCodeSpoolCheck(home=tmp_path).run()
+
+    assert result.status is CheckStatus.DEGRADED
+    assert result.evidence["legacy_candidates"] == 1
+    assert result.evidence["eligible_legacy_candidates"] == 1
+    assert candidate.exists()
+
+
+def test_opencode_spool_check_passes_when_spool_is_absent(tmp_path: Path) -> None:
+    result = runtime_checks.OpenCodeSpoolCheck(home=tmp_path).run()
+
+    assert result.status is CheckStatus.PASSED
+    assert result.evidence["legacy_candidates"] == 0
+
+
+def test_opencode_spool_check_reports_queued_delivery(tmp_path: Path) -> None:
+    spool = tmp_path / "global" / "runtime" / "opencode-plugin-spool"
+    spool.mkdir(parents=True)
+    (spool / "delivery.json").write_text("{}", encoding="utf-8")
+
+    result = runtime_checks.OpenCodeSpoolCheck(home=tmp_path).run()
+
+    assert result.status is CheckStatus.DEGRADED
+    assert result.evidence["queued"] == 1
+    assert [item.code for item in result.findings] == ["runtime.opencode-spool-queued"]
+
+
 def test_komut_yuzeyi_kontrolu_sapmayi_yakalar() -> None:
     result = runtime_checks.CommandSurfaceCheck().run()
     assert result.status is CheckStatus.PASSED
@@ -177,6 +223,7 @@ def test_doctor_kapsami_zorunlu_alanlari_icerir(
         "storage.object-store",
         "runtime.queue",
         "runtime.clients",
+        "runtime.opencode-spool",
         "runtime.models",
         "runtime.policy",
     ):

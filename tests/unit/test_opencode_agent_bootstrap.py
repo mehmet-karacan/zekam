@@ -92,15 +92,22 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "session.error" in plugin.read_text(encoding="utf-8")
     assert '"--task-label"' in plugin.read_text(encoding="utf-8")
     plugin_body = plugin.read_text(encoding="utf-8")
+    assert plugin_body.startswith("// zekam-managed-plugin/v2")
     assert "opencode-plugin-spool" in plugin_body
     assert '"experimental.session.compacting"' in plugin_body
     assert '"pre-compact"' in plugin_body
     assert "canonical pre-compact checkpoint ACK failed" in plugin_body
     assert "attempts >= 5" in plugin_body
     assert "ownerToken" in plugin_body
-    assert "process.kill(currentOwner.pid, 0)" in plugin_body
+    assert "process.kill(pid, 0)" in plugin_body
     assert "await rename(lockPath, abandoned)" in plugin_body
-    assert "current?.ownerToken === ownerToken" in plugin_body
+    assert "current.owner.ownerToken === lock.ownerToken" in plugin_body
+    assert "drainInFlight" in plugin_body
+    assert "drainRequested" in plugin_body
+    assert "for (let pass = 0; pass < 8" in plugin_body
+    assert 'error?.code === "EPERM"' in plugin_body
+    assert '"--delivery-id"' in plugin_body
+    assert "zekam-opencode-plugin-spool/v2" in plugin_body
     assert "quarantine" in plugin_body
     assert "exitCode === 0" in plugin_body
     assert "yerel dayanikli kuyruga alindi" in plugin_body
@@ -145,6 +152,7 @@ def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
     plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
     plugin.parent.mkdir(parents=True)
     plugin.write_text(
+        "// zekam-managed-plugin/v1\n"
         'import { tool } from "@opencode-ai/plugin"\n'
         "export const ZekamLifecycle = async () => ({ "
         "tool: { zekam_checkpoint: tool({}) } })\n",
@@ -157,8 +165,28 @@ def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
     apply_opencode_agent_bootstrap(plan)
 
     body = plugin.read_text(encoding="utf-8")
-    assert body.startswith("// zekam-managed-plugin/v1")
+    assert body.startswith("// zekam-managed-plugin/v2")
     assert "opencode-plugin-spool" in body
+
+
+def test_unmanaged_plugin_that_looks_similar_is_preserved(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
+    plugin.parent.mkdir(parents=True)
+    custom = (
+        'import { tool } from "@opencode-ai/plugin"\n'
+        "export const ZekamLifecycle = async () => ({ "
+        "tool: { zekam_checkpoint: tool({}) } })\n"
+    )
+    plugin.write_text(custom, encoding="utf-8")
+
+    plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+
+    assert plan.lifecycle_plugin_conflict
+    assert not plan.lifecycle_plugin_to_create
+    with pytest.raises(ConfigurationError, match="cakisiyor"):
+        apply_opencode_agent_bootstrap(plan)
+    assert plugin.read_text(encoding="utf-8") == custom
 
 
 def test_missing_opencode_has_no_global_side_effect_plan(tmp_path: Path) -> None:

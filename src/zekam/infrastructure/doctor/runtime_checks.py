@@ -12,6 +12,7 @@ from typing import Any
 
 from zekam.application.config import DatabaseSettings
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
+from zekam.application.opencode_spool import inspect_spool
 from zekam.domain.model_inventory import CANONICAL_MODEL_COUNT
 from zekam.domain.observability import CANONICAL_COMMANDS, missing_commands
 from zekam.domain.scheduler import REQUIRED_JOBS, missing_required_jobs
@@ -282,6 +283,82 @@ class ClientsCheck:
             category=self.category,
             status=CheckStatus.PASSED,
             summary=f"{len(self.executables)} istemci erisilebilir",
+            evidence=evidence,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeSpoolCheck:
+    """OpenCode plugin spool backlog, lock ve legacy adaylarini salt okunur raporlar."""
+
+    home: Path
+    check_id: str = "runtime.opencode-spool"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        try:
+            status = inspect_spool(self.home)
+        except Exception as exc:
+            return _unavailable(self.check_id, type(exc).__name__)
+        evidence = status.as_dict()
+        findings: list[Finding] = []
+        if status.queued:
+            findings.append(
+                Finding(
+                    code="runtime.opencode-spool-queued",
+                    severity=Severity.WARNING,
+                    title=f"{status.queued} lifecycle teslimati kuyrukta",
+                    detail="Teslimatlar durable spool icinde terminal ACK bekliyor",
+                    next_action=(
+                        "OpenCode drain calistirip spool-status ile kuyrugu yeniden dogrulayin"
+                    ),
+                )
+            )
+        if status.lock_present:
+            findings.append(
+                Finding(
+                    code="runtime.opencode-spool-lock",
+                    severity=Severity.ERROR,
+                    title="OpenCode drain lock mevcut",
+                    detail="Lock owner state typed spool incelemesi ister",
+                    next_action="OpenCode process durumunu ve spool-status kanitini inceleyin",
+                )
+            )
+        if status.legacy_candidates:
+            findings.append(
+                Finding(
+                    code="runtime.opencode-spool-legacy-candidates",
+                    severity=Severity.WARNING,
+                    title=f"{status.legacy_candidates} legacy drain adayi mevcut",
+                    detail=(
+                        f"Exact stale ve cleanup-eligible: {status.eligible_legacy_candidates}; "
+                        f"invalid: {status.invalid_legacy_candidates}"
+                    ),
+                    next_action=(
+                        "`zekam opencode spool-cleanup` planini inceleyip exact digest ile "
+                        "yetkili typed quarantine uygulayin"
+                    ),
+                )
+            )
+        if status.unrecognized_entries:
+            findings.append(
+                Finding(
+                    code="runtime.opencode-spool-unrecognized",
+                    severity=Severity.ERROR,
+                    title=f"{status.unrecognized_entries} tanimsiz spool girdisi mevcut",
+                    detail="Tanimsiz girdiler otomatik temizlenmez",
+                    next_action="Exact dosya tipini manuel ve salt okunur inceleyin",
+                )
+            )
+        return CheckResult(
+            check_id=self.check_id,
+            category=self.category,
+            status=CheckStatus.PASSED if not findings else CheckStatus.DEGRADED,
+            summary=(
+                f"spool: {status.queued} queued, {status.legacy_candidates} legacy candidate, "
+                f"{status.quarantine} quarantine"
+            ),
+            findings=tuple(findings),
             evidence=evidence,
         )
 
