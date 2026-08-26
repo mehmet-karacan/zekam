@@ -7,6 +7,8 @@ kullanilmaz. Durum degistiren komutlar `--uygula` ister.
 from __future__ import annotations
 
 import json
+from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -22,6 +24,9 @@ from zekam.application.work_graph import WorkGraphService
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.work import AcceptanceCriterion, EvidenceRef, RelationKind, WorkState, WorkType
+from zekam.infrastructure.postgres.active_work_projection_repository import (
+    ActiveWorkProjectionRepository,
+)
 from zekam.infrastructure.postgres.project_repository import ProjectResolver
 from zekam.infrastructure.postgres.resume_repository import ResumeRepository
 from zekam.interfaces.cli.session import (
@@ -37,6 +42,11 @@ from zekam.interfaces.cli.session import (
 
 app = typer.Typer(name="work", help="Work Graph islemleri", no_args_is_help=True)
 console = Console()
+
+
+class ProjectionFormat(StrEnum):
+    MARKDOWN = "markdown"
+    YAML = "yaml"
 
 
 def _service(realm_context: RealmContext) -> WorkGraphService:
@@ -346,6 +356,53 @@ def resume_plan_command(
     table.add_row("plan digest", plan.plan_digest)
     table.add_row("authority", "false")
     console.print(table)
+
+
+@app.command("active-projection")
+def active_projection_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    output_format: Annotated[
+        ProjectionFormat, typer.Option("--format", help="Deterministik cikti bicimi")
+    ] = ProjectionFormat.YAML,
+    check_root: Annotated[
+        bool, typer.Option("--check-root", help="Kok projeksiyon dosyalariyla exact parity")
+    ] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Render the root active-work projection from canonical PostgreSQL state."""
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            root = Path(__file__).resolve().parents[4]
+            projection = ActiveWorkProjectionRepository(
+                realm_context.connection, realm_context.realm_id, root
+            ).load(project_id=project_id, work_item_id=work_item_id)
+            markdown = projection.render_markdown()
+            rendered_yaml = projection.render_yaml()
+            if check_root:
+                markdown_current = (root / "AKTIF_GOREV.md").read_text(encoding="utf-8")
+                yaml_current = (root / "AKTIF_GOREV.yaml").read_text(encoding="utf-8")
+                if markdown_current != markdown or yaml_current != rendered_yaml:
+                    raise ZekamError("Root active-work projection parity mismatch")
+                console.print_json(
+                    json.dumps(
+                        {
+                            "schema": "zekam-active-work-projection-check/v1",
+                            "current": True,
+                            "work_item_id": str(work_item_id),
+                            "projection_digest": projection.projection_digest,
+                            "grants_authority": False,
+                        }
+                    )
+                )
+                return
+    except (OSError, ZekamError) as exc:
+        raise fail_from(exc if isinstance(exc, ZekamError) else ZekamError(str(exc))) from exc
+    typer.echo(markdown if output_format is ProjectionFormat.MARKDOWN else rendered_yaml, nl=False)
 
 
 @app.command("transition")

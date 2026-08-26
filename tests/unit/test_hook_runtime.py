@@ -63,12 +63,13 @@ def _spec(
     required: bool = True,
     failure_policy: HookFailurePolicy = HookFailurePolicy.ABORT,
     timeout_ms: int = 500,
+    event_type: HookEventType = HookEventType.TURN_START,
 ) -> HookSpecRevision:
     return HookSpecRevision.create(
         realm_id=realm_id,
         hook_id=hook_id,
         revision=1,
-        event_type=HookEventType.TURN_START,
+        event_type=event_type,
         required=required,
         source_layer="managed-policy",
         timeout_ms=timeout_ms,
@@ -306,6 +307,32 @@ def test_proposal_is_authority_free_and_optional_failure_policies_are_visible() 
     runtime.close_session(session)
     runtime.shutdown(timeout_seconds=0)
 
+
+def test_durable_execution_surface_retains_typed_output_for_terminal_receipt() -> None:
+    realm_id = uuid4()
+    profile = _profile(realm_id)
+    spec = _spec(realm_id, profile)
+    runtime = HookRuntime()
+    adapter = LoadedHookAdapter(
+        "adapter-v1",
+        digest("adapter-v1"),
+        HookExecutionMode.INTERNAL,
+        lambda payload: HookAdapterResult(
+            HookResultKind.OBSERVATION, {"message": payload["value"]}
+        ),
+    )
+    _configure(runtime, spec, profile, adapter)
+    session = runtime.start_session()
+
+    records = runtime.run_with_records(session, HookEventType.TURN_START, {"value": "receipt-body"})
+
+    assert records[0].entry.spec == spec
+    assert records[0].outcome.status == "completed"
+    assert records[0].output_body == {"message": "receipt-body"}
+    assert records[0].outcome.output_digest == digest(records[0].output_body)
+    runtime.close_session(session)
+    runtime.shutdown(timeout_seconds=0)
+
     for policy, expected in (
         (HookFailurePolicy.WARN, "warning"),
         (HookFailurePolicy.QUARANTINE, "quarantined"),
@@ -417,5 +444,124 @@ def test_concurrent_reconfigure_swaps_generations_atomically() -> None:
     assert sorted(generations) == list(range(1, 13))
     session = runtime.start_session()
     assert session.compiled_set.generation == 12
+    runtime.close_session(session)
+    runtime.shutdown(timeout_seconds=0)
+
+
+def test_required_lifecycle_event_effective_handler_count_must_be_exactly_one() -> None:
+    realm_id = uuid4()
+    profile = _profile(realm_id)
+    runtime = HookRuntime()
+
+    compiled = runtime.reconfigure(
+        realm_id=realm_id,
+        config_effective_digest=digest("config-no-handler"),
+        specs=(),
+        runtimes=(),
+        profiles=(profile,),
+        adapters=(),
+        now=NOW,
+        required_events=(HookEventType.PRE_COMPACTION,),
+    )
+    assert compiled.required_load_errors == ("event:pre_compaction:effective-handler-count:0",)
+    with pytest.raises(PolicyViolation, match="effective-handler-count:0"):
+        runtime.start_session()
+    runtime.shutdown(timeout_seconds=0)
+
+    first = _spec(
+        realm_id,
+        profile,
+        hook_id="global-pre-compaction",
+        event_type=HookEventType.PRE_COMPACTION,
+    )
+    second = _spec(
+        realm_id,
+        profile,
+        hook_id="project-pre-compaction",
+        event_type=HookEventType.PRE_COMPACTION,
+    )
+    custom = _spec(
+        realm_id,
+        profile,
+        hook_id="unrelated-custom-hook",
+        required=False,
+        failure_policy=HookFailurePolicy.WARN,
+        event_type=HookEventType.POST_TASK,
+    )
+    duplicate_runtime = HookRuntime()
+    adapter = LoadedHookAdapter(
+        "adapter-v1",
+        digest("adapter-v1"),
+        HookExecutionMode.INTERNAL,
+        lambda _: HookAdapterResult(HookResultKind.OBSERVATION, {"message": "ok"}),
+    )
+    duplicate = duplicate_runtime.reconfigure(
+        realm_id=realm_id,
+        config_effective_digest=digest("global-project-local-merged"),
+        specs=(first, second, custom),
+        runtimes=(_runtime(first), _runtime(second), _runtime(custom)),
+        profiles=(profile,),
+        adapters=(adapter,),
+        now=NOW,
+        required_events=(HookEventType.PRE_COMPACTION,),
+    )
+    assert "event:pre_compaction:effective-handler-count:2" in duplicate.required_load_errors
+    assert any(entry.spec.hook_id == "unrelated-custom-hook" for entry in duplicate.entries)
+    with pytest.raises(PolicyViolation, match="effective-handler-count:2"):
+        duplicate_runtime.start_session()
+    duplicate_runtime.shutdown(timeout_seconds=0)
+
+
+def test_continuity_event_set_can_be_generation_bound_with_one_handler_each() -> None:
+    realm_id = uuid4()
+    profile = _profile(realm_id)
+    events = (
+        HookEventType.CONTINUITY_SESSION_START,
+        HookEventType.HYDRATION_REQUIRED,
+        HookEventType.HYDRATION_COMPLETED,
+        HookEventType.PRE_TASK,
+        HookEventType.POST_TASK,
+        HookEventType.PRE_COMPACTION,
+        HookEventType.POST_COMPACTION,
+        HookEventType.PRE_CLOSE,
+        HookEventType.POST_CLOSE,
+        HookEventType.ON_FAILURE,
+        HookEventType.ON_VALIDATION_FAILURE,
+        HookEventType.ON_MEMORY_WRITE_FAILURE,
+        HookEventType.ON_MEMORY_HYDRATION_FAILURE,
+        HookEventType.ON_SKILL_CANDIDATE,
+        HookEventType.ON_SKILL_UPDATE,
+        HookEventType.ON_STATE_DRIFT,
+        HookEventType.UNCLEAN_EXIT,
+    )
+    specs = tuple(
+        _spec(
+            realm_id,
+            profile,
+            hook_id=f"continuity-{event.value}",
+            event_type=event,
+        )
+        for event in events
+    )
+    adapter = LoadedHookAdapter(
+        "adapter-v1",
+        digest("adapter-v1"),
+        HookExecutionMode.INTERNAL,
+        lambda _: HookAdapterResult(HookResultKind.OBSERVATION, {"message": "ok"}),
+    )
+    runtime = HookRuntime()
+    compiled = runtime.reconfigure(
+        realm_id=realm_id,
+        config_effective_digest=digest("continuity-event-set"),
+        specs=specs,
+        runtimes=tuple(_runtime(spec) for spec in specs),
+        profiles=(profile,),
+        adapters=(adapter,),
+        now=NOW,
+        required_events=events,
+    )
+    assert compiled.required_load_errors == ()
+    session = runtime.start_session()
+    assert len(session.compiled_set.entries) == len(events) == 17
     runtime.close_session(session)
     runtime.shutdown(timeout_seconds=0)

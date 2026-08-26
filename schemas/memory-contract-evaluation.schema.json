@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Memory Contract Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "evaluation_id", "realm_id", "project_id", "work_item_id", "run_id", "results", "passed", "source_revision", "policy_version", "evaluator_version", "evaluated_at", "grants_authority", "evaluation_digest"],
+  "properties": {
+    "schema": {"const": "zekam-memory-contract-evaluation/v1"}, "evaluation_id": {"$ref": "#/$defs/uuid"}, "realm_id": {"$ref": "#/$defs/uuid"}, "project_id": {"$ref": "#/$defs/uuid"}, "work_item_id": {"$ref": "#/$defs/uuid"}, "run_id": {"$ref": "#/$defs/uuid"},
+    "results": {"type": "array", "minItems": 20, "maxItems": 20, "items": {"$ref": "#/$defs/result"}}, "passed": {"type": "boolean"}, "source_revision": {"$ref": "#/$defs/ref"}, "policy_version": {"$ref": "#/$defs/ref"}, "evaluator_version": {"$ref": "#/$defs/ref"}, "evaluated_at": {"$ref": "#/$defs/timestamp"}, "grants_authority": {"const": false}, "evaluation_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "format": "uuid"}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "timestamp": {"type": "string", "format": "date-time"}, "ref": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "truth": {"enum": ["USER_DECISION", "REPO_FACT", "EXTERNAL_VERIFIED_FACT", "MODEL_INFERENCE", "TEMPORARY_ASSUMPTION", "SUPERSEDED", "UNKNOWN"]},
+    "digestRef": {"type": "object", "additionalProperties": false, "required": ["ref", "digest", "truth_class"], "properties": {"ref": {"$ref": "#/$defs/ref"}, "digest": {"$ref": "#/$defs/digest"}, "truth_class": {"$ref": "#/$defs/truth"}}},
+    "result": {"type": "object", "additionalProperties": false, "required": ["invariant_id", "status", "enforcement_point", "evidence_refs", "failure_code", "recovery_directive"], "properties": {"invariant_id": {"enum": ["durable-information-persisted", "clean-close-checkpoint", "pre-compaction-durable-ack", "hydration-before-mutation", "active-task-from-work-graph", "human-decision-durable", "adr-rationale-preserved", "pending-work-continuation-pointer", "critical-record-provenance", "inference-not-fact", "memory-write-failure-visible", "hydration-failure-visible", "broken-state-enters-recovery", "memory-mutation-versioned-reversible", "self-modification-governed", "sensitive-data-correct-tier", "public-private-separation", "stale-information-not-current", "duplicate-conflict-policy", "remember-claim-has-source"]}, "status": {"enum": ["passed", "failed", "not-applicable"]}, "enforcement_point": {"$ref": "#/$defs/ref"}, "evidence_refs": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/digestRef"}}, "failure_code": {"type": ["string", "null"], "maxLength": 512}, "recovery_directive": {"type": ["string", "null"], "maxLength": 512}}}
+  }
+}

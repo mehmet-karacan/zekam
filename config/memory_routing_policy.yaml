@@ -1,0 +1,45 @@
+schema: zekam-memory-routing-policy/v1
+provider_calls_default: false
+workloads:
+  memory-session-summary:
+    capability_class: BALANCED
+    role: researcher
+    risk: medium
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: false
+  memory-candidate-extraction:
+    capability_class: FAST_CHEAP
+    role: researcher
+    risk: medium
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: false
+  memory-conflict-triage:
+    capability_class: STRONG_REASONING
+    role: reviewer
+    risk: high
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: true
+  memory-skill-draft:
+    capability_class: BALANCED
+    role: implementer
+    risk: high
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: true
+  memory-failure-root-cause:
+    capability_class: STRONG_REASONING
+    role: researcher
+    risk: high
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: true
+  memory-critical-review:
+    capability_class: CRITICAL_REVIEW
+    role: verifier
+    risk: critical
+    deterministic_prepass: true
+    model_optional: true
+    independent_review: true

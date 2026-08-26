@@ -61,6 +61,15 @@ class HookShutdownReceipt:
     bounded: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class HookExecutionRecord:
+    """Typed adapter output kept only long enough to write its terminal receipt."""
+
+    entry: CompiledHookEntry
+    outcome: HookRunOutcome
+    output_body: Any | None
+
+
 class HookRuntime:
     """Hook'lari effect yetkisi vermeden preview ve execute eder."""
 
@@ -88,6 +97,7 @@ class HookRuntime:
         profiles: tuple[PermissionProfileRevision, ...],
         adapters: tuple[LoadedHookAdapter, ...],
         now: dt.datetime,
+        required_events: tuple[HookEventType, ...] = (),
     ) -> CompiledHookSet:
         """Yeni generation'i once tam derler, sonra atomik olarak aktif eder."""
         if now.tzinfo is None:
@@ -102,6 +112,7 @@ class HookRuntime:
         if len(adapter_by_ref) != len(adapters):
             raise ValidationFailed("Hook adapter ref duplicate olamaz")
         ordered_specs = tuple(sorted(specs, key=lambda item: (item.event_type.value, item.hook_id)))
+        canonical_required_events = tuple(sorted(set(required_events), key=lambda item: item.value))
         if len({(item.hook_id, item.revision) for item in ordered_specs}) != len(ordered_specs):
             raise ValidationFailed("Hook reconfigure duplicate spec iceremez")
         if len({item.hook_id for item in ordered_specs}) != len(ordered_specs):
@@ -155,6 +166,15 @@ class HookRuntime:
                 entries.append(CompiledHookEntry(ordinal, spec, None, reason))
             else:
                 entries.append(CompiledHookEntry(ordinal, spec, runtime, None))
+        for event_type in canonical_required_events:
+            effective_count = sum(
+                entry.spec.event_type is event_type and entry.disabled_reason is None
+                for entry in entries
+            )
+            if effective_count != 1:
+                required_errors.append(
+                    f"event:{event_type.value}:effective-handler-count:{effective_count}"
+                )
         with self._lock:
             self._ensure_open()
             generation = self._generation + 1
@@ -242,17 +262,40 @@ class HookRuntime:
         event_type: HookEventType,
         payload: Any,
     ) -> tuple[HookRunOutcome, ...]:
+        return tuple(
+            record.outcome for record in self.run_with_records(session, event_type, payload)
+        )
+
+    def run_with_records(
+        self,
+        session: HookSession,
+        event_type: HookEventType,
+        payload: Any,
+    ) -> tuple[HookExecutionRecord, ...]:
+        """Execute hooks and retain typed output for durable receipt persistence.
+
+        ``run`` remains the authority-free convenience surface.  Orchestration that
+        can declare a lifecycle handler terminal must use this method and persist
+        every returned record through the canonical hook repository.
+        """
+
         previews = self.preview(session, event_type, payload)
         entries = {
             (entry.spec.hook_id, entry.spec.revision): entry
             for entry in session.compiled_set.entries
         }
-        outcomes: list[HookRunOutcome] = []
+        records: list[HookExecutionRecord] = []
         for preview in previews:
             entry = entries[(preview.hook_id, preview.hook_revision)]
             if not preview.will_execute:
-                outcomes.append(
-                    self._failed_outcome(entry.spec, payload, preview.disabled_reason or "disabled")
+                records.append(
+                    HookExecutionRecord(
+                        entry,
+                        self._failed_outcome(
+                            entry.spec, payload, preview.disabled_reason or "disabled"
+                        ),
+                        None,
+                    )
                 )
                 continue
             adapter = session.adapters[entry.spec.hook_id]
@@ -265,29 +308,33 @@ class HookRuntime:
                     raise ValidationFailed("Hook adapter typed result dondurmedi")
                 validate_payload(entry.spec.output_schema, result.payload, "hook output")
                 output_digest = digest(result.payload)
-                outcomes.append(
-                    HookRunOutcome(
-                        entry.spec.hook_id,
-                        entry.spec.revision,
-                        result.kind,
-                        "completed",
-                        digest(payload),
-                        output_digest,
-                        output_digest if result.kind is HookResultKind.PROPOSAL else None,
-                        None,
-                        result.kind is HookResultKind.PROPOSAL,
+                records.append(
+                    HookExecutionRecord(
+                        entry,
+                        HookRunOutcome(
+                            entry.spec.hook_id,
+                            entry.spec.revision,
+                            result.kind,
+                            "completed",
+                            digest(payload),
+                            output_digest,
+                            output_digest if result.kind is HookResultKind.PROPOSAL else None,
+                            None,
+                            result.kind is HookResultKind.PROPOSAL,
+                        ),
+                        result.payload,
                     )
                 )
             except Exception as exc:
                 outcome = self._handle_failure(
                     entry.spec, payload, exc, session.compiled_set.generation
                 )
-                outcomes.append(outcome)
+                records.append(HookExecutionRecord(entry, outcome, None))
             finally:
                 with self._lock:
                     if future.done():
                         self._futures.discard(future)
-        return tuple(outcomes)
+        return tuple(records)
 
     def shutdown(self, *, timeout_seconds: float) -> HookShutdownReceipt:
         if timeout_seconds < 0:

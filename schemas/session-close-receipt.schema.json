@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Session Close Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "receipt_id", "realm_id", "project_id", "work_item_id", "run_id", "session_id", "client_id", "job_id", "attempt_id", "envelope_digest", "fencing_token", "completed_steps", "changed_artifacts", "verified_outcomes", "pending_steps", "next_safe_action", "human_decisions", "discovered_constraints", "failure_recovery_refs", "candidate_lessons", "candidate_skills", "checkpoint_ref", "journal_head", "source_digest", "policy_digest", "migration_digest", "context_digest", "status", "closed_at", "grants_authority", "receipt_digest"],
+  "properties": {
+    "schema": {"const": "zekam-session-close-receipt/v1"},
+    "receipt_id": {"$ref": "#/$defs/uuid"}, "realm_id": {"$ref": "#/$defs/uuid"}, "project_id": {"$ref": "#/$defs/uuid"}, "work_item_id": {"$ref": "#/$defs/uuid"}, "run_id": {"$ref": "#/$defs/uuid"}, "job_id": {"$ref": "#/$defs/uuid"}, "attempt_id": {"$ref": "#/$defs/uuid"},
+    "session_id": {"$ref": "#/$defs/ref"}, "client_id": {"$ref": "#/$defs/ref"},
+    "envelope_digest": {"$ref": "#/$defs/digest"}, "fencing_token": {"type": "integer", "minimum": 1},
+    "completed_steps": {"$ref": "#/$defs/refArray"}, "changed_artifacts": {"$ref": "#/$defs/refArray"}, "verified_outcomes": {"$ref": "#/$defs/refArray"}, "pending_steps": {"$ref": "#/$defs/refArray"},
+    "next_safe_action": {"$ref": "#/$defs/digestRef"}, "human_decisions": {"$ref": "#/$defs/refArray"}, "discovered_constraints": {"$ref": "#/$defs/refArray"}, "failure_recovery_refs": {"$ref": "#/$defs/refArray"}, "candidate_lessons": {"$ref": "#/$defs/refArray"}, "candidate_skills": {"$ref": "#/$defs/refArray"}, "checkpoint_ref": {"$ref": "#/$defs/digestRef"}, "journal_head": {"$ref": "#/$defs/digestRef"},
+    "source_digest": {"$ref": "#/$defs/digest"}, "policy_digest": {"$ref": "#/$defs/digest"}, "migration_digest": {"$ref": "#/$defs/digest"}, "context_digest": {"$ref": "#/$defs/digest"},
+    "status": {"enum": ["closed", "degraded", "recovery-required", "failed"]}, "closed_at": {"$ref": "#/$defs/timestamp"}, "grants_authority": {"const": false}, "receipt_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "format": "uuid"}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "timestamp": {"type": "string", "format": "date-time"},
+    "ref": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "truth": {"enum": ["USER_DECISION", "REPO_FACT", "EXTERNAL_VERIFIED_FACT", "MODEL_INFERENCE", "TEMPORARY_ASSUMPTION", "SUPERSEDED", "UNKNOWN"]},
+    "digestRef": {"type": "object", "additionalProperties": false, "required": ["ref", "digest", "truth_class"], "properties": {"ref": {"$ref": "#/$defs/ref"}, "digest": {"$ref": "#/$defs/digest"}, "truth_class": {"$ref": "#/$defs/truth"}}},
+    "refArray": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/digestRef"}}
+  }
+}

@@ -26,6 +26,8 @@ jobs:
       - run: python scripts/protocol_generate.py --check
       - run: npx --yes --package typescript@5.9.2 tsc --noEmit --strict src/zekam/protocol/client-types.ts
       - run: python scripts/generate_package_manifest.py --check
+      - name: Memory continuity policy, schema and Git security gate
+        run: python scripts/paket_dogrula.py
       - run: python -m build --sdist --wheel --outdir dist
       - name: Write artifact checksums
         shell: python

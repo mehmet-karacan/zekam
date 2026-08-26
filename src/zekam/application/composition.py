@@ -69,13 +69,18 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
         core_checks.GitClientCheck(),
     ]
     if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
-        from zekam.infrastructure.doctor import postgres_checks
+        from zekam.infrastructure.doctor import memory_checks, postgres_checks
 
         checks.extend(
             (
                 postgres_checks.DriverCheck(),
                 postgres_checks.ConnectionCheck(settings=context.settings.database),
                 postgres_checks.MigrationCheck(settings=context.settings.database),
+                memory_checks.MemoryContinuityCheck(
+                    settings=context.settings.database,
+                    core_path=context.core_path,
+                    private_store_path=context.home / "global" / "bellek",
+                ),
             )
         )
     else:

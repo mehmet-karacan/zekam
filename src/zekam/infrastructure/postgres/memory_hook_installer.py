@@ -1,0 +1,219 @@
+"""Additive, idempotent installer for required Memory Continuity handlers."""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from zekam.application.memory_hooks import MEMORY_HOOK_EVENTS, memory_hook_bundle
+from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.errors import PolicyViolation
+from zekam.domain.identifiers import new_uuid7
+from zekam.infrastructure.postgres.config_provenance_repository import (
+    ConfigProvenanceRepository,
+)
+from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryHookInstallReceipt:
+    created: bool
+    generation: int
+    hook_set_digest: str
+    bundle_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresMemoryHookInstaller:
+    connection: Any
+    realm_id: UUID
+
+    def ensure(self, *, installed_at: dt.datetime) -> MemoryHookInstallReceipt:
+        bundle = memory_hook_bundle(self.realm_id)
+        current_id, current_generation, current_digest = self._current()
+        handlers = self._effective_handlers(current_id)
+        conflicts = tuple(
+            event.value
+            for event, spec, runtime in zip(
+                MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
+            )
+            if handlers.get(event.value, ())
+            not in {(), ((spec.hook_digest, runtime.runtime_digest),)}
+        )
+        if conflicts:
+            raise PolicyViolation(
+                "Required lifecycle handler conflict; existing generation preserved: "
+                + ",".join(conflicts)
+            )
+        if all(
+            handlers.get(event.value) == ((spec.hook_digest, runtime.runtime_digest),)
+            for event, spec, runtime in zip(
+                MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
+            )
+        ):
+            if current_id is None or current_digest is None:
+                raise PolicyViolation("Hook exact-one count current generation olmadan olusamaz")
+            return MemoryHookInstallReceipt(
+                False,
+                current_generation,
+                current_digest,
+                bundle.bundle_digest,
+            )
+
+        profile_id, _ = ConfigProvenanceRepository(self.connection, self.realm_id).store_profile(
+            bundle.profile
+        )
+        hook_repository = HookRuntimeRepository(self.connection, self.realm_id)
+        for spec, runtime in zip(bundle.specs, bundle.runtimes, strict=True):
+            hook_repository.store_spec(spec, permission_profile_revision_id=profile_id)
+            hook_repository.store_runtime(runtime)
+
+        entries = self._current_entries(current_id)
+        next_ordinal = len(entries) + 1
+        for event, spec, runtime in zip(
+            MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
+        ):
+            if handlers.get(event.value) == ((spec.hook_digest, runtime.runtime_digest),):
+                continue
+            entries.append(
+                {
+                    "ordinal": next_ordinal,
+                    "spec_id": spec.id,
+                    "runtime_id": runtime.id,
+                    "hook_digest": spec.hook_digest,
+                    "runtime_digest": runtime.runtime_digest,
+                    "disabled_reason": None,
+                }
+            )
+            next_ordinal += 1
+        generation = current_generation + 1
+        config_digest = digest(
+            {
+                "previous_hook_set_digest": current_digest,
+                "memory_hook_bundle_digest": bundle.bundle_digest,
+                "generation": generation,
+            }
+        )
+        body = {
+            "schema": "zekam-compiled-hook-set/v1",
+            "realm_id": str(self.realm_id),
+            "generation": generation,
+            "config_effective_digest": config_digest,
+            "entries": [
+                {
+                    "ordinal": item["ordinal"],
+                    "hook_digest": item["hook_digest"],
+                    "runtime_digest": item["runtime_digest"],
+                    "disabled_reason": item["disabled_reason"],
+                }
+                for item in entries
+            ],
+            "required_load_errors": [],
+            "grants_authority": False,
+        }
+        hook_set_digest = digest(body)
+        set_id = new_uuid7(now=installed_at)
+        with self.connection.cursor() as cursor:
+            cursor.execute("set constraints hooks.compiled_hook_set_guard deferred")
+            cursor.execute("set constraints hooks.compiled_hook_entry_guard deferred")
+            cursor.execute(
+                "insert into hooks.compiled_set"
+                " (id,realm_id,generation,config_effective_digest,required_load_errors,"
+                " hook_set_digest,set_body,created_at,grants_authority)"
+                " values(%s,%s,%s,%s,'{}'::text[],%s,%s::jsonb,%s,false)",
+                (
+                    set_id,
+                    self.realm_id,
+                    generation,
+                    config_digest,
+                    hook_set_digest,
+                    canonical_json(body),
+                    installed_at,
+                ),
+            )
+            for item in entries:
+                cursor.execute(
+                    "insert into hooks.compiled_set_entry"
+                    " (realm_id,compiled_set_id,ordinal,spec_revision_id,runtime_revision_id,"
+                    " disabled_reason) values(%s,%s,%s,%s,%s,%s)",
+                    (
+                        self.realm_id,
+                        set_id,
+                        item["ordinal"],
+                        item["spec_id"],
+                        item["runtime_id"],
+                        item["disabled_reason"],
+                    ),
+                )
+            cursor.execute(
+                "select generation,hook_set_digest from hooks.activate_compiled_set(%s)", (set_id,)
+            )
+            activated = cursor.fetchone()
+            if activated is None or (int(activated[0]), str(activated[1])) != (
+                generation,
+                hook_set_digest,
+            ):
+                raise PolicyViolation("Memory hook generation activation receipt mismatch")
+        return MemoryHookInstallReceipt(True, generation, hook_set_digest, bundle.bundle_digest)
+
+    def _current(self) -> tuple[UUID | None, int, str | None]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select compiled_set_id,generation,hook_set_digest"
+                " from hooks.current_generation where realm_id=%s",
+                (self.realm_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None, 0, None
+        return UUID(str(row[0])), int(row[1]), str(row[2])
+
+    def _effective_handlers(
+        self, current_id: UUID | None
+    ) -> dict[str, tuple[tuple[str, str], ...]]:
+        if current_id is None:
+            return {}
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select spec.event_type,spec.hook_digest,runtime.runtime_digest"
+                " from hooks.compiled_set_entry entry join hooks.spec_revision spec"
+                " on spec.realm_id=entry.realm_id and spec.id=entry.spec_revision_id"
+                " join hooks.runtime_revision runtime on runtime.realm_id=entry.realm_id"
+                " and runtime.id=entry.runtime_revision_id"
+                " where entry.realm_id=%s and entry.compiled_set_id=%s"
+                " and spec.required and entry.disabled_reason is null"
+                " and spec.event_type=any(%s) order by spec.event_type,spec.hook_digest",
+                (self.realm_id, current_id, [item.value for item in MEMORY_HOOK_EVENTS]),
+            )
+            result: dict[str, list[tuple[str, str]]] = {}
+            for row in cursor.fetchall():
+                result.setdefault(str(row[0]), []).append((str(row[1]), str(row[2])))
+        return {key: tuple(value) for key, value in result.items()}
+
+    def _current_entries(self, current_id: UUID | None) -> list[dict[str, Any]]:
+        if current_id is None:
+            return []
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select entry.ordinal,entry.spec_revision_id,entry.runtime_revision_id,"
+                " spec.hook_digest,runtime.runtime_digest,entry.disabled_reason"
+                " from hooks.compiled_set_entry entry join hooks.spec_revision spec"
+                " on spec.realm_id=entry.realm_id and spec.id=entry.spec_revision_id"
+                " left join hooks.runtime_revision runtime"
+                " on runtime.realm_id=entry.realm_id and runtime.id=entry.runtime_revision_id"
+                " where entry.realm_id=%s and entry.compiled_set_id=%s order by entry.ordinal",
+                (self.realm_id, current_id),
+            )
+            return [
+                {
+                    "ordinal": int(row[0]),
+                    "spec_id": UUID(str(row[1])),
+                    "runtime_id": None if row[2] is None else UUID(str(row[2])),
+                    "hook_digest": str(row[3]),
+                    "runtime_digest": None if row[4] is None else str(row[4]),
+                    "disabled_reason": None if row[5] is None else str(row[5]),
+                }
+                for row in cursor.fetchall()
+            ]

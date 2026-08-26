@@ -1,0 +1,95 @@
+schema: zekam-memory-continuity-policy/v1
+revision: 1
+initial_mode: shadow
+remote_calls_default: false
+classifications:
+  public:
+    storage_class: postgresql-rls
+    retention_class: durable
+    retention_days: null
+    projection_eligible: true
+    remote_model_eligible: true
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: standard
+  internal:
+    storage_class: postgresql-rls
+    retention_class: durable
+    retention_days: null
+    projection_eligible: false
+    remote_model_eligible: true
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: standard
+  restricted:
+    storage_class: postgresql-rls
+    retention_class: until-revoked
+    retention_days: null
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: required
+  confidential:
+    storage_class: postgresql-rls
+    retention_class: bounded
+    retention_days: 180
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: required
+  local-only:
+    storage_class: local-cas
+    retention_class: until-revoked
+    retention_days: null
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: required
+  pii:
+    storage_class: postgresql-rls
+    retention_class: bounded
+    retention_days: 90
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: false
+    human_review: critical
+  corporate-confidential:
+    storage_class: postgresql-rls
+    retention_class: bounded
+    retention_days: 90
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: false
+    human_review: critical
+  secret:
+    storage_class: denied
+    retention_class: prohibited
+    retention_days: null
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: false
+    human_review: critical
+  raw-transcript:
+    storage_class: local-cas
+    retention_class: bounded
+    retention_days: 30
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: true
+    human_review: required
+  diagnostic-payload:
+    storage_class: local-cas
+    retention_class: bounded
+    retention_days: 7
+    projection_eligible: false
+    remote_model_eligible: false
+    cross_project_access: false
+    compiler_eligible: false
+    human_review: required

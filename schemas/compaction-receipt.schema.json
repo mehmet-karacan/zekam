@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zekam Compaction Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "receipt_id", "realm_id", "project_id", "work_item_id", "run_id", "session_id", "client_id", "pre_compaction_event_digest", "checkpoint_draft_digest", "outbox_ref", "outbox_payload_digest", "worker_result_digest", "checkpoint_ref", "checkpoint_digest", "post_compaction_event_digest", "rehydration_receipt_digest", "status", "created_at", "completed_at", "grants_authority", "receipt_digest"],
+  "properties": {
+    "schema": {"const": "zekam-compaction-receipt/v1"},
+    "receipt_id": {"$ref": "#/$defs/uuid"}, "realm_id": {"$ref": "#/$defs/uuid"}, "project_id": {"$ref": "#/$defs/uuid"}, "work_item_id": {"$ref": "#/$defs/uuid"}, "run_id": {"$ref": "#/$defs/uuid"},
+    "session_id": {"$ref": "#/$defs/ref"}, "client_id": {"$ref": "#/$defs/ref"}, "pre_compaction_event_digest": {"$ref": "#/$defs/digest"}, "checkpoint_draft_digest": {"$ref": "#/$defs/digest"}, "outbox_ref": {"$ref": "#/$defs/ref"}, "outbox_payload_digest": {"$ref": "#/$defs/digest"},
+    "worker_result_digest": {"$ref": "#/$defs/nullableDigest"}, "checkpoint_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}, "checkpoint_digest": {"$ref": "#/$defs/nullableDigest"}, "post_compaction_event_digest": {"$ref": "#/$defs/nullableDigest"}, "rehydration_receipt_digest": {"$ref": "#/$defs/nullableDigest"},
+    "status": {"enum": ["prepared", "completed", "recovery-required", "failed"]}, "created_at": {"$ref": "#/$defs/timestamp"}, "completed_at": {"anyOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]}, "grants_authority": {"const": false}, "receipt_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "format": "uuid"}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "nullableDigest": {"type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$"}, "timestamp": {"type": "string", "format": "date-time"},
+    "ref": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"}
+  }
+}

@@ -17,6 +17,9 @@ except ImportError as exc:
     raise SystemExit("PyYAML gerekli. Kurulum: python -m pip install 'PyYAML>=6.0'") from exc
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 RESULT_PATH = ROOT / "VALIDATION_RESULT.json"
 PHASE_BASELINE_PATH = ROOT / "kalite" / "PHASE_PROJECTION_BASELINE.json"
 
@@ -431,6 +434,41 @@ def main() -> int:
     checks["yaml"] = {"count": len(yaml_files), "errors": yaml_errors}
     errors.extend(yaml_errors)
 
+    try:
+        from zekam.application.memory_policy import load_memory_policy
+        from zekam.application.memory_routing import load_memory_routing_policy
+        from zekam.application.source_security import (
+            apply_secret_scan_allowlist,
+            scan_git_security,
+        )
+        from zekam.application.source_security_policy import load_secret_scan_allowlist
+
+        memory_policy = load_memory_policy()
+        routing_policy = load_memory_routing_policy()
+        security_report = apply_secret_scan_allowlist(
+            scan_git_security(ROOT), load_secret_scan_allowlist()
+        )
+        checks["memory_continuity_policy"] = {
+            "classification_count": len(memory_policy.classifications),
+            "initial_mode": memory_policy.initial_mode.value,
+            "remote_calls_default": memory_policy.remote_calls_default,
+            "policy_digest": memory_policy.policy_digest,
+        }
+        checks["memory_routing_policy"] = {
+            "workload_count": len(routing_policy.routes),
+            "provider_calls_default": routing_policy.provider_calls_default,
+            "policy_digest": routing_policy.policy_digest,
+        }
+        checks["git_security"] = security_report.as_dict()
+        if not security_report.passed:
+            errors.append(
+                "Git security gate basarisiz: "
+                f"{len(security_report.findings)} bulgu, "
+                f"history_complete={security_report.history_complete}"
+            )
+    except Exception as exc:
+        errors.append(f"Memory continuity policy/security gate okunamadi: {type(exc).__name__}")
+
     template = (ROOT / "kalite/commit-template.txt").read_bytes()
     try:
         template.decode("ascii")
@@ -453,12 +491,13 @@ def main() -> int:
                 term_hits.append(f"{rel}: {term}")
         # Acikca ornek/placeholder SecretRef metinleri false positive olmamasi icin
         # yalniz uzun, deger atanmis canary kaliplarini tara.
-        for pattern in SECRET_PATTERNS:
+        for pattern_index, pattern in enumerate(SECRET_PATTERNS, start=1):
             match = pattern.search(text)
             if match:
                 value = match.group(0)
                 if "SecretRef" not in value and "credential_ref" not in value:
-                    secret_hits.append(f"{rel}: {value[:80]}")
+                    fingerprint = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+                    secret_hits.append(f"{rel}:pattern-{pattern_index}:{fingerprint}")
     checks["forbidden_canonical_terms"] = term_hits
     if term_hits:
         errors.append(f"Eski kanonik adlar aktif belgelerde bulundu: {term_hits[:10]}")

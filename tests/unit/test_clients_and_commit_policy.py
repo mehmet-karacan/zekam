@@ -126,6 +126,33 @@ def test_opencode_paralel_dispatch_yetenegini_acikca_beyan_eder() -> None:
 
 
 @pytest.mark.parametrize(
+    ("factory", "executable"),
+    (
+        (codex_adapter, "codex.exe"),
+        (claude_code_adapter, "claude.exe"),
+        (opencode_adapter, "opencode.exe"),
+    ),
+)
+def test_lifecycle_capability_only_exact_verified_client_version_can_claim(
+    factory: Callable[..., SubprocessClientAdapter], executable: str
+) -> None:
+    unsupported = factory(executable)
+    assert unsupported.descriptor.supports("lifecycle-events-v2") is False
+    assert unsupported.capability_manifest.version == "unknown"
+
+    with pytest.raises(PolicyViolation, match="exact kurulu surum"):
+        factory(executable, lifecycle_contract_verified=True)
+
+    supported = factory(
+        executable,
+        version="verified-client-1.2.3",
+        lifecycle_contract_verified=True,
+    )
+    assert supported.descriptor.supports("lifecycle-events-v2") is True
+    assert supported.capability_manifest.version == "verified-client-1.2.3"
+
+
+@pytest.mark.parametrize(
     "factory,executable",
     (
         (codex_adapter, "codex.exe"),

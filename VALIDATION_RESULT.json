@@ -34,12 +34,38 @@
       "criterion_count_actual": 83
     },
     "schemas": {
-      "count": 24,
+      "count": 29,
       "errors": []
     },
     "yaml": {
       "count": 5,
       "errors": []
+    },
+    "memory_continuity_policy": {
+      "classification_count": 10,
+      "initial_mode": "shadow",
+      "remote_calls_default": false,
+      "policy_digest": "sha256:4f8e1e39f5ebdb6672db2edcfe11ddf9d3dc467451c3ba7820c4afec4214409f"
+    },
+    "memory_routing_policy": {
+      "workload_count": 6,
+      "provider_calls_default": false,
+      "policy_digest": "sha256:23ac77ccf26ec7f24b26f341900f07256bec439e9b5e390acd84951f51acc274"
+    },
+    "git_security": {
+      "schema": "zekam-git-security-report/v1",
+      "repository": "zekam",
+      "findings": [],
+      "tracked_blob_count": 759,
+      "worktree_file_count": 75,
+      "history_blob_count": 1549,
+      "history_complete": true,
+      "reviewed_allowance_count": 35,
+      "allowlist_digest": "sha256:898afe980415a5d711f1e493bead0828b4b626323dc987b7939cf17a1b523727",
+      "passed": true,
+      "requires_revoke_or_rotate": false,
+      "grants_authority": false,
+      "report_digest": "sha256:621997f208756a0aa5ed1aaa77be89b5a67332b303ea6496dc9efa7941dd6862"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

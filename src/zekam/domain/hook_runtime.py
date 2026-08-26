@@ -17,6 +17,13 @@ from zekam.domain.identifiers import new_uuid7
 
 
 class HookEventType(StrEnum):
+    """Versioned hook events.
+
+    The dotted values are the established HookRuntime v2 surface.  The underscore
+    values are the continuity-plane surface and intentionally live beside the old
+    values so an upgrade never rewrites or guesses an existing client contract.
+    """
+
     SESSION_START = "session.start"
     SESSION_END = "session.end"
     USER_INPUT_SUBMITTED = "user.input.submitted"
@@ -31,6 +38,23 @@ class HookEventType(StrEnum):
     AGENT_SPAWNED = "agent.spawned"
     AGENT_COMPLETED = "agent.completed"
     RECOVERY_REQUIRED = "recovery.required"
+    CONTINUITY_SESSION_START = "session_start"
+    HYDRATION_REQUIRED = "hydration_required"
+    HYDRATION_COMPLETED = "hydration_completed"
+    PRE_TASK = "pre_task"
+    POST_TASK = "post_task"
+    PRE_COMPACTION = "pre_compaction"
+    POST_COMPACTION = "post_compaction"
+    PRE_CLOSE = "pre_close"
+    POST_CLOSE = "post_close"
+    ON_FAILURE = "on_failure"
+    ON_VALIDATION_FAILURE = "on_validation_failure"
+    ON_MEMORY_WRITE_FAILURE = "on_memory_write_failure"
+    ON_MEMORY_HYDRATION_FAILURE = "on_memory_hydration_failure"
+    ON_SKILL_CANDIDATE = "on_skill_candidate"
+    ON_SKILL_UPDATE = "on_skill_update"
+    ON_STATE_DRIFT = "on_state_drift"
+    UNCLEAN_EXIT = "unclean_exit"
 
 
 class HookExecutionMode(StrEnum):

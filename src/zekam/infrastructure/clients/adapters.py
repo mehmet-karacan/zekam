@@ -166,17 +166,24 @@ def codex_adapter(
     executable: str,
     *,
     cancellation: bool = True,
+    version: str | None = None,
+    lifecycle_contract_verified: bool = False,
     permission_manifest: ClientPermissionManifest | None = None,
 ) -> SubprocessClientAdapter:
     capabilities = {"chat", "code", "tool-use", "structured-result", "sandbox-write"}
     if cancellation:
         capabilities.add("cancellation")
+    if lifecycle_contract_verified:
+        if version is None or not version.strip():
+            raise PolicyViolation("Codex lifecycle capability exact kurulu surum ister")
+        capabilities.add("lifecycle-events-v2")
     return SubprocessClientAdapter(
         ClientDescriptor(
             kind=ClientKind.CODEX,
             client_id="codex",
             executable=executable,
             capabilities=frozenset(capabilities),
+            version=version,
             permission_manifest=permission_manifest,
         )
     )
@@ -185,24 +192,30 @@ def codex_adapter(
 def claude_code_adapter(
     executable: str,
     *,
+    version: str | None = None,
+    lifecycle_contract_verified: bool = False,
     permission_manifest: ClientPermissionManifest | None = None,
 ) -> SubprocessClientAdapter:
+    capabilities = {
+        "chat",
+        "code",
+        "tool-use",
+        "structured-result",
+        "parallel-dispatch",
+        "cancellation",
+        "sandbox-write",
+    }
+    if lifecycle_contract_verified:
+        if version is None or not version.strip():
+            raise PolicyViolation("Claude Code lifecycle capability exact kurulu surum ister")
+        capabilities.add("lifecycle-events-v2")
     return SubprocessClientAdapter(
         ClientDescriptor(
             kind=ClientKind.CLAUDE_CODE,
             client_id="claude-code",
             executable=executable,
-            capabilities=frozenset(
-                {
-                    "chat",
-                    "code",
-                    "tool-use",
-                    "structured-result",
-                    "parallel-dispatch",
-                    "cancellation",
-                    "sandbox-write",
-                }
-            ),
+            capabilities=frozenset(capabilities),
+            version=version,
             permission_manifest=permission_manifest,
         )
     )
@@ -211,16 +224,22 @@ def claude_code_adapter(
 def opencode_adapter(
     executable: str,
     *,
+    version: str | None = None,
+    lifecycle_contract_verified: bool = False,
     permission_manifest: ClientPermissionManifest | None = None,
 ) -> SubprocessClientAdapter:
+    capabilities = {"chat", "code", "structured-result", "model-selection", "parallel-dispatch"}
+    if lifecycle_contract_verified:
+        if version is None or not version.strip():
+            raise PolicyViolation("OpenCode lifecycle capability exact kurulu surum ister")
+        capabilities.add("lifecycle-events-v2")
     return SubprocessClientAdapter(
         ClientDescriptor(
             kind=ClientKind.OPENCODE,
             client_id="opencode",
             executable=executable,
-            capabilities=frozenset(
-                {"chat", "code", "structured-result", "model-selection", "parallel-dispatch"}
-            ),
+            capabilities=frozenset(capabilities),
+            version=version,
             permission_manifest=permission_manifest,
         )
     )

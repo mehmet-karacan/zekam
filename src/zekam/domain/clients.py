@@ -28,6 +28,7 @@ KNOWN_CAPABILITIES = frozenset(
         "cancellation",
         "model-selection",
         "sandbox-write",
+        "lifecycle-events-v2",
     }
 )
 KNOWN_CLIENT_PERMISSIONS = frozenset(
