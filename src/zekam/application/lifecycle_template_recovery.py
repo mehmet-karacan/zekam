@@ -337,7 +337,10 @@ class LifecycleTemplateRecoveryService:
                     plan=plan.lifecycle_plan,
                     authorization=old_authorization,
                     result=recovered_result,
-                    now=terminal_at,
+                    # The missing envelope describes the already-observed historical
+                    # effect. Bind it at the immutable claim time; terminal recovery
+                    # records continue to use ``terminal_at`` below.
+                    now=claim.claimed_at,
                     journal_created_at=plan.reconciliation.checkpoint.created_at,
                     template_override=historical_template,
                 )

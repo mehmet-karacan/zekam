@@ -123,14 +123,17 @@ def test_prepare_materializes_exact_current_template_without_provider_call(
             (realm.id, crashed["job_id"]),
         )
     recovery = LifecycleTemplateRecoveryService(connection, realm)
+    recovery_now = crash_plan.expires_at + dt.timedelta(seconds=1)
     recovery_plan = recovery.prepare(
         job_id=UUID(str(crashed["job_id"])),
         actor_id=actor.id,
-        now=crash_plan.expires_at + dt.timedelta(seconds=1),
+        now=recovery_now,
     )
-    recovery_authorization = recovery.issue_authorization(recovery_plan, actor_id=actor.id)
+    recovery_authorization = recovery.issue_authorization(
+        recovery_plan, actor_id=actor.id, now=recovery_now
+    )
     recovered = recovery.apply(
-        recovery_plan, authorization_id=recovery_authorization.id
+        recovery_plan, authorization_id=recovery_authorization.id, now=recovery_now
     )
     assert recovered.old_finalization.receipt.result_digest is not None
     with connection.cursor() as cursor:
