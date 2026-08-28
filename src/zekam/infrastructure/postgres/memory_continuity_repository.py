@@ -1565,7 +1565,7 @@ class MemoryContinuityRepository:
 
             cursor.execute(
                 "select revision,state,record_digest from work.work_item"
-                " where realm_id=%s and project_id=%s and id=%s for share",
+                " where realm_id=%s and project_id=%s and id=%s",
                 (self.realm_id, project_id, work_item_id),
             )
             work = cursor.fetchone()

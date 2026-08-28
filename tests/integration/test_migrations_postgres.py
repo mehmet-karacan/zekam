@@ -958,6 +958,55 @@ def test_0062_down_refuses_projection_completion_audit_history(
             assert cursor.fetchone() == (True,)
 
 
+def test_0063_projection_closure_runtime_guard_exact_roundtrip(
+    blank_database: DatabaseSettings,
+) -> None:
+    alias_before = "projection_ref->>'digest'=prior_projection.projection_digest"
+    alias_after = "projection_ref.value->>'digest'=prior_projection.projection_digest"
+    checkpoint_before = "checkpoint.completed_steps=checkpoint.plan_steps"
+    checkpoint_after = (
+        "checkpoint.completed_steps=array_remove(checkpoint.plan_steps,job.step_id)"
+    )
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=62)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            baseline = str(cursor.fetchone()[0])
+        assert baseline.count(alias_before) == 1
+        assert baseline.count(checkpoint_before) == 1
+
+        assert [item.version for item in migrations.upgrade(connection, target=63)] == [63]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            revised, revised_comment = cursor.fetchone()
+        revised = str(revised)
+        assert alias_before not in revised
+        assert revised.count(alias_after) == 1
+        assert checkpoint_before not in revised
+        assert revised.count(checkpoint_after) == 1
+        assert "checkpoint.pending_steps=array[job.step_id]" in revised
+        assert revised_comment == (
+            "0063 executable projection close and pre-effect checkpoint binding"
+        )
+
+        assert migrations.downgrade(connection, target=63).version == 63
+        assert migrations.status(connection).head == 62
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            restored = str(cursor.fetchone()[0])
+        assert restored == baseline
+
+
 def test_0056_0057_0058_exact_upgrade_down_reapply_catalog_parity(
     blank_database: DatabaseSettings,
 ) -> None:
