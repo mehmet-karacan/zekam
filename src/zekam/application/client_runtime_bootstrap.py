@@ -560,7 +560,7 @@ class ClaimedLifecycleBootstrapService:
             resources=job.resources,
             adapter_digest=_BOOTSTRAP_ADAPTER_DIGEST,
             authorization_id=authorization.id,
-            idempotency_key=f"bootstrap:{entry_digest}",
+            idempotency_key=f"bootstrap:{entry_digest}:job:{job.id}",
         )
         with self.connection.transaction():
             materialized = self._materialize_claimed(
@@ -862,7 +862,7 @@ class ClaimedLifecycleBootstrapService:
             lease_id=work.lease.id,
             fencing_token=work.lease.fencing_token,
             request_ordinal=1,
-            idempotency_key=f"bootstrap-envelope:{entry.entry_digest}",
+            idempotency_key=f"bootstrap-envelope:{entry.entry_digest}:job:{job.id}",
             assignment_id=job.assignment_id,
             role="builder",
             route_decision_id=template.route_decision_id,
