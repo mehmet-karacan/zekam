@@ -77,7 +77,7 @@ def test_current_maps_exact_template_and_uses_stale_gates() -> None:
     assert template.compiled_tool_set_digest == digest("compiled-tools")
     assert "statement_timestamp()" in connection.current_cursor.query
     assert "probe.drift_dimensions='{}'::text[]" in connection.current_cursor.query
-    assert connection.current_cursor.params.count(realm_id) == 5
+    assert connection.current_cursor.params.count(realm_id) == 4
 
 
 @pytest.mark.parametrize("rows", [[], [_row(), _row()]])
