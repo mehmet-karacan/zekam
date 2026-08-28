@@ -32,6 +32,7 @@ from zekam.application.lifecycle_runtime_template_prepare import (
     LifecycleRuntimeTemplatePrepareService,
     run_lifecycle_template_prepare_once,
 )
+from zekam.application.lifecycle_template_recovery import LifecycleTemplateRecoveryService
 from zekam.application.memory_compiler_composition import (
     compose_memory_candidate_compile_handler,
 )
@@ -133,6 +134,46 @@ def lifecycle_template_tick_command(
                     "provider_calls": 0,
                     "network_calls": 0,
                 }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@app.command("lifecycle-template-recovery")
+def lifecycle_template_recovery_command(
+    job_id: Annotated[UUID, typer.Option("--job-id", help="Receiptless eski prep job UUID")],
+    actor_id: Annotated[UUID, typer.Option("--actor-id", help="Exact aktif human actor UUID")],
+    authorization_id: Annotated[
+        UUID | None, typer.Option("--authorization-id", help="Exact recovery authorization UUID")
+    ] = None,
+    authorize: Annotated[
+        bool, typer.Option("--yetkilendir", help="Exact dry plan icin one-shot yetki uret")
+    ] = False,
+    apply: Annotated[bool, typer.Option("--uygula", help="Kanonik continuation uygular")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Materialize edilmis fakat receipt'siz lifecycle template job'ini uzlastirir."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = LifecycleTemplateRecoveryService(
+                realm_context.connection, realm_context.realm
+            )
+            plan = service.prepare(job_id=job_id, actor_id=actor_id)
+            document: dict[str, object] = dict(plan.as_dict())
+            if authorize:
+                authorization = service.issue_authorization(plan, actor_id=actor_id)
+                document = document | {"authorization_id": str(authorization.id)}
+            if apply:
+                if authorization_id is None:
+                    raise ValidationFailed(
+                        "Lifecycle template recovery --authorization-id ister"
+                    )
+                document = service.apply(
+                    plan, authorization_id=authorization_id
+                ).as_dict()
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print_json(json.dumps(document, ensure_ascii=False, default=str))

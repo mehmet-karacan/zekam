@@ -8,7 +8,7 @@ checkpoint ve eski claim finalization'ini tek PostgreSQL transaction'inda yazar.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -22,6 +22,7 @@ from zekam.domain.realm import Realm
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import (
     AttemptOutcome,
+    EffectClaim,
     FailureCategory,
     Job,
     JobKind,
@@ -38,7 +39,7 @@ from zekam.infrastructure.postgres.client_lifecycle_repository import (
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
-from zekam.infrastructure.postgres.runtime_repository import RecoveryFinalization
+from zekam.infrastructure.postgres.runtime_repository import ClaimedWork, RecoveryFinalization
 from zekam.infrastructure.postgres.work_repository import TaskPlanRepository, WorkItemRepository
 
 RECOVERY_SCHEMA = "zekam-recovery-reconciliation/v1"
@@ -612,8 +613,16 @@ class RecoveryReconciliationService:
         *,
         authorization_id: UUID,
         now: dt.datetime | None = None,
+        effect_request_override: EffectRequest | None = None,
+        before_old_finalization: (
+            Callable[[ClaimedWork, EffectClaim, dt.datetime], None] | None
+        ) = None,
+        after_old_finalization: (
+            Callable[[RecoveryFinalization, UUID, dt.datetime], None] | None
+        ) = None,
     ) -> RecoveryReconciliationResult:
         moment = now or dt.datetime.now(dt.UTC)
+        effect_request = effect_request_override or plan.effect_request
         with self.connection.transaction():
             self.validate(plan)
             authorization = self.governance.authorizations.get(authorization_id)
@@ -624,7 +633,7 @@ class RecoveryReconciliationService:
             ):
                 raise AuthorizationRequired("Recovery authorization plan/work binding eslesmiyor")
             consumed = self.governance.require_authorized(
-                plan.effect_request,
+                effect_request,
                 authorization=authorization,
                 consumed_by=RECOVERY_CONSUMER,
                 now=moment,
@@ -663,13 +672,15 @@ class RecoveryReconciliationService:
             recovery_claim = host.claim_effect(
                 work,
                 operation=RECOVERY_OPERATION,
-                effect_digest=plan.effect_request.effect_digest,
+                effect_digest=effect_request.effect_digest,
                 authorization_digest=consumed.authorization_digest,
                 authorization_id=consumed.id,
                 resources=parse_requests(write=(plan.resource,)),
                 adapter_digest=plan.adapter_digest,
                 now=moment,
             )
+            if before_old_finalization is not None:
+                before_old_finalization(work, recovery_claim, moment)
             checkpoint_record_id = ContextContinuityRepository(
                 self.connection,
                 self.realm.id,
@@ -768,6 +779,8 @@ class RecoveryReconciliationService:
                 now=moment,
             ):
                 raise PolicyViolation("Recovery runtime job terminal tamamlanamadi")
+            if after_old_finalization is not None:
+                after_old_finalization(old_finalization, checkpoint_record_id, moment)
             return RecoveryReconciliationResult(
                 recovery_job_id=recovery_job.id,
                 recovery_attempt_id=work.attempt_id,

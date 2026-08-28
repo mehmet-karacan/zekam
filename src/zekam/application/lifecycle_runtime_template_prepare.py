@@ -378,7 +378,7 @@ class LifecycleRuntimeTemplatePrepareService:
                     realm_id=self.realm.id,
                     project_id=plan.project_id,
                     kind=JobKind.MUTATION,
-                    idempotency_key=f"lifecycle-template:{plan.plan_digest}",
+                    idempotency_key=f"lifecycle-template:{plan.plan_digest}:{prep_work.id}",
                     resources=parse_requests(write=(resource,)),
                     required_capabilities=("client.lifecycle.template-prepare",),
                     max_attempts=1,
@@ -517,7 +517,7 @@ def run_lifecycle_template_prepare_once(
         effect_digest=request.effect_digest,
         authorization_digest=authorization.authorization_digest,
         authorization_id=authorization.id,
-        idempotency_key=plan.plan_digest,
+        idempotency_key=f"{plan.plan_digest}:{job.id}",
         resources=parse_requests(write=(resource,)),
         adapter_digest=adapter_digest,
     )
@@ -614,6 +614,9 @@ def run_lifecycle_template_prepare_once(
     ExecutionRunRepository(connection, realm.id).finish_run(
         UUID(str(payload["run_id"])), state="completed", terminal_at=terminal_moment
     )
+    AgentAssignmentRepository(connection, realm.id).complete_terminal_plan(
+        task_plan_id, now=terminal_moment
+    )
     graph = WorkGraphService(connection, realm, actor_id=plan.actor_id)
     prep_work = graph.items.get(prep_work_id)
     graph.update_details(
@@ -698,6 +701,7 @@ def _bind_prepare_runtime(
     authorization: Any,
     result: dict[str, Any],
     now: dt.datetime,
+    journal_created_at: dt.datetime | None = None,
 ) -> tuple[UUID, UUID, ActiveLifecycleExecution]:
     """Bind the claimed provider-free preparation to immutable execution evidence."""
 
@@ -722,7 +726,7 @@ def _bind_prepare_runtime(
     )
     runs = ExecutionRunRepository(connection, realm.id)
     runs.create_packet(packet)
-    session_ref = f"lifecycle-template-{plan.work_item_id}"
+    session_ref = f"lifecycle-template-{job.work_item_id}-{job.run_id}-{job.id}"
     HookRuntimeRepository(connection, realm.id).start_session(session_ref=session_ref)
     runs.bind_assignment_environment(
         AssignmentEnvironmentBinding.create(
@@ -801,7 +805,7 @@ def _bind_prepare_runtime(
         digest(result),
         previous,
         False,
-        now,
+        journal_created_at or now,
     )
     context.append_journal(journal, expected_head=previous)
     with connection.cursor() as cursor:
