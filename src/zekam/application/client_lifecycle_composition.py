@@ -513,6 +513,18 @@ def compose_codex_lifecycle_handler(
         allowed_payload_keys = {
             frozenset({"schema", "authorization_id"}),
             frozenset({"schema", "authorization_id", "hydration_authorization_id"}),
+            frozenset(
+                {
+                    "schema",
+                    "authorization_id",
+                    "hydration_authorization_id",
+                    "bootstrap_parent_job_id",
+                    "context_manifest_id",
+                    "context_manifest_digest",
+                    "context_packet_id",
+                    "context_packet_digest",
+                }
+            ),
         }
         if (
             payload_keys not in allowed_payload_keys

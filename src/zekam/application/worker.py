@@ -642,12 +642,20 @@ def run_codex_lifecycle_once(
         worker_label=settings.worker_label,
         lease_seconds=settings.lease_seconds,
     )
-    handler = compose_codex_lifecycle_handler(
-        connection=connection,
-        realm_id=realm_id,
-        home=home,
+    from zekam.application.client_runtime_bootstrap import (
+        ClaimedLifecycleBootstrapService,
     )
+
     try:
+        ClaimedLifecycleBootstrapService(connection, realm_id).bind_child_envelope(
+            work,
+            now=dt.datetime.now(dt.UTC),
+        )
+        handler = compose_codex_lifecycle_handler(
+            connection=connection,
+            realm_id=realm_id,
+            home=home,
+        )
         return handler(work)
     except Exception:
         current = host.jobs.get(job.id)
@@ -669,6 +677,126 @@ def run_codex_lifecycle_once(
             if not finished:
                 raise PolicyViolation("Codex lifecycle worker terminal finish reddedildi") from None
         raise
+
+
+def run_codex_lifecycle_bootstrap_once(
+    connection: Any,
+    realm_id: UUID,
+    *,
+    home: Path,
+    settings: WorkerSettings,
+) -> str | None:
+    """Claim and materialize one exact governed Codex lifecycle parent job.
+
+    The parent is a separate database-write mutation.  It never executes the
+    lifecycle hook; it only produces the immutable child job and the canonical
+    runtime records that the child must bind to after its own claim.
+    """
+
+    from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
+    from zekam.application.client_runtime_bootstrap import (
+        ClaimedLifecycleBootstrapService,
+    )
+    from zekam.domain.runtime import JobState
+    from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
+        LifecycleRuntimeTemplateRepository,
+    )
+
+    if settings.capabilities != ("client.lifecycle.codex-bootstrap",):
+        raise PolicyViolation("Codex lifecycle bootstrap worker exact tek capability ister")
+    spool = ClientLifecycleSpool(home, client_id="codex")
+    pending = spool.pending(limit=1)
+    if not pending:
+        return None
+    entry = pending[0]
+    repository = LifecycleRuntimeTemplateRepository(connection, realm_id)
+    job_id = repository.next_bootstrap_job_id()
+    if job_id is None:
+        return None
+    host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
+    job = host.jobs.get(job_id)
+    if (
+        job.work_item_id is None
+        or job.plan_id is None
+        or job.step_id is None
+        or job.assignment_id is None
+        or job.run_id is None
+    ):
+        raise PolicyViolation("Codex lifecycle bootstrap exact queue identity eksik")
+    if job.payload.get("entry_digest") != entry.entry_digest:
+        raise PolicyViolation("Codex lifecycle bootstrap spool head drift")
+    work = host.jobs.claim_exact(
+        job.id,
+        project_id=job.project_id,
+        work_item_id=job.work_item_id,
+        plan_id=job.plan_id,
+        step_id=job.step_id,
+        assignment_id=job.assignment_id,
+        run_id=job.run_id,
+        capabilities=settings.capabilities,
+        worker_label=settings.worker_label,
+        lease_seconds=settings.lease_seconds,
+    )
+    service = ClaimedLifecycleBootstrapService(connection, realm_id)
+    try:
+        return service.materialize(work, home=home, now=dt.datetime.now(dt.UTC))
+    except Exception:
+        current = host.jobs.get(job.id)
+        if current.state is JobState.RUNNING:
+            claims = host.ledger.claims_for_job(job.id)
+            outcome = AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
+            finished = host.finish(
+                work,
+                outcome=outcome,
+                failure_category=(None if claims else FailureCategory.ADAPTER),
+                result_digest=digest(
+                    {
+                        "schema": "zekam-codex-lifecycle-bootstrap-worker-failure/v1",
+                        "job_id": str(job.id),
+                        "receiptless_claim": bool(claims),
+                    }
+                ),
+            )
+            if not finished:
+                raise PolicyViolation(
+                    "Codex lifecycle bootstrap worker terminal finish reddedildi"
+                ) from None
+        raise
+
+
+def run_codex_runtime_once(
+    connection: Any,
+    realm_id: UUID,
+    *,
+    home: Path,
+    worker_label: str = "codex-lifecycle-worker",
+    lease_seconds: int = 30,
+) -> str | None:
+    """Run the reviewed parent bootstrap first, then its exact lifecycle child."""
+
+    parent_result = run_codex_lifecycle_bootstrap_once(
+        connection,
+        realm_id,
+        home=home,
+        settings=WorkerSettings(
+            worker_label=f"{worker_label}-bootstrap",
+            capabilities=("client.lifecycle.codex-bootstrap",),
+            lease_seconds=lease_seconds,
+            max_iterations=1,
+        ),
+    )
+    child_result = run_codex_lifecycle_once(
+        connection,
+        realm_id,
+        home=home,
+        settings=WorkerSettings(
+            worker_label=worker_label,
+            capabilities=("client.lifecycle.codex-drain",),
+            lease_seconds=lease_seconds,
+            max_iterations=1,
+        ),
+    )
+    return child_result or parent_result
 
 
 def noop_handler(work: ClaimedWork) -> str:

@@ -20,9 +20,13 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam.application.chaos_command_composition import compose_command_chaos_handler
+from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
+from zekam.application.client_runtime_bootstrap import ClientRuntimeBootstrapService
+from zekam.application.composition import build_context
 from zekam.application.diagnostic_trace_composition import (
     compose_diagnostic_trace_purge_handler,
 )
+from zekam.application.doctor_repair import observe_git_repository
 from zekam.application.home import resolve_home
 from zekam.application.memory_compiler_composition import (
     compose_memory_candidate_compile_handler,
@@ -39,14 +43,77 @@ from zekam.application.worker import (
     WorkerSettings,
     build_worker,
     default_capabilities,
-    run_codex_lifecycle_once,
+    run_codex_runtime_once,
 )
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed, ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
 
 app = typer.Typer(name="worker", help="Worker sureci", no_args_is_help=True)
 console = Console()
+
+
+def _bootstrap_source_revision(home: str | None) -> str:
+    state = observe_git_repository(build_context(home=home).core_path)
+    return f"git:{state.head};state:{digest(state.body())}"
+
+
+@app.command("client-runtime-bootstrap")
+def client_runtime_bootstrap_command(
+    work_id: Annotated[UUID, typer.Option("--work-id", help="Exact proposed Work UUID")],
+    project_id: Annotated[UUID, typer.Option("--project-id", help="Exact project UUID")],
+    actor_id: Annotated[UUID, typer.Option("--actor-id", help="Exact aktif human actor UUID")],
+    plan_digest: Annotated[
+        str | None, typer.Option("--plan-digest", help="Dry-run'da uretilen exact digest")
+    ] = None,
+    apply: Annotated[
+        bool, typer.Option("--uygula", help="Control-plane bootstrap'i uygular")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Pending Codex SessionStart icin effect-free governed runtime kurar."""
+
+    try:
+        spool = ClientLifecycleSpool(resolve_home(home), client_id="codex")
+        pending = spool.pending(limit=1)
+        if not pending or pending[0].internal_event_type != "session_start":
+            raise ValidationFailed("Pending Codex SessionStart spool head bulunamadi")
+        entry = pending[0]
+        source_revision = _bootstrap_source_revision(home)
+        with RealmSession(home, realm) as realm_context:
+            service = ClientRuntimeBootstrapService(realm_context.connection, realm_context.realm)
+            plan = service.prepare(
+                project_id=project_id,
+                work_item_id=work_id,
+                actor_id=actor_id,
+                client_id="codex",
+                session_id=entry.session_id,
+                entry_digest=entry.entry_digest,
+                source_revision=source_revision,
+            )
+            document = plan.as_dict()
+            if apply:
+                if plan_digest is None:
+                    raise ValidationFailed("Client runtime bootstrap --plan-digest ister")
+                current = spool.pending(limit=1)
+                if not current:
+                    raise ValidationFailed("Client runtime bootstrap spool head kayboldu")
+                result = service.apply(
+                    plan,
+                    supplied_plan_digest=plan_digest,
+                    current_entry_digest=current[0].entry_digest,
+                    current_source_revision=_bootstrap_source_revision(home),
+                )
+                document = result.as_dict() | {"bootstrap_plan_digest": plan.plan_digest}
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+    else:
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
 
 
 @app.command("reconcile-failed-receipt")
@@ -211,15 +278,11 @@ def codex_lifecycle_tick_command(
     else:
         try:
             with RealmSession(home, realm) as realm_context:
-                result_digest = run_codex_lifecycle_once(
+                result_digest = run_codex_runtime_once(
                     realm_context.connection,
                     realm_context.realm_id,
                     home=resolve_home(home),
-                    settings=WorkerSettings(
-                        worker_label=label,
-                        capabilities=("client.lifecycle.codex-drain",),
-                        max_iterations=1,
-                    ),
+                    worker_label=label,
                 )
             document = {
                 "schema": "zekam-codex-lifecycle-worker-result/v1",

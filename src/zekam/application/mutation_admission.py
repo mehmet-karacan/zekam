@@ -362,6 +362,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("memory", "hydration-apply"): MutationAdmissionExemption.HYDRATION,
     ("memory", "gap-repair-apply"): MutationAdmissionExemption.RECOVERY,
     ("worker", "codex-lifecycle-tick"): MutationAdmissionExemption.HYDRATION,
+    ("worker", "client-runtime-bootstrap"): MutationAdmissionExemption.CONTROL_PLANE,
     ("worker", "reconcile-failed-receipt"): MutationAdmissionExemption.RECOVERY,
     ("worker", "recovery-authorize"): MutationAdmissionExemption.RECOVERY,
     ("worker", "reconcile-recovery"): MutationAdmissionExemption.RECOVERY,

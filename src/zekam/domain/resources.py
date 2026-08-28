@@ -51,6 +51,7 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         "model-benchmark",
         "skill-registry",
         "memory",
+        "runtime-bootstrap",
     }
 )
 

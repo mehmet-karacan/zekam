@@ -142,6 +142,15 @@ class ClientLifecycleRepository:
                 " or ((select count(*) from jsonb_object_keys(payload))=3"
                 " and jsonb_typeof(payload->'hydration_authorization_id')='string'"
                 " and payload->>'hydration_authorization_id'"
+                " ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+                " or ((select count(*) from jsonb_object_keys(payload))=8"
+                " and jsonb_typeof(payload->'hydration_authorization_id')='string'"
+                " and jsonb_typeof(payload->'bootstrap_parent_job_id')='string'"
+                " and jsonb_typeof(payload->'context_manifest_id')='string'"
+                " and jsonb_typeof(payload->'context_manifest_digest')='string'"
+                " and jsonb_typeof(payload->'context_packet_id')='string'"
+                " and jsonb_typeof(payload->'context_packet_digest')='string'"
+                " and payload->>'hydration_authorization_id'"
                 " ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))"
                 " and required_capabilities=array['client.lifecycle.codex-drain']::text[]"
                 " and read_resources='{}'::text[] and cardinality(write_resources)=1"
@@ -1357,6 +1366,7 @@ class ClientLifecycleRepository:
         step_id: str,
         result_digest: str,
         now: dt.datetime,
+        require_lifecycle_admission: bool = True,
     ) -> UUID:
         """Persist legacy continuity plus the required run-bound checkpoint v2."""
 
@@ -1433,6 +1443,7 @@ class ClientLifecycleRepository:
             step_id=step_id,
             result_digest=result_digest,
             now=now,
+            require_lifecycle_admission=require_lifecycle_admission,
         )
         if legacy_checkpoint_id is None:
             raise PolicyViolation("Lifecycle legacy checkpoint kimligi uretilmedi")
@@ -1446,6 +1457,7 @@ class ClientLifecycleRepository:
         step_id: str,
         result_digest: str,
         now: dt.datetime,
+        require_lifecycle_admission: bool = True,
     ) -> UUID:
         """Append one receipt- and verifier-complete checkpoint v2 revision."""
 
@@ -1496,6 +1508,7 @@ class ClientLifecycleRepository:
             step_id=step_id,
             result_digest=result_digest,
             now=now,
+            require_lifecycle_admission=require_lifecycle_admission,
         )
         verifier_invocation_id, verifier_result_digest = self._record_checkpoint_verifier(
             execution=execution,
@@ -1620,6 +1633,7 @@ class ClientLifecycleRepository:
         step_id: str,
         result_digest: str,
         now: dt.datetime,
+        require_lifecycle_admission: bool = True,
     ) -> dict[str, Any]:
         """Re-read the exact canonical effect and execution facts used by v2."""
 
@@ -1673,10 +1687,10 @@ class ClientLifecycleRepository:
                 "   and context.source_revision=plan.source_revision"
                 "   and context.policy_digest=plan.policy_digest and context.expires_at>%s"
                 "   order by context.captured_at desc,context.id desc limit 1) routing on true"
-                " join continuity.session_lifecycle_event event on event.realm_id=job.realm_id"
+                " left join continuity.session_lifecycle_event event on event.realm_id=job.realm_id"
                 "  and event.project_id=job.project_id and event.work_item_id=job.work_item_id"
                 "  and event.run_id=job.run_id and event.correlation_id=%s"
-                " join continuity.lifecycle_delivery_outbox outbox"
+                " left join continuity.lifecycle_delivery_outbox outbox"
                 " on outbox.realm_id=event.realm_id"
                 "  and outbox.event_id=event.id and outbox.state='completed'"
                 "  and outbox.terminal_receipt_digest is not null"
@@ -1691,6 +1705,7 @@ class ClientLifecycleRepository:
                 " and plan.plan_digest=%s and plan.source_revision=%s and plan.policy_digest=%s"
                 " and envelope.envelope_digest=%s"
                 " and envelope.context_manifest_digest=%s"
+                " and (%s=false or (event.id is not null and outbox.id is not null))"
                 " and envelope.id=(select latest.id from runtime.execution_envelope latest"
                 "   where latest.realm_id=envelope.realm_id and latest.run_id=envelope.run_id"
                 "   and latest.job_id=envelope.job_id and latest.attempt_id=envelope.attempt_id"
@@ -1718,6 +1733,7 @@ class ClientLifecycleRepository:
                     execution.policy_digest,
                     execution.envelope_digest,
                     execution.context_manifest_digest,
+                    require_lifecycle_admission,
                 ),
             )
             rows = cursor.fetchall()
@@ -1750,8 +1766,6 @@ class ClientLifecycleRepository:
             row[23],
             row[24],
             row[25],
-            row[27],
-            row[29],
             row[31],
             row[33],
         ):
@@ -1782,10 +1796,10 @@ class ClientLifecycleRepository:
             "rules_digest": str(row[23]),
             "test_suite_digest": str(row[24]),
             "model_inventory_digest": str(row[25]),
-            "continuity_event_id": UUID(str(row[26])),
-            "continuity_event_digest": str(row[27]),
-            "delivery_outbox_id": UUID(str(row[28])),
-            "terminal_hook_receipt_digest": str(row[29]),
+            "continuity_event_id": None if row[26] is None else UUID(str(row[26])),
+            "continuity_event_digest": None if row[27] is None else str(row[27]),
+            "delivery_outbox_id": None if row[28] is None else UUID(str(row[28])),
+            "terminal_hook_receipt_digest": None if row[29] is None else str(row[29]),
             "effect_claim_id": UUID(str(row[30])),
             "effect_digest": str(row[31]),
             "effect_receipt_id": UUID(str(row[32])),

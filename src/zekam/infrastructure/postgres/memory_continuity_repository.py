@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -1059,6 +1060,8 @@ class MemoryContinuityRepository:
         run_id: UUID,
         session_id: str,
         client_id: str,
+        preview_event_body: Mapping[str, Any] | None = None,
+        preview_event_digest: str | None = None,
     ) -> tuple[HydrationInventorySnapshot, tuple[Any, ...]]:
         """Build one sanitized inventory from a single canonical DB statement.
 
@@ -1070,6 +1073,13 @@ class MemoryContinuityRepository:
 
         if not session_id.strip() or not client_id.strip():
             raise ValidationFailed("Hydration inventory session/client bos olamaz")
+        if (preview_event_body is None) != (preview_event_digest is None):
+            raise ValidationFailed("Hydration preview event body/digest birlikte ister")
+        if (
+            preview_event_body is not None
+            and digest(dict(preview_event_body)) != preview_event_digest
+        ):
+            raise ValidationFailed("Hydration preview event digest drift")
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select envelope.context_manifest_digest,envelope.context_packet_id,"
@@ -1124,7 +1134,9 @@ class MemoryContinuityRepository:
                 " and lifecycle.run_id=run.id and lifecycle.session_id=run.session_id"
                 " and lifecycle.client_id=run.client_id"
                 " and lifecycle.event_type in ('session_start','hydration_required')"
-                " order by lifecycle.sequence desc,lifecycle.id desc limit 1) event"
+                " and %s::jsonb is null"
+                " union all select %s::jsonb,%s::text,'session_start'::text"
+                " where %s::jsonb is not null limit 1) event"
                 " on true"
                 " join lateral (select jsonb_agg(jsonb_build_object("
                 " 'candidate_id',fragment.candidate_id,'content_kind',fragment.content_kind,"
@@ -1193,6 +1205,10 @@ class MemoryContinuityRepository:
                 " and current_plan.work_item_id=task_plan.work_item_id"
                 " order by current_plan.revision desc,current_plan.id desc limit 1)",
                 (
+                    None if preview_event_body is None else canonical_json(preview_event_body),
+                    None if preview_event_body is None else canonical_json(preview_event_body),
+                    preview_event_digest,
+                    None if preview_event_body is None else canonical_json(preview_event_body),
                     ACTIVE_WORK_PROJECTION_REF,
                     self.realm_id,
                     project_id,
@@ -1359,6 +1375,30 @@ class MemoryContinuityRepository:
             hydration_event_digest=event_digest,
         )
         return snapshot, tuple(row)
+
+    def preview_hydration_inventory(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+        event_body: Mapping[str, Any],
+        event_digest: str,
+    ) -> HydrationInventorySnapshot:
+        """Derive exact hydration inputs without persisting the prepared lifecycle event."""
+
+        snapshot, _ = self._read_hydration_state(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
+            session_id=session_id,
+            client_id=client_id,
+            preview_event_body=event_body,
+            preview_event_digest=event_digest,
+        )
+        return snapshot
 
     def read_hydration_inventory(
         self,

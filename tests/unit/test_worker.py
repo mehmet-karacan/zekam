@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import Mock
 from uuid import uuid4
@@ -17,9 +19,10 @@ from zekam.application.worker import (
     build_worker,
     noop_handler,
     resolve_handlers,
+    run_codex_lifecycle_once,
 )
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.runtime import JobKind
+from zekam.domain.runtime import AttemptOutcome, FailureCategory, JobKind, JobState
 from zekam.domain.scheduler import JobDefinition, Schedule
 
 pytestmark = pytest.mark.unit
@@ -152,3 +155,76 @@ def test_normal_worker_still_claims_queue_by_default() -> None:
         lease_seconds=60,
         now=NOW,
     )
+
+
+@pytest.mark.parametrize(
+    ("claims", "expected_outcome", "expected_failure_category"),
+    [
+        ((), AttemptOutcome.FAILED, FailureCategory.ADAPTER),
+        ((object(),), AttemptOutcome.RECOVERY_REQUIRED, None),
+    ],
+)
+def test_codex_child_bind_failure_is_terminalized_without_silent_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    claims: tuple[object, ...],
+    expected_outcome: AttemptOutcome,
+    expected_failure_category: FailureCategory | None,
+) -> None:
+    realm_id = uuid4()
+    job_id = uuid4()
+    job = SimpleNamespace(
+        id=job_id,
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        plan_id=uuid4(),
+        step_id="client-lifecycle-drain",
+        assignment_id=uuid4(),
+        run_id=uuid4(),
+        state=JobState.RUNNING,
+    )
+    work = SimpleNamespace(job=job)
+    jobs = Mock()
+    jobs.get.return_value = job
+    jobs.claim_exact.return_value = work
+    ledger = Mock()
+    ledger.claims_for_job.return_value = claims
+    host = Mock(jobs=jobs, ledger=ledger)
+    host.finish.return_value = True
+    repository = Mock()
+    repository.committed_admission_exists.return_value = False
+    repository.next_codex_lifecycle_job_id.return_value = job_id
+    spool = Mock()
+    spool.pending.return_value = (SimpleNamespace(entry_digest="sha256:" + "a" * 64),)
+    binder = Mock()
+    binder.bind_child_envelope.side_effect = RuntimeError("injected bind failure")
+
+    monkeypatch.setattr("zekam.application.worker.ExecutionHost", lambda *args, **kwargs: host)
+    monkeypatch.setattr(
+        "zekam.infrastructure.postgres.client_lifecycle_repository.ClientLifecycleRepository",
+        lambda *args, **kwargs: repository,
+    )
+    monkeypatch.setattr(
+        "zekam.application.client_lifecycle_spool.ClientLifecycleSpool",
+        lambda *args, **kwargs: spool,
+    )
+    monkeypatch.setattr(
+        "zekam.application.client_runtime_bootstrap.ClaimedLifecycleBootstrapService",
+        lambda *args, **kwargs: binder,
+    )
+
+    with pytest.raises(RuntimeError, match="injected bind failure"):
+        run_codex_lifecycle_once(
+            object(),
+            realm_id,
+            home=tmp_path,
+            settings=WorkerSettings(
+                worker_label="codex-lifecycle-worker",
+                capabilities=("client.lifecycle.codex-drain",),
+            ),
+        )
+
+    host.finish.assert_called_once()
+    assert host.finish.call_args.kwargs["outcome"] is expected_outcome
+    assert host.finish.call_args.kwargs["failure_category"] is expected_failure_category
+    assert jobs.get.call_count == 2
