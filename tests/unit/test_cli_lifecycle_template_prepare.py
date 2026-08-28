@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import datetime as dt
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from typer.testing import CliRunner
 
+from zekam.application.lifecycle_runtime_template_prepare import (
+    LifecycleTemplatePreparePlan,
+)
 from zekam.interfaces.cli import worker
 
 
@@ -79,3 +84,38 @@ def test_lifecycle_template_prepare_cli_apply_requires_exact_digest(
     assert result.exit_code == 0
     assert _Service.applied
     assert '"network_calls": 0' in result.stdout
+
+
+def _real_plan(
+    *, now: dt.datetime, work_revision: int = 3, source: str = "git:a"
+) -> LifecycleTemplatePreparePlan:
+    return LifecycleTemplatePreparePlan(
+        realm_id=uuid4(),
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        work_revision=work_revision,
+        actor_id=uuid4(),
+        source_revision=source,
+        policy_digest="sha256:" + "2" * 64,
+        prepared_at=now,
+        expires_at=now + dt.timedelta(minutes=30),
+    )
+
+
+def test_lifecycle_template_prepare_digest_excludes_volatile_timestamps() -> None:
+    first = _real_plan(now=dt.datetime(2026, 8, 29, 10, tzinfo=dt.UTC))
+    second = replace(
+        first,
+        prepared_at=first.prepared_at + dt.timedelta(minutes=5),
+        expires_at=first.expires_at + dt.timedelta(minutes=5),
+    )
+    assert first.plan_digest == second.plan_digest
+    assert first.as_dict()["prepared_at"] != second.as_dict()["prepared_at"]
+
+
+def test_lifecycle_template_prepare_digest_tracks_source_and_work_revision() -> None:
+    first = _real_plan(now=dt.datetime(2026, 8, 29, 10, tzinfo=dt.UTC))
+    source_drift = replace(first, source_revision="git:b")
+    work_drift = replace(first, work_revision=first.work_revision + 1)
+    assert first.plan_digest != source_drift.plan_digest
+    assert first.plan_digest != work_drift.plan_digest

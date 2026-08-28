@@ -100,7 +100,9 @@ class LifecycleTemplatePreparePlan:
     prepared_at: dt.datetime
     expires_at: dt.datetime
 
-    def body(self) -> dict[str, Any]:
+    def authority_body(self) -> dict[str, Any]:
+        """Return the stable authority binding used across separate CLI processes."""
+
         return {
             "schema": "zekam-lifecycle-template-prepare-plan/v1",
             "realm_id": str(self.realm_id),
@@ -110,8 +112,6 @@ class LifecycleTemplatePreparePlan:
             "actor_id": str(self.actor_id),
             "source_revision": self.source_revision,
             "policy_digest": self.policy_digest,
-            "prepared_at": self.prepared_at,
-            "expires_at": self.expires_at,
             "client_id": "codex",
             "slot": "lifecycle",
             "provider_calls": 0,
@@ -119,9 +119,15 @@ class LifecycleTemplatePreparePlan:
             "grants_authority": False,
         }
 
+    def body(self) -> dict[str, Any]:
+        return self.authority_body() | {
+            "prepared_at": self.prepared_at,
+            "expires_at": self.expires_at,
+        }
+
     @property
     def plan_digest(self) -> str:
-        return digest(self.body())
+        return digest(self.authority_body())
 
     def as_dict(self) -> dict[str, Any]:
         return self.body() | {"plan_digest": self.plan_digest, "applied": False}
@@ -183,6 +189,8 @@ class LifecycleRuntimeTemplatePrepareService:
     ) -> dict[str, Any]:
         if supplied_plan_digest != plan.plan_digest:
             raise PolicyViolation("Lifecycle template prepare exact plan digest ister")
+        if dt.datetime.now(dt.UTC) > plan.expires_at:
+            raise PolicyViolation("Lifecycle template prepare plan suresi dolmus")
         current = self.prepare(
             project_id=plan.project_id,
             work_item_id=plan.work_item_id,
