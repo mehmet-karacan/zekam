@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from zekam.application.continuity_projection import ACTIVE_WORK_PROJECTION_REF
 from zekam.application.memory_hooks import MEMORY_HOOK_EVENTS
 from zekam.application.memory_upgrade import (
     COMPONENT,
@@ -31,7 +32,6 @@ from zekam.infrastructure.postgres.migrations import (
     read_applied,
 )
 
-PROJECTION_REF = "projection/memory-continuity/active-work"
 PROJECTION_GENERATOR = "memory-continuity-shadow/v1"
 
 
@@ -86,8 +86,9 @@ class PostgresMemoryUpgradeRepository:
                     "select count(*),"
                     " (array_agg(receipt_digest order by generated_at desc,id desc))[1],"
                     " (array_agg(projection_digest order by generated_at desc,id desc))[1]"
-                    " from continuity.projection_generation_receipt where realm_id=%s",
-                    (self.realm_id,),
+                    " from continuity.projection_generation_receipt"
+                    " where realm_id=%s and projection_ref=%s",
+                    (self.realm_id, ACTIVE_WORK_PROJECTION_REF),
                 )
                 projection = cursor.fetchone()
                 projection_count = int(projection[0] or 0)
@@ -125,7 +126,7 @@ class PostgresMemoryUpgradeRepository:
                         self.realm_id,
                         self.project_id,
                         self.work_item_id,
-                        PROJECTION_REF,
+                        ACTIVE_WORK_PROJECTION_REF,
                         projection_source_digest,
                     ),
                 )
@@ -438,7 +439,13 @@ class PostgresMemoryUpgradeRepository:
                 " from continuity.projection_generation_receipt"
                 " where realm_id=%s and project_id=%s and work_item_id=%s"
                 " and projection_ref=%s and source_digest=%s",
-                (self.realm_id, project_id, work_item_id, PROJECTION_REF, source_digest),
+                (
+                    self.realm_id,
+                    project_id,
+                    work_item_id,
+                    ACTIVE_WORK_PROJECTION_REF,
+                    source_digest,
+                ),
             )
             replay = cursor.fetchone()
         if replay is not None:
@@ -452,7 +459,7 @@ class PostgresMemoryUpgradeRepository:
             work_item_id=work_item_id,
             source_ref=f"work-item/{work_item_id}/revision/{work_revision}",
             source_digest=source_digest,
-            projection_ref=PROJECTION_REF,
+            projection_ref=ACTIVE_WORK_PROJECTION_REF,
             projection_digest=projection_digest,
             generator_version=PROJECTION_GENERATOR,
             generated_at=created_at,
@@ -497,7 +504,7 @@ class PostgresMemoryUpgradeRepository:
                 self.realm_id,
                 plan.project_id,
                 plan.work_item_id,
-                PROJECTION_REF,
+                ACTIVE_WORK_PROJECTION_REF,
                 plan.projection_source_digest,
             ),
         )

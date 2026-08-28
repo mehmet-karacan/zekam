@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import datetime as dt
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
+from psycopg import Error as PsycopgError
 
+from zekam.application.continuity_projection import ACTIVE_WORK_PROJECTION_REF
 from zekam.application.hook_runtime import HookRuntime, LoadedHookAdapter
-from zekam.application.memory_hooks import MEMORY_HOOK_EVENTS
+from zekam.application.memory_hooks import (
+    MEMORY_HOOK_EVENTS,
+    MEMORY_HOOK_REVISION,
+    memory_hook_bundle,
+)
 from zekam.application.memory_observability import MemoryDimensionStatus
 from zekam.application.memory_upgrade import (
     FEATURE_RESOURCE,
@@ -17,7 +25,7 @@ from zekam.application.memory_upgrade import (
 )
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.config_provenance import PermissionProfileRevision
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.hook_runtime import (
@@ -36,19 +44,41 @@ from zekam.domain.work import WorkType
 from zekam.infrastructure.postgres.config_provenance_repository import (
     ConfigProvenanceRepository,
 )
+from zekam.infrastructure.postgres.connection import configure_session, connect
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
+from zekam.infrastructure.postgres.memory_hook_installer import PostgresMemoryHookInstaller
 from zekam.infrastructure.postgres.memory_observability_repository import (
     PostgresMemoryHealthReader,
 )
 from zekam.infrastructure.postgres.memory_upgrade_repository import (
-    PROJECTION_REF,
     PostgresMemoryUpgradeRepository,
 )
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 26, 12, tzinfo=dt.UTC)
+_DIGEST = "sha256:" + "0" * 64
+
+
+def _insert_projection_admission_audit(connection: Any, realm_id: UUID) -> UUID:
+    with connection.transaction(), connection.cursor() as cursor:
+        cursor.execute("set local session_replication_role='replica'")
+        cursor.execute(
+            "insert into work.completion_admission"
+            " (id,realm_id,project_id,work_item_id,mode,expected_work_revision,"
+            " expected_work_record_digest,plan_id,plan_digest,job_id,attempt_id,claim_id,"
+            " authorization_id,run_id,close_receipt_id,projection_receipt_id,"
+            " pre_close_outbox_id,checkpoint_id,effect_receipt_id,operation,admission_body,"
+            " admission_digest,admitted_at) values"
+            " (gen_random_uuid(),%s,gen_random_uuid(),gen_random_uuid(),'projection-aware',2,"
+            " %s,gen_random_uuid(),%s,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),"
+            " gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),"
+            " gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'projection-aware-close',"
+            " '{}'::jsonb,%s,statement_timestamp()) returning id",
+            (realm_id, _DIGEST, _DIGEST, _DIGEST),
+        )
+        return cursor.fetchone()[0]
 
 
 def _install_unrelated_custom_hook(
@@ -231,6 +261,17 @@ def test_shadow_bootstrap_installs_exact_hooks_and_public_projection_idempotentl
             item.value: 1 for item in MEMORY_HOOK_EVENTS
         }
         cursor.execute(
+            "select distinct spec.revision"
+            " from hooks.current_generation current_set"
+            " join hooks.compiled_set_entry entry on entry.realm_id=current_set.realm_id"
+            " and entry.compiled_set_id=current_set.compiled_set_id"
+            " join hooks.spec_revision spec on spec.realm_id=entry.realm_id"
+            " and spec.id=entry.spec_revision_id"
+            " where current_set.realm_id=%s and spec.source_layer='memory-continuity'",
+            (realm.id,),
+        )
+        assert {int(row[0]) for row in cursor.fetchall()} == {MEMORY_HOOK_REVISION}
+        cursor.execute(
             "select count(*) from hooks.current_generation current_set"
             " join hooks.compiled_set_entry entry on entry.realm_id=current_set.realm_id"
             " and entry.compiled_set_id=current_set.compiled_set_id"
@@ -245,7 +286,7 @@ def test_shadow_bootstrap_installs_exact_hooks_and_public_projection_idempotentl
             " receipt_body,grants_authority"
             " from continuity.projection_generation_receipt"
             " where realm_id=%s and project_id=%s and work_item_id=%s and projection_ref=%s",
-            (realm.id, project.id, work.id, PROJECTION_REF),
+            (realm.id, project.id, work.id, ACTIVE_WORK_PROJECTION_REF),
         )
         projection = cursor.fetchone()
     assert projection[0] == after.projection_source_digest
@@ -280,6 +321,88 @@ def test_shadow_bootstrap_installs_exact_hooks_and_public_projection_idempotentl
     assert database_drift.database_revision_digest != source_drift.database_revision_digest
     assert database_drift.projection_source_digest != source_drift.projection_source_digest
     assert not database_drift.projection_current
+
+
+def test_concurrent_clean_realm_hook_install_is_single_generation_and_replay_safe(
+    realm_session: tuple[Any, Any],
+    migrated_database: Any,
+) -> None:
+    realm, connection = realm_session
+    barrier = threading.Barrier(2)
+
+    def install() -> Any:
+        with connect(migrated_database) as worker:
+            configure_session(worker, realm_id=realm.id)
+            barrier.wait(timeout=10)
+            return PostgresMemoryHookInstaller(worker, realm.id).ensure(installed_at=NOW)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (pool.submit(install), pool.submit(install))
+        receipts = tuple(future.result(timeout=30) for future in futures)
+
+    assert sorted(item.created for item in receipts) == [False, True]
+    assert {item.generation for item in receipts} == {1}
+    assert len({item.hook_set_digest for item in receipts}) == 1
+    assert len({item.bundle_digest for item in receipts}) == 1
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select generation,hook_set_digest from hooks.current_generation"
+            " where realm_id=%s",
+            (realm.id,),
+        )
+        assert cursor.fetchone() == (1, receipts[0].hook_set_digest)
+        cursor.execute(
+            "select"
+            " (select count(*) from hooks.current_generation where realm_id=%s),"
+            " (select count(*) from hooks.compiled_set where realm_id=%s),"
+            " (select count(*) from hooks.spec_revision where realm_id=%s"
+            "   and source_layer='memory-continuity' and revision=%s),"
+            " (select count(*) from hooks.runtime_revision runtime"
+            "   join hooks.spec_revision spec on spec.realm_id=runtime.realm_id"
+            "   and spec.hook_id=runtime.hook_id and spec.revision=runtime.hook_revision"
+            "   where runtime.realm_id=%s and spec.source_layer='memory-continuity'),"
+            " (select count(*) from hooks.compiled_set_entry entry"
+            "   join hooks.current_generation current_set"
+            "   on current_set.realm_id=entry.realm_id"
+            "   and current_set.compiled_set_id=entry.compiled_set_id"
+            "   where entry.realm_id=%s),"
+            " (select count(*) from security.permission_profile_revision"
+            "   where realm_id=%s and name='memory-continuity-internal')",
+            (
+                realm.id,
+                realm.id,
+                realm.id,
+                MEMORY_HOOK_REVISION,
+                realm.id,
+                realm.id,
+                realm.id,
+            ),
+        )
+        assert tuple(int(value) for value in cursor.fetchone()) == (
+            1,
+            1,
+            len(MEMORY_HOOK_EVENTS),
+            len(MEMORY_HOOK_EVENTS),
+            len(MEMORY_HOOK_EVENTS),
+            1,
+        )
+
+
+def test_memory_hook_bundle_uses_database_supported_schema_subset(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    bundle = memory_hook_bundle(realm.id)
+
+    with connection.cursor() as cursor:
+        for spec in bundle.specs:
+            cursor.execute(
+                "select hooks.json_schema_supported(%s::jsonb),"
+                " hooks.json_schema_supported(%s::jsonb)",
+                (canonical_json(spec.input_schema), canonical_json(spec.output_schema)),
+            )
+            assert cursor.fetchone() == (True, True)
 
 
 def test_shadow_bootstrap_fails_closed_on_required_event_conflict(
@@ -342,3 +465,86 @@ def test_shadow_bootstrap_fails_closed_on_required_event_conflict(
             (realm.id, work.id),
         )
         assert cursor.fetchone()[0] == 0
+
+
+def test_0057_completion_admission_is_cross_realm_scoped_and_append_only(
+    isolated_migrated_database: Any,
+) -> None:
+    """The immutable admission ledger never crosses the configured realm boundary."""
+
+    realm_a, realm_b = uuid4(), uuid4()
+    with connect(isolated_migrated_database) as owner:
+        row_a = _insert_projection_admission_audit(owner, realm_a)
+        row_b = _insert_projection_admission_audit(owner, realm_b)
+
+    with connect(isolated_migrated_database) as realm_a_session:
+        configure_session(realm_a_session, realm_id=realm_a)
+        with realm_a_session.cursor() as cursor:
+            cursor.execute(
+                "select has_table_privilege(current_user,'work.completion_admission','select'),"
+                " has_table_privilege(current_user,'work.completion_admission','insert'),"
+                " has_table_privilege(current_user,'work.completion_admission','update'),"
+                " has_table_privilege(current_user,'work.completion_admission','delete'),"
+                " core.current_realm_id()"
+            )
+            assert cursor.fetchone() == (True, False, False, False, realm_a)
+            cursor.execute("select id from work.completion_admission order by id")
+            assert cursor.fetchall() == [(row_a,)]
+        with (
+            pytest.raises(PsycopgError) as update_denied,
+            realm_a_session.transaction(),
+            realm_a_session.cursor() as cursor,
+        ):
+            cursor.execute(
+                "update work.completion_admission"
+                " set admission_digest=admission_digest"
+                " where id=%s",
+                (row_a,),
+            )
+        assert update_denied.value.sqlstate == "42501"
+        assert update_denied.value.diag.message_primary == (
+            "permission denied for table completion_admission"
+        )
+        with (
+            pytest.raises(PsycopgError) as delete_denied,
+            realm_a_session.transaction(),
+            realm_a_session.cursor() as cursor,
+        ):
+            cursor.execute("delete from work.completion_admission where id=%s", (row_a,))
+        assert delete_denied.value.sqlstate == "42501"
+        assert delete_denied.value.diag.message_primary == (
+            "permission denied for table completion_admission"
+        )
+
+    with connect(isolated_migrated_database) as realm_b_session:
+        configure_session(realm_b_session, realm_id=realm_b)
+        with realm_b_session.cursor() as cursor:
+            cursor.execute("select id from work.completion_admission order by id")
+            assert cursor.fetchall() == [(row_b,)]
+
+    with connect(isolated_migrated_database) as owner:
+        configure_session(owner, realm_id=realm_a, role=None)
+        with (
+            pytest.raises(PsycopgError) as update_denied,
+            owner.transaction(),
+            owner.cursor() as cursor,
+        ):
+            cursor.execute(
+                "update work.completion_admission set admission_digest=admission_digest"
+                " where id=%s",
+                (row_a,),
+            )
+        assert update_denied.value.sqlstate == "42501"
+        assert update_denied.value.diag.message_primary == (
+            "completion admission append-only contract"
+        )
+        with (
+            pytest.raises(PsycopgError) as delete_denied,
+            owner.transaction(),
+            owner.cursor() as cursor,
+        ):
+            cursor.execute("delete from work.completion_admission where id=%s", (row_a,))
+        assert delete_denied.value.sqlstate == "42501"
+        assert delete_denied.value.diag.message_primary == (
+            "append-only tablo: DELETE islemi reddedildi (work.completion_admission)"
+        )

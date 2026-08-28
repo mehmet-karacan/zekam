@@ -20,6 +20,10 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam.application.composition import build_context
+from zekam.application.control_plane_completion import (
+    ControlPlaneCompletionRequest,
+    ControlPlaneCompletionService,
+)
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import DEFAULT_POLICY_NAME, EffectRequest, GovernanceService
 from zekam.application.project_integration import ProjectIntegrationService
@@ -52,6 +56,9 @@ from zekam.domain.work import (
 from zekam.infrastructure.git import source_reader
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
+)
+from zekam.infrastructure.postgres.control_plane_completion_repository import (
+    PostgresControlPlaneCompletionRepository,
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.project_repository import ProjectRepository, ProjectResolver
@@ -324,10 +331,14 @@ def _apply_project_lifecycle_with_runtime(
         resources=parse_requests(write=resources),
         adapter_digest=digest({"adapter": "project-lifecycle/v1", "plan": plan_digest}),
     )
+    effect_started = False
+    receipt_known = False
+    terminalization_started = False
     try:
         governance.require_authorized(
             request, authorization=authorization, consumed_by=f"cli:{action}"
         )
+        effect_started = True
         if plan["target_status"] == LifecycleStatus.ARCHIVED.value:
             result = repository.archive(
                 project_id,
@@ -349,6 +360,7 @@ def _apply_project_lifecycle_with_runtime(
                 {"plan_digest": plan_digest, "project_revision": result.revision}
             ),
         )
+        receipt_known = True
         checkpoint = Checkpoint(
             checkpoint_id=f"{action}-{job.id}",
             project_id=str(project_id),
@@ -372,12 +384,52 @@ def _apply_project_lifecycle_with_runtime(
             project_id,
             work.id,
         ).store_checkpoint(checkpoint, task_plan_id=task_plan.id, job_id=job.id)
-        host.finish(claimed, outcome=AttemptOutcome.SUCCEEDED, result_digest=result_digest)
+        terminal_succeeded = host.finish(
+            claimed,
+            outcome=AttemptOutcome.SUCCEEDED,
+            result_digest=result_digest,
+        )
+        if not terminal_succeeded:
+            raise PolicyViolation("Project lifecycle terminal attempt kapatilamadi")
+        terminalization_started = True
         current_work = graph.items.get(work.id)
-        current_work = graph.transition(current_work.id, WorkState.VERIFICATION)
-        graph.transition(
+        current_work = graph.update_details(
             current_work.id,
-            WorkState.COMPLETED,
+            acceptance_criteria=tuple(
+                AcceptanceCriterion(item.text, verified=True)
+                for item in current_work.acceptance_criteria
+            ),
+            reason="project lifecycle terminal result acceptance verified",
+        )
+        current_work = graph.transition(current_work.id, WorkState.VERIFICATION)
+        completion_service = ControlPlaneCompletionService(
+            PostgresControlPlaneCompletionRepository(
+                realm_context.connection, realm_context.realm_id
+            )
+        )
+        completion_request = ControlPlaneCompletionRequest(
+            project_id=project_id,
+            work_item_id=current_work.id,
+            task_plan_id=task_plan.id,
+            job_id=job.id,
+            attempt_id=claimed.attempt_id,
+            checkpoint_id=stored_checkpoint,
+            source_authorization_id=authorization.id,
+            source_authorization_digest=authorization.authorization_digest,
+            source_claim_id=claim.id,
+            source_claim_digest=claim.claim_digest,
+            source_effect_receipt_id=receipt.id,
+            source_operation=action,
+            source_consumed_by=f"cli:{action}",
+            source_effect_digest=request.effect_digest,
+            source_adapter_digest=claim.adapter_digest,
+            source_adapter_evidence_digest=receipt.adapter_evidence_digest
+            or result_digest,
+            source_resources=tuple(sorted(resources)),
+            source_effects=tuple(sorted(item.value for item in request.effects)),
+            source_data_classifications=tuple(
+                sorted(item.value for item in request.data_classifications)
+            ),
             evidence=(
                 EvidenceRef(
                     kind="runtime-receipt",
@@ -386,7 +438,25 @@ def _apply_project_lifecycle_with_runtime(
                 ),
             ),
         )
+        try:
+            completion = completion_service.complete(completion_request)
+        except Exception as completion_error:
+            try:
+                completion = completion_service.readback(completion_request)
+            except Exception:
+                raise completion_error
     except Exception as exc:
+        if effect_started:
+            if not terminalization_started:
+                host.jobs.mark_recovery_required(
+                    job.id,
+                    (
+                        f"{action}-success-receipt-recovery"
+                        if receipt_known
+                        else f"{action}-effect-uncertain"
+                    ),
+                )
+            raise
         if host.ledger.receipt_for_claim(claim.id) is None:
             host.record_failure(
                 claim,
@@ -417,6 +487,7 @@ def _apply_project_lifecycle_with_runtime(
         "receipt_id": str(receipt.id),
         "checkpoint_id": str(stored_checkpoint),
         "result_digest": result_digest,
+        "completion": completion.as_dict(),
         "grants_authority": False,
     }
 

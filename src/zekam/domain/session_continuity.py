@@ -444,7 +444,7 @@ class SessionCloseReceipt:
     changed_artifacts: tuple[DigestReference, ...]
     verified_outcomes: tuple[DigestReference, ...]
     pending_steps: tuple[DigestReference, ...]
-    next_safe_action: DigestReference
+    next_safe_action: DigestReference | None
     human_decisions: tuple[DigestReference, ...]
     discovered_constraints: tuple[DigestReference, ...]
     failure_recovery_refs: tuple[DigestReference, ...]
@@ -488,6 +488,10 @@ class SessionCloseReceipt:
             _unique(tuple(item.ref for item in items), label)
         if self.status is CloseStatus.CLOSED and self.pending_steps:
             raise ValidationFailed("Closed receipt pending step tasiyamaz")
+        if self.status is CloseStatus.CLOSED and self.next_safe_action is not None:
+            raise PolicyViolation("Closed receipt actionable next-safe-action tasiyamaz")
+        if self.status is not CloseStatus.CLOSED and self.next_safe_action is None:
+            raise ValidationFailed("Terminal olmayan close next-safe-action ister")
         if self.status is CloseStatus.RECOVERY_REQUIRED and not self.failure_recovery_refs:
             raise ValidationFailed("Recovery-required close recovery ref ister")
         _timezone_aware(self.closed_at, "Close closed_at")
@@ -512,7 +516,9 @@ class SessionCloseReceipt:
             "changed_artifacts": [item.as_dict() for item in self.changed_artifacts],
             "verified_outcomes": [item.as_dict() for item in self.verified_outcomes],
             "pending_steps": [item.as_dict() for item in self.pending_steps],
-            "next_safe_action": self.next_safe_action.as_dict(),
+            "next_safe_action": (
+                None if self.next_safe_action is None else self.next_safe_action.as_dict()
+            ),
             "human_decisions": [item.as_dict() for item in self.human_decisions],
             "discovered_constraints": [item.as_dict() for item in self.discovered_constraints],
             "failure_recovery_refs": [item.as_dict() for item in self.failure_recovery_refs],

@@ -1,0 +1,128 @@
+{
+  "schema": "zekam-codex-lifecycle-contract/v1",
+  "client_id": "codex",
+  "client_kind": "codex",
+  "installed_version": "0.150.1",
+  "reviewed_executable": {
+    "platform": "windows-x86_64",
+    "sha256": "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f",
+    "path_recorded": false
+  },
+  "official_contract": {
+    "hooks": "https://developers.openai.com/codex/hooks",
+    "configuration": "https://developers.openai.com/codex/config-reference",
+    "noninteractive": "https://developers.openai.com/codex/noninteractive",
+    "reviewed_on": "2026-08-28"
+  },
+  "hook_command": {
+    "command": "python -m zekam.interfaces.cli.client hook --client codex --client-version 0.150.1",
+    "windows_override_field": "commandWindows",
+    "stdin": "one Codex hook JSON object",
+    "stdout": "empty JSON object",
+    "outbox": "ZEKAM_HOME/global/runtime/client-lifecycle/codex",
+    "external_provider_required": false
+  },
+  "event_mapping": [
+    {
+      "external": "PostCompact",
+      "internal": "post_compaction"
+    },
+    {
+      "external": "PreCompact",
+      "internal": "pre_compaction"
+    },
+    {
+      "external": "SessionEnd",
+      "internal": "post_close"
+    },
+    {
+      "external": "SessionStart",
+      "internal": "session_start"
+    },
+    {
+      "external": "Stop",
+      "internal": "pre_close"
+    }
+  ],
+  "postgres_ledger_event_mapping": {
+    "session_start": "session.created",
+    "pre_compaction": "session.compacting",
+    "post_compaction": "session.compacted",
+    "pre_close": "session.status",
+    "post_close": "session.deleted"
+  },
+  "wire_constraints": {
+    "session_id": "lowercase-uuid",
+    "turn_id": "lowercase-uuid-when-present",
+    "occurrence_id": "lowercase-uuid-local-only",
+    "session_end_reasons": [
+      "clear",
+      "logout",
+      "prompt_input_exit",
+      "other"
+    ]
+  },
+  "discarded_input_fields": [
+    "cwd",
+    "last_assistant_message",
+    "model",
+    "prompt",
+    "response",
+    "tool_input",
+    "tool_response",
+    "transcript_path"
+  ],
+  "durability": {
+    "append_only_events": true,
+    "per_session_hash_chain": true,
+    "idempotent_delivery_replay": true,
+    "delivery_identity": "local-content-free-occurrence-id",
+    "immutable_ack_receipts": true,
+    "public_arbitrary_ack": false,
+    "canonical_ack_requires_idempotent_lookup": true,
+    "pre_compaction_ack_requires_runtime_binding_outbox": true,
+    "ack_requires_terminal_continuity_binding": true,
+    "continuity_binding_requires_claim_receipt": true,
+    "pre_compaction_ack_requires_compiler_enqueue": true,
+    "continuity_adapter_composed": true,
+    "generic_repository_direct_drain": false,
+    "admission_phases": [
+      "read-only-preflight",
+      "single-transaction-apply",
+      "read-only-lookup"
+    ],
+    "automatic_retry": false,
+    "max_distinct_failures_before_manual_review": 3,
+    "deterministic_poison_attempt_replay": true,
+    "predecessor_manual_review_cascade": true,
+    "bounded_pending_batch": 256,
+    "caller_controlled_mutation_skip": false,
+    "pending_selection_history_scan": false,
+    "immutable_queue_index": true,
+    "derived_drain_cursor": true,
+    "drain_cursor_semantics": "resolved-prefix-v2",
+    "immutable_drain_cursor_chain": true,
+    "cursor_full_binding_parity": true,
+    "bounded_paginated_status": true,
+    "hook_append_history_scan": false,
+    "bounded_session_tail_entries": 2,
+    "database_required_in_hook": false,
+    "max_spool_document_bytes": 1048576,
+    "reparse_and_symlink_fail_closed": true,
+    "regular_file_required": true,
+    "no_follow_when_platform_exposes_it": true,
+    "parent_directory_fsync_posix": true,
+    "parent_directory_fsync_windows_proven": false
+  },
+  "offline_e2e": {
+    "real_binary": true,
+    "temporary_codex_home": true,
+    "loopback_responses_provider": true,
+    "saved_auth_loaded": false,
+    "loopback_and_proxy_observation_only": true,
+    "kernel_egress_deny_proven": false,
+    "absence_of_direct_egress_proven": false,
+    "hook_trust_bypass_for_test_only": true
+  },
+  "grants_authority": false
+}

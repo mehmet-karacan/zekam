@@ -24,6 +24,9 @@ from zekam.application.diagnostic_trace_composition import (
     compose_diagnostic_trace_purge_handler,
 )
 from zekam.application.home import resolve_home
+from zekam.application.memory_compiler_composition import (
+    compose_memory_candidate_compile_handler,
+)
 from zekam.application.realm_context import RealmContext
 from zekam.application.recovery_reconciliation import (
     FailedReceiptReconciliationService,
@@ -36,11 +39,10 @@ from zekam.application.worker import (
     WorkerSettings,
     build_worker,
     default_capabilities,
-    resolve_handlers,
+    run_codex_lifecycle_once,
 )
 from zekam.domain.errors import ValidationFailed, ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.domain.runtime import JobKind
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
 
 app = typer.Typer(name="worker", help="Worker sureci", no_args_is_help=True)
@@ -101,12 +103,19 @@ def _settings(label: str, iterations: int | None, poll: float) -> WorkerSettings
 
 
 def _scheduled_handlers(context: RealmContext, home: str | None) -> dict[str, ScheduledHandler]:
+    handlers: dict[str, ScheduledHandler] = {
+        "memory-candidate-compile": compose_memory_candidate_compile_handler(
+            connection=context.connection,
+            realm_id=context.realm_id,
+        )
+    }
     handler = compose_diagnostic_trace_purge_handler(
         connection=context.connection,
         realm_id=context.realm_id,
         home=resolve_home(home),
     )
-    handlers = {} if handler is None else {"diagnostic-trace-purge": handler}
+    if handler is not None:
+        handlers["diagnostic-trace-purge"] = handler
     chaos_config = os.environ.get("ZEKAM_CHAOS_DRIVER_CONFIG")
     if chaos_config:
         handlers["chaos-campaign"] = compose_command_chaos_handler(Path(chaos_config))
@@ -152,7 +161,7 @@ def tick_command(
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
-    """Tek dongu: kapasite, zamanlama ve kuyruk. `--uygula` olmadan salt okunur."""
+    """Tek scheduled-only dongu. `--uygula` olmadan salt okunur."""
     try:
         with RealmSession(home, realm) as realm_context:
             worker = build_worker(
@@ -161,10 +170,7 @@ def tick_command(
                 settings=_settings(label, 1, 2.0),
                 handlers={},
                 scheduled_handlers=_scheduled_handlers(realm_context, home),
-                # A one-shot tick may legitimately observe an empty queue even when
-                # no executable handler plugin is installed.  If it does claim work,
-                # Worker.tick still rejects the missing exact handler explicitly.
-                allow_empty_handlers=True,
+                consume_queue=False,
             )
             result = worker.tick(now=_now()) if apply else worker.plan(now=_now())
     except ZekamError as exc:
@@ -181,6 +187,55 @@ def tick_command(
         console.print(f"[yellow]is alinmadi:[/yellow] {result.skipped_reason}")
 
 
+@app.command("codex-lifecycle-tick")
+def codex_lifecycle_tick_command(
+    label: Annotated[
+        str, typer.Option("--etiket", help="Dedicated Codex lifecycle worker etiketi")
+    ] = "codex-lifecycle-worker",
+    apply: Annotated[bool, typer.Option("--uygula", help="Exact queue isini claim eder")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """One dedicated exact Codex lifecycle recovery/queue tick."""
+
+    if not apply:
+        document = {
+            "schema": "zekam-codex-lifecycle-worker-plan/v1",
+            "mode": "committed-ack-recovery-then-exact-queue-claim",
+            "required_capability": "client.lifecycle.codex-drain",
+            "public_authorization_mint": False,
+            "applied": False,
+            "grants_authority": False,
+        }
+    else:
+        try:
+            with RealmSession(home, realm) as realm_context:
+                result_digest = run_codex_lifecycle_once(
+                    realm_context.connection,
+                    realm_context.realm_id,
+                    home=resolve_home(home),
+                    settings=WorkerSettings(
+                        worker_label=label,
+                        capabilities=("client.lifecycle.codex-drain",),
+                        max_iterations=1,
+                    ),
+                )
+            document = {
+                "schema": "zekam-codex-lifecycle-worker-result/v1",
+                "accepted_work": result_digest is not None,
+                "result_digest": result_digest,
+                "applied": result_digest is not None,
+                "grants_authority": False,
+            }
+        except ZekamError as exc:
+            raise fail_from(exc) from exc
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+
+
 @app.command("run")
 def run_command(
     label: Annotated[str, typer.Option("--etiket", help="Worker etiketi")] = "worker-1",
@@ -192,7 +247,7 @@ def run_command(
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
-    """Worker dongusunu baslatir. SIGINT/SIGTERM ile zarifce kapanir."""
+    """Scheduled-only worker dongusunu baslatir; queue isi claim etmez."""
     if not apply:
         console.print("[yellow]Dry-run. Worker'i baslatmak icin --uygula verin.[/yellow]")
         console.print("Ne olacagini gormek icin: zekam worker tick --json")
@@ -203,8 +258,9 @@ def run_command(
                 realm_context.connection,
                 realm_context.realm_id,
                 settings=_settings(label, iterations, poll),
-                handlers=resolve_handlers([str(item) for item in JobKind]),
+                handlers={},
                 scheduled_handlers=_scheduled_handlers(realm_context, home),
+                consume_queue=False,
             )
             shutdown = ShutdownSignal()
             shutdown.install()

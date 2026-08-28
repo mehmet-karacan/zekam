@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from zekam.application.continuity_projection import (
+    ACTIVE_WORK_PROJECTION_REF,
+    ProjectionReleaseSnapshot,
+)
+from zekam.application.memory_continuity_orchestrator import LifecycleCompilerRecord
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, NotFound, ValidationFailed
 from zekam.domain.identifiers import new_uuid7
@@ -14,6 +19,7 @@ from zekam.domain.memory_compiler import MemoryCompilerOutput
 from zekam.domain.memory_contract import MemoryContractEvaluation
 from zekam.domain.session_continuity import (
     CompactionReceipt,
+    DataClassification,
     ProjectionGenerationReceipt,
     SessionCloseReceipt,
     SessionHydrationReceipt,
@@ -40,6 +46,7 @@ class CompilerWatermarkClaim:
     claim_id: UUID
     created: bool
     state: str
+    claimed_at: dt.datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,7 +474,8 @@ class MemoryContinuityRepository:
                 (f"{self.realm_id}:{project_id}:{source_set_digest}:{source_watermark}",),
             )
             cursor.execute(
-                "select id,state,source_set_digest,source_watermark"
+                "select id,state,project_id,work_item_id,run_id,source_set_digest,"
+                " source_watermark,claimed_at"
                 " from memory.compiler_watermark_claim"
                 " where realm_id=%s and (idempotency_key=%s or"
                 " (project_id=%s and source_set_digest=%s and source_watermark=%s))"
@@ -482,9 +490,14 @@ class MemoryContinuityRepository:
             )
             replay = cursor.fetchone()
             if replay is not None:
-                if str(replay[2]) != source_set_digest or str(replay[3]) != source_watermark:
+                replay_identity = tuple(UUID(str(item)) for item in replay[2:5])
+                if replay_identity != (project_id, work_item_id, run_id):
+                    raise ConcurrencyConflict("Compiler watermark replay identity drift")
+                if str(replay[5]) != source_set_digest or str(replay[6]) != source_watermark:
                     raise ConcurrencyConflict("Compiler watermark idempotency replay drift")
-                return CompilerWatermarkClaim(UUID(str(replay[0])), False, str(replay[1]))
+                return CompilerWatermarkClaim(
+                    UUID(str(replay[0])), False, str(replay[1]), replay[7]
+                )
             claim_id = new_uuid7(now=claimed_at)
             cursor.execute(
                 "insert into memory.compiler_watermark_claim"
@@ -503,19 +516,130 @@ class MemoryContinuityRepository:
                     claimed_at,
                 ),
             )
-        return CompilerWatermarkClaim(claim_id, True, "pending")
+        return CompilerWatermarkClaim(claim_id, True, "pending", claimed_at)
+
+    def read_eligible_compiler_records(
+        self,
+        *,
+        event_types: tuple[str, ...],
+        classifications: tuple[str, ...],
+        limit: int,
+    ) -> tuple[LifecycleCompilerRecord, ...]:
+        """Read a bounded, receipt-complete compiler batch without claiming it."""
+
+        if not event_types or not classifications:
+            return ()
+        if not 1 <= limit <= 128:
+            raise ValidationFailed("Compiler lifecycle read limiti 1..128 olmali")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select event.id,outbox.id,event.project_id,event.work_item_id,event.run_id,"
+                " event.session_id,event.client_id,event.event_type,event.sequence,"
+                " event.previous_digest,predecessor.event_digest,event.event_digest,"
+                " event.event_body,event.event_body->>'source_revision',event.classification,"
+                " hook.invocation_id,hook.structured_data,hook.input_digest,hook.receipt_id,"
+                " hook.output_body,hook.output_digest,hook.receipt_count,"
+                " outbox.terminal_receipt_digest,"
+                " event.occurred_at,outbox.completed_at"
+                " from continuity.lifecycle_delivery_outbox outbox"
+                " join continuity.session_lifecycle_event event"
+                " on event.realm_id=outbox.realm_id and event.id=outbox.event_id"
+                " left join continuity.session_lifecycle_event predecessor"
+                " on predecessor.realm_id=event.realm_id"
+                " and predecessor.client_id=event.client_id"
+                " and predecessor.session_id=event.session_id"
+                " and predecessor.sequence=event.sequence-1"
+                " join lateral ("
+                "   select invocation.id invocation_id,"
+                "   invocation.input_body->'data' structured_data,invocation.input_digest,"
+                "   receipt.id receipt_id,receipt.output_body,receipt.output_digest,"
+                "   count(*) over() receipt_count"
+                "   from hooks.invocation invocation"
+                "   join hooks.result_receipt receipt"
+                "   on receipt.realm_id=invocation.realm_id"
+                "   and receipt.invocation_id=invocation.id and receipt.status='completed'"
+                "   join hooks.spec_revision spec on spec.realm_id=invocation.realm_id"
+                "   and spec.id=invocation.spec_revision_id"
+                "   where invocation.realm_id=event.realm_id"
+                "   and invocation.event_type=event.event_type"
+                "   and invocation.input_body->'lifecycle'->>'event_id'=event.id::text"
+                "   and spec.source_layer='memory-continuity'"
+                "   and receipt.output_body->'command'->>'compiler_enqueue'='true'"
+                "   order by invocation.created_at,invocation.id limit 1"
+                " ) hook on true"
+                " where outbox.realm_id=%s and outbox.state='completed'"
+                " and event.event_type=any(%s) and event.classification=any(%s)"
+                " and not exists ("
+                "   select 1 from memory.compiler_run compiler_run"
+                "   cross join lateral jsonb_array_elements(compiler_run.source_set) source"
+                "   where compiler_run.realm_id=event.realm_id"
+                "   and source->>'ref'='hook-invocation:'||hook.invocation_id::text||':data'"
+                " )"
+                " order by event.project_id,event.work_item_id,event.run_id,event.session_id,"
+                " event.sequence,event.id limit %s",
+                (self.realm_id, list(event_types), list(classifications), limit),
+            )
+            rows = cursor.fetchall()
+        records: list[LifecycleCompilerRecord] = []
+        for row in rows:
+            event_body = row[12]
+            structured_data = row[16]
+            hook_output = row[19]
+            if not isinstance(event_body, dict):
+                raise ValidationFailed("Compiler lifecycle event body object olmali")
+            if not isinstance(structured_data, dict):
+                raise ValidationFailed("Compiler lifecycle structured data object olmali")
+            if not isinstance(hook_output, dict):
+                raise ValidationFailed("Compiler lifecycle hook output object olmali")
+            records.append(
+                LifecycleCompilerRecord(
+                    event_id=UUID(str(row[0])),
+                    outbox_id=UUID(str(row[1])),
+                    project_id=UUID(str(row[2])),
+                    work_item_id=UUID(str(row[3])),
+                    run_id=UUID(str(row[4])),
+                    session_id=str(row[5]),
+                    client_id=str(row[6]),
+                    event_type=str(row[7]),
+                    sequence=int(row[8]),
+                    previous_digest=None if row[9] is None else str(row[9]),
+                    predecessor_digest=None if row[10] is None else str(row[10]),
+                    event_digest=str(row[11]),
+                    event_body=event_body,
+                    source_revision=str(row[13]),
+                    classification=DataClassification(str(row[14])),
+                    invocation_id=UUID(str(row[15])),
+                    structured_data=structured_data,
+                    input_digest=str(row[17]),
+                    hook_receipt_id=UUID(str(row[18])),
+                    hook_output=hook_output,
+                    hook_output_digest=str(row[20]),
+                    hook_receipt_count=int(row[21]),
+                    lifecycle_receipt_digest=str(row[22]),
+                    occurred_at=row[23],
+                    completed_at=row[24],
+                )
+            )
+        return tuple(records)
 
     def store_compiler_output(
-        self, output: MemoryCompilerOutput, *, watermark_claim_id: UUID
+        self,
+        output: MemoryCompilerOutput,
+        *,
+        watermark_claim_id: UUID,
+        completed_at: dt.datetime | None = None,
     ) -> bool:
         if output.realm_id != self.realm_id:
             raise ValidationFailed("Compiler output repository realm binding drift")
+        terminal_at = completed_at or output.created_at
+        if terminal_at.tzinfo is None or terminal_at.tzinfo.utcoffset(terminal_at) is None:
+            raise ValidationFailed("Compiler terminal zamani timezone-aware olmali")
         source_set_body = [item.as_dict() for item in output.source_set]
         source_set_digest = digest(source_set_body)
         with self.connection.transaction(), self.connection.cursor() as cursor:
             cursor.execute(
                 "select project_id,work_item_id,run_id,source_set_digest,source_watermark,state,"
-                " compiler_run_id,result_digest from memory.compiler_watermark_claim"
+                " compiler_run_id,result_digest,claimed_at from memory.compiler_watermark_claim"
                 " where realm_id=%s and id=%s for update",
                 (self.realm_id, watermark_claim_id),
             )
@@ -527,6 +651,8 @@ class MemoryContinuityRepository:
                 raise ValidationFailed("Compiler output claim identity drift")
             if str(claim[3]) != source_set_digest or str(claim[4]) != output.source_watermark:
                 raise ConcurrencyConflict("Compiler source set/watermark drift")
+            if terminal_at < claim[8]:
+                raise ValidationFailed("Compiler terminal zamani claim oncesi olamaz")
             if str(claim[5]) in TERMINAL_DELIVERY_STATES:
                 if claim[6] != output.output_id or str(claim[7]) != output.output_digest:
                     raise ConcurrencyConflict("Compiler terminal replay drift")
@@ -547,11 +673,11 @@ class MemoryContinuityRepository:
                     output.source_watermark,
                     canonical_json(output.body()),
                     output.output_digest,
-                    output.created_at,
+                    terminal_at,
                 ),
             )
             for candidate in output.candidates:
-                candidate_id = new_uuid7(now=output.created_at)
+                candidate_id = new_uuid7(now=terminal_at)
                 cursor.execute(
                     "insert into memory.compiler_candidate"
                     " (id,realm_id,compiler_run_id,logical_candidate_id,candidate_type,truth_class,"
@@ -569,7 +695,7 @@ class MemoryContinuityRepository:
                         candidate.risk.value,
                         canonical_json(candidate.as_dict()),
                         candidate.candidate_digest,
-                        output.created_at,
+                        terminal_at,
                     ),
                 )
                 for relation_kind, refs in (
@@ -583,14 +709,14 @@ class MemoryContinuityRepository:
                             " source_digest,created_at,grants_authority)"
                             " values (%s,%s,%s,%s,%s,%s,%s,%s,false)",
                             (
-                                new_uuid7(now=output.created_at),
+                                new_uuid7(now=terminal_at),
                                 self.realm_id,
                                 candidate_id,
                                 relation_kind,
                                 ordinal,
                                 reference.ref,
                                 reference.digest_value,
-                                output.created_at,
+                                terminal_at,
                             ),
                         )
             cursor.execute(
@@ -599,7 +725,7 @@ class MemoryContinuityRepository:
                 (
                     output.output_id,
                     output.output_digest,
-                    output.created_at,
+                    terminal_at,
                     self.realm_id,
                     watermark_claim_id,
                 ),
@@ -785,6 +911,36 @@ class MemoryContinuityRepository:
                 raise ConcurrencyConflict("Compiler candidate promotion state drift")
         return True
 
+    def record_compiler_gap(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        gap_code: str,
+        gap_ref: str,
+        evidence_digest: str,
+        recovery_ref: str,
+        observed_at: dt.datetime,
+    ) -> bool:
+        """Persist a sanitized compiler gap through the existing continuity ledger."""
+
+        return self.record_gap(
+            GapRecoveryRecord(
+                id=new_uuid7(now=observed_at),
+                realm_id=self.realm_id,
+                project_id=project_id,
+                work_item_id=work_item_id,
+                run_id=run_id,
+                gap_code=gap_code,
+                gap_ref=gap_ref,
+                evidence_digest=evidence_digest,
+                recovery_ref=recovery_ref,
+                state="recovery-required",
+                created_at=observed_at,
+            )
+        )
+
     def record_gap(self, gap: GapRecoveryRecord) -> bool:
         if gap.realm_id != self.realm_id:
             raise ValidationFailed("Continuity gap repository realm binding drift")
@@ -940,6 +1096,231 @@ class MemoryContinuityRepository:
             contract_evaluation_digest=(None if evaluation is None else str(evaluation[0])),
             contract_passed=False if evaluation is None else bool(evaluation[1]),
             open_gaps=self.list_open_gaps(project_id=project_id, work_item_id=work_item_id),
+        )
+
+    def read_projection_release_snapshot(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> ProjectionReleaseSnapshot:
+        """Read the exact close/release gate inputs from one PostgreSQL snapshot.
+
+        The caller owns the surrounding transaction.  In particular, ``apply``
+        invokes this reader after entering its effect transaction, so all Work,
+        source, migration, projection, and lifecycle checks are compared against
+        the same database view before the authorization is consumed.
+        """
+
+        if not session_id.strip() or not client_id.strip():
+            raise ValidationFailed("Projection release session/client bos olamaz")
+        pending: list[str] = []
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select state from runtime.execution_run"
+                " where realm_id=%s and project_id=%s and work_item_id=%s and id=%s",
+                (self.realm_id, project_id, work_item_id, run_id),
+            )
+            run = cursor.fetchone()
+            if run is None:
+                raise NotFound("Projection release exact execution run bulunamadi")
+
+            cursor.execute(
+                "select revision,state,record_digest from work.work_item"
+                " where realm_id=%s and project_id=%s and id=%s for share",
+                (self.realm_id, project_id, work_item_id),
+            )
+            work = cursor.fetchone()
+            if work is None:
+                raise NotFound("Projection release exact Work bulunamadi")
+            work_revision = int(work[0])
+            work_state = str(work[1])
+            work_record_digest = str(work[2])
+
+            cursor.execute(
+                "select revision.revision,revision.tree_digest"
+                " from projects.source_revision revision"
+                " join projects.source_binding binding"
+                " on binding.realm_id=revision.realm_id and binding.id=revision.binding_id"
+                " where binding.realm_id=%s and binding.project_id=%s"
+                " order by revision.observed_at desc,revision.id desc limit 1",
+                (self.realm_id, project_id),
+            )
+            source = cursor.fetchone()
+            if source is None:
+                raise NotFound("Projection release canonical source revision bulunamadi")
+            source_head = str(source[0])
+            source_tree_digest = str(source[1])
+
+            cursor.execute("select coalesce(max(version),0) from core.schema_migrations")
+            migration_head = int(cursor.fetchone()[0])
+            if migration_head < 1:
+                raise NotFound("Projection release migration head bulunamadi")
+
+            database_revision_digest = digest(
+                {
+                    "project_id": str(project_id),
+                    "work_item_id": str(work_item_id),
+                    "work_revision": work_revision,
+                    "work_state": work_state,
+                    "work_record_digest": work_record_digest,
+                }
+            )
+            cursor.execute(
+                "select receipt_digest,projection_digest,source_digest"
+                " from continuity.projection_generation_receipt"
+                " where realm_id=%s and project_id=%s and work_item_id=%s"
+                " and projection_ref=%s"
+                " order by generated_at desc,id desc limit 1",
+                (
+                    self.realm_id,
+                    project_id,
+                    work_item_id,
+                    ACTIVE_WORK_PROJECTION_REF,
+                ),
+            )
+            projection = cursor.fetchone()
+            if projection is None:
+                raise NotFound("Projection release active-work receipt bulunamadi")
+
+            identity = (
+                self.realm_id,
+                project_id,
+                work_item_id,
+                run_id,
+                session_id,
+                client_id,
+            )
+            cursor.execute(
+                "select fresh,complete from continuity.session_hydration_receipt"
+                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
+                " and session_id=%s and client_id=%s"
+                " order by created_at desc,id desc limit 1",
+                identity,
+            )
+            hydration = cursor.fetchone()
+            if hydration is None:
+                pending.append("hydration-missing")
+            else:
+                if not bool(hydration[0]):
+                    pending.append("hydration-stale")
+                if not bool(hydration[1]):
+                    pending.append("hydration-incomplete")
+
+            cursor.execute(
+                "select count(*) from continuity.gap_recovery_reference"
+                " where realm_id=%s and project_id=%s and work_item_id=%s"
+                " and state<>'resolved' and (run_id is null or run_id=%s)",
+                (self.realm_id, project_id, work_item_id, run_id),
+            )
+            open_gap_count = int(cursor.fetchone()[0])
+            if open_gap_count:
+                pending.append(f"open-gaps:{open_gap_count}")
+
+            cursor.execute(
+                "select event.id,event.event_type,event.sequence,event.previous_digest,"
+                " event.event_body,event.event_digest,outbox.id,outbox.plan_digest,"
+                " outbox.payload_digest,outbox.state,outbox.terminal_receipt_digest"
+                " from continuity.session_lifecycle_event event"
+                " left join continuity.lifecycle_delivery_outbox outbox"
+                " on outbox.realm_id=event.realm_id and outbox.event_id=event.id"
+                " where event.realm_id=%s and event.project_id=%s"
+                " and event.work_item_id=%s and event.run_id=%s"
+                " and event.session_id=%s and event.client_id=%s"
+                " order by event.sequence,event.id",
+                identity,
+            )
+            lifecycle = cursor.fetchall()
+            pre_close_outbox_id: UUID | None = None
+            predecessor_digest: str | None = None
+            for expected_sequence, row in enumerate(lifecycle, start=1):
+                sequence = int(row[2])
+                previous_digest = None if row[3] is None else str(row[3])
+                event_digest = str(row[5])
+                if sequence != expected_sequence:
+                    pending.append("lifecycle-sequence-gap")
+                if previous_digest != predecessor_digest:
+                    pending.append("lifecycle-previous-digest-mismatch")
+                if event_digest != digest(dict(row[4] or {})):
+                    pending.append("lifecycle-event-digest-mismatch")
+                if row[6] is None:
+                    pending.append("lifecycle-outbox-missing")
+                predecessor_digest = event_digest
+            if not lifecycle or str(lifecycle[-1][1]) != "pre_close":
+                pending.append("pre-close-not-current")
+            else:
+                latest = lifecycle[-1]
+                if latest[6] is not None:
+                    pre_close_outbox_id = UUID(str(latest[6]))
+                    expected_payload = digest(
+                        {
+                            "event_digest": str(latest[5]),
+                            "plan_digest": str(latest[7]),
+                        }
+                    )
+                    if str(latest[8]) != expected_payload:
+                        pending.append("pre-close-outbox-payload-drift")
+                    if str(latest[9]) not in {"pending", "processing"}:
+                        pending.append("pre-close-outbox-not-open")
+                    if latest[10] is not None:
+                        pending.append("pre-close-outbox-already-finalized")
+
+            cursor.execute(
+                "select state,count(*) from continuity.lifecycle_delivery_outbox outbox"
+                " join continuity.session_lifecycle_event event"
+                " on event.realm_id=outbox.realm_id and event.id=outbox.event_id"
+                " where event.realm_id=%s and event.project_id=%s"
+                " and event.work_item_id=%s and event.run_id=%s"
+                " and event.session_id=%s and event.client_id=%s"
+                " and outbox.state<>'completed' and (%s::uuid is null or outbox.id<>%s)"
+                " group by state order by state",
+                identity + (pre_close_outbox_id, pre_close_outbox_id),
+            )
+            for state, count in cursor.fetchall():
+                pending.append(f"lifecycle-outbox-{state}:{int(count)}")
+
+            cursor.execute(
+                "select status from continuity.compaction_receipt"
+                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
+                " and session_id=%s and client_id=%s"
+                " order by created_at desc,id desc limit 1",
+                identity,
+            )
+            compaction = cursor.fetchone()
+            if compaction is not None and str(compaction[0]) != "completed":
+                pending.append(f"compaction-{str(compaction[0])}")
+
+            cursor.execute(
+                "select state,count(*) from memory.compiler_watermark_claim"
+                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
+                " and state<>'completed' group by state order by state",
+                (self.realm_id, project_id, work_item_id, run_id),
+            )
+            for state, count in cursor.fetchall():
+                pending.append(f"compiler-{state}:{int(count)}")
+
+        pending_steps = tuple(sorted(set(pending)))
+        return ProjectionReleaseSnapshot(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            work_revision=work_revision,
+            work_state=work_state,
+            work_record_digest=work_record_digest,
+            source_head=source_head,
+            source_tree_digest=source_tree_digest,
+            migration_head=migration_head,
+            database_revision_digest=database_revision_digest,
+            projection_ref=ACTIVE_WORK_PROJECTION_REF,
+            projection_receipt_digest=str(projection[0]),
+            projection_digest=str(projection[1]),
+            projection_source_digest=str(projection[2]),
+            lifecycle_complete=not pending_steps,
+            pending_lifecycle_steps=pending_steps,
+            next_safe_action=None if work_state == "completed" else "continue-current-work",
+            grants_authority=False,
         )
 
     @staticmethod

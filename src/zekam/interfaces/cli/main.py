@@ -44,6 +44,8 @@ from zekam.infrastructure.postgres.connection import connect
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.interfaces.cli import ask as ask_commands
 from zekam.interfaces.cli import backup as backup_commands
+from zekam.interfaces.cli import client as client_commands
+from zekam.interfaces.cli import close as close_commands
 from zekam.interfaces.cli import configuration as configuration_commands
 from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import governance as governance_commands
@@ -97,6 +99,8 @@ app.add_typer(model_commands.app)
 app.add_typer(oracle_commands.app)
 app.add_typer(opencode_commands.app)
 app.add_typer(backup_commands.app)
+app.add_typer(client_commands.app)
+app.add_typer(close_commands.app)
 app.add_typer(configuration_commands.config_app)
 app.add_typer(configuration_commands.permission_app)
 app.add_typer(ask_commands.app)

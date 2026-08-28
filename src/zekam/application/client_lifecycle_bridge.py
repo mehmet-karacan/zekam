@@ -21,7 +21,7 @@ from zekam.domain.session_continuity import (
     TypedMetadata,
 )
 
-_SAFE_EVENT = re.compile(r"^[a-z][a-z0-9_.:-]{0,95}$")
+_SAFE_EVENT = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,95}$")
 _FORBIDDEN_KEY = re.compile(
     r"(?:^|[_.-])(?:secret|credential|password|private[-_]?key|owner[-_]?token|"
     r"prompt|response|transcript|raw[-_]?content)(?:$|[_.-])",
@@ -506,7 +506,13 @@ class ClientLifecycleBridge:
         current_migration_digest: str,
         now: dt.datetime | None = None,
     ) -> LifecycleApplyResult:
-        """Consume exact authority, stage event/outbox, then persist hook receipts."""
+        """Consume exact authority, stage event/outbox, then persist hook receipts.
+
+        A production admission adapter wraps this method in its own PostgreSQL
+        transaction.  The nested transaction blocks are savepoints, so generic
+        ingest, delivery staging and hook receipts commit (or roll back) as one
+        unit at that boundary.
+        """
 
         moment = now or dt.datetime.now(dt.UTC)
         plan.assert_integrity()

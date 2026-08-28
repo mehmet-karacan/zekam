@@ -996,8 +996,12 @@ class EffectLedger:
                 return self._validate_recovery_replay(cursor, request, claim, existing)
             if state not in {JobState.RUNNING, JobState.RECOVERY_REQUIRED}:
                 raise PolicyViolation(f"Recovery job durumu kapatilamaz: {state.value}")
-            if existing is not None:
-                raise PolicyViolation("Aktif recovery job receipt ile celisiyor")
+            if existing is not None and (
+                existing.status is not ReceiptStatus.COMPLETED
+                or existing.result_digest != request.result_digest
+                or existing.adapter_evidence_digest != request.adapter_evidence_digest
+            ):
+                raise PolicyViolation("Aktif recovery job terminal receipt ile celisiyor")
 
             cursor.execute(
                 "select outcome, fencing_token from runtime.job_attempt"
@@ -1024,10 +1028,26 @@ class EffectLedger:
                 ),
             )
             lease = cursor.fetchone()
+            lease_id: UUID | None
             if lease is None:
-                raise PolicyViolation("Recovery exact expired lease ister")
-            if lease[1] > moment:
-                raise PolicyViolation("Recovery lease henuz sona ermedi")
+                # Normal queue maintenance removes an expired lease before it marks a
+                # receiptless claim recovery-required.  That canonical reclaimed state
+                # must remain reconcilable, but a still-running job may never bypass the
+                # exact expired-lease check merely because its lease row is missing.
+                if state is not JobState.RECOVERY_REQUIRED:
+                    raise PolicyViolation("Recovery exact expired veya reclaimed lease ister")
+                cursor.execute(
+                    "select count(*) from runtime.lease"
+                    " where realm_id = %s and job_id = %s",
+                    (self.realm_id, request.job_id),
+                )
+                if int(cursor.fetchone()[0]) != 0:
+                    raise PolicyViolation("Recovery reclaimed lease state ambiguous")
+                lease_id = None
+            else:
+                if lease[1] > moment:
+                    raise PolicyViolation("Recovery lease henuz sona ermedi")
+                lease_id = UUID(str(lease[0]))
 
             payload = dict(job_row[5] or {})
             meaningful = bool(
@@ -1042,29 +1062,37 @@ class EffectLedger:
                 if cursor.fetchone() is None:
                     raise PolicyViolation("Meaningful recovery finalization checkpoint ister")
 
-            receipt = EffectReceipt.completed(
-                realm_id=self.realm_id,
-                claim=claim,
-                result_digest=request.result_digest,
-                adapter_evidence_digest=request.adapter_evidence_digest,
-                now=moment,
-            )
-            cursor.execute(
-                "insert into runtime.effect_receipt"
-                " (id, realm_id, claim_id, status, result_digest, failure_category,"
-                "  failure_digest, adapter_evidence_digest, token_count, cost_micros,"
-                "  latency_ms, completed_at)"
-                " values (%s, %s, %s, %s, %s, null, null, %s, 0, 0, 0, %s)",
-                (
-                    receipt.id,
-                    receipt.realm_id,
-                    receipt.claim_id,
-                    receipt.status.value,
-                    receipt.result_digest,
-                    receipt.adapter_evidence_digest,
-                    receipt.completed_at,
-                ),
-            )
+            if existing is None:
+                receipt = EffectReceipt.completed(
+                    realm_id=self.realm_id,
+                    claim=claim,
+                    result_digest=request.result_digest,
+                    adapter_evidence_digest=request.adapter_evidence_digest,
+                    now=moment,
+                )
+                cursor.execute(
+                    "insert into runtime.effect_receipt"
+                    " (id, realm_id, claim_id, status, result_digest, failure_category,"
+                    "  failure_digest, adapter_evidence_digest, token_count, cost_micros,"
+                    "  latency_ms, completed_at)"
+                    " values (%s, %s, %s, %s, %s, null, null, %s, 0, 0, 0, %s)",
+                    (
+                        receipt.id,
+                        receipt.realm_id,
+                        receipt.claim_id,
+                        receipt.status.value,
+                        receipt.result_digest,
+                        receipt.adapter_evidence_digest,
+                        receipt.completed_at,
+                    ),
+                )
+                created = True
+            else:
+                # Crash window: the immutable effect receipt committed, then the
+                # owner died before attempt/job/lease closure.  Reuse that exact
+                # receipt; never mint a second terminal result for the claim.
+                receipt = existing
+                created = False
             cursor.execute(
                 "update runtime.job_attempt set outcome = 'succeeded', result_digest = %s,"
                 " finished_at = %s where id = %s and outcome is null and fencing_token = %s",
@@ -1078,7 +1106,8 @@ class EffectLedger:
             if cursor.rowcount != 1:
                 raise ConcurrencyConflict("Recovery attempt terminal update reddedildi")
             cursor.execute("delete from runtime.resource_lock where job_id = %s", (request.job_id,))
-            cursor.execute("delete from runtime.lease where id = %s", (lease[0],))
+            if lease_id is not None:
+                cursor.execute("delete from runtime.lease where id = %s", (lease_id,))
             cursor.execute(
                 "update runtime.job set state = 'completed'"
                 " where id = %s and realm_id = %s and fencing_token = %s"
@@ -1111,7 +1140,7 @@ class EffectLedger:
                     moment,
                 ),
             )
-        return RecoveryFinalization(receipt=receipt, created=True)
+        return RecoveryFinalization(receipt=receipt, created=created)
 
     def _exact_recovery_claim(
         self, cursor: Any, request: ReconciledCompletionRequest

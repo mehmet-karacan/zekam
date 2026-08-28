@@ -351,6 +351,10 @@ def test_zorunlu_isler_varsayilan_araliklariyla_uretilir() -> None:
     assert tuple(item.job_name for item in definitions) == REQUIRED_JOBS
     assert all(item.state is SchedulerState.ACTIVE for item in definitions)
     assert all(item.schedule.timezone == "UTC" for item in definitions)
+    compiler = next(item for item in definitions if item.job_name == "memory-candidate-compile")
+    assert compiler.schedule.interval == "5m"
+    assert compiler.misfire is MisfirePolicy.RUN_ONCE
+    assert compiler.overlap is OverlapPolicy.SKIP
 
 
 def test_araligi_olmayan_zorunlu_is_uydurulmaz(monkeypatch: pytest.MonkeyPatch) -> None:

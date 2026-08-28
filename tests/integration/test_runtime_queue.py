@@ -709,6 +709,78 @@ def test_reconciled_completion_rejects_unexpired_lease_without_writes(
     assert host.jobs.get(work.job.id).state is JobState.RUNNING
 
 
+def test_reconciled_completion_accepts_exact_reclaimed_receiptless_claim(
+    host: ExecutionHost, realm_session: tuple[Realm, Any], project_id: Any
+) -> None:
+    realm, connection = realm_session
+    host.jobs.enqueue(_job(project_id, realm, now=RECOVERY_NOW))
+    work = host.acquire_work(capabilities=("sandbox.write",), lease_seconds=1, now=RECOVERY_NOW)
+    assert work is not None
+    claim = host.claim_effect(
+        work,
+        operation="file-write",
+        effect_digest=DIGEST,
+        authorization_digest=DIGEST,
+        resources=(),
+        adapter_digest=DIGEST,
+        now=RECOVERY_NOW,
+    )
+    later = RECOVERY_NOW + dt.timedelta(seconds=2)
+    assert host.jobs.reclaim_expired(now=later) == (work.job.id,)
+    assert host.jobs.get(work.job.id).state is JobState.RECOVERY_REQUIRED
+    with connection.cursor() as cursor:
+        cursor.execute("select count(*) from runtime.lease where job_id = %s", (work.job.id,))
+        assert int(cursor.fetchone()[0]) == 0
+
+    finalized = host.finalize_reconciled_completion(
+        _recovery_request(work, claim), now=later + dt.timedelta(seconds=1)
+    )
+
+    assert finalized.created
+    assert finalized.receipt.status is ReceiptStatus.COMPLETED
+    assert host.jobs.get(work.job.id).state is JobState.COMPLETED
+    assert host.ledger.receipt_for_claim(claim.id) == finalized.receipt
+
+
+def test_reconciled_completion_closes_crash_after_terminal_receipt_without_duplicate(
+    host: ExecutionHost, realm_session: tuple[Realm, Any], project_id: Any
+) -> None:
+    realm, connection = realm_session
+    host.jobs.enqueue(_job(project_id, realm, now=RECOVERY_NOW))
+    work = host.acquire_work(capabilities=("sandbox.write",), lease_seconds=1, now=RECOVERY_NOW)
+    assert work is not None
+    claim = host.claim_effect(
+        work,
+        operation="file-write",
+        effect_digest=DIGEST,
+        authorization_digest=DIGEST,
+        resources=(),
+        adapter_digest=DIGEST,
+        now=RECOVERY_NOW,
+    )
+    committed_receipt = host.record_success(
+        claim,
+        result_digest=DIGEST,
+        adapter_evidence_digest=EVIDENCE_DIGEST,
+        now=RECOVERY_NOW + dt.timedelta(milliseconds=500),
+    )
+
+    finalized = host.finalize_reconciled_completion(
+        _recovery_request(work, claim), now=RECOVERY_NOW + dt.timedelta(seconds=2)
+    )
+
+    assert not finalized.created
+    assert finalized.receipt.id == committed_receipt.id
+    assert host.jobs.get(work.job.id).state is JobState.COMPLETED
+    assert len(host.ledger.claims_for_job(work.job.id)) == 1
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select count(*) from runtime.effect_receipt where claim_id = %s",
+            (claim.id,),
+        )
+        assert int(cursor.fetchone()[0]) == 1
+
+
 @pytest.mark.parametrize(
     ("overrides", "error", "message"),
     (

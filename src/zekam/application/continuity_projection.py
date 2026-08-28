@@ -11,8 +11,10 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from zekam.application.markdown_projection import build_markdown_projection
+from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.markdown_projection import MarkdownProjectionBundle, ProjectionRecord
@@ -25,6 +27,7 @@ _PROJECTION_SENSITIVE = re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
     re.IGNORECASE,
 )
+ACTIVE_WORK_PROJECTION_REF = "projection/active-work"
 
 
 class HydrationPriority(StrEnum):
@@ -188,6 +191,130 @@ class ContinuityProjectionRecipe:
             raise ValidationFailed("projection exclusions deterministik sirada olmali")
         if self.receipt.projection_digest != self.bundle.projection_digest:
             raise ValidationFailed("projection receipt bundle ile uyusmuyor")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionReleaseSnapshot:
+    """Exact canonical snapshot required before close/release effects.
+
+    This value is authority-free.  A caller must read it from PostgreSQL both
+    while preparing the plan and again inside the effect transaction.  The
+    second digest comparison prevents a formerly-current projection from being
+    used after Work, source, migration, or lifecycle state has changed.
+    """
+
+    project_id: UUID
+    work_item_id: UUID
+    work_revision: int
+    work_state: str
+    work_record_digest: str
+    source_head: str
+    source_tree_digest: str
+    migration_head: int
+    database_revision_digest: str
+    projection_ref: str
+    projection_receipt_digest: str
+    projection_digest: str
+    projection_source_digest: str
+    lifecycle_complete: bool
+    pending_lifecycle_steps: tuple[str, ...]
+    next_safe_action: str | None
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if self.work_revision < 1 or self.migration_head < 1:
+            raise ValidationFailed("Projection release revision/head pozitif olmali")
+        if not all(
+            value.strip()
+            for value in (
+                self.work_state,
+                self.source_head,
+                self.projection_ref,
+            )
+        ):
+            raise ValidationFailed("Projection release identity alanlari bos olamaz")
+        if self.projection_ref != ACTIVE_WORK_PROJECTION_REF:
+            raise PolicyViolation("Projection release exact active-work projection ister")
+        for value in (
+            self.work_record_digest,
+            self.source_tree_digest,
+            self.database_revision_digest,
+            self.projection_receipt_digest,
+            self.projection_digest,
+            self.projection_source_digest,
+        ):
+            parse_digest(value)
+        expected_database_revision = digest(
+            {
+                "project_id": str(self.project_id),
+                "work_item_id": str(self.work_item_id),
+                "work_revision": self.work_revision,
+                "work_state": self.work_state,
+                "work_record_digest": self.work_record_digest,
+            }
+        )
+        if self.database_revision_digest != expected_database_revision:
+            raise PolicyViolation("Projection release database revision body drift")
+        if len(set(self.pending_lifecycle_steps)) != len(self.pending_lifecycle_steps):
+            raise ValidationFailed("Projection release pending lifecycle adimlari tekil olmali")
+        if any(not item.strip() for item in self.pending_lifecycle_steps):
+            raise ValidationFailed("Projection release pending lifecycle adimi bos olamaz")
+        if self.next_safe_action is not None and not self.next_safe_action.strip():
+            raise ValidationFailed("Projection release next-safe-action bos olamaz")
+        if self.work_state == "completed" and self.next_safe_action is not None:
+            raise PolicyViolation("Completed Work actionable next-safe-action tasiyamaz")
+        if self.work_state != "completed" and self.next_safe_action is None:
+            raise ValidationFailed("Nonterminal Work projection next-safe-action ister")
+        if self.grants_authority:
+            raise PolicyViolation("Projection release snapshot authority uretemez")
+
+    @property
+    def expected_projection_source_digest(self) -> str:
+        return canonical_projection_source_digest(
+            source_head=self.source_head,
+            source_tree_digest=self.source_tree_digest,
+            migration_head=self.migration_head,
+            database_revision_digest=self.database_revision_digest,
+        )
+
+    @property
+    def fresh(self) -> bool:
+        return self.projection_source_digest == self.expected_projection_source_digest
+
+    def assert_release_ready(self, *, expected_source_digest: str) -> None:
+        parse_digest(expected_source_digest)
+        if not self.fresh or expected_source_digest != self.expected_projection_source_digest:
+            raise PolicyViolation("Projection release snapshot stale; reproject required")
+        if not self.lifecycle_complete or self.pending_lifecycle_steps:
+            raise PolicyViolation("Projection release lifecycle receipt zinciri eksik")
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-projection-release-snapshot/v1",
+            "project_id": str(self.project_id),
+            "work_item_id": str(self.work_item_id),
+            "work_revision": self.work_revision,
+            "work_state": self.work_state,
+            "work_record_digest": self.work_record_digest,
+            "source_head": self.source_head,
+            "source_tree_digest": self.source_tree_digest,
+            "migration_head": self.migration_head,
+            "database_revision_digest": self.database_revision_digest,
+            "projection_ref": self.projection_ref,
+            "projection_receipt_digest": self.projection_receipt_digest,
+            "projection_digest": self.projection_digest,
+            "projection_source_digest": self.projection_source_digest,
+            "expected_projection_source_digest": self.expected_projection_source_digest,
+            "fresh": self.fresh,
+            "lifecycle_complete": self.lifecycle_complete,
+            "pending_lifecycle_steps": list(self.pending_lifecycle_steps),
+            "next_safe_action": self.next_safe_action,
+            "grants_authority": False,
+        }
+
+    @property
+    def snapshot_digest(self) -> str:
+        return digest(self.body())
 
 
 def build_continuity_projection_recipe(

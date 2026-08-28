@@ -136,6 +136,19 @@ class WorkItemRepository:
             raise NotFound("Is kaydi bulunamadi")
         return _work_from_row(row)
 
+    def get_for_update(self, work_item_id: UUID) -> WorkItem:
+        """Lock one exact Work head for a surrounding atomic state transition."""
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"select {_WORK_COLUMNS} from work.work_item"
+                " where realm_id = %s and id = %s for update",
+                (self.realm_id, work_item_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise NotFound("Is kaydi bulunamadi")
+        return _work_from_row(row)
+
     def find_by_external_number(self, project_id: UUID, external_number: str) -> WorkItem | None:
         """Exact numara aramasi. Semantic benzerlik numarayi degistiremez."""
         with self.connection.cursor() as cursor:

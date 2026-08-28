@@ -11,6 +11,7 @@ from psycopg import Error as PsycopgError
 from zekam.application.hook_runtime import HookRuntime, LoadedHookAdapter
 from zekam.domain.canonical import digest
 from zekam.domain.config_provenance import PermissionProfileRevision
+from zekam.domain.errors import PolicyViolation
 from zekam.domain.hook_runtime import (
     CompiledHookEntry,
     CompiledHookSet,
@@ -107,6 +108,32 @@ def _contracts(realm_id: UUID):  # type: ignore[no-untyped-def]
     return profile, spec, runtime, compiled
 
 
+def _bootstrap_spec(
+    profile: PermissionProfileRevision,
+    *,
+    hook_id: str,
+    revision: int,
+    timeout_ms: int = 1_000,
+) -> HookSpecRevision:
+    assert profile.realm_id is not None
+    return HookSpecRevision.create(
+        realm_id=profile.realm_id,
+        hook_id=hook_id,
+        revision=revision,
+        event_type=HookEventType.TURN_START,
+        required=True,
+        source_layer="managed-policy",
+        timeout_ms=timeout_ms,
+        execution_mode=HookExecutionMode.INTERNAL,
+        input_schema=INPUT_SCHEMA,
+        output_schema=OUTPUT_SCHEMA,
+        permission_profile_name=profile.name,
+        permission_profile_digest=profile.profile_digest,
+        failure_policy=HookFailurePolicy.ABORT,
+        created_at=NOW,
+    )
+
+
 def test_hook_registry_roundtrip_compiled_set_is_immutable_and_realm_scoped(
     realm_session: tuple[Any, Any],
 ) -> None:
@@ -131,6 +158,63 @@ def test_hook_registry_roundtrip_compiled_set_is_immutable_and_realm_scoped(
     with pytest.raises(PsycopgError), connection.cursor() as cursor:
         cursor.execute("update hooks.spec_revision set required=false where id=%s", (spec.id,))
     connection.rollback()
+
+
+def test_fresh_hook_revision_bootstrap_and_exact_replay_are_fail_closed(
+    realm_session: tuple[Any, Any],
+) -> None:
+    realm, connection = realm_session
+    profile, _, _, _ = _contracts(realm.id)
+    profile_id, _ = ConfigProvenanceRepository(connection, realm.id).store_profile(profile)
+    repository = HookRuntimeRepository(connection, realm.id)
+    revision_two = _bootstrap_spec(profile, hook_id="fresh-revision-observer", revision=2)
+
+    assert repository.store_spec(
+        revision_two,
+        permission_profile_revision_id=profile_id,
+    ) == (revision_two.id, True)
+    assert repository.store_spec(
+        revision_two,
+        permission_profile_revision_id=profile_id,
+    ) == (revision_two.id, False)
+    with pytest.raises(PolicyViolation, match="exact replay binding mismatch"):
+        repository.store_spec(
+            revision_two,
+            permission_profile_revision_id=uuid4(),
+        )
+
+    divergent_revision_two = _bootstrap_spec(
+        profile,
+        hook_id=revision_two.hook_id,
+        revision=2,
+        timeout_ms=2_000,
+    )
+    with pytest.raises(PsycopgError, match="revision monotonic") as rejected:
+        repository.store_spec(
+            divergent_revision_two,
+            permission_profile_revision_id=profile_id,
+        )
+    assert rejected.value.sqlstate == "23514"
+
+    revision_three = _bootstrap_spec(
+        profile,
+        hook_id=revision_two.hook_id,
+        revision=3,
+    )
+    assert repository.store_spec(
+        revision_three,
+        permission_profile_revision_id=profile_id,
+    ) == (revision_three.id, True)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select revision,hook_digest from hooks.spec_revision"
+            " where realm_id=%s and hook_id=%s order by revision",
+            (realm.id, revision_two.hook_id),
+        )
+        assert cursor.fetchall() == [
+            (2, revision_two.hook_digest),
+            (3, revision_three.hook_digest),
+        ]
 
 
 def test_database_rejects_forged_spec_schema_and_compiled_set_digest(

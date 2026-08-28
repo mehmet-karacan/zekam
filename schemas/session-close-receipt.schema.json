@@ -10,10 +10,17 @@
     "session_id": {"$ref": "#/$defs/ref"}, "client_id": {"$ref": "#/$defs/ref"},
     "envelope_digest": {"$ref": "#/$defs/digest"}, "fencing_token": {"type": "integer", "minimum": 1},
     "completed_steps": {"$ref": "#/$defs/refArray"}, "changed_artifacts": {"$ref": "#/$defs/refArray"}, "verified_outcomes": {"$ref": "#/$defs/refArray"}, "pending_steps": {"$ref": "#/$defs/refArray"},
-    "next_safe_action": {"$ref": "#/$defs/digestRef"}, "human_decisions": {"$ref": "#/$defs/refArray"}, "discovered_constraints": {"$ref": "#/$defs/refArray"}, "failure_recovery_refs": {"$ref": "#/$defs/refArray"}, "candidate_lessons": {"$ref": "#/$defs/refArray"}, "candidate_skills": {"$ref": "#/$defs/refArray"}, "checkpoint_ref": {"$ref": "#/$defs/digestRef"}, "journal_head": {"$ref": "#/$defs/digestRef"},
+    "next_safe_action": {"oneOf": [{"$ref": "#/$defs/digestRef"}, {"type": "null"}]}, "human_decisions": {"$ref": "#/$defs/refArray"}, "discovered_constraints": {"$ref": "#/$defs/refArray"}, "failure_recovery_refs": {"$ref": "#/$defs/refArray"}, "candidate_lessons": {"$ref": "#/$defs/refArray"}, "candidate_skills": {"$ref": "#/$defs/refArray"}, "checkpoint_ref": {"$ref": "#/$defs/digestRef"}, "journal_head": {"$ref": "#/$defs/digestRef"},
     "source_digest": {"$ref": "#/$defs/digest"}, "policy_digest": {"$ref": "#/$defs/digest"}, "migration_digest": {"$ref": "#/$defs/digest"}, "context_digest": {"$ref": "#/$defs/digest"},
     "status": {"enum": ["closed", "degraded", "recovery-required", "failed"]}, "closed_at": {"$ref": "#/$defs/timestamp"}, "grants_authority": {"const": false}, "receipt_digest": {"$ref": "#/$defs/digest"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "closed"}}},
+      "then": {"properties": {"next_safe_action": {"type": "null"}, "pending_steps": {"maxItems": 0}}},
+      "else": {"properties": {"next_safe_action": {"$ref": "#/$defs/digestRef"}}}
+    }
+  ],
   "$defs": {
     "uuid": {"type": "string", "format": "uuid"}, "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "timestamp": {"type": "string", "format": "date-time"},
     "ref": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},

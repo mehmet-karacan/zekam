@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 
@@ -9,9 +10,11 @@ from zekam.application.continuity_projection import (
     HydrationCategory,
     HydrationItem,
     ProjectionAudience,
+    ProjectionReleaseSnapshot,
     build_continuity_projection_recipe,
     build_hydration_recipe,
 )
+from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.markdown_projection import ProjectionRecord, ProjectionSourceRef
@@ -82,6 +85,67 @@ def test_projection_freshness_is_exact_across_head_migration_and_db_revision() -
         audience=ProjectionAudience.LOCAL_INTERNAL,
     )
     assert recipe.receipt.fresh is False
+
+
+def _release_snapshot(
+    *, work_state: str = "active", next_action: str | None = "verify"
+) -> ProjectionReleaseSnapshot:
+    project_id = uuid4()
+    work_item_id = uuid4()
+    work_record_digest = digest("work-record")
+    database_revision_digest = digest(
+        {
+            "project_id": str(project_id),
+            "work_item_id": str(work_item_id),
+            "work_revision": 4,
+            "work_state": work_state,
+            "work_record_digest": work_record_digest,
+        }
+    )
+    source_tree_digest = digest("tree")
+    source_digest = canonical_projection_source_digest(
+        source_head="abc123",
+        source_tree_digest=source_tree_digest,
+        migration_head=56,
+        database_revision_digest=database_revision_digest,
+    )
+    return ProjectionReleaseSnapshot(
+        project_id=project_id,
+        work_item_id=work_item_id,
+        work_revision=4,
+        work_state=work_state,
+        work_record_digest=work_record_digest,
+        source_head="abc123",
+        source_tree_digest=source_tree_digest,
+        migration_head=56,
+        database_revision_digest=database_revision_digest,
+        projection_ref="projection/active-work",
+        projection_receipt_digest=digest("receipt"),
+        projection_digest=digest("projection"),
+        projection_source_digest=source_digest,
+        lifecycle_complete=True,
+        pending_lifecycle_steps=(),
+        next_safe_action=next_action,
+    )
+
+
+def test_projection_release_snapshot_binds_all_freshness_dimensions() -> None:
+    snapshot = _release_snapshot()
+    snapshot.assert_release_ready(
+        expected_source_digest=snapshot.expected_projection_source_digest
+    )
+    assert snapshot.fresh is True
+    assert snapshot.snapshot_digest.startswith("sha256:")
+
+    with pytest.raises(PolicyViolation, match="stale"):
+        replace(snapshot, projection_source_digest=digest("stale")).assert_release_ready(
+            expected_source_digest=snapshot.expected_projection_source_digest
+        )
+
+
+def test_completed_projection_release_cannot_keep_actionable_next_step() -> None:
+    with pytest.raises(PolicyViolation, match="actionable next-safe-action"):
+        _release_snapshot(work_state="completed", next_action="keep-working")
 
 
 def test_projection_content_policy_excludes_misclassified_sensitive_summary() -> None:

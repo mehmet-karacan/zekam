@@ -52,6 +52,7 @@ class ActiveWorkProjection:
     claim_without_receipt: int
     global_dod_digest: str
     release_report_digest: str
+    next_safe_action: str | None = None
 
     def __post_init__(self) -> None:
         if not self.project_slug.strip() or not self.title.strip() or not self.state.strip():
@@ -75,6 +76,16 @@ class ActiveWorkProjection:
             parse_digest(value)
         if any(bool(item.get("grants_authority")) for item in self.plan_steps):
             raise PolicyViolation("Projection plan steps cannot grant authority")
+        if self.next_safe_action is not None and not self.next_safe_action.strip():
+            raise ValidationFailed("Active work next-safe-action cannot be empty")
+        if self.state == "completed" and self.next_safe_action is not None:
+            raise PolicyViolation("Completed Work cannot project an actionable next-safe-action")
+
+    @property
+    def projected_next_safe_action(self) -> str | None:
+        if self.state == "completed":
+            return None
+        return self.next_safe_action or "root projection parity, then full acceptance verification"
 
     def body(self) -> dict[str, Any]:
         return {
@@ -132,7 +143,7 @@ class ActiveWorkProjection:
                 "release_report": "SURUM_RAPORU.md",
                 "release_report_digest": self.release_report_digest,
             },
-            "next_safe_action": "root projection parity, then full acceptance verification",
+            "next_safe_action": self.projected_next_safe_action,
             "read_only": True,
             "grants_authority": False,
             "approval_inherited": False,
@@ -163,6 +174,7 @@ class ActiveWorkProjection:
             f"| `{item['step_id']}` | {item['title']} | `{item['effect']}` |"
             for item in self.plan_steps
         )
+        next_action = self.projected_next_safe_action or "Yok; Work terminal completed durumunda."
         return (
             "# Zekam Aktif Görev Projeksiyonu\n\n"
             "> Bu dosya kanonik PostgreSQL Work Graph'tan deterministik olarak üretilen, "
@@ -196,6 +208,6 @@ class ActiveWorkProjection:
             f"- `GLOBAL_DOD_DURUM.md`: `{self.global_dod_digest}`\n"
             f"- `SURUM_RAPORU.md`: `{self.release_report_digest}`\n\n"
             "## Sonraki güvenli adım\n\n"
-            "Root projection parity doğrulamasını tamamla; ardından tam kabul testlerine geç.\n\n"
+            f"{next_action}\n\n"
             f"Projection digest: `{self.projection_digest}`\n"
         )

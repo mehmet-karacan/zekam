@@ -11,6 +11,7 @@ import pytest
 from psycopg import Error as PsycopgError
 
 from zekam.application.memory_control import MemoryControlOperation, MemoryControlService
+from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
@@ -282,13 +283,47 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
     assert repository.store_compaction_receipt(compaction, idempotency_key="compact-one")
     evaluation = _evaluation(realm, project, work, run)
     assert repository.store_contract_evaluation(evaluation, idempotency_key="contract-one")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select item.revision,item.state,item.record_digest,revision.revision,"
+            " revision.tree_digest"
+            " from work.work_item item"
+            " join projects.source_binding binding"
+            " on binding.realm_id=item.realm_id and binding.project_id=item.project_id"
+            " join lateral ("
+            "   select source.revision,source.tree_digest"
+            "   from projects.source_revision source"
+            "   where source.realm_id=binding.realm_id and source.binding_id=binding.id"
+            "   order by source.observed_at desc,source.id desc limit 1"
+            " ) revision on true"
+            " where item.realm_id=%s and item.project_id=%s and item.id=%s",
+            (realm.id, project.id, work.id),
+        )
+        release_source = cursor.fetchone()
+        cursor.execute("select max(version) from core.schema_migrations")
+        migration_head = int(cursor.fetchone()[0])
+    database_revision_digest = digest(
+        {
+            "project_id": str(project.id),
+            "work_item_id": str(work.id),
+            "work_revision": int(release_source[0]),
+            "work_state": str(release_source[1]),
+            "work_record_digest": str(release_source[2]),
+        }
+    )
+    projection_source_digest = canonical_projection_source_digest(
+        source_head=str(release_source[3]),
+        source_tree_digest=str(release_source[4]),
+        migration_head=migration_head,
+        database_revision_digest=database_revision_digest,
+    )
     projection = ProjectionGenerationReceipt(
         receipt_id=uuid4(),
         realm_id=realm.id,
         project_id=project.id,
         work_item_id=work.id,
         source_ref="work/current",
-        source_digest=digest("projection-source"),
+        source_digest=projection_source_digest,
         projection_ref="projection/active-work",
         projection_digest=digest("projection-body"),
         generator_version="projection/v1",
@@ -496,6 +531,19 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
         session_id=run.session_id,
         client_id=run.client_id,
     ).ready_for_mutation
+
+    release_snapshot = repository.read_projection_release_snapshot(
+        project_id=project.id,
+        work_item_id=work.id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+    )
+    assert release_snapshot.fresh
+    assert release_snapshot.lifecycle_complete
+    assert not release_snapshot.pending_lifecycle_steps
+    assert release_snapshot.projection_receipt_digest == projection.receipt_digest
+    assert release_snapshot.expected_projection_source_digest == projection_source_digest
 
     with pytest.raises(PsycopgError), connection.cursor() as cursor:
         cursor.execute(

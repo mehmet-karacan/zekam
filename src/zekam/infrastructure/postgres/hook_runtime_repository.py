@@ -37,7 +37,19 @@ class HookRuntimeRepository:
     ) -> tuple[UUID, bool]:
         if spec.realm_id != self.realm_id:
             raise PolicyViolation("Hook spec cross-realm yazma reddedildi")
+        spec.assert_integrity()
         with self.connection.transaction(), self.connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"{self.realm_id}:{spec.hook_id}",),
+            )
+            replay_id = self._exact_spec_replay(
+                cursor,
+                spec=spec,
+                permission_profile_revision_id=permission_profile_revision_id,
+            )
+            if replay_id is not None:
+                return replay_id, False
             cursor.execute(
                 "insert into hooks.spec_revision"
                 "(id,realm_id,hook_id,revision,event_type,required,source_layer,timeout_ms,"
@@ -73,11 +85,39 @@ class HookRuntimeRepository:
             row = cursor.fetchone()
             if row is not None:
                 return UUID(str(row[0])), True
-            cursor.execute(
-                "select id from hooks.spec_revision where realm_id=%s and hook_digest=%s",
-                (self.realm_id, spec.hook_digest),
+            replay_id = self._exact_spec_replay(
+                cursor,
+                spec=spec,
+                permission_profile_revision_id=permission_profile_revision_id,
             )
-            return UUID(str(cursor.fetchone()[0])), False
+            if replay_id is None:
+                raise PolicyViolation("Hook spec exact replay kaydi bulunamadi")
+            return replay_id, False
+
+    def _exact_spec_replay(
+        self,
+        cursor: Any,
+        *,
+        spec: HookSpecRevision,
+        permission_profile_revision_id: UUID,
+    ) -> UUID | None:
+        cursor.execute(
+            "select id,permission_profile_revision_id,hook_id,revision"
+            " from hooks.spec_revision where realm_id=%s and hook_digest=%s",
+            (self.realm_id, spec.hook_digest),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        replay_id = UUID(str(row[0]))
+        if (
+            replay_id != spec.id
+            or UUID(str(row[1])) != permission_profile_revision_id
+            or str(row[2]) != spec.hook_id
+            or int(row[3]) != spec.revision
+        ):
+            raise PolicyViolation("Hook spec exact replay binding mismatch")
+        return replay_id
 
     def store_runtime(self, runtime: HookRuntimeRevision) -> tuple[UUID, bool]:
         if runtime.realm_id != self.realm_id:

@@ -165,6 +165,10 @@ class WorkGraphService:
         """Durumu degistirir. Izinsiz gecis ve kanitsiz `completed` reddedilir."""
         moment = now or dt.datetime.now(dt.UTC)
         current = self.items.get(work_item_id)
+        if target is WorkState.COMPLETED:
+            raise PolicyViolation(
+                "Direct completed gecisi kapali; ProjectionAwareClosureService gerekir"
+            )
         if target is WorkState.ACTIVE:
             self._assert_actionable(current)
         updated = current.with_state(target, evidence=evidence, now=moment)

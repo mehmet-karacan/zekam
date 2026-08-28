@@ -430,6 +430,12 @@ def transition_command(
         console.print(f"hedef durum: {target.value}, kanit: {len(references)}")
         console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
         return
+    if target is WorkState.COMPLETED:
+        raise fail(
+            "Raw work transition completed icin kapali: projection-aware close/release "
+            "zinciri kullanilmali",
+            64,
+        )
     try:
         with RealmSession(home, realm) as realm_context:
             service = _service(realm_context)

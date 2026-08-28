@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from zekam.application.active_work_projection import ActiveWorkProjection
+from zekam.application.continuity_projection import ACTIVE_WORK_PROJECTION_REF
 from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.domain.errors import NotFound, PolicyViolation
 
@@ -80,8 +81,9 @@ class ActiveWorkProjectionRepository:
             cursor.execute(
                 "select receipt_digest,source_digest from continuity.projection_generation_receipt"
                 " where realm_id=%s and project_id=%s and work_item_id=%s"
+                " and projection_ref=%s"
                 " order by generated_at desc,id desc limit 1",
-                (self.realm_id, project_id, work_item_id),
+                (self.realm_id, project_id, work_item_id, ACTIVE_WORK_PROJECTION_REF),
             )
             projection = cursor.fetchone()
             cursor.execute(

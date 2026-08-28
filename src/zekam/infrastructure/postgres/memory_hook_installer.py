@@ -1,4 +1,4 @@
-"""Additive, idempotent installer for required Memory Continuity handlers."""
+"""Idempotent installer with exact managed Memory Continuity revision upgrade."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.application.memory_hooks import MEMORY_HOOK_EVENTS, memory_hook_bundle
+from zekam.application.memory_hooks import (
+    MEMORY_HOOK_EVENTS,
+    memory_hook_bundle,
+    memory_hook_v1_identities,
+)
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.identifiers import new_uuid7
@@ -31,17 +35,33 @@ class PostgresMemoryHookInstaller:
     realm_id: UUID
 
     def ensure(self, *, installed_at: dt.datetime) -> MemoryHookInstallReceipt:
+        with self.connection.transaction():
+            with self.connection.cursor() as cursor:
+                cursor.execute("select core.current_realm_id()")
+                row = cursor.fetchone()
+                if row is None or row[0] is None or UUID(str(row[0])) != self.realm_id:
+                    raise PolicyViolation("Memory hook installer realm session binding mismatch")
+                cursor.execute(
+                    "select pg_advisory_xact_lock(hashtextextended(%s,0))",
+                    (f"{self.realm_id}:hook-generation",),
+                )
+            return self._ensure_locked(installed_at=installed_at)
+
+    def _ensure_locked(self, *, installed_at: dt.datetime) -> MemoryHookInstallReceipt:
         bundle = memory_hook_bundle(self.realm_id)
         current_id, current_generation, current_digest = self._current()
         handlers = self._effective_handlers(current_id)
-        conflicts = tuple(
-            event.value
-            for event, spec, runtime in zip(
-                MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
-            )
-            if handlers.get(event.value, ())
-            not in {(), ((spec.hook_digest, runtime.runtime_digest),)}
-        )
+        predecessors = self._upgradeable_predecessors(current_id)
+        conflicts: list[str] = []
+        for event, spec, runtime in zip(
+            MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
+        ):
+            allowed = {(), ((spec.hook_digest, runtime.runtime_digest),)}
+            predecessor = predecessors.get(event.value)
+            if predecessor is not None:
+                allowed.add(predecessor[0])
+            if handlers.get(event.value, ()) not in allowed:
+                conflicts.append(event.value)
         if conflicts:
             raise PolicyViolation(
                 "Required lifecycle handler conflict; existing generation preserved: "
@@ -70,7 +90,14 @@ class PostgresMemoryHookInstaller:
             hook_repository.store_spec(spec, permission_profile_revision_id=profile_id)
             hook_repository.store_runtime(runtime)
 
-        entries = self._current_entries(current_id)
+        predecessor_spec_ids = {value[1] for value in predecessors.values()}
+        entries = [
+            item
+            for item in self._current_entries(current_id)
+            if item["spec_id"] not in predecessor_spec_ids
+        ]
+        for ordinal, item in enumerate(entries, start=1):
+            item["ordinal"] = ordinal
         next_ordinal = len(entries) + 1
         for event, spec, runtime in zip(
             MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
@@ -191,6 +218,59 @@ class PostgresMemoryHookInstaller:
             for row in cursor.fetchall():
                 result.setdefault(str(row[0]), []).append((str(row[1]), str(row[2])))
         return {key: tuple(value) for key, value in result.items()}
+
+    def _upgradeable_predecessors(
+        self, current_id: UUID | None
+    ) -> dict[str, tuple[tuple[tuple[str, str], ...], UUID]]:
+        """Resolve only exact older managed bundle entries as replaceable."""
+
+        if current_id is None:
+            return {}
+        expected = memory_hook_v1_identities(self.realm_id)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select spec.event_type,spec.id,spec.hook_id,spec.revision,spec.hook_digest,"
+                " runtime.runtime_digest,runtime.adapter_ref"
+                " from hooks.compiled_set_entry entry"
+                " join hooks.spec_revision spec on spec.realm_id=entry.realm_id"
+                " and spec.id=entry.spec_revision_id"
+                " join hooks.runtime_revision runtime on runtime.realm_id=entry.realm_id"
+                " and runtime.id=entry.runtime_revision_id"
+                " where entry.realm_id=%s and entry.compiled_set_id=%s"
+                " and entry.disabled_reason is null and spec.required"
+                " and spec.source_layer='memory-continuity'"
+                " and spec.permission_profile_name='memory-continuity-internal'"
+                " and spec.execution_mode='internal'"
+                " and cardinality(runtime.permission_capabilities)=0"
+                " and spec.event_type=any(%s)"
+                " order by spec.event_type,spec.revision",
+                (self.realm_id, current_id, [item.value for item in MEMORY_HOOK_EVENTS]),
+            )
+            grouped: dict[str, list[tuple[Any, ...]]] = {}
+            for row in cursor.fetchall():
+                grouped.setdefault(str(row[0]), []).append(tuple(row))
+        resolved: dict[str, tuple[tuple[tuple[str, str], ...], UUID]] = {}
+        for event in MEMORY_HOOK_EVENTS:
+            rows = grouped.get(event.value, [])
+            if len(rows) != 1:
+                continue
+            row = rows[0]
+            revision = int(row[3])
+            expected_spec_id, expected_hook_digest, expected_runtime_digest = expected[event]
+            if (
+                UUID(str(row[1])) != expected_spec_id
+                or str(row[2]) != f"memory-continuity-{event.value}"
+                or revision != 1
+                or str(row[4]) != expected_hook_digest
+                or str(row[5]) != expected_runtime_digest
+                or str(row[6]) != f"memory-continuity-{event.value}-v1"
+            ):
+                continue
+            resolved[event.value] = (
+                ((str(row[4]), str(row[5])),),
+                UUID(str(row[1])),
+            )
+        return resolved
 
     def _current_entries(self, current_id: UUID | None) -> list[dict[str, Any]]:
         if current_id is None:

@@ -13,6 +13,7 @@ import signal
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -264,13 +265,14 @@ class SchedulerGateway:
 
 @dataclass(slots=True)
 class Worker:
-    """Kuyruk tuketen ve zamanlanmis isleri tetikleyen surec."""
+    """Zamanlanmis isleri tetikleyen, istege bagli kuyruk tuketen surec."""
 
     host: ExecutionHost
     settings: WorkerSettings
     scheduler: SchedulerGateway | None = None
     handlers: dict[str, Handler] = field(default_factory=dict)
     scheduled_handlers: dict[str, ScheduledHandler] = field(default_factory=dict)
+    consume_queue: bool = True
     shutdown: ShutdownSignal = field(default_factory=ShutdownSignal)
     cancellations: dict[UUID, CancellationRequest] = field(default_factory=dict)
     _active: int = 0
@@ -302,7 +304,7 @@ class Worker:
         """
 
         moment = now or dt.datetime.now(dt.UTC)
-        decision = self.capacity(queue_depth=queue_depth)
+        decision = self.capacity(queue_depth=queue_depth if self.consume_queue else 0)
         if not decision.accepts_work:
             return TickResult(accepted_work=False, skipped_reason=decision.reason())
 
@@ -327,14 +329,20 @@ class Worker:
     # -- dongu ----------------------------------------------------------------
 
     def tick(self, *, now: dt.datetime | None = None, queue_depth: int = 0) -> TickResult:
-        """Tek dongu: kapasite -> zamanlama -> kuyruk."""
+        """Tek dongu: kapasite -> zamanlama -> istege bagli kuyruk."""
 
         moment = now or dt.datetime.now(dt.UTC)
-        decision = self.capacity(queue_depth=queue_depth)
+        decision = self.capacity(queue_depth=queue_depth if self.consume_queue else 0)
         if not decision.accepts_work:
             return TickResult(accepted_work=False, skipped_reason=decision.reason())
 
         triggered = self._run_schedules(moment)
+        if not self.consume_queue:
+            return TickResult(
+                accepted_work=False,
+                triggered_jobs=triggered,
+                skipped_reason="scheduled-only: queue claim disabled",
+            )
         work = self.host.acquire_work(
             capabilities=self.settings.capabilities,
             lease_seconds=self.settings.lease_seconds,
@@ -363,7 +371,7 @@ class Worker:
                 and iterations >= self.settings.max_iterations
             ):
                 break
-            depth = queue_depth() if queue_depth else 0
+            depth = queue_depth() if queue_depth is not None and self.consume_queue else 0
             result = self.tick(queue_depth=depth)
             results.append(result)
             iterations += 1
@@ -439,40 +447,101 @@ class Worker:
     def _process(self, work: ClaimedWork, now: dt.datetime) -> AttemptOutcome:
         """Bir is birimini isler ve terminal duruma alir."""
 
+        def finish_exact(
+            outcome: AttemptOutcome,
+            *,
+            failure_category: FailureCategory | None = None,
+            result_digest: str | None = None,
+        ) -> None:
+            """Never report a terminal outcome unless the canonical finish committed."""
+
+            try:
+                finished = self.host.finish(
+                    work,
+                    outcome=outcome,
+                    failure_category=failure_category,
+                    result_digest=result_digest,
+                    now=now,
+                )
+            except Exception as exc:
+                recovery_digest = digest(
+                    {
+                        "schema": "zekam-worker-finish-recovery/v1",
+                        "job_id": str(work.job.id),
+                        "requested_outcome": outcome.value,
+                        "finish_error": type(exc).__name__,
+                    }
+                )
+                try:
+                    recovered = self.host.finish(
+                        work,
+                        outcome=AttemptOutcome.RECOVERY_REQUIRED,
+                        result_digest=recovery_digest,
+                        now=now,
+                    )
+                except Exception as recovery_exc:
+                    raise PolicyViolation(
+                        "Worker finish belirsiz; recovery-required kaydi da reddedildi"
+                    ) from recovery_exc
+                if not recovered:
+                    raise PolicyViolation(
+                        "Worker finish belirsiz; recovery-required gorunurlugu olusmadi"
+                    ) from exc
+                raise PolicyViolation(
+                    "Worker finish belirsiz; is recovery-required olarak kapatildi"
+                ) from exc
+            if finished:
+                return
+            recovery_digest = digest(
+                {
+                    "schema": "zekam-worker-finish-recovery/v1",
+                    "job_id": str(work.job.id),
+                    "requested_outcome": outcome.value,
+                    "finish_error": "finish-returned-false",
+                }
+            )
+            recovered = self.host.finish(
+                work,
+                outcome=AttemptOutcome.RECOVERY_REQUIRED,
+                result_digest=recovery_digest,
+                now=now,
+            )
+            if not recovered:
+                raise PolicyViolation(
+                    "Worker terminal finish ve recovery-required finish reddedildi"
+                )
+            raise PolicyViolation(
+                "Worker terminal finish reddedildi; is recovery-required olarak kapatildi"
+            )
+
         self._active += 1
         try:
             cancellation = self.cancellations.get(work.job.id)
             if cancellation is not None:
-                self.host.finish(work, outcome=AttemptOutcome.ABANDONED, now=now)
+                finish_exact(AttemptOutcome.ABANDONED)
                 cancellation.assert_no_result_after_cancel(result_published=False)
                 return AttemptOutcome.ABANDONED
 
             handler = self.handlers.get(str(work.job.kind))
             if handler is None:
-                self.host.finish(
-                    work,
+                finish_exact(
                     outcome=AttemptOutcome.FAILED,
                     failure_category=FailureCategory.POLICY,
-                    now=now,
                 )
                 return AttemptOutcome.FAILED
 
             try:
                 result_digest = handler(work)
             except Exception as exc:
-                self.host.finish(
-                    work,
+                finish_exact(
                     outcome=AttemptOutcome.FAILED,
                     failure_category=FailureCategory.ADAPTER,
                     result_digest=digest({"error": type(exc).__name__}),
-                    now=now,
                 )
                 return AttemptOutcome.FAILED
 
             # Terminal receipt'i olmayan claim varsa finish reddeder.
-            self.host.finish(
-                work, outcome=AttemptOutcome.SUCCEEDED, result_digest=result_digest, now=now
-            )
+            finish_exact(AttemptOutcome.SUCCEEDED, result_digest=result_digest)
             return AttemptOutcome.SUCCEEDED
         finally:
             self._active -= 1
@@ -487,12 +556,15 @@ def build_worker(
     scheduled_handlers: dict[str, ScheduledHandler] | None = None,
     with_scheduler: bool = True,
     allow_empty_handlers: bool = False,
+    consume_queue: bool = True,
 ) -> Worker:
     """Worker'i kanonik baglantilarla kurar."""
 
     resolved_handlers = dict(handlers or {})
-    if not resolved_handlers and not allow_empty_handlers:
+    if consume_queue and not resolved_handlers and not allow_empty_handlers:
         raise PolicyViolation("Worker en az bir explicit handler ile baslatilmali")
+    if not consume_queue and resolved_handlers:
+        raise PolicyViolation("Scheduled-only worker queue handler kabul etmez")
     host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
     gateway = SchedulerGateway(connection, realm_id) if with_scheduler else None
     return Worker(
@@ -501,6 +573,7 @@ def build_worker(
         scheduler=gateway,
         handlers=resolved_handlers,
         scheduled_handlers=dict(scheduled_handlers or {}),
+        consume_queue=consume_queue,
     )
 
 
@@ -508,6 +581,94 @@ def default_capabilities() -> tuple[str, ...]:
     """Yerlesik worker'in beyan ettigi yetenekler."""
 
     return ("sandbox.write", "knowledge.ingest", "report.render")
+
+
+def run_codex_lifecycle_once(
+    connection: Any,
+    realm_id: UUID,
+    *,
+    home: Path,
+    settings: WorkerSettings,
+) -> str | None:
+    """Recover a committed ACK or claim one exact Codex lifecycle queue job."""
+
+    from zekam.application.client_lifecycle_composition import (
+        compose_codex_lifecycle_handler,
+        recover_committed_codex_delivery,
+    )
+    from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
+    from zekam.domain.runtime import JobState
+    from zekam.infrastructure.postgres.client_lifecycle_repository import (
+        ClientLifecycleRepository,
+    )
+
+    if settings.capabilities != ("client.lifecycle.codex-drain",):
+        raise PolicyViolation("Codex lifecycle worker exact tek capability ister")
+    repository = ClientLifecycleRepository(connection, realm_id)
+    spool = ClientLifecycleSpool(home, client_id="codex")
+    pending = spool.pending(limit=1)
+    if pending and repository.committed_admission_exists(pending[0].entry_digest):
+        recovered = recover_committed_codex_delivery(spool=spool, repository=repository)
+        if recovered is None or recovered.canonical_ack_digest is None:
+            raise PolicyViolation("Committed Codex lifecycle local ACK recovery basarisiz")
+        return str(recovered.canonical_ack_digest)
+    job_id = repository.next_codex_lifecycle_job_id()
+    if job_id is None:
+        return None
+    host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
+    job = host.jobs.get(job_id)
+    if any(
+        value is None
+        for value in (
+            job.work_item_id,
+            job.plan_id,
+            job.step_id,
+            job.assignment_id,
+            job.run_id,
+        )
+    ):
+        raise PolicyViolation("Codex lifecycle exact queue identity eksik")
+    work = host.jobs.claim_exact(
+        job.id,
+        project_id=job.project_id,
+        work_item_id=job.work_item_id,
+        plan_id=job.plan_id,
+        step_id=job.step_id,
+        assignment_id=job.assignment_id,
+        run_id=job.run_id,
+        capabilities=settings.capabilities,
+        worker_label=settings.worker_label,
+        lease_seconds=settings.lease_seconds,
+    )
+    handler = compose_codex_lifecycle_handler(
+        connection=connection,
+        realm_id=realm_id,
+        home=home,
+    )
+    try:
+        return handler(work)
+    except Exception:
+        current = host.jobs.get(job.id)
+        if current.state is JobState.RUNNING:
+            claims = host.ledger.claims_for_job(job.id)
+            outcome = (
+                AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
+            )
+            finished = host.finish(
+                work,
+                outcome=outcome,
+                failure_category=(None if claims else FailureCategory.ADAPTER),
+                result_digest=digest(
+                    {
+                        "schema": "zekam-codex-lifecycle-worker-failure/v1",
+                        "job_id": str(job.id),
+                        "receiptless_claim": bool(claims),
+                    }
+                ),
+            )
+            if not finished:
+                raise PolicyViolation("Codex lifecycle worker terminal finish reddedildi")
+        raise
 
 
 def noop_handler(work: ClaimedWork) -> str:

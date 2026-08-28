@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
+from zekam.application.continuity_projection import ProjectionReleaseSnapshot
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.security import Authorization
@@ -62,6 +63,16 @@ class MemoryContinuityStore(Protocol):
         session_id: str,
         client_id: str,
     ) -> SessionSnapshot: ...
+
+    def read_projection_release_snapshot(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> ProjectionReleaseSnapshot: ...
 
 
 class SessionSnapshot(Protocol):
@@ -123,6 +134,7 @@ class ContinuityReceiptPlan:
     context_digest: str
     effect_digest: str
     plan_digest: str
+    release_snapshot_digest: str | None = None
     grants_authority: bool = False
 
     @classmethod
@@ -137,6 +149,7 @@ class ContinuityReceiptPlan:
         policy_digest: str,
         migration_digest: str,
         context_digest: str,
+        release_snapshot_digest: str | None = None,
     ) -> ContinuityReceiptPlan:
         for value in (
             receipt_digest,
@@ -146,6 +159,12 @@ class ContinuityReceiptPlan:
             context_digest,
         ):
             parse_digest(value)
+        if release_snapshot_digest is not None:
+            parse_digest(release_snapshot_digest)
+        if kind is ContinuityReceiptKind.CLOSE and release_snapshot_digest is None:
+            raise PolicyViolation("Close plan exact projection release snapshot ister")
+        if kind is not ContinuityReceiptKind.CLOSE and release_snapshot_digest is not None:
+            raise PolicyViolation("Yalniz close plan projection release snapshot tasiyabilir")
         key = _idempotency_key(idempotency_key)
         resource = f"continuity:{kind.value}:{receipt.receipt_id}"
         effect_digest = digest(
@@ -156,23 +175,24 @@ class ContinuityReceiptPlan:
             }
         )
         draft = cls(
-            kind,
-            receipt,
-            receipt_digest,
-            key,
-            resource,
-            source_digest,
-            policy_digest,
-            migration_digest,
-            context_digest,
-            effect_digest,
-            "",
-            False,
+            kind=kind,
+            receipt=receipt,
+            receipt_digest=receipt_digest,
+            idempotency_key=key,
+            resource=resource,
+            source_digest=source_digest,
+            policy_digest=policy_digest,
+            migration_digest=migration_digest,
+            context_digest=context_digest,
+            effect_digest=effect_digest,
+            plan_digest="",
+            release_snapshot_digest=release_snapshot_digest,
+            grants_authority=False,
         )
         return replace(draft, plan_digest=digest(draft.body()))
 
     def body(self) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "schema": "zekam-continuity-receipt-plan/v1",
             "kind": self.kind.value,
             "receipt_id": str(self.receipt.receipt_id),
@@ -186,6 +206,10 @@ class ContinuityReceiptPlan:
             "effect_digest": self.effect_digest,
             "grants_authority": False,
         }
+        if self.release_snapshot_digest is not None:
+            body["schema"] = "zekam-continuity-receipt-plan/v2"
+            body["release_snapshot_digest"] = self.release_snapshot_digest
+        return body
 
     def assert_integrity(self) -> None:
         actual_receipt_digest = _receipt_digest(self.receipt)
@@ -348,6 +372,12 @@ class MemoryContinuityService:
     def prepare_close(
         self, receipt: SessionCloseReceipt, *, idempotency_key: str
     ) -> ContinuityReceiptPlan:
+        if receipt.status.value == "closed":
+            raise PolicyViolation(
+                "Closed Work raw continuity close ile kapatilamaz; projection-aware close gerekir"
+            )
+        snapshot = self._release_snapshot(receipt)
+        snapshot.assert_release_ready(expected_source_digest=receipt.source_digest)
         return ContinuityReceiptPlan.create(
             kind=ContinuityReceiptKind.CLOSE,
             receipt=receipt,
@@ -357,6 +387,7 @@ class MemoryContinuityService:
             policy_digest=receipt.policy_digest,
             migration_digest=receipt.migration_digest,
             context_digest=receipt.context_digest,
+            release_snapshot_digest=snapshot.snapshot_digest,
         )
 
     def prepare_compaction(
@@ -404,6 +435,17 @@ class MemoryContinuityService:
             raise PolicyViolation("Continuity receipt apply binding drift; replan required")
 
         with self.repository.connection.transaction():
+            if plan.kind is ContinuityReceiptKind.CLOSE:
+                if not isinstance(plan.receipt, SessionCloseReceipt):
+                    raise PolicyViolation("Close plan receipt type mismatch")
+                current_release = self._release_snapshot(plan.receipt)
+                current_release.assert_release_ready(
+                    expected_source_digest=plan.source_digest
+                )
+                if current_release.snapshot_digest != plan.release_snapshot_digest:
+                    raise PolicyViolation(
+                        "Projection release snapshot apply sirasinda degisti; replan required"
+                    )
             authorization = self.authorizations.get(authorization_id)
             rejection = authorization.rejection_reason(moment)
             if (
@@ -456,6 +498,21 @@ class MemoryContinuityService:
         return self.repository.store_compaction_receipt(
             plan.receipt, idempotency_key=plan.idempotency_key
         )
+
+    def _release_snapshot(self, receipt: SessionCloseReceipt) -> ProjectionReleaseSnapshot:
+        reader = getattr(self.repository, "read_projection_release_snapshot", None)
+        if not callable(reader):
+            raise PolicyViolation("Projection release freshness gate repository'de yok")
+        snapshot = reader(
+            project_id=receipt.project_id,
+            work_item_id=receipt.work_item_id,
+            run_id=receipt.run_id,
+            session_id=receipt.session_id,
+            client_id=receipt.client_id,
+        )
+        if not isinstance(snapshot, ProjectionReleaseSnapshot):
+            raise PolicyViolation("Projection release snapshot exact contract ile uyusmuyor")
+        return snapshot
 
 
 def _receipt_digest(receipt: ContinuityReceipt) -> str:

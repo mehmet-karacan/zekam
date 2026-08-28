@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import uuid4
 
+import pytest
 import yaml
 
 from zekam.application.active_work_projection import ActiveWorkProjection
 from zekam.domain.canonical import digest
+from zekam.domain.errors import PolicyViolation
 
 
 def _projection() -> ActiveWorkProjection:
@@ -67,3 +70,13 @@ def test_active_work_projection_is_deterministic_and_authority_free() -> None:
     assert document["grants_authority"] is False
     assert document["approval_inherited"] is False
     assert document["legacy_global_dod"]["status"] == "preserved-not-reapplied"
+
+
+def test_completed_active_work_projection_has_no_next_safe_action() -> None:
+    projection = _projection()
+    completed = replace(projection, state="completed")
+    assert completed.document()["next_safe_action"] is None
+    assert "Work terminal completed" in completed.render_markdown()
+
+    with pytest.raises(PolicyViolation, match="actionable next-safe-action"):
+        replace(projection, state="completed", next_safe_action="continue")

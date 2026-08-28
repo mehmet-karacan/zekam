@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from jsonschema.exceptions import ValidationError  # type: ignore[import-untyped]
 from rich.console import Console
 
+from zekam.application.composition import build_context
 from zekam.application.config import core_root
 from zekam.application.memory_continuity import HydrationPreparation, MemoryContinuityService
 from zekam.application.memory_control import (
@@ -23,13 +24,20 @@ from zekam.application.memory_observability import (
     MemoryDimensionStatus,
     MemoryObservabilityService,
 )
+from zekam.application.memory_policy import load_memory_policy
 from zekam.application.memory_upgrade import (
     MemoryFeatureMode,
     MemoryUpgradeService,
     MemoryVerificationEvidence,
     UpgradeTarget,
 )
+from zekam.application.obsidian_projection import (
+    ObsidianApplyPlan,
+    ObsidianProjectionService,
+    build_obsidian_projection,
+)
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed, ZekamError
+from zekam.domain.markdown_projection import ObsidianProfile, ObsidianProjectionBundle
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.session_continuity import (
     CloseStatus,
@@ -39,6 +47,9 @@ from zekam.domain.session_continuity import (
     FreshnessDimension,
     SessionCloseReceipt,
     TruthClass,
+)
+from zekam.infrastructure.postgres.markdown_projection_repository import (
+    PostgresMarkdownProjectionRepository,
 )
 from zekam.infrastructure.postgres.memory_continuity_repository import (
     MemoryContinuityRepository,
@@ -53,6 +64,9 @@ from zekam.infrastructure.postgres.memory_upgrade_repository import (
     PostgresMemoryUpgradeRepository,
 )
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
+from zekam.infrastructure.storage.obsidian_projection_store import (
+    LocalObsidianProjectionStore,
+)
 from zekam.interfaces.cli.session import (
     EXIT_POLICY_VIOLATION,
     HOME_HELP,
@@ -177,7 +191,7 @@ def _hydration_plan(service: MemoryContinuityService, path: Path, *, idempotency
     return plan
 
 
-def _close_plan(service: MemoryContinuityService, path: Path, *, idempotency_key: str) -> Any:
+def _session_close_receipt(path: Path) -> SessionCloseReceipt:
     row = _read_json(path, schema_name="session-close-receipt.schema.json")
 
     def refs(name: str) -> tuple[DigestReference, ...]:
@@ -199,7 +213,9 @@ def _close_plan(service: MemoryContinuityService, path: Path, *, idempotency_key
         changed_artifacts=refs("changed_artifacts"),
         verified_outcomes=refs("verified_outcomes"),
         pending_steps=refs("pending_steps"),
-        next_safe_action=_digest_ref(row["next_safe_action"]),
+        next_safe_action=(
+            None if row["next_safe_action"] is None else _digest_ref(row["next_safe_action"])
+        ),
         human_decisions=refs("human_decisions"),
         discovered_constraints=refs("discovered_constraints"),
         failure_recovery_refs=refs("failure_recovery_refs"),
@@ -216,6 +232,11 @@ def _close_plan(service: MemoryContinuityService, path: Path, *, idempotency_key
     )
     if receipt.receipt_digest != str(row["receipt_digest"]):
         raise PolicyViolation("Close input receipt digest drift")
+    return receipt
+
+
+def _close_plan(service: MemoryContinuityService, path: Path, *, idempotency_key: str) -> Any:
+    receipt = _session_close_receipt(path)
     return service.prepare_close(receipt, idempotency_key=idempotency_key)
 
 
@@ -831,4 +852,134 @@ def upgrade_stamp(
         work_item_id=work_item_id,
         realm=realm,
         home=home,
+    )
+
+
+def _obsidian_bundle(
+    context: Any, project_id: UUID, profile: ObsidianProfile
+) -> ObsidianProjectionBundle:
+    policy = load_memory_policy()
+    records = PostgresMarkdownProjectionRepository(
+        context.connection, context.realm_id
+    ).load_obsidian_records(
+        project_id,
+        realm_slug=context.realm.slug,
+    )
+    return build_obsidian_projection(
+        records,
+        project_id=project_id,
+        profile=profile,
+        policy_digest=policy.policy_digest,
+        realm_slug=context.realm.slug,
+    )
+
+
+def _obsidian_store(home: str | None) -> LocalObsidianProjectionStore:
+    resolved = build_context(home=home).home
+    return LocalObsidianProjectionStore(resolved / "global" / "bellek" / "obsidian")
+
+
+@app.command("obsidian-plan")
+def obsidian_plan(
+    project_id: Annotated[UUID, typer.Option("--project-id")],
+    profile: Annotated[ObsidianProfile, typer.Option("--profile")],
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Build a deterministic authority-free Obsidian publication plan."""
+
+    try:
+        with RealmSession(home, realm) as context:
+            bundle = _obsidian_bundle(context, project_id, profile)
+            store = _obsidian_store(home)
+            plan = ObsidianApplyPlan.create(
+                context.realm_id,
+                bundle,
+                store_identity_digest=store.identity_digest,
+            )
+    except ZekamError as exc:
+        raise _raise(exc) from exc
+    _emit(
+        plan.body()
+        | {
+            "plan_digest": plan.plan_digest,
+            "source_snapshot_digest": bundle.source_snapshot_digest,
+            "privacy_scan_digest": bundle.privacy_scan_digest,
+            "link_check_digest": bundle.link_check_digest,
+            "file_count": len(bundle.files),
+            "exclusion_count": len(bundle.exclusions),
+            "apply": False,
+        }
+    )
+
+
+@app.command("obsidian-apply")
+def obsidian_apply(
+    project_id: Annotated[UUID, typer.Option("--project-id")],
+    profile: Annotated[ObsidianProfile, typer.Option("--profile")],
+    expected_plan_digest: Annotated[str, typer.Option("--plan-digest")],
+    authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Publish only the exact re-built plan with one-shot file-write authority."""
+
+    try:
+        with RealmSession(home, realm) as context:
+            bundle = _obsidian_bundle(context, project_id, profile)
+            store = _obsidian_store(home)
+            plan = ObsidianApplyPlan.create(
+                context.realm_id,
+                bundle,
+                store_identity_digest=store.identity_digest,
+            )
+            if plan.plan_digest != expected_plan_digest:
+                raise PolicyViolation("Obsidian plan source/policy drift nedeniyle stale")
+            if not apply:
+                _emit(plan.body() | {"plan_digest": plan.plan_digest, "apply": False})
+                return
+            if authorization_id is None:
+                raise AuthorizationRequired(
+                    "Obsidian --uygula exact --authorization-id ister"
+                )
+            service = ObsidianProjectionService(
+                store,
+                AuthorizationRepository(context.connection, context.realm_id),
+            )
+            result = service.apply(plan, authorization_id=authorization_id)
+    except ZekamError as exc:
+        raise _raise(exc) from exc
+    _emit(result)
+
+
+@app.command("obsidian-status")
+def obsidian_status(
+    project_id: Annotated[UUID, typer.Option("--project-id")],
+    profile: Annotated[ObsidianProfile, typer.Option("--profile")],
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Fail closed unless CURRENT exactly matches the live canonical snapshot."""
+
+    try:
+        with RealmSession(home, realm) as context:
+            bundle = _obsidian_bundle(context, project_id, profile)
+        result = _obsidian_store(home).verify_current(
+            realm,
+            project_id,
+            profile,
+            expected_projection_digest=bundle.projection_digest,
+            expected_manifest_digest=bundle.manifest_digest,
+            expected_receipt_digest=bundle.receipt_digest,
+        )
+    except ZekamError as exc:
+        raise _raise(exc) from exc
+    _emit(
+        result
+        | {
+            "source_snapshot_digest": bundle.source_snapshot_digest,
+            "policy_digest": bundle.policy_digest,
+            "current": True,
+        }
     )

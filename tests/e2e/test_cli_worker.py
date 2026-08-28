@@ -99,10 +99,28 @@ def test_worker_tick_zamanlanmis_isi_tetikler(
         f"stderr={applied.stderr!r} exception={applied.exception!r}"
     )
     payload = json.loads(applied.stdout)
-    # Tanimli zamanlanmis is yok; kuyruk da bos.
+    # Scheduled-only yuzey queue claim etmez.
     assert payload["accepted_work"] is False
     assert payload["triggered_jobs"] == []
-    assert payload["skipped_reason"] == "kuyruk bos"
+    assert payload["skipped_reason"] == "scheduled-only: queue claim disabled"
+
+    running = runner.invoke(
+        app,
+        [
+            "worker",
+            "run",
+            "--uygula",
+            "--dongu",
+            "1",
+            "--bekleme",
+            "0.001",
+            "--home",
+            str(cli_home),
+            *realm_flags,
+        ],
+    )
+    assert running.exit_code == 0, running.stdout
+    assert "1 dongu, 0 is" in running.stdout
 
 
 def test_worker_run_uygula_olmadan_baslamaz(cli_home: Path, realm_flags: list[str]) -> None:
@@ -111,7 +129,28 @@ def test_worker_run_uygula_olmadan_baslamaz(cli_home: Path, realm_flags: list[st
     assert "Dry-run" in result.stdout
 
 
+def test_codex_lifecycle_tick_is_dedicated_and_authority_free() -> None:
+    result = runner.invoke(app, ["worker", "codex-lifecycle-tick", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "schema": "zekam-codex-lifecycle-worker-plan/v1",
+        "mode": "committed-ack-recovery-then-exact-queue-claim",
+        "required_capability": "client.lifecycle.codex-drain",
+        "public_authorization_mint": False,
+        "applied": False,
+        "grants_authority": False,
+    }
+
+
 def test_worker_komutu_sozlesmede_kayitli() -> None:
     result = runner.invoke(app, ["surface", "check", "--json"])
     assert result.exit_code == 0, result.stdout
     assert json.loads(result.stdout)["missing"] == []
+
+
+def test_memory_compiler_scheduler_contracti_bes_dakika_ve_manuel_worker_yuzeyinde() -> None:
+    result = runner.invoke(app, ["scheduler", "required", "--json"])
+    assert result.exit_code == 0, result.stdout
+    definitions = {item["job_name"]: item["interval"] for item in json.loads(result.stdout)}
+    assert definitions["memory-candidate-compile"] == "5m"

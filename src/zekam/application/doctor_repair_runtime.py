@@ -8,6 +8,11 @@ from typing import Any
 from uuid import UUID
 
 from zekam.application.composition import ApplicationContext
+from zekam.application.control_plane_completion import (
+    ControlPlaneCompletionRequest,
+    ControlPlaneCompletionResult,
+    ControlPlaneCompletionService,
+)
 from zekam.application.doctor_repair import (
     DoctorRepairPlan,
     apply_git_fast_forward,
@@ -38,6 +43,9 @@ from zekam.infrastructure.postgres.connection import configure_session, reset_ro
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
+from zekam.infrastructure.postgres.control_plane_completion_repository import (
+    PostgresControlPlaneCompletionRepository,
+)
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 
 
@@ -53,6 +61,7 @@ class DoctorRepairRuntimeResult:
     receipt_id: UUID
     checkpoint_id: UUID
     result_digest: str
+    completion: ControlPlaneCompletionResult
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +76,7 @@ class DoctorRepairRuntimeResult:
             "receipt_id": str(self.receipt_id),
             "checkpoint_id": str(self.checkpoint_id),
             "result_digest": self.result_digest,
+            "completion": self.completion.as_dict(),
             "grants_authority": False,
         }
 
@@ -126,24 +136,48 @@ def apply_doctor_repair_with_runtime(
     work = graph.transition(work.id, WorkState.READY)
     work = graph.transition(work.id, WorkState.ACTIVE)
     source_revision = f"doctor-repair:{plan_digest}"
+    if step == "git-fast-forward":
+        plan_steps = (
+            PlanStep(
+                step_id=step,
+                title=f"Exact {step} network {plan_digest}",
+                effect=EffectKind.NETWORK_CALL,
+                logical_resources=resources,
+                risk="high",
+            ),
+            PlanStep(
+                step_id=f"{step}-process",
+                title=f"Exact {step} process {plan_digest}",
+                effect=EffectKind.PROCESS_RUN,
+                logical_resources=resources,
+                depends_on=(step,),
+                risk="high",
+            ),
+            PlanStep(
+                step_id=f"{step}-file",
+                title=f"Exact {step} file {plan_digest}",
+                effect=EffectKind.FILE_WRITE,
+                logical_resources=resources,
+                depends_on=(f"{step}-process",),
+                risk="high",
+            ),
+        )
+    else:
+        plan_steps = (
+            PlanStep(
+                step_id=step,
+                title=f"Exact {step} {plan_digest}",
+                effect=EffectKind.DATABASE_WRITE,
+                logical_resources=resources,
+                risk="high",
+            ),
+        )
     with realm_context.connection.transaction():
         task_plan = graph.create_plan(
             work.id,
             source_revision=source_revision,
             policy_digest=policy.policy_digest,
-            steps=(
-                PlanStep(
-                    step_id=step,
-                    title=f"Exact {step} {plan_digest}",
-                    effect=(
-                        EffectKind.NETWORK_CALL
-                        if step == "git-fast-forward"
-                        else EffectKind.DATABASE_WRITE
-                    ),
-                    logical_resources=resources,
-                    risk="high",
-                ),
-            ),
+            steps=plan_steps,
         )
         authorization = governance.issue_authorization(
             request=request,
@@ -216,12 +250,16 @@ def apply_doctor_repair_with_runtime(
             {"adapter": f"doctor-{step}/v1", "plan_digest": plan_digest}
         ),
     )
+    effect_started = False
+    receipt_known = False
+    terminalization_started = False
     try:
         governance.require_authorized(
             request,
             authorization=authorization,
             consumed_by=f"cli:doctor:{step}",
         )
+        effect_started = True
         result = _apply_step(
             realm_context,
             context,
@@ -236,16 +274,20 @@ def apply_doctor_repair_with_runtime(
                 {"plan_digest": plan_digest, "verified_result": result_digest}
             ),
         )
+        receipt_known = True
         checkpoint = Checkpoint(
             checkpoint_id=f"doctor-{step}-{job.id}",
             project_id=str(project_id),
             work_item_id=str(work.id),
             plan_revision_id=str(task_plan.id),
             source_revision=source_revision,
-            plan_steps=(step,),
-            completed_steps=(step,),
+            plan_steps=task_plan.execution_order,
+            completed_steps=task_plan.execution_order,
             pending_steps=(),
-            step_results=((step, result_digest),),
+            step_results=tuple(
+                (plan_step_id, result_digest)
+                for plan_step_id in task_plan.execution_order
+            ),
             context_manifest_digest=plan_digest,
             journal_head_digest=receipt.adapter_evidence_digest or result_digest,
             next_safe_action="doctor-rerun",
@@ -257,13 +299,50 @@ def apply_doctor_repair_with_runtime(
             project_id,
             work.id,
         ).store_checkpoint(checkpoint, task_plan_id=task_plan.id, job_id=job.id)
-        host.finish(
+        terminal_succeeded = host.finish(
             claimed, outcome=AttemptOutcome.SUCCEEDED, result_digest=result_digest
         )
-        current_work = graph.transition(work.id, WorkState.VERIFICATION)
-        graph.transition(
+        if not terminal_succeeded:
+            raise PolicyViolation("Doctor terminal attempt kapatilamadi")
+        terminalization_started = True
+        current_work = graph.items.get(work.id)
+        current_work = graph.update_details(
             current_work.id,
-            WorkState.COMPLETED,
+            acceptance_criteria=tuple(
+                AcceptanceCriterion(item.text, verified=True)
+                for item in current_work.acceptance_criteria
+            ),
+            reason="doctor terminal result acceptance verified",
+        )
+        current_work = graph.transition(current_work.id, WorkState.VERIFICATION)
+        completion_service = ControlPlaneCompletionService(
+            PostgresControlPlaneCompletionRepository(
+                realm_context.connection, realm_context.realm_id
+            )
+        )
+        completion_request = ControlPlaneCompletionRequest(
+            project_id=project_id,
+            work_item_id=current_work.id,
+            task_plan_id=task_plan.id,
+            job_id=job.id,
+            attempt_id=claimed.attempt_id,
+            checkpoint_id=stored_checkpoint,
+            source_authorization_id=authorization.id,
+            source_authorization_digest=authorization.authorization_digest,
+            source_claim_id=claim.id,
+            source_claim_digest=claim.claim_digest,
+            source_effect_receipt_id=receipt.id,
+            source_operation=step,
+            source_consumed_by=f"cli:doctor:{step}",
+            source_effect_digest=request.effect_digest,
+            source_adapter_digest=claim.adapter_digest,
+            source_adapter_evidence_digest=receipt.adapter_evidence_digest
+            or result_digest,
+            source_resources=tuple(sorted(resources)),
+            source_effects=tuple(sorted(item.value for item in request.effects)),
+            source_data_classifications=tuple(
+                sorted(item.value for item in request.data_classifications)
+            ),
             evidence=(
                 EvidenceRef(
                     kind="runtime-receipt",
@@ -272,7 +351,25 @@ def apply_doctor_repair_with_runtime(
                 ),
             ),
         )
+        try:
+            completion = completion_service.complete(completion_request)
+        except Exception as completion_error:
+            try:
+                completion = completion_service.readback(completion_request)
+            except Exception:
+                raise completion_error
     except Exception as exc:
+        if effect_started:
+            if not terminalization_started:
+                host.jobs.mark_recovery_required(
+                    job.id,
+                    (
+                        f"doctor-{step}-success-receipt-recovery"
+                        if receipt_known
+                        else f"doctor-{step}-effect-uncertain"
+                    ),
+                )
+            raise
         if host.ledger.receipt_for_claim(claim.id) is None:
             host.record_failure(
                 claim,
@@ -305,6 +402,7 @@ def apply_doctor_repair_with_runtime(
         receipt_id=receipt.id,
         checkpoint_id=stored_checkpoint,
         result_digest=result_digest,
+        completion=completion,
     )
 
 

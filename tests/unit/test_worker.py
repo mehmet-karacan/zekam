@@ -1,16 +1,29 @@
-"""Worker handler registry fail-closed kurallari."""
+"""Worker handler registry ve scheduled-only fail-closed kurallari."""
 
 from __future__ import annotations
 
+import datetime as dt
+from typing import cast
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
 
-from zekam.application.worker import WorkerSettings, build_worker, noop_handler, resolve_handlers
+from zekam.application.execution import ExecutionHost
+from zekam.application.worker import (
+    SchedulerGateway,
+    Worker,
+    WorkerSettings,
+    build_worker,
+    noop_handler,
+    resolve_handlers,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.runtime import JobKind
+from zekam.domain.scheduler import JobDefinition, Schedule
 
 pytestmark = pytest.mark.unit
+NOW = dt.datetime(2026, 8, 28, 18, tzinfo=dt.UTC)
 
 
 def test_unknown_handler_is_rejected_at_registry_resolution() -> None:
@@ -36,3 +49,106 @@ def test_worker_cannot_start_without_an_explicit_handler() -> None:
     settings = WorkerSettings(worker_label="test", capabilities=("read",))
     with pytest.raises(PolicyViolation, match="explicit handler"):
         build_worker(object(), uuid4(), settings=settings, handlers={})
+
+
+def test_scheduled_only_worker_starts_without_queue_handler() -> None:
+    settings = WorkerSettings(
+        worker_label="scheduled",
+        capabilities=("read",),
+        poll_seconds=0.001,
+        max_iterations=1,
+    )
+
+    worker = build_worker(
+        object(),
+        uuid4(),
+        settings=settings,
+        handlers={},
+        scheduled_handlers={},
+        with_scheduler=False,
+        consume_queue=False,
+    )
+
+    assert worker.consume_queue is False
+    queue_depth = Mock(return_value=10_000)
+    results = worker.run(queue_depth=queue_depth)
+    assert len(results) == 1
+    queue_depth.assert_not_called()
+
+
+def test_scheduled_only_worker_rejects_unused_queue_handler() -> None:
+    settings = WorkerSettings(worker_label="scheduled", capabilities=("read",))
+
+    with pytest.raises(PolicyViolation, match="Scheduled-only"):
+        build_worker(
+            object(),
+            uuid4(),
+            settings=settings,
+            handlers={str(JobKind.READ_ONLY): noop_handler},
+            with_scheduler=False,
+            consume_queue=False,
+        )
+
+
+def test_scheduled_only_tick_runs_handler_without_claiming_queue() -> None:
+    settings = WorkerSettings(worker_label="scheduled", capabilities=("read",))
+    host_mock = Mock(spec=ExecutionHost)
+    scheduler_mock = Mock(spec=SchedulerGateway)
+    definition_id = uuid4()
+    run_id = uuid4()
+    definition = JobDefinition(
+        job_name="memory-candidate-compile",
+        schedule=Schedule(interval="5m"),
+    )
+    scheduler_mock.definitions.return_value = ((definition_id, definition, None),)
+    scheduler_mock.is_running.return_value = False
+    scheduler_mock.known_keys.return_value = frozenset()
+    scheduler_mock.record_trigger.return_value = run_id
+    handled_at: list[dt.datetime] = []
+
+    def compile_candidates(moment: dt.datetime) -> str:
+        handled_at.append(moment)
+        return "compiler completed"
+
+    worker = Worker(
+        host=cast(ExecutionHost, host_mock),
+        settings=settings,
+        scheduler=cast(SchedulerGateway, scheduler_mock),
+        scheduled_handlers={"memory-candidate-compile": compile_candidates},
+        consume_queue=False,
+    )
+
+    result = worker.tick(now=NOW, queue_depth=10_000)
+
+    assert result.accepted_work is False
+    assert result.triggered_jobs == ("memory-candidate-compile",)
+    assert result.skipped_reason == "scheduled-only: queue claim disabled"
+    assert handled_at == [NOW]
+    host_mock.acquire_work.assert_not_called()
+    scheduler_mock.finish_run.assert_called_once_with(
+        run_id,
+        state="succeeded",
+        detail="compiler completed",
+        now=NOW,
+    )
+
+
+def test_normal_worker_still_claims_queue_by_default() -> None:
+    settings = WorkerSettings(worker_label="queue", capabilities=("read",))
+    host_mock = Mock(spec=ExecutionHost)
+    host_mock.acquire_work.return_value = None
+    worker = Worker(
+        host=cast(ExecutionHost, host_mock),
+        settings=settings,
+        handlers={str(JobKind.READ_ONLY): noop_handler},
+    )
+
+    result = worker.tick(now=NOW)
+
+    assert worker.consume_queue is True
+    assert result.skipped_reason == "kuyruk bos"
+    host_mock.acquire_work.assert_called_once_with(
+        capabilities=("read",),
+        lease_seconds=60,
+        now=NOW,
+    )
