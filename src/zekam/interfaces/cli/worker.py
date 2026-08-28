@@ -154,6 +154,13 @@ def client_runtime_bootstrap_command(
     apply: Annotated[
         bool, typer.Option("--uygula", help="Control-plane bootstrap'i uygular")
     ] = False,
+    rebootstrap: Annotated[
+        bool,
+        typer.Option(
+            "--rebootstrap",
+            help="Terminal onceki bootstrap sonrasi ayni Work icin explicit yeni revision kurar",
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -177,6 +184,7 @@ def client_runtime_bootstrap_command(
                 session_id=entry.session_id,
                 entry_digest=entry.entry_digest,
                 source_revision=source_revision,
+                rebootstrap=rebootstrap,
             )
             document = plan.as_dict()
             if apply:
