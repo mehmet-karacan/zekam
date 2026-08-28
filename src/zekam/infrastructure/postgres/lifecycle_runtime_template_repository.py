@@ -232,7 +232,13 @@ class LifecycleRuntimeTemplateRepository:
         source_revision: str,
         policy_digest: str,
     ) -> LifecycleRuntimeTemplate:
-        return self._at_timestamp(project_id, source_revision, policy_digest, as_of=None)
+        return self._at_timestamp(
+            project_id,
+            source_revision,
+            policy_digest,
+            validity_as_of=None,
+            captured_through=None,
+        )
 
     def at_effect(self, job_id: UUID, claim_id: UUID) -> LifecycleRuntimeTemplate:
         """Resolve the exact template that was current when a receiptless effect began."""
@@ -240,11 +246,14 @@ class LifecycleRuntimeTemplateRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select job.project_id,job.payload->>'source_revision',"
-                " job.payload->>'policy_digest',claim.claimed_at"
+                " job.payload->>'policy_digest',claim.claimed_at,lease.expires_at"
                 " from runtime.job job join runtime.effect_claim claim"
                 " on claim.realm_id=job.realm_id and claim.job_id=job.id"
                 " join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
                 " and attempt.id=claim.attempt_id and attempt.job_id=job.id"
+                " join runtime.lease lease on lease.realm_id=job.realm_id"
+                " and lease.job_id=job.id and lease.attempt_id=attempt.id"
+                " and lease.fencing_token=claim.fencing_token"
                 " where job.realm_id=%s and job.id=%s and claim.id=%s"
                 " and job.payload->>'schema'='zekam-lifecycle-template-prepare-job/v1'"
                 " and claim.operation='lifecycle-template-prepare'"
@@ -259,7 +268,11 @@ class LifecycleRuntimeTemplateRepository:
             raise PolicyViolation("Lifecycle recovery exact receiptless effect ister")
         row = rows[0]
         return self._at_timestamp(
-            UUID(str(row[0])), str(row[1]), str(row[2]), as_of=row[3]
+            UUID(str(row[0])),
+            str(row[1]),
+            str(row[2]),
+            validity_as_of=row[3],
+            captured_through=row[4],
         )
 
     def _at_timestamp(
@@ -268,7 +281,8 @@ class LifecycleRuntimeTemplateRepository:
         source_revision: str,
         policy_digest: str,
         *,
-        as_of: dt.datetime | None,
+        validity_as_of: dt.datetime | None,
+        captured_through: dt.datetime | None,
     ) -> LifecycleRuntimeTemplate:
         if not source_revision.strip():
             raise PolicyViolation("Lifecycle runtime template source revision ister")
@@ -336,6 +350,7 @@ class LifecycleRuntimeTemplateRepository:
                 " cross join lateral(select item.tool_set_digest from tools.compiled_set item"
                 " where item.realm_id=e.realm_id and item.role='builder'"
                 " and item.permission_profile_digest=e.permission_profile_digest"
+                " and item.created_at<=coalesce(%s,statement_timestamp())"
                 " order by item.created_at desc,item.id desc limit 1) tool_set"
                 " cross join lateral(select hook_set.hook_set_digest,"
                 " hook_set.config_effective_digest from hooks.compiled_set hook_set"
@@ -348,24 +363,25 @@ class LifecycleRuntimeTemplateRepository:
                     project_id,
                     source_revision,
                     policy_digest,
-                    as_of,
-                    as_of,
+                    captured_through,
+                    validity_as_of,
                     self.realm_id,
                     policy_digest,
-                    as_of,
-                    as_of,
-                    as_of,
+                    captured_through,
+                    captured_through,
+                    validity_as_of,
                     self.realm_id,
-                    as_of,
-                    as_of,
+                    captured_through,
+                    validity_as_of,
                     self.realm_id,
-                    as_of,
+                    captured_through,
                     source_revision,
-                    as_of,
-                    as_of,
-                    as_of,
-                    as_of,
-                    as_of,
+                    captured_through,
+                    validity_as_of,
+                    captured_through,
+                    validity_as_of,
+                    captured_through,
+                    captured_through,
                 ),
             )
             rows = cursor.fetchall()
