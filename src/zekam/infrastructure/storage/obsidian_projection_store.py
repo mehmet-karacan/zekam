@@ -81,11 +81,80 @@ class PublishedObsidianProjection:
     manifest_digest: str
     receipt_digest: str
     current_ref: str
+    stable_vault: str
 
 
 @dataclass(frozen=True, slots=True)
 class LocalObsidianProjectionStore:
     root: Path
+
+    @staticmethod
+    def _publish_stable_vault(profile_root: Path, generation_root: Path) -> Path:
+        """Materialize the verified generation at a watcher-friendly stable path."""
+
+        stable = profile_root / "GUNCEL_BELLEK"
+        if stable.exists() and (_unsafe(stable) or not stable.is_dir()):
+            raise PolicyViolation("Obsidian GUNCEL_BELLEK guvenli directory olmali")
+        stable.mkdir(exist_ok=True)
+        marker = stable / ".zekam-managed-files.json"
+        previous: set[str] = set()
+        if marker.exists():
+            _regular(marker)
+            try:
+                document = json.loads(marker.read_text(encoding="utf-8"))
+                if document.get("schema") != "zekam-obsidian-stable-vault/v1":
+                    raise ValidationFailed("Obsidian stable vault marker schema gecersiz")
+                previous = {str(item) for item in document.get("files", [])}
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValidationFailed("Obsidian stable vault marker okunamadi") from exc
+
+        managed: set[str] = set()
+        for source in sorted(generation_root.rglob("*")):
+            if not source.is_file():
+                continue
+            _regular(source)
+            relative = source.relative_to(generation_root).as_posix()
+            _safe_relative(relative)
+            managed.add(relative)
+            target = stable.joinpath(*PurePosixPath(relative).parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if _unsafe(target.parent) or (target.exists() and _unsafe(target)):
+                raise PolicyViolation("Obsidian stable vault path symlink veya reparse olamaz")
+            descriptor, temporary_name = tempfile.mkstemp(prefix=".zekam-", dir=target.parent)
+            temporary = Path(temporary_name)
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(source.read_bytes())
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+        for relative in sorted(previous - managed, reverse=True):
+            _safe_relative(relative)
+            target = stable.joinpath(*PurePosixPath(relative).parts)
+            if target.exists():
+                _regular(target)
+                target.unlink()
+
+        marker_document = {
+            "schema": "zekam-obsidian-stable-vault/v1",
+            "generation": generation_root.name,
+            "files": sorted(managed),
+            "grants_authority": False,
+        }
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".zekam-marker-", dir=stable)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(canonical_bytes(marker_document))
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.replace(marker)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return stable
 
     @property
     def identity_digest(self) -> str:
@@ -258,6 +327,7 @@ class LocalObsidianProjectionStore:
             temporary.replace(profile_root / "CURRENT.json")
         finally:
             temporary.unlink(missing_ok=True)
+        stable_vault = self._publish_stable_vault(profile_root, destination)
         return PublishedObsidianProjection(
             project_id=staged.bundle.project_id,
             store_identity_digest=self.identity_digest,
@@ -271,6 +341,7 @@ class LocalObsidianProjectionStore:
                 f"{staged.bundle.profile.value}:"
                 f"{staged.generation}"
             ),
+            stable_vault=str(stable_vault),
         )
 
     def verify_current(

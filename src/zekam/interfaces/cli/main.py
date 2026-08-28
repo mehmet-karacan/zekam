@@ -20,6 +20,10 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam import __version__
+from zekam.application.client_instruction_bootstrap import (
+    apply_client_instruction_bootstrap,
+    plan_client_instruction_bootstrap,
+)
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
 from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
@@ -269,6 +273,7 @@ def init(
         opencode_plan = plan_opencode_agent_bootstrap(
             executable=_opencode_executable(context), user_home=Path.home()
         )
+        client_instruction_plan = plan_client_instruction_bootstrap(user_home=Path.home())
         if dry_run:
             table = Table(title=f"{PRODUCT.data_root_env} plani: {context.home}")
             table.add_column("Dizin")
@@ -303,11 +308,18 @@ def init(
                     "user-config",
                     ("olusturulacak" if opencode_plan.lifecycle_plugin_to_create else "mevcut"),
                 )
+            for instruction in client_instruction_plan.files:
+                table.add_row(
+                    str(instruction.path.relative_to(Path.home())),
+                    "user-config",
+                    instruction.action,
+                )
             console.print(table)
             raise typer.Exit(0)
         context.layout.ensure()
         apply_persistence_setup(persistence_plan)
         apply_opencode_agent_bootstrap(opencode_plan)
+        apply_client_instruction_bootstrap(client_instruction_plan)
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc

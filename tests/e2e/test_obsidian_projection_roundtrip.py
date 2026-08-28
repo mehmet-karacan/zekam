@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -111,6 +112,10 @@ def test_immutable_generation_and_atomic_current_roundtrip(
     )
     assert verified["status"] == "passed"
     assert published.projection_digest == first.projection_digest
+    stable = Path(published.stable_vault)
+    assert stable.name == "GUNCEL_BELLEK"
+    stable_note = next(stable.glob("01_ACTIVE/**/*.md"))
+    first_bytes = stable_note.read_bytes()
     second = _bundle("Second canonical state.")
     with pytest.raises(PolicyViolation, match="stale"):
         store.verify_current(
@@ -121,7 +126,13 @@ def test_immutable_generation_and_atomic_current_roundtrip(
             expected_manifest_digest=second.manifest_digest,
             expected_receipt_digest=second.receipt_digest,
         )
-    store.publish(store.stage(second))
+    second_published = store.publish(store.stage(second))
+    assert Path(second_published.stable_vault) == stable
+    assert next(stable.glob("01_ACTIVE/**/*.md")).read_bytes() != first_bytes
+    marker = json.loads(
+        (stable / ".zekam-managed-files.json").read_text(encoding="utf-8")
+    )
+    assert marker["generation"] == second.projection_digest.removeprefix("sha256:")
     assert (
         store.verify_current(
             "yerel",
