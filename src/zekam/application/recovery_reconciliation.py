@@ -22,6 +22,7 @@ from zekam.domain.realm import Realm
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import (
     AttemptOutcome,
+    FailureCategory,
     Job,
     JobKind,
     JobState,
@@ -31,6 +32,9 @@ from zekam.domain.runtime import (
 )
 from zekam.domain.security import Authorization
 from zekam.domain.work import EffectKind, TaskPlan
+from zekam.infrastructure.postgres.client_lifecycle_repository import (
+    ClientLifecycleRepository,
+)
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
@@ -296,9 +300,12 @@ class RecoveryReconciliationPlan:
     old_completion: ReconciledCompletionRequest
     checkpoint: Checkpoint
     evidence_refs: tuple[EvidenceReference, ...]
+    outcome: str = "completed"
 
     def __post_init__(self) -> None:
         parse_digest(self.task_plan_digest)
+        if self.outcome not in {"completed", "failed-no-effect"}:
+            raise ValidationFailed("Recovery outcome desteklenmiyor")
         if not self.evidence_refs:
             raise ValidationFailed("Recovery en az bir portable evidence ref ister")
         if self.checkpoint.project_id != str(self.project_id):
@@ -310,8 +317,10 @@ class RecoveryReconciliationPlan:
 
     @classmethod
     def from_dict(cls, document: Mapping[str, Any]) -> RecoveryReconciliationPlan:
+        normalized = dict(document)
+        normalized.setdefault("outcome", "completed")
         _exact_keys(
-            document,
+            normalized,
             {
                 "schema",
                 "project_id",
@@ -321,6 +330,7 @@ class RecoveryReconciliationPlan:
                 "old_completion",
                 "checkpoint",
                 "evidence_refs",
+                "outcome",
             },
             "Recovery document",
         )
@@ -427,6 +437,7 @@ class RecoveryReconciliationPlan:
             ),
             checkpoint=checkpoint,
             evidence_refs=evidence_refs,
+            outcome=str(normalized["outcome"]),
         )
 
     @property
@@ -437,6 +448,7 @@ class RecoveryReconciliationPlan:
         return {
             "schema": RECOVERY_SCHEMA,
             "operation": RECOVERY_OPERATION,
+            "outcome": self.outcome,
             "project_id": str(self.project_id),
             "work_item_id": str(self.work_item_id),
             "task_plan_id": str(self.task_plan_id),
@@ -668,7 +680,73 @@ class RecoveryReconciliationService:
                 task_plan_id=plan.task_plan_id,
                 job_id=plan.old_completion.job_id,
             )
-            old_finalization = host.finalize_reconciled_completion(plan.old_completion, now=moment)
+            old_claims = tuple(
+                claim
+                for claim in host.ledger.claims_for_job(plan.old_completion.job_id)
+                if claim.id == plan.old_completion.claim_id
+            )
+            if len(old_claims) != 1:
+                raise PolicyViolation("Recovery checkpoint old claim exact degil")
+            if plan.outcome == "failed-no-effect":
+                old_receipt = host.record_failure(
+                    old_claims[0],
+                    category=FailureCategory.ADAPTER,
+                    failure_digest=plan.old_completion.result_digest,
+                    now=moment,
+                )
+                old_finalization = host.finalize_reconciled_failure(
+                    ReconciledFailureRequest(
+                        job_id=plan.old_completion.job_id,
+                        attempt_id=plan.old_completion.attempt_id,
+                        claim_id=plan.old_completion.claim_id,
+                        receipt_id=old_receipt.id,
+                        fencing_token=plan.old_completion.fencing_token,
+                        claim_digest=plan.old_completion.claim_digest,
+                        effect_digest=plan.old_completion.effect_digest,
+                        authorization_digest=plan.old_completion.authorization_digest,
+                        failure_digest=plan.old_completion.result_digest,
+                    ),
+                    now=moment,
+                )
+                old_finalization = RecoveryFinalization(
+                    receipt=old_finalization.receipt,
+                    created=True,
+                )
+            else:
+                old_receipt = host.record_success(
+                    old_claims[0],
+                    result_digest=plan.old_completion.result_digest,
+                    adapter_evidence_digest=plan.old_completion.adapter_evidence_digest,
+                    now=moment,
+                )
+                old_job = host.jobs.get(plan.old_completion.job_id)
+                if old_job.run_id is not None:
+                    lifecycle_repository = ClientLifecycleRepository(self.connection, self.realm.id)
+                    recovered_execution = lifecycle_repository.reconciled_execution(
+                        job_id=plan.old_completion.job_id,
+                        attempt_id=plan.old_completion.attempt_id,
+                        claim_id=plan.old_completion.claim_id,
+                        result_digest=plan.old_completion.result_digest,
+                        journal_head_digest=plan.checkpoint.journal_head_digest,
+                    )
+                    lifecycle_repository.store_job_checkpoint(
+                        execution=recovered_execution,
+                        job_id=plan.old_completion.job_id,
+                        step_id=old_job.step_id or "",
+                        result_digest=(
+                            old_receipt.result_digest or plan.old_completion.result_digest
+                        ),
+                        now=moment,
+                        require_lifecycle_admission=False,
+                        allow_terminal_recovery=True,
+                    )
+                old_finalization = host.finalize_reconciled_completion(
+                    plan.old_completion, now=moment
+                )
+                old_finalization = RecoveryFinalization(
+                    receipt=old_finalization.receipt,
+                    created=True,
+                )
             result_digest = digest(
                 {
                     "recovery_plan_digest": plan.plan_digest,

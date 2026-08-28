@@ -875,6 +875,11 @@ class EffectLedger:
                         receipt.failure_category.value,
                         request.failure_digest,
                     ),
+                    (
+                        AttemptOutcome.RECOVERY_REQUIRED.value,
+                        None,
+                        request.failure_digest,
+                    ),
                 }:
                     raise PolicyViolation("Failure reconciliation replay attempt drift")
                 return RecoveryFinalization(receipt=receipt, created=False)
@@ -897,7 +902,7 @@ class EffectLedger:
             terminal_recovery = attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value
             if terminal_recovery:
                 if (
-                    attempt[2] != receipt.failure_category.value
+                    attempt[2] not in {None, receipt.failure_category.value}
                     or attempt[3] != request.failure_digest
                 ):
                     raise PolicyViolation("Failure reconciliation recovery attempt drift")

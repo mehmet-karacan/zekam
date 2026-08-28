@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from tests.integration.test_agent_residency_postgres import residency_scope as _residency_scope
 
 from zekam.application.execution import (
     AdmissionDecision,
@@ -787,6 +788,66 @@ def test_reconciled_completion_accepts_worker_terminal_recovery_attempt(
     )
     assert replayed.created is False
     assert replayed.receipt == finalized.receipt
+
+
+def test_run_bound_pre_envelope_claim_reconciles_as_failed_no_effect(
+    realm_session: tuple[Realm, Any], tmp_path: Path
+) -> None:
+    scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
+    realm, connection = realm_session
+    run = scope["run"]
+    host = ExecutionHost(connection, realm.id, worker_label="no-effect-recovery-worker")
+    job, created = host.jobs.enqueue(
+        _job(
+            run.project_id,
+            realm,
+            resources=(),
+            work_item_id=run.work_item_id,
+            plan_id=run.plan_id,
+            step_id="build",
+            assignment_id=scope["child_id"],
+            run_id=run.id,
+            now=RECOVERY_NOW,
+        )
+    )
+    assert created
+    work = host.acquire_work(capabilities=("sandbox.write",), now=RECOVERY_NOW)
+    assert work is not None and work.job.id == job.id
+    claim = host.claim_effect(
+        work,
+        operation="pre-envelope-bootstrap",
+        effect_digest=DIGEST,
+        authorization_digest=DIGEST,
+        resources=(),
+        adapter_digest=DIGEST,
+        now=RECOVERY_NOW,
+    )
+    assert host.finish(
+        work,
+        outcome=AttemptOutcome.RECOVERY_REQUIRED,
+        result_digest=DIGEST,
+        now=RECOVERY_NOW + dt.timedelta(seconds=1),
+    )
+    failed_receipt = host.record_failure(
+        claim,
+        category=FailureCategory.ADAPTER,
+        failure_digest=DIGEST,
+        now=RECOVERY_NOW + dt.timedelta(seconds=2),
+    )
+    finalized = host.finalize_reconciled_failure(
+        _failure_recovery_request(work, claim, failed_receipt),
+        now=RECOVERY_NOW + dt.timedelta(seconds=3),
+    )
+
+    assert finalized.created is False
+    assert finalized.receipt == failed_receipt
+    assert host.jobs.get(job.id).state is JobState.FAILED
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select count(*) from runtime.execution_envelope where realm_id=%s and job_id=%s",
+            (realm.id, job.id),
+        )
+        assert int(cursor.fetchone()[0]) == 0
 
 
 def test_reconciled_completion_closes_crash_after_terminal_receipt_without_duplicate(

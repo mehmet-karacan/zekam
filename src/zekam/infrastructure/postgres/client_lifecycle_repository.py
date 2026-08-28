@@ -1358,6 +1358,86 @@ class ClientLifecycleRepository:
         parse_digest(value)
         return value
 
+    def reconciled_execution(
+        self,
+        *,
+        job_id: UUID,
+        attempt_id: UUID,
+        claim_id: UUID,
+        result_digest: str,
+        journal_head_digest: str,
+    ) -> ActiveLifecycleExecution:
+        """Resolve immutable run/envelope facts for a terminal recovery checkpoint."""
+
+        parse_digest(result_digest)
+        parse_digest(journal_head_digest)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select job.project_id,job.work_item_id,job.plan_id,job.run_id,attempt.id,"
+                " job.assignment_id,envelope.lease_id,job.fencing_token,envelope.id,"
+                " envelope.envelope_digest,envelope.source_revision,source.tree_digest,"
+                " envelope.policy_digest,"
+                " models.capability_runtime_jsonb_digest(to_jsonb(migration.checksum)),"
+                " envelope.context_manifest_digest,%s,plan.plan_digest"
+                " from runtime.job job join runtime.job_attempt attempt"
+                " on attempt.realm_id=job.realm_id and attempt.job_id=job.id"
+                " join runtime.execution_envelope envelope on envelope.realm_id=job.realm_id"
+                " and envelope.job_id=job.id and envelope.attempt_id=attempt.id"
+                " join work.task_plan plan on plan.realm_id=job.realm_id and plan.id=job.plan_id"
+                " join runtime.execution_run run on run.realm_id=job.realm_id and run.id=job.run_id"
+                " join runtime.effect_claim claim on claim.realm_id=job.realm_id"
+                " and claim.job_id=job.id and claim.attempt_id=attempt.id"
+                " join runtime.effect_receipt receipt on receipt.realm_id=claim.realm_id"
+                " and receipt.claim_id=claim.id and receipt.status='completed'"
+                " join projects.source_binding binding on binding.realm_id=job.realm_id"
+                " and binding.project_id=job.project_id"
+                " join lateral(select item.revision,item.tree_digest"
+                " from projects.source_revision item where item.realm_id=binding.realm_id"
+                " and item.binding_id=binding.id order by item.observed_at desc,item.id desc"
+                " limit 1) source on true"
+                " join lateral(select checksum from core.schema_migrations"
+                " order by version desc limit 1) migration on true"
+                " where job.realm_id=%s and job.id=%s and job.state='recovery-required'"
+                " and attempt.id=%s and attempt.outcome='recovery-required'"
+                " and claim.id=%s and claim.fencing_token=job.fencing_token"
+                " and receipt.result_digest=%s and run.state='active'"
+                " and envelope.id=(select latest.id from runtime.execution_envelope latest"
+                " where latest.realm_id=envelope.realm_id and latest.job_id=envelope.job_id"
+                " and latest.attempt_id=envelope.attempt_id order by latest.request_ordinal desc,"
+                " latest.created_at desc,latest.id desc limit 1)",
+                (
+                    journal_head_digest,
+                    self.realm_id,
+                    job_id,
+                    attempt_id,
+                    claim_id,
+                    result_digest,
+                ),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Recovery checkpoint exact execution state bulunamadi")
+        row = rows[0]
+        return ActiveLifecycleExecution(
+            UUID(str(row[0])),
+            UUID(str(row[1])),
+            UUID(str(row[2])),
+            UUID(str(row[3])),
+            UUID(str(row[4])),
+            UUID(str(row[5])),
+            UUID(str(row[6])),
+            int(row[7]),
+            UUID(str(row[8])),
+            str(row[9]),
+            str(row[10]),
+            str(row[11]),
+            str(row[12]),
+            str(row[13]),
+            str(row[14]),
+            str(row[15]),
+            str(row[16]),
+        )
+
     def store_job_checkpoint(
         self,
         *,
@@ -1367,6 +1447,7 @@ class ClientLifecycleRepository:
         result_digest: str,
         now: dt.datetime,
         require_lifecycle_admission: bool = True,
+        allow_terminal_recovery: bool = False,
     ) -> UUID:
         """Persist legacy continuity plus the required run-bound checkpoint v2."""
 
@@ -1444,6 +1525,7 @@ class ClientLifecycleRepository:
             result_digest=result_digest,
             now=now,
             require_lifecycle_admission=require_lifecycle_admission,
+            allow_terminal_recovery=allow_terminal_recovery,
         )
         if legacy_checkpoint_id is None:
             raise PolicyViolation("Lifecycle legacy checkpoint kimligi uretilmedi")
@@ -1458,6 +1540,7 @@ class ClientLifecycleRepository:
         result_digest: str,
         now: dt.datetime,
         require_lifecycle_admission: bool = True,
+        allow_terminal_recovery: bool = False,
     ) -> UUID:
         """Append one receipt- and verifier-complete checkpoint v2 revision."""
 
@@ -1509,6 +1592,7 @@ class ClientLifecycleRepository:
             result_digest=result_digest,
             now=now,
             require_lifecycle_admission=require_lifecycle_admission,
+            allow_terminal_recovery=allow_terminal_recovery,
         )
         verifier_invocation_id, verifier_result_digest = self._record_checkpoint_verifier(
             execution=execution,
@@ -1634,6 +1718,7 @@ class ClientLifecycleRepository:
         result_digest: str,
         now: dt.datetime,
         require_lifecycle_admission: bool = True,
+        allow_terminal_recovery: bool = False,
     ) -> dict[str, Any]:
         """Re-read the exact canonical effect and execution facts used by v2."""
 
@@ -1653,16 +1738,19 @@ class ClientLifecycleRepository:
                 " receipt.id,receipt.adapter_evidence_digest,plan_step.body,builder.risk"
                 " from runtime.job job"
                 " join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
-                "  and attempt.job_id=job.id and attempt.id=%s and attempt.outcome is null"
-                " join runtime.lease lease on lease.realm_id=job.realm_id and lease.job_id=job.id"
+                "  and attempt.job_id=job.id and attempt.id=%s"
+                "  and ((%s and attempt.outcome='recovery-required')"
+                "    or (not %s and attempt.outcome is null))"
+                " left join runtime.lease lease on lease.realm_id=job.realm_id"
+                "  and lease.job_id=job.id"
                 "  and lease.attempt_id=attempt.id and lease.id=%s and lease.fencing_token=%s"
                 "  and lease.expires_at>%s"
                 " join runtime.execution_run run on run.realm_id=job.realm_id"
                 "  and run.id=job.run_id and run.id=%s and run.state='active'"
                 " join runtime.execution_envelope envelope on envelope.realm_id=job.realm_id"
                 "  and envelope.id=%s and envelope.job_id=job.id"
-                "  and envelope.attempt_id=attempt.id and envelope.lease_id=lease.id"
-                "  and envelope.fencing_token=lease.fencing_token"
+                "  and envelope.attempt_id=attempt.id and envelope.lease_id=%s"
+                "  and envelope.fencing_token=%s"
                 " join runtime.turn_execution_snapshot turn on turn.realm_id=envelope.realm_id"
                 "  and turn.id=envelope.turn_execution_snapshot_id"
                 " join runtime.execution_environment_snapshot environment"
@@ -1696,11 +1784,14 @@ class ClientLifecycleRepository:
                 "  and outbox.terminal_receipt_digest is not null"
                 " join runtime.effect_claim claim on claim.realm_id=job.realm_id"
                 "  and claim.job_id=job.id and claim.attempt_id=attempt.id"
-                "  and claim.fencing_token=lease.fencing_token"
+                "  and claim.fencing_token=attempt.fencing_token"
                 " join runtime.effect_receipt receipt on receipt.realm_id=claim.realm_id"
                 "  and receipt.claim_id=claim.id and receipt.status='completed'"
                 "  and receipt.result_digest=%s"
-                " where job.realm_id=%s and job.id=%s and job.state='running'"
+                " where job.realm_id=%s and job.id=%s"
+                " and ((%s and job.state='recovery-required')"
+                "   or (not %s and job.state='running'))"
+                " and (%s or lease.id is not null)"
                 " and job.fencing_token=%s and job.step_id=%s"
                 " and plan.plan_digest=%s and plan.source_revision=%s and plan.policy_digest=%s"
                 " and envelope.envelope_digest=%s"
@@ -1713,11 +1804,16 @@ class ClientLifecycleRepository:
                 "   limit 1)",
                 (
                     execution.attempt_id,
+                    allow_terminal_recovery,
+                    allow_terminal_recovery,
+                    allow_terminal_recovery,
                     execution.lease_id,
                     execution.fencing_token,
                     now,
                     execution.run_id,
                     execution.envelope_id,
+                    execution.lease_id,
+                    execution.fencing_token,
                     execution.assignment_id,
                     execution.plan_id,
                     step_id,
@@ -1726,6 +1822,8 @@ class ClientLifecycleRepository:
                     result_digest,
                     self.realm_id,
                     job_id,
+                    allow_terminal_recovery,
+                    allow_terminal_recovery,
                     execution.fencing_token,
                     step_id,
                     execution.work_plan_digest,
