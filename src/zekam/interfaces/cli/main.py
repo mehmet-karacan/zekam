@@ -20,6 +20,10 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam import __version__
+from zekam.application.client_hook_bootstrap import (
+    apply_client_hook_bootstrap,
+    plan_client_hook_bootstrap,
+)
 from zekam.application.client_instruction_bootstrap import (
     apply_client_instruction_bootstrap,
     plan_client_instruction_bootstrap,
@@ -274,6 +278,9 @@ def init(
             executable=_opencode_executable(context), user_home=Path.home()
         )
         client_instruction_plan = plan_client_instruction_bootstrap(user_home=Path.home())
+        client_hook_plan = plan_client_hook_bootstrap(
+            user_home=Path.home(), python_executable=Path(sys.executable)
+        )
         if dry_run:
             table = Table(title=f"{PRODUCT.data_root_env} plani: {context.home}")
             table.add_column("Dizin")
@@ -314,12 +321,19 @@ def init(
                     "user-config",
                     instruction.action,
                 )
+            for hook_file in client_hook_plan.files:
+                table.add_row(
+                    str(hook_file.path.relative_to(Path.home())),
+                    "user-config",
+                    hook_file.action,
+                )
             console.print(table)
             raise typer.Exit(0)
         context.layout.ensure()
         apply_persistence_setup(persistence_plan)
         apply_opencode_agent_bootstrap(opencode_plan)
         apply_client_instruction_bootstrap(client_instruction_plan)
+        apply_client_hook_bootstrap(client_hook_plan)
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc

@@ -1,0 +1,15 @@
+{
+  "schema": "zekam-claude-lifecycle-contract/v1",
+  "client_id": "claude-code",
+  "client_kind": "claude-code",
+  "installed_version": "2.1.224",
+  "settings_path": "~/.claude/settings.json",
+  "events": ["SessionStart", "PreCompact", "PostCompact", "Stop", "SessionEnd"],
+  "hook_command": "python -m zekam.interfaces.cli.client hook --client claude-code --client-version 2.1.224",
+  "stdin": "one Claude Code hook JSON object",
+  "stdout": "empty JSON object",
+  "content_fields_discarded": ["cwd", "transcript_path", "prompt", "summary", "last_assistant_message", "custom_instructions"],
+  "content_fields_persisted": false,
+  "external_provider_required": false,
+  "grants_authority": false
+}

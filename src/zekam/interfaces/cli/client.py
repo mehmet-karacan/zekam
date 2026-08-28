@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 import typer
@@ -18,6 +18,12 @@ from zekam.application.home import resolve_home
 from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
+from zekam.infrastructure.clients.claude_lifecycle import (
+    CLAUDE_CLIENT_ID,
+    MAX_CLAUDE_HOOK_INPUT_BYTES,
+    assert_reviewed_claude_version,
+    parse_claude_hook_input,
+)
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_CLIENT_ID,
     CODEX_REVIEWED_VERSION,
@@ -44,9 +50,9 @@ def _fail_from(exc: ZekamError) -> typer.Exit:
     return _fail(str(exc), code=code)
 
 
-def _codex_spool(home: str | None, client: str) -> ClientLifecycleSpool:
-    if client != CODEX_CLIENT_ID:
-        raise PolicyViolation("Yalniz reviewed Codex lifecycle contract destekleniyor")
+def _client_spool(home: str | None, client: str) -> ClientLifecycleSpool:
+    if client not in {CODEX_CLIENT_ID, CLAUDE_CLIENT_ID}:
+        raise PolicyViolation("Yalniz reviewed Codex/Claude lifecycle contract destekleniyor")
     return ClientLifecycleSpool(resolve_home(home), client_id=client)
 
 
@@ -76,11 +82,20 @@ def hook_command(
     assert_local_effect_admission(("client", "hook"))
     event_name: str | None = None
     try:
-        spool = _codex_spool(home, client)
-        assert_reviewed_codex_version(client_version)
-        payload = sys.stdin.buffer.read(MAX_HOOK_INPUT_BYTES + 1)
+        spool = _client_spool(home, client)
+        if client == CODEX_CLIENT_ID:
+            assert_reviewed_codex_version(client_version)
+            maximum = MAX_HOOK_INPUT_BYTES
+        else:
+            assert_reviewed_claude_version(client_version)
+            maximum = MAX_CLAUDE_HOOK_INPUT_BYTES
+        payload = sys.stdin.buffer.read(maximum + 1)
         event_name = _peek_event_name(payload)
-        envelope = parse_codex_hook_input(payload)
+        envelope: Any
+        if client == CODEX_CLIENT_ID:
+            envelope = parse_codex_hook_input(payload)
+        else:
+            envelope = parse_claude_hook_input(payload)
         spool.stage(
             envelope.observation_body(client_version=client_version),
             delivery_id=envelope.delivery_id(
@@ -125,7 +140,7 @@ def status_command(
     """Yerel lifecycle outbox durumunun bounded queue-index sayfasini raporlar."""
 
     try:
-        document = _codex_spool(home, client).status(
+        document = _client_spool(home, client).status(
             limit=limit,
             after_sequence=after_sequence,
         )
@@ -148,7 +163,7 @@ def pending_command(
     """Governed worker icin bounded, dogrulanmis pending batch'i yazar."""
 
     try:
-        entries = _codex_spool(home, client).pending(limit=limit)
+        entries = _client_spool(home, client).pending(limit=limit)
     except (ZekamError, OSError) as exc:
         if isinstance(exc, OSError):
             raise _fail("Lifecycle spool okunamadi") from exc
@@ -194,7 +209,7 @@ def drain_command(
             raise PolicyViolation(
                 "Lifecycle apply public CLI'dan yapilamaz; exact ClaimedWork worker gerekir"
             )
-        spool = _codex_spool(home, client)
+        spool = _client_spool(home, client)
         pending = spool.pending(limit=limit)
         console.print_json(
             json.dumps(
