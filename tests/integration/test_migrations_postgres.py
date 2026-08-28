@@ -1053,6 +1053,43 @@ def test_0064_checkpoint_stream_cardinality_exact_roundtrip(
             assert cursor.fetchone() == (None,)
 
 
+def test_0065_projection_close_checkpoint_v2_compat_exact_roundtrip(
+    blank_database: DatabaseSettings,
+) -> None:
+    signature = "work.require_meaningful_job_checkpoint()"
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=64)
+        with connection.cursor() as cursor:
+            cursor.execute(f"select pg_get_functiondef('{signature}'::regprocedure)")
+            baseline = str(cursor.fetchone()[0])
+        assert "atomic projection admission" not in baseline
+
+        assert [item.version for item in migrations.upgrade(connection, target=65)] == [65]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"select pg_get_functiondef('{signature}'::regprocedure),"
+                f" obj_description('{signature}'::regprocedure,'pg_proc')"
+            )
+            revised, comment = cursor.fetchone()
+        revised = str(revised)
+        lowered = revised.lower()
+        assert "apply-atomic-close" in lowered
+        assert "projection-aware" in lowered
+        assert "admission.consumed_at is not null" in lowered
+        assert "receipt.status='completed'" in lowered.replace(" ", "")
+        assert "current checkpoint v2 or atomic projection admission" in revised
+        assert comment == (
+            "0065 run-bound v2 gate with exact atomic projection-close compatibility"
+        )
+
+        assert migrations.downgrade(connection, target=65).version == 65
+        assert migrations.status(connection).head == 64
+        with connection.cursor() as cursor:
+            cursor.execute(f"select pg_get_functiondef('{signature}'::regprocedure)")
+            restored = str(cursor.fetchone()[0])
+        assert restored == baseline
+
+
 def test_0056_0057_0058_exact_upgrade_down_reapply_catalog_parity(
     blank_database: DatabaseSettings,
 ) -> None:
