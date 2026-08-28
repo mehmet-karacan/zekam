@@ -122,14 +122,17 @@ def test_immutable_generation_and_atomic_current_roundtrip(
             expected_receipt_digest=second.receipt_digest,
         )
     store.publish(store.stage(second))
-    assert store.verify_current(
-        "yerel",
-        PROJECT_ID,
-        ObsidianProfile.PUBLIC_SAFE,
-        expected_projection_digest=second.projection_digest,
-        expected_manifest_digest=second.manifest_digest,
-        expected_receipt_digest=second.receipt_digest,
-    )["projection_digest"] == second.projection_digest
+    assert (
+        store.verify_current(
+            "yerel",
+            PROJECT_ID,
+            ObsidianProfile.PUBLIC_SAFE,
+            expected_projection_digest=second.projection_digest,
+            expected_manifest_digest=second.manifest_digest,
+            expected_receipt_digest=second.receipt_digest,
+        )["projection_digest"]
+        == second.projection_digest
+    )
     first_generation = (
         tmp_path
         / "obsidian"
@@ -290,39 +293,35 @@ def test_private_and_public_profiles_have_distinct_physical_current_pointers(
     store.publish(store.stage(public))
     store.publish(store.stage(private))
     public_pointer = (
-        tmp_path
-        / "obsidian"
-        / "yerel"
-        / str(PROJECT_ID)
-        / "public-safe"
-        / "CURRENT.json"
+        tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe" / "CURRENT.json"
     )
     private_pointer = (
-        tmp_path
-        / "obsidian"
-        / "yerel"
-        / str(PROJECT_ID)
-        / "private-local"
-        / "CURRENT.json"
+        tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "private-local" / "CURRENT.json"
     )
     assert public_pointer.is_file() and private_pointer.is_file()
     assert public_pointer != private_pointer
-    assert store.verify_current(
-        "yerel",
-        PROJECT_ID,
-        ObsidianProfile.PUBLIC_SAFE,
-        expected_projection_digest=public.projection_digest,
-        expected_manifest_digest=public.manifest_digest,
-        expected_receipt_digest=public.receipt_digest,
-    )["profile"] == ObsidianProfile.PUBLIC_SAFE.value
-    assert store.verify_current(
-        "yerel",
-        PROJECT_ID,
-        ObsidianProfile.PRIVATE_LOCAL,
-        expected_projection_digest=private.projection_digest,
-        expected_manifest_digest=private.manifest_digest,
-        expected_receipt_digest=private.receipt_digest,
-    )["profile"] == ObsidianProfile.PRIVATE_LOCAL.value
+    assert (
+        store.verify_current(
+            "yerel",
+            PROJECT_ID,
+            ObsidianProfile.PUBLIC_SAFE,
+            expected_projection_digest=public.projection_digest,
+            expected_manifest_digest=public.manifest_digest,
+            expected_receipt_digest=public.receipt_digest,
+        )["profile"]
+        == ObsidianProfile.PUBLIC_SAFE.value
+    )
+    assert (
+        store.verify_current(
+            "yerel",
+            PROJECT_ID,
+            ObsidianProfile.PRIVATE_LOCAL,
+            expected_projection_digest=private.projection_digest,
+            expected_manifest_digest=private.manifest_digest,
+            expected_receipt_digest=private.receipt_digest,
+        )["profile"]
+        == ObsidianProfile.PRIVATE_LOCAL.value
+    )
 
 
 def test_current_swap_failure_preserves_previous_valid_pointer(

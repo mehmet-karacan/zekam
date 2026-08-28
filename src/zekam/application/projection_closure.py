@@ -190,7 +190,8 @@ class ProjectionClosureSnapshot:
 
 
 class ProjectionClosureStore(Protocol):
-    connection: Any
+    @property
+    def connection(self) -> Any: ...
 
     def has_terminal_effect_receipt(self, claim_id: UUID) -> bool: ...
 
@@ -308,9 +309,7 @@ class ProjectionClosurePlan:
             pre_close_outbox_payload_digest=snapshot.pre_close_outbox_payload_digest,
             resource=resource,
             claim_idempotency_key=claim_idempotency_key,
-            execution_identity=(
-                f"{snapshot.lease_worker_label}:{snapshot.fencing_token}"
-            ),
+            execution_identity=(f"{snapshot.lease_worker_label}:{snapshot.fencing_token}"),
             result_digest=result_digest,
             effect_digest=effect_digest,
             plan_digest="",
@@ -416,8 +415,7 @@ class ProjectionClosurePlan:
             or self.task_plan_revision < 1
             or self.grants_authority
             or self.pre_close_sequence < 1
-            or (self.pre_close_sequence == 1)
-            != (self.pre_close_previous_digest is None)
+            or (self.pre_close_sequence == 1) != (self.pre_close_previous_digest is None)
             or self.pre_close_outbox_payload_digest
             != digest(
                 {
@@ -552,9 +550,7 @@ class ProjectionAwareClosureService:
             raise PolicyViolation("Projection-aware Work completion verified outcome ister")
         with self.repository.connection.transaction():
             with self.repository.connection.cursor() as cursor:
-                cursor.execute(
-                    "set transaction isolation level repeatable read read only"
-                )
+                cursor.execute("set transaction isolation level repeatable read read only")
             snapshot = self.repository.read_closure_snapshot(receipt)
         snapshot.assert_ready(now=moment)
         if receipt.closed_at < snapshot.work_item.updated_at or receipt.closed_at > moment:
@@ -641,8 +637,7 @@ class ProjectionAwareClosureService:
                     or plan.pre_close_sequence != current.pre_close_sequence
                     or plan.pre_close_previous_digest != current.pre_close_previous_digest
                     or plan.pre_close_outbox_id != current.pre_close_outbox_id
-                    or plan.pre_close_outbox_plan_digest
-                    != current.pre_close_outbox_plan_digest
+                    or plan.pre_close_outbox_plan_digest != current.pre_close_outbox_plan_digest
                     or plan.pre_close_outbox_payload_digest
                     != current.pre_close_outbox_payload_digest
                 ):

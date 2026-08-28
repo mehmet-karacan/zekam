@@ -75,5 +75,7 @@ def test_cli_env_configured_handleri_scheduler_registrye_baglar(
     monkeypatch.setenv("ZEKAM_CHAOS_DRIVER_CONFIG", str(config))
     context = SimpleNamespace(connection=None, realm_id="realm-1")
     handlers = cli_worker._scheduled_handlers(context, str(tmp_path))
-    assert handlers == {"chaos-campaign": marker}
+    assert handlers["chaos-campaign"] is marker
+    assert callable(handlers["memory-candidate-compile"])
+    assert set(handlers) == {"chaos-campaign", "memory-candidate-compile"}
     assert seen == [config]

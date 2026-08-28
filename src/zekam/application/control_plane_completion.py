@@ -46,9 +46,7 @@ class ControlPlaneCompletionRequest:
 
     def __post_init__(self) -> None:
         if not self.source_operation.strip() or not self.source_consumed_by.strip():
-            raise PolicyViolation(
-                "Control-plane completion source operation/consumer ister"
-            )
+            raise PolicyViolation("Control-plane completion source operation/consumer ister")
         parse_digest(self.source_effect_digest)
         parse_digest(self.source_adapter_digest)
         parse_digest(self.source_adapter_evidence_digest)
@@ -68,11 +66,15 @@ class ControlPlaneCompletionRequest:
         for item in self.evidence:
             if item.digest_value is not None:
                 parse_digest(item.digest_value)
-        if len(self.evidence) != 1 or sum(
-            item.kind == "runtime-receipt"
-            and item.reference == str(self.source_effect_receipt_id)
-            for item in self.evidence
-        ) != 1:
+        if (
+            len(self.evidence) != 1
+            or sum(
+                item.kind == "runtime-receipt"
+                and item.reference == str(self.source_effect_receipt_id)
+                for item in self.evidence
+            )
+            != 1
+        ):
             raise PolicyViolation("Control-plane completion exact source receipt evidence ister")
 
     @property
@@ -150,29 +152,21 @@ class ControlPlaneCompletionResult:
 
 
 class ControlPlaneCompletionStore(Protocol):
-    def complete(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult: ...
+    def complete(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult: ...
 
-    def readback(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult: ...
+    def readback(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ControlPlaneCompletionService:
     store: ControlPlaneCompletionStore
 
-    def complete(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult:
+    def complete(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult:
         """Close one exact terminal maintenance chain; never retries an effect."""
 
         return self._verify(request, self.store.complete(request))
 
-    def readback(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult:
+    def readback(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult:
         """Read a committed exact completion after an uncertain caller result."""
 
         return self._verify(request, self.store.readback(request))

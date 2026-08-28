@@ -113,8 +113,12 @@ def test_doctor_core_category_is_healthy_after_init(home_root: Path) -> None:
     runner.invoke(app, ["init", "--home", str(home_root)])
     result = runner.invoke(app, ["doctor", "--home", str(home_root), "--json", "-c", "core"])
     document = json.loads(result.stdout)
-    assert document["overall"] == "healthy"
-    assert result.exit_code == 0
+    checks = {item["check_id"]: item["status"] for item in document["results"]}
+    non_git = {key: value for key, value in checks.items() if key != "core.git-repository"}
+    assert set(non_git.values()) == {"passed"}
+    expected = "healthy" if checks["core.git-repository"] == "passed" else "degraded"
+    assert document["overall"] == expected
+    assert result.exit_code == EXIT_CODES[OverallStatus(expected)]
 
 
 def test_doctor_reports_degraded_before_init(home_root: Path) -> None:

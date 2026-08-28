@@ -31,6 +31,10 @@ from zekam.application.model_capability_live import (
     prepare_capability_live_manifest,
 )
 from zekam.application.model_gateway import ModelGateway
+from zekam.application.mutation_admission import (
+    DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
+    CliMutationInvocationSnapshot,
+)
 from zekam.application.opencode_benchmark_campaign import BENCHMARK_SECRET_REF_NAME
 from zekam.application.opencode_embedding import OpenCodeCredentialStore
 from zekam.application.provider_adapter import AuthorizedProviderClient
@@ -99,7 +103,14 @@ from zekam.interfaces.cli.model_campaign import (
 from zekam.interfaces.cli.model_campaign import (
     _load_manifest as _load_campaign_manifest,
 )
-from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail, fail_from
+from zekam.interfaces.cli.session import (
+    HOME_HELP,
+    REALM_HELP,
+    RealmSession,
+    _current_cli_invocation,
+    fail,
+    fail_from,
+)
 
 app = typer.Typer(
     name="capability",
@@ -109,6 +120,9 @@ app = typer.Typer(
 
 # E2E testleri gercek aga cikmadan ayni authority/claim/receipt zincirini kullanabilir.
 CAPABILITY_TRANSPORT_FACTORY: Any = ProcessIsolatedJsonProviderTransport
+_PLAN_INVOCATION = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.snapshot(
+    ("model", "capability", "plan"), {}
+)
 
 
 def _plan(home: str | None, realm: str) -> CapabilityCohortPlan:
@@ -117,7 +131,7 @@ def _plan(home: str | None, realm: str) -> CapabilityCohortPlan:
         root / "config" / "model_capability_benchmark.yaml",
         repository_root=root,
     )
-    with RealmSession(home, realm) as context:
+    with RealmSession(home, realm, invocation=_PLAN_INVOCATION) as context:
         source = ModelCapabilityRepository(context.connection, context.realm_id).latest_source()
     return CapabilityCohortPlan(
         source_campaign_id=source.campaign_id,
@@ -318,6 +332,7 @@ def _execute_live_episode(
     wave_barrier: threading.Barrier,
     wave_start_ns: list[int],
     wave_start_lock: threading.Lock,
+    invocation: CliMutationInvocationSnapshot,
 ) -> CapabilityEpisodeResult:
     task = next(row for row in plan.registry.tasks if row.task_digest == task_digest)
     prepared_slots = tuple(
@@ -325,7 +340,12 @@ def _execute_live_episode(
         for row in live_manifest.slots
         if row.model_id == model_id and row.task_digest == task_digest
     )
-    with RealmSession(home, realm, enable_runtime_trace=True) as context:
+    with RealmSession(
+        home,
+        realm,
+        enable_runtime_trace=True,
+        invocation=invocation,
+    ) as context:
         runtime_repository = ModelCapabilityRuntimeRepository(context.connection, context.realm_id)
         stored = {
             row.slot.turn_number: row
@@ -1374,6 +1394,7 @@ def run_command(
     del json_output
     approval_manifest: CapabilityRuntimeApprovalManifest | None = None
     try:
+        invocation = _current_cli_invocation()
         plan = _plan(home, realm)
         root = core_root()
         _, _, fixtures = load_capability_registry(
@@ -1437,6 +1458,7 @@ def run_command(
                         wave_barrier=wave_barrier,
                         wave_start_ns=wave_start_ns,
                         wave_start_lock=wave_start_lock,
+                        invocation=invocation,
                     )
                     for model_id in plan.model_ids
                 )

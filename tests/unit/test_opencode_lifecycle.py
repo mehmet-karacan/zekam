@@ -8,6 +8,7 @@ import pytest
 
 from zekam.application.opencode_lifecycle import (
     SCHEMA_V1,
+    OpenCodeForwardBatch,
     lifecycle_client_instance_id,
     lifecycle_root,
     recent_events,
@@ -373,6 +374,42 @@ def test_client_instance_and_canonical_ack_are_durable(tmp_path) -> None:
     assert first == second
     ack = lifecycle_root(tmp_path) / "acked" / f"{local_digest.removeprefix('sha256:')}.json"
     assert json.loads(ack.read_text(encoding="utf-8"))["event_id"] == "event-1"
+
+
+def test_forward_batch_is_immutable_and_binds_exact_first_created_event(tmp_path) -> None:
+    first = record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_forward_batch",
+        now=NOW,
+    ).document()
+    second = record_event(
+        tmp_path,
+        event_type="session.status",
+        session_id="ses_forward_batch",
+        status="running",
+        now=NOW + dt.timedelta(seconds=1),
+    ).document()
+
+    batch = OpenCodeForwardBatch.capture((first, second))
+    first["event_type"] = "session.deleted"
+
+    assert batch.events[0].document()["event_type"] == "session.created"
+    assert batch.events[0].exact_first_session_created
+    assert not batch.events[1].exact_first_session_created
+    assert batch.batch_digest.startswith("sha256:")
+
+
+def test_forward_batch_rejects_digest_drift() -> None:
+    with pytest.raises(ValidationFailed, match="digest drift"):
+        OpenCodeForwardBatch.capture(
+            (
+                {
+                    "schema": "zekam-opencode-lifecycle-event/v2",
+                    "event_digest": "sha256:" + "0" * 64,
+                },
+            )
+        )
 
 
 def test_invalid_persisted_client_instance_is_rejected(tmp_path) -> None:

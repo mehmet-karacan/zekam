@@ -26,6 +26,10 @@ from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
 from zekam.application.doctor_repair import DoctorRepairPlan, build_doctor_repair_plan
 from zekam.application.doctor_repair_runtime import apply_doctor_repair_with_runtime
 from zekam.application.home import resolve_home
+from zekam.application.mutation_admission import (
+    CLI_MUTATION_REGISTRY_META_KEY,
+    DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
+)
 from zekam.application.opencode_agent_bootstrap import (
     apply_opencode_agent_bootstrap,
     plan_opencode_agent_bootstrap,
@@ -126,12 +130,18 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Annotated[
         bool,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Surumu yazar"),
     ] = False,
 ) -> None:
     """Ortak secenekler."""
+
+    # Child command contexts inherit this immutable registry through Click
+    # ``meta``.  The registry is authority-free; leaf services retain their
+    # existing exact plan/authorization/claim/receipt gates.
+    ctx.find_root().meta[CLI_MUTATION_REGISTRY_META_KEY] = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY
 
 
 @app.command()
@@ -415,9 +425,7 @@ def _doctor_project_id(
     *,
     requested: UUID | None,
 ) -> UUID:
-    integration = ProjectIntegrationService(
-        realm_context.connection, realm_context.realm
-    )
+    integration = ProjectIntegrationService(realm_context.connection, realm_context.realm)
     if requested is not None:
         integration.projects.get(requested)
         if integration.resolve_source_root(requested).resolve() != context.core_path.resolve():
@@ -438,9 +446,7 @@ def _doctor_project_id(
     return candidates[0]
 
 
-def _doctor_actor_id(
-    realm_context: RealmContext, *, requested: UUID | None
-) -> UUID:
+def _doctor_actor_id(realm_context: RealmContext, *, requested: UUID | None) -> UUID:
     actors = ActorRepository(realm_context.connection, realm_context.realm_id)
     if requested is not None:
         actor = actors.get(requested)
@@ -453,9 +459,7 @@ def _doctor_actor_id(
         if actor.kind is ActorKind.HUMAN and actor.status is LifecycleStatus.ACTIVE
     )
     if len(candidates) != 1:
-        raise PolicyViolation(
-            "Doctor repair exact tek aktif human actor ister; --actor-id verin"
-        )
+        raise PolicyViolation("Doctor repair exact tek aktif human actor ister; --actor-id verin")
     return candidates[0].id
 
 

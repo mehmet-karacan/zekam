@@ -31,9 +31,7 @@ def test_memory_hook_bundle_is_deterministic_exact_and_authority_free() -> None:
     assert all(item.revision == MEMORY_HOOK_REVISION for item in first.specs)
     assert all(item.execution_mode is HookExecutionMode.INTERNAL for item in first.adapters)
     assert all(not item.effect_capable for item in first.adapters)
-    for event, spec, runtime in zip(
-        MEMORY_HOOK_EVENTS, first.specs, first.runtimes, strict=True
-    ):
+    for event, spec, runtime in zip(MEMORY_HOOK_EVENTS, first.specs, first.runtimes, strict=True):
         legacy_spec_id, legacy_hook_digest, legacy_runtime_digest = legacy[event]
         assert legacy_spec_id != spec.id
         assert legacy_hook_digest != spec.hook_digest
@@ -68,6 +66,5 @@ def test_memory_hook_bundle_is_deterministic_exact_and_authority_free() -> None:
     assert all(item.payload["command"]["provider_calls"] == 0 for item in results)
     assert all(item.payload["command"]["direct_promotion"] is False for item in results)
     assert all(
-        item.payload["command_digest"] == digest(item.payload["command"])
-        for item in results
+        item.payload["command_digest"] == digest(item.payload["command"]) for item in results
     )

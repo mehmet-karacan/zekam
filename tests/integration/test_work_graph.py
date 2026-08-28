@@ -66,21 +66,20 @@ def test_full_lifecycle_builds_verifiable_chain(service: WorkGraphService, proje
     service.transition(item.id, WorkState.READY)
     service.transition(item.id, WorkState.ACTIVE)
     service.transition(item.id, WorkState.VERIFICATION)
-    completed = service.transition(
-        item.id,
-        WorkState.COMPLETED,
-        evidence=(EvidenceRef(kind="test", reference="pytest"),),
-    )
+    with pytest.raises(PolicyViolation, match="ProjectionAwareClosureService"):
+        service.transition(
+            item.id,
+            WorkState.COMPLETED,
+            evidence=(EvidenceRef(kind="test", reference="pytest"),),
+        )
 
-    assert completed.state is WorkState.COMPLETED
-    assert completed.revision == 5
+    assert service.items.get(item.id).state is WorkState.VERIFICATION
     assert service.verify_history(item.id)
     assert [record["state"] for record in service.history(item.id)] == [
         "proposed",
         "ready",
         "active",
         "verification",
-        "completed",
     ]
 
 
@@ -91,12 +90,12 @@ def test_completed_without_evidence_is_rejected_by_database(
     service.transition(item.id, WorkState.READY)
     service.transition(item.id, WorkState.ACTIVE)
     service.transition(item.id, WorkState.VERIFICATION)
-    with pytest.raises(PolicyViolation, match="Acceptance evidence"):
+    with pytest.raises(PolicyViolation, match="ProjectionAwareClosureService"):
         service.transition(item.id, WorkState.COMPLETED)
 
     # Uygulama katmani atlanarak dogrudan yazma da reddedilmelidir.
     with (
-        pytest.raises(Exception, match="work_item_completed_requires_evidence"),
+        pytest.raises(Exception, match="projection-aware continuity admission"),
         service.connection.cursor() as cursor,
     ):
         cursor.execute("update work.work_item set state = 'completed' where id = %s", (item.id,))
@@ -104,7 +103,7 @@ def test_completed_without_evidence_is_rejected_by_database(
 
 def test_forbidden_transition_is_rejected(service: WorkGraphService, project_id: Any) -> None:
     item = _create(service, project_id)
-    with pytest.raises(PolicyViolation, match="Izinsiz durum gecisi"):
+    with pytest.raises(PolicyViolation, match="ProjectionAwareClosureService"):
         service.transition(item.id, WorkState.COMPLETED)
 
 
@@ -163,7 +162,7 @@ def test_dependency_blocks_activation(service: WorkGraphService, project_id: Any
         service.transition(dependent.id, WorkState.ACTIVE)
 
 
-def test_activation_is_allowed_after_dependency_completes(
+def test_dependency_cannot_be_unblocked_by_raw_completed_write(
     service: WorkGraphService, project_id: Any
 ) -> None:
     blocker = _create(service, project_id, "Onkosul")
@@ -172,12 +171,15 @@ def test_activation_is_allowed_after_dependency_completes(
 
     for state in (WorkState.READY, WorkState.ACTIVE, WorkState.VERIFICATION):
         service.transition(blocker.id, state)
-    service.transition(
-        blocker.id, WorkState.COMPLETED, evidence=(EvidenceRef(kind="test", reference="ok"),)
-    )
-
+    with pytest.raises(PolicyViolation, match="ProjectionAwareClosureService"):
+        service.transition(
+            blocker.id,
+            WorkState.COMPLETED,
+            evidence=(EvidenceRef(kind="test", reference="ok"),),
+        )
     service.transition(dependent.id, WorkState.READY)
-    assert service.transition(dependent.id, WorkState.ACTIVE).state is WorkState.ACTIVE
+    with pytest.raises(PolicyViolation, match="Bagimlilik veya blocker"):
+        service.transition(dependent.id, WorkState.ACTIVE)
 
 
 def test_relation_cycle_is_rejected_by_database(service: WorkGraphService, project_id: Any) -> None:
@@ -377,14 +379,10 @@ def test_today_orders_by_state_priority(service: WorkGraphService, project_id: A
     assert proposed.title in titles
 
 
-def test_completed_work_is_not_in_today(service: WorkGraphService, project_id: Any) -> None:
-    item = _create(service, project_id, "Bitmis")
-    for state in (WorkState.READY, WorkState.ACTIVE, WorkState.VERIFICATION):
-        service.transition(item.id, state)
-    service.transition(
-        item.id, WorkState.COMPLETED, evidence=(EvidenceRef(kind="test", reference="ok"),)
-    )
-    assert "Bitmis" not in [entry.title for entry in service.today()]
+def test_cancelled_work_is_not_in_today(service: WorkGraphService, project_id: Any) -> None:
+    item = _create(service, project_id, "Iptal")
+    service.transition(item.id, WorkState.CANCELLED)
+    assert "Iptal" not in [entry.title for entry in service.today()]
 
 
 def test_next_actionable_skips_blocked_work(service: WorkGraphService, project_id: Any) -> None:

@@ -191,9 +191,7 @@ def observe_git_repository(root: Path) -> GitRepositoryState:
     ahead = 0
     behind = 0
     if upstream_head is not None:
-        counts = _git_required(
-            root, "rev-list", "--left-right", "--count", "@{upstream}...HEAD"
-        )
+        counts = _git_required(root, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
         left, right = counts.split()
         behind, ahead = int(left), int(right)
     remote, remote_branch = _split_upstream(root, upstream_ref)
@@ -305,9 +303,7 @@ def apply_git_fast_forward(
 def _split_upstream(root: Path, upstream_ref: str | None) -> tuple[str | None, str | None]:
     if upstream_ref is None:
         return None, None
-    remotes = tuple(
-        sorted(_git_required(root, "remote").splitlines(), key=len, reverse=True)
-    )
+    remotes = tuple(sorted(_git_required(root, "remote").splitlines(), key=len, reverse=True))
     for remote in remotes:
         prefix = f"refs/remotes/{remote}/"
         if upstream_ref.startswith(prefix):

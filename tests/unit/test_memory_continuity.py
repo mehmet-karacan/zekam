@@ -22,11 +22,17 @@ from zekam.domain.session_continuity import (
     CloseStatus,
     ContextOmissionReference,
     ContextSelectionReference,
+    DataClassification,
     DigestReference,
     FreshnessDimension,
+    HydrationInventoryEntry,
+    HydrationInventorySnapshot,
     SessionCloseReceipt,
     SessionHydrationReceipt,
     TruthClass,
+)
+from zekam.infrastructure.postgres.memory_continuity_repository import (
+    MemoryContinuityRepository,
 )
 
 pytestmark = pytest.mark.unit
@@ -51,6 +57,7 @@ class Repository:
             ready_for_mutation=False,
         )
         self.release_snapshot: ProjectionReleaseSnapshot | None = None
+        self.inventory: HydrationInventorySnapshot | None = None
 
     def store_hydration_receipt(
         self, receipt: SessionHydrationReceipt, *, idempotency_key: str
@@ -70,9 +77,12 @@ class Repository:
         assert kwargs["session_id"] == "session-hydration"
         return self.snapshot
 
-    def read_projection_release_snapshot(
-        self, **kwargs: object
-    ) -> ProjectionReleaseSnapshot:
+    def read_hydration_inventory(self, **kwargs):  # type: ignore[no-untyped-def]
+        assert self.inventory is not None
+        assert kwargs["run_id"] == self.inventory.run_id
+        return self.inventory
+
+    def read_projection_release_snapshot(self, **kwargs: object) -> ProjectionReleaseSnapshot:
         assert kwargs["session_id"] == "session-close"
         assert self.release_snapshot is not None
         return self.release_snapshot
@@ -167,7 +177,7 @@ def _request(*, budget: int = 8) -> HydrationPreparation:
         source_digest=digest("source"),
         policy_digest=digest("policy"),
         migration_digest=digest("migration"),
-        inventory_digest=digest("inventory"),
+        inventory_digest=None,
         context_digest=digest("context"),
         required_candidates=(_selection("required:work", 5),),
         optional_candidates=(
@@ -184,9 +194,59 @@ def _request(*, budget: int = 8) -> HydrationPreparation:
     )
 
 
+def _inventory(request: HydrationPreparation) -> HydrationInventorySnapshot:
+    candidates = request.required_candidates + request.optional_candidates
+    required_refs = {item.ref for item in request.required_candidates}
+    return HydrationInventorySnapshot(
+        realm_id=request.realm_id,
+        project_id=request.project_id,
+        work_item_id=request.work_item_id,
+        run_id=request.run_id,
+        session_id=request.session_id,
+        client_id=request.client_id,
+        plan_ref=str(request.plan_ref),
+        checkpoint_ref=str(request.checkpoint_ref),
+        source_digest=str(request.source_digest),
+        policy_digest=str(request.policy_digest),
+        migration_digest=str(request.migration_digest),
+        context_digest=str(request.context_digest),
+        entries=tuple(
+            HydrationInventoryEntry(
+                ref=item.ref,
+                content_digest=item.content_digest,
+                token_count=item.token_count,
+                truth_class=item.truth_class,
+                classification=DataClassification.INTERNAL,
+                required=item.ref in required_refs,
+                source_ref=f"source:{item.ref}",
+                source_revision="revision:one",
+            )
+            for item in candidates
+        ),
+        known_omissions=request.known_omissions,
+        projection_refs=(
+            DigestReference(
+                "projection/active-work",
+                digest("active-work-projection"),
+                TruthClass.REPO_FACT,
+            ),
+        ),
+        hydration_event_digest=str(request.hydration_event_digest),
+    )
+
+
+def _hydration_service(
+    request: HydrationPreparation,
+) -> tuple[Repository, Authorizations, MemoryContinuityService]:
+    repository = Repository()
+    repository.inventory = _inventory(request)
+    authorizations = Authorizations()
+    return repository, authorizations, MemoryContinuityService(repository, authorizations)
+
+
 def test_hydration_prepare_is_deterministic_required_first_and_budget_bounded() -> None:
-    service = MemoryContinuityService(Repository(), Authorizations())
     request = _request()
+    _, _, service = _hydration_service(request)
 
     first = service.prepare_hydration(request)
     second = service.prepare_hydration(request)
@@ -203,16 +263,16 @@ def test_hydration_prepare_is_deterministic_required_first_and_budget_bounded() 
 
 
 def test_hydration_required_set_cannot_be_silently_truncated() -> None:
-    service = MemoryContinuityService(Repository(), Authorizations())
+    request = _request(budget=4)
+    _, _, service = _hydration_service(request)
     with pytest.raises(PolicyViolation, match="Required continuity set"):
-        service.prepare_hydration(_request(budget=4))
+        service.prepare_hydration(request)
 
 
 def test_apply_revalidates_drift_and_consumes_exact_authorization() -> None:
-    repository = Repository()
-    authorizations = Authorizations()
-    service = MemoryContinuityService(repository, authorizations)
-    plan = service.prepare_hydration(_request())
+    request = _request()
+    repository, authorizations, service = _hydration_service(request)
+    plan = service.prepare_hydration(request)
     authorization = Authorization.issue(
         realm_id=plan.receipt.realm_id,
         actor_id=uuid4(),
@@ -230,10 +290,6 @@ def test_apply_revalidates_drift_and_consumes_exact_authorization() -> None:
     applied = service.apply(
         plan,
         authorization_id=authorization.id,
-        current_source_digest=plan.source_digest,
-        current_policy_digest=plan.policy_digest,
-        current_migration_digest=plan.migration_digest,
-        current_context_digest=plan.context_digest,
         now=NOW,
     )
 
@@ -242,23 +298,20 @@ def test_apply_revalidates_drift_and_consumes_exact_authorization() -> None:
     assert applied.receipt_digest == plan.receipt_digest
     assert applied.result_digest.startswith("sha256:")
 
-    with pytest.raises(PolicyViolation, match="binding drift"):
+    assert repository.inventory is not None
+    repository.inventory = replace(repository.inventory, source_digest=digest("changed-source"))
+    with pytest.raises(PolicyViolation, match="degisti"):
         service.apply(
             plan,
             authorization_id=authorization.id,
-            current_source_digest=digest("changed-source"),
-            current_policy_digest=plan.policy_digest,
-            current_migration_digest=plan.migration_digest,
-            current_context_digest=plan.context_digest,
             now=NOW,
         )
 
 
 def test_apply_rejects_authorization_scope_mismatch_before_store() -> None:
-    repository = Repository()
-    authorizations = Authorizations()
-    service = MemoryContinuityService(repository, authorizations)
-    plan = service.prepare_hydration(_request())
+    request = _request()
+    repository, authorizations, service = _hydration_service(request)
+    plan = service.prepare_hydration(request)
     wrong = Authorization.issue(
         realm_id=plan.receipt.realm_id,
         actor_id=uuid4(),
@@ -277,13 +330,78 @@ def test_apply_rejects_authorization_scope_mismatch_before_store() -> None:
         service.apply(
             plan,
             authorization_id=wrong.id,
-            current_source_digest=plan.source_digest,
-            current_policy_digest=plan.policy_digest,
-            current_migration_digest=plan.migration_digest,
-            current_context_digest=plan.context_digest,
             now=NOW,
         )
     assert repository.stored == [] and authorizations.consumed == 0
+
+
+def test_apply_rejects_active_work_projection_drift_before_authorization() -> None:
+    request = _request()
+    repository, authorizations, service = _hydration_service(request)
+    plan = service.prepare_hydration(request)
+    authorization = Authorization.issue(
+        realm_id=plan.receipt.realm_id,
+        actor_id=uuid4(),
+        plan_digest=plan.plan_digest,
+        effect_digest=plan.effect_digest,
+        scope=AuthorizationScope(
+            allowed_resources=(plan.resource,), allowed_effects=("database-write",)
+        ),
+        risk="high",
+        lifetime=dt.timedelta(minutes=5),
+        now=NOW,
+    )
+    authorizations.current = authorization
+    assert repository.inventory is not None
+    repository.inventory = replace(
+        repository.inventory,
+        projection_refs=(
+            DigestReference(
+                "projection/active-work",
+                digest("reprojected-active-work"),
+                TruthClass.REPO_FACT,
+            ),
+        ),
+    )
+
+    with pytest.raises(PolicyViolation, match="projection/freshness"):
+        service.apply(plan, authorization_id=authorization.id, now=NOW)
+    assert authorizations.consumed == 0 and repository.stored == []
+
+
+def test_stored_hydration_booleans_cannot_hide_canonical_projection_drift() -> None:
+    request = _request()
+    repository, _, service = _hydration_service(request)
+    plan = service.prepare_hydration(request)
+    assert isinstance(plan.receipt, SessionHydrationReceipt)
+    assert repository.inventory is not None
+    current = MemoryContinuityRepository._hydration_receipt_is_current(
+        receipt_digest=plan.receipt.receipt_digest,
+        receipt_body=plan.receipt.body(),
+        stored_fresh=True,
+        stored_complete=True,
+        inventory=repository.inventory,
+    )
+    drifted = replace(
+        repository.inventory,
+        projection_refs=(
+            DigestReference(
+                "projection/active-work",
+                digest("projection-after-receipt"),
+                TruthClass.REPO_FACT,
+            ),
+        ),
+    )
+    stale = MemoryContinuityRepository._hydration_receipt_is_current(
+        receipt_digest=plan.receipt.receipt_digest,
+        receipt_body=plan.receipt.body(),
+        stored_fresh=True,
+        stored_complete=True,
+        inventory=drifted,
+    )
+
+    assert current == (True, True)
+    assert stale == (False, True)
 
 
 def test_mutating_admission_requires_fresh_complete_hydration_and_no_open_gap() -> None:
@@ -383,10 +501,6 @@ def test_close_prepare_apply_routes_immutable_receipt_through_same_authority_gat
     applied = service.apply(
         plan,
         authorization_id=authorization.id,
-        current_source_digest=plan.source_digest,
-        current_policy_digest=plan.policy_digest,
-        current_migration_digest=plan.migration_digest,
-        current_context_digest=plan.context_digest,
         now=NOW,
     )
 
@@ -431,9 +545,7 @@ def test_close_rejects_stale_or_incomplete_projection_before_authorization() -> 
         checkpoint_ref=DigestReference(
             "checkpoint:final", digest("checkpoint-stale"), TruthClass.REPO_FACT
         ),
-        journal_head=DigestReference(
-            "journal:head", digest("journal-stale"), TruthClass.REPO_FACT
-        ),
+        journal_head=DigestReference("journal:head", digest("journal-stale"), TruthClass.REPO_FACT),
         source_digest=current.expected_projection_source_digest,
         policy_digest=digest("policy-stale"),
         migration_digest=digest("migration-stale"),
@@ -490,9 +602,7 @@ def test_close_apply_rechecks_release_snapshot_inside_transaction() -> None:
         checkpoint_ref=DigestReference(
             "checkpoint:final", digest("checkpoint-drift"), TruthClass.REPO_FACT
         ),
-        journal_head=DigestReference(
-            "journal:head", digest("journal-drift"), TruthClass.REPO_FACT
-        ),
+        journal_head=DigestReference("journal:head", digest("journal-drift"), TruthClass.REPO_FACT),
         source_digest=release.expected_projection_source_digest,
         policy_digest=digest("policy-drift"),
         migration_digest=digest("migration-drift"),
@@ -523,10 +633,6 @@ def test_close_apply_rechecks_release_snapshot_inside_transaction() -> None:
         service.apply(
             plan,
             authorization_id=authorization.id,
-            current_source_digest=plan.source_digest,
-            current_policy_digest=plan.policy_digest,
-            current_migration_digest=plan.migration_digest,
-            current_context_digest=plan.context_digest,
             now=NOW,
         )
     assert authorizations.consumed == 0 and repository.stored == []

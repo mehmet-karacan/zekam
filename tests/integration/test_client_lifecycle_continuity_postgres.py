@@ -6,13 +6,14 @@ import datetime as dt
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID, uuid4, uuid5
 
 import pytest
+from tests.integration.test_agent_residency_postgres import residency_scope as _residency_scope
 
-from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.clients import ClientKind, ClientLifecycleEvent
+from zekam.application.capability_profile import PROFILER_VERSION, CapabilityProfile
 from zekam.application.client_lifecycle_bridge import (
     ClientLifecycleBridge,
     LifecycleClientContract,
@@ -20,17 +21,35 @@ from zekam.application.client_lifecycle_bridge import (
 )
 from zekam.application.client_lifecycle_composition import (
     _EVENT_NAMESPACE,
+    _configure_active_memory_hook_runtime,
     compose_codex_lifecycle_handler,
     recover_committed_codex_delivery,
+)
+from zekam.application.client_lifecycle_continuity import (
+    _HYDRATION_NAMESPACE,
+    _SESSION_START_HYDRATION_TOKEN_BUDGET,
+    PostgresLifecycleContinuityAdmission,
 )
 from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
 from zekam.application.execution import ExecutionHost
 from zekam.application.hook_runtime import HookRuntime
+from zekam.application.memory_continuity import (
+    HydrationPreparation,
+    MemoryContinuityService,
+)
 from zekam.application.memory_hooks import memory_hook_bundle
+from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.work_graph import WorkGraphService
+from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.clients import ClientKind, ClientLifecycleEvent
+from zekam.domain.context_continuity import JournalEntry
+from zekam.domain.errors import PolicyViolation
 from zekam.domain.execution_environment import (
     AssignmentEnvironmentBinding,
+    ExecutionEnvironmentSnapshot,
     TurnExecutionSnapshot,
+    detect_environment_drift,
+    reprobe_snapshot,
 )
 from zekam.domain.execution_run import (
     CheckpointDisposition,
@@ -38,16 +57,27 @@ from zekam.domain.execution_run import (
     ExecutionRun,
     ProviderBindingSnapshot,
 )
-from zekam.domain.model_routing import ExecutionTargetSnapshot
-from zekam.domain.resources import parse_requests
+from zekam.domain.model_routing import ExecutionTargetSnapshot, ProjectRoutingContext
+from zekam.domain.project import SourceRevisionKind
 from zekam.domain.realm import Actor, ActorKind
+from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import Job, JobKind
 from zekam.domain.security import (
     Authorization,
     AuthorizationScope,
+)
+from zekam.domain.security import (
     DataClassification as AuthorizationClassification,
 )
-from zekam.domain.session_continuity import DataClassification
+from zekam.domain.session_continuity import (
+    DataClassification,
+    DigestReference,
+    HydrationInventoryEntry,
+    HydrationInventorySnapshot,
+    ProjectionGenerationReceipt,
+    SessionLifecycleEvent,
+    TruthClass,
+)
 from zekam.domain.work import EffectKind, PlanStep
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_EVENT_MAPPING,
@@ -59,7 +89,12 @@ from zekam.infrastructure.clients.codex_lifecycle import (
 from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
 from zekam.infrastructure.postgres.connection import (
     configure_session,
+)
+from zekam.infrastructure.postgres.connection import (
     session as realm_database_session,
+)
+from zekam.infrastructure.postgres.context_continuity_repository import (
+    ContextContinuityRepository,
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
@@ -67,11 +102,236 @@ from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRep
 from zekam.infrastructure.postgres.memory_continuity_repository import MemoryContinuityRepository
 from zekam.infrastructure.postgres.memory_hook_installer import PostgresMemoryHookInstaller
 from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
+from zekam.infrastructure.postgres.project_repository import (
+    CapabilityProfileRepository,
+    SourceBindingRepository,
+)
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
-from tests.integration.test_agent_residency_postgres import residency_scope as _residency_scope
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 NOW = dt.datetime(2026, 8, 28, 12, 0, tzinfo=dt.UTC)
+
+
+def _store_canonical_active_work_projection(
+    *,
+    realm: Any,
+    connection: Any,
+    repository: MemoryContinuityRepository,
+    run: Any,
+    source_digest: str,
+    generated_at: dt.datetime,
+) -> ProjectionGenerationReceipt:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select revision,state,record_digest from work.work_item"
+            " where realm_id=%s and project_id=%s and id=%s",
+            (realm.id, run.project_id, run.work_item_id),
+        )
+        work_revision, work_state, work_record_digest = cursor.fetchone()
+        cursor.execute("select max(version) from core.schema_migrations")
+        migration_head = int(cursor.fetchone()[0])
+    database_revision_digest = digest(
+        {
+            "project_id": str(run.project_id),
+            "work_item_id": str(run.work_item_id),
+            "work_revision": int(work_revision),
+            "work_state": str(work_state),
+            "work_record_digest": str(work_record_digest),
+        }
+    )
+    projection_source_digest = canonical_projection_source_digest(
+        source_head=run.source_revision,
+        source_tree_digest=source_digest,
+        migration_head=migration_head,
+        database_revision_digest=database_revision_digest,
+    )
+    projection_body = {
+        "schema": "zekam-memory-continuity-public-projection/v1",
+        "project_id": str(run.project_id),
+        "work_item_id": str(run.work_item_id),
+        "work_revision": int(work_revision),
+        "work_state": str(work_state),
+        "source_head": run.source_revision,
+        "source_tree_digest": source_digest,
+        "migration_head": migration_head,
+        "database_revision_digest": database_revision_digest,
+        "source_digest": projection_source_digest,
+        "classification": "public",
+        "public_filtered": True,
+        "content_included": False,
+        "fresh": True,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    receipt = ProjectionGenerationReceipt(
+        receipt_id=uuid4(),
+        realm_id=realm.id,
+        project_id=run.project_id,
+        work_item_id=run.work_item_id,
+        source_ref=f"work-item/{run.work_item_id}/revision/{work_revision}",
+        source_digest=projection_source_digest,
+        projection_ref="projection/active-work",
+        projection_digest=digest(projection_body),
+        generator_version="projection/v1",
+        generated_at=generated_at,
+    )
+    assert repository.store_projection_receipt(
+        receipt,
+        idempotency_key=f"test:active-work-projection:{run.id}",
+    )
+    return receipt
+
+
+def test_non_session_lifecycle_requires_fresh_hydration(
+    realm_session: tuple[Any, Any],
+    tmp_path: Path,
+) -> None:
+    scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
+    realm, connection = realm_session
+    run = scope["run"]
+    repository = MemoryContinuityRepository(connection, realm.id)
+    service = MemoryContinuityService(
+        repository,
+        AuthorizationRepository(connection, realm.id),
+    )
+    now = dt.datetime.now(dt.UTC)
+    client_instance_id = "codex-hydration-gate"
+    canonical_event = {
+        "session_id": run.session_id,
+        "client_id": client_instance_id,
+    }
+
+    bindings = SourceBindingRepository(connection, realm.id)
+    binding = bindings.for_project(run.project_id)[0]
+    source_revision = bindings.record_revision(
+        binding_id=binding.id,
+        kind=SourceRevisionKind.TREE_DIGEST,
+        revision=run.source_revision,
+        tree_digest=digest("lifecycle-hydration-source-tree"),
+        now=now,
+    )
+    lifecycle_event = SessionLifecycleEvent(
+        realm_id=realm.id,
+        project_id=run.project_id,
+        work_item_id=run.work_item_id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+        event_id=uuid4(),
+        event_type="hydration_required",
+        sequence=1,
+        previous_digest=None,
+        origin="client/opencode",
+        causation_id="test/hydration-gate",
+        correlation_id="test/hydration-gate",
+        recursion_depth=0,
+        source_revision=run.source_revision,
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
+        context_ref="context/current",
+        payload_digest=digest("lifecycle-hydration-event-payload"),
+        metadata=(),
+        classification=DataClassification.INTERNAL,
+        occurred_at=now,
+        ingested_at=now,
+    )
+    repository.stage_lifecycle_delivery(
+        lifecycle_event,
+        idempotency_key=f"test:hydration-event:{run.id}",
+        plan_digest=digest("lifecycle-hydration-event-plan"),
+    )
+    _store_canonical_active_work_projection(
+        realm=realm,
+        connection=connection,
+        repository=repository,
+        run=run,
+        source_digest=source_revision.tree_digest,
+        generated_at=now,
+    )
+
+    def admission(event_type: str) -> PostgresLifecycleContinuityAdmission:
+        event = SimpleNamespace(
+            event_type=event_type,
+            project_id=run.project_id,
+            work_item_id=run.work_item_id,
+            run_id=run.id,
+            session_id=run.session_id,
+            client_id=run.client_id,
+        )
+        delivery = SimpleNamespace(
+            plan=SimpleNamespace(event=event),
+            client_instance_id=client_instance_id,
+        )
+        return PostgresLifecycleContinuityAdmission(
+            connection=connection,
+            realm_id=realm.id,
+            bridge=cast(Any, SimpleNamespace()),
+            memory_continuity=service,
+            repository=cast(Any, SimpleNamespace()),
+            delivery=cast(Any, delivery),
+        )
+
+    with pytest.raises(PolicyViolation, match="hydration-missing"):
+        admission("pre_compaction")._assert_common_mutating_admission(canonical_event)
+
+    # The same missing state is legal only for the bounded session-start
+    # bootstrap, which produces hydration atomically in the production path.
+    admission("session_start")._assert_common_mutating_admission(canonical_event)
+
+    inventory = repository.read_hydration_inventory(
+        project_id=run.project_id,
+        work_item_id=run.work_item_id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+    )
+    hydration_plan = service.prepare_from_inventory(
+        HydrationPreparation(
+            receipt_id=uuid4(),
+            realm_id=realm.id,
+            project_id=run.project_id,
+            work_item_id=run.work_item_id,
+            run_id=run.id,
+            session_id=run.session_id,
+            client_id=run.client_id,
+            token_budget=5,
+            idempotency_key=f"test:hydrate:{run.id}",
+            created_at=now,
+        ),
+        inventory,
+    )
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(
+            realm=realm,
+            kind=ActorKind.HUMAN,
+            slug="lifecycle-hydration-authorizer",
+            now=now,
+        )
+    )
+    authorization = AuthorizationRepository(connection, realm.id).issue(
+        Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=run.work_item_id,
+            plan_id=run.plan_id,
+            plan_digest=hydration_plan.plan_digest,
+            effect_digest=hydration_plan.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(hydration_plan.resource,),
+                allowed_effects=("database-write",),
+            ),
+            risk="high",
+            lifetime=dt.timedelta(minutes=5),
+            now=now,
+        )
+    )
+    applied = service.apply(
+        hydration_plan,
+        authorization_id=authorization.id,
+        now=now,
+    )
+    assert applied.created
+    admission("pre_compaction")._assert_common_mutating_admission(canonical_event)
 
 
 def test_codex_guard_and_recovery_schema_are_installed(
@@ -179,7 +439,7 @@ def test_generic_codex_ingest_bypass_rolls_back_at_deferred_guard(
         "grants_authority": False,
     }
     event_digest = digest(body)
-    with pytest.raises(Exception, match="governed admission"):
+    with pytest.raises(Exception, match="governed admission"):  # noqa: SIM117
         with connection.transaction(), connection.cursor() as cursor:
             cursor.execute(
                 "insert into client.lifecycle_stream"
@@ -251,10 +511,61 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
 
     scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
     realm, connection = realm_session
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select relation_name,"
+            " has_table_privilege('zekam_app',relation_name,'SELECT'),"
+            " has_table_privilege('zekam_app',relation_name,'UPDATE')"
+            " from unnest(array['runtime.execution_envelope','runtime.effect_claim',"
+            " 'work.task_plan']) relation_name order by relation_name"
+        )
+        assert cursor.fetchall() == [
+            ("runtime.effect_claim", True, False),
+            ("runtime.execution_envelope", True, False),
+            ("work.task_plan", True, False),
+        ]
     old_run = scope["run"]
     now = dt.datetime.now(dt.UTC)
+    source_bindings = SourceBindingRepository(connection, realm.id)
+    source_binding = source_bindings.for_project(old_run.project_id)[0]
+    source_snapshot = source_bindings.record_revision(
+        binding_id=source_binding.id,
+        kind=SourceRevisionKind.TREE_DIGEST,
+        revision=old_run.source_revision,
+        tree_digest=digest("codex-production-source-tree"),
+        now=now,
+    )
+    capability_profile = CapabilityProfile(
+        generator_version=PROFILER_VERSION,
+        languages=(),
+        build_systems=(),
+        frameworks=(),
+        test_frameworks=(),
+        databases=(),
+        quality_tools=(),
+        security_tools=(),
+        continuous_integration=(),
+        containers=(),
+        modules=(),
+        file_count=0,
+        total_bytes=0,
+    )
+    CapabilityProfileRepository(connection, realm.id).store(
+        project_id=old_run.project_id,
+        source_revision_id=source_snapshot.id,
+        profile=capability_profile,
+        now=now,
+    )
     session_id = str(uuid4())
     installation = PostgresMemoryHookInstaller(connection, realm.id).ensure(installed_at=now)
+    turn_hook_store = HookRuntimeRepository(connection, realm.id)
+    turn_hook_binding_id = turn_hook_store.start_session(session_ref=session_id)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select config_effective_digest from hooks.session_binding where realm_id=%s and id=%s",
+            (realm.id, turn_hook_binding_id),
+        )
+        turn_hook_config_digest = str(cursor.fetchone()[0])
     spool_home = tmp_path / "codex-production-home"
     spool = ClientLifecycleSpool(spool_home, client_id="codex")
     hook = parse_codex_hook_input(
@@ -302,53 +613,53 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         )
         source_revision, source_digest = cursor.fetchone()
         cursor.execute(
-            "select models.capability_runtime_jsonb_digest(to_jsonb(checksum))"
+            "select version,models.capability_runtime_jsonb_digest(to_jsonb(checksum))"
             " from core.schema_migrations order by version desc limit 1"
         )
-        migration_digest = str(cursor.fetchone()[0])
+        migration_head, migration_digest = cursor.fetchone()
+        migration_head = int(migration_head)
+        migration_digest = str(migration_digest)
 
-    resource = f"continuity:session:{session_id}"
+    resource = f"memory:{old_run.project_id}:session:{session_id}"
     graph = WorkGraphService(connection, realm)
+    graph.set_intent(
+        old_run.work_item_id,
+        goal="Codex lifecycle deliverysini canonical checkpoint v2 ile tamamla",
+    )
     plan = graph.create_plan(
         old_run.work_item_id,
         source_revision=str(source_revision),
         policy_digest=scope["policy_digest"],
         steps=(
             PlanStep(
-                "prepare",
-                "Prepare governed lifecycle context",
-                EffectKind.NONE,
-                risk="low",
-            ),
-            PlanStep(
                 "build",
                 "Governed Codex lifecycle",
                 EffectKind.DATABASE_WRITE,
                 logical_resources=(resource,),
-                depends_on=("prepare",),
                 risk="high",
             ),
         ),
     )
-    prepare_assignment_id = uuid4()
+    coordinator_assignment_id = uuid4()
     assignment_id = uuid4()
+    verifier_assignment_id = uuid4()
     with connection.cursor() as cursor:
         cursor.execute(
             "insert into agents.assignment"
             " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,role,"
             " agent_ref,status,risk,instruction_digest,context_manifest_digest,"
             " assignment_digest,created_at) values"
-            " (%s,%s,%s,%s,%s,'prepare',null,'builder',%s,'active','low',%s,%s,%s,%s)",
+            " (%s,%s,%s,%s,%s,'build',null,'coordinator',%s,'active','high',%s,%s,%s,%s)",
             (
-                prepare_assignment_id,
+                coordinator_assignment_id,
                 realm.id,
                 old_run.project_id,
                 old_run.work_item_id,
                 plan.id,
-                "agent:codex-lifecycle-prepare",
-                digest("codex-lifecycle-prepare-instruction"),
+                "agent:codex-lifecycle-coordinator",
+                digest("codex-lifecycle-coordinator-instruction"),
                 str(context[1]),
-                digest("codex-lifecycle-prepare-assignment"),
+                digest("codex-lifecycle-coordinator-assignment"),
                 now,
             ),
         )
@@ -357,13 +668,14 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
             " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,role,"
             " agent_ref,status,risk,instruction_digest,context_manifest_digest,"
             " assignment_digest,created_at) values"
-            " (%s,%s,%s,%s,%s,'build',null,'builder',%s,'active','high',%s,%s,%s,%s)",
+            " (%s,%s,%s,%s,%s,'build',%s,'builder',%s,'active','high',%s,%s,%s,%s)",
             (
                 assignment_id,
                 realm.id,
                 old_run.project_id,
                 old_run.work_item_id,
                 plan.id,
+                coordinator_assignment_id,
                 "agent:codex-lifecycle",
                 digest("codex-lifecycle-instruction"),
                 str(context[1]),
@@ -371,8 +683,75 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
                 now,
             ),
         )
+        cursor.execute(
+            "insert into agents.assignment"
+            " (id,realm_id,project_id,work_item_id,plan_id,step_id,parent_assignment_id,role,"
+            " agent_ref,status,risk,instruction_digest,context_manifest_digest,"
+            " assignment_digest,created_at) values"
+            " (%s,%s,%s,%s,%s,'build',%s,'verifier',%s,'active','low',%s,%s,%s,%s)",
+            (
+                verifier_assignment_id,
+                realm.id,
+                old_run.project_id,
+                old_run.work_item_id,
+                plan.id,
+                coordinator_assignment_id,
+                "agent:codex-lifecycle-verifier",
+                digest("codex-lifecycle-verifier-instruction"),
+                str(context[1]),
+                digest("codex-lifecycle-verifier-assignment"),
+                now,
+            ),
+        )
+        cursor.execute(
+            "insert into agents.assignment_resource"
+            " (realm_id,assignment_id,resource,mode) values(%s,%s,%s,'write')",
+            (realm.id, assignment_id, resource),
+        )
+        cursor.execute(
+            "insert into agents.assignment_resource"
+            " (realm_id,assignment_id,resource,mode) values(%s,%s,%s,'read')",
+            (realm.id, verifier_assignment_id, resource),
+        )
 
     execution = ExecutionRunRepository(connection, realm.id)
+    base_environment = scope["environment"]
+    lifecycle_environment = ExecutionEnvironmentSnapshot.create(
+        id=uuid4(),
+        realm_id=realm.id,
+        environment_id=f"{base_environment.environment_id}-codex-lifecycle",
+        execution_identity=base_environment.execution_identity,
+        provider=base_environment.provider,
+        platform=base_environment.platform,
+        executor_protocol_version=base_environment.executor_protocol_version,
+        cwd_locator=base_environment.cwd_locator,
+        workspace_roots=base_environment.workspace_roots,
+        shell=base_environment.shell,
+        permission_profile_id=base_environment.permission_profile_id,
+        permission_profile_digest=base_environment.permission_profile_digest,
+        filesystem_policy_digest=base_environment.filesystem_policy_digest,
+        network_policy_digest=base_environment.network_policy_digest,
+        tool_runtime_digest=base_environment.tool_runtime_digest,
+        capability_digest=base_environment.capability_digest,
+        config_effective_digest=turn_hook_config_digest,
+        source_revision=str(source_revision),
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    execution.create_environment_snapshot(lifecycle_environment)
+    probed_environment = reprobe_snapshot(
+        lifecycle_environment,
+        captured_at=now,
+        expires_at=now + dt.timedelta(minutes=10),
+    )
+    execution.create_environment_snapshot(probed_environment)
+    execution.record_environment_probe(
+        detect_environment_drift(
+            lifecycle_environment,
+            probed_environment,
+            checked_at=now,
+        )
+    )
     run = ExecutionRun.create(
         realm_id=realm.id,
         project_id=old_run.project_id,
@@ -390,35 +769,79 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
     )
     execution.create_run(run)
     execution.activate_run(run.id, started_at=now)
-    previous_step_result = digest("codex-lifecycle-prepare-result")
-    previous_job = Job.create(
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select revision,state,record_digest from work.work_item"
+            " where realm_id=%s and project_id=%s and id=%s",
+            (realm.id, run.project_id, run.work_item_id),
+        )
+        work_revision, work_state, work_record_digest = cursor.fetchone()
+    database_revision_digest = digest(
+        {
+            "project_id": str(run.project_id),
+            "work_item_id": str(run.work_item_id),
+            "work_revision": int(work_revision),
+            "work_state": str(work_state),
+            "work_record_digest": str(work_record_digest),
+        }
+    )
+    projection_source_digest = canonical_projection_source_digest(
+        source_head=str(source_revision),
+        source_tree_digest=str(source_digest),
+        migration_head=migration_head,
+        database_revision_digest=database_revision_digest,
+    )
+    projection_body = {
+        "schema": "zekam-memory-continuity-public-projection/v1",
+        "project_id": str(run.project_id),
+        "work_item_id": str(run.work_item_id),
+        "work_revision": int(work_revision),
+        "work_state": str(work_state),
+        "source_head": str(source_revision),
+        "source_tree_digest": str(source_digest),
+        "migration_head": migration_head,
+        "database_revision_digest": database_revision_digest,
+        "source_digest": projection_source_digest,
+        "classification": "public",
+        "public_filtered": True,
+        "content_included": False,
+        "fresh": True,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    projection_receipt = ProjectionGenerationReceipt(
+        receipt_id=uuid4(),
         realm_id=realm.id,
         project_id=run.project_id,
-        kind=JobKind.VERIFICATION,
-        idempotency_key=f"codex-lifecycle-prepare:{entry.delivery_id}",
-        resources=parse_requests(),
-        required_capabilities=("client.lifecycle.codex-drain",),
-        max_attempts=1,
         work_item_id=run.work_item_id,
-        plan_id=run.plan_id,
-        step_id="prepare",
-        assignment_id=prepare_assignment_id,
-        run_id=run.id,
-        payload={"schema": "zekam-codex-lifecycle-prepare/v1"},
-        now=now,
+        source_ref=f"work-item/{run.work_item_id}/revision/{work_revision}",
+        source_digest=projection_source_digest,
+        projection_ref="projection/active-work",
+        projection_digest=digest(projection_body),
+        generator_version="memory-continuity-shadow/v1",
+        generated_at=now,
     )
-    previous_host = ExecutionHost(connection, realm.id, worker_label="codex-lifecycle-worker")
-    previous_host.jobs.enqueue(previous_job)
-    previous_work = previous_host.acquire_work(
-        capabilities=("client.lifecycle.codex-drain",), now=now
+    continuity_repository = MemoryContinuityRepository(connection, realm.id)
+    assert continuity_repository.store_projection_receipt(
+        projection_receipt,
+        idempotency_key=f"session-start:{entry.delivery_id}:active-work-projection",
     )
-    assert previous_work is not None and previous_work.job.id == previous_job.id
-    assert previous_host.finish(
-        previous_work,
-        outcome=AttemptOutcome.SUCCEEDED,
-        result_digest=previous_step_result,
-        now=now,
+    context_continuity = ContextContinuityRepository(
+        connection,
+        realm.id,
+        run.project_id,
+        run.work_item_id,
     )
+    journal_entry = JournalEntry(
+        1,
+        str(run.work_item_id),
+        "step-completed",
+        digest("codex-lifecycle-ready-journal"),
+        None,
+        False,
+        now,
+    )
+    context_continuity.append_journal(journal_entry, expected_head=None)
     target = ExecutionTargetSnapshot(
         client_id="codex",
         slot="lifecycle",
@@ -433,6 +856,25 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         expires_at=now + dt.timedelta(minutes=10),
     )
     routing = ModelRoutingRepository(connection, realm.id)
+    routing.store_project_context(
+        ProjectRoutingContext(
+            project_id=run.project_id,
+            source_revision_id=source_snapshot.id,
+            source_revision=str(source_revision),
+            tree_digest=str(source_digest),
+            capability_profile_digest=capability_profile.digest,
+            dependency_digest=digest("codex-lifecycle-dependencies"),
+            framework_digest=digest("codex-lifecycle-frameworks"),
+            technology_digest=digest("codex-lifecycle-technology"),
+            architecture_digest=digest("codex-lifecycle-architecture"),
+            rules_digest=digest("codex-lifecycle-rules"),
+            suite_digest=digest("codex-lifecycle-suite"),
+            inventory_digest=digest("codex-lifecycle-inventory"),
+            policy_digest=scope["policy_digest"],
+            captured_at=now,
+            expires_at=now + dt.timedelta(minutes=10),
+        )
+    )
     target_id, _ = routing.store_execution_target(target)
     route_id, route_digest = uuid4(), digest("codex-lifecycle-route")
     with connection.cursor() as cursor:
@@ -485,13 +927,10 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
     )
     bundle = memory_hook_bundle(realm.id)
     preview_runtime = HookRuntime(max_workers=1)
-    preview_runtime.reconfigure(
-        realm_id=realm.id,
-        config_effective_digest=bundle.bundle_digest,
-        specs=bundle.specs,
-        runtimes=bundle.runtimes,
-        profiles=(bundle.profile,),
-        adapters=bundle.adapters,
+    _configure_active_memory_hook_runtime(
+        preview_runtime,
+        bundle,
+        ClientLifecycleRepository(connection, realm.id),
         now=now,
     )
     preview_session = preview_runtime.start_session()
@@ -502,10 +941,7 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         HookRuntimeRepository(connection, realm.id),
     )
     evidence = load_codex_contract_evidence(
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "client-lifecycle"
-        / "codex-0.150.1.json"
+        Path(__file__).resolve().parents[2] / "config" / "client-lifecycle" / "codex-0.150.1.json"
     )
     contract = LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
@@ -568,11 +1004,85 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         now=now,
     )
     AuthorizationRepository(connection, realm.id).issue(authorization)
+    hydration_inventory = HydrationInventorySnapshot(
+        realm_id=realm.id,
+        project_id=run.project_id,
+        work_item_id=run.work_item_id,
+        run_id=run.id,
+        session_id=session_id,
+        client_id="codex",
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
+        source_digest=str(source_digest),
+        policy_digest=scope["policy_digest"],
+        migration_digest=migration_digest,
+        context_digest=str(context[1]),
+        entries=(
+            HydrationInventoryEntry(
+                ref="context/source",
+                content_digest=digest("source"),
+                token_count=5,
+                truth_class=TruthClass.EXTERNAL_VERIFIED_FACT,
+                classification=DataClassification.INTERNAL,
+                required=True,
+                source_ref="work/current",
+                source_revision="revision-1",
+            ),
+        ),
+        known_omissions=(),
+        projection_refs=(
+            DigestReference(
+                "projection/active-work",
+                projection_receipt.projection_digest,
+                TruthClass.REPO_FACT,
+            ),
+        ),
+        hydration_event_digest=effect_plan.event.event_digest,
+    )
+    continuity_service = MemoryContinuityService(
+        continuity_repository,
+        AuthorizationRepository(connection, realm.id),
+    )
+    hydration_plan = continuity_service.prepare_from_inventory(
+        HydrationPreparation(
+            receipt_id=uuid5(
+                _HYDRATION_NAMESPACE,
+                f"{realm.id}:{effect_plan.event.event_digest}",
+            ),
+            realm_id=realm.id,
+            project_id=run.project_id,
+            work_item_id=run.work_item_id,
+            run_id=run.id,
+            session_id=session_id,
+            client_id="codex",
+            token_budget=_SESSION_START_HYDRATION_TOKEN_BUDGET,
+            idempotency_key=f"session-start:{effect_plan.event.event_id}:hydration",
+            created_at=entry.occurred_at,
+        ),
+        hydration_inventory,
+    )
+    hydration_authorization = Authorization.issue(
+        realm_id=realm.id,
+        actor_id=actor.id,
+        work_item_id=run.work_item_id,
+        plan_id=run.plan_id,
+        plan_digest=hydration_plan.plan_digest,
+        effect_digest=hydration_plan.effect_digest,
+        scope=AuthorizationScope(
+            allowed_resources=(hydration_plan.resource,),
+            allowed_effects=("database-write",),
+        ),
+        risk="high",
+        lifetime=dt.timedelta(minutes=5),
+        now=now,
+    )
+    AuthorizationRepository(connection, realm.id).issue(hydration_authorization)
     job = replace(
         base_job,
         payload={
             "schema": "zekam-codex-lifecycle-job/v1",
             "authorization_id": str(authorization.id),
+            "hydration_authorization_id": str(hydration_authorization.id),
         },
     )
     host = ExecutionHost(connection, realm.id, worker_label="codex-lifecycle-worker")
@@ -583,7 +1093,7 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         AssignmentEnvironmentBinding.create(
             realm_id=realm.id,
             assignment_id=assignment_id,
-            execution_environment_snapshot_digest=str(context[6]),
+            execution_environment_snapshot_digest=lifecycle_environment.snapshot_digest,
             bound_at=now,
         )
     )
@@ -598,11 +1108,11 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         provider_id=provider.provider_ref,
         route_decision_digest=route_digest,
         reasoning_profile_digest=digest("codex-lifecycle-reasoning"),
-        execution_environment_snapshot_digest=str(context[6]),
+        execution_environment_snapshot_digest=lifecycle_environment.snapshot_digest,
         context_manifest_digest=str(context[1]),
         exposed_tool_set_digest=str(context[4]),
         hook_set_digest=installation.hook_set_digest,
-        config_effective_digest=str(context[5]),
+        config_effective_digest=turn_hook_config_digest,
         created_at=now,
     )
     execution.create_turn_snapshot(turn)
@@ -653,9 +1163,9 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
 
     monkeypatch.setattr(ClientLifecycleSpool, "_acknowledge_verified_receipt", crash_after_commit)
     with pytest.raises(OSError, match="simulated local ACK crash"):
-        compose_codex_lifecycle_handler(
-            connection=connection, realm_id=realm.id, home=spool_home
-        )(work)
+        compose_codex_lifecycle_handler(connection=connection, realm_id=realm.id, home=spool_home)(
+            work
+        )
     assert ClientLifecycleSpool(spool_home, client_id="codex").pending(limit=1) == (entry,)
     monkeypatch.setattr(ClientLifecycleSpool, "_acknowledge_verified_receipt", original_ack)
     with connection.cursor() as cursor:
@@ -665,11 +1175,30 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
             " on claim.realm_id=receipt.realm_id and claim.id=receipt.claim_id"
             " where claim.realm_id=%s and claim.job_id=%s),"
             " (select count(*) from client.codex_lifecycle_admission"
-            " where realm_id=%s and job_id=%s)",
-            (realm.id, job.id, realm.id, job.id, realm.id, job.id),
+            " where realm_id=%s and job_id=%s),"
+            " (select count(*) from continuity.session_hydration_receipt"
+            " where realm_id=%s and run_id=%s and session_id=%s),"
+            " (select count(*) from continuity.lifecycle_hydration_admission admission"
+            " join client.codex_lifecycle_admission codex"
+            " on codex.realm_id=admission.realm_id"
+            " and codex.id=admission.codex_admission_id"
+            " where admission.realm_id=%s and codex.job_id=%s)",
+            (
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                run.id,
+                session_id,
+                realm.id,
+                job.id,
+            ),
         )
         before = cursor.fetchone()
-    assert before == (1, 1, 1)
+    assert before == (1, 1, 1, 1, 1)
     with connection.transaction(), connection.cursor() as cursor:
         cursor.execute("reset role")
         cursor.execute(
@@ -684,10 +1213,13 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         )
         assert recovered is not None and recovered.outcome == "completed"
         assert ClientLifecycleSpool(spool_home, client_id="codex").pending(limit=1) == ()
-        assert recover_committed_codex_delivery(
-            spool=ClientLifecycleSpool(spool_home, client_id="codex"),
-            repository=ClientLifecycleRepository(recovery_connection, realm.id),
-        ) is None
+        assert (
+            recover_committed_codex_delivery(
+                spool=ClientLifecycleSpool(spool_home, client_id="codex"),
+                repository=ClientLifecycleRepository(recovery_connection, realm.id),
+            )
+            is None
+        )
     with connection.cursor() as cursor:
         cursor.execute(
             "select (select count(*) from runtime.effect_claim where realm_id=%s and job_id=%s),"
@@ -696,15 +1228,30 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
             " where claim.realm_id=%s and claim.job_id=%s),"
             " (select count(*) from client.codex_lifecycle_admission"
             " where realm_id=%s and job_id=%s),"
+            " (select count(*) from continuity.lifecycle_hydration_admission admission"
+            " join client.codex_lifecycle_admission codex"
+            " on codex.realm_id=admission.realm_id"
+            " and codex.id=admission.codex_admission_id"
+            " where admission.realm_id=%s and codex.job_id=%s),"
             " (select count(*) from runtime.lease where realm_id=%s and job_id=%s),"
             " (select count(*) from runtime.resource_lock where realm_id=%s and job_id=%s)",
             (
-                realm.id, job.id, realm.id, job.id, realm.id, job.id,
-                realm.id, job.id, realm.id, job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
+                realm.id,
+                job.id,
             ),
         )
         after = cursor.fetchone()
-    assert after == (1, 1, 1, 0, 0)
+    assert after == (1, 1, 1, 1, 0, 0)
     with connection.cursor() as cursor:
         cursor.execute(
             "select plan_steps,completed_steps,pending_steps,step_results"
@@ -713,33 +1260,83 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         )
         checkpoint_partition = cursor.fetchone()
     assert checkpoint_partition[0:3] == (
-        ["prepare", "build"],
-        ["prepare", "build"],
+        ["build"],
+        ["build"],
         [],
     )
-    assert set(checkpoint_partition[3]) == {"prepare", "build"}
-    assert checkpoint_partition[3]["prepare"] == previous_step_result
+    assert set(checkpoint_partition[3]) == {"build"}
     assert str(checkpoint_partition[3]["build"]).startswith("sha256:")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select checkpoint.checkpoint_key,checkpoint.revision,checkpoint.plan_steps,"
+            " checkpoint.completed_steps,checkpoint.pending_steps,"
+            " work.validate_checkpoint_v2(checkpoint.realm_id,checkpoint.id),"
+            " result.result_digest,result.assignment_id,step_receipt.receipt_id,"
+            " verification.verifier_assignment_id,verification.verifier_invocation_id,"
+            " verification.envelope_digest,verifier.agent_ref,builder.agent_ref,"
+            " invocation.execution_identity,result_receipt.envelope_digest"
+            " from work.checkpoint_v2 checkpoint"
+            " join work.checkpoint_v2_step_result result"
+            " on result.realm_id=checkpoint.realm_id and result.checkpoint_id=checkpoint.id"
+            " and result.step_id='build'"
+            " join work.checkpoint_v2_step_receipt step_receipt"
+            " on step_receipt.realm_id=result.realm_id"
+            " and step_receipt.checkpoint_id=result.checkpoint_id"
+            " and step_receipt.step_id=result.step_id"
+            " join work.checkpoint_v2_step_verification verification"
+            " on verification.realm_id=result.realm_id"
+            " and verification.checkpoint_id=result.checkpoint_id"
+            " and verification.step_id=result.step_id"
+            " join agents.assignment verifier on verifier.realm_id=verification.realm_id"
+            " and verifier.id=verification.verifier_assignment_id"
+            " join agents.assignment builder on builder.realm_id=result.realm_id"
+            " and builder.id=result.assignment_id"
+            " join agents.invocation invocation on invocation.realm_id=verification.realm_id"
+            " and invocation.id=verification.verifier_invocation_id"
+            " join agents.result_receipt result_receipt"
+            " on result_receipt.realm_id=invocation.realm_id"
+            " and result_receipt.invocation_id=invocation.id"
+            " where checkpoint.realm_id=%s and checkpoint.job_id=%s",
+            (realm.id, job.id),
+        )
+        checkpoint_v2 = cursor.fetchone()
+    assert checkpoint_v2 is not None
+    assert checkpoint_v2[0:6] == (
+        f"client-lifecycle:{run.work_item_id}:{run.plan_id}",
+        1,
+        ["build"],
+        ["build"],
+        [],
+        True,
+    )
+    assert checkpoint_v2[6] == checkpoint_partition[3]["build"]
+    assert checkpoint_v2[7] == assignment_id
+    assert checkpoint_v2[8] is not None
+    assert checkpoint_v2[9] == verifier_assignment_id
+    assert checkpoint_v2[10] is not None
+    assert str(checkpoint_v2[11]).startswith("sha256:")
+    assert checkpoint_v2[12] != checkpoint_v2[13]
+    assert checkpoint_v2[14] != lifecycle_environment.execution_identity
+    assert checkpoint_v2[15] == checkpoint_v2[11]
     with realm_database_session(migrated_database, realm_id=realm.id) as guard_connection:
         with guard_connection.transaction(), guard_connection.cursor() as guard_cursor:
             guard_cursor.execute(
                 "select client.lock_codex_lifecycle_scope(%s,%s,%s,%s)",
                 (realm.id, job.id, work.attempt_id, authorization.id),
             )
-            with realm_database_session(
-                migrated_database, realm_id=realm.id
-            ) as child_connection:
-                with child_connection.cursor() as child_cursor:
-                    child_cursor.execute("set lock_timeout='100ms'")
-                    with pytest.raises(Exception) as child_blocked:
-                        # FK child inserts take this KEY SHARE parent lock before an
-                        # envelope/checkpoint can become a new latest row.
-                        child_cursor.execute(
-                            "select id from runtime.job where realm_id=%s and id=%s"
-                            " for key share",
-                            (realm.id, job.id),
-                        )
-                    assert getattr(child_blocked.value, "sqlstate", None) == "55P03"
+            with (
+                realm_database_session(migrated_database, realm_id=realm.id) as child_connection,
+                child_connection.cursor() as child_cursor,
+            ):
+                child_cursor.execute("set lock_timeout='100ms'")
+                with pytest.raises(Exception) as child_blocked:
+                    # FK child inserts take this KEY SHARE parent lock before an
+                    # envelope/checkpoint can become a new latest row.
+                    child_cursor.execute(
+                        "select id from runtime.job where realm_id=%s and id=%s for key share",
+                        (realm.id, job.id),
+                    )
+                assert getattr(child_blocked.value, "sqlstate", None) == "55P03"
         with guard_connection.cursor() as released_cursor:
             released_cursor.execute(
                 "select id from runtime.job where realm_id=%s and id=%s for key share",
@@ -757,17 +1354,31 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
         ("binding", "binding_digest"),
     )
     admission_fields = [
-        "continuity_event_id", "delivery_outbox_id", "hook_receipt_id", "job_id",
-        "attempt_id", "envelope_id", "authorization_id", "claim_id",
-        "effect_receipt_id", "work_plan_digest", "effect_plan_digest",
-        "effect_plan_body", "effect_digest", "source_digest", "policy_digest",
-        "migration_digest", "envelope_digest", "terminal_hook_receipt_digest",
-        "result_formula_digest", "binding_digest",
+        "continuity_event_id",
+        "delivery_outbox_id",
+        "hook_receipt_id",
+        "job_id",
+        "attempt_id",
+        "envelope_id",
+        "authorization_id",
+        "claim_id",
+        "effect_receipt_id",
+        "work_plan_digest",
+        "effect_plan_digest",
+        "effect_plan_body",
+        "effect_digest",
+        "source_digest",
+        "policy_digest",
+        "migration_digest",
+        "envelope_digest",
+        "terminal_hook_receipt_digest",
+        "result_formula_digest",
+        "binding_digest",
     ]
     for mutation_name, mutation_field in mutation_cases:
         selected_fields = ["%s" if field == mutation_field else field for field in admission_fields]
         configure_session(connection, realm_id=realm.id)
-        with pytest.raises(Exception) as forged:
+        with pytest.raises(Exception) as forged:  # noqa: SIM117
             with connection.transaction(), connection.cursor() as cursor:
                 cursor.execute("reset role")
                 cursor.execute(
@@ -777,12 +1388,33 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
                     (realm.id, job.id),
                 )
                 cursor.execute(
+                    "create temporary table lifecycle_hydration_exact_source"
+                    " on commit drop as select *"
+                    " from continuity.lifecycle_hydration_admission"
+                    " where realm_id=%s and codex_admission_id in"
+                    " (select id from codex_admission_exact_source)",
+                    (realm.id,),
+                )
+                cursor.execute(
+                    "alter table continuity.lifecycle_hydration_admission"
+                    " disable trigger lifecycle_hydration_no_mutation"
+                )
+                cursor.execute(
+                    "delete from continuity.lifecycle_hydration_admission"
+                    " where realm_id=%s and codex_admission_id in"
+                    " (select id from codex_admission_exact_source)",
+                    (realm.id,),
+                )
+                cursor.execute(
+                    "alter table continuity.lifecycle_hydration_admission"
+                    " enable trigger lifecycle_hydration_no_mutation"
+                )
+                cursor.execute(
                     "alter table client.codex_lifecycle_admission"
                     " disable trigger codex_lifecycle_admission_no_mutation"
                 )
                 cursor.execute(
-                    "delete from client.codex_lifecycle_admission"
-                    " where realm_id=%s and job_id=%s",
+                    "delete from client.codex_lifecycle_admission where realm_id=%s and job_id=%s",
                     (realm.id, job.id),
                 )
                 cursor.execute(
@@ -790,20 +1422,27 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
                     " enable trigger codex_lifecycle_admission_no_mutation"
                 )
                 cursor.execute(
-                "insert into client.codex_lifecycle_admission"
-                " (id,realm_id,lifecycle_event_id,entry_digest,continuity_event_id,"
-                " delivery_outbox_id,hook_receipt_id,job_id,attempt_id,envelope_id,"
-                " authorization_id,claim_id,effect_receipt_id,work_plan_digest,"
-                " effect_plan_digest,effect_plan_body,effect_digest,source_digest,"
-                " policy_digest,migration_digest,envelope_digest,terminal_hook_receipt_digest,"
-                " result_formula_digest,binding_digest,created_at,grants_authority)"
-                    " select %s,realm_id,lifecycle_event_id,entry_digest,"
-                    + ",".join(selected_fields) + ",created_at,false"
+                    "insert into client.codex_lifecycle_admission"
+                    " (id,realm_id,lifecycle_event_id,entry_digest,continuity_event_id,"
+                    " delivery_outbox_id,hook_receipt_id,job_id,attempt_id,envelope_id,"
+                    " authorization_id,claim_id,effect_receipt_id,work_plan_digest,"
+                    " effect_plan_digest,effect_plan_body,effect_digest,source_digest,"
+                    " policy_digest,migration_digest,envelope_digest,terminal_hook_receipt_digest,"
+                    " result_formula_digest,binding_digest,created_at,grants_authority)"
+                    " select id,realm_id,lifecycle_event_id,entry_digest,"
+                    + ",".join(selected_fields)
+                    + ",created_at,false"
                     " from codex_admission_exact_source"
                     " where realm_id=%s and job_id=%s",
                     (
-                        uuid4(), digest(f"forged-field:{mutation_name}"), realm.id, job.id,
+                        digest(f"forged-field:{mutation_name}"),
+                        realm.id,
+                        job.id,
                     ),
+                )
+                cursor.execute(
+                    "insert into continuity.lifecycle_hydration_admission"
+                    " select * from lifecycle_hydration_exact_source"
                 )
                 cursor.execute(
                     "set constraints client.codex_lifecycle_admission_row_guard immediate"
@@ -823,10 +1462,11 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
             (digest("forged-prepare-result"), realm.id, job.id),
         ),
         "authorization-issued-after-claim": (
-            "update security.authorization authorization set issued_at=(select claimed_at"
+            "update security.authorization auth set issued_at=(select claimed_at"
             " + interval '1 second' from runtime.effect_claim claim"
-            " where claim.realm_id=authorization.realm_id and claim.authorization_id=authorization.id)"
-            " where authorization.realm_id=%s and authorization.id=%s",
+            " where claim.realm_id=auth.realm_id"
+            " and claim.authorization_id=auth.id)"
+            " where auth.realm_id=%s and auth.id=%s",
             (realm.id, authorization.id),
         ),
         "authorization-risk": (
@@ -838,8 +1478,7 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
             (realm.id, actor.id),
         ),
         "canonical-fence": (
-            "update runtime.job set fencing_token=fencing_token+1"
-            " where realm_id=%s and id=%s",
+            "update runtime.job set fencing_token=fencing_token+1 where realm_id=%s and id=%s",
             (realm.id, job.id),
         ),
         "compiler-enqueue-json-boolean": (
@@ -855,7 +1494,7 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
     }
     for mutation_name, (mutation_sql, mutation_params) in chain_mutations.items():
         configure_session(connection, realm_id=realm.id)
-        with pytest.raises(Exception) as forged_chain:
+        with pytest.raises(Exception) as forged_chain:  # noqa: SIM117
             with connection.transaction(), connection.cursor() as cursor:
                 cursor.execute("reset role")
                 cursor.execute(
@@ -865,12 +1504,33 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
                     (realm.id, job.id),
                 )
                 cursor.execute(
+                    "create temporary table lifecycle_hydration_chain_source"
+                    " on commit drop as select *"
+                    " from continuity.lifecycle_hydration_admission"
+                    " where realm_id=%s and codex_admission_id in"
+                    " (select id from codex_admission_chain_source)",
+                    (realm.id,),
+                )
+                cursor.execute(
+                    "alter table continuity.lifecycle_hydration_admission"
+                    " disable trigger lifecycle_hydration_no_mutation"
+                )
+                cursor.execute(
+                    "delete from continuity.lifecycle_hydration_admission"
+                    " where realm_id=%s and codex_admission_id in"
+                    " (select id from codex_admission_chain_source)",
+                    (realm.id,),
+                )
+                cursor.execute(
+                    "alter table continuity.lifecycle_hydration_admission"
+                    " enable trigger lifecycle_hydration_no_mutation"
+                )
+                cursor.execute(
                     "alter table client.codex_lifecycle_admission"
                     " disable trigger codex_lifecycle_admission_no_mutation"
                 )
                 cursor.execute(
-                    "delete from client.codex_lifecycle_admission"
-                    " where realm_id=%s and job_id=%s",
+                    "delete from client.codex_lifecycle_admission where realm_id=%s and job_id=%s",
                     (realm.id, job.id),
                 )
                 cursor.execute(
@@ -879,28 +1539,36 @@ def test_production_handler_commits_once_and_new_process_recovers_local_ack(
                 )
                 cursor.execute(mutation_sql, mutation_params)
                 cursor.execute(
-                    "insert into client.codex_lifecycle_admission select %s,realm_id,"
+                    "insert into client.codex_lifecycle_admission select id,realm_id,"
                     " lifecycle_event_id,entry_digest,continuity_event_id,delivery_outbox_id,"
                     " hook_receipt_id,job_id,attempt_id,envelope_id,authorization_id,claim_id,"
                     " effect_receipt_id,work_plan_digest,effect_plan_digest,effect_plan_body,"
                     " effect_digest,source_digest,policy_digest,migration_digest,envelope_digest,"
                     " terminal_hook_receipt_digest,result_formula_digest,binding_digest,"
-                    " created_at,grants_authority from codex_admission_chain_source",
-                    (uuid4(),),
+                    " created_at,grants_authority from codex_admission_chain_source"
+                )
+                cursor.execute(
+                    "insert into continuity.lifecycle_hydration_admission"
+                    " select * from lifecycle_hydration_chain_source"
                 )
                 cursor.execute(
                     "set constraints client.codex_lifecycle_admission_row_guard immediate"
                 )
-        assert getattr(forged_chain.value, "sqlstate", None) == "23514", mutation_name
-        assert "governed admission" in str(forged_chain.value), mutation_name
+        forged_chain_sqlstate = getattr(forged_chain.value, "sqlstate", None)
+        assert forged_chain_sqlstate in {"23514", "42501"}, mutation_name
+        if forged_chain_sqlstate == "23514":
+            assert "governed admission" in str(forged_chain.value), mutation_name
+        else:
+            assert "append-only tablo" in str(forged_chain.value), mutation_name
     configure_session(connection, realm_id=realm.id)
     down_sql = (
         Path(__file__).resolve().parents[2]
         / "migrations"
         / "0058_codex_lifecycle_admission.down.sql"
     ).read_text(encoding="utf-8")
-    with pytest.raises(Exception) as refused:
+    with pytest.raises(Exception) as refused:  # noqa: SIM117
         with connection.transaction(), connection.cursor() as cursor:
+            cursor.execute("reset role")
             cursor.execute(down_sql)
     assert getattr(refused.value, "sqlstate", None) == "55000"
     with connection.cursor() as cursor:

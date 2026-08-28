@@ -270,7 +270,7 @@ class LifecycleBridgePlan:
     ) -> LifecycleBridgePlan:
         for value in (client_contract_digest, source_digest, policy_digest, migration_digest):
             parse_digest(value)
-        resource = f"continuity:session:{event.session_id}"
+        resource = f"memory:{event.project_id}:session:{event.session_id}"
         effect_digest = digest(
             {
                 "effect": "database-write",

@@ -37,9 +37,7 @@ COMPILER_JOB_NAME = "memory-candidate-compile"
 COMPILER_BATCH_LIMIT = 128
 COMPILER_CLAIM_STALE_AFTER = dt.timedelta(minutes=5)
 _OUTPUT_NAMESPACE = UUID("3fa130f7-a6b3-47cd-a8ae-49f652538c0a")
-_PARSER_DIGEST = digest(
-    {"parser": "memory-lifecycle-structured-delta", "revision": 1}
-)
+_PARSER_DIGEST = digest({"parser": "memory-lifecycle-structured-delta", "revision": 1})
 _PROFILE_DIGEST = digest(
     {
         "profile": "deterministic-candidate-only",
@@ -137,9 +135,7 @@ _FAILURE_EVENTS = frozenset(
         HookEventType.UNCLEAN_EXIT,
     }
 )
-_SKILL_EVENTS = frozenset(
-    {HookEventType.ON_SKILL_CANDIDATE, HookEventType.ON_SKILL_UPDATE}
-)
+_SKILL_EVENTS = frozenset({HookEventType.ON_SKILL_CANDIDATE, HookEventType.ON_SKILL_UPDATE})
 _PROJECTION_EVENTS = frozenset(
     {
         HookEventType.PRE_COMPACTION,
@@ -304,18 +300,15 @@ class LifecycleCompilerRecord:
             parse_digest(self.previous_digest)
         if self.predecessor_digest is not None:
             parse_digest(self.predecessor_digest)
-        for value in (self.occurred_at, self.completed_at):
-            if value.tzinfo is None or value.utcoffset() is None:
+        for timestamp in (self.occurred_at, self.completed_at):
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
                 raise ValidationFailed("Compiler lifecycle zamani timezone-aware olmali")
 
     @property
     def chain_current(self) -> bool:
         if self.sequence == 1:
             return self.previous_digest is None and self.predecessor_digest is None
-        return (
-            self.previous_digest is not None
-            and self.previous_digest == self.predecessor_digest
-        )
+        return self.previous_digest is not None and self.previous_digest == self.predecessor_digest
 
     @property
     def receipt_current(self) -> bool:
@@ -356,14 +349,22 @@ class LifecycleCompilerRecord:
 
 
 class CompilerClaim(Protocol):
-    claim_id: UUID
-    created: bool
-    state: str
-    claimed_at: dt.datetime
+    @property
+    def claim_id(self) -> UUID: ...
+
+    @property
+    def created(self) -> bool: ...
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def claimed_at(self) -> dt.datetime: ...
 
 
 class MemoryLearningRepository(Protocol):
-    realm_id: UUID
+    @property
+    def realm_id(self) -> UUID: ...
 
     def read_eligible_compiler_records(
         self,
@@ -501,9 +502,7 @@ class MemoryContinuityOrchestrator:
             if (record.project_id, record.work_item_id, record.run_id) == identity
         )
         broken = tuple(
-            record
-            for record in batch
-            if not record.chain_current or not record.receipt_current
+            record for record in batch if not record.chain_current or not record.receipt_current
         )
         if broken:
             for record in broken:
@@ -627,9 +626,7 @@ class MemoryContinuityOrchestrator:
                     "result_digest": preparation.output.output_digest,
                 }
             ),
-            outbox_digest=digest(
-                sorted(record.lifecycle_receipt_digest for record in batch)
-            ),
+            outbox_digest=digest(sorted(record.lifecycle_receipt_digest for record in batch)),
             committed_at=moment,
             durable=True,
         )

@@ -224,9 +224,7 @@ def split_sql_statements(sql: str) -> tuple[str, ...]:
     return tuple(statements)
 
 
-def expected_routines(
-    connection: Any, directory: Path | None = None
-) -> tuple[RoutineSpec, ...]:
+def expected_routines(connection: Any, directory: Path | None = None) -> tuple[RoutineSpec, ...]:
     """Derive the final routine set from exact applied forward migrations."""
 
     available = migrations.discover_migrations(directory)
@@ -277,9 +275,7 @@ def expected_routines(
                 rf"{re.escape(key.name)}\s*\(",
                 lowered,
             ):
-                state[key] = replace(
-                    spec, post_statements=(*spec.post_statements, statement)
-                )
+                state[key] = replace(spec, post_statements=(*spec.post_statements, statement))
     return tuple(state[key] for key in sorted(state))
 
 

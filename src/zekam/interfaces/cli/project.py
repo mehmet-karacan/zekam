@@ -247,6 +247,14 @@ def _apply_project_lifecycle_with_runtime(
 
     project_id = UUID(str(plan["project_id"]))
     action = "project-remove" if plan["target_status"] == "archived" else "project-restore"
+    current_project = repository.get(project_id)
+    if current_project.revision != int(
+        plan["expected_revision"]
+    ) or current_project.status.value != str(plan["current_status"]):
+        raise PolicyViolation(
+            "Project lifecycle plan stale: revision veya current status degisti; "
+            "claim olusturulmadi"
+        )
     plan_digest = digest(plan)
     source_revision = f"project-revision:{plan['expected_revision']}:{plan_digest}"
     resources = (f"project:{project_id}:lifecycle",)
@@ -423,8 +431,7 @@ def _apply_project_lifecycle_with_runtime(
             source_consumed_by=f"cli:{action}",
             source_effect_digest=request.effect_digest,
             source_adapter_digest=claim.adapter_digest,
-            source_adapter_evidence_digest=receipt.adapter_evidence_digest
-            or result_digest,
+            source_adapter_evidence_digest=receipt.adapter_evidence_digest or result_digest,
             source_resources=tuple(sorted(resources)),
             source_effects=tuple(sorted(item.value for item in request.effects)),
             source_data_classifications=tuple(
@@ -444,7 +451,7 @@ def _apply_project_lifecycle_with_runtime(
             try:
                 completion = completion_service.readback(completion_request)
             except Exception:
-                raise completion_error
+                raise completion_error from None
     except Exception as exc:
         if effect_started:
             if not terminalization_started:

@@ -131,9 +131,7 @@ def _release_snapshot(
 
 def test_projection_release_snapshot_binds_all_freshness_dimensions() -> None:
     snapshot = _release_snapshot()
-    snapshot.assert_release_ready(
-        expected_source_digest=snapshot.expected_projection_source_digest
-    )
+    snapshot.assert_release_ready(expected_source_digest=snapshot.expected_projection_source_digest)
     assert snapshot.fresh is True
     assert snapshot.snapshot_digest.startswith("sha256:")
 

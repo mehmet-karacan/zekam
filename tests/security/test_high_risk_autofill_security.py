@@ -73,4 +73,3 @@ def test_secret_evidence_cannot_carry_normalized_value() -> None:
     )
     assert preview._payload() == {}
     assert preview.fields[0].value_digest is None
-

@@ -111,7 +111,7 @@ ignore_missing_imports = true
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
 markers = [
     "unit: saf domain ve fonksiyon testleri",
     "property: ozellik ve fuzz testleri",

@@ -1610,7 +1610,7 @@ def test_pre_compact_event_atomically_produces_structural_checkpoint_outbox(
         connection.commit()
         event = ClientLifecycleEvent(
             client_id="codex",
-            client_kind=ClientKind.CODEX,
+            client_kind=ClientKind.INTERNAL,
             session_id="checkpoint-test",
             sequence=1,
             previous_digest=None,
@@ -1622,7 +1622,7 @@ def test_pre_compact_event_atomically_produces_structural_checkpoint_outbox(
         acknowledgement = repository.ingest(
             event.as_dict(),
             client_instance_id="codex",
-            client_kind=ClientKind.CODEX,
+            client_kind=ClientKind.INTERNAL,
             now=now + dt.timedelta(seconds=1),
         )
         assert acknowledgement.compaction_outbox_id is not None
@@ -1631,7 +1631,7 @@ def test_pre_compact_event_atomically_produces_structural_checkpoint_outbox(
             repository.ingest(
                 event.as_dict(),
                 client_instance_id="codex",
-                client_kind=ClientKind.CODEX,
+                client_kind=ClientKind.INTERNAL,
                 now=now + dt.timedelta(seconds=2),
             )
             == acknowledgement

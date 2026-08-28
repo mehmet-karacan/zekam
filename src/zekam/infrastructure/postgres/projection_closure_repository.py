@@ -71,9 +71,7 @@ class ProjectionClosureRepository:
                 if cursor.fetchone() is None:
                     raise ConcurrencyConflict("Projection closure DB lock zamani bulunamadi")
         work = (
-            WorkItemRepository(self.connection, self.realm_id).get_for_update(
-                receipt.work_item_id
-            )
+            WorkItemRepository(self.connection, self.realm_id).get_for_update(receipt.work_item_id)
             if lock
             else WorkItemRepository(self.connection, self.realm_id).get(receipt.work_item_id)
         )
@@ -131,8 +129,7 @@ class ProjectionClosureRepository:
             cursor.execute(
                 "select id,expires_at,fencing_token,worker_label from runtime.lease"
                 " where realm_id=%s and job_id=%s and attempt_id=%s"
-                " and expires_at>statement_timestamp()"
-                + suffix,
+                " and expires_at>statement_timestamp()" + suffix,
                 (self.realm_id, receipt.job_id, receipt.attempt_id),
             )
             lease = cursor.fetchone()
@@ -205,9 +202,7 @@ class ProjectionClosureRepository:
             )
             if locks != expected_lock:
                 raise PolicyViolation("Projection closure logical lock exact degil")
-            lock_digest = digest(
-                [{"resource": resource, "mode": mode} for resource, mode in locks]
-            )
+            lock_digest = digest([{"resource": resource, "mode": mode} for resource, mode in locks])
 
             identity = (
                 self.realm_id,
@@ -313,10 +308,7 @@ class ProjectionClosureRepository:
         )
         if str(pre_close_body.get("source_revision")) != release.source_head:
             raise PolicyViolation("Projection closure pre_close/source revision drift")
-        if (
-            str(task_plan[2]) != release.source_head
-            or str(task_plan[3]) != receipt.policy_digest
-        ):
+        if str(task_plan[2]) != release.source_head or str(task_plan[3]) != receipt.policy_digest:
             raise PolicyViolation("Projection closure current Plan source/policy drift")
         return ProjectionClosureSnapshot(
             work_item=work,
@@ -339,9 +331,7 @@ class ProjectionClosureRepository:
             pre_close_event_id=UUID(str(pre_close[0])),
             pre_close_event_digest=str(pre_close[1]),
             pre_close_sequence=int(pre_close[2]),
-            pre_close_previous_digest=(
-                None if pre_close[3] is None else str(pre_close[3])
-            ),
+            pre_close_previous_digest=(None if pre_close[3] is None else str(pre_close[3])),
             pre_close_outbox_id=UUID(str(pre_close[4])),
             pre_close_outbox_plan_digest=str(pre_close[5]),
             pre_close_outbox_payload_digest=str(pre_close[6]),
@@ -386,8 +376,7 @@ class ProjectionClosureRepository:
             raise PolicyViolation("Projection closure replay completed effect tasimiyor")
 
         resource = (
-            f"work:{receipt.project_id}:{receipt.work_item_id}:"
-            f"projection-close:{receipt.run_id}"
+            f"work:{receipt.project_id}:{receipt.work_item_id}:projection-close:{receipt.run_id}"
         )
         result_digest = str(effect[2])
         expected_effect_digest = digest(
@@ -681,8 +670,7 @@ class ProjectionClosureRepository:
             execution_events = tuple(cursor.fetchall())
         if (
             len(execution_events) != 1
-            or canonical_json(execution_events[0][0])
-            != canonical_json(expected_execution_event)
+            or canonical_json(execution_events[0][0]) != canonical_json(expected_execution_event)
             or execution_events[0][1] != effect[5]
         ):
             raise PolicyViolation("Projection closure terminal execution event drift")
@@ -726,10 +714,7 @@ class ProjectionClosureRepository:
         previous_digest = None if pre_close[3] is None else str(pre_close[3])
         if (
             (int(pre_close[2]) == 1) != (previous_digest is None)
-            or (
-                int(pre_close[2]) > 1
-                and (previous is None or str(previous[0]) != previous_digest)
-            )
+            or (int(pre_close[2]) > 1 and (previous is None or str(previous[0]) != previous_digest))
             or pre_close[4].get("checkpoint_ref") != receipt.checkpoint_ref.ref
             or pre_close[4].get("plan_ref") != f"work-plan:{task_plan_id}"
             or str(pre_close[4].get("source_revision")) != str(task_plan[2])
@@ -911,9 +896,7 @@ class ProjectionClosureRepository:
             )
             pending_claim_ids = tuple(UUID(str(row[0])) for row in cursor.fetchall())
             if pending_claim_ids != (claim_id,):
-                raise PolicyViolation(
-                    "Projection closure job exact tek receiptless claim tasimali"
-                )
+                raise PolicyViolation("Projection closure job exact tek receiptless claim tasimali")
 
         continuity = MemoryContinuityRepository(self.connection, self.realm_id)
         projection_created = continuity.store_projection_receipt(

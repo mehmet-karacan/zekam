@@ -156,8 +156,8 @@ def test_durable_notification_replay_dedupe_and_connection_resume(
     assert isinstance(published[0].occurred_at, str)
 
     lifecycle = ClientLifecycleEvent(
-        client_id="codex-app-server",
-        client_kind=ClientKind.CODEX,
+        client_id="internal-app-server",
+        client_kind=ClientKind.INTERNAL,
         session_id="session-app-server",
         sequence=1,
         previous_digest=None,
@@ -167,7 +167,7 @@ def test_durable_notification_replay_dedupe_and_connection_resume(
     )
     ClientLifecycleRepository(connection, realm.id).ingest(
         lifecycle.as_dict(),
-        client_instance_id="codex-app-server",
+        client_instance_id="internal-app-server",
         now=NOW + dt.timedelta(seconds=5),
     )
     session_event = repository.replay(after_sequence=3, limit=10)

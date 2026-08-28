@@ -274,9 +274,7 @@ class GitRepositoryCheck:
                 evidence={"available": False, "network_checked": False},
             )
         head = _git_repository_value(executable, self.root, "rev-parse", "HEAD")
-        branch = _git_repository_value(
-            executable, self.root, "rev-parse", "--abbrev-ref", "HEAD"
-        )
+        branch = _git_repository_value(executable, self.root, "rev-parse", "--abbrev-ref", "HEAD")
         if head is None or branch is None:
             return CheckResult(
                 check_id=self.check_id,
@@ -297,9 +295,7 @@ class GitRepositoryCheck:
         dirty_output = _git_repository_value(
             executable, self.root, "status", "--porcelain=v1", "--untracked-files=all"
         )
-        dirty_paths = tuple(
-            line[3:] for line in (dirty_output or "").splitlines() if len(line) > 3
-        )
+        dirty_paths = tuple(line[3:] for line in (dirty_output or "").splitlines() if len(line) > 3)
         upstream = _git_repository_value(
             executable,
             self.root,

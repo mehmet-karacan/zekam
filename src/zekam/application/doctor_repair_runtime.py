@@ -98,23 +98,15 @@ def apply_doctor_repair_with_runtime(
     if step is None:
         raise PolicyViolation("Doctor repair planinda uygulanacak adim yok")
     if repair_plan.blocked_reasons:
-        raise PolicyViolation(
-            "Doctor repair bloke: " + ",".join(repair_plan.blocked_reasons)
-        )
-    _assert_actor_and_project(
-        realm_context, context, actor_id=actor_id, project_id=project_id
-    )
+        raise PolicyViolation("Doctor repair bloke: " + ",".join(repair_plan.blocked_reasons))
+    _assert_actor_and_project(realm_context, context, actor_id=actor_id, project_id=project_id)
 
-    governance = GovernanceService(
-        realm_context.connection, realm_context.realm, actor_id=actor_id
-    )
+    governance = GovernanceService(realm_context.connection, realm_context.realm, actor_id=actor_id)
     policy = governance.policies.current(DEFAULT_POLICY_NAME)
     if policy is None:
         raise PolicyViolation("Doctor repair current policy ister")
     resources, request = _effect_request(repair_plan, project_id=project_id, step=step)
-    graph = WorkGraphService(
-        realm_context.connection, realm_context.realm, actor_id=actor_id
-    )
+    graph = WorkGraphService(realm_context.connection, realm_context.realm, actor_id=actor_id)
     work = graph.create_item(
         project_id=project_id,
         type=WorkType.MAINTENANCE,
@@ -136,6 +128,7 @@ def apply_doctor_repair_with_runtime(
     work = graph.transition(work.id, WorkState.READY)
     work = graph.transition(work.id, WorkState.ACTIVE)
     source_revision = f"doctor-repair:{plan_digest}"
+    plan_steps: tuple[PlanStep, ...]
     if step == "git-fast-forward":
         plan_steps = (
             PlanStep(
@@ -188,9 +181,7 @@ def apply_doctor_repair_with_runtime(
 
     verdict = governance.evaluate(request, authorization=authorization)
     if not verdict.allowed:
-        governance.revoke_authorization(
-            authorization.id, f"doctor-{step}-policy-preflight-denied"
-        )
+        governance.revoke_authorization(authorization.id, f"doctor-{step}-policy-preflight-denied")
         graph.transition(
             work.id,
             WorkState.CANCELLED,
@@ -225,16 +216,12 @@ def apply_doctor_repair_with_runtime(
         )
     )
     if not created:
-        governance.revoke_authorization(
-            authorization.id, f"doctor-{step}-runtime-replay"
-        )
+        governance.revoke_authorization(authorization.id, f"doctor-{step}-runtime-replay")
         graph.transition(work.id, WorkState.CANCELLED, reason="doctor runtime replay")
         raise PolicyViolation("Doctor repair runtime replay reddedildi")
     claimed = host.acquire_work(capabilities=(capability,))
     if claimed is None or claimed.job.id != job.id:
-        governance.revoke_authorization(
-            authorization.id, f"doctor-{step}-acquire-failed"
-        )
+        governance.revoke_authorization(authorization.id, f"doctor-{step}-acquire-failed")
         host.jobs.mark_recovery_required(job.id, f"doctor-{step}-acquire-failed")
         graph.transition(work.id, WorkState.CANCELLED, reason="doctor job claim alinamadi")
         raise PolicyViolation("Doctor repair runtime job claim edilemedi")
@@ -246,9 +233,7 @@ def apply_doctor_repair_with_runtime(
         authorization_id=authorization.id,
         idempotency_key=plan_digest,
         resources=parse_requests(write=resources),
-        adapter_digest=digest(
-            {"adapter": f"doctor-{step}/v1", "plan_digest": plan_digest}
-        ),
+        adapter_digest=digest({"adapter": f"doctor-{step}/v1", "plan_digest": plan_digest}),
     )
     effect_started = False
     receipt_known = False
@@ -285,8 +270,7 @@ def apply_doctor_repair_with_runtime(
             completed_steps=task_plan.execution_order,
             pending_steps=(),
             step_results=tuple(
-                (plan_step_id, result_digest)
-                for plan_step_id in task_plan.execution_order
+                (plan_step_id, result_digest) for plan_step_id in task_plan.execution_order
             ),
             context_manifest_digest=plan_digest,
             journal_head_digest=receipt.adapter_evidence_digest or result_digest,
@@ -336,8 +320,7 @@ def apply_doctor_repair_with_runtime(
             source_consumed_by=f"cli:doctor:{step}",
             source_effect_digest=request.effect_digest,
             source_adapter_digest=claim.adapter_digest,
-            source_adapter_evidence_digest=receipt.adapter_evidence_digest
-            or result_digest,
+            source_adapter_evidence_digest=receipt.adapter_evidence_digest or result_digest,
             source_resources=tuple(sorted(resources)),
             source_effects=tuple(sorted(item.value for item in request.effects)),
             source_data_classifications=tuple(
@@ -357,7 +340,7 @@ def apply_doctor_repair_with_runtime(
             try:
                 completion = completion_service.readback(completion_request)
             except Exception:
-                raise completion_error
+                raise completion_error from None
     except Exception as exc:
         if effect_started:
             if not terminalization_started:
@@ -486,14 +469,10 @@ def _assert_actor_and_project(
     actor_id: UUID,
     project_id: UUID,
 ) -> None:
-    actor = ActorRepository(
-        realm_context.connection, realm_context.realm_id
-    ).get(actor_id)
+    actor = ActorRepository(realm_context.connection, realm_context.realm_id).get(actor_id)
     if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
         raise PolicyViolation("Doctor repair actor aktif human olmali")
-    integration = ProjectIntegrationService(
-        realm_context.connection, realm_context.realm
-    )
+    integration = ProjectIntegrationService(realm_context.connection, realm_context.realm)
     project = integration.projects.get(project_id)
     if project.status is not LifecycleStatus.ACTIVE:
         raise PolicyViolation("Doctor repair project aktif olmali")

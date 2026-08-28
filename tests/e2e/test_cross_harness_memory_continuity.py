@@ -115,9 +115,7 @@ def _compiler_record(
         hook_output=hook_output,
         hook_output_digest=digest(hook_output),
         hook_receipt_count=1,
-        lifecycle_receipt_digest=digest(
-            {"client_id": client, "outbox": 300 + identity_offset}
-        ),
+        lifecycle_receipt_digest=digest({"client_id": client, "outbox": 300 + identity_offset}),
         occurred_at=NOW,
         completed_at=NOW,
     )
@@ -208,10 +206,7 @@ def test_cross_harness_local_domain_candidate_and_replay_parity(
     assert opencode.previous_digest is codex.previous_entry_digest is None
 
     # Delivery replay is duplicate-free in both spools.
-    assert (
-        opencode_replay.document()["event_digest"]
-        == opencode.document()["event_digest"]
-    )
+    assert opencode_replay.document()["event_digest"] == opencode.document()["event_digest"]
     assert codex_replay.entry_digest == codex.entry_digest
     opencode_events = opencode_home / "global" / "runtime" / "opencode-lifecycle"
     assert len(list(opencode_events.glob("*.json"))) == 1
@@ -232,9 +227,7 @@ def test_cross_harness_local_domain_candidate_and_replay_parity(
     assert {(item.project_id, item.work_item_id, item.run_id) for item in records} == {
         (IDS[2], IDS[3], IDS[4])
     }
-    assert {item.event_type for item in records} == {
-        HookEventType.PRE_COMPACTION.value
-    }
+    assert {item.event_type for item in records} == {HookEventType.PRE_COMPACTION.value}
     assert {item.structured_data["hydration_category"] for item in records} == {
         HydrationCategory.CHECKPOINT.value
     }
@@ -256,12 +249,8 @@ def test_cross_harness_local_domain_candidate_and_replay_parity(
     candidate_source_digests = {
         candidate.source_refs[0].digest_value for candidate in first.output.candidates
     }
-    assert candidate_source_digests == {
-        digest(item.structured_data) for item in records
-    }
-    assert {
-        str(item.structured_data["source_event_digest"]) for item in records
-    } == {
+    assert candidate_source_digests == {digest(item.structured_data) for item in records}
+    assert {str(item.structured_data["source_event_digest"]) for item in records} == {
         codex.entry_digest,
         opencode.document()["event_digest"],
     }
@@ -281,12 +270,6 @@ def test_cross_harness_local_domain_candidate_and_replay_parity(
         token_budget=2,
     )
     assert len(hydration.selected) == 2
-    assert {item.category for item in hydration.selected} == {
-        HydrationCategory.CHECKPOINT
-    }
-    assert {item.priority for item in hydration.selected} == {
-        HydrationPriority.MUST_LOAD
-    }
-    assert {item.classification for item in hydration.selected} == {
-        DataClassification.INTERNAL
-    }
+    assert {item.category for item in hydration.selected} == {HydrationCategory.CHECKPOINT}
+    assert {item.priority for item in hydration.selected} == {HydrationPriority.MUST_LOAD}
+    assert {item.classification for item in hydration.selected} == {DataClassification.INTERNAL}

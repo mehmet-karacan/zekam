@@ -42,8 +42,8 @@ from zekam.infrastructure.postgres.control_plane_completion_repository import (
     PostgresControlPlaneCompletionRepository,
 )
 from zekam.infrastructure.postgres.core_repository import ActorRepository
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.postgres.runtime_repository import EffectLedger
+from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.postgres.work_repository import WorkItemRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -63,7 +63,9 @@ class _ForgeryProbeRepository(PostgresControlPlaneCompletionRepository):
         claim_id: UUID,
         effect_receipt_id: UUID,
     ) -> UUID:
-        with pytest.raises(RuntimeError, match="rollback forged completion probe"):
+        with pytest.raises(  # noqa: SIM117 - rollback scope intentionally nested
+            RuntimeError, match="rollback forged completion probe"
+        ):
             with self.connection.transaction():
                 with self.connection.cursor() as cursor:
                     cursor.execute(
@@ -87,9 +89,7 @@ class _ForgeryProbeRepository(PostgresControlPlaneCompletionRepository):
                     effect_digest=str(row[0]),
                     authorization_digest=str(row[1]),
                     idempotency_key=digest("forged-internal-completion-key"),
-                    resources=parse_requests(
-                        write=tuple(item["resource"] for item in row[2])
-                    ),
+                    resources=parse_requests(write=tuple(item["resource"] for item in row[2])),
                     execution_identity=str(row[3]),
                     fencing_token=int(row[4]),
                     adapter_digest=str(row[5]),
@@ -114,12 +114,14 @@ class _ForgeryProbeRepository(PostgresControlPlaneCompletionRepository):
                     claim_id=forged_claim.id,
                     effect_receipt_id=forged_receipt.id,
                 )
-                with pytest.raises(
-                    PsycopgError,
-                    match="control-plane completion exact terminal chain missing",
-                ) as rejected:
-                    with self.connection.transaction():
-                        self._execute_admission(parameters)
+                with (
+                    pytest.raises(
+                        PsycopgError,
+                        match="control-plane completion exact terminal chain missing",
+                    ) as rejected,
+                    self.connection.transaction(),
+                ):
+                    self._execute_admission(parameters)
                 assert rejected.value.sqlstate == "23514"
                 raise RuntimeError("rollback forged completion probe")
 
@@ -152,9 +154,8 @@ class _ForgeryProbeRepository(PostgresControlPlaneCompletionRepository):
                 claim_id=claim_id,
                 effect_receipt_id=effect_receipt_id,
             )
-            with pytest.raises(PsycopgError):
-                with self.connection.transaction():
-                    self._execute_admission(parameters)
+            with pytest.raises(PsycopgError), self.connection.transaction():
+                self._execute_admission(parameters)
         return super()._admit(
             request,
             work_revision=work_revision,
@@ -311,8 +312,7 @@ def test_incomplete_multistep_checkpoint_cannot_admit_completion(
         source_consumed_by="test:maintenance-effect",
         source_effect_digest=plan.effect_digest,
         source_adapter_digest=source_claim.adapter_digest,
-        source_adapter_evidence_digest=source_receipt.adapter_evidence_digest
-        or result_digest,
+        source_adapter_evidence_digest=source_receipt.adapter_evidence_digest or result_digest,
         source_resources=(primary_resource,),
         source_effects=(EffectKind.DATABASE_WRITE.value,),
         source_data_classifications=("local-only",),
@@ -449,9 +449,7 @@ def test_exact_terminal_maintenance_chain_is_admitted_and_completed(
         plan_steps=plan.execution_order,
         completed_steps=plan.execution_order,
         pending_steps=(),
-        step_results=tuple(
-            (plan_step_id, result_digest) for plan_step_id in plan.execution_order
-        ),
+        step_results=tuple((plan_step_id, result_digest) for plan_step_id in plan.execution_order),
         context_manifest_digest=plan.plan_digest,
         journal_head_digest=digest({"terminal_result": result_digest}),
         next_safe_action="control-plane-completion",
@@ -491,8 +489,7 @@ def test_exact_terminal_maintenance_chain_is_admitted_and_completed(
         source_consumed_by="test:maintenance-effect",
         source_effect_digest=plan.effect_digest,
         source_adapter_digest=source_claim.adapter_digest,
-        source_adapter_evidence_digest=source_receipt.adapter_evidence_digest
-        or result_digest,
+        source_adapter_evidence_digest=source_receipt.adapter_evidence_digest or result_digest,
         source_resources=(primary_resource,),
         source_effects=(EffectKind.DATABASE_WRITE.value,),
         source_data_classifications=("local-only",),
@@ -504,9 +501,7 @@ def test_exact_terminal_maintenance_chain_is_admitted_and_completed(
             ),
         ),
     )
-    service = ControlPlaneCompletionService(
-        _ForgeryProbeRepository(connection, realm.id)
-    )
+    service = ControlPlaneCompletionService(_ForgeryProbeRepository(connection, realm.id))
     result = service.complete(completion_request)
     later_plan = graph.create_plan(
         work.id,
@@ -532,18 +527,18 @@ def test_exact_terminal_maintenance_chain_is_admitted_and_completed(
         cursor.execute(
             "select admission.mode,admission.consumed_at is not null,"
             " claim.operation,claim.adapter_digest,claim.resources,"
-            " authorization.consumed_by,effect.status,effect.result_digest,"
+            " authz.consumed_by,effect.status,effect.result_digest,"
             " effect.adapter_evidence_digest,checkpoint.checkpoint_digest,"
-            " authorization.actor_id,claim.idempotency_key,"
+            " authz.actor_id,claim.idempotency_key,"
             " admission.source_authorization_id,admission.source_claim_id,"
             " admission.source_effect_receipt_id,admission.request_digest,"
             " admission.evidence_digest,admission.completion_evidence"
             " from work.completion_admission admission"
             " join runtime.effect_claim claim on claim.realm_id=admission.realm_id"
             "  and claim.id=admission.claim_id"
-            " join security.authorization authorization"
-            "  on authorization.realm_id=admission.realm_id"
-            "  and authorization.id=admission.authorization_id"
+            " join security.authorization authz"
+            "  on authz.realm_id=admission.realm_id"
+            "  and authz.id=admission.authorization_id"
             " join runtime.effect_receipt effect on effect.realm_id=admission.realm_id"
             "  and effect.id=admission.effect_receipt_id"
             " join work.checkpoint checkpoint on checkpoint.realm_id=admission.realm_id"

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 import pytest
+from tests.integration.test_agent_residency_postgres import residency_scope as _residency_scope
+from tests.integration.test_memory_continuity_postgres import _canonical_projection
 
 from zekam.application.client_lifecycle_bridge import (
     ClientLifecycleBridge,
@@ -33,15 +36,14 @@ from zekam.domain.hook_runtime import (
     HookRuntimeRevision,
     HookSpecRevision,
 )
+from zekam.domain.project import SourceRevisionKind
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.session_continuity import (
     CompactionReceipt,
     CompactionStatus,
-    ContextSelectionReference,
     DataClassification,
-    FreshnessDimension,
-    TruthClass,
+    SessionLifecycleEvent,
 )
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.config_provenance_repository import (
@@ -53,6 +55,7 @@ from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRep
 from zekam.infrastructure.postgres.memory_continuity_repository import (
     MemoryContinuityRepository,
 )
+from zekam.infrastructure.postgres.project_repository import SourceBindingRepository
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -222,14 +225,35 @@ def test_bridge_stages_outbox_records_hook_receipt_and_requires_terminal_finaliz
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     realm, connection = realm_session
-    project, work, source_plan, run, actor = _scope(realm, connection, tmp_path)
+    scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
+    run = scope["run"]
+    project = SimpleNamespace(id=run.project_id)
+    work = SimpleNamespace(id=run.work_item_id)
+    source_plan = SimpleNamespace(id=run.plan_id)
+    bindings = SourceBindingRepository(connection, realm.id)
+    binding = bindings.for_project(project.id)[0]
+    bindings.record_revision(
+        binding_id=binding.id,
+        kind=SourceRevisionKind.TREE_DIGEST,
+        revision=run.source_revision,
+        tree_digest=digest("bridge-source-tree"),
+        now=NOW,
+    )
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(
+            realm=realm,
+            kind=ActorKind.HUMAN,
+            slug="bridge-continuity-authorizer",
+            now=NOW,
+        )
+    )
     runtime, session, hook_repository, binding_id = _hook_runtime(realm.id, connection)
     repository = MemoryContinuityRepository(connection, realm.id)
     authorizations = AuthorizationRepository(connection, realm.id)
     bridge = ClientLifecycleBridge(runtime, repository, authorizations, hook_repository)
     descriptor = ClientDescriptor(
         ClientKind.OPENCODE,
-        "opencode-local",
+        run.client_id,
         "opencode.exe",
         frozenset({"chat", "structured-result", "lifecycle-events-v2"}),
         version="1.0.0-reviewed",
@@ -245,18 +269,18 @@ def test_bridge_stages_outbox_records_hook_receipt_and_requires_terminal_finaliz
         project.id,
         work.id,
         run.id,
-        "continuity-integration",
-        "opencode-local",
+        run.session_id,
+        run.client_id,
         uuid4(),
         "session.compacting",
         1,
         None,
-        "client:opencode-local",
+        f"client:{run.client_id}",
         "client-event:one",
         "run:continuity-integration",
         0,
         3,
-        "git:b8d970c",
+        run.source_revision,
         f"work-plan:{source_plan.id}",
         "checkpoint:draft-1",
         "context:bounded-1",
@@ -348,10 +372,64 @@ def test_bridge_stages_outbox_records_hook_receipt_and_requires_terminal_finaliz
     continuity_service.apply(
         compaction_plan,
         authorization_id=compaction_authorization.id,
-        current_source_digest=compaction_plan.source_digest,
-        current_policy_digest=compaction_plan.policy_digest,
-        current_migration_digest=compaction_plan.migration_digest,
-        current_context_digest=compaction_plan.context_digest,
+        now=NOW,
+    )
+    hydration_event = SessionLifecycleEvent(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+        event_id=uuid4(),
+        event_type="hydration_required",
+        sequence=2,
+        previous_digest=applied.event_digest,
+        origin="client/opencode",
+        causation_id="cause/bridge-hydration",
+        correlation_id="correlation/bridge-hydration",
+        recursion_depth=0,
+        source_revision=run.source_revision,
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
+        context_ref="context/current",
+        payload_digest=digest("bridge-hydration-event"),
+        metadata=(),
+        classification=DataClassification.INTERNAL,
+        occurred_at=NOW,
+        ingested_at=NOW,
+    )
+    repository.stage_lifecycle_delivery(
+        hydration_event,
+        idempotency_key="bridge-hydration-lifecycle",
+        plan_digest=digest("bridge-hydration-lifecycle-plan"),
+    )
+    _canonical_projection(realm, connection, repository, project, work)
+    hydration_plan = continuity_service.prepare_hydration(
+        HydrationPreparation(
+            receipt_id=uuid4(),
+            realm_id=realm.id,
+            project_id=project.id,
+            work_item_id=work.id,
+            run_id=run.id,
+            session_id=run.session_id,
+            client_id=run.client_id,
+            token_budget=8,
+            idempotency_key="bridge-hydration-receipt",
+            created_at=NOW,
+        )
+    )
+    hydration_authorization = _authorize(
+        authorizations,
+        realm_id=realm.id,
+        actor=actor,
+        work=work,
+        source_plan=source_plan,
+        mutation_plan=hydration_plan,
+    )
+    continuity_service.apply(
+        hydration_plan,
+        authorization_id=hydration_authorization.id,
         now=NOW,
     )
     bridge.finalize(
@@ -376,37 +454,71 @@ def test_hydration_prepare_apply_uses_concrete_repository_and_snapshot(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     realm, connection = realm_session
-    project, work, source_plan, run, actor = _scope(realm, connection, tmp_path)
+    scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
+    run = scope["run"]
+    project = SimpleNamespace(id=run.project_id)
+    work = SimpleNamespace(id=run.work_item_id)
+    source_plan = SimpleNamespace(id=run.plan_id)
+    bindings = SourceBindingRepository(connection, realm.id)
+    binding = bindings.for_project(project.id)[0]
+    bindings.record_revision(
+        binding_id=binding.id,
+        kind=SourceRevisionKind.TREE_DIGEST,
+        revision=run.source_revision,
+        tree_digest=digest("application-hydration-source-tree"),
+        now=NOW,
+    )
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(
+            realm=realm,
+            kind=ActorKind.HUMAN,
+            slug="application-hydration-authorizer",
+            now=NOW,
+        )
+    )
     repository = MemoryContinuityRepository(connection, realm.id)
     authorizations = AuthorizationRepository(connection, realm.id)
     service = MemoryContinuityService(repository, authorizations)
-    current = digest("current")
+    event = SessionLifecycleEvent(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+        event_id=uuid4(),
+        event_type="hydration_required",
+        sequence=1,
+        previous_digest=None,
+        origin="client/opencode",
+        causation_id="cause/application-hydration",
+        correlation_id="correlation/application-hydration",
+        recursion_depth=0,
+        source_revision=run.source_revision,
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
+        context_ref="context/current",
+        payload_digest=digest("application-hydration-event"),
+        metadata=(),
+        classification=DataClassification.INTERNAL,
+        occurred_at=NOW,
+        ingested_at=NOW,
+    )
+    repository.stage_lifecycle_delivery(
+        event,
+        idempotency_key="application-hydration-lifecycle",
+        plan_digest=digest("application-hydration-lifecycle-plan"),
+    )
+    _canonical_projection(realm, connection, repository, project, work)
     request = HydrationPreparation(
         receipt_id=uuid4(),
         realm_id=realm.id,
         project_id=project.id,
         work_item_id=work.id,
         run_id=run.id,
-        session_id="continuity-integration",
-        client_id="opencode-local",
-        plan_ref=f"work-plan:{source_plan.id}",
-        checkpoint_ref="checkpoint:one",
-        source_digest=digest("source"),
-        policy_digest=digest("policy"),
-        migration_digest=digest("migration"),
-        inventory_digest=digest("inventory"),
-        context_digest=digest("context"),
-        required_candidates=(
-            ContextSelectionReference(
-                "context:required", digest("required"), 5, TruthClass.REPO_FACT
-            ),
-        ),
-        optional_candidates=(),
-        known_omissions=(),
+        session_id=run.session_id,
+        client_id=run.client_id,
         token_budget=8,
-        freshness=(FreshnessDimension("source", current, current, True),),
-        projection_refs=(),
-        hydration_event_digest=digest("hydration-event"),
         idempotency_key="hydration:continuity-integration:1",
         created_at=NOW,
     )
@@ -422,10 +534,6 @@ def test_hydration_prepare_apply_uses_concrete_repository_and_snapshot(
     applied = service.apply(
         plan,
         authorization_id=authorization.id,
-        current_source_digest=plan.source_digest,
-        current_policy_digest=plan.policy_digest,
-        current_migration_digest=plan.migration_digest,
-        current_context_digest=plan.context_digest,
         now=NOW,
     )
     snapshot = repository.read_session_snapshot(

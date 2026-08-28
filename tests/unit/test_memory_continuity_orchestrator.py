@@ -81,9 +81,7 @@ def _record(**changes: Any) -> LifecycleCompilerRecord:
     classification = changes.get("classification", DataClassification.INTERNAL)
     if not isinstance(classification, DataClassification):
         classification = DataClassification(str(classification))
-    structured_data = changes.get(
-        "structured_data", {"summary_ref": "evidence:close-summary"}
-    )
+    structured_data = changes.get("structured_data", {"summary_ref": "evidence:close-summary"})
     event_body = {
         "schema": "zekam-session-lifecycle-event/v1",
         "event_id": str(IDS[1]),

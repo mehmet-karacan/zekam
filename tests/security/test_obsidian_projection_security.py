@@ -127,14 +127,7 @@ def test_current_pointer_rejects_cross_project_binding(
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     store.publish(store.stage(bundle))
-    pointer = (
-        tmp_path
-        / "obsidian"
-        / "yerel"
-        / str(PROJECT_ID)
-        / "public-safe"
-        / "CURRENT.json"
-    )
+    pointer = tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe" / "CURRENT.json"
     body = json.loads(pointer.read_text(encoding="utf-8"))
     body["project_id"] = str(OTHER_PROJECT_ID)
     pointer.write_text(json.dumps(body), encoding="utf-8")
@@ -221,12 +214,7 @@ def test_publish_revalidates_staged_tree_before_current_swap(
     with pytest.raises(PolicyViolation, match="file digest drift"):
         store.publish(staged)
     assert not (
-        tmp_path
-        / "obsidian"
-        / "yerel"
-        / str(PROJECT_ID)
-        / "public-safe"
-        / "CURRENT.json"
+        tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe" / "CURRENT.json"
     ).exists()
 
 
@@ -236,17 +224,9 @@ def test_live_manifest_binding_rejects_coordinated_projection_forge(
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     store.publish(store.stage(bundle))
-    profile_root = (
-        tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe"
-    )
-    generation = profile_root / "generations" / bundle.projection_digest.removeprefix(
-        "sha256:"
-    )
-    target = next(
-        item
-        for item in generation.rglob("*.md")
-        if item.name not in {"README.md"}
-    )
+    profile_root = tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe"
+    generation = profile_root / "generations" / bundle.projection_digest.removeprefix("sha256:")
+    target = next(item for item in generation.rglob("*.md") if item.name not in {"README.md"})
     target.write_bytes(target.read_bytes() + b"\noperator@example.test\n")
 
     manifest_path = generation / "_META" / "manifest.json"
@@ -257,9 +237,7 @@ def test_live_manifest_binding_rejects_coordinated_projection_forge(
             break
     manifest.pop("manifest_digest")
     manifest_digest = digest(manifest)
-    manifest_path.write_bytes(
-        canonical_bytes(manifest | {"manifest_digest": manifest_digest})
-    )
+    manifest_path.write_bytes(canonical_bytes(manifest | {"manifest_digest": manifest_digest}))
 
     receipt_path = generation / "_META" / "projection-receipt.json"
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -300,9 +278,7 @@ def test_verifier_rejects_generation_copied_across_realm_or_profile(
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     source = _bundle()
     store.publish(store.stage(source))
-    source_root = (
-        tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe"
-    )
+    source_root = tmp_path / "obsidian" / "yerel" / str(PROJECT_ID) / "public-safe"
     target_root = tmp_path / "obsidian" / realm_slug / str(PROJECT_ID) / profile.value
     target_root.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_root, target_root)
@@ -327,5 +303,5 @@ def test_store_rejects_real_symlink_realm_escape(tmp_path) -> None:  # type: ign
         os.symlink(outside, root / "yerel", target_is_directory=True)
     except (OSError, NotImplementedError) as exc:
         pytest.skip(f"symlink olusturulamadi: {exc}")
-    with pytest.raises(PolicyViolation, match="symlink|reparse"):
+    with pytest.raises(PolicyViolation, match=r"symlink|reparse"):
         LocalObsidianProjectionStore(root).stage(_bundle())

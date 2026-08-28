@@ -80,16 +80,20 @@ def start_trace(
         return
     try:
         now = dt.datetime.now(dt.UTC)
-        with RealmSession(home, realm) as context:
+        realm_session = RealmSession(home, realm)
+        with realm_session as context:
+            identity = realm_session.resolved_runtime_identity
+            if identity is None:
+                raise PolicyViolation("Trace start exact resolved runtime kimligi ister")
             bundle = TraceBundle(
                 id=uuid4(),
                 realm_id=context.realm_id,
                 trace_ref=trace_ref,
-                project_id=project_id,
-                work_item_id=work_item_id,
-                run_id=run_id,
+                project_id=identity.project_id,
+                work_item_id=identity.work_item_id,
+                run_id=identity.run_id,
                 root_assignment_id=root_assignment_id,
-                root_client_session_id=client_session,
+                root_client_session_id=identity.session_id,
                 policy=policy,
                 created_at=now,
                 expires_at=now + dt.timedelta(days=retention_days),

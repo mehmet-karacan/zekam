@@ -15,6 +15,7 @@ from zekam.application.client_lifecycle_spool import (
     ClientLifecycleSpool,
 )
 from zekam.application.home import resolve_home
+from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.infrastructure.clients.codex_lifecycle import (
@@ -24,6 +25,7 @@ from zekam.infrastructure.clients.codex_lifecycle import (
     assert_reviewed_codex_version,
     parse_codex_hook_input,
 )
+
 app = typer.Typer(name="client", help="Gercek istemci lifecycle hook ve yerel outbox yuzeyi")
 console = Console()
 error_console = Console(stderr=True)
@@ -71,6 +73,7 @@ def hook_command(
 ) -> None:
     """Codex command-hook stdin'ini content-free immutable outbox'a yazar."""
 
+    assert_local_effect_admission(("client", "hook"))
     event_name: str | None = None
     try:
         spool = _codex_spool(home, client)

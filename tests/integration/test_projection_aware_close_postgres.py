@@ -133,17 +133,15 @@ def test_projection_closure_lock_is_work_scoped_and_blocks_target_rows_and_migra
 
             with connect(migrated_database) as different_scope:
                 configure_session(different_scope, realm_id=realm.id, role=None)
-                with pytest.raises(_RollbackProbe):
+                with pytest.raises(_RollbackProbe):  # noqa: SIM117
                     with different_scope.transaction(), different_scope.cursor() as other:
                         other.execute("set local lock_timeout='500ms'")
                         other.execute(
-                            "select continuity.lock_projection_closure_scope("
-                            "%s,%s,%s,%s,%s,%s)",
+                            "select continuity.lock_projection_closure_scope(%s,%s,%s,%s,%s,%s)",
                             (realm.id, *scope_b),
                         )
                         other.execute(
-                            "update work.work_item set title=title"
-                            " where realm_id=%s and id=%s",
+                            "update work.work_item set title=title where realm_id=%s and id=%s",
                             (realm.id, scope_b[1]),
                         )
                         assert other.rowcount == 1
@@ -154,8 +152,7 @@ def test_projection_closure_lock_is_work_scoped_and_blocks_target_rows_and_migra
                         )
                         assert other.rowcount == 1
                         other.execute(
-                            "update runtime.job set priority=priority"
-                            " where realm_id=%s and id=%s",
+                            "update runtime.job set priority=priority where realm_id=%s and id=%s",
                             (realm.id, scope_b[3]),
                         )
                         assert other.rowcount == 1
@@ -172,7 +169,7 @@ def test_projection_closure_lock_is_work_scoped_and_blocks_target_rows_and_migra
 
             with connect(migrated_database) as targeted_writer:
                 configure_session(targeted_writer, realm_id=realm.id, role=None)
-                with pytest.raises(PsycopgError) as blocked_row:
+                with pytest.raises(PsycopgError) as blocked_row:  # noqa: SIM117
                     with targeted_writer.transaction(), targeted_writer.cursor() as other:
                         other.execute("set local lock_timeout='100ms'")
                         other.execute(
@@ -183,24 +180,21 @@ def test_projection_closure_lock_is_work_scoped_and_blocks_target_rows_and_migra
 
             with connect(migrated_database) as same_scope:
                 configure_session(same_scope, realm_id=realm.id)
-                with pytest.raises(PsycopgError) as blocked_scope:
+                with pytest.raises(PsycopgError) as blocked_scope:  # noqa: SIM117
                     with same_scope.transaction(), same_scope.cursor() as other:
                         other.execute("set local lock_timeout='100ms'")
                         other.execute(
-                            "select continuity.lock_projection_closure_scope("
-                            "%s,%s,%s,%s,%s,%s)",
+                            "select continuity.lock_projection_closure_scope(%s,%s,%s,%s,%s,%s)",
                             (realm.id, *scope_a),
                         )
                 assert blocked_scope.value.sqlstate == "55P03"
 
             with connect(migrated_database) as migration_writer:
                 configure_session(migration_writer, realm_id=realm.id, role=None)
-                with pytest.raises(PsycopgError) as blocked_migration:
+                with pytest.raises(PsycopgError) as blocked_migration:  # noqa: SIM117
                     with migration_writer.transaction(), migration_writer.cursor() as other:
                         other.execute("set local lock_timeout='100ms'")
-                        other.execute(
-                            "lock table core.schema_migrations in row exclusive mode"
-                        )
+                        other.execute("lock table core.schema_migrations in row exclusive mode")
                 assert blocked_migration.value.sqlstate == "55P03"
 
 
@@ -221,13 +215,12 @@ def test_closure_lock_helper_rejects_unbound_runtime_identity(
             type=WorkType.TASK,
             title="Projection lock unbound",
         )
-        with pytest.raises(PsycopgError):
-            with setup.transaction(), setup.cursor() as cursor:
-                cursor.execute(
-                    "select continuity.lock_projection_closure_scope("
-                    "%s,%s,%s,gen_random_uuid(),gen_random_uuid(),gen_random_uuid())",
-                    (realm.id, project.id, work.id),
-                )
+        with pytest.raises(PsycopgError), setup.transaction(), setup.cursor() as cursor:
+            cursor.execute(
+                "select continuity.lock_projection_closure_scope("
+                "%s,%s,%s,gen_random_uuid(),gen_random_uuid(),gen_random_uuid())",
+                (realm.id, project.id, work.id),
+            )
 
 
 def test_application_role_cannot_directly_lock_append_only_closure_tables(
@@ -239,7 +232,7 @@ def test_application_role_cannot_directly_lock_append_only_closure_tables(
         RealmRepository(setup).create(realm)
     with connect(migrated_database) as connection:
         configure_session(connection, realm_id=realm.id)
-        with pytest.raises(PsycopgError):
+        with pytest.raises(PsycopgError):  # noqa: SIM117
             with connection.transaction(), connection.cursor() as cursor:
                 cursor.execute("lock table work.task_plan in share mode")
 
@@ -307,12 +300,11 @@ def test_raw_completed_transition_is_rejected_without_same_transaction_admission
             evidence=(EvidenceRef(kind="test", reference="raw-completion-guard"),),
             now=dt.datetime.now(dt.UTC),
         )
-        with pytest.raises(PsycopgError) as rejected:
-            with setup.transaction():
-                WorkItemRepository(setup, realm.id).replace(
-                    completed,
-                    expected_revision=current.revision,
-                )
+        with pytest.raises(PsycopgError) as rejected, setup.transaction():
+            WorkItemRepository(setup, realm.id).replace(
+                completed,
+                expected_revision=current.revision,
+            )
         assert rejected.value.sqlstate == "42501"
         assert rejected.value.diag.message_primary == (
             "raw completed transition lacks exact completion admission"

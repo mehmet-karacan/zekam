@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.app_server_protocol import schema_bundle_digest
 from zekam.protocol.generation import (
     generate_protocol_artifacts,
@@ -54,6 +55,7 @@ def generate_json_schema(
     output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Deterministic JSON Schema'yi stdout veya exact dosyaya yazar."""
+    assert_local_effect_admission(("protocol", "generate-json-schema"))
     _generate_one("schema-bundle.json", output)
 
 
@@ -62,6 +64,7 @@ def generate_typescript(
     output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Deterministic TypeScript istemci tiplerini yazar."""
+    assert_local_effect_admission(("protocol", "generate-typescript"))
     _generate_one("client-types.ts", output)
 
 

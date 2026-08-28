@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, cast
 from uuid import UUID, uuid5
 
 from zekam.application.client_lifecycle_bridge import (
     ClientLifecycleBridge,
     LifecycleClientContract,
+    LifecycleDeliveryRepository,
     LifecycleRequest,
 )
 from zekam.application.client_lifecycle_continuity import (
-    ClaimedLifecycleDelivery,
     LIFECYCLE_ADAPTER_DIGEST,
     LIFECYCLE_EFFECT_OPERATION,
+    ClaimedLifecycleDelivery,
     PostgresLifecycleContinuityAdmission,
 )
 from zekam.application.client_lifecycle_spool import (
@@ -29,21 +31,22 @@ from zekam.application.client_lifecycle_spool import (
 )
 from zekam.application.execution import ExecutionHost
 from zekam.application.hook_runtime import HookRuntime, HookSession
-from zekam.application.memory_hooks import memory_hook_bundle
+from zekam.application.memory_continuity import MemoryContinuityService, MemoryContinuityStore
+from zekam.application.memory_hooks import MemoryHookBundle, memory_hook_bundle
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.runtime import AttemptOutcome, EffectClaim
 from zekam.domain.resources import LockMode, ResourceRequest
+from zekam.domain.runtime import AttemptOutcome, EffectClaim
 from zekam.domain.session_continuity import DataClassification
-from zekam.infrastructure.postgres.client_lifecycle_repository import (
-    ClientLifecycleRepository,
-)
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_CLIENT_ID,
     CODEX_EVENT_MAPPING,
     CODEX_REVIEWED_VERSION,
     codex_lifecycle_descriptor,
     load_codex_contract_evidence,
+)
+from zekam.infrastructure.postgres.client_lifecycle_repository import (
+    ClientLifecycleRepository,
 )
 from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
 from zekam.infrastructure.postgres.memory_continuity_repository import (
@@ -53,6 +56,35 @@ from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 _EVENT_NAMESPACE = UUID("81a59570-f0c1-4bd2-b6ce-62647df59e2f")
+_MAX_HOOK_GENERATION_REPLAY = 64
+
+
+def _configure_active_memory_hook_runtime(
+    runtime: HookRuntime,
+    bundle: MemoryHookBundle,
+    repository: ClientLifecycleRepository,
+    *,
+    now: dt.datetime,
+) -> str:
+    """Rebuild the DB-authoritative hook generation and verify its exact digest."""
+
+    generation, config_digest, expected_hook_set_digest = repository.active_hook_runtime_binding()
+    if generation > _MAX_HOOK_GENERATION_REPLAY:
+        raise PolicyViolation("Lifecycle active hook generation bounded replay limitini asti")
+    compiled = None
+    for _ in range(generation):
+        compiled = runtime.reconfigure(
+            realm_id=repository.realm_id,
+            config_effective_digest=config_digest,
+            specs=bundle.specs,
+            runtimes=bundle.runtimes,
+            profiles=(bundle.profile,),
+            adapters=bundle.adapters,
+            now=now,
+        )
+    if compiled is None or compiled.hook_set_digest != expected_hook_set_digest:
+        raise PolicyViolation("Lifecycle in-memory/DB active hook set digest drift")
+    return compiled.hook_set_digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +109,49 @@ class LifecyclePlanInputs:
             parse_digest(value)
 
 
+def _finish_receiptless_recovery(
+    *,
+    repository: ClientLifecycleRepository,
+    work: ClaimedWork,
+    claim: EffectClaim,
+    reason: str,
+    rejected_message: str,
+) -> None:
+    """Finish once, or accept the exact recovery state closed by inner admission."""
+
+    host = ExecutionHost(
+        repository.connection,
+        repository.realm_id,
+        worker_label=work.lease.worker_label,
+    )
+    if host.ledger.receipt_for_claim(claim.id) is not None:
+        return
+    state = repository.recovery_finish_state(
+        job_id=work.job.id,
+        attempt_id=work.attempt_id,
+        lease_id=work.lease.id,
+        owner_digest=work.lease.owner_digest,
+        fencing_token=work.lease.fencing_token,
+    )
+    if state == "recovery-required-closed":
+        return
+    if state != "running-exact":
+        raise PolicyViolation("Codex lifecycle recovery finish state drift")
+    finished = host.finish(
+        work,
+        outcome=AttemptOutcome.RECOVERY_REQUIRED,
+        result_digest=digest(
+            {
+                "schema": "zekam-client-lifecycle-recovery-required/v1",
+                "claim_id": str(claim.id),
+                "reason": reason,
+            }
+        ),
+    )
+    if not finished:
+        raise PolicyViolation(rejected_message)
+
+
 def drain_claimed_codex_delivery(
     *,
     spool: ClientLifecycleSpool,
@@ -89,6 +164,7 @@ def drain_claimed_codex_delivery(
     hook_session: HookSession,
     session_binding_id: UUID,
     inputs: LifecyclePlanInputs,
+    hydration_authorization_id: UUID | None = None,
 ) -> tuple[LifecycleReplayResult, ...]:
     """Drain only the immutable head assigned to this exact ClaimedWork.
 
@@ -99,36 +175,31 @@ def drain_claimed_codex_delivery(
 
     pending = spool.pending(limit=1)
     if not pending:
+        _finish_receiptless_recovery(
+            repository=repository,
+            work=work,
+            claim=claim,
+            reason="claimed-delivery-missing-from-pending-spool",
+            rejected_message="Missing delivery recovery finish reddedildi",
+        )
         host = ExecutionHost(
             repository.connection,
             repository.realm_id,
             worker_label=work.lease.worker_label,
         )
         if host.ledger.receipt_for_claim(claim.id) is None:
-            finished = host.finish(
-                work,
-                outcome=AttemptOutcome.RECOVERY_REQUIRED,
-                result_digest=digest(
-                    {
-                        "schema": "zekam-client-lifecycle-recovery-required/v1",
-                        "claim_id": str(claim.id),
-                        "reason": "claimed-delivery-missing-from-pending-spool",
-                    }
-                ),
-            )
-            if not finished:
-                raise PolicyViolation("Missing delivery recovery finish reddedildi")
-            raise PolicyViolation(
-                "Receiptless claimed Codex delivery pending spool'da bulunamadi"
-            )
+            raise PolicyViolation("Receiptless claimed Codex delivery pending spool'da bulunamadi")
         return ()
     entry = pending[0]
     if work.job.run_id is None or work.job.work_item_id is None or work.job.plan_id is None:
         raise PolicyViolation("Codex drain exact run/work/plan binding ister")
-    if repository.current_work_plan_digest(
-        work_item_id=work.job.work_item_id,
-        plan_id=work.job.plan_id,
-    ) != inputs.work_plan_digest:
+    if (
+        repository.current_work_plan_digest(
+            work_item_id=work.job.work_item_id,
+            plan_id=work.job.plan_id,
+        )
+        != inputs.work_plan_digest
+    ):
         raise PolicyViolation("Codex drain current stored TaskPlan digest drift")
     previous = repository.previous_continuity_digest(
         client_id=entry.client_id,
@@ -183,6 +254,9 @@ def drain_claimed_codex_delivery(
         repository.connection,
         repository.realm_id,
         bridge,
+        MemoryContinuityService(
+            cast(MemoryContinuityStore, bridge.repository), bridge.authorizations
+        ),
         repository,
         ClaimedLifecycleDelivery(
             work,
@@ -193,6 +267,7 @@ def drain_claimed_codex_delivery(
             session_binding_id,
             spool.client_instance_id(),
             inputs.work_plan_digest,
+            hydration_authorization_id,
         ),
     )
     results = drain_to_postgres(
@@ -206,25 +281,13 @@ def drain_claimed_codex_delivery(
         or results[0].entry_digest != entry.entry_digest
         or results[0].outcome != "completed"
     ):
-        host = ExecutionHost(
-            repository.connection,
-            repository.realm_id,
-            worker_label=work.lease.worker_label,
+        _finish_receiptless_recovery(
+            repository=repository,
+            work=work,
+            claim=claim,
+            reason="delivery-did-not-complete",
+            rejected_message="Incomplete delivery recovery finish reddedildi",
         )
-        if host.ledger.receipt_for_claim(claim.id) is None:
-            finished = host.finish(
-                work,
-                outcome=AttemptOutcome.RECOVERY_REQUIRED,
-                result_digest=digest(
-                    {
-                        "schema": "zekam-client-lifecycle-recovery-required/v1",
-                        "claim_id": str(claim.id),
-                        "reason": "delivery-did-not-complete",
-                    }
-                ),
-            )
-            if not finished:
-                raise PolicyViolation("Incomplete delivery recovery finish reddedildi")
         raise PolicyViolation("Codex drain exact delivery terminal ACK uretmedi")
     return results
 
@@ -254,6 +317,10 @@ def recover_committed_codex_delivery(
         raise PolicyViolation("Committed lifecycle terminal Codex session binding drift")
     if terminal["event_type"] != entry.internal_event_type:
         raise PolicyViolation("Committed lifecycle terminal event type drift")
+    if entry.internal_event_type == "session_start":
+        repository.lookup_lifecycle_hydration(
+            continuity_event_id=UUID(str(terminal["continuity_event_id"]))
+        )
     if terminal["operation"] != LIFECYCLE_EFFECT_OPERATION:
         raise PolicyViolation("Committed lifecycle terminal operation drift")
     if terminal["adapter_digest"] != LIFECYCLE_ADAPTER_DIGEST:
@@ -389,7 +456,7 @@ def recover_committed_codex_delivery(
     receipt = CanonicalLifecycleReceipt.verified(
         entry, canonical_event, generic, repository.lookup(str(canonical_event["event_digest"]))
     ).bind_continuity(entry, body | {"binding_digest": digest(body)})
-    return spool.acknowledge_committed_receipt(entry, receipt)
+    return spool.acknowledge_committed_receipt(entry, receipt=receipt)
 
 
 def compose_codex_lifecycle_handler(
@@ -406,26 +473,23 @@ def compose_codex_lifecycle_handler(
     hook_store = HookRuntimeRepository(connection, realm_id)
     runtime = HookRuntime(max_workers=1)
     bundle = memory_hook_bundle(realm_id)
-    runtime.reconfigure(
-        realm_id=realm_id,
-        config_effective_digest=bundle.bundle_digest,
-        specs=bundle.specs,
-        runtimes=bundle.runtimes,
-        profiles=(bundle.profile,),
-        adapters=bundle.adapters,
+    _configure_active_memory_hook_runtime(
+        runtime,
+        bundle,
+        repository,
         now=dt.datetime.now(dt.UTC),
     )
-    bridge = ClientLifecycleBridge(runtime, continuity, authorizations, hook_store)
+    bridge = ClientLifecycleBridge(
+        runtime,
+        cast(LifecycleDeliveryRepository, continuity),
+        authorizations,
+        hook_store,
+    )
     evidence = load_codex_contract_evidence(
-        Path(__file__).resolve().parents[3]
-        / "config"
-        / "client-lifecycle"
-        / "codex-0.150.1.json"
+        Path(__file__).resolve().parents[3] / "config" / "client-lifecycle" / "codex-0.150.1.json"
     )
     contract = LifecycleClientContract.verified(
-        descriptor=codex_lifecycle_descriptor(
-            "codex", installed_version=CODEX_REVIEWED_VERSION
-        ),
+        descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
         installed_version=CODEX_REVIEWED_VERSION,
         event_mapping=CODEX_EVENT_MAPPING,
         contract_evidence_digest=str(evidence["file_digest"]),
@@ -439,10 +503,21 @@ def compose_codex_lifecycle_handler(
     spool = ClientLifecycleSpool(home, client_id=CODEX_CLIENT_ID)
 
     def handle(work: ClaimedWork) -> str:
+        work_item_id = work.job.work_item_id
+        run_id = work.job.run_id
+        plan_id = work.job.plan_id
+        if work_item_id is None or run_id is None or plan_id is None:
+            raise PolicyViolation("Codex lifecycle exact queue identity eksik")
         payload = dict(work.job.payload)
-        if frozenset(payload) != frozenset({"schema", "authorization_id"}) or payload.get(
-            "schema"
-        ) != "zekam-codex-lifecycle-job/v1":
+        payload_keys = frozenset(payload)
+        allowed_payload_keys = {
+            frozenset({"schema", "authorization_id"}),
+            frozenset({"schema", "authorization_id", "hydration_authorization_id"}),
+        }
+        if (
+            payload_keys not in allowed_payload_keys
+            or payload.get("schema") != "zekam-codex-lifecycle-job/v1"
+        ):
             raise PolicyViolation("Codex lifecycle worker exact immutable job payload ister")
         if work.job.kind.value != "mutation" or work.job.max_attempts != 1:
             raise PolicyViolation("Codex lifecycle job mutation ve max_attempts=1 olmali")
@@ -450,10 +525,24 @@ def compose_codex_lifecycle_handler(
             authorization_id = UUID(str(payload["authorization_id"]))
         except (ValueError, TypeError) as exc:
             raise PolicyViolation("Codex lifecycle authorization_id UUID olmali") from exc
+        hydration_authorization_id: UUID | None = None
+        if "hydration_authorization_id" in payload:
+            try:
+                hydration_authorization_id = UUID(str(payload["hydration_authorization_id"]))
+            except (ValueError, TypeError) as exc:
+                raise PolicyViolation(
+                    "Codex lifecycle hydration_authorization_id UUID olmali"
+                ) from exc
         entries = spool.pending(limit=1)
         if not entries:
             raise PolicyViolation("Codex lifecycle claimed job icin pending delivery yok")
         entry = entries[0]
+        if (entry.internal_event_type == "session_start") != (
+            hydration_authorization_id is not None
+        ):
+            raise PolicyViolation(
+                "Codex session-start job exact hydration authorization payload ister"
+            )
         raw_inputs = repository.claimed_plan_inputs(
             job_id=work.job.id,
             attempt_id=work.attempt_id,
@@ -477,8 +566,8 @@ def compose_codex_lifecycle_handler(
         request = LifecycleRequest(
             realm_id=realm_id,
             project_id=work.job.project_id,
-            work_item_id=work.job.work_item_id,
-            run_id=work.job.run_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
             session_id=entry.session_id,
             client_id=entry.client_id,
             event_id=uuid5(_EVENT_NAMESPACE, entry.entry_digest),
@@ -495,7 +584,7 @@ def compose_codex_lifecycle_handler(
             recursion_depth=0,
             max_recursion_depth=3,
             source_revision=inputs.source_revision,
-            work_plan_ref=f"work-plan:{work.job.plan_id}",
+            work_plan_ref=f"work-plan:{plan_id}",
             checkpoint_ref=inputs.checkpoint_ref,
             context_ref=inputs.context_ref,
             metadata=(),
@@ -547,6 +636,7 @@ def compose_codex_lifecycle_handler(
             hook_session=hook_session,
             session_binding_id=session_binding_id,
             inputs=inputs,
+            hydration_authorization_id=hydration_authorization_id,
         )
         if len(result) != 1 or result[0].canonical_ack_digest is None:
             raise PolicyViolation("Codex lifecycle handler terminal ACK uretmedi")

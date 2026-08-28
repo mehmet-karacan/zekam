@@ -347,8 +347,7 @@ def test_concurrent_clean_realm_hook_install_is_single_generation_and_replay_saf
 
     with connection.cursor() as cursor:
         cursor.execute(
-            "select generation,hook_set_digest from hooks.current_generation"
-            " where realm_id=%s",
+            "select generation,hook_set_digest from hooks.current_generation where realm_id=%s",
             (realm.id,),
         )
         assert cursor.fetchone() == (1, receipts[0].hook_set_digest)

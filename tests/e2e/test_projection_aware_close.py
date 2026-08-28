@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from uuid import UUID
 
 from typer.testing import CliRunner
 
@@ -9,9 +10,38 @@ from zekam.interfaces.cli import close as close_commands
 from zekam.interfaces.cli.main import app
 
 
-def test_root_close_plan_is_authority_free_and_apply_is_separate(
-    monkeypatch, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
+def test_close_input_snapshot_reads_once_and_reuses_exact_receipt(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    input_file = tmp_path / "close.json"
+    input_file.write_bytes(b'{"one":"bounded-read"}')
+    receipt = SimpleNamespace(
+        project_id=UUID("00000000-0000-0000-0000-000000000001"),
+        work_item_id=UUID("00000000-0000-0000-0000-000000000002"),
+        run_id=UUID("00000000-0000-0000-0000-000000000003"),
+        session_id="session-one",
+        client_id="codex",
+    )
+    payloads: list[bytes] = []
+
+    def parse_once(payload: bytes):  # type: ignore[no-untyped-def]
+        payloads.append(payload)
+        return receipt
+
+    monkeypatch.setattr(close_commands, "_session_close_receipt_from_payload", parse_once)
+
+    snapshot = close_commands._close_input_snapshot(
+        input_file,
+        command_path=("close", "apply"),
+        parameters={"apply": True},
+    )
+
+    assert payloads == [b'{"one":"bounded-read"}']
+    assert snapshot.receipt is receipt
+    assert snapshot.input_sha256.startswith("sha256:")
+    assert snapshot.invocation.admission.evidence is not None
+    assert snapshot.invocation.admission.evidence.evidence_digest == snapshot.input_sha256
+
+
+def test_root_close_plan_is_authority_free_and_apply_is_separate(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     input_file = tmp_path / "close.json"
     input_file.write_text("{}", encoding="utf-8")
     body = {
@@ -26,6 +56,13 @@ def test_root_close_plan_is_authority_free_and_apply_is_separate(
         effect_digest=digest("effect"),
     )
     monkeypatch.setattr(close_commands, "_plan", lambda **_: fake)
+    monkeypatch.setattr(
+        close_commands,
+        "_close_input_snapshot",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            input_sha256=digest("input"), receipt=object(), invocation=object()
+        ),
+    )
 
     result = CliRunner().invoke(
         app,
@@ -68,12 +105,10 @@ def test_root_close_apply_requires_explicit_apply_before_database(
     )
 
     assert result.exit_code == 64
-    assert "--uygula" in result.stdout
+    assert "--uygula" in result.output
 
 
-def test_root_close_apply_replays_terminal_chain_before_prepare(
-    monkeypatch, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
+def test_root_close_apply_replays_terminal_chain_before_prepare(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     input_file = tmp_path / "close.json"
     input_file.write_text("{}", encoding="utf-8")
     calls: list[str] = []
@@ -105,7 +140,13 @@ def test_root_close_apply_replays_terminal_chain_before_prepare(
             raise AssertionError("terminal replay prepare yapmamali")
 
     monkeypatch.setattr(close_commands, "RealmSession", Session)
-    monkeypatch.setattr(close_commands, "_session_close_receipt", lambda _path: object())
+    monkeypatch.setattr(
+        close_commands,
+        "_close_input_snapshot",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            input_sha256=digest("input"), receipt=object(), invocation=object()
+        ),
+    )
     monkeypatch.setattr(close_commands, "_service", lambda _context: Service())
 
     result = CliRunner().invoke(

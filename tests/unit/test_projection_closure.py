@@ -187,11 +187,7 @@ def _fixture(*, verified: bool = True):  # type: ignore[no-untyped-def]
     checkpoint = _ref("checkpoint")
     completed = work.with_state(
         WorkState.COMPLETED,
-        evidence=(
-            EvidenceRef(
-                "closure-checkpoint", checkpoint.ref, checkpoint.digest_value
-            ),
-        ),
+        evidence=(EvidenceRef("closure-checkpoint", checkpoint.ref, checkpoint.digest_value),),
         now=NOW,
     )
     completed_database = digest(
@@ -281,9 +277,9 @@ def _fixture(*, verified: bool = True):  # type: ignore[no-untyped-def]
 
 def test_prepare_binds_completed_projection_and_current_pre_close_outbox() -> None:
     receipt, snapshot = _fixture()
-    plan = ProjectionAwareClosureService(
-        Repository(snapshot), Authorizations()
-    ).prepare(receipt, idempotency_key="projection-close:one", now=NOW)
+    plan = ProjectionAwareClosureService(Repository(snapshot), Authorizations()).prepare(
+        receipt, idempotency_key="projection-close:one", now=NOW
+    )
 
     assert plan.completed_work.state is WorkState.COMPLETED
     assert plan.completed_work.revision == snapshot.work_item.revision + 1
@@ -478,9 +474,7 @@ def test_apply_rejects_self_consistent_crafted_plan_identity(field: str) -> None
     receipt, snapshot = _fixture()
     repository = Repository(snapshot)
     service = ProjectionAwareClosureService(repository, Authorizations())
-    plan = service.prepare(
-        receipt, idempotency_key="projection-close:crafted", now=NOW
-    )
+    plan = service.prepare(receipt, idempotency_key="projection-close:crafted", now=NOW)
     forged = replace(plan, **{field: uuid4()}, plan_digest="")
     forged = replace(forged, plan_digest=digest(forged.body()))
 

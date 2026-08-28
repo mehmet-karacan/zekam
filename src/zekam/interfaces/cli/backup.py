@@ -23,6 +23,7 @@ from zekam.application.backup import (
     verify_manifest,
 )
 from zekam.application.composition import build_context
+from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.infrastructure.postgres import migrations
@@ -67,6 +68,7 @@ def create_command(
     home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
 ) -> None:
     """Mevcut durumdan yedek manifesti uretir."""
+    assert_local_effect_admission(("backup", "create"))
     try:
         context = build_context(home=home)
         manifest = build_manifest(
@@ -94,6 +96,7 @@ def verify_command(
     home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
 ) -> None:
     """Manifest butunlugunu ve artifact varligini dogrular."""
+    assert_local_effect_admission(("backup", "verify"))
     try:
         manifest = _decode(json.loads(manifest_path.read_text(encoding="utf-8")))
         result = verify_manifest(manifest, _store(home))

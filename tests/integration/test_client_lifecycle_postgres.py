@@ -37,6 +37,22 @@ def test_ortak_lifecycle_contract_farkli_clientlari_normalize_eder(
         payload_digest=canonical_digest("transcript-free-payload"),
         occurred_at=NOW,
     )
+    if client_kind is ClientKind.CODEX:
+        with pytest.raises(Exception, match="governed admission"):
+            ClientLifecycleRepository(connection, realm.id).ingest(
+                event.as_dict(),
+                client_instance_id=client_kind.value,
+                client_kind=client_kind,
+                now=NOW,
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from client.lifecycle_stream"
+                " where realm_id=%s and client_kind='codex'",
+                (realm.id,),
+            )
+            assert int(cursor.fetchone()[0]) == 0
+        return
     acknowledgement = ClientLifecycleRepository(connection, realm.id).ingest(
         event.as_dict(),
         client_instance_id=client_kind.value,
@@ -87,13 +103,20 @@ def test_ortak_lifecycle_exact_client_instance_binding_ister(
             now=NOW,
         )
 
-    acknowledgement = repository.ingest(
-        event.as_dict(),
-        client_instance_id="codex-worker-7",
-        client_kind=ClientKind.CODEX,
-        now=NOW,
-    )
-    assert acknowledgement.local_event_digest == event.event_digest
+    with pytest.raises(Exception, match="governed admission"):
+        repository.ingest(
+            event.as_dict(),
+            client_instance_id="codex-worker-7",
+            client_kind=ClientKind.CODEX,
+            now=NOW,
+        )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select count(*) from client.lifecycle_stream"
+            " where realm_id=%s and client_instance_id='codex-worker-7'",
+            (realm.id,),
+        )
+        assert int(cursor.fetchone()[0]) == 0
 
 
 def test_ingest_is_ordered_idempotent_and_acknowledged(

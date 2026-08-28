@@ -204,6 +204,175 @@ class FreshnessDimension:
         }
 
 
+AUTO_HYDRATION_CLASSIFICATIONS = frozenset({DataClassification.PUBLIC, DataClassification.INTERNAL})
+
+
+@dataclass(frozen=True, slots=True)
+class HydrationInventoryEntry:
+    """Sanitized canonical context entry used by bounded hydration.
+
+    Classification is deliberately bound to the inventory digest instead of
+    being supplied by a client receipt.  The selected receipt reference is
+    therefore meaningful only against the exact inventory snapshot that was
+    prepared and re-read immediately before apply.
+    """
+
+    ref: str
+    content_digest: str
+    token_count: int
+    truth_class: TruthClass
+    classification: DataClassification
+    required: bool
+    source_ref: str
+    source_revision: str
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.ref, "Hydration inventory ref"),
+            (self.source_ref, "Hydration inventory source ref"),
+            (self.source_revision, "Hydration inventory source revision"),
+        ):
+            _portable_ref(value, label)
+        parse_digest(self.content_digest)
+        if self.token_count < 1:
+            raise ValidationFailed("Hydration inventory token count pozitif olmali")
+        if not isinstance(self.truth_class, TruthClass):
+            raise ValidationFailed("Hydration inventory truth class registry disinda")
+        if not isinstance(self.classification, DataClassification):
+            raise ValidationFailed("Hydration inventory classification registry disinda")
+
+    @property
+    def selection(self) -> ContextSelectionReference:
+        return ContextSelectionReference(
+            self.ref,
+            self.content_digest,
+            self.token_count,
+            self.truth_class,
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ref": self.ref,
+            "content_digest": self.content_digest,
+            "token_count": self.token_count,
+            "truth_class": self.truth_class.value,
+            "classification": self.classification.value,
+            "required": self.required,
+            "source_ref": self.source_ref,
+            "source_revision": self.source_revision,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class HydrationInventorySnapshot:
+    """One immutable PostgreSQL view of every hydration binding dimension."""
+
+    realm_id: UUID
+    project_id: UUID
+    work_item_id: UUID
+    run_id: UUID
+    session_id: str
+    client_id: str
+    plan_ref: str
+    checkpoint_ref: str
+    source_digest: str
+    policy_digest: str
+    migration_digest: str
+    context_digest: str
+    entries: tuple[HydrationInventoryEntry, ...]
+    known_omissions: tuple[ContextOmissionReference, ...]
+    projection_refs: tuple[DigestReference, ...]
+    hydration_event_digest: str
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.session_id, "Hydration inventory session"),
+            (self.client_id, "Hydration inventory client"),
+            (self.plan_ref, "Hydration inventory plan"),
+            (self.checkpoint_ref, "Hydration inventory checkpoint"),
+        ):
+            _portable_ref(value, label)
+        for value in (
+            self.source_digest,
+            self.policy_digest,
+            self.migration_digest,
+            self.context_digest,
+            self.hydration_event_digest,
+        ):
+            parse_digest(value)
+        _bounded(self.entries, "Hydration inventory entries", required=True)
+        _bounded(self.known_omissions, "Hydration inventory omissions")
+        _bounded(self.projection_refs, "Hydration inventory projection refs", required=True)
+        _unique(tuple(item.ref for item in self.entries), "Hydration inventory refs")
+        _unique(
+            tuple(item.ref for item in self.known_omissions),
+            "Hydration inventory omission refs",
+        )
+        if {item.ref for item in self.entries} & {item.ref for item in self.known_omissions}:
+            raise ValidationFailed("Hydration inventory entry ayni anda omitted olamaz")
+        if (
+            len(self.projection_refs) != 1
+            or self.projection_refs[0].ref != "projection/active-work"
+            or self.projection_refs[0].truth_class is not TruthClass.REPO_FACT
+        ):
+            raise PolicyViolation(
+                "Hydration inventory exact tek active-work REPO_FACT projection ister"
+            )
+
+    @property
+    def inventory_digest(self) -> str:
+        return digest(
+            {
+                "schema": "zekam-hydration-inventory/v1",
+                "entries": [
+                    item.as_dict() for item in sorted(self.entries, key=lambda row: row.ref)
+                ],
+                "known_omissions": [
+                    item.as_dict() for item in sorted(self.known_omissions, key=lambda row: row.ref)
+                ],
+            }
+        )
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-hydration-inventory-snapshot/v1",
+            "realm_id": str(self.realm_id),
+            "project_id": str(self.project_id),
+            "work_item_id": str(self.work_item_id),
+            "run_id": str(self.run_id),
+            "session_id": self.session_id,
+            "client_id": self.client_id,
+            "plan_ref": self.plan_ref,
+            "checkpoint_ref": self.checkpoint_ref,
+            "source_digest": self.source_digest,
+            "policy_digest": self.policy_digest,
+            "migration_digest": self.migration_digest,
+            "context_digest": self.context_digest,
+            "inventory_digest": self.inventory_digest,
+            "projection_refs": [
+                item.as_dict() for item in sorted(self.projection_refs, key=lambda row: row.ref)
+            ],
+            "hydration_event_digest": self.hydration_event_digest,
+            "grants_authority": False,
+        }
+
+    @property
+    def snapshot_digest(self) -> str:
+        return digest(self.body())
+
+    @property
+    def freshness(self) -> tuple[FreshnessDimension, ...]:
+        values = (
+            ("source", self.source_digest),
+            ("policy", self.policy_digest),
+            ("migration", self.migration_digest),
+            ("context", self.context_digest),
+            ("inventory", self.inventory_digest),
+            ("projection", self.projection_refs[0].digest_value),
+        )
+        return tuple(FreshnessDimension(name, value, value, True) for name, value in values)
+
+
 @dataclass(frozen=True, slots=True)
 class SessionLifecycleEvent:
     realm_id: UUID

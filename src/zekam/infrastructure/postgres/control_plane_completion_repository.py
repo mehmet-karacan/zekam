@@ -46,9 +46,7 @@ class PostgresControlPlaneCompletionRepository:
     connection: object
     realm_id: UUID
 
-    def complete(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult:
+    def complete(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult:
         with self.connection.transaction():  # type: ignore[attr-defined]
             items = WorkItemRepository(self.connection, self.realm_id)
             work = items.get_for_update(request.work_item_id)
@@ -146,9 +144,7 @@ class PostgresControlPlaneCompletionRepository:
                     "operation": CONTROL_PLANE_COMPLETION_OPERATION,
                     "source_authorization_id": str(request.source_authorization_id),
                     "source_claim_id": str(request.source_claim_id),
-                    "source_effect_receipt_id": str(
-                        request.source_effect_receipt_id
-                    ),
+                    "source_effect_receipt_id": str(request.source_effect_receipt_id),
                     "request_digest": request.request_digest,
                     "evidence_digest": request.evidence_digest,
                 }
@@ -215,9 +211,7 @@ class PostgresControlPlaneCompletionRepository:
                 source_effect_receipt_id=request.source_effect_receipt_id,
             )
 
-    def readback(
-        self, request: ControlPlaneCompletionRequest
-    ) -> ControlPlaneCompletionResult:
+    def readback(self, request: ControlPlaneCompletionRequest) -> ControlPlaneCompletionResult:
         items = WorkItemRepository(self.connection, self.realm_id)
         work = items.get(request.work_item_id)
         if (
@@ -239,9 +233,14 @@ class PostgresControlPlaneCompletionRepository:
             row = cursor.fetchone()
         if row is None:
             raise ConcurrencyConflict("Control-plane DB zamani okunamadi")
-        return row[0]
+        value = row[0]
+        if not isinstance(value, dt.datetime):
+            raise ConcurrencyConflict("Control-plane DB zamani datetime degil")
+        return value
 
-    def _terminal_runtime(self, request: ControlPlaneCompletionRequest) -> tuple[object, ...]:
+    def _terminal_runtime(
+        self, request: ControlPlaneCompletionRequest
+    ) -> tuple[UUID, str, int, str, str]:
         with self.connection.cursor() as cursor:  # type: ignore[attr-defined]
             cursor.execute(
                 "select job.plan_id,job.step_id,job.fencing_token,attempt.worker_label,"
@@ -263,11 +262,9 @@ class PostgresControlPlaneCompletionRepository:
             row = cursor.fetchone()
         if row is None or row[4] is None:
             raise NotFound("Control-plane terminal job/attempt bulunamadi")
-        return tuple(row)
+        return UUID(str(row[0])), str(row[1]), int(row[2]), str(row[3]), str(row[4])
 
-    def _checkpoint_digest(
-        self, request: ControlPlaneCompletionRequest, *, plan_id: UUID
-    ) -> str:
+    def _checkpoint_digest(self, request: ControlPlaneCompletionRequest, *, plan_id: UUID) -> str:
         with self.connection.cursor() as cursor:  # type: ignore[attr-defined]
             cursor.execute(
                 "select checkpoint_digest from work.checkpoint"
@@ -412,15 +409,16 @@ class PostgresControlPlaneCompletionRepository:
             raise AuthorizationRequired(
                 "Control-plane completion source authorization digest drift"
             )
-        if sum(
-            item.kind == "runtime-receipt"
-            and item.reference == str(request.source_effect_receipt_id)
-            and item.digest_value == result_digest
-            for item in request.evidence
-        ) != 1:
-            raise PolicyViolation(
-                "Control-plane completion source receipt/result evidence drift"
+        if (
+            sum(
+                item.kind == "runtime-receipt"
+                and item.reference == str(request.source_effect_receipt_id)
+                and item.digest_value == result_digest
+                for item in request.evidence
             )
+            != 1
+        ):
+            raise PolicyViolation("Control-plane completion source receipt/result evidence drift")
         return UUID(str(rows[0][0]))
 
     def _read_completed(

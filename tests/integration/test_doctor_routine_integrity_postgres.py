@@ -45,9 +45,7 @@ def test_missing_routine_is_recreated_with_canonical_acl_and_comment(
         with connection.cursor() as cursor:
             cursor.execute("drop function core.find_realm_id(text)")
         missing = routine_integrity.status(connection)
-        assert [item.key.label for item in missing.missing] == [
-            "core.find_realm_id:function"
-        ]
+        assert [item.key.label for item in missing.missing] == ["core.find_realm_id:function"]
 
         result = routine_integrity.repair_missing_routines(
             connection, plan_digest=missing.repair_plan_digest
@@ -112,9 +110,7 @@ def test_runtime_repair_writes_work_authorization_claim_and_terminal_receipt(
             project_id=project.id,
         )
 
-        authorization = AuthorizationRepository(connection, realm.id).get(
-            result.authorization_id
-        )
+        authorization = AuthorizationRepository(connection, realm.id).get(result.authorization_id)
         work = WorkItemRepository(connection, realm.id).get(result.work_id)
         assert authorization.state is AuthorizationState.CONSUMED
         assert work.state is WorkState.COMPLETED

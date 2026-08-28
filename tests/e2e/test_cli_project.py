@@ -5,23 +5,36 @@ from __future__ import annotations
 import json
 import secrets
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 from typer.testing import CliRunner
 
+from zekam.application.composition import build_context
 from zekam.application.config import DatabaseSettings
+from zekam.application.realm_context import RealmContext, attach_realm
 from zekam.domain.policy import Capability, CapabilityKind
 from zekam.domain.realm import Actor, ActorKind
+from zekam.infrastructure.postgres.connection import connect
 from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.security_repository import CapabilityRepository
 from zekam.interfaces.cli.main import app
-from zekam.interfaces.cli.session import RealmSession
 
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
 
 runner = CliRunner()
+
+
+@contextmanager
+def _fixture_realm_context(cli_home: Path, realm_flags: list[str]) -> Iterator[RealmContext]:
+    """Test setup/inspection DB access; this is not a CLI mutation admission path."""
+
+    context = build_context(home=str(cli_home))
+    with connect(context.settings.database) as connection:
+        yield attach_realm(connection, slug=realm_flags[1])
 
 
 def _write(root: Path, relative: str, body: str) -> None:
@@ -74,7 +87,7 @@ def _add(cli_home: Path, realm_flags: list[str], source: Path, *extra: str) -> N
 
 
 def _add_human_actor(cli_home: Path, realm_flags: list[str]) -> str:
-    with RealmSession(str(cli_home), realm_flags[1]) as context:
+    with _fixture_realm_context(cli_home, realm_flags) as context:
         actor = Actor.create(realm=context.realm, kind=ActorKind.HUMAN, slug="project-owner")
         ActorRepository(context.connection, context.realm_id).add(actor)
         CapabilityRepository(context.connection, context.realm_id).append(
@@ -208,7 +221,7 @@ def test_remove_is_dry_run_then_archives_without_deleting_source(
     assert json.loads(archived.stdout)[0]["status"] == "archived"
 
     with (
-        RealmSession(str(cli_home), realm_flags[1]) as context,
+        _fixture_realm_context(cli_home, realm_flags) as context,
         context.connection.cursor() as cursor,
     ):
         cursor.execute(
@@ -333,7 +346,7 @@ def test_remove_rejects_fuzzy_match_and_revision_drift(
     )
     assert json.loads(listing.stdout)[0]["status"] == "active"
     with (
-        RealmSession(str(cli_home), realm_flags[1]) as context,
+        _fixture_realm_context(cli_home, realm_flags) as context,
         context.connection.cursor() as cursor,
     ):
         cursor.execute(
@@ -347,15 +360,14 @@ def test_remove_rejects_fuzzy_match_and_revision_drift(
         )
         assert cursor.fetchone() == ("bound", "bound", 1)
         cursor.execute(
-            "select job.state, receipt.status, work.state"
+            "select count(*), count(receipt.id)"
             " from runtime.effect_claim claim"
-            " join runtime.effect_receipt receipt on receipt.claim_id = claim.id"
+            " left join runtime.effect_receipt receipt on receipt.claim_id = claim.id"
             " join runtime.job job on job.id = claim.job_id"
-            " join work.work_item work on work.id = job.work_item_id"
             " where job.project_id = (select id from projects.project where slug='gpu-fusion')"
-            " and claim.operation = 'project-remove' order by claim.claimed_at desc limit 1"
+            " and claim.operation = 'project-remove'"
         )
-        assert cursor.fetchone() == ("failed", "failed", "cancelled")
+        assert cursor.fetchone() == (0, 0)
 
     retry = runner.invoke(
         app,
@@ -519,7 +531,7 @@ def test_integrate_apply_binds_index_to_exact_runtime_receipt(
     )
     assert initialized.exit_code == 0, initialized.stdout
     _add(cli_home, realm_flags, source_project, "--slug", "gpu")
-    with RealmSession(str(cli_home), realm_flags[1]) as realm_context:
+    with _fixture_realm_context(cli_home, realm_flags) as realm_context:
         actor = Actor.create(
             realm=realm_context.realm, kind=ActorKind.HUMAN, slug="integration-owner"
         )
@@ -554,7 +566,7 @@ def test_integrate_apply_binds_index_to_exact_runtime_receipt(
     assert runtime["receipt_status"] == "completed"
     assert runtime["grants_authority"] is False
     with (
-        RealmSession(str(cli_home), realm_flags[1]) as realm_context,
+        _fixture_realm_context(cli_home, realm_flags) as realm_context,
         realm_context.connection.cursor() as cursor,
     ):
         cursor.execute(
@@ -604,7 +616,7 @@ def test_integrate_apply_failure_records_receipt_recovery_and_no_retry(
     )
     assert initialized.exit_code == 0, initialized.stdout
     _add(cli_home, realm_flags, source_project, "--slug", "gpu")
-    with RealmSession(str(cli_home), realm_flags[1]) as realm_context:
+    with _fixture_realm_context(cli_home, realm_flags) as realm_context:
         actor = Actor.create(
             realm=realm_context.realm, kind=ActorKind.HUMAN, slug="integration-owner"
         )
@@ -632,7 +644,7 @@ def test_integrate_apply_failure_records_receipt_recovery_and_no_retry(
     assert second.exit_code != 0
 
     with (
-        RealmSession(str(cli_home), realm_flags[1]) as realm_context,
+        _fixture_realm_context(cli_home, realm_flags) as realm_context,
         realm_context.connection.cursor() as cursor,
     ):
         cursor.execute(

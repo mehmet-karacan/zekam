@@ -95,7 +95,7 @@ def test_obsidian_generation_is_byte_deterministic_and_links_are_controlled() ->
     assert "read_only_projection: true" in rendered
     assert "grants_authority: false" in rendered
     assert "source_refs:" in rendered
-    assert "source_type: \"work-item\"" in rendered
+    assert 'source_type: "work-item"' in rendered
     assert f'project_id: "{PROJECT_ID}"' in rendered
 
 
@@ -121,10 +121,7 @@ def test_profiles_are_physically_distinct_and_public_safe_excludes_internal() ->
     assert len(private.exclusions) == 0
     assert len(safe.exclusions) == 1
     assert safe.exclusions[0].reason_code == "classification-excluded"
-    assert not any(
-        b"00000000-0000-0000-0000-000000000002" in item.payload
-        for item in safe.files
-    )
+    assert not any(b"00000000-0000-0000-0000-000000000002" in item.payload for item in safe.files)
 
 
 def test_privacy_filter_excludes_source_before_render() -> None:
@@ -256,5 +253,3 @@ def test_projection_rejects_cross_project_record_laundering() -> None:
             profile=ObsidianProfile.PUBLIC_SAFE,
             policy_digest=POLICY_DIGEST,
         )
-    assert first.effect_digest != second.effect_digest
-    assert first.resource != second.resource

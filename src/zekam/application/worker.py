@@ -617,25 +617,27 @@ def run_codex_lifecycle_once(
         return None
     host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
     job = host.jobs.get(job_id)
-    if any(
-        value is None
-        for value in (
-            job.work_item_id,
-            job.plan_id,
-            job.step_id,
-            job.assignment_id,
-            job.run_id,
-        )
+    work_item_id = job.work_item_id
+    plan_id = job.plan_id
+    step_id = job.step_id
+    assignment_id = job.assignment_id
+    run_id = job.run_id
+    if (
+        work_item_id is None
+        or plan_id is None
+        or step_id is None
+        or assignment_id is None
+        or run_id is None
     ):
         raise PolicyViolation("Codex lifecycle exact queue identity eksik")
     work = host.jobs.claim_exact(
         job.id,
         project_id=job.project_id,
-        work_item_id=job.work_item_id,
-        plan_id=job.plan_id,
-        step_id=job.step_id,
-        assignment_id=job.assignment_id,
-        run_id=job.run_id,
+        work_item_id=work_item_id,
+        plan_id=plan_id,
+        step_id=step_id,
+        assignment_id=assignment_id,
+        run_id=run_id,
         capabilities=settings.capabilities,
         worker_label=settings.worker_label,
         lease_seconds=settings.lease_seconds,
@@ -651,9 +653,7 @@ def run_codex_lifecycle_once(
         current = host.jobs.get(job.id)
         if current.state is JobState.RUNNING:
             claims = host.ledger.claims_for_job(job.id)
-            outcome = (
-                AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
-            )
+            outcome = AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
             finished = host.finish(
                 work,
                 outcome=outcome,
@@ -667,7 +667,7 @@ def run_codex_lifecycle_once(
                 ),
             )
             if not finished:
-                raise PolicyViolation("Codex lifecycle worker terminal finish reddedildi")
+                raise PolicyViolation("Codex lifecycle worker terminal finish reddedildi") from None
         raise
 
 

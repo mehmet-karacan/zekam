@@ -14,11 +14,13 @@ from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.security import Authorization
 from zekam.domain.session_continuity import (
+    AUTO_HYDRATION_CLASSIFICATIONS,
     CompactionReceipt,
     ContextOmissionReference,
     ContextSelectionReference,
     DigestReference,
     FreshnessDimension,
+    HydrationInventorySnapshot,
     SessionCloseReceipt,
     SessionHydrationReceipt,
 )
@@ -74,6 +76,16 @@ class MemoryContinuityStore(Protocol):
         client_id: str,
     ) -> ProjectionReleaseSnapshot: ...
 
+    def read_hydration_inventory(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> HydrationInventorySnapshot: ...
+
 
 class SessionSnapshot(Protocol):
     hydration_receipt_digest: str | None
@@ -103,22 +115,24 @@ class HydrationPreparation:
     run_id: UUID
     session_id: str
     client_id: str
-    plan_ref: str
-    checkpoint_ref: str
-    source_digest: str
-    policy_digest: str
-    migration_digest: str
-    inventory_digest: str
-    context_digest: str
-    required_candidates: tuple[ContextSelectionReference, ...]
-    optional_candidates: tuple[ContextSelectionReference, ...]
-    known_omissions: tuple[ContextOmissionReference, ...]
     token_budget: int
-    freshness: tuple[FreshnessDimension, ...]
-    projection_refs: tuple[DigestReference, ...]
-    hydration_event_digest: str
     idempotency_key: str
     created_at: dt.datetime
+    # Legacy receipt-shaped hints remain readable during the CLI transition,
+    # but canonical preparation never treats them as current authority.
+    plan_ref: str | None = None
+    checkpoint_ref: str | None = None
+    source_digest: str | None = None
+    policy_digest: str | None = None
+    migration_digest: str | None = None
+    inventory_digest: str | None = None
+    context_digest: str | None = None
+    required_candidates: tuple[ContextSelectionReference, ...] = ()
+    optional_candidates: tuple[ContextSelectionReference, ...] = ()
+    known_omissions: tuple[ContextOmissionReference, ...] = ()
+    freshness: tuple[FreshnessDimension, ...] = ()
+    projection_refs: tuple[DigestReference, ...] = ()
+    hydration_event_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,12 +319,91 @@ class MemoryContinuityService:
         return snapshot
 
     def prepare_hydration(self, request: HydrationPreparation) -> ContinuityReceiptPlan:
-        """Select required context first; never silently truncate it."""
+        """Build hydration only from the current canonical PostgreSQL inventory."""
+
+        inventory = self._hydration_inventory(
+            project_id=request.project_id,
+            work_item_id=request.work_item_id,
+            run_id=request.run_id,
+            session_id=request.session_id,
+            client_id=request.client_id,
+        )
+        return self.prepare_from_inventory(request, inventory)
+
+    def prepare_from_inventory(
+        self,
+        request: HydrationPreparation,
+        inventory: HydrationInventorySnapshot,
+    ) -> ContinuityReceiptPlan:
+        """Reuse the required-first bounded selector against an immutable inventory."""
 
         if request.token_budget < 1:
             raise ValidationFailed("Hydration token budget pozitif olmali")
-        required = tuple(sorted(request.required_candidates, key=lambda item: item.ref))
-        optional = tuple(sorted(request.optional_candidates, key=lambda item: item.ref))
+        expected_identity = (
+            request.realm_id,
+            request.project_id,
+            request.work_item_id,
+            request.run_id,
+            request.session_id,
+            request.client_id,
+        )
+        actual_identity = (
+            inventory.realm_id,
+            inventory.project_id,
+            inventory.work_item_id,
+            inventory.run_id,
+            inventory.session_id,
+            inventory.client_id,
+        )
+        if actual_identity != expected_identity:
+            raise PolicyViolation("Hydration inventory exact identity binding drift")
+        legacy_bindings = (
+            (request.plan_ref, inventory.plan_ref),
+            (request.checkpoint_ref, inventory.checkpoint_ref),
+            (request.source_digest, inventory.source_digest),
+            (request.policy_digest, inventory.policy_digest),
+            (request.migration_digest, inventory.migration_digest),
+            (request.inventory_digest, inventory.inventory_digest),
+            (request.context_digest, inventory.context_digest),
+            (request.hydration_event_digest, inventory.hydration_event_digest),
+        )
+        if any(
+            provided is not None and provided != current for provided, current in legacy_bindings
+        ):
+            raise PolicyViolation("Hydration input canonical inventory ile stale; replan required")
+
+        forbidden_required = tuple(
+            item
+            for item in inventory.entries
+            if item.required and item.classification not in AUTO_HYDRATION_CLASSIFICATIONS
+        )
+        if forbidden_required:
+            raise PolicyViolation("Required hydration classification policy tarafindan reddedildi")
+        required = tuple(
+            sorted(
+                (
+                    item.selection
+                    for item in inventory.entries
+                    if item.required and item.classification in AUTO_HYDRATION_CLASSIFICATIONS
+                ),
+                key=lambda item: item.ref,
+            )
+        )
+        optional = tuple(
+            sorted(
+                (
+                    item.selection
+                    for item in inventory.entries
+                    if not item.required and item.classification in AUTO_HYDRATION_CLASSIFICATIONS
+                ),
+                key=lambda item: item.ref,
+            )
+        )
+        classification_omissions = tuple(
+            ContextOmissionReference(item.ref, "classification-excluded", required=False)
+            for item in inventory.entries
+            if not item.required and item.classification not in AUTO_HYDRATION_CLASSIFICATIONS
+        )
         required_tokens = sum(item.token_count for item in required)
         if required_tokens > request.token_budget:
             raise PolicyViolation("Required continuity set token budget'e sigmiyor")
@@ -326,7 +419,10 @@ class MemoryContinuityService:
                     ContextOmissionReference(item.ref, "token-budget", required=False)
                 )
         omissions = tuple(
-            sorted(request.known_omissions + tuple(budget_omissions), key=lambda item: item.ref)
+            sorted(
+                inventory.known_omissions + classification_omissions + tuple(budget_omissions),
+                key=lambda item: item.ref,
+            )
         )
         if any(item.required for item in omissions):
             raise PolicyViolation("Required continuity omission fail-closed")
@@ -339,23 +435,23 @@ class MemoryContinuityService:
             request.run_id,
             request.session_id,
             request.client_id,
-            request.plan_ref,
-            request.checkpoint_ref,
-            request.source_digest,
-            request.policy_digest,
-            request.migration_digest,
-            request.inventory_digest,
-            request.context_digest,
+            inventory.plan_ref,
+            inventory.checkpoint_ref,
+            inventory.source_digest,
+            inventory.policy_digest,
+            inventory.migration_digest,
+            inventory.inventory_digest,
+            inventory.context_digest,
             required,
             tuple(selected_optional),
             omissions,
             request.token_budget,
             tokens_used,
-            request.freshness,
-            request.projection_refs,
-            request.hydration_event_digest,
+            inventory.freshness,
+            inventory.projection_refs,
+            inventory.hydration_event_digest,
             request.created_at,
-            fresh=bool(request.freshness) and all(item.current for item in request.freshness),
+            fresh=True,
             complete=True,
         )
         return ContinuityReceiptPlan.create(
@@ -363,10 +459,10 @@ class MemoryContinuityService:
             receipt=receipt,
             receipt_digest=receipt.receipt_digest,
             idempotency_key=request.idempotency_key,
-            source_digest=request.source_digest,
-            policy_digest=request.policy_digest,
-            migration_digest=request.migration_digest,
-            context_digest=request.context_digest,
+            source_digest=inventory.source_digest,
+            policy_digest=inventory.policy_digest,
+            migration_digest=inventory.migration_digest,
+            context_digest=inventory.context_digest,
         )
 
     def prepare_close(
@@ -416,32 +512,30 @@ class MemoryContinuityService:
         plan: ContinuityReceiptPlan,
         *,
         authorization_id: UUID,
-        current_source_digest: str,
-        current_policy_digest: str,
-        current_migration_digest: str,
-        current_context_digest: str,
         now: dt.datetime | None = None,
     ) -> ContinuityApplyReceipt:
         moment = now or dt.datetime.now(dt.UTC)
         if moment.tzinfo is None:
             raise ValidationFailed("Continuity apply zamani timezone-aware olmali")
         plan.assert_integrity()
-        if (
-            current_source_digest != plan.source_digest
-            or current_policy_digest != plan.policy_digest
-            or current_migration_digest != plan.migration_digest
-            or current_context_digest != plan.context_digest
-        ):
-            raise PolicyViolation("Continuity receipt apply binding drift; replan required")
 
         with self.repository.connection.transaction():
-            if plan.kind is ContinuityReceiptKind.CLOSE:
+            if plan.kind is ContinuityReceiptKind.HYDRATION:
+                if not isinstance(plan.receipt, SessionHydrationReceipt):
+                    raise PolicyViolation("Hydration plan receipt type mismatch")
+                current_inventory = self._hydration_inventory(
+                    project_id=plan.receipt.project_id,
+                    work_item_id=plan.receipt.work_item_id,
+                    run_id=plan.receipt.run_id,
+                    session_id=plan.receipt.session_id,
+                    client_id=plan.receipt.client_id,
+                )
+                self._assert_hydration_current(plan.receipt, current_inventory)
+            elif plan.kind is ContinuityReceiptKind.CLOSE:
                 if not isinstance(plan.receipt, SessionCloseReceipt):
                     raise PolicyViolation("Close plan receipt type mismatch")
                 current_release = self._release_snapshot(plan.receipt)
-                current_release.assert_release_ready(
-                    expected_source_digest=plan.source_digest
-                )
+                current_release.assert_release_ready(expected_source_digest=plan.source_digest)
                 if current_release.snapshot_digest != plan.release_snapshot_digest:
                     raise PolicyViolation(
                         "Projection release snapshot apply sirasinda degisti; replan required"
@@ -513,6 +607,88 @@ class MemoryContinuityService:
         if not isinstance(snapshot, ProjectionReleaseSnapshot):
             raise PolicyViolation("Projection release snapshot exact contract ile uyusmuyor")
         return snapshot
+
+    def _hydration_inventory(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> HydrationInventorySnapshot:
+        reader = getattr(self.repository, "read_hydration_inventory", None)
+        if not callable(reader):
+            raise PolicyViolation("Canonical hydration inventory repository'de yok")
+        snapshot = reader(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
+            session_id=session_id,
+            client_id=client_id,
+        )
+        if not isinstance(snapshot, HydrationInventorySnapshot):
+            raise PolicyViolation("Hydration inventory exact contract ile uyusmuyor")
+        return snapshot
+
+    @staticmethod
+    def _assert_hydration_current(
+        receipt: SessionHydrationReceipt,
+        inventory: HydrationInventorySnapshot,
+    ) -> None:
+        identity = (
+            receipt.realm_id,
+            receipt.project_id,
+            receipt.work_item_id,
+            receipt.run_id,
+            receipt.session_id,
+            receipt.client_id,
+        )
+        current_identity = (
+            inventory.realm_id,
+            inventory.project_id,
+            inventory.work_item_id,
+            inventory.run_id,
+            inventory.session_id,
+            inventory.client_id,
+        )
+        bindings = (
+            (receipt.source_digest, inventory.source_digest),
+            (receipt.policy_digest, inventory.policy_digest),
+            (receipt.migration_digest, inventory.migration_digest),
+            (receipt.context_digest, inventory.context_digest),
+            (receipt.inventory_digest, inventory.inventory_digest),
+            (receipt.plan_ref, inventory.plan_ref),
+            (receipt.checkpoint_ref, inventory.checkpoint_ref),
+            (receipt.hydration_event_digest, inventory.hydration_event_digest),
+        )
+        if identity != current_identity or any(left != right for left, right in bindings):
+            raise PolicyViolation("Hydration inventory apply sirasinda degisti; replan required")
+        if (
+            receipt.projection_refs != inventory.projection_refs
+            or receipt.freshness != inventory.freshness
+            or not receipt.fresh
+            or not receipt.complete
+        ):
+            raise PolicyViolation(
+                "Hydration projection/freshness apply sirasinda degisti; replan required"
+            )
+        current_entries = {item.ref: item for item in inventory.entries}
+        for selected in receipt.required_selections + receipt.optional_selections:
+            entry = current_entries.get(selected.ref)
+            if (
+                entry is None
+                or entry.selection != selected
+                or entry.classification not in AUTO_HYDRATION_CLASSIFICATIONS
+            ):
+                raise PolicyViolation("Hydration selected entry classification/provenance drift")
+        required_refs = {
+            item.ref
+            for item in inventory.entries
+            if item.required and item.classification in AUTO_HYDRATION_CLASSIFICATIONS
+        }
+        if required_refs != {item.ref for item in receipt.required_selections}:
+            raise PolicyViolation("Hydration required inventory binding drift")
 
 
 def _receipt_digest(receipt: ContinuityReceipt) -> str:

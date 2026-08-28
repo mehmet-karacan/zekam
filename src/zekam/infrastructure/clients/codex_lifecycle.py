@@ -22,9 +22,7 @@ from zekam.domain.hook_runtime import HookEventType
 
 CODEX_CLIENT_ID = "codex"
 CODEX_REVIEWED_VERSION = "0.150.1"
-CODEX_REVIEWED_WINDOWS_SHA256 = (
-    "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f"
-)
+CODEX_REVIEWED_WINDOWS_SHA256 = "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f"
 CODEX_REVIEWED_EVIDENCE_DIGEST = (
     "sha256:e9327e030f757d539fdad344a9669781eff0ad9700b98ec769a484b6106f4086"
 )
@@ -41,12 +39,8 @@ _UUID_IDENTIFIER = re.compile(
 _VERSION_OUTPUT = re.compile(r"^codex-cli ([0-9]+\.[0-9]+\.[0-9]+)$")
 _SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact"})
 _COMPACTION_TRIGGERS = frozenset({"manual", "auto"})
-CODEX_SESSION_END_REASONS = frozenset(
-    {"clear", "logout", "prompt_input_exit", "other"}
-)
-_PERMISSION_MODES = frozenset(
-    {"default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"}
-)
+CODEX_SESSION_END_REASONS = frozenset({"clear", "logout", "prompt_input_exit", "other"})
+_PERMISSION_MODES = frozenset({"default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"})
 
 # SessionEnd is advisory in Codex and therefore maps only to post_close.  The
 # blocking close/freshness gate belongs to Stop, which can ask Codex to
@@ -212,12 +206,8 @@ def codex_hook_envelope(document: Mapping[str, Any]) -> CodexHookEnvelope:
         raise PolicyViolation(f"Codex lifecycle event reviewed contract disinda: {event_name}")
 
     turn_id = _uuid_identifier(document.get("turn_id"), label="turn_id", required=False)
-    source = _optional_enum(
-        document.get("source"), label="source", allowed=_SESSION_START_SOURCES
-    )
-    trigger = _optional_enum(
-        document.get("trigger"), label="trigger", allowed=_COMPACTION_TRIGGERS
-    )
+    source = _optional_enum(document.get("source"), label="source", allowed=_SESSION_START_SOURCES)
+    trigger = _optional_enum(document.get("trigger"), label="trigger", allowed=_COMPACTION_TRIGGERS)
     reason = _optional_enum(
         document.get("reason"), label="reason", allowed=CODEX_SESSION_END_REASONS
     )
@@ -255,13 +245,12 @@ def codex_hook_envelope(document: Mapping[str, Any]) -> CodexHookEnvelope:
             or permission_mode not in _PERMISSION_MODES
         ):
             raise ValidationFailed("Codex Stop reviewed wire contract ile uyusmuyor")
-    elif event_name == "SessionEnd":
-        if (
-            reason not in CODEX_SESSION_END_REASONS
-            or any(value is not None for value in (turn_id, source, trigger, permission_mode))
-            or stop_hook_active
-        ):
-            raise ValidationFailed("Codex SessionEnd reviewed wire contract ile uyusmuyor")
+    elif event_name == "SessionEnd" and (
+        reason not in CODEX_SESSION_END_REASONS
+        or any(value is not None for value in (turn_id, source, trigger, permission_mode))
+        or stop_hook_active
+    ):
+        raise ValidationFailed("Codex SessionEnd reviewed wire contract ile uyusmuyor")
 
     # The digest binds only the reviewed structural subset.  Content-bearing
     # fields such as transcript_path, cwd and last_assistant_message are neither
@@ -373,8 +362,7 @@ def load_codex_contract_evidence(path: Path) -> dict[str, Any]:
         or hook_command
         != {
             "command": (
-                "python -m zekam.interfaces.cli.client hook --client codex "
-                "--client-version 0.150.1"
+                "python -m zekam.interfaces.cli.client hook --client codex --client-version 0.150.1"
             ),
             "windows_override_field": "commandWindows",
             "stdin": "one Codex hook JSON object",
@@ -417,8 +405,7 @@ def load_codex_contract_evidence(path: Path) -> dict[str, Any]:
         or durability.get("immutable_ack_receipts") is not True
         or durability.get("public_arbitrary_ack") is not False
         or durability.get("canonical_ack_requires_idempotent_lookup") is not True
-        or durability.get("pre_compaction_ack_requires_runtime_binding_outbox")
-        is not True
+        or durability.get("pre_compaction_ack_requires_runtime_binding_outbox") is not True
         or durability.get("ack_requires_terminal_continuity_binding") is not True
         or durability.get("continuity_binding_requires_claim_receipt") is not True
         or durability.get("pre_compaction_ack_requires_compiler_enqueue") is not True

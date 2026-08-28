@@ -1037,8 +1037,7 @@ class EffectLedger:
                 if state is not JobState.RECOVERY_REQUIRED:
                     raise PolicyViolation("Recovery exact expired veya reclaimed lease ister")
                 cursor.execute(
-                    "select count(*) from runtime.lease"
-                    " where realm_id = %s and job_id = %s",
+                    "select count(*) from runtime.lease where realm_id = %s and job_id = %s",
                     (self.realm_id, request.job_id),
                 )
                 if int(cursor.fetchone()[0]) != 0:

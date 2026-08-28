@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from psycopg import Error as PsycopgError
+from tests.integration.test_agent_residency_postgres import residency_scope as _residency_scope
 
+from zekam.application.memory_continuity import HydrationPreparation, MemoryContinuityService
 from zekam.application.memory_control import MemoryControlOperation, MemoryControlService
 from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.project_integration import ProjectIntegrationService
@@ -28,6 +31,7 @@ from zekam.domain.memory_contract import (
     MemoryInvariantResult,
 )
 from zekam.domain.policy import RiskLevel
+from zekam.domain.project import SourceRevisionKind
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.session_continuity import (
@@ -54,6 +58,7 @@ from zekam.infrastructure.postgres.memory_continuity_repository import (
 from zekam.infrastructure.postgres.memory_control_repository import (
     PostgresMemoryControlRepository,
 )
+from zekam.infrastructure.postgres.project_repository import SourceBindingRepository
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
@@ -148,6 +153,82 @@ def _hydration(realm: Any, project: Any, work: Any, run: Any) -> SessionHydratio
     )
 
 
+def _canonical_projection(
+    realm: Any,
+    connection: Any,
+    repository: MemoryContinuityRepository,
+    project: Any,
+    work: Any,
+) -> ProjectionGenerationReceipt:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select item.revision,item.state,item.record_digest,revision.revision,"
+            " revision.tree_digest"
+            " from work.work_item item"
+            " join projects.source_binding binding"
+            " on binding.realm_id=item.realm_id and binding.project_id=item.project_id"
+            " join lateral (select source.revision,source.tree_digest"
+            " from projects.source_revision source"
+            " where source.realm_id=binding.realm_id and source.binding_id=binding.id"
+            " order by source.observed_at desc,source.id desc limit 1) revision on true"
+            " where item.realm_id=%s and item.project_id=%s and item.id=%s",
+            (realm.id, project.id, work.id),
+        )
+        source = cursor.fetchone()
+        assert source is not None
+        cursor.execute("select max(version) from core.schema_migrations")
+        migration_head = int(cursor.fetchone()[0])
+    database_revision_digest = digest(
+        {
+            "project_id": str(project.id),
+            "work_item_id": str(work.id),
+            "work_revision": int(source[0]),
+            "work_state": str(source[1]),
+            "work_record_digest": str(source[2]),
+        }
+    )
+    projection_source_digest = canonical_projection_source_digest(
+        source_head=str(source[3]),
+        source_tree_digest=str(source[4]),
+        migration_head=migration_head,
+        database_revision_digest=database_revision_digest,
+    )
+    projection_body = {
+        "schema": "zekam-memory-continuity-public-projection/v1",
+        "project_id": str(project.id),
+        "work_item_id": str(work.id),
+        "work_revision": int(source[0]),
+        "work_state": str(source[1]),
+        "source_head": str(source[3]),
+        "source_tree_digest": str(source[4]),
+        "migration_head": migration_head,
+        "database_revision_digest": database_revision_digest,
+        "source_digest": projection_source_digest,
+        "classification": "public",
+        "public_filtered": True,
+        "content_included": False,
+        "fresh": True,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    projection = ProjectionGenerationReceipt(
+        receipt_id=uuid4(),
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        source_ref=f"work-item/{work.id}/revision/{int(source[0])}",
+        source_digest=projection_source_digest,
+        projection_ref="projection/active-work",
+        projection_digest=digest(projection_body),
+        generator_version="projection/v1",
+        generated_at=NOW,
+    )
+    assert repository.store_projection_receipt(
+        projection, idempotency_key=f"projection-canonical-{work.id}"
+    )
+    return projection
+
+
 def _evaluation(realm: Any, project: Any, work: Any, run: Any) -> MemoryContractEvaluation:
     return MemoryContractEvaluation(
         evaluation_id=uuid4(),
@@ -175,7 +256,26 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
     realm_session: tuple[Any, Any], tmp_path: Path
 ) -> None:
     realm, connection = realm_session
-    project, work, run, job_id, attempt_id = _setup_runtime(realm, connection, tmp_path)
+    scope = _residency_scope.__wrapped__(realm_session, tmp_path)  # type: ignore[attr-defined]
+    run = scope["run"]
+    project = SimpleNamespace(id=run.project_id)
+    work = SimpleNamespace(id=run.work_item_id)
+    bindings = SourceBindingRepository(connection, realm.id)
+    binding = bindings.for_project(project.id)[0]
+    bindings.record_revision(
+        binding_id=binding.id,
+        kind=SourceRevisionKind.TREE_DIGEST,
+        revision=run.source_revision,
+        tree_digest=digest("residency-source-tree"),
+        now=NOW,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select job_id,attempt_id from runtime.execution_envelope"
+            " where realm_id=%s and run_id=%s order by request_ordinal desc limit 1",
+            (realm.id, run.id),
+        )
+        job_id, attempt_id = cursor.fetchone()
     repository = MemoryContinuityRepository(connection, realm.id)
     with connection.cursor() as cursor:
         cursor.execute(
@@ -201,8 +301,8 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
         correlation_id="correlation/one",
         recursion_depth=0,
         source_revision=run.source_revision,
-        plan_ref="plan/revision-1",
-        checkpoint_ref=None,
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
         context_ref="context/current",
         payload_digest=digest("event-payload"),
         metadata=(),
@@ -224,8 +324,57 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
         completed_at=NOW,
     )
 
-    hydration = _hydration(realm, project, work, run)
-    assert repository.store_hydration_receipt(hydration, idempotency_key="hydrate-one")
+    projection = _canonical_projection(realm, connection, repository, project, work)
+    inventory = repository.read_hydration_inventory(
+        project_id=project.id,
+        work_item_id=work.id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+    )
+    continuity = MemoryContinuityService(repository, AuthorizationRepository(connection, realm.id))
+    hydration_plan = continuity.prepare_from_inventory(
+        HydrationPreparation(
+            receipt_id=uuid4(),
+            realm_id=realm.id,
+            project_id=project.id,
+            work_item_id=work.id,
+            run_id=run.id,
+            session_id=run.session_id,
+            client_id=run.client_id,
+            token_budget=10,
+            idempotency_key="hydrate-one",
+            created_at=NOW,
+        ),
+        inventory,
+    )
+    hydration_actor = ActorRepository(connection, realm.id).add(
+        Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="hydration-authorizer", now=NOW)
+    )
+    hydration_authorizations = AuthorizationRepository(connection, realm.id)
+    hydration_authorization = hydration_authorizations.issue(
+        Authorization.issue(
+            realm_id=realm.id,
+            actor_id=hydration_actor.id,
+            work_item_id=work.id,
+            plan_id=run.plan_id,
+            plan_digest=hydration_plan.plan_digest,
+            effect_digest=hydration_plan.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(hydration_plan.resource,),
+                allowed_effects=("database-write",),
+            ),
+            risk="high",
+            lifetime=dt.timedelta(minutes=5),
+            now=NOW,
+        )
+    )
+    applied_hydration = continuity.apply(
+        hydration_plan, authorization_id=hydration_authorization.id, now=NOW
+    )
+    assert applied_hydration.created
+    hydration = hydration_plan.receipt
+    assert isinstance(hydration, SessionHydrationReceipt)
     assert not repository.store_hydration_receipt(hydration, idempotency_key="hydrate-one")
     close = SessionCloseReceipt(
         receipt_id=uuid4(),
@@ -243,7 +392,7 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
         changed_artifacts=(),
         verified_outcomes=(_ref("verified"),),
         pending_steps=(),
-        next_safe_action=_ref("next"),
+        next_safe_action=None,
         human_decisions=(),
         discovered_constraints=(),
         failure_recovery_refs=(),
@@ -283,54 +432,9 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
     assert repository.store_compaction_receipt(compaction, idempotency_key="compact-one")
     evaluation = _evaluation(realm, project, work, run)
     assert repository.store_contract_evaluation(evaluation, idempotency_key="contract-one")
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "select item.revision,item.state,item.record_digest,revision.revision,"
-            " revision.tree_digest"
-            " from work.work_item item"
-            " join projects.source_binding binding"
-            " on binding.realm_id=item.realm_id and binding.project_id=item.project_id"
-            " join lateral ("
-            "   select source.revision,source.tree_digest"
-            "   from projects.source_revision source"
-            "   where source.realm_id=binding.realm_id and source.binding_id=binding.id"
-            "   order by source.observed_at desc,source.id desc limit 1"
-            " ) revision on true"
-            " where item.realm_id=%s and item.project_id=%s and item.id=%s",
-            (realm.id, project.id, work.id),
-        )
-        release_source = cursor.fetchone()
-        cursor.execute("select max(version) from core.schema_migrations")
-        migration_head = int(cursor.fetchone()[0])
-    database_revision_digest = digest(
-        {
-            "project_id": str(project.id),
-            "work_item_id": str(work.id),
-            "work_revision": int(release_source[0]),
-            "work_state": str(release_source[1]),
-            "work_record_digest": str(release_source[2]),
-        }
+    assert not repository.store_projection_receipt(
+        projection, idempotency_key=f"projection-canonical-{work.id}"
     )
-    projection_source_digest = canonical_projection_source_digest(
-        source_head=str(release_source[3]),
-        source_tree_digest=str(release_source[4]),
-        migration_head=migration_head,
-        database_revision_digest=database_revision_digest,
-    )
-    projection = ProjectionGenerationReceipt(
-        receipt_id=uuid4(),
-        realm_id=realm.id,
-        project_id=project.id,
-        work_item_id=work.id,
-        source_ref="work/current",
-        source_digest=projection_source_digest,
-        projection_ref="projection/active-work",
-        projection_digest=digest("projection-body"),
-        generator_version="projection/v1",
-        generated_at=NOW,
-    )
-    assert repository.store_projection_receipt(projection, idempotency_key="projection-one")
-    assert not repository.store_projection_receipt(projection, idempotency_key="projection-one")
     current_projection = repository.read_latest_projection(
         project_id=project.id,
         work_item_id=work.id,
@@ -532,6 +636,37 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
         client_id=run.client_id,
     ).ready_for_mutation
 
+    pre_close = SessionLifecycleEvent(
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        run_id=run.id,
+        session_id=run.session_id,
+        client_id=run.client_id,
+        event_id=uuid4(),
+        event_type="pre_close",
+        sequence=2,
+        previous_digest=event.event_digest,
+        origin="client/codex",
+        causation_id="cause/pre-close",
+        correlation_id="correlation/one",
+        recursion_depth=0,
+        source_revision=run.source_revision,
+        plan_ref=f"work-plan:{run.plan_id}",
+        checkpoint_ref=f"run:{run.id}:genesis",
+        context_ref="context/current",
+        payload_digest=digest("pre-close-payload"),
+        metadata=(),
+        classification=DataClassification.INTERNAL,
+        occurred_at=NOW,
+        ingested_at=NOW,
+    )
+    repository.stage_lifecycle_delivery(
+        pre_close,
+        idempotency_key="lifecycle-pre-close",
+        plan_digest=digest("pre-close-plan"),
+    )
+
     release_snapshot = repository.read_projection_release_snapshot(
         project_id=project.id,
         work_item_id=work.id,
@@ -543,7 +678,7 @@ def test_continuity_receipts_compiler_watermark_and_snapshot(
     assert release_snapshot.lifecycle_complete
     assert not release_snapshot.pending_lifecycle_steps
     assert release_snapshot.projection_receipt_digest == projection.receipt_digest
-    assert release_snapshot.expected_projection_source_digest == projection_source_digest
+    assert release_snapshot.expected_projection_source_digest == projection.source_digest
 
     with pytest.raises(PsycopgError), connection.cursor() as cursor:
         cursor.execute(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, cast
 from uuid import UUID
@@ -93,12 +94,12 @@ def _document(value: Any) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
-def _read_json(path: Path, *, schema_name: str | None = None) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
-        raise ValidationFailed("Memory input regular, bounded file olmali")
+def _read_json_payload(payload: bytes, *, schema_name: str | None = None) -> dict[str, Any]:
+    if len(payload) > 1024 * 1024:
+        raise ValidationFailed("Memory input bounded boyutu asti")
     try:
-        document = _document(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError) as exc:
+        document = _document(json.loads(payload.decode("utf-8")))
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValidationFailed("Memory input JSON okunamadi") from exc
     if schema_name is not None:
         schema_path = core_root() / "schemas" / schema_name
@@ -108,6 +109,16 @@ def _read_json(path: Path, *, schema_name: str | None = None) -> dict[str, Any]:
         except ValidationError as exc:
             raise ValidationFailed("Memory receipt strict schema ile uyusmuyor") from exc
     return document
+
+
+def _read_json(path: Path, *, schema_name: str | None = None) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ValidationFailed("Memory input regular, bounded file olmali")
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ValidationFailed("Memory input JSON okunamadi") from exc
+    return _read_json_payload(payload, schema_name=schema_name)
 
 
 def _time(value: Any) -> dt.datetime:
@@ -191,48 +202,66 @@ def _hydration_plan(service: MemoryContinuityService, path: Path, *, idempotency
     return plan
 
 
-def _session_close_receipt(path: Path) -> SessionCloseReceipt:
-    row = _read_json(path, schema_name="session-close-receipt.schema.json")
+def _session_close_receipt_document(row: Mapping[str, Any]) -> SessionCloseReceipt:
+    document = dict(row)
 
     def refs(name: str) -> tuple[DigestReference, ...]:
-        return tuple(_digest_ref(item) for item in row[name])
+        return tuple(_digest_ref(item) for item in document[name])
 
     receipt = SessionCloseReceipt(
-        receipt_id=UUID(str(row["receipt_id"])),
-        realm_id=UUID(str(row["realm_id"])),
-        project_id=UUID(str(row["project_id"])),
-        work_item_id=UUID(str(row["work_item_id"])),
-        run_id=UUID(str(row["run_id"])),
-        session_id=str(row["session_id"]),
-        client_id=str(row["client_id"]),
-        job_id=UUID(str(row["job_id"])),
-        attempt_id=UUID(str(row["attempt_id"])),
-        envelope_digest=str(row["envelope_digest"]),
-        fencing_token=int(row["fencing_token"]),
+        receipt_id=UUID(str(document["receipt_id"])),
+        realm_id=UUID(str(document["realm_id"])),
+        project_id=UUID(str(document["project_id"])),
+        work_item_id=UUID(str(document["work_item_id"])),
+        run_id=UUID(str(document["run_id"])),
+        session_id=str(document["session_id"]),
+        client_id=str(document["client_id"]),
+        job_id=UUID(str(document["job_id"])),
+        attempt_id=UUID(str(document["attempt_id"])),
+        envelope_digest=str(document["envelope_digest"]),
+        fencing_token=int(document["fencing_token"]),
         completed_steps=refs("completed_steps"),
         changed_artifacts=refs("changed_artifacts"),
         verified_outcomes=refs("verified_outcomes"),
         pending_steps=refs("pending_steps"),
         next_safe_action=(
-            None if row["next_safe_action"] is None else _digest_ref(row["next_safe_action"])
+            None
+            if document["next_safe_action"] is None
+            else _digest_ref(document["next_safe_action"])
         ),
         human_decisions=refs("human_decisions"),
         discovered_constraints=refs("discovered_constraints"),
         failure_recovery_refs=refs("failure_recovery_refs"),
         candidate_lessons=refs("candidate_lessons"),
         candidate_skills=refs("candidate_skills"),
-        checkpoint_ref=_digest_ref(row["checkpoint_ref"]),
-        journal_head=_digest_ref(row["journal_head"]),
-        source_digest=str(row["source_digest"]),
-        policy_digest=str(row["policy_digest"]),
-        migration_digest=str(row["migration_digest"]),
-        context_digest=str(row["context_digest"]),
-        status=CloseStatus(str(row["status"])),
-        closed_at=_time(row["closed_at"]),
+        checkpoint_ref=_digest_ref(document["checkpoint_ref"]),
+        journal_head=_digest_ref(document["journal_head"]),
+        source_digest=str(document["source_digest"]),
+        policy_digest=str(document["policy_digest"]),
+        migration_digest=str(document["migration_digest"]),
+        context_digest=str(document["context_digest"]),
+        status=CloseStatus(str(document["status"])),
+        closed_at=_time(document["closed_at"]),
     )
-    if receipt.receipt_digest != str(row["receipt_digest"]):
+    if receipt.receipt_digest != str(document["receipt_digest"]):
         raise PolicyViolation("Close input receipt digest drift")
     return receipt
+
+
+def _session_close_receipt_from_payload(payload: bytes) -> SessionCloseReceipt:
+    return _session_close_receipt_document(
+        _read_json_payload(payload, schema_name="session-close-receipt.schema.json")
+    )
+
+
+def _session_close_receipt(path: Path) -> SessionCloseReceipt:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ValidationFailed("Memory input regular, bounded file olmali")
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ValidationFailed("Memory input JSON okunamadi") from exc
+    return _session_close_receipt_from_payload(payload)
 
 
 def _close_plan(service: MemoryContinuityService, path: Path, *, idempotency_key: str) -> Any:
@@ -386,10 +415,6 @@ def _apply_receipt(
     input_file: Path,
     idempotency_key: str,
     authorization_id: UUID | None,
-    source_digest: str | None,
-    policy_digest: str | None,
-    migration_digest: str | None,
-    context_digest: str | None,
     apply: bool,
     realm: str,
     home: str | None,
@@ -405,26 +430,11 @@ def _apply_receipt(
             if not apply:
                 _emit(plan.body() | {"plan_digest": plan.plan_digest, "apply": False})
                 return
-            if authorization_id is None or None in {
-                source_digest,
-                policy_digest,
-                migration_digest,
-                context_digest,
-            }:
-                raise fail(
-                    (
-                        "Apply exact authorization ve current "
-                        "source/policy/migration/context digest ister"
-                    ),
-                    64,
-                )
+            if authorization_id is None:
+                raise fail("Apply exact authorization ister", 64)
             receipt = continuity.apply(
                 plan,
                 authorization_id=authorization_id,
-                current_source_digest=cast(str, source_digest),
-                current_policy_digest=cast(str, policy_digest),
-                current_migration_digest=cast(str, migration_digest),
-                current_context_digest=cast(str, context_digest),
             )
     except ZekamError as exc:
         raise _raise(exc) from exc
@@ -447,10 +457,6 @@ def hydration_apply(
     idempotency_key: Annotated[str, typer.Option("--idempotency-key")],
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
-    source_digest: Annotated[str | None, typer.Option("--current-source-digest")] = None,
-    policy_digest: Annotated[str | None, typer.Option("--current-policy-digest")] = None,
-    migration_digest: Annotated[str | None, typer.Option("--current-migration-digest")] = None,
-    context_digest: Annotated[str | None, typer.Option("--current-context-digest")] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
@@ -460,10 +466,6 @@ def hydration_apply(
         input_file=input_file,
         idempotency_key=idempotency_key,
         authorization_id=authorization_id,
-        source_digest=source_digest,
-        policy_digest=policy_digest,
-        migration_digest=migration_digest,
-        context_digest=context_digest,
         apply=apply,
         realm=realm,
         home=home,
@@ -476,10 +478,6 @@ def close_apply(
     idempotency_key: Annotated[str, typer.Option("--idempotency-key")],
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
-    source_digest: Annotated[str | None, typer.Option("--current-source-digest")] = None,
-    policy_digest: Annotated[str | None, typer.Option("--current-policy-digest")] = None,
-    migration_digest: Annotated[str | None, typer.Option("--current-migration-digest")] = None,
-    context_digest: Annotated[str | None, typer.Option("--current-context-digest")] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
@@ -489,10 +487,6 @@ def close_apply(
         input_file=input_file,
         idempotency_key=idempotency_key,
         authorization_id=authorization_id,
-        source_digest=source_digest,
-        policy_digest=policy_digest,
-        migration_digest=migration_digest,
-        context_digest=context_digest,
         apply=apply,
         realm=realm,
         home=home,
@@ -940,9 +934,7 @@ def obsidian_apply(
                 _emit(plan.body() | {"plan_digest": plan.plan_digest, "apply": False})
                 return
             if authorization_id is None:
-                raise AuthorizationRequired(
-                    "Obsidian --uygula exact --authorization-id ister"
-                )
+                raise AuthorizationRequired("Obsidian --uygula exact --authorization-id ister")
             service = ObsidianProjectionService(
                 store,
                 AuthorizationRepository(context.connection, context.realm_id),

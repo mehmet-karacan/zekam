@@ -12,18 +12,25 @@ from zekam.application.continuity_projection import (
     ProjectionReleaseSnapshot,
 )
 from zekam.application.memory_continuity_orchestrator import LifecycleCompilerRecord
+from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, NotFound, ValidationFailed
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.memory_compiler import MemoryCompilerOutput
 from zekam.domain.memory_contract import MemoryContractEvaluation
 from zekam.domain.session_continuity import (
+    AUTO_HYDRATION_CLASSIFICATIONS,
     CompactionReceipt,
+    ContextOmissionReference,
     DataClassification,
+    DigestReference,
+    HydrationInventoryEntry,
+    HydrationInventorySnapshot,
     ProjectionGenerationReceipt,
     SessionCloseReceipt,
     SessionHydrationReceipt,
     SessionLifecycleEvent,
+    TruthClass,
 )
 
 TERMINAL_DELIVERY_STATES = frozenset({"completed", "failed", "recovery-required"})
@@ -1044,6 +1051,411 @@ class MemoryContinuityRepository:
             )
             return tuple(self._gap_from_row(row) for row in cursor.fetchall())
 
+    def _read_hydration_state(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> tuple[HydrationInventorySnapshot, tuple[Any, ...]]:
+        """Build one sanitized inventory from a single canonical DB statement.
+
+        The latest execution envelope fixes source, policy, context and
+        checkpoint bindings.  Fragment content is never selected here: only
+        portable references, digests, bounded token counts and classifications
+        leave PostgreSQL.
+        """
+
+        if not session_id.strip() or not client_id.strip():
+            raise ValidationFailed("Hydration inventory session/client bos olamaz")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select envelope.context_manifest_digest,envelope.context_packet_id,"
+                " envelope.checkpoint_disposition,envelope.checkpoint_id,"
+                " envelope.checkpoint_v2_id,source.revision,source.tree_digest,"
+                " envelope.policy_digest,migration.version,"
+                " models.capability_runtime_jsonb_digest(to_jsonb(migration.checksum)),"
+                " task_plan.id,work_item.revision,work_item.state,work_item.record_digest,"
+                " event.event_body,event.event_digest,manifest.omitted,fragments.entries,"
+                " projection.id,projection.source_ref,projection.source_digest,"
+                " projection.projection_ref,projection.projection_digest,"
+                " projection.generator_version,projection.classification,"
+                " projection.public_filtered,projection.receipt_body,"
+                " projection.receipt_digest,projection.generated_at,"
+                " projection.grants_authority,hydration.receipt_digest,"
+                " hydration.receipt_body,hydration.fresh,hydration.complete,"
+                " close_receipt.receipt_digest,close_receipt.close_status,"
+                " compaction.receipt_digest,compaction.status,"
+                " evaluation.evaluation_digest,evaluation.passed,gaps.entries"
+                " from runtime.execution_run run"
+                " join lateral (select current_envelope.*"
+                " from runtime.execution_envelope current_envelope"
+                " where current_envelope.realm_id=run.realm_id"
+                " and current_envelope.run_id=run.id"
+                " order by current_envelope.request_ordinal desc,"
+                " current_envelope.created_at desc,current_envelope.id desc limit 1)"
+                " envelope on true"
+                " join work.task_plan task_plan on task_plan.realm_id=run.realm_id"
+                " and task_plan.id=run.plan_id"
+                " join work.work_item work_item on work_item.realm_id=run.realm_id"
+                " and work_item.project_id=run.project_id"
+                " and work_item.id=run.work_item_id"
+                " join work.context_manifest manifest on manifest.realm_id=envelope.realm_id"
+                " and manifest.id=envelope.context_manifest_id"
+                " and manifest.manifest_digest=envelope.context_manifest_digest"
+                " join projects.project project on project.realm_id=run.realm_id"
+                " and project.id=run.project_id"
+                " join projects.source_binding binding on binding.realm_id=project.realm_id"
+                " and binding.project_id=project.id"
+                " join lateral (select revision.revision,revision.tree_digest"
+                " from projects.source_revision revision"
+                " where revision.realm_id=binding.realm_id"
+                " and revision.binding_id=binding.id"
+                " order by revision.observed_at desc,revision.id desc limit 1) source on true"
+                " join lateral (select version,checksum from core.schema_migrations"
+                " order by version desc limit 1) migration on true"
+                " join lateral (select lifecycle.event_body,lifecycle.event_digest,"
+                " lifecycle.event_type from continuity.session_lifecycle_event lifecycle"
+                " where lifecycle.realm_id=run.realm_id"
+                " and lifecycle.project_id=run.project_id"
+                " and lifecycle.work_item_id=run.work_item_id"
+                " and lifecycle.run_id=run.id and lifecycle.session_id=run.session_id"
+                " and lifecycle.client_id=run.client_id"
+                " and lifecycle.event_type in ('session_start','hydration_required')"
+                " order by lifecycle.sequence desc,lifecycle.id desc limit 1) event"
+                " on true"
+                " join lateral (select jsonb_agg(jsonb_build_object("
+                " 'candidate_id',fragment.candidate_id,'content_kind',fragment.content_kind,"
+                " 'visibility',fragment.visibility,'authority',fragment.authority,"
+                " 'source_ref',fragment.source_ref,'source_revision',fragment.source_revision,"
+                " 'content_digest',fragment.content_digest,'token_count',fragment.token_count,"
+                " 'required',fragment.required) order by fragment.fragment_order) entries"
+                " from work.context_fragment fragment"
+                " where fragment.realm_id=envelope.realm_id"
+                " and fragment.context_manifest_id=envelope.context_manifest_id) fragments"
+                " on fragments.entries is not null"
+                " join lateral (select receipt.id,receipt.source_ref,receipt.source_digest,"
+                " receipt.projection_ref,receipt.projection_digest,receipt.generator_version,"
+                " receipt.classification,receipt.public_filtered,receipt.receipt_body,"
+                " receipt.receipt_digest,receipt.generated_at,receipt.grants_authority"
+                " from continuity.projection_generation_receipt receipt"
+                " where receipt.realm_id=run.realm_id and receipt.project_id=run.project_id"
+                " and receipt.work_item_id=run.work_item_id"
+                " and receipt.projection_ref=%s"
+                " order by receipt.generated_at desc,receipt.id desc limit 1) projection on true"
+                " left join lateral (select receipt.receipt_digest,receipt.receipt_body,"
+                " receipt.fresh,receipt.complete"
+                " from continuity.session_hydration_receipt receipt"
+                " where receipt.realm_id=run.realm_id and receipt.project_id=run.project_id"
+                " and receipt.work_item_id=run.work_item_id and receipt.run_id=run.id"
+                " and receipt.session_id=run.session_id and receipt.client_id=run.client_id"
+                " order by receipt.created_at desc,receipt.id desc limit 1) hydration on true"
+                " left join lateral (select receipt.receipt_digest,receipt.close_status"
+                " from continuity.session_close_receipt receipt"
+                " where receipt.realm_id=run.realm_id and receipt.project_id=run.project_id"
+                " and receipt.work_item_id=run.work_item_id and receipt.run_id=run.id"
+                " and receipt.session_id=run.session_id and receipt.client_id=run.client_id"
+                " order by receipt.created_at desc,receipt.id desc limit 1) close_receipt on true"
+                " left join lateral (select receipt.receipt_digest,receipt.status"
+                " from continuity.compaction_receipt receipt"
+                " where receipt.realm_id=run.realm_id and receipt.project_id=run.project_id"
+                " and receipt.work_item_id=run.work_item_id and receipt.run_id=run.id"
+                " and receipt.session_id=run.session_id and receipt.client_id=run.client_id"
+                " order by receipt.created_at desc,receipt.id desc limit 1) compaction on true"
+                " left join lateral (select result.evaluation_digest,result.passed"
+                " from continuity.memory_contract_evaluation result"
+                " where result.realm_id=run.realm_id and result.project_id=run.project_id"
+                " and result.work_item_id=run.work_item_id and result.run_id=run.id"
+                " order by result.evaluated_at desc,result.id desc limit 1) evaluation on true"
+                " join lateral (select jsonb_agg(jsonb_build_object("
+                " 'id',gap.id,'realm_id',gap.realm_id,'project_id',gap.project_id,"
+                " 'work_item_id',gap.work_item_id,'run_id',gap.run_id,"
+                " 'gap_code',gap.gap_code,'gap_ref',gap.gap_ref,"
+                " 'evidence_digest',gap.evidence_digest,'recovery_ref',gap.recovery_ref,"
+                " 'state',gap.state,'created_at',gap.created_at,"
+                " 'recovery_receipt_ref',gap.recovery_receipt_ref,"
+                " 'recovery_receipt_digest',gap.recovery_receipt_digest,"
+                " 'resolved_at',gap.resolved_at) order by gap.created_at,gap.id) entries"
+                " from continuity.gap_recovery_reference gap"
+                " where gap.realm_id=run.realm_id and gap.project_id=run.project_id"
+                " and gap.work_item_id=run.work_item_id and gap.state<>'resolved') gaps on true"
+                " where run.realm_id=%s and run.project_id=%s and run.work_item_id=%s"
+                " and run.id=%s and run.session_id=%s and run.client_id=%s"
+                " and run.state='active' and envelope.source_revision=run.source_revision"
+                " and envelope.source_revision=task_plan.source_revision"
+                " and envelope.source_revision=source.revision"
+                " and envelope.policy_digest=run.policy_digest"
+                " and envelope.policy_digest=task_plan.policy_digest"
+                " and task_plan.id=(select current_plan.id from work.task_plan current_plan"
+                " where current_plan.realm_id=task_plan.realm_id"
+                " and current_plan.work_item_id=task_plan.work_item_id"
+                " order by current_plan.revision desc,current_plan.id desc limit 1)",
+                (
+                    ACTIVE_WORK_PROJECTION_REF,
+                    self.realm_id,
+                    project_id,
+                    work_item_id,
+                    run_id,
+                    session_id,
+                    client_id,
+                ),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise NotFound("Hydration canonical inventory exact scope'ta cozulmedi")
+        row = rows[0]
+        event_body = dict(row[14] or {})
+        event_digest = str(row[15])
+        if digest(event_body) != event_digest:
+            raise ValidationFailed("Hydration lifecycle event digest drift")
+        expected_plan_ref = f"work-plan:{row[10]}"
+        if str(event_body.get("plan_ref")) != expected_plan_ref:
+            raise ValidationFailed("Hydration lifecycle current Work plan ref drift")
+        checkpoint_disposition = str(row[2])
+        if checkpoint_disposition == "bound":
+            checkpoint_ref = f"checkpoint:{row[3]}"
+        elif checkpoint_disposition == "bound-v2":
+            checkpoint_ref = f"checkpoint-v2:{row[4]}"
+        elif checkpoint_disposition == "not-applicable-genesis":
+            checkpoint_ref = f"run:{run_id}:genesis"
+        else:
+            raise ValidationFailed("Hydration checkpoint disposition gecersiz")
+        event_checkpoint = event_body.get("checkpoint_ref")
+        if event_checkpoint is not None and str(event_checkpoint) != checkpoint_ref:
+            raise ValidationFailed("Hydration lifecycle checkpoint ref drift")
+
+        database_revision_digest = digest(
+            {
+                "project_id": str(project_id),
+                "work_item_id": str(work_item_id),
+                "work_revision": int(row[11]),
+                "work_state": str(row[12]),
+                "work_record_digest": str(row[13]),
+            }
+        )
+        projection_source_digest = canonical_projection_source_digest(
+            source_head=str(row[5]),
+            source_tree_digest=str(row[6]),
+            migration_head=int(row[8]),
+            database_revision_digest=database_revision_digest,
+        )
+        projection_body = {
+            "schema": "zekam-memory-continuity-public-projection/v1",
+            "project_id": str(project_id),
+            "work_item_id": str(work_item_id),
+            "work_revision": int(row[11]),
+            "work_state": str(row[12]),
+            "source_head": str(row[5]),
+            "source_tree_digest": str(row[6]),
+            "migration_head": int(row[8]),
+            "database_revision_digest": database_revision_digest,
+            "source_digest": projection_source_digest,
+            "classification": "public",
+            "public_filtered": True,
+            "content_included": False,
+            "fresh": True,
+            "read_only": True,
+            "grants_authority": False,
+        }
+        expected_projection_digest = digest(projection_body)
+        expected_source_ref = f"work-item/{work_item_id}/revision/{int(row[11])}"
+        try:
+            projection_receipt = ProjectionGenerationReceipt(
+                receipt_id=UUID(str(row[18])),
+                realm_id=self.realm_id,
+                project_id=project_id,
+                work_item_id=work_item_id,
+                source_ref=str(row[19]),
+                source_digest=str(row[20]),
+                projection_ref=str(row[21]),
+                projection_digest=str(row[22]),
+                generator_version=str(row[23]),
+                generated_at=row[28],
+                classification=DataClassification(str(row[24])),
+                public_filtered=bool(row[25]),
+                grants_authority=bool(row[29]),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValidationFailed("Hydration active-work projection security drift") from exc
+        if (
+            projection_receipt.source_ref != expected_source_ref
+            or projection_receipt.source_digest != projection_source_digest
+            or projection_receipt.projection_ref != ACTIVE_WORK_PROJECTION_REF
+            or projection_receipt.projection_digest != expected_projection_digest
+            or projection_receipt.receipt_digest != str(row[27])
+            or digest(dict(row[26] or {})) != str(row[27])
+        ):
+            raise ValidationFailed(
+                "Hydration active-work projection canonical source/body/security drift"
+            )
+
+        inventory_entries: list[HydrationInventoryEntry] = []
+        for document in tuple(row[17] or ()):
+            item = dict(document)
+            content_kind = str(item["content_kind"])
+            visibility = str(item["visibility"])
+            if content_kind in {"user-message", "assistant-message"}:
+                classification = DataClassification.RAW_TRANSCRIPT
+            elif content_kind == "tool-result" or visibility in {
+                "runtime-only",
+                "diagnostic-only",
+            }:
+                classification = DataClassification.DIAGNOSTIC_PAYLOAD
+            else:
+                classification = DataClassification.INTERNAL
+            authority = int(item["authority"])
+            truth_class = (
+                TruthClass.REPO_FACT
+                if authority >= 3
+                else TruthClass.EXTERNAL_VERIFIED_FACT
+                if authority == 2
+                else TruthClass.UNKNOWN
+            )
+            inventory_entries.append(
+                HydrationInventoryEntry(
+                    ref=f"context/{item['candidate_id']}",
+                    content_digest=str(item["content_digest"]),
+                    token_count=int(item["token_count"]),
+                    truth_class=truth_class,
+                    classification=classification,
+                    required=bool(item["required"]),
+                    source_ref=str(item["source_ref"]),
+                    source_revision=str(item["source_revision"]),
+                )
+            )
+        omissions = tuple(
+            ContextOmissionReference(
+                f"context/{dict(item)['candidate_id']}",
+                str(dict(item)["reason"]),
+                required=False,
+            )
+            for item in tuple(row[16] or ())
+        )
+        projection_refs = (
+            DigestReference(
+                ACTIVE_WORK_PROJECTION_REF,
+                expected_projection_digest,
+                TruthClass.REPO_FACT,
+            ),
+        )
+        snapshot = HydrationInventorySnapshot(
+            realm_id=self.realm_id,
+            project_id=project_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
+            session_id=session_id,
+            client_id=client_id,
+            plan_ref=expected_plan_ref,
+            checkpoint_ref=checkpoint_ref,
+            source_digest=str(row[6]),
+            policy_digest=str(row[7]),
+            migration_digest=str(row[9]),
+            context_digest=str(row[0]),
+            entries=tuple(inventory_entries),
+            known_omissions=omissions,
+            projection_refs=projection_refs,
+            hydration_event_digest=event_digest,
+        )
+        return snapshot, tuple(row)
+
+    def read_hydration_inventory(
+        self,
+        *,
+        project_id: UUID,
+        work_item_id: UUID,
+        run_id: UUID,
+        session_id: str,
+        client_id: str,
+    ) -> HydrationInventorySnapshot:
+        snapshot, _ = self._read_hydration_state(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
+            session_id=session_id,
+            client_id=client_id,
+        )
+        return snapshot
+
+    @staticmethod
+    def _hydration_receipt_is_current(
+        *,
+        receipt_digest: str,
+        receipt_body: dict[str, Any],
+        stored_fresh: bool,
+        stored_complete: bool,
+        inventory: HydrationInventorySnapshot,
+    ) -> tuple[bool, bool]:
+        """Recompute currentness; persisted convenience booleans never grant admission."""
+
+        try:
+            identity_matches = (
+                str(receipt_body["realm_id"]) == str(inventory.realm_id)
+                and str(receipt_body["project_id"]) == str(inventory.project_id)
+                and str(receipt_body["work_item_id"]) == str(inventory.work_item_id)
+                and str(receipt_body["run_id"]) == str(inventory.run_id)
+                and str(receipt_body["session_id"]) == inventory.session_id
+                and str(receipt_body["client_id"]) == inventory.client_id
+            )
+            bindings_match = all(
+                str(receipt_body[name]) == expected
+                for name, expected in (
+                    ("plan_ref", inventory.plan_ref),
+                    ("checkpoint_ref", inventory.checkpoint_ref),
+                    ("source_digest", inventory.source_digest),
+                    ("policy_digest", inventory.policy_digest),
+                    ("migration_digest", inventory.migration_digest),
+                    ("inventory_digest", inventory.inventory_digest),
+                    ("context_digest", inventory.context_digest),
+                    ("hydration_event_digest", inventory.hydration_event_digest),
+                )
+            )
+            projection_matches = receipt_body["projection_refs"] == [
+                item.as_dict() for item in inventory.projection_refs
+            ]
+            freshness_matches = receipt_body["freshness"] == [
+                item.as_dict() for item in inventory.freshness
+            ]
+            entries = {item.ref: item for item in inventory.entries}
+            required = tuple(receipt_body["required_selections"])
+            optional = tuple(receipt_body["optional_selections"])
+            required_expected = {
+                item.ref
+                for item in inventory.entries
+                if item.required and item.classification in AUTO_HYDRATION_CLASSIFICATIONS
+            }
+            required_actual = {str(dict(item)["ref"]) for item in required}
+            selections_current = required_expected == required_actual and all(
+                (
+                    str(dict(item)["ref"]) in entries
+                    and entries[str(dict(item)["ref"])].selection.as_dict() == dict(item)
+                    and entries[str(dict(item)["ref"])].classification
+                    in AUTO_HYDRATION_CLASSIFICATIONS
+                )
+                for item in required + optional
+            )
+            omissions = tuple(receipt_body["omissions"])
+            complete_now = (
+                stored_complete
+                and receipt_body["complete"] is True
+                and not any(bool(dict(item).get("required")) for item in omissions)
+            )
+            current_now = (
+                stored_fresh
+                and receipt_body["fresh"] is True
+                and digest(receipt_body) == receipt_digest
+                and identity_matches
+                and bindings_match
+                and projection_matches
+                and freshness_matches
+                and selections_current
+                and all(item.current for item in inventory.freshness)
+            )
+            return current_now, complete_now
+        except (KeyError, TypeError, ValueError):
+            return False, False
+
     def read_session_snapshot(
         self,
         *,
@@ -1053,49 +1465,72 @@ class MemoryContinuityRepository:
         session_id: str,
         client_id: str,
     ) -> SessionContinuitySnapshot:
-        params = (self.realm_id, project_id, work_item_id, run_id, session_id, client_id)
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                "select receipt_digest,fresh,complete"
-                " from continuity.session_hydration_receipt"
-                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
-                " and session_id=%s and client_id=%s order by created_at desc,id desc limit 1",
-                params,
+        # Inventory, stored receipt and every blocker come from one PostgreSQL
+        # statement snapshot; persisted fresh/complete flags are then narrowed
+        # by the recomputed canonical inventory and can never fail open.
+        inventory, state = self._read_hydration_state(
+            project_id=project_id,
+            work_item_id=work_item_id,
+            run_id=run_id,
+            session_id=session_id,
+            client_id=client_id,
+        )
+        hydration = None if state[30] is None else state[30:34]
+        close = None if state[34] is None else state[34:36]
+        compaction = None if state[36] is None else state[36:38]
+        evaluation = None if state[38] is None else state[38:40]
+
+        def timestamp(value: Any) -> dt.datetime | None:
+            if value is None or isinstance(value, dt.datetime):
+                return value
+            parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValidationFailed("Continuity gap timestamp timezone-aware olmali")
+            return parsed
+
+        open_gaps = tuple(
+            self._gap_from_row(
+                (
+                    item["id"],
+                    item["realm_id"],
+                    item["project_id"],
+                    item["work_item_id"],
+                    item.get("run_id"),
+                    item["gap_code"],
+                    item["gap_ref"],
+                    item["evidence_digest"],
+                    item["recovery_ref"],
+                    item["state"],
+                    timestamp(item["created_at"]),
+                    item.get("recovery_receipt_ref"),
+                    item.get("recovery_receipt_digest"),
+                    timestamp(item.get("resolved_at")),
+                )
             )
-            hydration = cursor.fetchone()
-            cursor.execute(
-                "select receipt_digest,close_status from continuity.session_close_receipt"
-                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
-                " and session_id=%s and client_id=%s order by created_at desc,id desc limit 1",
-                params,
+            for item in (dict(document) for document in tuple(state[40] or ()))
+        )
+        hydration_fresh = False
+        hydration_complete = False
+        if hydration is not None:
+            hydration_fresh, hydration_complete = self._hydration_receipt_is_current(
+                receipt_digest=str(hydration[0]),
+                receipt_body=dict(hydration[1] or {}),
+                stored_fresh=bool(hydration[2]),
+                stored_complete=bool(hydration[3]),
+                inventory=inventory,
             )
-            close = cursor.fetchone()
-            cursor.execute(
-                "select receipt_digest,status from continuity.compaction_receipt"
-                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
-                " and session_id=%s and client_id=%s order by created_at desc,id desc limit 1",
-                params,
-            )
-            compaction = cursor.fetchone()
-            cursor.execute(
-                "select evaluation_digest,passed from continuity.memory_contract_evaluation"
-                " where realm_id=%s and project_id=%s and work_item_id=%s and run_id=%s"
-                " order by evaluated_at desc,id desc limit 1",
-                params[:4],
-            )
-            evaluation = cursor.fetchone()
         return SessionContinuitySnapshot(
             run_id=run_id,
             hydration_receipt_digest=None if hydration is None else str(hydration[0]),
-            hydration_fresh=False if hydration is None else bool(hydration[1]),
-            hydration_complete=False if hydration is None else bool(hydration[2]),
+            hydration_fresh=hydration_fresh,
+            hydration_complete=hydration_complete,
             close_receipt_digest=None if close is None else str(close[0]),
             close_status=None if close is None else str(close[1]),
             compaction_receipt_digest=None if compaction is None else str(compaction[0]),
             compaction_status=None if compaction is None else str(compaction[1]),
             contract_evaluation_digest=(None if evaluation is None else str(evaluation[0])),
             contract_passed=False if evaluation is None else bool(evaluation[1]),
-            open_gaps=self.list_open_gaps(project_id=project_id, work_item_id=work_item_id),
+            open_gaps=open_gaps,
         )
 
     def read_projection_release_snapshot(
@@ -1277,7 +1712,7 @@ class MemoryContinuityRepository:
                 " and event.session_id=%s and event.client_id=%s"
                 " and outbox.state<>'completed' and (%s::uuid is null or outbox.id<>%s)"
                 " group by state order by state",
-                identity + (pre_close_outbox_id, pre_close_outbox_id),
+                (*identity, pre_close_outbox_id, pre_close_outbox_id),
             )
             for state, count in cursor.fetchall():
                 pending.append(f"lifecycle-outbox-{state}:{int(count)}")
@@ -1291,7 +1726,7 @@ class MemoryContinuityRepository:
             )
             compaction = cursor.fetchone()
             if compaction is not None and str(compaction[0]) != "completed":
-                pending.append(f"compaction-{str(compaction[0])}")
+                pending.append(f"compaction-{compaction[0]!s}")
 
             cursor.execute(
                 "select state,count(*) from memory.compiler_watermark_claim"

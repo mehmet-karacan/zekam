@@ -34,13 +34,9 @@ from zekam.domain.session_continuity import DataClassification, TruthClass
 
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _WINDOWS_PATH = re.compile(r"(?i)(?:\b[A-Z]:[\\/]|\\\\[^\\\s]+[\\])")
-_POSIX_PRIVATE_PATH = re.compile(
-    r"(?i)(?:^|[\s\"'`])/(?:Users|home|etc|var|tmp)/[^\s\"'`]+"
-)
+_POSIX_PRIVATE_PATH = re.compile(r"(?i)(?:^|[\s\"'`])/(?:Users|home|etc|var|tmp)/[^\s\"'`]+")
 _CONNECTION_STRING = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s]+")
-_RAW_MARKER = re.compile(
-    r"(?i)(?:raw[-_ ]?(?:prompt|response|transcript)|private[-_ ]?reasoning)"
-)
+_RAW_MARKER = re.compile(r"(?i)(?:raw[-_ ]?(?:prompt|response|transcript)|private[-_ ]?reasoning)")
 _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 _FORBIDDEN_CLASSES = frozenset(
     {
@@ -59,10 +55,7 @@ _FORBIDDEN_CLASSES = frozenset(
 def _yaml(value: str) -> str:
     return (
         '"'
-        + value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\r", "\\r")
-        .replace("\n", "\\n")
+        + value.replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
         + '"'
     )
 
@@ -230,7 +223,7 @@ realm: {_yaml(item.realm_slug)}
 project_id: {_yaml(str(project_id))}
 profile: {_yaml(profile.value)}
 truth_class: {_yaml(item.truth_class.value)}
-memory_class: {'' if item.memory_class is None else _yaml(item.memory_class)}
+memory_class: {"" if item.memory_class is None else _yaml(item.memory_class)}
 status: {_yaml(record.status)}
 classification: {_yaml(item.classification.value)}
 source_refs:
@@ -238,14 +231,14 @@ source_refs:
 source_digest: {_yaml(digest([ref.as_dict() for ref in record.source_refs]))}
 record_digest: {_yaml(record.record_digest)}
 projection_digest: {_yaml(projection_digest)}
-confidence: {'' if item.confidence is None else item.confidence}
-valid_from: {_yaml(_timestamp(item.valid_from)) if item.valid_from else ''}
-valid_until: {_yaml(_timestamp(item.valid_until)) if item.valid_until else ''}
+confidence: {"" if item.confidence is None else item.confidence}
+valid_from: {_yaml(_timestamp(item.valid_from)) if item.valid_from else ""}
+valid_until: {_yaml(_timestamp(item.valid_until)) if item.valid_until else ""}
 last_verified_at: {_yaml(_timestamp(item.observed_at))}
 supersedes:
-{supersedes or '  []'}
+{supersedes or "  []"}
 superseded_by:
-{superseded_by or '  []'}
+{superseded_by or "  []"}
 generated_at: {_yaml(_timestamp(item.observed_at))}
 editable: false
 read_only_projection: true
@@ -313,8 +306,7 @@ def _support_files(
         item
         for item in ordered
         if item.note_kind is ObsidianNoteKind.WORK
-        and item.record.status
-        in {"proposed", "ready", "active", "blocked", "verification"}
+        and item.record.status in {"proposed", "ready", "active", "blocked", "verification"}
     )
     daylogs = tuple(item for item in ordered if item.note_kind is ObsidianNoteKind.DAYLOG)
     latest_daylog = daylogs[-1:] if daylogs else ()
@@ -330,8 +322,7 @@ def _support_files(
     orphans = tuple(
         item
         for item in ordered
-        if item.note_kind is not ObsidianNoteKind.DAYLOG
-        and item.record.entity_id not in linked_ids
+        if item.note_kind is not ObsidianNoteKind.DAYLOG and item.record.entity_id not in linked_ids
     )
     conflicts = tuple(
         item
@@ -364,7 +355,7 @@ def _support_files(
                 "source_refs": [source.as_dict() for source in item.record.source_refs],
             }
             for item in ordered
-        }
+        },
     }
     return (
         _markdown_file(
@@ -373,18 +364,12 @@ def _support_files(
             f"Proje: `{project_id}`\n\n"
             f"Profil: `{profile.value}`\n\n"
             f"Kaynak snapshot: `{source_snapshot_digest}`\n\n"
-            "## Kayitlar\n\n"
-            + links(ordered)
-            + "\n",
+            "## Kayitlar\n\n" + links(ordered) + "\n",
         ),
         _markdown_file("00_HOME/BUGUN.md", "# Bugun\n\n" + links(latest_daylog) + "\n"),
-        _markdown_file(
-            "00_HOME/ACIK_ISLER.md", "# Acik Isler\n\n" + links(active_work) + "\n"
-        ),
+        _markdown_file("00_HOME/ACIK_ISLER.md", "# Acik Isler\n\n" + links(active_work) + "\n"),
         _markdown_file("07_RELATIONS/ORPHANS.md", "# Orphans\n\n" + links(orphans) + "\n"),
-        _markdown_file(
-            "07_RELATIONS/CONFLICTS.md", "# Conflicts\n\n" + links(conflicts) + "\n"
-        ),
+        _markdown_file("07_RELATIONS/CONFLICTS.md", "# Conflicts\n\n" + links(conflicts) + "\n"),
         _markdown_file(
             "07_RELATIONS/SUPERSEDED.md",
             "# Superseded\n\n" + links(superseded) + "\n",
@@ -431,11 +416,7 @@ def _scan_output(files: tuple[ObsidianProjectionFile, ...], profile: ObsidianPro
 
 
 def _check_links(files: tuple[ObsidianProjectionFile, ...]) -> str:
-    known = {
-        item.relative_path[:-3]
-        for item in files
-        if item.relative_path.endswith(".md")
-    }
+    known = {item.relative_path[:-3] for item in files if item.relative_path.endswith(".md")}
     links: list[tuple[str, str]] = []
     for item in files:
         if not item.relative_path.endswith(".md"):

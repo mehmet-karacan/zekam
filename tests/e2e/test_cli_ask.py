@@ -212,7 +212,6 @@ def test_research_start_uygula_olmadan_yazmaz(
     assert listing.exit_code == 0, listing.stdout
     items = json.loads(_run(cli_home, realm_flags, "work", "list", "--json").stdout)
     work_id = items[0]["id"]
-
     from zekam.domain.canonical import digest
 
     result = _run(
@@ -245,5 +244,5 @@ def test_research_start_uygula_olmadan_yazmaz(
         "revision-1",
         "--uygula",
     )
-    assert applied.exit_code == 0, applied.stdout
-    assert "kaydedildi" in applied.stdout
+    assert applied.exit_code == 6, applied.stdout
+    assert "kaydedildi" not in applied.stdout

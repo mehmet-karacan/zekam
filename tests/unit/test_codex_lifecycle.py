@@ -11,19 +11,31 @@ from uuid import UUID, uuid4
 import pytest
 from typer.testing import CliRunner
 
+import zekam.application.client_lifecycle_composition as lifecycle_composition
+from zekam.application.client_lifecycle_bridge import LifecycleClientContract
+from zekam.application.client_lifecycle_composition import (
+    LifecyclePlanInputs,
+    drain_claimed_codex_delivery,
+)
+from zekam.application.client_lifecycle_continuity import (
+    LIFECYCLE_ADAPTER_DIGEST,
+    LIFECYCLE_EFFECT_OPERATION,
+)
 from zekam.application.client_lifecycle_spool import (
     MAX_SPOOL_DOCUMENT_BYTES,
     CanonicalLifecycleReceipt,
     ClientLifecycleSpool,
+    LifecycleReplayResult,
     LifecycleSpoolEntry,
+    _fsync_parent_directory,
     canonical_lifecycle_event,
     drain_to_postgres,
     replay_pending,
-    _fsync_parent_directory,
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.hook_runtime import HookEventType
+from zekam.domain.runtime import AttemptOutcome
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_EVENT_MAPPING,
     CODEX_REVIEWED_CLIENT_CONTRACT_DIGEST,
@@ -36,20 +48,7 @@ from zekam.infrastructure.clients.codex_lifecycle import (
     parse_codex_hook_input,
     parse_codex_version_output,
 )
-from zekam.application.client_lifecycle_bridge import LifecycleClientContract
 from zekam.interfaces.cli.client import app as client_app
-
-import zekam.application.client_lifecycle_composition as lifecycle_composition
-from zekam.application.client_lifecycle_composition import (
-    LifecyclePlanInputs,
-    drain_claimed_codex_delivery,
-)
-from zekam.application.client_lifecycle_continuity import (
-    LIFECYCLE_ADAPTER_DIGEST,
-    LIFECYCLE_EFFECT_OPERATION,
-)
-from zekam.application.client_lifecycle_spool import LifecycleReplayResult
-from zekam.domain.runtime import AttemptOutcome
 
 pytestmark = pytest.mark.unit
 NOW = dt.datetime(2026, 8, 28, 9, 0, tzinfo=dt.UTC)
@@ -77,9 +76,7 @@ def test_reviewed_camelcase_mapping_binds_exact_tracked_contract_digest() -> Non
         repository_root / "config" / "client-lifecycle" / "codex-0.150.1.json"
     )
     contract = LifecycleClientContract.verified(
-        descriptor=codex_lifecycle_descriptor(
-            "codex", installed_version=CODEX_REVIEWED_VERSION
-        ),
+        descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
         installed_version=CODEX_REVIEWED_VERSION,
         event_mapping=CODEX_EVENT_MAPPING,
         contract_evidence_digest=str(evidence["file_digest"]),
@@ -142,9 +139,7 @@ def _continuity_binding(
         "plan_digest": PLAN_DIGEST,
         "effect_digest": EFFECT_DIGEST,
         "effect_receipt_id": str(EFFECT_RECEIPT_ID),
-        "effect_receipt_digest": digest(
-            {"claim_id": str(CLAIM_ID), "outcome": "completed"}
-        ),
+        "effect_receipt_digest": digest({"claim_id": str(CLAIM_ID), "outcome": "completed"}),
         "continuity_event_id": str(CONTINUITY_EVENT_ID),
         "continuity_event_digest": digest(
             {"entry_digest": entry.entry_digest, "ledger": "continuity"}
@@ -259,9 +254,9 @@ def test_official_session_end_reasons_are_exactly_allowlisted(reason: str) -> No
 
 
 def test_session_turn_and_occurrence_ids_require_lowercase_uuid_shape() -> None:
-    with pytest.raises(ValidationFailed, match="session_id.*UUID"):
+    with pytest.raises(ValidationFailed, match=r"session_id.*UUID"):
         parse_codex_hook_input(json.dumps(_session_start(session_id="session-123")))
-    with pytest.raises(ValidationFailed, match="turn_id.*UUID"):
+    with pytest.raises(ValidationFailed, match=r"turn_id.*UUID"):
         parse_codex_hook_input(
             json.dumps(
                 {
@@ -273,7 +268,7 @@ def test_session_turn_and_occurrence_ids_require_lowercase_uuid_shape() -> None:
             )
         )
     envelope = parse_codex_hook_input(json.dumps(_session_start()))
-    with pytest.raises(ValidationFailed, match="occurrence_id.*UUID"):
+    with pytest.raises(ValidationFailed, match=r"occurrence_id.*UUID"):
         envelope.delivery_id(occurrence_id="occurrence-1")
 
 
@@ -322,9 +317,9 @@ def test_unknown_or_drifted_codex_contract_fails_closed() -> None:
                 }
             )
         )
-    with pytest.raises(ValidationFailed, match="SessionStart"):
+    with pytest.raises(ValidationFailed, match="permission_mode reviewed enum disinda"):
         parse_codex_hook_input(json.dumps(_session_start(permission_mode="custom-mode")))
-    with pytest.raises(ValidationFailed, match="compact"):
+    with pytest.raises(ValidationFailed, match="trigger reviewed enum disinda"):
         parse_codex_hook_input(
             json.dumps(
                 {
@@ -355,8 +350,7 @@ def test_exact_version_descriptor_and_tracked_evidence() -> None:
     assert descriptor.supports("lifecycle-events-v2")
     assert evidence["reviewed_executable"]["sha256"] == CODEX_REVIEWED_WINDOWS_SHA256
     assert evidence["event_mapping"] == [
-        {"external": raw, "internal": canonical.value}
-        for raw, canonical in CODEX_EVENT_MAPPING
+        {"external": raw, "internal": canonical.value} for raw, canonical in CODEX_EVENT_MAPPING
     ]
     assert str(evidence["file_digest"]).startswith("sha256:")
 
@@ -373,7 +367,10 @@ def _claimed_lifecycle_boundary() -> tuple[SimpleNamespace, SimpleNamespace]:
         ),
         attempt_id=attempt_id,
         lease=SimpleNamespace(
-            id=uuid4(), worker_label="codex-lifecycle-worker", fencing_token=7
+            id=uuid4(),
+            owner_digest=digest("owner"),
+            worker_label="codex-lifecycle-worker",
+            fencing_token=7,
         ),
     )
     claim = SimpleNamespace(
@@ -393,30 +390,56 @@ def test_claimed_composition_accepts_only_canonical_completed_outcome(
 ) -> None:
     work, claim = _claimed_lifecycle_boundary()
     entry = SimpleNamespace(
-        entry_digest=digest("entry"), delivery_id=digest("delivery"), client_id="codex",
-        session_id=str(uuid4()), external_event_type="SessionStart",
-        internal_event_type="session_start", sequence=1, observation={}, occurred_at=NOW,
+        entry_digest=digest("entry"),
+        delivery_id=digest("delivery"),
+        client_id="codex",
+        session_id=str(uuid4()),
+        external_event_type="SessionStart",
+        internal_event_type="session_start",
+        sequence=1,
+        observation={},
+        occurred_at=NOW,
     )
     spool = SimpleNamespace(
         pending=lambda *, limit: (entry,), client_instance_id=lambda: "codex-instance"
     )
     repository = SimpleNamespace(
-        realm_id=uuid4(), connection=object(),
+        realm_id=uuid4(),
+        connection=object(),
         previous_continuity_digest=lambda **_: None,
         current_work_plan_digest=lambda **_: digest("work-plan"),
     )
-    expected = LifecycleReplayResult(entry.entry_digest, "completed", digest("ack"), digest("attempt"))
+    expected = LifecycleReplayResult(
+        entry.entry_digest,
+        "completed",
+        digest("ack"),
+        digest("attempt"),
+    )
     monkeypatch.setattr(
         lifecycle_composition, "drain_to_postgres", lambda *args, **kwargs: (expected,)
     )
     result = drain_claimed_codex_delivery(
-        spool=spool, bridge=SimpleNamespace(prepare=lambda *args, **kwargs: SimpleNamespace(
-            effect_digest=claim.effect_digest
-        )), repository=repository, work=work, claim=claim, authorization_id=uuid4(),
-        contract=object(), hook_session=object(), session_binding_id=uuid4(),
+        spool=spool,
+        bridge=SimpleNamespace(
+            repository=object(),
+            authorizations=object(),
+            prepare=lambda *args, **kwargs: SimpleNamespace(effect_digest=claim.effect_digest),
+        ),
+        repository=repository,
+        work=work,
+        claim=claim,
+        authorization_id=uuid4(),
+        contract=object(),
+        hook_session=object(),
+        session_binding_id=uuid4(),
         inputs=LifecyclePlanInputs(
-            "git:source", digest("source"), digest("policy"), digest("migration"),
-            digest("work-plan"), None, None,
+            "git:source",
+            digest("source"),
+            digest("policy"),
+            digest("migration"),
+            digest("work-plan"),
+            None,
+            None,
         ),
     )
     assert result == (expected,)
@@ -427,6 +450,7 @@ def test_receiptless_claim_without_pending_entry_enters_recovery(
 ) -> None:
     work, claim = _claimed_lifecycle_boundary()
     outcomes: list[AttemptOutcome] = []
+    state_calls: list[dict[str, object]] = []
 
     class Host:
         ledger = SimpleNamespace(receipt_for_claim=lambda claim_id: None)
@@ -442,15 +466,153 @@ def test_receiptless_claim_without_pending_entry_enters_recovery(
     monkeypatch.setattr(lifecycle_composition, "ExecutionHost", Host)
     with pytest.raises(PolicyViolation, match="Receiptless claimed Codex delivery"):
         drain_claimed_codex_delivery(
-            spool=SimpleNamespace(pending=lambda *, limit: ()), bridge=object(),
-            repository=SimpleNamespace(realm_id=uuid4(), connection=object()), work=work,
-            claim=claim, authorization_id=uuid4(), contract=object(), hook_session=object(),
-            session_binding_id=uuid4(), inputs=LifecyclePlanInputs(
-                "git:source", digest("source"), digest("policy"), digest("migration"),
-                digest("work-plan"), None, None,
+            spool=SimpleNamespace(pending=lambda *, limit: ()),
+            bridge=object(),
+            repository=SimpleNamespace(
+                realm_id=uuid4(),
+                connection=object(),
+                recovery_finish_state=lambda **values: (
+                    state_calls.append(values) or "running-exact"
+                ),
+            ),
+            work=work,
+            claim=claim,
+            authorization_id=uuid4(),
+            contract=object(),
+            hook_session=object(),
+            session_binding_id=uuid4(),
+            inputs=LifecyclePlanInputs(
+                "git:source",
+                digest("source"),
+                digest("policy"),
+                digest("migration"),
+                digest("work-plan"),
+                None,
+                None,
             ),
         )
     assert outcomes == [AttemptOutcome.RECOVERY_REQUIRED]
+    assert state_calls == [
+        {
+            "job_id": work.job.id,
+            "attempt_id": work.attempt_id,
+            "lease_id": work.lease.id,
+            "owner_digest": work.lease.owner_digest,
+            "fencing_token": work.lease.fencing_token,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("recovery_state", "expected_message", "expected_outcomes"),
+    (
+        (
+            "recovery-required-closed",
+            "Codex drain exact delivery terminal ACK uretmedi",
+            (),
+        ),
+        (
+            "running-exact",
+            "Codex drain exact delivery terminal ACK uretmedi",
+            (AttemptOutcome.RECOVERY_REQUIRED,),
+        ),
+        ("attempt-drift", "Codex lifecycle recovery finish state drift", ()),
+    ),
+)
+def test_outer_drain_reconciles_only_exact_receiptless_recovery_state(
+    monkeypatch: pytest.MonkeyPatch,
+    recovery_state: str,
+    expected_message: str,
+    expected_outcomes: tuple[AttemptOutcome, ...],
+) -> None:
+    work, claim = _claimed_lifecycle_boundary()
+    outcomes: list[AttemptOutcome] = []
+    state_calls: list[dict[str, object]] = []
+    entry = SimpleNamespace(
+        entry_digest=digest("incomplete-entry"),
+        delivery_id=digest("incomplete-delivery"),
+        client_id="codex",
+        session_id=str(uuid4()),
+        external_event_type="SessionStart",
+        internal_event_type="session_start",
+        sequence=1,
+        observation={},
+        occurred_at=NOW,
+    )
+    spool = SimpleNamespace(
+        pending=lambda *, limit: (entry,),
+        client_instance_id=lambda: "codex-instance",
+    )
+    repository = SimpleNamespace(
+        realm_id=uuid4(),
+        connection=object(),
+        previous_continuity_digest=lambda **_: None,
+        current_work_plan_digest=lambda **_: digest("work-plan"),
+        recovery_finish_state=lambda **values: state_calls.append(values) or recovery_state,
+    )
+    bridge = SimpleNamespace(
+        repository=object(),
+        authorizations=object(),
+        prepare=lambda *args, **kwargs: SimpleNamespace(effect_digest=claim.effect_digest),
+    )
+
+    class Host:
+        ledger = SimpleNamespace(receipt_for_claim=lambda claim_id: None)
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        @staticmethod
+        def finish(claimed, *, outcome, result_digest):  # type: ignore[no-untyped-def]
+            outcomes.append(outcome)
+            return True
+
+    monkeypatch.setattr(lifecycle_composition, "ExecutionHost", Host)
+    monkeypatch.setattr(
+        lifecycle_composition,
+        "drain_to_postgres",
+        lambda *args, **kwargs: (
+            LifecycleReplayResult(
+                entry.entry_digest,
+                "failed",
+                None,
+                digest("failed-attempt"),
+            ),
+        ),
+    )
+
+    with pytest.raises(PolicyViolation, match=expected_message):
+        drain_claimed_codex_delivery(
+            spool=spool,
+            bridge=bridge,
+            repository=repository,
+            work=work,
+            claim=claim,
+            authorization_id=uuid4(),
+            contract=object(),
+            hook_session=object(),
+            session_binding_id=uuid4(),
+            inputs=LifecyclePlanInputs(
+                "git:source",
+                digest("source"),
+                digest("policy"),
+                digest("migration"),
+                digest("work-plan"),
+                None,
+                None,
+            ),
+        )
+
+    assert tuple(outcomes) == expected_outcomes
+    assert state_calls == [
+        {
+            "job_id": work.job.id,
+            "attempt_id": work.attempt_id,
+            "lease_id": work.lease.id,
+            "owner_digest": work.lease.owner_digest,
+            "fencing_token": work.lease.fencing_token,
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -560,10 +722,7 @@ def test_spool_is_immutable_idempotent_and_ack_driven(tmp_path: Path) -> None:
     cursor = json.loads(cursor_records[0].read_text(encoding="utf-8"))
     assert cursor["entry_digest"] == entry.entry_digest
     assert cursor["ack_digest"] == first_ack["ack_digest"]
-    assert (
-        cursor["continuity_binding_digest"]
-        == first_ack["continuity_binding"]["binding_digest"]
-    )
+    assert cursor["continuity_binding_digest"] == first_ack["continuity_binding"]["binding_digest"]
 
     attempt = spool.record_attempt(
         entry.entry_digest,
@@ -638,9 +797,7 @@ def test_hook_stage_uses_bounded_checkpoint_not_history_scan(
     )
     second = spool.stage(
         compact.observation_body(),
-        delivery_id=_delivery(
-            compact, "0198f2ad-3d10-7a11-b515-4c5c1733f7b6"
-        ),
+        delivery_id=_delivery(compact, "0198f2ad-3d10-7a11-b515-4c5c1733f7b6"),
         occurred_at=NOW + dt.timedelta(seconds=1),
     )
 
@@ -796,9 +953,7 @@ def test_manual_review_resolved_prefix_does_not_skip_retryable_entries(
     for offset in range(3):
         session_id = f"0198f2ad-3d10-7a11-b515-4c5c1733f7c{offset}"
         occurrence_id = f"0198f2ad-3d10-7a11-b515-4c5c1733f7d{offset}"
-        envelope = parse_codex_hook_input(
-            json.dumps(_session_start(session_id=session_id))
-        )
+        envelope = parse_codex_hook_input(json.dumps(_session_start(session_id=session_id)))
         entries.append(
             spool.stage(
                 envelope.observation_body(),
@@ -872,11 +1027,7 @@ def test_manual_review_same_session_descendant_does_not_starve_other_sessions(
     other_entries: list[LifecycleSpoolEntry] = []
     for offset in range(2):
         envelope = parse_codex_hook_input(
-            json.dumps(
-                _session_start(
-                    session_id=f"0198f2ad-3d10-7a11-b515-4c5c1733f7d{offset}"
-                )
-            )
+            json.dumps(_session_start(session_id=f"0198f2ad-3d10-7a11-b515-4c5c1733f7d{offset}"))
         )
         other_entries.append(
             spool.stage(
@@ -912,10 +1063,7 @@ def test_manual_review_same_session_descendant_does_not_starve_other_sessions(
     assert descendant_state["disposition"] == "manual-review"
     assert descendant_state["terminal_reason"] == "predecessor-manual-review"
     assert descendant_state["predecessor_entry_digest"] == first.entry_digest
-    assert (
-        descendant_state["predecessor_attempt_state_digest"]
-        == predecessor_state["state_digest"]
-    )
+    assert descendant_state["predecessor_attempt_state_digest"] == predecessor_state["state_digest"]
     assert [result.outcome for result in first_page] == [
         "recovery-required",
         "completed",
@@ -970,9 +1118,7 @@ def test_production_drain_requires_preflight_apply_and_read_only_lookup(
             client_instance_id: str,
         ) -> dict[str, object]:
             self.calls.append("preflight")
-            return _continuity_preflight(
-                source, document, client_instance_id=client_instance_id
-            )
+            return _continuity_preflight(source, document, client_instance_id=client_instance_id)
 
         def apply(
             self,
@@ -989,9 +1135,7 @@ def test_production_drain_requires_preflight_apply_and_read_only_lookup(
                 ),
             )
             base = CanonicalLifecycleReceipt.verified(source, document, ack, ack)
-            self.receipt = base.bind_continuity(
-                source, _continuity_binding(source, base)
-            )
+            self.receipt = base.bind_continuity(source, _continuity_binding(source, base))
             return self.receipt
 
         def lookup(self, *_: object, **__: object) -> CanonicalLifecycleReceipt:
@@ -1040,9 +1184,10 @@ def test_cli_apply_without_composition_has_no_local_mutation(tmp_path: Path) -> 
         ["drain", "--uygula", "--home", str(home)],
     )
     assert result.exit_code == 6
+    normalized_output = " ".join(result.output.split())
     assert (
         "Lifecycle apply public CLI'dan yapilamaz; exact ClaimedWork worker gerekir"
-        in result.output
+        in normalized_output
     )
     assert not home.exists()
 
@@ -1105,9 +1250,7 @@ def test_precompact_receipt_requires_exact_runtime_binding_outbox(tmp_path: Path
         receipt.assert_binding(entry)
     continuity = _continuity_binding(entry, receipt)
     continuity["compiler_enqueue"] = False
-    continuity_body = {
-        key: value for key, value in continuity.items() if key != "binding_digest"
-    }
+    continuity_body = {key: value for key, value in continuity.items() if key != "binding_digest"}
     continuity["binding_digest"] = digest(continuity_body)
     with pytest.raises(PolicyViolation, match="compiler enqueue"):
         receipt.bind_continuity(entry, continuity)
@@ -1167,9 +1310,7 @@ def test_ack_target_symlink_or_reparse_fails_closed(tmp_path: Path) -> None:
 def test_oversized_spool_target_fails_closed(tmp_path: Path) -> None:
     spool = ClientLifecycleSpool(tmp_path / "home", client_id="codex")
     envelope = parse_codex_hook_input(json.dumps(_session_start()))
-    spool.stage(
-        envelope.observation_body(), delivery_id=_delivery(envelope), occurred_at=NOW
-    )
+    spool.stage(envelope.observation_body(), delivery_id=_delivery(envelope), occurred_at=NOW)
     spool.queue_state_path.write_bytes(b"x" * (MAX_SPOOL_DOCUMENT_BYTES + 1))
     with pytest.raises(PolicyViolation, match="boyut sinirini asti"):
         spool.pending()
@@ -1212,7 +1353,7 @@ def test_corrupted_spool_chain_is_never_silently_replayed(tmp_path: Path) -> Non
     document["sequence"] = 2
     source.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(PolicyViolation, match="sequence|digest"):
+    with pytest.raises(PolicyViolation, match=r"sequence|digest"):
         spool.pending()
 
 

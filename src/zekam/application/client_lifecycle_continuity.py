@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Mapping
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid5
 
 from zekam.application.client_lifecycle_bridge import (
     ClientLifecycleBridge,
@@ -20,6 +21,10 @@ from zekam.application.client_lifecycle_spool import (
 )
 from zekam.application.execution import ExecutionHost
 from zekam.application.hook_runtime import HookSession
+from zekam.application.memory_continuity import (
+    HydrationPreparation,
+    MemoryContinuityService,
+)
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.clients import ClientKind
 from zekam.domain.errors import PolicyViolation
@@ -31,9 +36,9 @@ from zekam.infrastructure.postgres.client_lifecycle_repository import (
 from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 LIFECYCLE_EFFECT_OPERATION = "client-lifecycle-drain"
-LIFECYCLE_ADAPTER_DIGEST = digest(
-    {"adapter": "claimedwork-codex-lifecycle", "version": 1}
-)
+LIFECYCLE_ADAPTER_DIGEST = digest({"adapter": "claimedwork-codex-lifecycle", "version": 1})
+_HYDRATION_NAMESPACE = UUID("68cb28f0-0a80-4fba-a00c-b6e340e7e648")
+_SESSION_START_HYDRATION_TOKEN_BUDGET = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +53,7 @@ class ClaimedLifecycleDelivery:
     session_binding_id: UUID
     client_instance_id: str
     work_plan_digest: str
+    hydration_authorization_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +69,7 @@ class PostgresLifecycleContinuityAdmission:
     connection: Any
     realm_id: UUID
     bridge: ClientLifecycleBridge
+    memory_continuity: MemoryContinuityService
     repository: ClientLifecycleRepository
     delivery: ClaimedLifecycleDelivery
 
@@ -132,6 +139,7 @@ class PostgresLifecycleContinuityAdmission:
         with self._recover_on_failure(host), self.connection.transaction():
             execution = self._current_execution(entry, now=now)
             self._assert_plan_current(execution)
+            self._assert_common_mutating_admission(canonical_event)
             canonical_ack = self.repository.ingest(
                 canonical_event,
                 client_instance_id=client_instance_id,
@@ -164,6 +172,49 @@ class PostgresLifecycleContinuityAdmission:
             terminal_at = dt.datetime.now(dt.UTC)
             if entry.internal_event_type == "pre_compaction" and not hook_output.compiler_enqueue:
                 raise PolicyViolation("Pre-compaction durable compiler enqueue uretmedi")
+            hydration_plan = None
+            hydration_apply = None
+            hydration_authorization_id = None
+            if entry.internal_event_type == "session_start":
+                if self.delivery.hydration_authorization_id is None:
+                    raise PolicyViolation(
+                        "Session-start exact pre-issued hydration authorization ister"
+                    )
+                hydration_plan = self.memory_continuity.prepare_hydration(
+                    HydrationPreparation(
+                        receipt_id=uuid5(
+                            _HYDRATION_NAMESPACE,
+                            f"{self.realm_id}:{applied.event_digest}",
+                        ),
+                        realm_id=self.realm_id,
+                        project_id=applied.project_id,
+                        work_item_id=applied.work_item_id,
+                        run_id=applied.run_id,
+                        session_id=applied.session_id,
+                        client_id=applied.client_id,
+                        token_budget=_SESSION_START_HYDRATION_TOKEN_BUDGET,
+                        idempotency_key=f"session-start:{applied.event_id}:hydration",
+                        created_at=entry.occurred_at,
+                    )
+                )
+                hydration_authorization_id = self.repository.exact_hydration_authorization_id(
+                    authorization_id=self.delivery.hydration_authorization_id,
+                    work_item_id=applied.work_item_id,
+                    plan_id=execution.plan_id,
+                    plan_digest=hydration_plan.plan_digest,
+                    effect_digest=hydration_plan.effect_digest,
+                    resource=hydration_plan.resource,
+                    now=terminal_at,
+                )
+                hydration_apply = self.memory_continuity.apply(
+                    hydration_plan,
+                    authorization_id=hydration_authorization_id,
+                    now=terminal_at,
+                )
+            elif self.delivery.hydration_authorization_id is not None:
+                raise PolicyViolation(
+                    "Hydration authorization yalniz session-start delivery tasiyabilir"
+                )
             self.bridge.repository.finalize_lifecycle_delivery(
                 outbox_id=applied.outbox_id,
                 receipt_digest=hook_output.output_digest,
@@ -205,7 +256,7 @@ class PostgresLifecycleContinuityAdmission:
             if step_id is None:
                 raise PolicyViolation("Lifecycle claimed job exact step_id tasimali")
             self.repository.store_job_checkpoint(
-                execution=execution,
+                execution=post_hook_execution,
                 job_id=self.delivery.work.job.id,
                 step_id=step_id,
                 result_digest=result_digest,
@@ -242,10 +293,27 @@ class PostgresLifecycleContinuityAdmission:
                 result_formula_digest=result_digest,
                 now=terminal_at,
             )
+            if (
+                hydration_plan is not None
+                and hydration_apply is not None
+                and hydration_authorization_id is not None
+            ):
+                self.repository.record_lifecycle_hydration_admission(
+                    continuity_event_id=applied.event_id,
+                    delivery_outbox_id=applied.outbox_id,
+                    hydration_receipt_id=hydration_apply.receipt_id,
+                    hydration_receipt_digest=hydration_apply.receipt_digest,
+                    hydration_authorization_id=hydration_authorization_id,
+                    hydration_plan_digest=hydration_apply.plan_digest,
+                    hydration_effect_digest=hydration_plan.effect_digest,
+                    hydration_apply_result_digest=hydration_apply.result_digest,
+                    hydration_created=hydration_apply.created,
+                    now=hydration_apply.applied_at,
+                )
         return self._terminal_receipt(entry, canonical_event)
 
     @contextmanager
-    def _recover_on_failure(self, host: ExecutionHost):
+    def _recover_on_failure(self, host: ExecutionHost) -> Iterator[None]:
         """Turn a receiptless, possibly-started claim into explicit recovery state."""
 
         try:
@@ -364,9 +432,9 @@ class PostgresLifecycleContinuityAdmission:
             fencing_token=self.delivery.work.lease.fencing_token,
             resource=self.delivery.plan.resource,
         )
-        effect_receipt = ExecutionHost(
-            self.connection, self.realm_id
-        ).ledger.receipt_for_claim(self.delivery.claim.id)
+        effect_receipt = ExecutionHost(self.connection, self.realm_id).ledger.receipt_for_claim(
+            self.delivery.claim.id
+        )
         if effect_receipt is None or effect_receipt.status is not ReceiptStatus.COMPLETED:
             raise PolicyViolation("Lifecycle exact completed effect receipt bulunamadi")
         if (
@@ -375,6 +443,10 @@ class PostgresLifecycleContinuityAdmission:
             or terminal.continuity_event_digest != self.delivery.plan.event.event_digest
         ):
             raise PolicyViolation("Lifecycle terminal lookup effect receipt drift")
+        if entry.internal_event_type == "session_start":
+            self.repository.lookup_lifecycle_hydration(
+                continuity_event_id=terminal.continuity_event_id
+            )
         parse_digest(terminal.checkpoint_digest)
         expected_adapter_evidence = digest(
             {
@@ -453,12 +525,35 @@ class PostgresLifecycleContinuityAdmission:
         if any(preflight.get(key) != value for key, value in expected.items()):
             raise PolicyViolation("Lifecycle preflight exact delivery binding drift")
 
+    def _assert_common_mutating_admission(self, canonical_event: Mapping[str, Any]) -> None:
+        """Require fresh continuity before every non-bootstrap lifecycle mutation."""
+
+        plan_event = self.delivery.plan.event
+        if (
+            canonical_event.get("session_id") != plan_event.session_id
+            or canonical_event.get("client_id") != self.delivery.client_instance_id
+        ):
+            raise PolicyViolation("Lifecycle hydration admission identity drift")
+        if plan_event.event_type == "session_start":
+            # Session start is the bounded bootstrap: it creates its exact
+            # hydration receipt and immutable admission in this transaction.
+            return
+        self.memory_continuity.assert_mutating_admission(
+            project_id=plan_event.project_id,
+            work_item_id=plan_event.work_item_id,
+            run_id=plan_event.run_id,
+            session_id=plan_event.session_id,
+            client_id=plan_event.client_id,
+        )
+
     def _assert_uow_identity(self) -> None:
         participants = (
             self.repository,
             self.bridge.repository,
             self.bridge.authorizations,
             self.bridge.hook_outcomes,
+            self.memory_continuity.repository,
+            self.memory_continuity.authorizations,
         )
         if any(getattr(item, "connection", None) is not self.connection for item in participants):
             raise PolicyViolation("Lifecycle UoW tek exact PostgreSQL connection ister")

@@ -10,7 +10,14 @@ import typer
 from rich.console import Console
 
 from zekam.application.home import resolve_home
+from zekam.application.mutation_admission import (
+    DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
+    CliMutationEvidence,
+    CliMutationTargetHints,
+    assert_local_effect_admission,
+)
 from zekam.application.opencode_lifecycle import (
+    OpenCodeForwardBatch,
     lifecycle_client_instance_id,
     oldest_unacknowledged_events,
     record_canonical_ack,
@@ -25,7 +32,13 @@ from zekam.application.opencode_spool import (
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
-from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
+from zekam.interfaces.cli.session import (
+    HOME_HELP,
+    REALM_HELP,
+    RealmSession,
+    assert_cli_invocation_backend,
+    fail_from,
+)
 
 app = typer.Typer(name="opencode", help="OpenCode lifecycle ve continuity koprusu")
 console = Console()
@@ -57,6 +70,10 @@ def spool_cleanup_command(
         if not apply:
             document = plan_legacy_candidate_cleanup(resolved_home).as_dict()
         else:
+            invocation = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.snapshot(
+                ("opencode", "spool-cleanup"), {"apply": True}
+            )
+            assert_cli_invocation_backend(home, invocation)
             if expected_plan_digest is None:
                 raise ZekamError("--uygula exact --beklenen-plan-digest ister")
             document = apply_legacy_candidate_cleanup(
@@ -98,6 +115,7 @@ def event_command(
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Sanitize lifecycle olayini atomik yerel ledgera yazar."""
+    assert_local_effect_admission(("opencode", "event"))
     try:
         event = record_event(
             resolve_home(home),
@@ -173,16 +191,39 @@ def forward_command(
 ) -> None:
     """Yerel v2 lifecycle olaylarini canonical PostgreSQL'e idempotent iletir."""
     resolved_home = resolve_home(home)
-    events = list(oldest_unacknowledged_events(resolved_home, limit=limit))
+    batch = OpenCodeForwardBatch.capture(oldest_unacknowledged_events(resolved_home, limit=limit))
     acknowledgements: list[dict[str, str]] = []
     try:
-        with RealmSession(home, realm) as context:
-            repository = ClientLifecycleRepository(context.connection, context.realm_id)
-            instance_id = lifecycle_client_instance_id(resolved_home)
-            for event in events:
-                document = repository.ingest(event, client_instance_id=instance_id).as_dict()
-                record_canonical_ack(resolved_home, document)
-                acknowledgements.append(document)
+        command_invocation = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.snapshot(
+            ("opencode", "forward"), {}
+        )
+        assert_cli_invocation_backend(home, command_invocation)
+        instance_id = lifecycle_client_instance_id(resolved_home)
+        for event in batch.events:
+            evidence = CliMutationEvidence(
+                kind="opencode-forward-event",
+                evidence_digest=event.event_digest,
+                target_hints=CliMutationTargetHints(session_ref=event.session_id),
+                event_type=event.event_type,
+                sequence=event.sequence,
+                previous_digest=event.previous_digest,
+                canonical_input=event.canonical_document,
+            )
+            invocation = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.snapshot(
+                ("opencode", "forward"),
+                {},
+                evidence=evidence,
+            )
+            # One RealmSession and repository transaction per immutable event.
+            # The local ACK is written only after the canonical transaction has
+            # committed; an ACK crash therefore replays the existing DB receipt.
+            with RealmSession(home, realm, invocation=invocation) as context:
+                repository = ClientLifecycleRepository(context.connection, context.realm_id)
+                document = repository.ingest(
+                    event.document(), client_instance_id=instance_id
+                ).as_dict()
+            record_canonical_ack(resolved_home, document)
+            acknowledgements.append(document)
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print_json(
@@ -190,6 +231,7 @@ def forward_command(
             {
                 "status": "acknowledged",
                 "forwarded": len(acknowledgements),
+                "batch_digest": batch.batch_digest,
                 "canonical_ack_digests": [item["canonical_digest"] for item in acknowledgements],
             },
             ensure_ascii=False,

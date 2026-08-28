@@ -39,9 +39,7 @@ def _unsafe(path: Path) -> bool:
         stat = path.stat(follow_symlinks=False)
     except FileNotFoundError:
         return False
-    return path.is_symlink() or bool(
-        getattr(stat, "st_file_attributes", 0) & _REPARSE_POINT
-    )
+    return path.is_symlink() or bool(getattr(stat, "st_file_attributes", 0) & _REPARSE_POINT)
 
 
 def _safe_segment(value: str, field: str) -> None:
@@ -125,9 +123,7 @@ class LocalObsidianProjectionStore:
                 raise NotFound("Obsidian realm/project/profile bulunamadi")
             current = candidate
             if _unsafe(current) or not current.is_dir():
-                raise PolicyViolation(
-                    "Obsidian realm/project/profile symlink veya reparse olamaz"
-                )
+                raise PolicyViolation("Obsidian realm/project/profile symlink veya reparse olamaz")
         return current
 
     @staticmethod
@@ -290,9 +286,7 @@ class LocalObsidianProjectionStore:
         parse_digest(expected_projection_digest)
         parse_digest(expected_manifest_digest)
         parse_digest(expected_receipt_digest)
-        profile_root = self._profile_root(
-            realm_slug, project_id, profile, create=False
-        )
+        profile_root = self._profile_root(realm_slug, project_id, profile, create=False)
         pointer_path = profile_root / "CURRENT.json"
         if not pointer_path.exists():
             raise NotFound("Obsidian CURRENT pointer bulunamadi")
@@ -344,10 +338,9 @@ class LocalObsidianProjectionStore:
             expected_manifest_digest=expected_manifest_digest,
             expected_receipt_digest=expected_receipt_digest,
         )
-        if (
-            result["manifest_digest"] != str(pointer["manifest_digest"])
-            or result["receipt_digest"] != str(pointer["receipt_digest"])
-        ):
+        if result["manifest_digest"] != str(pointer["manifest_digest"]) or result[
+            "receipt_digest"
+        ] != str(pointer["receipt_digest"]):
             raise PolicyViolation("Obsidian CURRENT manifest/receipt binding drift")
         return {
             "schema": "zekam-obsidian-verification/v1",
@@ -435,10 +428,7 @@ class LocalObsidianProjectionStore:
             raise ValidationFailed("Obsidian manifest/receipt exact schema ister")
         if digest(manifest) != manifest_digest or digest(receipt) != receipt_digest:
             raise PolicyViolation("Obsidian manifest/receipt digest drift")
-        if (
-            manifest_digest != expected_manifest_digest
-            or receipt_digest != expected_receipt_digest
-        ):
+        if manifest_digest != expected_manifest_digest or receipt_digest != expected_receipt_digest:
             raise PolicyViolation("Obsidian live manifest/receipt binding drift")
         for key in (
             "source_snapshot_digest",
@@ -530,9 +520,10 @@ class LocalObsidianProjectionStore:
                 raise PolicyViolation("Obsidian projection file digest drift")
         if total_payload_size > 64 * 1024 * 1024:
             raise PolicyViolation("Obsidian generation toplam payload bounded disi")
-        expected_paths = {
-            str(row["relative_path"]) for row in files if isinstance(row, dict)
-        } | {"_META/manifest.json", "_META/projection-receipt.json"}
+        expected_paths = {str(row["relative_path"]) for row in files if isinstance(row, dict)} | {
+            "_META/manifest.json",
+            "_META/projection-receipt.json",
+        }
         if len(expected_paths) != len(files) + 2 or actual_paths != expected_paths:
             raise PolicyViolation("Obsidian generation unmanifested/missing file tasiyor")
         return {

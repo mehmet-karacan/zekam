@@ -288,9 +288,7 @@ class AutofillPreviewField:
         )
         if any(source_presence) and not all(source_presence):
             raise ValidationFailed("Autofill preview source binding birlikte olmali")
-        if any(source_presence) and (
-            self.classification is None or self.extracted_at is None
-        ):
+        if any(source_presence) and (self.classification is None or self.extracted_at is None):
             raise ValidationFailed("Autofill preview source metadata eksik")
         if not any(source_presence) and (
             self.classification is not None
@@ -309,9 +307,7 @@ class AutofillPreviewField:
             "source_ref": self.source_ref,
             "source_digest": self.source_digest,
             "source_revision": self.source_revision,
-            "classification": (
-                None if self.classification is None else self.classification.value
-            ),
+            "classification": (None if self.classification is None else self.classification.value),
             "validation_rules": list(self.validation_rules),
             "extracted_at": self.extracted_at,
             "expires_at": self.expires_at,
@@ -340,9 +336,7 @@ class AutofillPreview:
         names = tuple(item.field_name for item in self.fields)
         if names != tuple(sorted(set(names))) or not names:
             raise ValidationFailed("Autofill preview fields tekil, sirali ve dolu olmali")
-        expected_eligible = not any(
-            item.required and item.action != "fill" for item in self.fields
-        )
+        expected_eligible = not any(item.required and item.action != "fill" for item in self.fields)
         if (
             not isinstance(self.submit_eligible, bool)
             or self.submit_eligible != expected_eligible
@@ -388,8 +382,8 @@ def build_autofill_preview(
     names = tuple(item.field_name for item in ordered_fields)
     if names != tuple(sorted(set(names))) or not names:
         raise ValidationFailed("Autofill form fields tekil ve dolu olmali")
-    for item in evidence:
-        item.__post_init__()
+    for evidence_item in evidence:
+        evidence_item.__post_init__()
     evidence_by_name = {item.field_name: item for item in evidence}
     if len(evidence_by_name) != len(evidence):
         raise ValidationFailed("Autofill evidence field names tekil olmali")
@@ -398,7 +392,9 @@ def build_autofill_preview(
     preview_fields: list[AutofillPreviewField] = []
     for spec in ordered_fields:
         spec.__post_init__()
-        item = evidence_by_name.get(spec.field_name)
+        item: FieldEvidence | None = evidence_by_name.get(spec.field_name)
+        status: FieldEvidenceStatus
+        reason: str | None
         if spec.manual_only or _MANUAL_FIELD.search(spec.field_name):
             status = FieldEvidenceStatus.PROHIBITED
             reason = "manual-only"
@@ -458,9 +454,7 @@ def build_autofill_preview(
                 )
             )
     form_schema_digest = digest([item.as_dict() for item in ordered_fields])
-    submit_eligible = not any(
-        item.required and item.action != "fill" for item in preview_fields
-    )
+    submit_eligible = not any(item.required and item.action != "fill" for item in preview_fields)
     return AutofillPreview(
         form_ref,
         form_schema_digest,
@@ -592,8 +586,7 @@ class AutofillEffectPlan:
             parse_digest(value)
         if self.operation is AutofillOperation.FILL:
             if self.effect_kind != "process-run" or any(
-                value is not None
-                for value in (self.fill_receipt_ref, self.fill_receipt_digest)
+                value is not None for value in (self.fill_receipt_ref, self.fill_receipt_digest)
             ):
                 raise PolicyViolation("Fill plan submit receipt tasiyamaz")
         elif (
@@ -607,8 +600,7 @@ class AutofillEffectPlan:
         if self.fill_receipt_digest is not None:
             parse_digest(self.fill_receipt_digest)
         expected_resource = (
-            f"external-form:{parse_digest(self.form_schema_digest)}:"
-            f"{self.operation.value}"
+            f"external-form:{parse_digest(self.form_schema_digest)}:{self.operation.value}"
         )
         expected_effect = digest(
             {

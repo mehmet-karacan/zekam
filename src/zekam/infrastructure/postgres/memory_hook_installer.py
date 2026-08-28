@@ -50,6 +50,7 @@ class PostgresMemoryHookInstaller:
     def _ensure_locked(self, *, installed_at: dt.datetime) -> MemoryHookInstallReceipt:
         bundle = memory_hook_bundle(self.realm_id)
         current_id, current_generation, current_digest = self._current()
+        current_entries = self._current_entries(current_id)
         handlers = self._effective_handlers(current_id)
         predecessors = self._upgradeable_predecessors(current_id)
         conflicts: list[str] = []
@@ -67,12 +68,17 @@ class PostgresMemoryHookInstaller:
                 "Required lifecycle handler conflict; existing generation preserved: "
                 + ",".join(conflicts)
             )
-        if all(
+        handlers_current = all(
             handlers.get(event.value) == ((spec.hook_digest, runtime.runtime_digest),)
             for event, spec, runtime in zip(
                 MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
             )
-        ):
+        )
+        canonical_current_order = current_entries == sorted(
+            current_entries,
+            key=lambda item: (item["event_type"], item["hook_id"]),
+        )
+        if handlers_current and canonical_current_order:
             if current_id is None or current_digest is None:
                 raise PolicyViolation("Hook exact-one count current generation olmadan olusamaz")
             return MemoryHookInstallReceipt(
@@ -90,31 +96,28 @@ class PostgresMemoryHookInstaller:
             hook_repository.store_spec(spec, permission_profile_revision_id=profile_id)
             hook_repository.store_runtime(runtime)
 
-        predecessor_spec_ids = {value[1] for value in predecessors.values()}
-        entries = [
-            item
-            for item in self._current_entries(current_id)
-            if item["spec_id"] not in predecessor_spec_ids
-        ]
-        for ordinal, item in enumerate(entries, start=1):
-            item["ordinal"] = ordinal
-        next_ordinal = len(entries) + 1
+        managed_spec_ids = {value[1] for value in predecessors.values()} | {
+            spec.id for spec in bundle.specs
+        }
+        entries = [item for item in current_entries if item["spec_id"] not in managed_spec_ids]
         for event, spec, runtime in zip(
             MEMORY_HOOK_EVENTS, bundle.specs, bundle.runtimes, strict=True
         ):
-            if handlers.get(event.value) == ((spec.hook_digest, runtime.runtime_digest),):
-                continue
             entries.append(
                 {
-                    "ordinal": next_ordinal,
+                    "ordinal": 0,
                     "spec_id": spec.id,
                     "runtime_id": runtime.id,
                     "hook_digest": spec.hook_digest,
                     "runtime_digest": runtime.runtime_digest,
                     "disabled_reason": None,
+                    "event_type": event.value,
+                    "hook_id": spec.hook_id,
                 }
             )
-            next_ordinal += 1
+        entries.sort(key=lambda item: (item["event_type"], item["hook_id"]))
+        for ordinal, item in enumerate(entries, start=1):
+            item["ordinal"] = ordinal
         generation = current_generation + 1
         config_digest = digest(
             {
@@ -278,7 +281,8 @@ class PostgresMemoryHookInstaller:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select entry.ordinal,entry.spec_revision_id,entry.runtime_revision_id,"
-                " spec.hook_digest,runtime.runtime_digest,entry.disabled_reason"
+                " spec.hook_digest,runtime.runtime_digest,entry.disabled_reason,"
+                " spec.event_type,spec.hook_id"
                 " from hooks.compiled_set_entry entry join hooks.spec_revision spec"
                 " on spec.realm_id=entry.realm_id and spec.id=entry.spec_revision_id"
                 " left join hooks.runtime_revision runtime"
@@ -294,6 +298,8 @@ class PostgresMemoryHookInstaller:
                     "hook_digest": str(row[3]),
                     "runtime_digest": None if row[4] is None else str(row[4]),
                     "disabled_reason": None if row[5] is None else str(row[5]),
+                    "event_type": str(row[6]),
+                    "hook_id": str(row[7]),
                 }
                 for row in cursor.fetchall()
             ]

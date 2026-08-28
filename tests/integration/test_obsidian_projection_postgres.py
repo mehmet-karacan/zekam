@@ -18,6 +18,8 @@ from zekam.infrastructure.postgres.markdown_projection_repository import (
 from zekam.infrastructure.postgres.project_repository import ProjectRepository
 from zekam.infrastructure.postgres.work_repository import WorkItemRepository
 
+pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+
 NOW = dt.datetime(2026, 8, 28, 10, 0, tzinfo=dt.UTC)
 
 

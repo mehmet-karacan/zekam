@@ -23,4 +23,4 @@ def test_raw_completed_transition_fails_before_opening_database() -> None:
     )
 
     assert result.exit_code == 64
-    assert "projection-aware close/release" in result.stdout
+    assert "projection-aware close/release" in result.output

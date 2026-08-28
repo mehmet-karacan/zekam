@@ -8,12 +8,13 @@ import os
 import re
 import tempfile
 import time
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
-from zekam.domain.canonical import digest, parse_digest
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.identifiers import new_uuid7
 
@@ -200,6 +201,98 @@ class OpenCodeLifecycleEvent:
     def document(self) -> dict[str, Any]:
         body = self.body()
         return body | {"event_digest": digest(body)}
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeForwardEvent:
+    """Immutable event-level evidence used by canonical forwarding admission."""
+
+    canonical_document: str
+    event_digest: str
+    event_type: str
+    session_id: str
+    sequence: int
+    previous_digest: str | None
+
+    @classmethod
+    def capture(cls, document: Mapping[str, Any]) -> OpenCodeForwardEvent:
+        row = dict(document)
+        event_digest = str(row.get("event_digest", ""))
+        parse_digest(event_digest)
+        body = {key: value for key, value in row.items() if key != "event_digest"}
+        if digest(body) != event_digest:
+            raise ValidationFailed("OpenCode forward event digest drift")
+        if body.get("schema") != SCHEMA:
+            raise ValidationFailed("OpenCode forward yalniz v2 event kabul eder")
+        if (
+            body.get("contains_prompt") is not False
+            or body.get("contains_response") is not False
+            or body.get("grants_authority") is not False
+        ):
+            raise ValidationFailed("OpenCode forward prompt/response/authority tasiyamaz")
+        event_type = str(body.get("event_type", ""))
+        if event_type not in _EVENTS:
+            raise ValidationFailed("OpenCode forward event type desteklenmiyor")
+        session_id = _bounded(str(body.get("session_id", "")), label="session_id")
+        raw_sequence = body.get("sequence")
+        if isinstance(raw_sequence, bool) or not isinstance(raw_sequence, int):
+            raise ValidationFailed("OpenCode forward sequence integer olmali")
+        previous = body.get("previous_digest")
+        if previous is not None:
+            previous = str(previous)
+            parse_digest(previous)
+        if raw_sequence < 1 or (raw_sequence == 1) != (previous is None):
+            raise ValidationFailed("OpenCode forward sequence/previous zinciri gecersiz")
+        assert session_id is not None
+        return cls(
+            canonical_document=canonical_json(row),
+            event_digest=event_digest,
+            event_type=event_type,
+            session_id=session_id,
+            sequence=raw_sequence,
+            previous_digest=previous,
+        )
+
+    @property
+    def exact_first_session_created(self) -> bool:
+        return (
+            self.event_type == "session.created"
+            and self.sequence == 1
+            and self.previous_digest is None
+        )
+
+    def document(self) -> dict[str, Any]:
+        value = json.loads(self.canonical_document)
+        if not isinstance(value, dict):  # defensive; constructor emits an object
+            raise ValidationFailed("OpenCode forward immutable event object olmali")
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeForwardBatch:
+    """Bounded immutable batch; each event is admitted and committed separately."""
+
+    events: tuple[OpenCodeForwardEvent, ...]
+    batch_digest: str
+
+    @classmethod
+    def capture(cls, documents: Iterable[Mapping[str, Any]]) -> OpenCodeForwardBatch:
+        events = tuple(OpenCodeForwardEvent.capture(item) for item in documents)
+        if len(events) > 500:
+            raise ValidationFailed("OpenCode forward batch bounded limiti asti")
+        event_digests = tuple(item.event_digest for item in events)
+        if len(set(event_digests)) != len(event_digests):
+            raise ValidationFailed("OpenCode forward batch duplicate event tasiyor")
+        return cls(
+            events=events,
+            batch_digest=digest(
+                {
+                    "schema": "zekam-opencode-forward-batch/v1",
+                    "event_digests": event_digests,
+                    "grants_authority": False,
+                }
+            ),
+        )
 
 
 def record_event(

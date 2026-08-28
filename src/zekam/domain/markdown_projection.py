@@ -455,9 +455,11 @@ class ObsidianProjectionRecord:
 
 def obsidian_note_path(record: ObsidianProjectionRecord) -> str:
     record.__post_init__()
-    stem = _SAFE_NAME.sub(
-        "-", f"{record.record.entity_type}-{record.record.entity_id}"
-    ).strip("-.").lower()
+    stem = (
+        _SAFE_NAME.sub("-", f"{record.record.entity_type}-{record.record.entity_id}")
+        .strip("-.")
+        .lower()
+    )
     if not stem:
         raise ValidationFailed("Obsidian note dosya adi uretilemedi")
     if len(stem) > 120:
@@ -565,11 +567,7 @@ class ObsidianProjectionBundle:
         if self.schema != "zekam-obsidian-projection/v1" or self.grants_authority:
             raise PolicyViolation("Obsidian bundle authority-free exact schema ister")
         paths = tuple(item.relative_path for item in self.files)
-        if (
-            paths != tuple(sorted(set(paths)))
-            or not self.files
-            or len(self.files) > 4096
-        ):
+        if paths != tuple(sorted(set(paths))) or not self.files or len(self.files) > 4096:
             raise ValidationFailed("Obsidian bundle files tekil, sirali ve dolu olmali")
         for item in self.files:
             item.__post_init__()
@@ -580,8 +578,8 @@ class ObsidianProjectionBundle:
         )
         if len(self.exclusions) > 1000:
             raise ValidationFailed("Obsidian exclusions bounded limiti asiyor")
-        for item in self.exclusions:
-            item.__post_init__()
+        for exclusion in self.exclusions:
+            exclusion.__post_init__()
         if expected_exclusions != self.exclusions:
             raise ValidationFailed("Obsidian exclusions deterministik sirada olmali")
         expected_projection = digest(

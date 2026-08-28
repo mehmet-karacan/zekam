@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from zekam.application.composition import build_context
 from zekam.application.config import DatabaseSettings
+from zekam.application.realm_context import attach_realm
+from zekam.application.work_graph import WorkGraphService
+from zekam.domain.work import WorkState
+from zekam.infrastructure.postgres.connection import connect
+from zekam.infrastructure.postgres.project_repository import ProjectResolver
 from zekam.interfaces.cli.main import app
 
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
@@ -69,6 +75,24 @@ def _run(cli_home: Path, realm_flags: list[str], *arguments: str):  # type: igno
     return runner.invoke(app, [*arguments, "--home", str(cli_home), *realm_flags])
 
 
+def _fixture_transition(
+    cli_home: Path,
+    realm_flags: list[str],
+    reference: str,
+    target: WorkState,
+) -> None:
+    """Build graph state directly; CLI hydration denial is covered separately."""
+
+    context = build_context(home=str(cli_home))
+    with connect(context.settings.database) as connection:
+        realm_context = attach_realm(connection, slug=realm_flags[1])
+        project = ProjectResolver(connection, realm_context.realm_id).resolve("gpu").resolved
+        assert project is not None
+        service = WorkGraphService(connection, realm_context.realm)
+        item = service.find_exact(project_id=project.project_id, external_number=reference)
+        service.transition(item.id, target)
+
+
 def test_create_requires_apply_flag(
     cli_home: Path, realm_flags: list[str], registered_project: str
 ) -> None:
@@ -118,20 +142,19 @@ def test_lifecycle_through_cli(
         "200",
         "--uygula",
     )
-    for state in ("ready", "active", "verification"):
-        result = _run(
-            cli_home,
-            realm_flags,
-            "work",
-            "transition",
-            registered_project,
-            "200",
-            state,
-            "--uygula",
-        )
-        assert result.exit_code == 0, result.stdout
+    without_hydration = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "transition",
+        registered_project,
+        "200",
+        "ready",
+        "--uygula",
+    )
+    assert without_hydration.exit_code == 6, without_hydration.stdout
 
-    without_evidence = _run(
+    raw_completed = _run(
         cli_home,
         realm_flags,
         "work",
@@ -141,7 +164,7 @@ def test_lifecycle_through_cli(
         "completed",
         "--uygula",
     )
-    assert without_evidence.exit_code == 6
+    assert raw_completed.exit_code == 64
 
     with_evidence = _run(
         cli_home,
@@ -155,17 +178,13 @@ def test_lifecycle_through_cli(
         "test=pytest",
         "--uygula",
     )
-    assert with_evidence.exit_code == 0
+    assert with_evidence.exit_code == 64
 
     history = _run(cli_home, realm_flags, "work", "history", registered_project, "200")
     document = json.loads(history.stdout)
     assert document["chain_valid"] is True
     assert [item["state"] for item in document["revisions"]] == [
         "proposed",
-        "ready",
-        "active",
-        "verification",
-        "completed",
     ]
 
 
@@ -193,7 +212,7 @@ def test_forbidden_transition_exits_with_policy_code(
         "completed",
         "--uygula",
     )
-    assert result.exit_code == 6
+    assert result.exit_code == 64
 
 
 def test_relate_blocks_next_actionable(
@@ -223,16 +242,7 @@ def test_relate_blocks_next_actionable(
         "--uygula",
     )
     for number in ("401", "402"):
-        _run(
-            cli_home,
-            realm_flags,
-            "work",
-            "transition",
-            registered_project,
-            number,
-            "ready",
-            "--uygula",
-        )
+        _fixture_transition(cli_home, realm_flags, number, WorkState.READY)
 
     result = _run(cli_home, realm_flags, "work", "next")
     document = json.loads(result.stdout)
@@ -253,12 +263,8 @@ def test_resume_answers_from_work_graph(
         "500",
         "--uygula",
     )
-    _run(
-        cli_home, realm_flags, "work", "transition", registered_project, "500", "ready", "--uygula"
-    )
-    _run(
-        cli_home, realm_flags, "work", "transition", registered_project, "500", "active", "--uygula"
-    )
+    _fixture_transition(cli_home, realm_flags, "500", WorkState.READY)
+    _fixture_transition(cli_home, realm_flags, "500", WorkState.ACTIVE)
 
     result = _run(cli_home, realm_flags, "work", "resume", "--json")
     document = json.loads(result.stdout)

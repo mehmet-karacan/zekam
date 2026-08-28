@@ -15,8 +15,10 @@ from psycopg.errors import InvalidParameterValue
 
 from zekam.application.config import DatabaseSettings
 from zekam.domain.errors import ConfigurationError, ValidationFailed
+from zekam.domain.realm import Realm
 from zekam.infrastructure.postgres import migrations
 from zekam.infrastructure.postgres.connection import configure_session, connect
+from zekam.infrastructure.postgres.core_repository import RealmRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -33,9 +35,7 @@ _CONTROL_ADMISSION_SIGNATURE = (
 _PROJECTION_LOCK_SIGNATURE = (
     "continuity.lock_projection_closure_scope(uuid,uuid,uuid,uuid,uuid,uuid)"
 )
-_CONTROL_LOCK_SIGNATURE = (
-    "work.lock_control_plane_completion_scope(uuid,uuid,uuid,uuid,uuid,uuid)"
-)
+_CONTROL_LOCK_SIGNATURE = "work.lock_control_plane_completion_scope(uuid,uuid,uuid,uuid,uuid,uuid)"
 _CODEX_LOCK_SIGNATURE = "client.lock_codex_lifecycle_scope(uuid,uuid,uuid,uuid)"
 _CODEX_VALIDATOR_SIGNATURE = "client.enforce_codex_lifecycle_admission()"
 _PLAN_ORDER_SIGNATURE = "work.task_plan_execution_order(jsonb)"
@@ -174,9 +174,7 @@ def _non_owner_table_acl(
             (list(relations),),
         )
         for relation, grantee, privilege_type, is_grantable in cursor.fetchall():
-            grants[str(relation)].add(
-                (str(grantee), str(privilege_type), bool(is_grantable))
-            )
+            grants[str(relation)].add((str(grantee), str(privilege_type), bool(is_grantable)))
     return grants
 
 
@@ -347,6 +345,25 @@ def _insert_codex_admission_audit(connection: Any, realm_id: UUID) -> UUID:
     with connection.transaction(), connection.cursor() as cursor:
         cursor.execute("set local session_replication_role='replica'")
         return _insert_check_valid_codex_admission(cursor, realm_id)
+
+
+def _insert_hydration_compat_audit(connection: Any) -> UUID:
+    """Insert one CHECK-valid 0060 audit row without fabricating its FK graph."""
+
+    row_id = uuid4()
+    with connection.transaction(), connection.cursor() as cursor:
+        cursor.execute("set local session_replication_role='replica'")
+        cursor.execute(
+            "insert into continuity.lifecycle_hydration_admission"
+            " (id,realm_id,codex_admission_id,continuity_event_id,delivery_outbox_id,"
+            " hydration_receipt_id,hydration_authorization_id,hydration_plan_digest,"
+            " hydration_effect_digest,hydration_apply_result_digest,hydration_created,"
+            " hydration_applied_at,binding_digest,created_at,grants_authority) values"
+            " (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,statement_timestamp(),%s,"
+            " statement_timestamp(),false)",
+            (row_id,) + tuple(uuid4() for _ in range(6)) + (_DIGEST,) * 4,
+        )
+    return row_id
 
 
 def _insert_hook_revision_bootstrap_audit(connection: Any) -> UUID:
@@ -568,6 +585,379 @@ def test_0059_exact_upgrade_down_reapply_catalog_parity(
         assert final_status.drift == ()
 
 
+def test_0061_projection_and_codex_guards_use_canonical_hydration(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=60)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            projection_baseline = str(cursor.fetchone()[0])
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_CODEX_VALIDATOR_SIGNATURE,),
+            )
+            codex_baseline = str(cursor.fetchone()[0])
+
+        assert [item.version for item in migrations.upgrade(connection, target=61)] == [61]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            projection_revised = str(cursor.fetchone()[0])
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_CODEX_VALIDATOR_SIGNATURE,),
+            )
+            codex_revised = str(cursor.fetchone()[0])
+            cursor.execute(
+                "select trigger_.tgname,trigger_.tgdeferrable,trigger_.tginitdeferred"
+                " from pg_trigger trigger_ where not trigger_.tgisinternal"
+                " and trigger_.tgfoid=%s::regprocedure"
+                " and trigger_.tgname in"
+                " ('codex_lifecycle_admission_guard','codex_lifecycle_admission_row_guard')"
+                " order by trigger_.tgname",
+                (_CODEX_VALIDATOR_SIGNATURE,),
+            )
+            deferred_triggers = cursor.fetchall()
+        assert projection_revised != projection_baseline
+        assert "hydration.receipt_body->>'source_digest'=source_tree_digest_" in projection_revised
+        assert (
+            projection_revised.count("freshness_dimension->>'observed_digest'=source_tree_digest_")
+            == 1
+        )
+        assert (
+            projection_revised.count("freshness_dimension->>'expected_digest'=source_tree_digest_")
+            == 1
+        )
+        assert "projection_ref->>'digest'=prior_projection.projection_digest" in projection_revised
+        assert (
+            "hydration_event.event_type in ('session_start','hydration_required')"
+            in projection_revised
+        )
+        assert "continuity.lifecycle_hydration_admission admission" in projection_revised
+        assert "projection_ref='projection/active-work'" in projection_revised
+        assert "and ((hydration_event.event_type='hydration_required'" in projection_revised
+        assert (
+            projection_revised.count("and ((hydration_event.event_type='hydration_required'") == 2
+        )
+        outer_checkpoint_precursor = (
+            "and hydration.receipt_body->>'checkpoint_ref' in\n"
+            "      (checkpoint.checkpoint_key,'db:work.checkpoint/'||checkpoint.id::text,\n"
+            "       'run:'||run.id::text||':genesis')"
+        )
+        assert projection_revised.count(outer_checkpoint_precursor) == 1
+        assert (
+            "and hydration.receipt_body->>'checkpoint_ref' in\n"
+            "      (checkpoint.checkpoint_key,'db:work.checkpoint/'||checkpoint.id::text)"
+            not in projection_revised
+        )
+        assert (
+            projection_revised.count(
+                "hydration.receipt_body->>'checkpoint_ref'=\n"
+                "              'run:'||run.id::text||':genesis'"
+            )
+            == 1
+        )
+        assert projection_revised.count("'run:'||run.id::text||':genesis'") == 2
+        assert (
+            "and hydration_event.ingested_at<=hydration.created_at\n"
+            "        and hydration_outbox.completed_at<=hydration.created_at"
+            not in projection_revised
+        )
+        assert (
+            "hydration.receipt_body->>'source_digest'=current_projection_source_digest_"
+            not in projection_revised
+        )
+        assert (
+            "freshness_dimension->>'observed_digest'=current_projection_source_digest_"
+            not in projection_revised
+        )
+        assert (
+            "freshness_dimension->>'expected_digest'=current_projection_source_digest_"
+            not in projection_revised
+        )
+        assert codex_revised != codex_baseline
+        assert "job.payload->>'schema'='zekam-codex-lifecycle-job/v1'" in codex_revised
+        assert "job.payload->>'authorization_id'=admission.authorization_id::text" in codex_revised
+        assert codex_revised.count("(select count(*) from jsonb_object_keys(job.payload))=3") == 1
+        assert codex_revised.count("(select count(*) from jsonb_object_keys(job.payload))=2") == 1
+        assert "job.payload ? 'hydration_authorization_id'" in codex_revised
+        assert "continuity.lifecycle_hydration_admission hydration_admission" in codex_revised
+        assert "hydration_admission.codex_admission_id=admission.id" in codex_revised
+        assert "hydration_admission.continuity_event_id=continuity_event.id" in codex_revised
+        assert "hydration_admission.delivery_outbox_id=outbox.id" in codex_revised
+        assert "hydration_admission.hydration_authorization_id::text" in codex_revised
+        assert "=job.payload->>'hydration_authorization_id'" in codex_revised
+        assert "continuity_event.event_type<>'session_start'" in codex_revised
+        assert "not (job.payload ? 'hydration_authorization_id')" in codex_revised
+        assert deferred_triggers == [
+            ("codex_lifecycle_admission_guard", True, True),
+            ("codex_lifecycle_admission_row_guard", True, True),
+        ]
+
+        assert migrations.downgrade(connection, target=61).version == 61
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            assert str(cursor.fetchone()[0]) == projection_baseline
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_CODEX_VALIDATOR_SIGNATURE,),
+            )
+            assert str(cursor.fetchone()[0]) == codex_baseline
+        assert [item.version for item in migrations.upgrade(connection, target=61)] == [61]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            assert str(cursor.fetchone()[0]) == projection_revised
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_CODEX_VALIDATOR_SIGNATURE,),
+            )
+            assert str(cursor.fetchone()[0]) == codex_revised
+
+
+def test_0061_codex_guard_still_rejects_bypass_at_deferred_commit(
+    blank_database: DatabaseSettings,
+) -> None:
+    realm = Realm.create(slug=f"migration-{secrets.token_hex(6)}")
+    stream_id, event_id = uuid4(), uuid4()
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=61)
+        configure_session(connection, realm_id=realm.id, role=None)
+        RealmRepository(connection).create(realm)
+        configure_session(connection, realm_id=realm.id)
+
+        with pytest.raises(PsycopgError) as rejected:  # noqa: SIM117
+            with connection.transaction(), connection.cursor() as cursor:
+                cursor.execute(
+                    "insert into client.lifecycle_stream"
+                    " (id,realm_id,client_kind,client_instance_id,session_id,head_sequence,"
+                    " head_digest,created_at,updated_at) values"
+                    " (%s,%s,'codex','migration-codex','migration-session',0,null,"
+                    " statement_timestamp(),statement_timestamp())",
+                    (stream_id, realm.id),
+                )
+                cursor.execute(
+                    "insert into client.lifecycle_event"
+                    " (id,realm_id,stream_id,sequence,previous_digest,event_digest,payload,"
+                    " occurred_at,ingested_at,grants_authority) values"
+                    " (%s,%s,%s,1,null,%s,'{}'::jsonb,statement_timestamp(),"
+                    " statement_timestamp(),false)",
+                    (event_id, realm.id, stream_id, _DIGEST),
+                )
+                cursor.execute(
+                    "select count(*) from client.lifecycle_event where realm_id=%s and id=%s",
+                    (realm.id, event_id),
+                )
+                assert cursor.fetchone() == (1,)
+
+        assert rejected.value.sqlstate == "23514"
+        rejection_message = rejected.value.diag.message_primary or ""
+        assert (
+            rejection_message
+            == "pre-compact exact active execution binding requires one run; found 0"
+            or rejection_message
+            == "Codex lifecycle generic ingest governed admission olmadan commit edilemez"
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from client.lifecycle_event where realm_id=%s and id=%s",
+                (realm.id, event_id),
+            )
+            assert cursor.fetchone() == (0,)
+
+
+def test_0061_down_refuses_lifecycle_hydration_audit_history(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=61)
+        audit_id = _insert_hydration_compat_audit(connection)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            before = str(cursor.fetchone()[0])
+        with pytest.raises(
+            PsycopgError,
+            match="lifecycle hydration admission audit data exists",
+        ) as refused:
+            migrations.downgrade(connection, target=61)
+        assert refused.value.sqlstate == "55000"
+        assert refused.value.diag.message_primary == (
+            "0061 rollback refused: lifecycle hydration admission audit data exists"
+        )
+        assert migrations.status(connection).head == 61
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            assert str(cursor.fetchone()[0]) == before
+            cursor.execute(
+                "select count(*) from continuity.lifecycle_hydration_admission where id=%s",
+                (audit_id,),
+            )
+            assert cursor.fetchone() == (1,)
+            cursor.execute(
+                "select relforcerowsecurity from pg_class"
+                " where oid='continuity.lifecycle_hydration_admission'::regclass"
+            )
+            assert cursor.fetchone() == (True,)
+
+
+def test_0061_down_refuses_projection_completion_audit_history(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=61)
+        audit_id = _insert_projection_admission_audit(connection, uuid4())
+        with pytest.raises(
+            PsycopgError,
+            match="projection completion admission audit data exists",
+        ) as refused:
+            migrations.downgrade(connection, target=61)
+        assert refused.value.sqlstate == "55000"
+        assert refused.value.diag.message_primary == (
+            "0061 rollback refused: projection completion admission audit data exists"
+        )
+        assert migrations.status(connection).head == 61
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from work.completion_admission where id=%s",
+                (audit_id,),
+            )
+            assert cursor.fetchone() == (1,)
+            cursor.execute(
+                "select relforcerowsecurity from pg_class"
+                " where oid='work.completion_admission'::regclass"
+            )
+            assert cursor.fetchone() == (True,)
+
+
+def test_0062_lifecycle_resource_scope_exact_roundtrip(
+    blank_database: DatabaseSettings,
+) -> None:
+    previous_scope = "array['continuity:session:'||event.session_id]"
+    revised_scope = "array['memory:'||event.project_id::text||':session:'||event.session_id]"
+    canonical_markers = (
+        "hydration.receipt_body->>'source_digest'=source_tree_digest_",
+        "freshness_dimension->>'observed_digest'=source_tree_digest_",
+        "freshness_dimension->>'expected_digest'=source_tree_digest_",
+        "projection_ref->>'digest'=prior_projection.projection_digest",
+        "hydration_event.event_type in ('session_start','hydration_required')",
+        "continuity.lifecycle_hydration_admission admission",
+    )
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=61)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            baseline, baseline_comment = cursor.fetchone()
+        baseline = str(baseline)
+        assert baseline.count(previous_scope) == 1
+        assert revised_scope not in baseline
+        assert baseline_comment == "0061 canonical inventory hydration compatibility"
+
+        assert [item.version for item in migrations.upgrade(connection, target=62)] == [62]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            revised, revised_comment = cursor.fetchone()
+        revised = str(revised)
+        assert revised != baseline
+        assert previous_scope not in revised
+        assert revised.count(revised_scope) == 1
+        assert all(marker in revised for marker in canonical_markers)
+        assert revised.count("'run:'||run.id::text||':genesis'") == 2
+        assert revised_comment == "0062 project-scoped lifecycle resource authorization"
+
+        assert migrations.downgrade(connection, target=62).version == 62
+        assert migrations.status(connection).head == 61
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            restored, restored_comment = cursor.fetchone()
+        assert str(restored) == baseline
+        assert restored_comment == "0061 canonical inventory hydration compatibility"
+
+        assert [item.version for item in migrations.upgrade(connection, target=62)] == [62]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            reapplied, reapplied_comment = cursor.fetchone()
+        assert str(reapplied) == revised
+        assert reapplied_comment == revised_comment
+
+
+def test_0062_down_refuses_projection_completion_audit_history(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=62)
+        audit_id = _insert_projection_admission_audit(connection, uuid4())
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            before = str(cursor.fetchone()[0])
+
+        with pytest.raises(
+            PsycopgError,
+            match="projection completion admission audit data exists",
+        ) as refused:
+            migrations.downgrade(connection, target=62)
+        assert refused.value.sqlstate == "55000"
+        assert refused.value.diag.message_primary == (
+            "0062 rollback refused: projection completion admission audit data exists"
+        )
+        assert migrations.status(connection).head == 62
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure),"
+                " obj_description(%s::regprocedure,'pg_proc')",
+                (_PROJECTION_ADMISSION_SIGNATURE, _PROJECTION_ADMISSION_SIGNATURE),
+            )
+            after, function_comment = cursor.fetchone()
+            assert str(after) == before
+            assert function_comment == ("0062 project-scoped lifecycle resource authorization")
+            cursor.execute(
+                "select count(*) from work.completion_admission where id=%s",
+                (audit_id,),
+            )
+            assert cursor.fetchone() == (1,)
+            cursor.execute(
+                "select relforcerowsecurity from pg_class"
+                " where oid='work.completion_admission'::regclass"
+            )
+            assert cursor.fetchone() == (True,)
+
+
 def test_0056_0057_0058_exact_upgrade_down_reapply_catalog_parity(
     blank_database: DatabaseSettings,
 ) -> None:
@@ -768,9 +1158,7 @@ def test_0057_closure_function_signatures_and_privileges_are_exact(
     lock_search_path = (
         "search_path=pg_catalog, core, projects, work, runtime, security, continuity, memory",
     )
-    admission_search_path = (
-        "search_path=pg_catalog, core, work, runtime, security, continuity",
-    )
+    admission_search_path = ("search_path=pg_catalog, core, work, runtime, security, continuity",)
     assert contracts[_PROJECTION_LOCK_SIGNATURE][3] == lock_search_path
     assert contracts[_CONTROL_LOCK_SIGNATURE][3] == lock_search_path
     assert contracts[_PROJECTION_ADMISSION_SIGNATURE][3] == admission_search_path
@@ -945,22 +1333,19 @@ def test_0058_codex_admission_is_cross_realm_scoped_and_append_only(
         with realm_a_session.cursor() as cursor:
             cursor.execute("select id from client.codex_lifecycle_admission order by id")
             assert cursor.fetchall() == [(row_a,)]
-        with pytest.raises(PsycopgError) as update_denied:
+        with pytest.raises(PsycopgError) as update_denied:  # noqa: SIM117
             with realm_a_session.transaction(), realm_a_session.cursor() as cursor:
                 cursor.execute(
-                    "update client.codex_lifecycle_admission set created_at=created_at"
-                    " where id=%s",
+                    "update client.codex_lifecycle_admission set created_at=created_at where id=%s",
                     (row_a,),
                 )
         assert update_denied.value.sqlstate == "42501"
         assert update_denied.value.diag.message_primary == (
             "permission denied for table codex_lifecycle_admission"
         )
-        with pytest.raises(PsycopgError) as delete_denied:
+        with pytest.raises(PsycopgError) as delete_denied:  # noqa: SIM117
             with realm_a_session.transaction(), realm_a_session.cursor() as cursor:
-                cursor.execute(
-                    "delete from client.codex_lifecycle_admission where id=%s", (row_a,)
-                )
+                cursor.execute("delete from client.codex_lifecycle_admission where id=%s", (row_a,))
         assert delete_denied.value.sqlstate == "42501"
         assert delete_denied.value.diag.message_primary == (
             "permission denied for table codex_lifecycle_admission"
@@ -974,22 +1359,19 @@ def test_0058_codex_admission_is_cross_realm_scoped_and_append_only(
 
     with connect(blank_database) as owner:
         configure_session(owner, realm_id=realm_a, role=None)
-        with pytest.raises(PsycopgError) as update_denied:
+        with pytest.raises(PsycopgError) as update_denied:  # noqa: SIM117
             with owner.transaction(), owner.cursor() as cursor:
                 cursor.execute(
-                    "update client.codex_lifecycle_admission set created_at=created_at"
-                    " where id=%s",
+                    "update client.codex_lifecycle_admission set created_at=created_at where id=%s",
                     (row_a,),
                 )
         assert update_denied.value.sqlstate == "42501"
         assert update_denied.value.diag.message_primary == (
             "append-only tablo: UPDATE islemi reddedildi (client.codex_lifecycle_admission)"
         )
-        with pytest.raises(PsycopgError) as delete_denied:
+        with pytest.raises(PsycopgError) as delete_denied:  # noqa: SIM117
             with owner.transaction(), owner.cursor() as cursor:
-                cursor.execute(
-                    "delete from client.codex_lifecycle_admission where id=%s", (row_a,)
-                )
+                cursor.execute("delete from client.codex_lifecycle_admission where id=%s", (row_a,))
         assert delete_denied.value.sqlstate == "42501"
         assert delete_denied.value.diag.message_primary == (
             "append-only tablo: DELETE islemi reddedildi (client.codex_lifecycle_admission)"
@@ -1004,7 +1386,7 @@ def test_0058_check_valid_cross_realm_app_insert_is_rejected_by_rls(
         migrations.upgrade(owner, target=58)
     with connect(blank_database) as app_connection:
         configure_session(app_connection, realm_id=realm_a)
-        with pytest.raises(PsycopgError) as rejected:
+        with pytest.raises(PsycopgError) as rejected:  # noqa: SIM117
             with app_connection.transaction(), app_connection.cursor() as cursor:
                 _insert_check_valid_codex_admission(cursor, realm_b)
     assert rejected.value.sqlstate == "42501"

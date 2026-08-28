@@ -64,9 +64,7 @@ def _work_records(
     relations: list[tuple[UUID, UUID, UUID, str]],
 ) -> tuple[ProjectionRecord, ...]:
     item_ids = tuple(item.id for item, _ in items)
-    relation_refs: dict[UUID, list[ProjectionRelationRef]] = {
-        item_id: [] for item_id in item_ids
-    }
+    relation_refs: dict[UUID, list[ProjectionRelationRef]] = {item_id: [] for item_id in item_ids}
     for relation_id, source_id, target_id, kind in relations:
         relation_digest = digest(
             {
@@ -218,7 +216,7 @@ class PostgresMarkdownProjectionRepository:
         with self.connection.transaction(), self.connection.cursor() as cursor:
             cursor.execute("set transaction isolation level repeatable read read only")
             cursor.execute(
-                "select 1 from core.project where realm_id=%s and id=%s",
+                "select 1 from projects.project where realm_id=%s and id=%s",
                 (self.realm_id, project_id),
             )
             if cursor.fetchone() is None:
@@ -315,22 +313,23 @@ class PostgresMarkdownProjectionRepository:
                 (self.realm_id, project_id),
             )
 
-        if sum(
-            len(rows)
-            for rows in (
-                work_rows,
-                decision_rows,
-                memory_rows,
-                skill_rows,
-                failure_rows,
-                candidate_rows,
+        if (
+            sum(
+                len(rows)
+                for rows in (
+                    work_rows,
+                    decision_rows,
+                    memory_rows,
+                    skill_rows,
+                    failure_rows,
+                    candidate_rows,
+                )
             )
-        ) > limit:
+            > limit
+        ):
             raise ValidationFailed("Obsidian combined DB snapshot bounded limiti asiyor")
         result: list[ObsidianProjectionRecord] = []
-        work_records = {
-            row.entity_id: row for row in _work_records(items, work_relations)
-        }
+        work_records = {row.entity_id: row for row in _work_records(items, work_relations)}
         for item, _ in items:
             record = work_records[str(item.id)]
             result.append(
@@ -463,9 +462,7 @@ class PostgresMarkdownProjectionRepository:
                         if memory_id not in supersedes_by_replacement
                         else (supersedes_by_replacement[memory_id],)
                     ),
-                    superseded_by=(
-                        () if row[6] is None else (str(row[6]),)
-                    ),
+                    superseded_by=(() if row[6] is None else (str(row[6]),)),
                 )
             )
 
@@ -566,9 +563,7 @@ class PostgresMarkdownProjectionRepository:
                         if candidate_id not in supersedes_by_candidate
                         else (supersedes_by_candidate[candidate_id],)
                     ),
-                    superseded_by=(
-                        () if row[8] is None else (str(row[8]),)
-                    ),
+                    superseded_by=(() if row[8] is None else (str(row[8]),)),
                 )
             )
         return tuple(sorted(result, key=lambda item: item.identity))

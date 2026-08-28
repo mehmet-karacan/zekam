@@ -55,8 +55,7 @@ def test_expected_inventory_uses_last_canonical_create(
     )
     available = migrations.discover_migrations(tmp_path)
     applied = tuple(
-        migrations.AppliedMigration(item.version, item.name, item.checksum)
-        for item in available
+        migrations.AppliedMigration(item.version, item.name, item.checksum) for item in available
     )
     monkeypatch.setattr(routine_integrity.migrations, "read_applied", lambda _connection: applied)
 
@@ -85,11 +84,7 @@ def test_overloaded_name_is_rejected_instead_of_replaying_ambiguous_sql(
         encoding="utf-8",
     )
     migration = migrations.discover_migrations(tmp_path)[0]
-    applied = (
-        migrations.AppliedMigration(
-            migration.version, migration.name, migration.checksum
-        ),
-    )
+    applied = (migrations.AppliedMigration(migration.version, migration.name, migration.checksum),)
     monkeypatch.setattr(routine_integrity.migrations, "read_applied", lambda _connection: applied)
 
     with pytest.raises(ConfigurationError, match="Overloaded routine"):
@@ -97,9 +92,7 @@ def test_overloaded_name_is_rejected_instead_of_replaying_ambiguous_sql(
 
 
 def test_repair_plan_digest_never_contains_sql_text() -> None:
-    key = routine_integrity.RoutineKey(
-        "core", "missing", routine_integrity.RoutineKind.FUNCTION
-    )
+    key = routine_integrity.RoutineKey("core", "missing", routine_integrity.RoutineKind.FUNCTION)
     spec = routine_integrity.RoutineSpec(
         key=key,
         migration_version=1,

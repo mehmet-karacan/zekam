@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID, uuid4
 
 from zekam.domain.canonical import canonical_bytes, digest, parse_digest
@@ -48,6 +48,8 @@ MAX_PENDING_BATCH = 256
 MAX_REPLAY_FAILURES = 3
 MAX_SPOOL_DOCUMENT_BYTES = 1_048_576
 MAX_LOCK_BYTES = 1
+LOCK_RETRY_ATTEMPTS = 500
+LOCK_RETRY_INTERVAL_SECONDS = 0.01
 _WINDOWS_REPARSE_POINT = 0x0400
 _OPEN_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _OPEN_BINARY = getattr(os, "O_BINARY", 0)
@@ -412,9 +414,7 @@ class LifecycleSpoolEntry:
     def assert_integrity(self) -> None:
         parse_digest(self.entry_digest)
         parse_digest(self.delivery_id)
-        if self.sequence < 1 or (self.sequence == 1) is not (
-            self.previous_entry_digest is None
-        ):
+        if self.sequence < 1 or (self.sequence == 1) is not (self.previous_entry_digest is None):
             raise PolicyViolation("Lifecycle spool sequence zinciri gecersiz")
         if self.previous_entry_digest is not None:
             parse_digest(self.previous_entry_digest)
@@ -453,9 +453,14 @@ class LifecycleReplayResult:
 
 
 class LifecycleAckLike(Protocol):
-    event_id: UUID
-    local_event_digest: str
-    canonical_digest: str
+    @property
+    def event_id(self) -> UUID: ...
+
+    @property
+    def local_event_digest(self) -> str: ...
+
+    @property
+    def canonical_digest(self) -> str: ...
 
 
 class LifecycleContinuityAdmission(Protocol):
@@ -528,19 +533,13 @@ class CanonicalLifecycleReceipt:
             parse_digest(candidate.canonical_digest)
             if not isinstance(candidate.event_id, UUID):
                 raise ValidationFailed("Canonical lifecycle receipt event_id UUID olmali")
-        if (
-            first.event_id != lookup.event_id
-            or first.canonical_digest != lookup.canonical_digest
-        ):
+        if first.event_id != lookup.event_id or first.canonical_digest != lookup.canonical_digest:
             raise PolicyViolation("Canonical lifecycle terminal receipt lookup drift")
         first_binding_id = getattr(first, "compaction_outbox_id", None)
         lookup_binding_id = getattr(lookup, "compaction_outbox_id", None)
         first_binding_digest = getattr(first, "compaction_payload_digest", None)
         lookup_binding_digest = getattr(lookup, "compaction_payload_digest", None)
-        if (
-            first_binding_id != lookup_binding_id
-            or first_binding_digest != lookup_binding_digest
-        ):
+        if first_binding_id != lookup_binding_id or first_binding_digest != lookup_binding_digest:
             raise PolicyViolation("Canonical lifecycle runtime binding lookup drift")
         if entry.internal_event_type == "pre_compaction":
             if not isinstance(lookup_binding_id, UUID) or not isinstance(
@@ -769,6 +768,9 @@ def _entry_from_document(document: Any) -> LifecycleSpoolEntry:
     observation = document.get("observation")
     if not isinstance(observation, dict):
         raise ValidationFailed("Lifecycle spool observation object olmali")
+    sequence = document.get("sequence")
+    if not isinstance(sequence, int) or isinstance(sequence, bool):
+        raise ValidationFailed("Lifecycle spool sequence pozitif integer olmali")
     entry = LifecycleSpoolEntry(
         entry_digest=_digest_text(document.get("entry_digest"), label="entry_digest"),
         delivery_id=_digest_text(document.get("delivery_id"), label="delivery_id"),
@@ -776,13 +778,11 @@ def _entry_from_document(document: Any) -> LifecycleSpoolEntry:
         client_kind=_safe_text(document.get("client_kind"), label="client_kind") or "",
         client_version=_safe_text(document.get("client_version"), label="client_version") or "",
         session_id=_safe_text(document.get("session_id"), label="session_id") or "",
-        sequence=document.get("sequence"),
+        sequence=sequence,
         previous_entry_digest=(
             None
             if document.get("previous_entry_digest") is None
-            else _digest_text(
-                document.get("previous_entry_digest"), label="previous_entry_digest"
-            )
+            else _digest_text(document.get("previous_entry_digest"), label="previous_entry_digest")
         ),
         external_event_type=(
             _safe_text(document.get("external_event_type"), label="external_event_type") or ""
@@ -951,9 +951,7 @@ class ClientLifecycleSpool:
                 previous_queue_entry_digest=(
                     None
                     if start == 2
-                    else str(
-                        _read_json(self._queue_path(start - 2))["entry_digest"]
-                    )
+                    else str(_read_json(self._queue_path(start - 2))["entry_digest"])
                 ),
             )
             previous_digest = str(previous_ref["entry_digest"])
@@ -978,12 +976,8 @@ class ClientLifecycleSpool:
             ):
                 raise PolicyViolation("Lifecycle queue/delivery binding mismatch")
             attempt_state = self._read_attempt_state(entry.entry_digest)
-            if (
-                not _safe_regular_file_exists(self._ack_path(entry.entry_digest))
-                and (
-                    attempt_state is None
-                    or attempt_state["disposition"] != "manual-review"
-                )
+            if not _safe_regular_file_exists(self._ack_path(entry.entry_digest)) and (
+                attempt_state is None or attempt_state["disposition"] != "manual-review"
             ):
                 selected.append(entry)
             previous_digest = entry.entry_digest
@@ -1019,16 +1013,10 @@ class ClientLifecycleSpool:
                 raise ValidationFailed("Lifecycle ACK source entry bulunamadi")
             state = self._read_attempt_state(entry.entry_digest)
             if state is None or state["disposition"] != "completed":
-                raise PolicyViolation(
-                    "Lifecycle ACK exact completed attempt-state ister"
-                )
-            attempt = _read_json(
-                self._attempt_path(str(state["latest_attempt_ref"]))
-            )
+                raise PolicyViolation("Lifecycle ACK exact completed attempt-state ister")
+            attempt = _read_json(self._attempt_path(str(state["latest_attempt_ref"])))
             if attempt["evidence_digest"] != receipt.canonical_lookup_digest:
-                raise PolicyViolation(
-                    "Lifecycle ACK completed attempt/lookup evidence mismatch"
-                )
+                raise PolicyViolation("Lifecycle ACK completed attempt/lookup evidence mismatch")
             path = self._ack_path(entry.entry_digest)
             if _safe_regular_file_exists(path):
                 existing = _read_json(path)
@@ -1037,21 +1025,19 @@ class ClientLifecycleSpool:
                     existing["canonical_event_digest"] != receipt.canonical_event_digest
                     or existing["canonical_event_id"] != str(receipt.canonical_event_id)
                     or existing["canonical_ack_digest"] != receipt.canonical_ack_digest
-                    or existing["canonical_lookup_digest"]
-                    != receipt.canonical_lookup_digest
+                    or existing["canonical_lookup_digest"] != receipt.canonical_lookup_digest
                     or existing["runtime_binding_id"]
                     != (
                         None
                         if receipt.runtime_binding_id is None
                         else str(receipt.runtime_binding_id)
                     )
-                    or existing["runtime_binding_digest"]
-                    != receipt.runtime_binding_digest
+                    or existing["runtime_binding_digest"] != receipt.runtime_binding_digest
                     or existing["continuity_binding"] != receipt.continuity_binding
                 ):
                     raise PolicyViolation("Lifecycle ACK replay digest drift")
                 self._advance_drain_cursor()
-                return existing
+                return cast(dict[str, Any], existing)
             body = {
                 "schema": SPOOL_ACK_SCHEMA,
                 "entry_digest": entry.entry_digest,
@@ -1060,9 +1046,7 @@ class ClientLifecycleSpool:
                 "canonical_ack_digest": receipt.canonical_ack_digest,
                 "canonical_lookup_digest": receipt.canonical_lookup_digest,
                 "runtime_binding_id": (
-                    None
-                    if receipt.runtime_binding_id is None
-                    else str(receipt.runtime_binding_id)
+                    None if receipt.runtime_binding_id is None else str(receipt.runtime_binding_id)
                 ),
                 "runtime_binding_digest": receipt.runtime_binding_digest,
                 "continuity_binding": receipt.continuity_binding,
@@ -1128,16 +1112,12 @@ class ClientLifecycleSpool:
             )
             state = self._read_attempt_state(entry_digest)
             if state is not None and state["latest_retry_key"] == retry_key:
-                return _read_json(
-                    self._attempt_path(str(state["latest_attempt_ref"]))
+                return cast(
+                    dict[str, Any],
+                    _read_json(self._attempt_path(str(state["latest_attempt_ref"]))),
                 )
-            if (
-                state is not None
-                and state["disposition"] in {"completed", "manual-review"}
-            ):
-                raise PolicyViolation(
-                    "Lifecycle terminal attempt-state yeni attempt kabul etmez"
-                )
+            if state is not None and state["disposition"] in {"completed", "manual-review"}:
+                raise PolicyViolation("Lifecycle terminal attempt-state yeni attempt kabul etmez")
             retry_path = self._attempt_path(retry_key)
             if _safe_regular_file_exists(retry_path):
                 orphan = _read_json(retry_path)
@@ -1151,9 +1131,7 @@ class ClientLifecycleSpool:
                 ):
                     raise PolicyViolation("Lifecycle orphan attempt retry drift")
                 orphan_body = {
-                    key: value
-                    for key, value in orphan.items()
-                    if key != "attempt_digest"
+                    key: value for key, value in orphan.items() if key != "attempt_digest"
                 }
                 if digest(orphan_body) != orphan.get("attempt_digest"):
                     raise PolicyViolation("Lifecycle orphan attempt digest mismatch")
@@ -1169,9 +1147,7 @@ class ClientLifecycleSpool:
                         "latest_retry_key": retry_key,
                         "disposition": orphan["disposition"],
                         "terminal_reason": orphan["terminal_reason"],
-                        "predecessor_entry_digest": orphan[
-                            "predecessor_entry_digest"
-                        ],
+                        "predecessor_entry_digest": orphan["predecessor_entry_digest"],
                         "predecessor_attempt_state_digest": orphan[
                             "predecessor_attempt_state_digest"
                         ],
@@ -1181,9 +1157,7 @@ class ClientLifecycleSpool:
                         self._attempt_state_path(entry_digest),
                         recovered_state | {"state_digest": digest(recovered_state)},
                     )
-                elif state is None or int(orphan["attempt_number"]) > int(
-                    state["attempt_count"]
-                ):
+                elif state is None or int(orphan["attempt_number"]) > int(state["attempt_count"]):
                     raise PolicyViolation("Lifecycle orphan attempt sequence drift")
                 return orphan
             attempt_count = 1 if state is None else int(state["attempt_count"]) + 1
@@ -1192,17 +1166,9 @@ class ClientLifecycleSpool:
             disposition = (
                 "completed"
                 if checked_outcome == "completed"
-                else (
-                    "manual-review"
-                    if failure_count >= MAX_REPLAY_FAILURES
-                    else "retryable"
-                )
+                else ("manual-review" if failure_count >= MAX_REPLAY_FAILURES else "retryable")
             )
-            terminal_reason = (
-                "retry-budget-exhausted"
-                if disposition == "manual-review"
-                else None
-            )
+            terminal_reason = "retry-budget-exhausted" if disposition == "manual-review" else None
             body = {
                 "schema": SPOOL_ATTEMPT_SCHEMA,
                 "entry_digest": entry_digest,
@@ -1256,9 +1222,7 @@ class ClientLifecycleSpool:
         with _exclusive_lock(self.lock_path):
             entry = self._read_entry(entry_digest)
             if entry is None or entry.previous_entry_digest is None:
-                raise PolicyViolation(
-                    "Lifecycle predecessor manual-review exact ardil entry ister"
-                )
+                raise PolicyViolation("Lifecycle predecessor manual-review exact ardil entry ister")
             predecessor = self._read_entry(entry.previous_entry_digest)
             if (
                 predecessor is None
@@ -1267,26 +1231,17 @@ class ClientLifecycleSpool:
                 or predecessor.sequence + 1 != entry.sequence
                 or _safe_regular_file_exists(self._ack_path(predecessor.entry_digest))
             ):
-                raise PolicyViolation(
-                    "Lifecycle predecessor manual-review chain binding mismatch"
-                )
+                raise PolicyViolation("Lifecycle predecessor manual-review chain binding mismatch")
             predecessor_state = self._read_attempt_state(predecessor.entry_digest)
-            if (
-                predecessor_state is None
-                or predecessor_state["disposition"] != "manual-review"
-            ):
-                raise PolicyViolation(
-                    "Lifecycle predecessor terminal manual-review kaniti eksik"
-                )
+            if predecessor_state is None or predecessor_state["disposition"] != "manual-review":
+                raise PolicyViolation("Lifecycle predecessor terminal manual-review kaniti eksik")
             terminal_reason = "predecessor-manual-review"
             evidence_digest = digest(
                 {
                     "schema": "zekam-client-lifecycle-predecessor-block/v1",
                     "entry_digest": entry.entry_digest,
                     "predecessor_entry_digest": predecessor.entry_digest,
-                    "predecessor_attempt_state_digest": predecessor_state[
-                        "state_digest"
-                    ],
+                    "predecessor_attempt_state_digest": predecessor_state["state_digest"],
                     "grants_authority": False,
                 }
             )
@@ -1300,8 +1255,9 @@ class ClientLifecycleSpool:
             )
             state = self._read_attempt_state(entry.entry_digest)
             if state is not None and state["latest_retry_key"] == retry_key:
-                return _read_json(
-                    self._attempt_path(str(state["latest_attempt_ref"]))
+                return cast(
+                    dict[str, Any],
+                    _read_json(self._attempt_path(str(state["latest_attempt_ref"]))),
                 )
             if state is not None and state["disposition"] in {
                 "completed",
@@ -1324,9 +1280,7 @@ class ClientLifecycleSpool:
                     or orphan["terminal_reason"] != terminal_reason
                     or orphan["evidence_digest"] != evidence_digest
                 ):
-                    raise PolicyViolation(
-                        "Lifecycle predecessor orphan attempt sequence drift"
-                    )
+                    raise PolicyViolation("Lifecycle predecessor orphan attempt sequence drift")
                 recovered_state = {
                     "schema": SPOOL_ATTEMPT_STATE_SCHEMA,
                     "entry_digest": entry.entry_digest,
@@ -1338,16 +1292,14 @@ class ClientLifecycleSpool:
                     "disposition": "manual-review",
                     "terminal_reason": terminal_reason,
                     "predecessor_entry_digest": predecessor.entry_digest,
-                    "predecessor_attempt_state_digest": predecessor_state[
-                        "state_digest"
-                    ],
+                    "predecessor_attempt_state_digest": predecessor_state["state_digest"],
                     "grants_authority": False,
                 }
                 _write_atomic_json(
                     self._attempt_state_path(entry.entry_digest),
                     recovered_state | {"state_digest": digest(recovered_state)},
                 )
-                return orphan
+                return cast(dict[str, Any], orphan)
             attempt_count = 1 if state is None else int(state["attempt_count"]) + 1
             failure_count = 1 if state is None else int(state["failure_count"]) + 1
             body = {
@@ -1361,9 +1313,7 @@ class ClientLifecycleSpool:
                 "disposition": "manual-review",
                 "terminal_reason": terminal_reason,
                 "predecessor_entry_digest": predecessor.entry_digest,
-                "predecessor_attempt_state_digest": predecessor_state[
-                    "state_digest"
-                ],
+                "predecessor_attempt_state_digest": predecessor_state["state_digest"],
                 "attempted_at": _timestamp(at, label="attempted_at"),
                 "grants_authority": False,
             }
@@ -1380,9 +1330,7 @@ class ClientLifecycleSpool:
                 "disposition": "manual-review",
                 "terminal_reason": terminal_reason,
                 "predecessor_entry_digest": predecessor.entry_digest,
-                "predecessor_attempt_state_digest": predecessor_state[
-                    "state_digest"
-                ],
+                "predecessor_attempt_state_digest": predecessor_state["state_digest"],
                 "grants_authority": False,
             }
             _write_atomic_json(
@@ -1452,9 +1400,7 @@ class ClientLifecycleSpool:
             elif state is None or state["disposition"] != "manual-review":
                 pending_count += 1
                 if oldest_pending_at is None:
-                    oldest_pending_at = _timestamp(
-                        entry.occurred_at, label="oldest_pending_at"
-                    )
+                    oldest_pending_at = _timestamp(entry.occurred_at, label="oldest_pending_at")
             previous_digest = entry.entry_digest
         next_after = upper if upper < tail_sequence else None
         return {
@@ -1471,9 +1417,7 @@ class ClientLifecycleSpool:
             "page_after_sequence": after_sequence,
             "page_event_count": max(0, upper - start + 1),
             "page_acked_count": page_acked_count,
-            "counts_scope": (
-                "page-except-event-acked-and-manual-review-prefix"
-            ),
+            "counts_scope": ("page-except-event-acked-and-manual-review-prefix"),
             "next_after_sequence": next_after,
             "history_complete": next_after is None and after_sequence == 0,
             "grants_authority": False,
@@ -1485,9 +1429,7 @@ class ClientLifecycleSpool:
             return None
         document = _read_json(path)
         _validate_attempt_state(document, entry_digest=entry_digest)
-        attempt = _read_json(
-            self._attempt_path(str(document["latest_attempt_ref"]))
-        )
+        attempt = _read_json(self._attempt_path(str(document["latest_attempt_ref"])))
         _validate_attempt(
             attempt,
             entry_digest=entry_digest,
@@ -1501,13 +1443,12 @@ class ClientLifecycleSpool:
             or attempt.get("failure_count") != document["failure_count"]
             or attempt.get("disposition") != document["disposition"]
             or attempt.get("terminal_reason") != document["terminal_reason"]
-            or attempt.get("predecessor_entry_digest")
-            != document["predecessor_entry_digest"]
+            or attempt.get("predecessor_entry_digest") != document["predecessor_entry_digest"]
             or attempt.get("predecessor_attempt_state_digest")
             != document["predecessor_attempt_state_digest"]
         ):
             raise PolicyViolation("Lifecycle attempt state/latest receipt parity mismatch")
-        return document
+        return cast(dict[str, Any], document)
 
     def _verified_entries(self) -> list[LifecycleSpoolEntry]:
         if not _safe_directory_exists(self.events_directory):
@@ -1537,9 +1478,7 @@ class ClientLifecycleSpool:
         entries.sort(key=lambda item: (item.client_id, item.session_id, item.sequence))
         return entries
 
-    def _verified_ack_entry_digests(
-        self, entries: list[LifecycleSpoolEntry]
-    ) -> frozenset[str]:
+    def _verified_ack_entry_digests(self, entries: list[LifecycleSpoolEntry]) -> frozenset[str]:
         if not _safe_directory_exists(self.acks_directory):
             return frozenset()
         _assert_json_directory(self.acks_directory, label="ACK")
@@ -1568,17 +1507,14 @@ class ClientLifecycleSpool:
             document = _read_json(path)
             if not isinstance(document, dict):
                 raise ValidationFailed("Lifecycle attempt schema gecersiz")
-            entry_digest = _digest_text(
-                document.get("entry_digest"), label="attempt entry_digest"
-            )
+            entry_digest = _digest_text(document.get("entry_digest"), label="attempt entry_digest")
             _validate_attempt(
                 document,
                 entry_digest=entry_digest,
                 expected_retry_key=str(document.get("retry_key")),
             )
-            if (
-                entry_digest not in existing
-                or path.stem != parse_digest(str(document["retry_key"]))
+            if entry_digest not in existing or path.stem != parse_digest(
+                str(document["retry_key"])
             ):
                 raise PolicyViolation("Lifecycle attempt source/digest binding mismatch")
             count += 1
@@ -1625,9 +1561,7 @@ class ClientLifecycleSpool:
             raise PolicyViolation("Lifecycle delivery ref entry binding mismatch")
         return entry
 
-    def _load_session_tail(
-        self, *, client_id: str, session_id: str
-    ) -> LifecycleSpoolEntry | None:
+    def _load_session_tail(self, *, client_id: str, session_id: str) -> LifecycleSpoolEntry | None:
         path = self._session_path(client_id, session_id)
         if not _safe_regular_file_exists(path):
             return None
@@ -1743,12 +1677,8 @@ class ClientLifecycleSpool:
             previous_acknowledged_count = 0
             previous_manual_review_count = 0
         else:
-            previous = _read_json(
-                self._drain_cursor_record_path(expected_sequence - 1)
-            )
-            _validate_drain_cursor_record(
-                previous, expected_sequence=expected_sequence - 1
-            )
+            previous = _read_json(self._drain_cursor_record_path(expected_sequence - 1))
+            _validate_drain_cursor_record(previous, expected_sequence=expected_sequence - 1)
             if (
                 previous["entry_digest"] != previous_entry_digest
                 or previous["cursor_digest"] != previous_cursor_digest
@@ -1808,14 +1738,10 @@ class ClientLifecycleSpool:
             or attempt["attempt_digest"] != document["attempt_digest"]
             or state["disposition"] != attempt["disposition"]
         ):
-            raise PolicyViolation(
-                "Lifecycle drain cursor attempt-state/receipt parity mismatch"
-            )
+            raise PolicyViolation("Lifecycle drain cursor attempt-state/receipt parity mismatch")
         if disposition == "acknowledged":
             if state["disposition"] != "completed":
-                raise PolicyViolation(
-                    "Lifecycle ACK cursor completed attempt-state ister"
-                )
+                raise PolicyViolation("Lifecycle ACK cursor completed attempt-state ister")
             ack = _read_json(self._ack_path(entry.entry_digest))
             _validate_ack(ack, entry_digest=entry.entry_digest)
             continuity = ack["continuity_binding"]
@@ -1826,23 +1752,16 @@ class ClientLifecycleSpool:
             )
             if (
                 ack["ack_digest"] != document["ack_digest"]
-                or ack["canonical_event_digest"]
-                != document["canonical_event_digest"]
+                or ack["canonical_event_digest"] != document["canonical_event_digest"]
                 or attempt["evidence_digest"] != ack["canonical_lookup_digest"]
-                or continuity["binding_digest"]
-                != document["continuity_binding_digest"]
+                or continuity["binding_digest"] != document["continuity_binding_digest"]
             ):
-                raise PolicyViolation(
-                    "Lifecycle drain cursor ACK/continuity parity mismatch"
-                )
+                raise PolicyViolation("Lifecycle drain cursor ACK/continuity parity mismatch")
             return
-        if (
-            state["disposition"] != "manual-review"
-            or _safe_regular_file_exists(self._ack_path(entry.entry_digest))
+        if state["disposition"] != "manual-review" or _safe_regular_file_exists(
+            self._ack_path(entry.entry_digest)
         ):
-            raise PolicyViolation(
-                "Lifecycle drain cursor manual-review receipt parity mismatch"
-            )
+            raise PolicyViolation("Lifecycle drain cursor manual-review receipt parity mismatch")
         if attempt["terminal_reason"] == "predecessor-manual-review":
             predecessor_digest = str(attempt["predecessor_entry_digest"])
             predecessor = self._read_entry(predecessor_digest)
@@ -1855,13 +1774,10 @@ class ClientLifecycleSpool:
                 or predecessor.sequence + 1 != entry.sequence
                 or predecessor_state is None
                 or predecessor_state["disposition"] != "manual-review"
-                or predecessor_state["state_digest"]
-                != attempt["predecessor_attempt_state_digest"]
+                or predecessor_state["state_digest"] != attempt["predecessor_attempt_state_digest"]
                 or _safe_regular_file_exists(self._ack_path(predecessor_digest))
             ):
-                raise PolicyViolation(
-                    "Lifecycle drain cursor predecessor terminal chain drift"
-                )
+                raise PolicyViolation("Lifecycle drain cursor predecessor terminal chain drift")
 
     def _cursor_record_document(
         self,
@@ -1900,9 +1816,7 @@ class ClientLifecycleSpool:
         continuity_binding_digest: str | None = None
         if _safe_regular_file_exists(self._ack_path(entry.entry_digest)):
             if state["disposition"] != "completed":
-                raise PolicyViolation(
-                    "Lifecycle ACK cursor completed attempt-state ister"
-                )
+                raise PolicyViolation("Lifecycle ACK cursor completed attempt-state ister")
             terminal_disposition = "acknowledged"
             ack = _read_json(self._ack_path(entry.entry_digest))
             _validate_ack(ack, entry_digest=entry.entry_digest)
@@ -1917,9 +1831,7 @@ class ClientLifecycleSpool:
             continuity_binding_digest = str(continuity["binding_digest"])
         else:
             if state["disposition"] != "manual-review":
-                raise PolicyViolation(
-                    "Lifecycle cursor ACK veya terminal manual-review ister"
-                )
+                raise PolicyViolation("Lifecycle cursor ACK veya terminal manual-review ister")
             terminal_disposition = "manual-review"
         body = {
             "schema": SPOOL_DRAIN_CURSOR_SCHEMA,
@@ -1988,12 +1900,8 @@ class ClientLifecycleSpool:
                 previous_acknowledged_count=acknowledged_count,
                 previous_manual_review_count=manual_review_count,
             )
-            _write_immutable_json(
-                self._drain_cursor_record_path(candidate), record
-            )
-            self._validate_drain_cursor_record(
-                record, expected_sequence=candidate
-            )
+            _write_immutable_json(self._drain_cursor_record_path(candidate), record)
+            self._validate_drain_cursor_record(record, expected_sequence=candidate)
             self._write_drain_cursor_pointer(record)
             sequence = candidate
             previous_digest = entry_digest
@@ -2040,9 +1948,7 @@ class ClientLifecycleSpool:
         queue_sequence: int,
         previous_queue_entry_digest: str | None,
     ) -> dict[str, Any]:
-        if queue_sequence < 1 or (queue_sequence == 1) is not (
-            previous_queue_entry_digest is None
-        ):
+        if queue_sequence < 1 or (queue_sequence == 1) is not (previous_queue_entry_digest is None):
             raise ValidationFailed("Lifecycle queue ref sequence/previous gecersiz")
         if previous_queue_entry_digest is not None:
             parse_digest(previous_queue_entry_digest)
@@ -2077,9 +1983,7 @@ class ClientLifecycleSpool:
         }
         return body | {"state_digest": digest(body)}
 
-    def _checkpoint_document(
-        self, entry: LifecycleSpoolEntry, *, state: str
-    ) -> dict[str, Any]:
+    def _checkpoint_document(self, entry: LifecycleSpoolEntry, *, state: str) -> dict[str, Any]:
         if state not in {"pending", "committed"}:
             raise ValidationFailed("Lifecycle session checkpoint state gecersiz")
         body = {
@@ -2161,9 +2065,7 @@ def replay_pending(
         if entry.previous_entry_digest is not None and not _safe_regular_file_exists(
             spool._ack_path(entry.previous_entry_digest)
         ):
-            predecessor_state = spool._read_attempt_state(
-                entry.previous_entry_digest
-            )
+            predecessor_state = spool._read_attempt_state(entry.previous_entry_digest)
             if (
                 predecessor_state is not None
                 and predecessor_state["disposition"] == "manual-review"
@@ -2187,9 +2089,7 @@ def replay_pending(
         except (ZekamError, OSError) as exc:
             category = exc.code if isinstance(exc, ZekamError) else "io-error"
             outcome = (
-                "rejected"
-                if isinstance(exc, (PolicyViolation, ValidationFailed))
-                else "failed"
+                "rejected" if isinstance(exc, (PolicyViolation, ValidationFailed)) else "failed"
             )
             attempt = spool.record_attempt(
                 entry.entry_digest,
@@ -2206,11 +2106,7 @@ def replay_pending(
             results.append(
                 LifecycleReplayResult(
                     entry.entry_digest,
-                    (
-                        "recovery-required"
-                        if attempt["disposition"] == "manual-review"
-                        else outcome
-                    ),
+                    ("recovery-required" if attempt["disposition"] == "manual-review" else outcome),
                     None,
                     attempt["attempt_digest"],
                 )
@@ -2324,9 +2220,7 @@ def drain_to_postgres(
     at = attempted_at or _utc_now()
     _timestamp(at, label="attempted_at")
     if continuity_admission is None:
-        raise PolicyViolation(
-            "Lifecycle drain governed continuity admission adapter ister"
-        )
+        raise PolicyViolation("Lifecycle drain governed continuity admission adapter ister")
     if spool.client_instance_id() != client_instance_id:
         raise PolicyViolation("Lifecycle drain client instance binding mismatch")
 
@@ -2396,15 +2290,12 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
     runtime_binding_digest = document.get("runtime_binding_digest")
     continuity_binding = document.get("continuity_binding")
     ack_digest = document.get("ack_digest")
-    if not all(
-        isinstance(value, str)
-        for value in (
-            canonical_ack_digest,
-            canonical_event_digest,
-            canonical_event_id,
-            canonical_lookup_digest,
-            ack_digest,
-        )
+    if (
+        not isinstance(canonical_ack_digest, str)
+        or not isinstance(canonical_event_digest, str)
+        or not isinstance(canonical_event_id, str)
+        or not isinstance(canonical_lookup_digest, str)
+        or not isinstance(ack_digest, str)
     ):
         raise ValidationFailed("Lifecycle ACK digest alanlari eksik")
     parse_digest(canonical_ack_digest)
@@ -2419,9 +2310,7 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
     if (runtime_binding_id is None) is not (runtime_binding_digest is None):
         raise PolicyViolation("Lifecycle ACK runtime binding alanlari birlikte olmali")
     if runtime_binding_id is not None:
-        if not isinstance(runtime_binding_id, str) or not isinstance(
-            runtime_binding_digest, str
-        ):
+        if not isinstance(runtime_binding_id, str) or not isinstance(runtime_binding_digest, str):
             raise ValidationFailed("Lifecycle ACK runtime binding alanlari gecersiz")
         try:
             if str(UUID(runtime_binding_id)) != runtime_binding_id:
@@ -2441,9 +2330,7 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
         raise ValidationFailed("Lifecycle ACK continuity binding digest eksik")
     parse_digest(binding_digest)
     binding_body = {
-        key: value
-        for key, value in continuity_binding.items()
-        if key != "binding_digest"
+        key: value for key, value in continuity_binding.items() if key != "binding_digest"
     }
     if (
         frozenset(continuity_binding) != _CONTINUITY_BINDING_KEYS
@@ -2458,9 +2345,7 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
         "effect_receipt_digest",
         "terminal_receipt_digest",
     ):
-        _digest_text(
-            continuity_binding.get(key), label=f"ACK continuity binding {key}"
-        )
+        _digest_text(continuity_binding.get(key), label=f"ACK continuity binding {key}")
     for key in (
         "realm_id",
         "project_id",
@@ -2480,16 +2365,11 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
             if str(UUID(raw)) != raw:
                 raise ValueError
         except ValueError as exc:
-            raise ValidationFailed(
-                f"ACK continuity binding {key} UUID olmali"
-            ) from exc
+            raise ValidationFailed(f"ACK continuity binding {key} UUID olmali") from exc
     compiler_enqueue = continuity_binding.get("compiler_enqueue")
     if not isinstance(compiler_enqueue, bool):
         raise ValidationFailed("ACK continuity compiler_enqueue boolean olmali")
-    if (
-        continuity_binding.get("event_type") == "pre_compaction"
-        and not compiler_enqueue
-    ):
+    if continuity_binding.get("event_type") == "pre_compaction" and not compiler_enqueue:
         raise PolicyViolation("ACK pre-compaction compiler enqueue ister")
     _parse_timestamp(document.get("acknowledged_at"), label="acknowledged_at")
     body = {key: value for key, value in document.items() if key != "ack_digest"}
@@ -2548,14 +2428,11 @@ def _validate_queue_ref(
         or frozenset(document) != _QUEUE_REF_KEYS
         or document.get("schema") != SPOOL_QUEUE_REF_SCHEMA
         or document.get("queue_sequence") != queue_sequence
-        or document.get("previous_queue_entry_digest")
-        != previous_queue_entry_digest
+        or document.get("previous_queue_entry_digest") != previous_queue_entry_digest
         or document.get("grants_authority") is not False
     ):
         raise PolicyViolation("Lifecycle queue ref schema/chain binding gecersiz")
-    if queue_sequence < 1 or (queue_sequence == 1) is not (
-        previous_queue_entry_digest is None
-    ):
+    if queue_sequence < 1 or (queue_sequence == 1) is not (previous_queue_entry_digest is None):
         raise ValidationFailed("Lifecycle queue ref sequence/previous gecersiz")
     if previous_queue_entry_digest is not None:
         parse_digest(previous_queue_entry_digest)
@@ -2584,9 +2461,7 @@ def _validate_queue_state(document: Any) -> None:
         or previous_sequence != sequence - 1
     ):
         raise ValidationFailed("Lifecycle queue state sequence gecersiz")
-    tail_digest = _digest_text(
-        document.get("tail_entry_digest"), label="queue tail_entry_digest"
-    )
+    tail_digest = _digest_text(document.get("tail_entry_digest"), label="queue tail_entry_digest")
     previous = document.get("previous_tail_entry_digest")
     if (sequence == 1) is not (previous is None):
         raise PolicyViolation("Lifecycle queue state previous binding gecersiz")
@@ -2682,9 +2557,7 @@ def _validate_drain_cursor_record(
         sequence > 1 and any(value is None for value in previous_pair)
     ):
         raise PolicyViolation("Lifecycle drain cursor previous binding gecersiz")
-    cursor_digest = _digest_text(
-        document.get("cursor_digest"), label="drain cursor_digest"
-    )
+    cursor_digest = _digest_text(document.get("cursor_digest"), label="drain cursor_digest")
     body = {key: value for key, value in document.items() if key != "cursor_digest"}
     if digest(body) != cursor_digest:
         raise PolicyViolation("Lifecycle drain cursor digest mismatch")
@@ -2699,11 +2572,7 @@ def _validate_drain_cursor_pointer(document: Any) -> None:
     ):
         raise PolicyViolation("Lifecycle drain cursor pointer schema gecersiz")
     sequence = document.get("queue_sequence")
-    if (
-        not isinstance(sequence, int)
-        or isinstance(sequence, bool)
-        or sequence < 1
-    ):
+    if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
         raise ValidationFailed("Lifecycle drain cursor pointer sequence gecersiz")
     for key in ("entry_digest", "cursor_digest", "pointer_digest"):
         _digest_text(document.get(key), label=f"drain cursor pointer {key}")
@@ -2724,9 +2593,7 @@ def _validate_drain_cursor_pointer(document: Any) -> None:
         raise PolicyViolation("Lifecycle drain cursor pointer digest mismatch")
 
 
-def _validate_checkpoint(
-    document: Any, *, client_id: str, session_id: str
-) -> None:
+def _validate_checkpoint(document: Any, *, client_id: str, session_id: str) -> None:
     if (
         not isinstance(document, dict)
         or frozenset(document) != _CHECKPOINT_KEYS
@@ -2793,10 +2660,7 @@ def _validate_attempt(
         "attempt_digest",
     ):
         _digest_text(document.get(key), label=f"attempt {key}")
-    if (
-        expected_retry_key is not None
-        and document["retry_key"] != expected_retry_key
-    ):
+    if expected_retry_key is not None and document["retry_key"] != expected_retry_key:
         raise PolicyViolation("Lifecycle attempt retry ref mismatch")
     _parse_timestamp(document.get("attempted_at"), label="attempted_at")
     outcome = document.get("outcome")
@@ -2826,18 +2690,14 @@ def _validate_attempt(
         raise PolicyViolation("Lifecycle attempt outcome/disposition mismatch")
     terminal_reason = document.get("terminal_reason")
     predecessor_entry_digest = document.get("predecessor_entry_digest")
-    predecessor_attempt_state_digest = document.get(
-        "predecessor_attempt_state_digest"
-    )
+    predecessor_attempt_state_digest = document.get("predecessor_attempt_state_digest")
     if disposition == "manual-review":
         if terminal_reason == "retry-budget-exhausted":
             if failure_count < MAX_REPLAY_FAILURES:
                 raise PolicyViolation("Lifecycle attempt manual-review siniri gecersiz")
         elif terminal_reason == "predecessor-manual-review":
             if outcome != "rejected" or failure_count < 1:
-                raise PolicyViolation(
-                    "Lifecycle predecessor manual-review sonucu gecersiz"
-                )
+                raise PolicyViolation("Lifecycle predecessor manual-review sonucu gecersiz")
             _digest_text(
                 predecessor_entry_digest,
                 label="attempt predecessor_entry_digest",
@@ -2851,23 +2711,18 @@ def _validate_attempt(
                     "schema": "zekam-client-lifecycle-predecessor-block/v1",
                     "entry_digest": entry_digest,
                     "predecessor_entry_digest": predecessor_entry_digest,
-                    "predecessor_attempt_state_digest": (
-                        predecessor_attempt_state_digest
-                    ),
+                    "predecessor_attempt_state_digest": (predecessor_attempt_state_digest),
                     "grants_authority": False,
                 }
             )
             if document["evidence_digest"] != expected_evidence_digest:
-                raise PolicyViolation(
-                    "Lifecycle predecessor manual-review evidence mismatch"
-                )
+                raise PolicyViolation("Lifecycle predecessor manual-review evidence mismatch")
         else:
             raise PolicyViolation("Lifecycle attempt terminal reason gecersiz")
     elif terminal_reason is not None:
         raise PolicyViolation("Lifecycle non-terminal attempt reason tasiyamaz")
     if terminal_reason != "predecessor-manual-review" and (
-        predecessor_entry_digest is not None
-        or predecessor_attempt_state_digest is not None
+        predecessor_entry_digest is not None or predecessor_attempt_state_digest is not None
     ):
         raise PolicyViolation("Lifecycle attempt beklenmeyen predecessor tasiyor")
     retry_body = {
@@ -2920,20 +2775,14 @@ def _validate_attempt_state(document: Any, *, entry_digest: str) -> None:
         _digest_text(document.get(key), label=f"attempt state {key}")
     terminal_reason = document.get("terminal_reason")
     predecessor_entry_digest = document.get("predecessor_entry_digest")
-    predecessor_attempt_state_digest = document.get(
-        "predecessor_attempt_state_digest"
-    )
+    predecessor_attempt_state_digest = document.get("predecessor_attempt_state_digest")
     if disposition == "manual-review":
         if terminal_reason == "retry-budget-exhausted":
             if failure_count < MAX_REPLAY_FAILURES:
-                raise PolicyViolation(
-                    "Lifecycle attempt state manual-review siniri gecersiz"
-                )
+                raise PolicyViolation("Lifecycle attempt state manual-review siniri gecersiz")
         elif terminal_reason == "predecessor-manual-review":
             if failure_count < 1:
-                raise PolicyViolation(
-                    "Lifecycle predecessor attempt state gecersiz"
-                )
+                raise PolicyViolation("Lifecycle predecessor attempt state gecersiz")
             _digest_text(
                 predecessor_entry_digest,
                 label="attempt state predecessor_entry_digest",
@@ -2947,8 +2796,7 @@ def _validate_attempt_state(document: Any, *, entry_digest: str) -> None:
     elif terminal_reason is not None:
         raise PolicyViolation("Lifecycle non-terminal attempt state reason tasiyamaz")
     if terminal_reason != "predecessor-manual-review" and (
-        predecessor_entry_digest is not None
-        or predecessor_attempt_state_digest is not None
+        predecessor_entry_digest is not None or predecessor_attempt_state_digest is not None
     ):
         raise PolicyViolation("Lifecycle attempt state beklenmeyen predecessor tasiyor")
     if disposition == "retryable" and failure_count >= MAX_REPLAY_FAILURES:
@@ -3077,8 +2925,10 @@ def _assert_fd_matches_path(fd: int, path: Path, *, max_bytes: int) -> os.stat_r
     current = os.lstat(_absolute_no_resolve(path))
     if _is_reparse_or_symlink(current) or not stat.S_ISREG(current.st_mode):
         raise PolicyViolation("Lifecycle spool target open sonrasi drift")
-    if opened.st_ino and current.st_ino and (
-        opened.st_dev != current.st_dev or opened.st_ino != current.st_ino
+    if (
+        opened.st_ino
+        and current.st_ino
+        and (opened.st_dev != current.st_dev or opened.st_ino != current.st_ino)
     ):
         raise PolicyViolation("Lifecycle spool target identity drift")
     return opened
@@ -3124,9 +2974,7 @@ def _safe_json_files(path: Path, *, label: str = "document") -> tuple[Path, ...]
                     or Path(item.name).suffix != ".json"
                     or info.st_size > MAX_SPOOL_DOCUMENT_BYTES
                 ):
-                    raise PolicyViolation(
-                        f"Lifecycle {label} spool beklenmeyen artifact iceriyor"
-                    )
+                    raise PolicyViolation(f"Lifecycle {label} spool beklenmeyen artifact iceriyor")
                 found.append(path / item.name)
     except OSError as exc:
         raise ValidationFailed(f"Lifecycle {label} spool dizini okunamadi") from exc
@@ -3227,7 +3075,7 @@ def _write_immutable_json(path: Path, document: Mapping[str, Any]) -> None:
             _link_immutable_no_follow(temporary, path)
         except FileExistsError:
             if not _safe_regular_file_exists(path) or _read_bounded_bytes(path) != payload:
-                raise ConcurrencyConflict("Lifecycle spool concurrent immutable write")
+                raise ConcurrencyConflict("Lifecycle spool concurrent immutable write") from None
         _safe_regular_file_exists(path)
         _fsync_parent_directory(path)
     finally:
@@ -3273,7 +3121,7 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
             raise PolicyViolation("Lifecycle spool lock boyutu gecersiz")
         acquired = False
         try:
-            for _ in range(100):
+            for _ in range(LOCK_RETRY_ATTEMPTS):
                 stream.seek(0)
                 try:
                     if os.name == "nt":
@@ -3283,9 +3131,13 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
                     else:
                         import fcntl
 
-                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl_members = vars(fcntl)
+                        flock = fcntl_members["flock"]
+                        lock_ex = int(fcntl_members["LOCK_EX"])
+                        lock_nb = int(fcntl_members["LOCK_NB"])
+                        flock(stream.fileno(), lock_ex | lock_nb)
                 except OSError:
-                    time.sleep(0.01)
+                    time.sleep(LOCK_RETRY_INTERVAL_SECONDS)
                     continue
                 acquired = True
                 break
@@ -3302,4 +3154,7 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
                 else:
                     import fcntl
 
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                    fcntl_members = vars(fcntl)
+                    flock = fcntl_members["flock"]
+                    lock_un = int(fcntl_members["LOCK_UN"])
+                    flock(stream.fileno(), lock_un)

@@ -7,7 +7,6 @@ from zekam.domain.canonical import digest
 from zekam.domain.markdown_projection import ObsidianProfile
 from zekam.interfaces.cli import memory as memory_cli
 
-
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000101")
 
 
