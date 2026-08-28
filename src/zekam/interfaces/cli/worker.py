@@ -28,6 +28,10 @@ from zekam.application.diagnostic_trace_composition import (
 )
 from zekam.application.doctor_repair import observe_git_repository
 from zekam.application.home import resolve_home
+from zekam.application.lifecycle_runtime_template_prepare import (
+    LifecycleRuntimeTemplatePrepareService,
+    run_lifecycle_template_prepare_once,
+)
 from zekam.application.memory_compiler_composition import (
     compose_memory_candidate_compile_handler,
 )
@@ -52,6 +56,86 @@ from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fa
 
 app = typer.Typer(name="worker", help="Worker sureci", no_args_is_help=True)
 console = Console()
+
+
+@app.command("lifecycle-template-prepare")
+def lifecycle_template_prepare_command(
+    work_id: Annotated[UUID, typer.Option("--work-id", help="Exact current Work UUID")],
+    project_id: Annotated[UUID, typer.Option("--project-id", help="Exact project UUID")],
+    actor_id: Annotated[UUID, typer.Option("--actor-id", help="Exact aktif human actor UUID")],
+    source_revision: Annotated[
+        str, typer.Option("--source-revision", help="Exact canonical source revision")
+    ],
+    plan_digest: Annotated[
+        str | None, typer.Option("--plan-digest", help="Dry-run exact plan digest")
+    ] = None,
+    apply: Annotated[
+        bool, typer.Option("--uygula", help="Provider-free template prerequisites uygular")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Codex lifecycle template'ini provider cagrisi olmadan hazirlar."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = LifecycleRuntimeTemplatePrepareService(
+                realm_context.connection, realm_context.realm
+            )
+            plan = service.prepare(
+                project_id=project_id,
+                work_item_id=work_id,
+                actor_id=actor_id,
+                source_revision=source_revision,
+            )
+            document = plan.as_dict()
+            if apply:
+                if plan_digest is None:
+                    raise ValidationFailed("Lifecycle template prepare --plan-digest ister")
+                document = service.apply(plan, supplied_plan_digest=plan_digest)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@app.command("lifecycle-template-tick")
+def lifecycle_template_tick_command(
+    label: Annotated[
+        str, typer.Option("--etiket", help="Dedicated lifecycle template worker etiketi")
+    ] = "lifecycle-template-worker",
+    apply: Annotated[bool, typer.Option("--uygula", help="Exact governed job'i isler")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Bir provider-free lifecycle template job'ini claim/receipt ile tamamlar."""
+
+    try:
+        with RealmSession(home, realm) as realm_context:
+            if not apply:
+                document: dict[str, object] = {
+                    "schema": "zekam-lifecycle-template-tick-plan/v1",
+                    "apply": False,
+                    "provider_calls": 0,
+                    "network_calls": 0,
+                }
+            else:
+                result = run_lifecycle_template_prepare_once(
+                    realm_context.connection,
+                    realm_context.realm,
+                    worker_label=label,
+                )
+                document = {
+                    "schema": "zekam-lifecycle-template-tick-result/v1",
+                    "apply": True,
+                    "result": result,
+                    "provider_calls": 0,
+                    "network_calls": 0,
+                }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
 
 
 def _bootstrap_source_revision(home: str | None) -> str:
