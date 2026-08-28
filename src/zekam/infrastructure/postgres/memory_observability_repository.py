@@ -346,12 +346,16 @@ class PostgresMemoryHealthReader:
             (self.realm_id,),
         )
         stale = self._count(
-            "select count(*) from (select distinct on (realm_id,projection_ref) generated_at"
-            " from continuity.projection_generation_receipt"
-            " where realm_id=%s"
-            " order by realm_id,projection_ref,generated_at desc,id desc) latest"
-            " where generated_at<%s",
-            (self.realm_id, now - dt.timedelta(hours=24)),
+            "select count(*) from (select distinct on (receipt.realm_id,receipt.projection_ref)"
+            " receipt.realm_id,receipt.work_item_id,receipt.generated_at"
+            " from continuity.projection_generation_receipt receipt"
+            " where receipt.realm_id=%s"
+            " order by receipt.realm_id,receipt.projection_ref,"
+            " receipt.generated_at desc,receipt.id desc) latest"
+            " join work.work_item item on item.realm_id=latest.realm_id"
+            " and item.id=latest.work_item_id"
+            " where item.state=any(%s) and latest.generated_at<%s",
+            (self.realm_id, ["active", "verification"], now - dt.timedelta(hours=24)),
         )
         legacy_stale = self._legacy_projection_stale_count()
         if count == 0 or stale or legacy_stale:
