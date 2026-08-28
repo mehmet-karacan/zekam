@@ -1007,6 +1007,52 @@ def test_0063_projection_closure_runtime_guard_exact_roundtrip(
         assert restored == baseline
 
 
+def test_0064_checkpoint_stream_cardinality_exact_roundtrip(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=63)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from pg_constraint"
+                " where conrelid='work.checkpoint'::regclass"
+                " and conname='checkpoint_job_unique' and contype='u'"
+            )
+            assert cursor.fetchone() == (1,)
+
+        assert [item.version for item in migrations.upgrade(connection, target=64)] == [64]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from pg_constraint"
+                " where conrelid='work.checkpoint'::regclass"
+                " and conname='checkpoint_job_unique'"
+            )
+            assert cursor.fetchone() == (0,)
+            cursor.execute(
+                "select indexdef,obj_description('work.checkpoint_job_latest_idx'::regclass,"
+                " 'pg_class') from pg_indexes where schemaname='work'"
+                " and indexname='checkpoint_job_latest_idx'"
+            )
+            index_definition, index_comment = cursor.fetchone()
+        assert "realm_id, job_id, created_at DESC, id DESC" in index_definition
+        assert "WHERE (job_id IS NOT NULL)" in index_definition
+        assert index_comment == (
+            "0064 immutable per-job checkpoint stream ordered for latest-checkpoint admission"
+        )
+
+        assert migrations.downgrade(connection, target=64).version == 64
+        assert migrations.status(connection).head == 63
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from pg_constraint"
+                " where conrelid='work.checkpoint'::regclass"
+                " and conname='checkpoint_job_unique' and contype='u'"
+            )
+            assert cursor.fetchone() == (1,)
+            cursor.execute("select to_regclass('work.checkpoint_job_latest_idx')")
+            assert cursor.fetchone() == (None,)
+
+
 def test_0056_0057_0058_exact_upgrade_down_reapply_catalog_parity(
     blank_database: DatabaseSettings,
 ) -> None:
