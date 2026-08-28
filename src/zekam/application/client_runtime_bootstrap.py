@@ -776,8 +776,12 @@ class ClaimedLifecycleBootstrapService:
         assert job.work_item_id is not None and job.plan_id is not None and job.run_id is not None
         template_repo = LifecycleRuntimeTemplateRepository(self.connection, self.realm_id)
         facts = template_repo.projection_facts(job.project_id, job.work_item_id)
-        source_revision, source_digest = str(facts[3]), str(facts[4])
-        template = template_repo.current(job.project_id, source_revision, self._policy(job.plan_id))
+        template_source_revision, source_digest = str(facts[3]), str(facts[4])
+        run_bindings = template_repo.run_bindings(job.run_id)
+        source_revision = str(run_bindings[0])
+        template = template_repo.current(
+            job.project_id, template_source_revision, self._policy(job.plan_id)
+        )
         candidate, manifest = _materialized_manifest(
             entry_digest=entry.entry_digest,
             work_item_id=job.work_item_id,
@@ -853,7 +857,6 @@ class ClaimedLifecycleBootstrapService:
         self._assert_turn_bindings(work=work, turn=turn, now=now)
         execution.create_turn_snapshot(turn)
         parent_authorization = authorizations.get(UUID(str(job.payload["authorization_id"])))
-        run_bindings = template_repo.run_bindings(job.run_id)
         envelope = ExecutionEnvelope.create(
             realm_id=self.realm_id,
             run_id=job.run_id,
