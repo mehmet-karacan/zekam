@@ -235,12 +235,17 @@ class CliMutationRule:
     exemption: MutationAdmissionExemption | None = None
     always_mutating: bool = False
     read_only_parameter: str | None = None
+    mutation_parameters: tuple[str, ...] = _APPLY_PARAMETER_NAMES
 
     def __post_init__(self) -> None:
         if not self.command_path or any(not item.strip() for item in self.command_path):
             raise PolicyViolation("CLI mutation command path bos olamaz")
         if self.read_only_parameter is not None and not self.always_mutating:
             raise PolicyViolation("CLI mutation read-only parameter always-mutating rule ister")
+        if not self.mutation_parameters or any(
+            not item.strip() for item in self.mutation_parameters
+        ):
+            raise PolicyViolation("CLI mutation parameter allowlist bos olamaz")
         if self.exemption is not None and self.command_path not in {
             **_EXEMPT_COMMANDS,
             **_LOCAL_EFFECT_COMMANDS,
@@ -257,7 +262,7 @@ class CliMutationRule:
         # direct registry callers may use the public option name (``uygula``).
         # Treat either true value as mutating so an alias mismatch can never
         # downgrade an effect to a read-only invocation.
-        return any(bool(parameters.get(name, False)) for name in _APPLY_PARAMETER_NAMES)
+        return any(bool(parameters.get(name, False)) for name in self.mutation_parameters)
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +369,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("worker", "codex-lifecycle-tick"): MutationAdmissionExemption.HYDRATION,
     ("worker", "client-runtime-bootstrap"): MutationAdmissionExemption.CONTROL_PLANE,
     ("worker", "lifecycle-template-prepare"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("worker", "lifecycle-template-recovery"): MutationAdmissionExemption.RECOVERY,
     ("worker", "lifecycle-template-tick"): MutationAdmissionExemption.CONTROL_PLANE,
     ("worker", "reconcile-failed-receipt"): MutationAdmissionExemption.RECOVERY,
     ("worker", "recovery-authorize"): MutationAdmissionExemption.RECOVERY,
@@ -430,6 +436,11 @@ class CliMutationAdmissionRegistry:
                     requires_full_continuity=True,
                     exemption=exemption,
                     always_mutating=command_path in _ALWAYS_MUTATING_FULL_CONTINUITY,
+                    mutation_parameters=(
+                        (*_APPLY_PARAMETER_NAMES, "authorize", "yetkilendir")
+                        if command_path == ("worker", "lifecycle-template-recovery")
+                        else _APPLY_PARAMETER_NAMES
+                    ),
                 )
             )
         rules.extend(

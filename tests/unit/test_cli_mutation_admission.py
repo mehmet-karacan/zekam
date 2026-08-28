@@ -180,6 +180,7 @@ def test_registry_exemptions_are_narrow_and_never_grant_authority() -> None:
         ("worker", "codex-lifecycle-tick"): MutationAdmissionExemption.HYDRATION,
         ("worker", "client-runtime-bootstrap"): MutationAdmissionExemption.CONTROL_PLANE,
         ("worker", "lifecycle-template-prepare"): MutationAdmissionExemption.CONTROL_PLANE,
+        ("worker", "lifecycle-template-recovery"): MutationAdmissionExemption.RECOVERY,
         ("worker", "lifecycle-template-tick"): MutationAdmissionExemption.CONTROL_PLANE,
         ("worker", "reconcile-failed-receipt"): MutationAdmissionExemption.RECOVERY,
         ("worker", "reconcile-recovery"): MutationAdmissionExemption.RECOVERY,
@@ -534,7 +535,6 @@ def test_apply_surface_has_exact_reviewed_hydration_partition() -> None:
         ("research", "start"),
         ("trace", "start"),
         ("trace", "stop"),
-        ("worker", "lifecycle-template-recovery"),
         ("work", "transition"),
     }
     exemptions = dict(DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.exemptions)
@@ -567,6 +567,23 @@ def test_idle_scheduled_catch_up_has_only_narrow_recovery_ordering_exemption(
     assert not admission.requires_existing_hydration
     assert admission.exemption is MutationAdmissionExemption.RECOVERY
     assert not admission.grants_authority
+
+
+def test_lifecycle_template_recovery_only_mutates_for_authorize_or_apply() -> None:
+    path = ("worker", "lifecycle-template-recovery")
+    registry = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY
+
+    assert not registry.classify(path, {}).mutating
+    for parameters in (
+        {"authorize": True},
+        {"yetkilendir": True},
+        {"apply": True},
+        {"uygula": True},
+    ):
+        admission = registry.classify(path, parameters)
+        assert admission.mutating
+        assert admission.exemption is MutationAdmissionExemption.RECOVERY
+        assert not admission.requires_existing_hydration
 
 
 def test_vendored_typer_current_context_dependency_is_exact_version_bound() -> None:
