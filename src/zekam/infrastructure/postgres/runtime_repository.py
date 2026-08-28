@@ -1011,8 +1011,11 @@ class EffectLedger:
             attempt = cursor.fetchone()
             if attempt is None:
                 raise NotFound("Recovery attempt bulunamadi")
-            if attempt[0] is not None:
+            terminal_recovery = attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value
+            if attempt[0] is not None and not terminal_recovery:
                 raise PolicyViolation("Recovery attempt zaten terminal")
+            if terminal_recovery and state is not JobState.RECOVERY_REQUIRED:
+                raise PolicyViolation("Recovery terminal attempt/job state drift")
             if int(attempt[1]) != request.fencing_token:
                 raise ConcurrencyConflict("Recovery attempt fencing token eslesmiyor")
 
@@ -1092,18 +1095,20 @@ class EffectLedger:
                 # receipt; never mint a second terminal result for the claim.
                 receipt = existing
                 created = False
-            cursor.execute(
-                "update runtime.job_attempt set outcome = 'succeeded', result_digest = %s,"
-                " finished_at = %s where id = %s and outcome is null and fencing_token = %s",
-                (
-                    request.result_digest,
-                    moment,
-                    request.attempt_id,
-                    request.fencing_token,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise ConcurrencyConflict("Recovery attempt terminal update reddedildi")
+            if not terminal_recovery:
+                cursor.execute(
+                    "update runtime.job_attempt set outcome = 'succeeded', result_digest = %s,"
+                    " finished_at = %s where id = %s and outcome is null"
+                    " and fencing_token = %s",
+                    (
+                        request.result_digest,
+                        moment,
+                        request.attempt_id,
+                        request.fencing_token,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConcurrencyConflict("Recovery attempt terminal update reddedildi")
             cursor.execute("delete from runtime.resource_lock where job_id = %s", (request.job_id,))
             if lease_id is not None:
                 cursor.execute("delete from runtime.lease where id = %s", (lease_id,))
@@ -1187,11 +1192,13 @@ class EffectLedger:
         attempt = cursor.fetchone()
         if attempt is None:
             raise NotFound("Recovery replay attempt bulunamadi")
-        if (
-            attempt[0] != AttemptOutcome.SUCCEEDED.value
-            or attempt[1] != request.result_digest
-            or int(attempt[2]) != request.fencing_token
-        ):
+        succeeded = (
+            attempt[0] == AttemptOutcome.SUCCEEDED.value and attempt[1] == request.result_digest
+        )
+        reconciled_terminal = (
+            attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value and attempt[1] is not None
+        )
+        if (not succeeded and not reconciled_terminal) or int(attempt[2]) != request.fencing_token:
             raise PolicyViolation("Recovery replay attempt sonucu drift")
         cursor.execute("select 1 from runtime.lease where job_id = %s", (request.job_id,))
         if cursor.fetchone() is not None:

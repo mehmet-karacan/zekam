@@ -105,6 +105,49 @@ class LifecycleRuntimeTemplateRepository:
             raise PolicyViolation("Lifecycle child active run bindings exact degil")
         return tuple(rows[0])
 
+    def current_for_bootstrap_job(self, job_id: UUID) -> LifecycleRuntimeTemplate:
+        """Resolve the current template before a bootstrap parent is claimed."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select job.project_id,run.source_revision,plan.policy_digest"
+                " from runtime.job job join runtime.execution_run run"
+                " on run.realm_id=job.realm_id and run.id=job.run_id"
+                " join work.task_plan plan on plan.realm_id=job.realm_id"
+                " and plan.id=job.plan_id where job.realm_id=%s and job.id=%s"
+                " and job.state in ('ready','running')"
+                " and job.kind='mutation' and job.max_attempts=1"
+                " and job.required_capabilities="
+                " array['client.lifecycle.codex-bootstrap']::text[]",
+                (self.realm_id, job_id),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Lifecycle bootstrap pre-claim job binding exact degil")
+        project_id, source_revision, policy_digest = rows[0]
+        return self.current(UUID(str(project_id)), str(source_revision), str(policy_digest))
+
+    def assert_rebootstrap_admissible(self, work_item_id: UUID) -> None:
+        """Require a closed prior bootstrap and no live ownership/effect ambiguity."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) filter(where job.step_id='client-lifecycle-bootstrap'),"
+                " count(*) filter(where job.state in ('ready','running','recovery-required')),"
+                " count(*) filter(where lease.id is not null),"
+                " count(*) filter(where pending.claim_id is not null)"
+                " from runtime.job job left join runtime.lease lease"
+                " on lease.realm_id=job.realm_id and lease.job_id=job.id"
+                " left join runtime.claim_without_receipt pending"
+                " on pending.realm_id=job.realm_id and pending.job_id=job.id"
+                " where job.realm_id=%s and job.work_item_id=%s",
+                (self.realm_id, work_item_id),
+            )
+            row = cursor.fetchone()
+        counts = () if row is None else tuple(int(value or 0) for value in row)
+        if len(counts) != 4 or counts[0] < 1 or any(counts[index] for index in (1, 2, 3)):
+            raise PolicyViolation("Lifecycle explicit re-bootstrap prior work acik veya belirsiz")
+
     def bootstrap_context(self, run_id: UUID) -> tuple[UUID, UUID, str, UUID, str]:
         """Resolve the one completed parent bootstrap envelope for a child run."""
 

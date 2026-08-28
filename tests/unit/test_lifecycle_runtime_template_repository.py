@@ -41,10 +41,23 @@ class _Connection:
 
 def _row() -> tuple[object, ...]:
     return (
-        uuid4(), digest("context"), uuid4(), digest("route"),
-        dt.datetime(2030, 1, 1, tzinfo=dt.UTC), uuid4(), digest("target"), "model-a",
-        uuid4(), digest("provider"), "provider:model-a", "endpoint:a", "invoke",
-        uuid4(), digest("environment"), digest("capability"), digest("tools"),
+        uuid4(),
+        digest("context"),
+        uuid4(),
+        digest("route"),
+        dt.datetime(2030, 1, 1, tzinfo=dt.UTC),
+        uuid4(),
+        digest("target"),
+        "model-a",
+        uuid4(),
+        digest("provider"),
+        "provider:model-a",
+        "endpoint:a",
+        "invoke",
+        uuid4(),
+        digest("environment"),
+        digest("capability"),
+        digest("tools"),
         digest("config"),
         digest("hooks"),
         digest("hook-config"),
@@ -97,8 +110,34 @@ def test_bootstrap_parent_selector_is_exact_and_bounded() -> None:
 
 
 def test_bootstrap_parent_selector_fails_closed_on_ambiguity() -> None:
-    repository = LifecycleRuntimeTemplateRepository(
-        _Connection([(uuid4(),), (uuid4(),)]), uuid4()
-    )
+    repository = LifecycleRuntimeTemplateRepository(_Connection([(uuid4(),), (uuid4(),)]), uuid4())
     with pytest.raises(PolicyViolation, match="belirsiz"):
         repository.next_bootstrap_job_id()
+
+
+def test_bootstrap_template_is_resolved_from_exact_preclaim_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id, job_id, realm_id = uuid4(), uuid4(), uuid4()
+    policy_digest = digest("policy")
+    connection = _Connection([(project_id, "source-a", policy_digest)])
+    expected = object()
+    observed: list[tuple[object, ...]] = []
+
+    def current(
+        _self: LifecycleRuntimeTemplateRepository,
+        selected_project_id: object,
+        source_revision: str,
+        selected_policy_digest: str,
+    ) -> object:
+        observed.append((selected_project_id, source_revision, selected_policy_digest))
+        return expected
+
+    monkeypatch.setattr(LifecycleRuntimeTemplateRepository, "current", current)
+    resolved = LifecycleRuntimeTemplateRepository(connection, realm_id).current_for_bootstrap_job(
+        job_id
+    )
+
+    assert resolved is expected
+    assert observed == [(project_id, "source-a", policy_digest)]
+    assert "job.state in ('ready','running')" in connection.current_cursor.query

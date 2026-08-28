@@ -21,7 +21,11 @@ from zekam.application.execution import ExecutionHost
 from zekam.application.governance import GovernanceService
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
-from zekam.application.worker import WorkerSettings, run_codex_lifecycle_once
+from zekam.application.worker import (
+    WorkerSettings,
+    run_codex_lifecycle_bootstrap_once,
+    run_codex_lifecycle_once,
+)
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.execution_environment import (
@@ -141,7 +145,7 @@ def test_bootstrap_is_atomic_exact_and_leaves_effect_for_worker(
     assert builder.write_resources == (prepared.resource,)
     assert verifier.read_resources == (prepared.resource,)
 
-    with pytest.raises(PolicyViolation, match="proposed Work"):
+    with pytest.raises(PolicyViolation, match="exact Work state"):
         service.prepare(
             project_id=project.id,
             work_item_id=work.id,
@@ -151,6 +155,85 @@ def test_bootstrap_is_atomic_exact_and_leaves_effect_for_worker(
             entry_digest=prepared.entry_digest,
             source_revision=prepared.source_revision,
         )
+
+
+def test_missing_runtime_template_rejects_before_parent_claim(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    realm, connection = realm_session
+    GovernanceService(connection, realm).ensure_default_policy()
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="template-preclaim-reviewer")
+    )
+    source = tmp_path / "missing-template-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(
+        source_path=source, slug="missing-template-bootstrap"
+    )
+    graph = WorkGraphService(connection, realm, actor_id=actor.id)
+    work = graph.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Missing template must fail before claim",
+        acceptance_criteria=(AcceptanceCriterion("no parent claim"),),
+    )
+    now = dt.datetime.now(dt.UTC)
+    home = tmp_path / "missing-template-home"
+    spool = ClientLifecycleSpool(home, client_id="codex")
+    hook = parse_codex_hook_input(
+        json.dumps(
+            {
+                "session_id": str(uuid4()),
+                "hook_event_name": "SessionStart",
+                "source": "startup",
+                "permission_mode": "default",
+            }
+        )
+    )
+    entry = spool.stage(
+        hook.observation_body(client_version=CODEX_REVIEWED_VERSION),
+        delivery_id=hook.delivery_id(
+            occurrence_id=str(uuid4()), client_version=CODEX_REVIEWED_VERSION
+        ),
+        occurred_at=now,
+    )
+    service = ClientRuntimeBootstrapService(connection, realm)
+    plan = service.prepare(
+        project_id=project.id,
+        work_item_id=work.id,
+        actor_id=actor.id,
+        client_id="codex",
+        session_id=entry.session_id,
+        entry_digest=entry.entry_digest,
+        source_revision="git:missing-template",
+        now=now,
+    )
+    applied = service.apply(
+        plan,
+        supplied_plan_digest=plan.plan_digest,
+        current_entry_digest=entry.entry_digest,
+        current_source_revision=plan.source_revision,
+        now=now,
+    )
+
+    with pytest.raises(PolicyViolation, match="template eksik"):
+        run_codex_lifecycle_bootstrap_once(
+            connection,
+            realm.id,
+            home=home,
+            settings=WorkerSettings(
+                worker_label="template-preclaim-worker",
+                capabilities=("client.lifecycle.codex-bootstrap",),
+                max_iterations=1,
+            ),
+        )
+    parent = JobRepository(connection, realm.id).get(applied.job_id)
+    assert parent.state is JobState.READY
+    assert parent.attempt_count == 0
+    assert (
+        ExecutionHost(connection, realm.id, worker_label="verify").ledger.claims_for_job(parent.id)
+        == ()
+    )
 
 
 def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
@@ -401,7 +484,7 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     with connection.cursor() as cursor:
         cursor.execute(
             "select count(*) from runtime.job where realm_id=%s and run_id=%s"
-            " and state in ('ready','running','recovery_required')",
+                " and state in ('ready','running','recovery-required')",
             (realm.id, child.run_id),
         )
         assert cursor.fetchone()[0] == 0
@@ -412,3 +495,27 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
             (realm.id, child.run_id),
         )
         assert cursor.fetchone()[0] == 0
+
+    rebootstrap = service.prepare(
+        project_id=base_run.project_id,
+        work_item_id=work_item.id,
+        actor_id=actor.id,
+        client_id="codex",
+        session_id=entry.session_id,
+        entry_digest=entry.entry_digest,
+        source_revision=base_run.source_revision,
+        rebootstrap=True,
+        now=now + dt.timedelta(seconds=1),
+    )
+    assert rebootstrap.rebootstrap is True
+    reapplied = service.apply(
+        rebootstrap,
+        supplied_plan_digest=rebootstrap.plan_digest,
+        current_entry_digest=entry.entry_digest,
+        current_source_revision=base_run.source_revision,
+        now=now + dt.timedelta(seconds=1),
+    )
+    assert reapplied.task_plan_id != applied.task_plan_id
+    assert JobRepository(connection, realm.id).get(reapplied.job_id).state is JobState.READY
+    assert graph.snapshot(work_item.id).plan is not None
+    assert graph.snapshot(work_item.id).plan.revision == 2

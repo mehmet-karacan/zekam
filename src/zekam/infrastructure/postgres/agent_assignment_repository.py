@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -106,6 +107,34 @@ class AgentAssignmentRepository:
                         (self.realm_id, assignment.id, resource, mode),
                     )
             return UUID(str(row[0])), True
+
+    def complete_terminal_plan(self, plan_id: UUID, *, now: dt.datetime) -> int:
+        """Close prior assignments only after all plan jobs are unambiguously terminal."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*),count(*) filter(where state in"
+                " ('ready','running','recovery-required')) from runtime.job"
+                " where realm_id=%s and plan_id=%s",
+                (self.realm_id, plan_id),
+            )
+            row = cursor.fetchone()
+            if row is None or int(row[0] or 0) < 1 or int(row[1] or 0) != 0:
+                raise PolicyViolation("Terminal plan assignment closure job state drift")
+            cursor.execute(
+                "select count(*) from runtime.claim_without_receipt claim"
+                " join runtime.job job on job.realm_id=claim.realm_id and job.id=claim.job_id"
+                " where claim.realm_id=%s and job.plan_id=%s",
+                (self.realm_id, plan_id),
+            )
+            if int(cursor.fetchone()[0]) != 0:
+                raise PolicyViolation("Terminal plan assignment closure receiptless claim tasiyor")
+            cursor.execute(
+                "update agents.assignment set status='completed',terminal_at=%s"
+                " where realm_id=%s and plan_id=%s and status in ('ready','active')",
+                (now, self.realm_id, plan_id),
+            )
+            return int(cursor.rowcount)
 
     def record_invocation(self, invocation: AgentInvocation) -> tuple[UUID, bool]:
         if invocation.realm_id != self.realm_id:

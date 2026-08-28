@@ -739,7 +739,54 @@ def test_reconciled_completion_accepts_exact_reclaimed_receiptless_claim(
     assert finalized.created
     assert finalized.receipt.status is ReceiptStatus.COMPLETED
     assert host.jobs.get(work.job.id).state is JobState.COMPLETED
+    replayed = host.finalize_reconciled_completion(
+        _recovery_request(work, claim), now=RECOVERY_NOW + dt.timedelta(seconds=3)
+    )
+    assert replayed.created is False
+    assert replayed.receipt == finalized.receipt
     assert host.ledger.receipt_for_claim(claim.id) == finalized.receipt
+
+
+def test_reconciled_completion_accepts_worker_terminal_recovery_attempt(
+    host: ExecutionHost, realm_session: tuple[Realm, Any], project_id: Any
+) -> None:
+    realm, connection = realm_session
+    host.jobs.enqueue(_job(project_id, realm, now=RECOVERY_NOW))
+    work = host.acquire_work(capabilities=("sandbox.write",), now=RECOVERY_NOW)
+    assert work is not None
+    claim = host.claim_effect(
+        work,
+        operation="file-write",
+        effect_digest=DIGEST,
+        authorization_digest=DIGEST,
+        resources=(),
+        adapter_digest=DIGEST,
+        now=RECOVERY_NOW,
+    )
+    assert host.finish(
+        work,
+        outcome=AttemptOutcome.RECOVERY_REQUIRED,
+        result_digest=DIGEST,
+        now=RECOVERY_NOW + dt.timedelta(seconds=1),
+    )
+    assert host.jobs.get(work.job.id).state is JobState.RECOVERY_REQUIRED
+    with connection.cursor() as cursor:
+        cursor.execute("select count(*) from runtime.lease where job_id = %s", (work.job.id,))
+        assert int(cursor.fetchone()[0]) == 0
+
+    finalized = host.finalize_reconciled_completion(
+        _recovery_request(work, claim), now=RECOVERY_NOW + dt.timedelta(seconds=2)
+    )
+
+    assert finalized.created
+    assert finalized.receipt.status is ReceiptStatus.COMPLETED
+    assert host.jobs.get(work.job.id).state is JobState.COMPLETED
+
+    replayed = host.finalize_reconciled_completion(
+        _recovery_request(work, claim), now=RECOVERY_NOW + dt.timedelta(seconds=3)
+    )
+    assert replayed.created is False
+    assert replayed.receipt == finalized.receipt
 
 
 def test_reconciled_completion_closes_crash_after_terminal_receipt_without_duplicate(

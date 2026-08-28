@@ -725,6 +725,10 @@ def run_codex_lifecycle_bootstrap_once(
         raise PolicyViolation("Codex lifecycle bootstrap exact queue identity eksik")
     if job.payload.get("entry_digest") != entry.entry_digest:
         raise PolicyViolation("Codex lifecycle bootstrap spool head drift")
+    # Template readiness is an admission precondition.  Fail before creating a
+    # job attempt/lease/effect claim so missing control-plane state cannot strand
+    # a receiptless parent mutation.
+    repository.current_for_bootstrap_job(job.id)
     work = host.jobs.claim_exact(
         job.id,
         project_id=job.project_id,

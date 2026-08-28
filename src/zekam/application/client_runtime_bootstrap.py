@@ -113,6 +113,7 @@ class ClientRuntimeBootstrapPlan:
     bootstrap_resource: str
     lifecycle_resource: str
     prepared_at: dt.datetime
+    rebootstrap: bool
 
     def body(self) -> dict[str, Any]:
         return {
@@ -129,6 +130,7 @@ class ClientRuntimeBootstrapPlan:
             "policy_digest": self.policy_digest,
             "bootstrap_resource": self.bootstrap_resource,
             "lifecycle_resource": self.lifecycle_resource,
+            "rebootstrap": self.rebootstrap,
             "strategy": "control-plane-only-then-governed-worker-tick",
             "grants_authority": False,
         }
@@ -195,6 +197,7 @@ class ClientRuntimeBootstrapService:
         session_id: str,
         entry_digest: str,
         source_revision: str,
+        rebootstrap: bool = False,
         now: dt.datetime | None = None,
     ) -> ClientRuntimeBootstrapPlan:
         moment = now or dt.datetime.now(dt.UTC)
@@ -203,8 +206,13 @@ class ClientRuntimeBootstrapService:
         if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
             raise PolicyViolation("Client runtime bootstrap aktif human actor ister")
         work = graph.items.get(work_item_id)
-        if work.project_id != project_id or work.state is not WorkState.PROPOSED:
-            raise PolicyViolation("Client runtime bootstrap exact proposed Work ister")
+        expected_state = WorkState.ACTIVE if rebootstrap else WorkState.PROPOSED
+        if work.project_id != project_id or work.state is not expected_state:
+            raise PolicyViolation("Client runtime bootstrap exact Work state ister")
+        if rebootstrap:
+            LifecycleRuntimeTemplateRepository(
+                self.connection, self.realm.id
+            ).assert_rebootstrap_admissible(work_item_id)
         if not graph.snapshot(work_item_id).is_actionable:
             raise PolicyViolation("Client runtime bootstrap Work actionable degil")
         if client_id != "codex" or not session_id.strip():
@@ -229,6 +237,7 @@ class ClientRuntimeBootstrapService:
             bootstrap_resource=bootstrap_resource,
             lifecycle_resource=lifecycle_resource,
             prepared_at=moment,
+            rebootstrap=rebootstrap,
         )
 
     def apply(
@@ -256,7 +265,7 @@ class ClientRuntimeBootstrapService:
         work = graph.items.get(plan.work_item_id)
         if (
             work.project_id != plan.project_id
-            or work.state is not WorkState.PROPOSED
+            or work.state is not (WorkState.ACTIVE if plan.rebootstrap else WorkState.PROPOSED)
             or work.revision != plan.work_revision
             or not graph.snapshot(work.id).is_actionable
         ):
@@ -265,7 +274,12 @@ class ClientRuntimeBootstrapService:
         assignments = AgentAssignmentRepository(self.connection, self.realm.id)
         runs = ExecutionRunRepository(self.connection, self.realm.id)
         jobs = JobRepository(self.connection, self.realm.id)
+        prior_plan = graph.snapshot(work.id).plan
         with self.connection.transaction():
+            if plan.rebootstrap:
+                if prior_plan is None:
+                    raise PolicyViolation("Explicit re-bootstrap prior reviewed Plan ister")
+                assignments.complete_terminal_plan(prior_plan.id, now=moment)
             graph.set_intent(
                 work.id,
                 goal="Pending Codex lifecycle deliverysini governed worker ile tamamla",
@@ -297,8 +311,13 @@ class ClientRuntimeBootstrapService:
                 ),
                 now=moment,
             )
-            graph.transition(work.id, WorkState.READY, now=moment)
-            graph.transition(work.id, WorkState.ACTIVE, now=moment)
+            if not plan.rebootstrap:
+                graph.transition(work.id, WorkState.READY, now=moment)
+                graph.transition(work.id, WorkState.ACTIVE, now=moment)
+            else:
+                LifecycleRuntimeTemplateRepository(
+                    self.connection, self.realm.id
+                ).assert_rebootstrap_admissible(work.id)
             run = ExecutionRun.create(
                 id=new_uuid7(now=moment),
                 realm_id=self.realm.id,
@@ -407,7 +426,11 @@ class ClientRuntimeBootstrapService:
                     realm_id=self.realm.id,
                     project_id=plan.project_id,
                     kind=JobKind.MUTATION,
-                    idempotency_key=f"codex-lifecycle-bootstrap:{plan.entry_digest}",
+                    idempotency_key=(
+                        f"codex-lifecycle-bootstrap:{plan.entry_digest}:plan:{task_plan.id}"
+                        if plan.rebootstrap
+                        else f"codex-lifecycle-bootstrap:{plan.entry_digest}"
+                    ),
                     resources=parse_requests(write=(plan.bootstrap_resource,)),
                     required_capabilities=(_CAPABILITY,),
                     max_attempts=1,
@@ -522,6 +545,12 @@ class ClaimedLifecycleBootstrapService:
             != tuple(str(request.resource) for request in job.resources)
         ):
             raise PolicyViolation("Lifecycle bootstrap exact authorization drift")
+        # Defensive revalidation immediately before claim-before-effect.  The
+        # worker already checked this before queue claim; this closes direct
+        # service callers and rejects any intervening template drift.
+        LifecycleRuntimeTemplateRepository(
+            self.connection, self.realm_id
+        ).current_for_bootstrap_job(job.id)
         host = ExecutionHost(self.connection, self.realm_id, worker_label=work.lease.worker_label)
         claim = host.claim_effect(
             work,
