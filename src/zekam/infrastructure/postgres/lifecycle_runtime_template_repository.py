@@ -11,6 +11,22 @@ from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import PolicyViolation
 
 
+def _template_source_revision(run_source_revision: str) -> str:
+    """Map a dirty-aware run identity to its immutable Git template revision."""
+
+    marker = ";state:sha256:"
+    if run_source_revision.startswith("git:") and marker in run_source_revision:
+        revision, state_digest = run_source_revision[4:].split(marker, 1)
+        if (
+            len(revision) == 40
+            and all(character in "0123456789abcdef" for character in revision)
+            and len(state_digest) == 64
+            and all(character in "0123456789abcdef" for character in state_digest)
+        ):
+            return revision
+    return run_source_revision
+
+
 @dataclass(frozen=True, slots=True)
 class LifecycleRuntimeTemplate:
     project_id: UUID
@@ -125,7 +141,11 @@ class LifecycleRuntimeTemplateRepository:
         if len(rows) != 1:
             raise PolicyViolation("Lifecycle bootstrap pre-claim job binding exact degil")
         project_id, source_revision, policy_digest = rows[0]
-        return self.current(UUID(str(project_id)), str(source_revision), str(policy_digest))
+        return self.current(
+            UUID(str(project_id)),
+            _template_source_revision(str(source_revision)),
+            str(policy_digest),
+        )
 
     def assert_rebootstrap_admissible(self, work_item_id: UUID) -> None:
         """Require a closed prior bootstrap and no live ownership/effect ambiguity."""

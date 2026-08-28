@@ -120,7 +120,15 @@ def test_bootstrap_template_is_resolved_from_exact_preclaim_job(
 ) -> None:
     project_id, job_id, realm_id = uuid4(), uuid4(), uuid4()
     policy_digest = digest("policy")
-    connection = _Connection([(project_id, "source-a", policy_digest)])
+    connection = _Connection(
+        [
+            (
+                project_id,
+                "git:" + "a" * 40 + ";state:sha256:" + "b" * 64,
+                policy_digest,
+            )
+        ]
+    )
     expected = object()
     observed: list[tuple[object, ...]] = []
 
@@ -139,5 +147,5 @@ def test_bootstrap_template_is_resolved_from_exact_preclaim_job(
     )
 
     assert resolved is expected
-    assert observed == [(project_id, "source-a", policy_digest)]
+    assert observed == [(project_id, "a" * 40, policy_digest)]
     assert "job.state in ('ready','running')" in connection.current_cursor.query
