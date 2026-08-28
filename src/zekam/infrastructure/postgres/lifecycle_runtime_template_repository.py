@@ -232,6 +232,44 @@ class LifecycleRuntimeTemplateRepository:
         source_revision: str,
         policy_digest: str,
     ) -> LifecycleRuntimeTemplate:
+        return self._at_timestamp(project_id, source_revision, policy_digest, as_of=None)
+
+    def at_effect(self, job_id: UUID, claim_id: UUID) -> LifecycleRuntimeTemplate:
+        """Resolve the exact template that was current when a receiptless effect began."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select job.project_id,job.payload->>'source_revision',"
+                " job.payload->>'policy_digest',claim.claimed_at"
+                " from runtime.job job join runtime.effect_claim claim"
+                " on claim.realm_id=job.realm_id and claim.job_id=job.id"
+                " join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
+                " and attempt.id=claim.attempt_id and attempt.job_id=job.id"
+                " where job.realm_id=%s and job.id=%s and claim.id=%s"
+                " and job.payload->>'schema'='zekam-lifecycle-template-prepare-job/v1'"
+                " and claim.operation='lifecycle-template-prepare'"
+                " and claim.fencing_token=job.fencing_token"
+                " and attempt.fencing_token=claim.fencing_token"
+                " and not exists(select 1 from runtime.effect_receipt receipt"
+                " where receipt.realm_id=claim.realm_id and receipt.claim_id=claim.id)",
+                (self.realm_id, job_id, claim_id),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Lifecycle recovery exact receiptless effect ister")
+        row = rows[0]
+        return self._at_timestamp(
+            UUID(str(row[0])), str(row[1]), str(row[2]), as_of=row[3]
+        )
+
+    def _at_timestamp(
+        self,
+        project_id: UUID,
+        source_revision: str,
+        policy_digest: str,
+        *,
+        as_of: dt.datetime | None,
+    ) -> LifecycleRuntimeTemplate:
         if not source_revision.strip():
             raise PolicyViolation("Lifecycle runtime template source revision ister")
         parse_digest(policy_digest)
@@ -241,7 +279,9 @@ class LifecycleRuntimeTemplateRepository:
                 " select c.*,dense_rank() over(order by c.captured_at desc) freshness"
                 " from projects.routing_context_snapshot c"
                 " where c.realm_id=%s and c.project_id=%s and c.source_revision=%s"
-                " and c.policy_digest=%s and c.expires_at>statement_timestamp()),"
+                " and c.policy_digest=%s"
+                " and c.captured_at<=coalesce(%s,statement_timestamp())"
+                " and c.expires_at>coalesce(%s,statement_timestamp())),"
                 " current_context as (select * from context_candidates where freshness=1),"
                 " route_candidates as ("
                 " select d.*,t.snapshot_digest target_digest,t.expires_at target_expires_at,"
@@ -255,13 +295,17 @@ class LifecycleRuntimeTemplateRepository:
                 " and d.project_context_id is null and d.inventory_digest=c.inventory_digest))"
                 " where d.realm_id=%s and d.status='selected' and d.policy_digest=%s"
                 " and t.client_id='codex' and t.slot='lifecycle'"
-                " and t.expires_at>statement_timestamp()),"
+                " and d.decided_at<=coalesce(%s,statement_timestamp())"
+                " and t.captured_at<=coalesce(%s,statement_timestamp())"
+                " and t.expires_at>coalesce(%s,statement_timestamp())),"
                 " current_route as (select * from route_candidates where freshness=1),"
                 " provider_candidates as ("
                 " select p.*,dense_rank() over(order by p.captured_at desc) freshness"
                 " from models.provider_binding_snapshot p join current_route r"
                 " on r.realm_id=p.realm_id and r.primary_model_id=p.model_id"
-                " where p.realm_id=%s and p.expires_at>statement_timestamp()),"
+                " where p.realm_id=%s"
+                " and p.captured_at<=coalesce(%s,statement_timestamp())"
+                " and p.expires_at>coalesce(%s,statement_timestamp())),"
                 " current_provider as (select * from provider_candidates where freshness=1),"
                 " environment_candidates as ("
                 " select e.*,dense_rank() over(order by probe.checked_at desc) freshness"
@@ -272,15 +316,20 @@ class LifecycleRuntimeTemplateRepository:
                 " on current_env.realm_id=probe.realm_id"
                 " and current_env.snapshot_digest=probe.current_snapshot_digest"
                 " where probe.realm_id=%s and probe.drift_dimensions='{}'::text[]"
-                " and e.source_revision=%s and e.expires_at>statement_timestamp()"
-                " and current_env.expires_at>statement_timestamp()),"
+                " and probe.checked_at<=coalesce(%s,statement_timestamp())"
+                " and e.source_revision=%s"
+                " and e.captured_at<=coalesce(%s,statement_timestamp())"
+                " and e.expires_at>coalesce(%s,statement_timestamp())"
+                " and current_env.captured_at<=coalesce(%s,statement_timestamp())"
+                " and current_env.expires_at>coalesce(%s,statement_timestamp())),"
                 " current_environment as ("
                 " select * from environment_candidates where freshness=1)"
                 " select c.id,c.context_digest,r.id,r.evidence_digest,r.target_expires_at,"
                 " r.execution_target_id,r.target_digest,r.primary_model_id,"
                 " p.id,p.binding_digest,p.provider_ref,p.endpoint_ref,p.operation,"
                 " e.id,e.snapshot_digest,e.capability_digest,e.tool_runtime_digest,"
-                " e.config_effective_digest,hooks.hook_set_digest,compiled.config_effective_digest,"
+                " e.config_effective_digest,compiled.hook_set_digest,"
+                " compiled.config_effective_digest,"
                 " tool_set.tool_set_digest"
                 " from current_context c cross join current_route r"
                 " cross join current_provider p cross join current_environment e"
@@ -288,21 +337,35 @@ class LifecycleRuntimeTemplateRepository:
                 " where item.realm_id=e.realm_id and item.role='builder'"
                 " and item.permission_profile_digest=e.permission_profile_digest"
                 " order by item.created_at desc,item.id desc limit 1) tool_set"
-                " join hooks.current_generation hooks on hooks.realm_id=%s"
-                " join hooks.compiled_set compiled on compiled.realm_id=hooks.realm_id"
-                " and compiled.id=hooks.compiled_set_id"
-                " and compiled.config_effective_digest=e.config_effective_digest",
+                " cross join lateral(select hook_set.hook_set_digest,"
+                " hook_set.config_effective_digest from hooks.compiled_set hook_set"
+                " where hook_set.realm_id=e.realm_id"
+                " and hook_set.config_effective_digest=e.config_effective_digest"
+                " and hook_set.created_at<=coalesce(%s,statement_timestamp())"
+                " order by hook_set.created_at desc,hook_set.id desc limit 1) compiled",
                 (
                     self.realm_id,
                     project_id,
                     source_revision,
                     policy_digest,
+                    as_of,
+                    as_of,
                     self.realm_id,
                     policy_digest,
+                    as_of,
+                    as_of,
+                    as_of,
                     self.realm_id,
+                    as_of,
+                    as_of,
                     self.realm_id,
+                    as_of,
                     source_revision,
-                    self.realm_id,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
                 ),
             )
             rows = cursor.fetchall()

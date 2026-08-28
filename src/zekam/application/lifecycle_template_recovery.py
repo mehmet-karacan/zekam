@@ -147,9 +147,9 @@ class LifecycleTemplateRecoveryService:
             raise PolicyViolation(
                 "Lifecycle template recovery expired lease ve eksik envelope ister"
             )
-        template = LifecycleRuntimeTemplateRepository(self.connection, self.realm.id).current(
-            job.project_id, plan.source_revision, plan.policy_digest
-        )
+        template = LifecycleRuntimeTemplateRepository(
+            self.connection, self.realm.id
+        ).at_effect(job.id, claim.id)
         template_digest = _template_digest(template)
         result_digest = digest(
             {
