@@ -80,6 +80,7 @@ from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
 from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
 from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
+    LifecycleRuntimeTemplate,
     LifecycleRuntimeTemplateRepository,
 )
 from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
@@ -702,6 +703,7 @@ def _bind_prepare_runtime(
     result: dict[str, Any],
     now: dt.datetime,
     journal_created_at: dt.datetime | None = None,
+    template_override: LifecycleRuntimeTemplate | None = None,
 ) -> tuple[UUID, UUID, ActiveLifecycleExecution]:
     """Bind the claimed provider-free preparation to immutable execution evidence."""
 
@@ -709,7 +711,15 @@ def _bind_prepare_runtime(
     assert job.work_item_id is not None and job.plan_id is not None and job.run_id is not None
     assert job.assignment_id is not None
     template_repo = LifecycleRuntimeTemplateRepository(connection, realm.id)
-    template = template_repo.current(plan.project_id, plan.source_revision, plan.policy_digest)
+    template = template_override or template_repo.current(
+        plan.project_id, plan.source_revision, plan.policy_digest
+    )
+    if (
+        template.project_id != plan.project_id
+        or template.source_revision != plan.source_revision
+        or template.policy_digest != plan.policy_digest
+    ):
+        raise PolicyViolation("Lifecycle template runtime override binding drift")
     candidate, manifest = _prepare_manifest(plan, job.work_item_id)
     context = ContextContinuityRepository(
         connection, realm.id, job.project_id, job.work_item_id

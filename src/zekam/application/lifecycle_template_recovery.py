@@ -277,6 +277,11 @@ class LifecycleTemplateRecoveryService:
         old_authorization = AuthorizationRepository(self.connection, self.realm.id).get(
             UUID(str(job.payload["authorization_id"]))
         )
+        historical_template = LifecycleRuntimeTemplateRepository(
+            self.connection, self.realm.id
+        ).at_effect(job.id, claim.id)
+        if _template_digest(historical_template) != plan.template_digest:
+            raise PolicyViolation("Lifecycle template recovery historical template drift")
         runtime: list[Any] = []
 
         def before(
@@ -334,6 +339,7 @@ class LifecycleTemplateRecoveryService:
                     result=recovered_result,
                     now=terminal_at,
                     journal_created_at=plan.reconciliation.checkpoint.created_at,
+                    template_override=historical_template,
                 )
             )
             JobRepository(self.connection, self.realm.id).mark_recovery_required(

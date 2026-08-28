@@ -238,6 +238,7 @@ class LifecycleRuntimeTemplateRepository:
             policy_digest,
             validity_as_of=None,
             captured_through=None,
+            required_deadline=None,
         )
 
     def at_effect(self, job_id: UUID, claim_id: UUID) -> LifecycleRuntimeTemplate:
@@ -246,7 +247,8 @@ class LifecycleRuntimeTemplateRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select job.project_id,job.payload->>'source_revision',"
-                " job.payload->>'policy_digest',claim.claimed_at,lease.expires_at"
+                " job.payload->>'policy_digest',claim.claimed_at,lease.expires_at,"
+                " run.deadline"
                 " from runtime.job job join runtime.effect_claim claim"
                 " on claim.realm_id=job.realm_id and claim.job_id=job.id"
                 " join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
@@ -254,6 +256,8 @@ class LifecycleRuntimeTemplateRepository:
                 " join runtime.lease lease on lease.realm_id=job.realm_id"
                 " and lease.job_id=job.id and lease.attempt_id=attempt.id"
                 " and lease.fencing_token=claim.fencing_token"
+                " join runtime.execution_run run on run.realm_id=job.realm_id"
+                " and run.id=job.run_id"
                 " where job.realm_id=%s and job.id=%s and claim.id=%s"
                 " and job.payload->>'schema'='zekam-lifecycle-template-prepare-job/v1'"
                 " and claim.operation='lifecycle-template-prepare'"
@@ -272,7 +276,8 @@ class LifecycleRuntimeTemplateRepository:
             str(row[1]),
             str(row[2]),
             validity_as_of=row[3],
-            captured_through=row[4],
+            captured_through=max(row[4], row[3] + dt.timedelta(seconds=30)),
+            required_deadline=row[5],
         )
 
     def _at_timestamp(
@@ -283,6 +288,7 @@ class LifecycleRuntimeTemplateRepository:
         *,
         validity_as_of: dt.datetime | None,
         captured_through: dt.datetime | None,
+        required_deadline: dt.datetime | None,
     ) -> LifecycleRuntimeTemplate:
         if not source_revision.strip():
             raise PolicyViolation("Lifecycle runtime template source revision ister")
@@ -311,7 +317,8 @@ class LifecycleRuntimeTemplateRepository:
                 " and t.client_id='codex' and t.slot='lifecycle'"
                 " and d.decided_at<=coalesce(%s,statement_timestamp())"
                 " and t.captured_at<=coalesce(%s,statement_timestamp())"
-                " and t.expires_at>coalesce(%s,statement_timestamp())),"
+                " and t.expires_at>coalesce(%s,statement_timestamp())"
+                " and t.expires_at>=coalesce(%s,t.expires_at)),"
                 " current_route as (select * from route_candidates where freshness=1),"
                 " provider_candidates as ("
                 " select p.*,dense_rank() over(order by p.captured_at desc) freshness"
@@ -370,6 +377,7 @@ class LifecycleRuntimeTemplateRepository:
                     captured_through,
                     captured_through,
                     validity_as_of,
+                    required_deadline,
                     self.realm_id,
                     captured_through,
                     validity_as_of,
