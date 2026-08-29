@@ -304,7 +304,7 @@ def reconcile_terminal_run_command(
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
-    """Yalniz terminal failed job'lara bagli stale active run'i kapatir."""
+    """Terminal failed veya newer run ile supersede edilmis stale active run'i kapatir."""
     try:
         with RealmSession(home, realm) as realm_context:
             service = TerminalRunReconciliationService(

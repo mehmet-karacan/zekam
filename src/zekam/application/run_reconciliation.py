@@ -29,6 +29,8 @@ class TerminalRunReconciliationPlan:
     work_item_id: UUID
     task_plan_id: UUID
     evidence_digest: str
+    mode: str = "failed-terminal-job"
+    superseded_by_run_id: UUID | None = None
 
     @property
     def resource(self) -> str:
@@ -46,6 +48,10 @@ class TerminalRunReconciliationPlan:
                 "work_item_id": str(self.work_item_id),
                 "task_plan_id": str(self.task_plan_id),
                 "target_state": "failed",
+                "mode": self.mode,
+                "superseded_by_run_id": (
+                    None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
+                ),
                 "evidence_digest": self.evidence_digest,
             }
         )
@@ -67,6 +73,10 @@ class TerminalRunReconciliationPlan:
             "work_item_id": str(self.work_item_id),
             "task_plan_id": str(self.task_plan_id),
             "target_state": "failed",
+            "mode": self.mode,
+            "superseded_by_run_id": (
+                None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
+            ),
             "evidence_digest": self.evidence_digest,
             "resource": self.resource,
             "plan_digest": self.plan_digest,
@@ -90,7 +100,7 @@ class TerminalRunReconciliationService:
         moment = now or dt.datetime.now(dt.UTC)
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select project_id,work_item_id,plan_id from runtime.execution_run"
+                "select project_id,work_item_id,plan_id,created_at from runtime.execution_run"
                 " where realm_id=%s and id=%s and state='active'",
                 (self.realm.id, run_id),
             )
@@ -114,8 +124,8 @@ class TerminalRunReconciliationService:
                 (self.realm.id, run_id),
             )
             rows = cursor.fetchall()
-            if not rows or not any(str(row[1]) == "failed" for row in rows):
-                raise PolicyViolation("Run reconciliation en az bir failed terminal job ister")
+            if not rows:
+                raise PolicyViolation("Run reconciliation terminal job kaniti ister")
             if any(str(row[1]) not in {"completed", "failed", "cancelled"} for row in rows):
                 raise PolicyViolation("Run reconciliation live job varken reddedildi")
             if any(row[3] is None or row[4] is None for row in rows):
@@ -130,6 +140,37 @@ class TerminalRunReconciliationService:
             )
             if int(cursor.fetchone()[0]) != 0:
                 raise PolicyViolation("Run reconciliation live lease varken reddedildi")
+            failed_terminal = any(str(row[1]) == "failed" for row in rows)
+            superseded_by_run_id: UUID | None = None
+            mode = "failed-terminal-job"
+            if not failed_terminal:
+                if any(str(row[1]) != "completed" for row in rows):
+                    raise PolicyViolation(
+                        "Run reconciliation failed veya completed-only terminal job ister"
+                    )
+                if any(
+                    row[6] is None
+                    or row[7] is None
+                    or str(row[8]) != "completed"
+                    or row[9] is None
+                    for row in rows
+                ):
+                    raise PolicyViolation(
+                        "Run reconciliation completed-only terminal receipt zinciri ister"
+                    )
+                cursor.execute(
+                    "select id from runtime.execution_run where realm_id=%s"
+                    " and project_id=%s and work_item_id=%s and created_at>%s"
+                    " order by created_at desc,id desc limit 2",
+                    (self.realm.id, header[0], header[1], header[3]),
+                )
+                newer = cursor.fetchall()
+                if not newer:
+                    raise PolicyViolation(
+                        "Run reconciliation completed-only run icin newer superseding run ister"
+                    )
+                superseded_by_run_id = UUID(str(newer[0][0]))
+                mode = "superseded-completed-only"
         evidence = [
             {
                 "job_id": str(row[0]),
@@ -151,6 +192,8 @@ class TerminalRunReconciliationService:
             work_item_id=UUID(str(header[1])),
             task_plan_id=UUID(str(header[2])),
             evidence_digest=digest(evidence),
+            mode=mode,
+            superseded_by_run_id=superseded_by_run_id,
         )
 
     def issue_authorization(
@@ -232,7 +275,17 @@ class TerminalRunReconciliationService:
                 plan.run_id, state="failed", terminal_at=moment
             )
             result_digest = digest(
-                {"run_id": str(plan.run_id), "state": "failed", "evidence": plan.evidence_digest}
+                {
+                    "run_id": str(plan.run_id),
+                    "state": "failed",
+                    "mode": plan.mode,
+                    "superseded_by_run_id": (
+                        None
+                        if plan.superseded_by_run_id is None
+                        else str(plan.superseded_by_run_id)
+                    ),
+                    "evidence": plan.evidence_digest,
+                }
             )
             receipt = host.record_success(
                 claim,
@@ -246,6 +299,12 @@ class TerminalRunReconciliationService:
             "schema": "zekam-terminal-run-reconciliation-result/v1",
             "run_id": str(plan.run_id),
             "state": "failed",
+            "mode": plan.mode,
+            "superseded_by_run_id": (
+                None
+                if plan.superseded_by_run_id is None
+                else str(plan.superseded_by_run_id)
+            ),
             "reconciliation_job_id": str(job.id),
             "claim_id": str(claim.id),
             "receipt_id": str(receipt.id),
