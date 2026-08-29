@@ -87,6 +87,11 @@ class PostgresMemoryHookInstaller:
         plan_digest = digest(
             {
                 "schema": "zekam-memory-hook-upgrade-plan/v1",
+                "realm_id": str(self.realm_id),
+                "current_generation": generation,
+                "current_hook_set_digest": current_digest,
+                "expected_bundle_digest": bundle_digest,
+                "resource": resource,
                 "effect_digest": effect_digest,
                 "grants_authority": False,
             }

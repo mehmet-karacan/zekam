@@ -99,3 +99,9 @@ def test_memory_hook_upgrade_plan_binds_current_generation_and_code_bundle(
         "local-only",
     )
     assert first.body()["grants_authority"] is False
+    monkeypatch.setattr(
+        PostgresMemoryHookInstaller,
+        "_current",
+        lambda _self: (uuid4(), 8, digest("new-current-hooks")),
+    )
+    assert installer.plan_upgrade().plan_digest != first.plan_digest
