@@ -422,11 +422,20 @@ def transition_command(
         ),
     ] = False,
     apply: Annotated[bool, typer.Option("--uygula", help="Gercekten uygular")] = False,
+    run_id: Annotated[
+        UUID | None,
+        typer.Option("--run-id", help="Hydration admission icin exact aktif run UUID"),
+    ] = None,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Hydration admission icin exact client session"),
+    ] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Is durumunu degistirir. `completed` icin kanit zorunludur."""
     references: list[EvidenceRef] = []
+    del run_id, session_id  # Degerler merkezi mutation-admission registry tarafindan kullanilir.
     for entry in evidence or []:
         kind, separator, value = entry.partition("=")
         if not separator or not value.strip():
