@@ -74,7 +74,7 @@ class PostgresMemoryHookInstaller:
         if current_digest is None:
             raise PolicyViolation("Memory hook upgrade current generation ister")
         bundle_digest = memory_hook_bundle(self.realm_id).bundle_digest
-        resource = f"hooks:current-generation:{self.realm_id}"
+        resource = f"db-object:memory-hook-generation:{self.realm_id}"
         effect_digest = EffectRequest(
             action="memory-hook-upgrade",
             effects=(EffectKind.DATABASE_WRITE,),
