@@ -36,6 +36,27 @@ def test_active_spec_preserves_utf8_title_and_exact_completion_criteria(tmp_path
     assert observed_digest == input_digest
 
 
+def test_active_spec_accepts_numbered_mandatory_acceptance_section(tmp_path: Path) -> None:
+    path, input_digest = _write(
+        tmp_path,
+        "# AKTİF GÖREV — Canlı Gözleme Merkezi\n\n"
+        "## 11. Zorunlu kabul kriterleri\n\n"
+        "### Process doğruluğu\n\n"
+        "- [ ] Gerçek root süreç sayısı doğrulandı.\n"
+        "- [ ] Receipt olmadan başarı gösterilmedi.\n\n"
+        "## 12. Test matrisi\n",
+    )
+
+    title, criteria, observed_digest = _read_active_spec(path, input_digest)
+
+    assert title == "Canlı Gözleme Merkezi"
+    assert criteria == (
+        "Gerçek root süreç sayısı doğrulandı.",
+        "Receipt olmadan başarı gösterilmedi.",
+    )
+    assert observed_digest == input_digest
+
+
 def test_active_spec_rejects_digest_drift_duplicate_and_non_utf8(tmp_path: Path) -> None:
     path, _ = _write(
         tmp_path,

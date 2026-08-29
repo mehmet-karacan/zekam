@@ -98,8 +98,14 @@ def _read_active_spec(path: Path, expected_digest: str) -> tuple[str, tuple[str,
     title = lines[0][2:].strip()
     if "—" in title:
         title = title.split("—", 1)[1].strip()
+    accepted_section_titles = ("tamamlanma ölçütleri", "zorunlu kabul kriterleri")
     section_start = next(
-        (index for index, line in enumerate(lines) if line.startswith("## 17.")),
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("## ")
+            and any(title in line.casefold() for title in accepted_section_titles)
+        ),
         None,
     )
     if section_start is None:
