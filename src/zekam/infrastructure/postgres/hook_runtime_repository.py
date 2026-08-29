@@ -247,9 +247,23 @@ class HookRuntimeRepository:
         self,
         *,
         session_ref: str,
+        reuse_existing: bool = False,
     ) -> UUID:
-        session_id = uuid4()
         with self.connection.cursor() as cursor:
+            if reuse_existing:
+                cursor.execute(
+                    "select binding.id from hooks.session_binding binding"
+                    " join hooks.current_generation current"
+                    " on current.realm_id=binding.realm_id"
+                    " and current.compiled_set_id=binding.compiled_set_id"
+                    " where binding.realm_id=%s and binding.session_ref=%s"
+                    " and binding.state='active'",
+                    (self.realm_id, session_ref),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    return UUID(str(existing[0]))
+            session_id = uuid4()
             cursor.execute(
                 "select session_binding_id from hooks.start_session(%s,%s)",
                 (session_id, session_ref),

@@ -824,7 +824,8 @@ class ClaimedLifecycleBootstrapService:
         self._store_projection(job=job, facts=facts, source_digest=source_digest, now=now)
         execution = ExecutionRunRepository(self.connection, self.realm_id)
         HookRuntimeRepository(self.connection, self.realm_id).start_session(
-            session_ref=entry.session_id
+            session_ref=entry.session_id,
+            reuse_existing=True,
         )
         execution.bind_assignment_environment(
             AssignmentEnvironmentBinding.create(

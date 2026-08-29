@@ -536,3 +536,8 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
         encoding="utf-8"
     )
     assert "substring(new.source_revision from 5 for 40)" in migration
+
+    bootstrap = Path("src/zekam/application/client_runtime_bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+    assert "reuse_existing=True" in bootstrap
