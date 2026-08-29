@@ -319,3 +319,40 @@ def test_terminal_loop_cannot_enqueue_new_attempt() -> None:
     measured.terminal = True
     with pytest.raises(PolicyViolation, match="Terminal"):
         orchestrator.enqueue_attempt(plan)
+
+
+def test_production_plan_is_deterministic_and_requires_post_plan_exact_auth_attach() -> None:
+    orchestrator, _measured, _jobs = _orchestrator()
+    policy = _policy()
+    arguments = {
+        "objective": _objective(policy),
+        "policy": policy,
+        "attempt_ordinal": 1,
+        "predecessor_attempt_id": None,
+        "progress_packet": None,
+        "resources": (),
+        "topology_decision_id": IDS[11],
+        "topology_decision_digest": digest("topology"),
+        "topology_pattern": "bounded-loop",
+        "production_driver_digest": digest("drivers"),
+        "now": NOW,
+    }
+    first = orchestrator.plan_attempt(**arguments)
+    replay = orchestrator.plan_attempt(**arguments)
+    assert first.job.id == replay.job.id
+    assert first.effect_scope_digest == replay.effect_scope_digest
+    assert "effect_authorization" not in first.job.payload
+
+    with pytest.raises(PolicyViolation, match="attached exact authorization"):
+        orchestrator.enqueue_attempt(first)
+    with pytest.raises(PolicyViolation, match="scope digest drift"):
+        orchestrator.attach_effect_authorization(first, IDS[12], digest("wrong"))
+
+    attached = orchestrator.attach_effect_authorization(
+        first, IDS[12], first.effect_scope_digest or ""
+    )
+    assert attached.job.payload["effect_authorization"] == {
+        "authorization_id": str(IDS[12]),
+        "effect_digest": first.effect_scope_digest,
+    }
+    assert orchestrator.enqueue_attempt(attached).job_created is True

@@ -125,9 +125,9 @@ def _evidence(value: float, label: str) -> MeasurementEvidence:
     )
 
 
-def _novelty(label: str) -> AttemptNoveltyFingerprint:
+def _novelty(label: str, *, objective_digest: str | None = None) -> AttemptNoveltyFingerprint:
     return AttemptNoveltyFingerprint.build(
-        objective_digest=digest("stable-objective"),
+        objective_digest=objective_digest or digest("stable-objective"),
         artifact_digest=digest("artifact-baseline"),
         hypothesis_digest=digest(f"hypothesis:{label}"),
         patch_digest=digest(f"patch:{label}"),
@@ -465,7 +465,7 @@ def test_real_postgres_restart_claim_receipt_completion_and_terminal_no_enqueue(
     assert first_enqueue.job.id == restarted_enqueue.job.id
     assert first_enqueue.job.max_attempts == 1
 
-    novelty = _novelty("real-first")
+    novelty = _novelty("real-first", objective_digest=objective.objective_digest)
     admission = policies.admit(
         LoopAttemptRequest(
             policy.id,
@@ -483,6 +483,7 @@ def test_real_postgres_restart_claim_receipt_completion_and_terminal_no_enqueue(
             objective_digest=objective.objective_digest,
             validator_asset_manifest_digest=manifest.manifest_digest,
             novelty_digest=novelty.novelty_digest,
+            novelty=novelty,
         )
     )
     assert admission.admitted and admission.attempt_id is not None
@@ -1000,6 +1001,7 @@ def _worker_loop_scope(
         objective=objective, policy=policy, validator_manifest=manifest, tuning=tuning
     )
     jobs = JobRepository(connection, realm.id)
+    worker_novelty = _novelty(f"worker-{label}-1", objective_digest=objective.objective_digest)
     request = LoopAttemptRequest(
         policy.id,
         builder.instruction_digest,
@@ -1015,7 +1017,8 @@ def _worker_loop_scope(
         attempt_ordinal=1,
         objective_digest=objective.objective_digest,
         validator_asset_manifest_digest=manifest.manifest_digest,
-        novelty_digest=_novelty(f"worker-{label}-1").novelty_digest,
+        novelty_digest=worker_novelty.novelty_digest,
+        novelty=worker_novelty,
     )
     orchestrator = DurableLoopOrchestrator(measured, jobs)
     first_plan = orchestrator.plan_attempt(
@@ -1220,6 +1223,10 @@ class _TwoAttemptRunner:
                 verifier_invocation.id,
             )
             self.stage = "next-request"
+            next_novelty = _novelty(
+                "worker-next-2",
+                objective_digest=self.scope.objective.objective_digest,
+            )
             next_request = LoopAttemptRequest(
                 self.scope.policy.id,
                 self.scope.builder.instruction_digest,
@@ -1239,7 +1246,8 @@ class _TwoAttemptRunner:
                 validator_asset_manifest_digest=self.scope.manifest.manifest_digest,
                 progress_packet_digest=packet.packet_digest,
                 metric_vector_digest=packet.current_metric_vector.progress_digest,
-                novelty_digest=_novelty("worker-next-2").novelty_digest,
+                novelty_digest=next_novelty.novelty_digest,
+                novelty=next_novelty,
             )
         self.stage = "returned"
         return MeasuredLoopAttemptExecution(

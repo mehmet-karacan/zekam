@@ -533,12 +533,13 @@ class Worker:
             try:
                 result_digest = handler(work)
             except Exception as exc:
+                claims = self.host.ledger.claims_for_job(work.job.id)
                 finish_exact(
-                    outcome=AttemptOutcome.FAILED,
+                    outcome=(AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED),
                     failure_category=FailureCategory.ADAPTER,
                     result_digest=digest({"error": type(exc).__name__}),
                 )
-                return AttemptOutcome.FAILED
+                return AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
 
             # Terminal receipt'i olmayan claim varsa finish reddeder.
             finish_exact(AttemptOutcome.SUCCEEDED, result_digest=result_digest)

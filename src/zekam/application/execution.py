@@ -302,14 +302,14 @@ class ExecutionHost:
     ) -> bool:
         """Isi terminal duruma alir.
 
-        Terminal receipt'i olmayan claim varsa basarili tamamlama reddedilir.
+        Terminal receipt'i olmayan claim varsa yalniz recovery-required kapanis kabul edilir.
         """
-        if outcome is AttemptOutcome.SUCCEEDED:
-            pending = self.pending_claims(work.job.id)
-            if pending:
-                raise PolicyViolation(
-                    f"Terminal receipt'i olmayan {len(pending)} claim var; is completed olamaz"
-                )
+        pending = self.pending_claims(work.job.id)
+        if pending and outcome is not AttemptOutcome.RECOVERY_REQUIRED:
+            raise PolicyViolation(
+                "Terminal receipt'i olmayan "
+                f"{len(pending)} claim var; is yalniz recovery-required olabilir"
+            )
         return self.jobs.complete(
             work.job.id,
             token=work.owner_token,

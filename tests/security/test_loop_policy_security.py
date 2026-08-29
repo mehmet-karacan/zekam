@@ -285,3 +285,48 @@ def test_cross_realm_loop_policy_gorunmez_ve_admission_yapilamaz(
                 (first_realm.id, policy.id),
             )
             assert cursor.fetchone()[0] == 0
+
+
+def test_loop_control_raw_insert_ve_forged_authorization_fail_closed(
+    realm_session: tuple[Any, Any], tmp_path: Path
+) -> None:
+    _realm, connection, policy = _stored_policy(realm_session, tmp_path)
+    event_id = new_uuid7()
+    authorization_id = new_uuid7()
+
+    with (
+        pytest.raises(Exception, match=r"permission denied|append-only"),
+        connection.transaction(),
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "insert into runtime.loop_control_event"
+            " (id,realm_id,loop_id,state,plan_digest,authorization_id,"
+            " authorization_digest,reason_digest)"
+            " values (%s,core.current_realm_id(),%s,'paused',%s,%s,%s,%s)",
+            (
+                event_id,
+                policy.id,
+                policy.plan_digest,
+                authorization_id,
+                digest("forged-authorization"),
+                digest("forged-reason"),
+            ),
+        )
+
+    with (
+        pytest.raises(Exception, match="exact one-shot authorization ister"),
+        connection.transaction(),
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "select runtime.record_loop_control_event(%s,%s,%s,%s,%s,%s)",
+            (
+                event_id,
+                policy.id,
+                "paused",
+                authorization_id,
+                digest("forged-authorization"),
+                digest("forged-reason"),
+            ),
+        )

@@ -12,6 +12,7 @@ import pytest
 
 from zekam.application.config import DatabaseSettings
 from zekam.application.execution import ExecutionHost
+from zekam.application.loop_control import LoopControlService, LoopControlState
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.agents import AgentAssignment, AgentInvocation, AssignmentRole
@@ -27,12 +28,17 @@ from zekam.domain.loop_policy import (
     LoopTerminalState,
     LoopValidation,
 )
+from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.runtime import Job, JobKind
+from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.work import EffectKind, PlanStep, WorkType
 from zekam.infrastructure.postgres.agent_assignment_repository import AgentAssignmentRepository
 from zekam.infrastructure.postgres.connection import configure_session, connect
 from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
+from zekam.infrastructure.postgres.core_repository import ActorRepository
 from zekam.infrastructure.postgres.loop_policy_repository import PostgresLoopPolicyRepository
+from zekam.infrastructure.postgres.measured_loop_repository import PostgresMeasuredLoopRepository
+from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 TERMINALS = tuple(sorted(LoopTerminalState, key=str))
@@ -757,3 +763,192 @@ def test_policy_current_plan_revision_degistiginde_admission_fail_closed(
     )
     with pytest.raises(Exception, match="scope/currentness drift"):
         repository.admit(_request(policy))
+
+
+@pytest.mark.parametrize(
+    "target_state",
+    (LoopControlState.PAUSED, LoopControlState.DRAINING, LoopControlState.CANCELLED),
+)
+def test_loop_control_event_exact_authorizationla_yazilir_ve_admissioni_kapatir(
+    realm_session: tuple[Any, Any],
+    tmp_path: Path,
+    target_state: LoopControlState,
+) -> None:
+    (
+        realm,
+        project,
+        work,
+        task_plan,
+        policies,
+        moment,
+        manifest_id,
+        manifest_digest,
+        _assignments,
+        builder,
+        verifier,
+    ) = _setup(realm_session, tmp_path)
+    policy = _policy(
+        realm,
+        project,
+        work,
+        task_plan,
+        moment,
+        manifest_id,
+        manifest_digest,
+        builder,
+        verifier,
+    )
+    policies.store_policy(policy)
+    connection = policies.connection
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(
+            realm=realm,
+            kind=ActorKind.HUMAN,
+            slug=f"loop-control-{target_state.value}",
+            now=moment,
+        )
+    )
+    authorizations = AuthorizationRepository(connection, realm.id)
+    measured = PostgresMeasuredLoopRepository(connection, realm.id)
+    service = LoopControlService(measured, authorizations)
+
+    control = service.prepare(
+        policy.id,
+        target_state=target_state,
+        reason_digest=digest((target_state.value, "reviewed-control")),
+    )
+    wrong = authorizations.issue(
+        Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=work.id,
+            plan_id=task_plan.id,
+            plan_digest=task_plan.plan_digest,
+            effect_digest=digest("wrong-loop-control-effect"),
+            scope=AuthorizationScope(
+                allowed_resources=(control.resource,),
+                allowed_effects=("database-write",),
+            ),
+            risk="high",
+            lifetime=dt.timedelta(minutes=5),
+            now=moment,
+        )
+    )
+    with pytest.raises(Exception, match="exact authorization binding yok"):
+        service.apply(control, authorization_id=wrong.id, now=moment)
+
+    authorization = authorizations.issue(
+        Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=work.id,
+            plan_id=task_plan.id,
+            plan_digest=task_plan.plan_digest,
+            effect_digest=control.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(control.resource,),
+                allowed_effects=("database-write",),
+            ),
+            risk="high",
+            lifetime=dt.timedelta(minutes=5),
+            now=moment,
+        )
+    )
+    receipt = service.apply(control, authorization_id=authorization.id, now=moment)
+
+    assert receipt.target_state is target_state
+    assert authorizations.get(authorization.id).state.value == "consumed"
+    assert measured.read_loop_control_snapshot(policy.id).current_state is target_state
+    with pytest.raises(Exception, match="Paused/draining/cancelled"):
+        measured.assert_loop_open(policy.id)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select state,plan_digest,authorization_id,reason_digest"
+            " from runtime.loop_control_event where realm_id=%s and id=%s",
+            (realm.id, receipt.event_id),
+        )
+        assert cursor.fetchone() == (
+            target_state.value,
+            task_plan.plan_digest,
+            authorization.id,
+            control.reason_digest,
+        )
+
+    if target_state is LoopControlState.CANCELLED:
+        with pytest.raises(Exception, match="transition gecersiz"):
+            service.prepare(
+                policy.id,
+                target_state=LoopControlState.ACTIVE,
+                reason_digest=digest("cancelled-cannot-resume"),
+            )
+        invalid_reason = digest("cancelled-direct-db-resume")
+        invalid_effect = digest(
+            {
+                "effect": "database-write",
+                "resource": f"loop:{policy.id}",
+                "loop_id": str(policy.id),
+                "plan_digest": task_plan.plan_digest,
+                "source_state": "cancelled",
+                "target_state": "active",
+                "reason_digest": invalid_reason,
+            }
+        )
+        invalid_authorization = authorizations.issue(
+            Authorization.issue(
+                realm_id=realm.id,
+                actor_id=actor.id,
+                work_item_id=work.id,
+                plan_id=task_plan.id,
+                plan_digest=task_plan.plan_digest,
+                effect_digest=invalid_effect,
+                scope=AuthorizationScope(
+                    allowed_resources=(control.resource,),
+                    allowed_effects=("database-write",),
+                ),
+                risk="high",
+                lifetime=dt.timedelta(minutes=5),
+                now=moment,
+            )
+        )
+        with (
+            pytest.raises(Exception, match="transition gecersiz"),
+            connection.transaction(),
+            connection.cursor() as cursor,
+        ):
+            cursor.execute(
+                "select runtime.record_loop_control_event(%s,%s,%s,%s,%s,%s)",
+                (
+                    new_uuid7(now=moment),
+                    policy.id,
+                    "active",
+                    invalid_authorization.id,
+                    invalid_authorization.authorization_digest,
+                    invalid_reason,
+                ),
+            )
+        return
+
+    resume = service.prepare(
+        policy.id,
+        target_state=LoopControlState.ACTIVE,
+        reason_digest=digest((target_state.value, "reviewed-resume")),
+    )
+    resume_authorization = authorizations.issue(
+        Authorization.issue(
+            realm_id=realm.id,
+            actor_id=actor.id,
+            work_item_id=work.id,
+            plan_id=task_plan.id,
+            plan_digest=task_plan.plan_digest,
+            effect_digest=resume.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(resume.resource,),
+                allowed_effects=("database-write",),
+            ),
+            risk="high",
+            lifetime=dt.timedelta(minutes=5),
+            now=moment,
+        )
+    )
+    service.apply(resume, authorization_id=resume_authorization.id, now=moment)
+    measured.assert_loop_open(policy.id)

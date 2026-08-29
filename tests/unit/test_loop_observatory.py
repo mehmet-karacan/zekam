@@ -144,7 +144,9 @@ def _repository() -> LoopObservatory:
         "from runtime.loop_policy p join": [plan_row],
         "from runtime.loop_attempt a": [attempt_row],
         "from runtime.loop_progress_packet": [progress_row],
-        "left join runtime.loop_terminal": [(LOOP_ID, "passed", DIGEST, NOW)],
+        "left join runtime.loop_terminal": [
+            (LOOP_ID, "passed", DIGEST, NOW, UUID(int=17), "paused", DIGEST, NOW)
+        ],
     }
     return LoopObservatory(FakeConnection(rows), REALM_ID)
 
@@ -154,6 +156,12 @@ def test_status_is_bounded_read_only_and_never_projects_raw_bodies() -> None:
 
     assert document["read_only"] is True
     assert document["grants_authority"] is False
+    assert document["loop_control"] == {
+        "state": "paused",
+        "event_id": str(UUID(int=17)),
+        "reason_digest": DIGEST,
+        "created_at": NOW,
+    }
     plan = cast(dict[str, object], document["plan"])
     assert plan["metrics"] == [
         {

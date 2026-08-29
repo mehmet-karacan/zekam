@@ -10,10 +10,16 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from zekam.application.loop_control import LoopControlService, LoopControlState
 from zekam.application.loop_observatory import LoopObservatory
+from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail_from
+from zekam.infrastructure.postgres.measured_loop_repository import (
+    PostgresMeasuredLoopRepository,
+)
+from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
+from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, RealmSession, fail, fail_from
 
 app = typer.Typer(
     name="loop",
@@ -40,6 +46,63 @@ def _read(
     try:
         with RealmSession(home, realm) as context:
             document = operation(LoopObservatory(context.connection, context.realm_id))
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    _print(document, as_json)
+
+
+def _control(
+    *,
+    loop_id: UUID,
+    target_state: LoopControlState,
+    reason_digest: str,
+    authorization_id: UUID | None,
+    apply: bool,
+    home: str | None,
+    realm: str,
+    as_json: bool,
+) -> None:
+    if apply and authorization_id is None:
+        raise fail("Loop control --uygula exact --authorization-id ister", 64)
+    try:
+        parse_digest(reason_digest)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    try:
+        with RealmSession(home, realm) as context:
+            repository = PostgresMeasuredLoopRepository(context.connection, context.realm_id)
+            service = LoopControlService(
+                repository,
+                AuthorizationRepository(context.connection, context.realm_id),
+            )
+            plan = service.prepare(
+                loop_id,
+                target_state=target_state,
+                reason_digest=reason_digest,
+            )
+            if not apply:
+                document: dict[str, object] = plan.body() | {
+                    "control_digest": plan.control_digest,
+                    "apply": False,
+                }
+            else:
+                assert authorization_id is not None
+                receipt = service.apply(plan, authorization_id=authorization_id)
+                document = {
+                    "schema": "zekam-loop-control-cli-receipt/v1",
+                    "event_id": str(receipt.event_id),
+                    "loop_id": str(receipt.loop_id),
+                    "source_state": receipt.source_state.value,
+                    "target_state": receipt.target_state.value,
+                    "plan_digest": receipt.plan_digest,
+                    "control_digest": receipt.control_digest,
+                    "authorization_id": str(receipt.authorization_id),
+                    "reason_digest": receipt.reason_digest,
+                    "created_at": receipt.created_at,
+                    "receipt_digest": receipt.receipt_digest,
+                    "applied": True,
+                    "grants_authority": False,
+                }
     except ZekamError as exc:
         raise fail_from(exc) from exc
     _print(document, as_json)
@@ -181,6 +244,37 @@ def ablation(
     """Paired scaffolding ablation karar ve gate metadata gorunumunu okur."""
     _read(
         lambda service: service.ablation(work_item_id, limit=limit),
+        home=home,
+        realm=realm,
+        as_json=as_json,
+    )
+
+
+@app.command("control")
+def control(
+    loop_id: Annotated[UUID, typer.Argument()],
+    target_state: Annotated[
+        LoopControlState,
+        typer.Option("--state", help="Exact hedef: paused, draining, cancelled veya active"),
+    ],
+    reason_digest: Annotated[
+        str,
+        typer.Option("--reason-digest", help="Reviewed gerekcenin SHA-256 digest'i"),
+    ],
+    authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Preview or apply one exact authorization-bound loop control transition."""
+
+    _control(
+        loop_id=loop_id,
+        target_state=target_state,
+        reason_digest=reason_digest,
+        authorization_id=authorization_id,
+        apply=apply,
         home=home,
         realm=realm,
         as_json=as_json,

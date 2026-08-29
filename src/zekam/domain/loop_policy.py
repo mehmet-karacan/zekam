@@ -11,6 +11,7 @@ from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.loop_progress import AttemptNoveltyFingerprint
 from zekam.domain.optimization import ProgressState
 
 
@@ -233,6 +234,7 @@ class LoopAttemptRequest:
     progress_packet_digest: str | None = None
     metric_vector_digest: str | None = None
     novelty_digest: str | None = None
+    novelty: AttemptNoveltyFingerprint | None = None
 
     def __post_init__(self) -> None:
         for value in (
@@ -278,14 +280,21 @@ class LoopAttemptRequest:
                 self.progress_packet_digest,
                 self.metric_vector_digest,
                 self.novelty_digest,
+                self.novelty,
             )
         )
         if measured and (
             self.objective_digest is None
             or self.validator_asset_manifest_digest is None
             or self.novelty_digest is None
+            or self.novelty is None
         ):
-            raise ValidationFailed("Measured loop attempt objective/manifest/novelty ister")
+            raise ValidationFailed("Measured loop attempt exact canonical novelty ister")
+        if self.novelty is not None and (
+            self.novelty_digest != self.novelty.novelty_digest
+            or self.objective_digest != self.novelty.objective_digest
+        ):
+            raise ValidationFailed("Measured loop novelty body/digest/objective drift")
         if (
             measured
             and self.attempt_ordinal == 1
@@ -337,6 +346,7 @@ class LoopAttemptRequest:
                 self.progress_packet_digest,
                 self.metric_vector_digest,
                 self.novelty_digest,
+                self.novelty,
             )
         ):
             body["measured_v2"] = {
@@ -346,6 +356,7 @@ class LoopAttemptRequest:
                 "progress_packet_digest": self.progress_packet_digest,
                 "metric_vector_digest": self.metric_vector_digest,
                 "novelty_digest": self.novelty_digest,
+                "novelty_body": None if self.novelty is None else self.novelty.semantic_body(),
             }
         return digest(body)
 

@@ -346,8 +346,13 @@ class LoopObservatory:
 
     def status(self, loop_id: UUID, *, limit: int = 50) -> dict[str, object]:
         terminal = self._one(
-            "select p.id,t.state,t.evidence_digest,t.terminal_at from runtime.loop_policy p "
+            "select p.id,t.state,t.evidence_digest,t.terminal_at,c.id,c.state,"
+            "c.reason_digest,c.created_at from runtime.loop_policy p "
             "left join runtime.loop_terminal t on t.realm_id=p.realm_id and t.loop_id=p.id "
+            "left join lateral (select event.id,event.state,event.reason_digest,event.created_at "
+            "from runtime.loop_control_event event where event.realm_id=p.realm_id "
+            "and event.loop_id=p.id order by event.created_at desc,event.id desc limit 1) c "
+            "on true "
             "where p.realm_id=%s and p.id=%s",
             (self.realm_id, loop_id),
             label="Loop status",
@@ -363,6 +368,14 @@ class LoopObservatory:
                 "state": _token(terminal[1]) or "redacted",
                 "result_digest": str(terminal[2]),
                 "created_at": terminal[3],
+            },
+            "loop_control": {
+                "state": "active" if terminal[5] is None else (_token(terminal[5]) or "redacted"),
+                "event_id": None if terminal[4] is None else str(terminal[4]),
+                "reason_digest": None
+                if terminal[6] is None
+                else (_digest(terminal[6]) or "redacted"),
+                "created_at": terminal[7],
             },
             "read_only": True,
             "grants_authority": False,

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid5
 
+from zekam.application.loop_control import (
+    LoopControlPlan,
+    LoopControlSnapshot,
+    LoopControlState,
+)
 from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.loop_policy import LoopPolicy
 from zekam.domain.loop_progress import LoopProgressPacket, LoopStopReason
 from zekam.domain.optimization import (
@@ -18,6 +24,7 @@ from zekam.domain.optimization import (
     ValidatorAssetManifest,
 )
 from zekam.domain.runtime import Job
+from zekam.domain.work import OPEN_STATES, WorkState
 
 _EVIDENCE_NAMESPACE = UUID("db04cb17-569a-53bf-a99f-4aa33b18c76f")
 _PACKET_NAMESPACE = UUID("5c2fe4c1-c53d-507c-b520-ab4394703731")
@@ -83,6 +90,109 @@ class PostgresMeasuredLoopRepository:
             if str(row[1]) != "active":
                 raise PolicyViolation("Paused/draining/cancelled loop yeni attempt job uretemez")
 
+    def read_loop_control_snapshot(self, loop_id: UUID) -> LoopControlSnapshot:
+        """Read the exact current Work/TaskPlan and latest immutable control event."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select lp.work_item_id,lp.plan_id,lp.plan_digest,wi.state,"
+                " coalesce((select event.state from runtime.loop_control_event event"
+                " where event.realm_id=lp.realm_id and event.loop_id=lp.id"
+                " order by event.created_at desc,event.id desc limit 1),'active'),"
+                " (select terminal.state from runtime.loop_terminal terminal"
+                " where terminal.realm_id=lp.realm_id and terminal.loop_id=lp.id),"
+                " lp.plan_id=(select candidate.id from work.task_plan candidate"
+                " where candidate.realm_id=lp.realm_id"
+                " and candidate.work_item_id=lp.work_item_id"
+                " order by candidate.revision desc,candidate.id desc limit 1)"
+                " from runtime.loop_policy lp join work.work_item wi"
+                " on wi.realm_id=lp.realm_id and wi.id=lp.work_item_id"
+                " where lp.realm_id=%s and lp.id=%s",
+                (self.realm_id, loop_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise NotFound("Loop control hedefi bulunamadi")
+        return LoopControlSnapshot(
+            realm_id=self.realm_id,
+            loop_id=loop_id,
+            work_item_id=UUID(str(row[0])),
+            plan_id=UUID(str(row[1])),
+            plan_digest=str(row[2]),
+            work_state=str(row[3]),
+            current_state=LoopControlState(str(row[4])),
+            terminal_state=None if row[5] is None else str(row[5]),
+            current_plan=bool(row[6]),
+        )
+
+    def record_loop_control_event(
+        self,
+        plan: LoopControlPlan,
+        *,
+        event_id: UUID,
+        authorization_id: UUID,
+        authorization_digest: str,
+    ) -> dt.datetime:
+        """Apply one reviewed transition through migration 76's guarded routine."""
+
+        if plan.realm_id != self.realm_id:
+            raise PolicyViolation("Cross-realm loop control reddedildi")
+        plan.assert_integrity()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"{self.realm_id}:{plan.loop_id}",),
+            )
+        snapshot = self.read_loop_control_snapshot(plan.loop_id)
+        if (
+            snapshot.work_item_id != plan.work_item_id
+            or snapshot.plan_id != plan.plan_id
+            or snapshot.plan_digest != plan.plan_digest
+            or snapshot.current_state is not plan.source_state
+            or snapshot.terminal_state is not None
+            or WorkState(snapshot.work_state) not in OPEN_STATES
+            or not snapshot.current_plan
+        ):
+            raise PolicyViolation("Loop control locked state/plan drift; replan required")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select runtime.record_loop_control_event(%s,%s,%s,%s,%s,%s)",
+                (
+                    event_id,
+                    plan.loop_id,
+                    plan.target_state.value,
+                    authorization_id,
+                    authorization_digest,
+                    plan.reason_digest,
+                ),
+            )
+            recorded_id = UUID(str(cursor.fetchone()[0]))
+            if recorded_id != event_id:
+                raise PolicyViolation("Loop control event identity drift")
+            cursor.execute(
+                "select created_at from runtime.loop_control_event"
+                " where realm_id=%s and id=%s and loop_id=%s and state=%s"
+                " and plan_digest=%s and authorization_id=%s"
+                " and authorization_digest=%s and reason_digest=%s",
+                (
+                    self.realm_id,
+                    event_id,
+                    plan.loop_id,
+                    plan.target_state.value,
+                    plan.plan_digest,
+                    authorization_id,
+                    authorization_digest,
+                    plan.reason_digest,
+                ),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise PolicyViolation("Loop control terminal event kaydi dogrulanamadi")
+        created_at = row[0]
+        if not isinstance(created_at, dt.datetime):
+            raise ValidationFailed("Loop control event zamani gecersiz")
+        return created_at
+
     def store_measured_loop_contract(
         self,
         *,
@@ -96,7 +206,20 @@ class PostgresMeasuredLoopRepository:
         self._assert_contract_binding(objective, policy, validator_manifest, tuning)
         manifest_body = validator_manifest.as_dict()
         validator_manifest_digest = validator_manifest.manifest_digest
-        policy_body = policy.body()
+        requested_policy_body = policy.body()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select canonical_body from runtime.loop_policy where realm_id=%s and id=%s",
+                (self.realm_id, policy.id),
+            )
+            row = cursor.fetchone()
+        if row is None or not isinstance(row[0], dict):
+            raise ValidationFailed("Measured LoopPolicy canonical base kaydi bulunamadi")
+        policy_body = dict(row[0])
+        policy_body.pop("schema", None)
+        policy_body["created_at"] = dt.datetime.fromisoformat(str(policy_body["created_at"]))
+        policy_body["deadline"] = dt.datetime.fromisoformat(str(policy_body["deadline"]))
+        policy_body["measured_v2"] = requested_policy_body["measured_v2"]
         policy_digest = digest(policy_body)
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -275,8 +398,12 @@ class PostgresMeasuredLoopRepository:
             or validator_manifest.verifier_assignment_id != policy.validator_assignment_id
         ):
             raise ValidationFailed("Measured loop validator manifest exact binding drift")
-        if objective.max_attempts != policy.max_attempts:
-            raise ValidationFailed("Measured loop objective/policy attempt budget drift")
+        if (
+            objective.max_attempts != policy.max_attempts
+            or objective.max_tokens != policy.max_tokens
+            or objective.max_cost_micros != policy.max_cost_micros
+        ):
+            raise ValidationFailed("Measured loop objective/policy budget drift")
         if objective.deadline != policy.deadline:
             raise ValidationFailed("Measured loop objective/policy deadline drift")
         expected_metric_specs_digest = digest([item.as_dict() for item in objective.metric_specs])

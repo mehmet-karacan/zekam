@@ -433,6 +433,39 @@ def test_clean_upgrade_applies_every_migration(blank_database: DatabaseSettings)
     assert current.is_current
 
 
+def test_0076_to_0077_novelty_upgrade_down_reapply_is_catalog_safe(
+    blank_database: DatabaseSettings,
+) -> None:
+    signature = (
+        "runtime.admit_loop_attempt_current_v3(uuid,uuid,uuid,text,text,text,text,text,text,"
+        "text,text,text,bigint,bigint,bigint,uuid[],text,integer,text,text,text,text,text,jsonb)"
+    )
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=76)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from information_schema.columns"
+                " where table_schema='runtime' and table_name='loop_attempt_novelty'"
+                " and column_name in ('novelty_body','novelty_body_digest')"
+            )
+            assert cursor.fetchone()[0] == 0
+        assert [item.version for item in migrations.upgrade(connection, target=77)] == [77]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from information_schema.columns"
+                " where table_schema='runtime' and table_name='loop_attempt_novelty'"
+                " and column_name in ('novelty_body','novelty_body_digest')"
+            )
+            assert cursor.fetchone()[0] == 2
+            cursor.execute("select to_regprocedure(%s) is not null", (signature,))
+            assert cursor.fetchone()[0] is True
+        assert migrations.downgrade(connection, target=77).version == 77
+        with connection.cursor() as cursor:
+            cursor.execute("select to_regprocedure(%s) is null", (signature,))
+            assert cursor.fetchone()[0] is True
+        assert [item.version for item in migrations.upgrade(connection, target=77)] == [77]
+
+
 def test_upgrade_is_idempotent(blank_database: DatabaseSettings) -> None:
     with connect(blank_database) as connection:
         migrations.upgrade(connection)

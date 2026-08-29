@@ -33,6 +33,10 @@ from zekam.application.lifecycle_runtime_template_prepare import (
     run_lifecycle_template_prepare_once,
 )
 from zekam.application.lifecycle_template_recovery import LifecycleTemplateRecoveryService
+from zekam.application.measured_loop_runtime import (
+    build_production_measured_loop_worker,
+    load_local_driver_config,
+)
 from zekam.application.memory_compiler_composition import (
     compose_memory_candidate_compile_handler,
 )
@@ -420,6 +424,125 @@ def tick_command(
         console.print(f"[green]is islendi:[/green] {result.job_id} -> {result.outcome}")
     else:
         console.print(f"[yellow]is alinmadi:[/yellow] {result.skipped_reason}")
+
+
+@app.command("measured-loop-tick")
+def measured_loop_tick_command(
+    config_file: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            exists=True,
+            dir_okay=False,
+            help="Network-deny local measured-loop driver JSON config",
+        ),
+    ],
+    label: Annotated[
+        str, typer.Option("--etiket", help="Dedicated measured-loop worker etiketi")
+    ] = "measured-loop-worker",
+    apply: Annotated[bool, typer.Option("--uygula", help="Exact queue isini claim eder")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """One job = one attempt production measured-loop queue tick."""
+
+    try:
+        builder, verifier, timeout = load_local_driver_config(config_file)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if not apply:
+        document: dict[str, object] = {
+            "schema": "zekam-measured-loop-worker-plan/v1",
+            "required_capability": "loop.measured-attempt",
+            "max_attempts_per_job": 1,
+            "network_allowed": False,
+            "provider_calls": 0,
+            "applied": False,
+            "grants_authority": False,
+        }
+    else:
+        try:
+            with RealmSession(home, realm) as realm_context:
+                worker = build_production_measured_loop_worker(
+                    realm_context.connection,
+                    realm_context.realm_id,
+                    builder=builder,
+                    verifier=verifier,
+                    worker_label=label,
+                    timeout_seconds=timeout,
+                )
+                result = worker.tick(now=_now())
+            document = {
+                "schema": "zekam-measured-loop-worker-result/v1",
+                "accepted_work": result.accepted_work,
+                "job_id": None if result.job_id is None else str(result.job_id),
+                "outcome": None if result.outcome is None else str(result.outcome),
+                "skipped_reason": result.skipped_reason,
+                "network_allowed": False,
+                "provider_calls": 0,
+                "applied": result.accepted_work,
+                "grants_authority": False,
+            }
+        except ZekamError as exc:
+            raise fail_from(exc) from exc
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+
+
+@app.command("measured-loop-run")
+def measured_loop_run_command(
+    config_file: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            exists=True,
+            dir_okay=False,
+            help="Network-deny local measured-loop driver JSON config",
+        ),
+    ],
+    label: Annotated[
+        str, typer.Option("--etiket", help="Dedicated measured-loop worker etiketi")
+    ] = "measured-loop-worker",
+    iterations: Annotated[
+        int | None, typer.Option("--dongu", help="Azami worker dongu sayisi")
+    ] = None,
+    poll: Annotated[float, typer.Option("--bekleme", help="Bos kuyruk bekleme saniyesi")] = 2.0,
+    apply: Annotated[bool, typer.Option("--uygula", help="Worker'i baslatir")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Long-running measured-loop worker; every handler call is one attempt."""
+
+    if not apply:
+        console.print("[yellow]Dry-run. Baslatmak icin --uygula verin.[/yellow]")
+        return
+    try:
+        builder, verifier, timeout = load_local_driver_config(config_file)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    try:
+        with RealmSession(home, realm) as realm_context:
+            worker = build_production_measured_loop_worker(
+                realm_context.connection,
+                realm_context.realm_id,
+                builder=builder,
+                verifier=verifier,
+                worker_label=label,
+                timeout_seconds=timeout,
+                max_iterations=iterations,
+                poll_seconds=poll,
+            )
+            shutdown = ShutdownSignal()
+            shutdown.install()
+            worker.shutdown = shutdown
+            results = worker.run()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    processed = sum(1 for item in results if item.accepted_work)
+    console.print(f"measured-loop worker durdu: {len(results)} dongu, {processed} is")
 
 
 @app.command("codex-lifecycle-tick")

@@ -500,7 +500,7 @@ def test_codex_lifecycle_non_session_entry_rechecks_exact_execution(
 def test_every_real_apply_parameter_is_classified_mutating_without_alias_bypass() -> None:
     paths = _apply_command_paths()
 
-    assert len(paths) == 68
+    assert len(paths) == 71
     for path in paths:
         python_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": True})
         public_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"uygula": True})
@@ -538,9 +538,12 @@ def test_apply_surface_has_exact_reviewed_hydration_partition() -> None:
         ("memory", "obsidian-apply"),
         ("memory", "upgrade-finalize"),
         ("memory", "upgrade-stamp"),
+        ("loop", "control"),
         ("research", "start"),
         ("trace", "start"),
         ("trace", "stop"),
+        ("worker", "measured-loop-run"),
+        ("worker", "measured-loop-tick"),
         ("work", "transition"),
         ("work", "sync-spec"),
     }
@@ -936,3 +939,17 @@ def test_hydration_exemption_skips_only_existing_hydration_lookup() -> None:
     )
 
     assert connection.cursor_instance.statement == ""
+
+
+def test_loop_control_apply_is_unexempted_full_continuity_mutation() -> None:
+    authorization_id = UUID("00000000-0000-0000-0000-000000000006")
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
+        ("loop", "control"),
+        {"apply": True, "authorization_id": authorization_id},
+    )
+
+    assert admission.mutating is True
+    assert admission.requires_full_continuity is True
+    assert admission.requires_existing_hydration is True
+    assert admission.exemption is None
+    assert admission.target_hints.authorization_ref == str(authorization_id)

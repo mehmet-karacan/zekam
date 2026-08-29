@@ -21,6 +21,7 @@ from zekam.domain.loop_policy import (
     LoopTerminalState,
     LoopValidation,
 )
+from zekam.domain.loop_progress import AttemptNoveltyFingerprint
 from zekam.domain.optimization import ProgressState
 
 NOW = dt.datetime(2026, 8, 25, tzinfo=dt.UTC)
@@ -131,13 +132,13 @@ def test_measured_loop_policy_v2_additive_ve_exact_bindinglidir() -> None:
 def test_attempt2_progress_packet_ve_rephrase_proof_novelty_ister() -> None:
     with pytest.raises(ValidationFailed, match=r"attempt 2\+"):
         _request(attempt_ordinal=2, predecessor_attempt_id=uuid4())
-    novelty = digest(
-        {
-            "objective": "same",
-            "hypothesis": "same",
-            "patch": "same",
-            "failure": "same",
-        }
+    novelty = AttemptNoveltyFingerprint.build(
+        objective_digest=digest("objective"),
+        artifact_digest=digest("artifact"),
+        hypothesis_digest=digest("hypothesis"),
+        patch_digest=digest("patch"),
+        failure_signature=digest("failure"),
+        action_semantics_digest=digest("action-semantics"),
     )
     request = _request(
         attempt_ordinal=2,
@@ -146,12 +147,15 @@ def test_attempt2_progress_packet_ve_rephrase_proof_novelty_ister() -> None:
         validator_asset_manifest_digest=digest("validator-assets"),
         progress_packet_digest=digest("packet"),
         metric_vector_digest=digest("metric-vector"),
-        novelty_digest=novelty,
+        novelty_digest=novelty.novelty_digest,
+        novelty=novelty,
     )
     rephrased = replace(request, prompt_digest=digest("rephrased prompt"))
-    assert request.semantic_request_digest == novelty
-    assert rephrased.semantic_request_digest == novelty
+    assert request.semantic_request_digest == novelty.novelty_digest
+    assert rephrased.semantic_request_digest == novelty.novelty_digest
     assert request.binding_digest != _request().binding_digest
+    with pytest.raises(ValidationFailed, match="body/digest/objective drift"):
+        replace(request, novelty_digest=digest("forged-novelty"))
 
 
 class Ledger:

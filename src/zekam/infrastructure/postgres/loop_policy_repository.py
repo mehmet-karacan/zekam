@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.loop_policy import (
     LoopAdmission,
@@ -95,9 +95,9 @@ class PostgresLoopPolicyRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select admitted,attempt_id,ordinal,terminal_state,reason"
-                " from runtime.admit_loop_attempt_current("
+                " from runtime.admit_loop_attempt_current_v3("
                 " %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-                " %s,%s,%s,%s,%s,%s)",
+                " %s,%s,%s,%s,%s,%s,%s::jsonb)",
                 (
                     resolved_attempt_id,
                     request.loop_id,
@@ -122,6 +122,9 @@ class PostgresLoopPolicyRepository:
                     request.progress_packet_digest,
                     request.metric_vector_digest,
                     request.novelty_digest,
+                    canonical_json(request.novelty.semantic_body())
+                    if request.novelty is not None
+                    else None,
                 ),
             )
             row = cursor.fetchone()
