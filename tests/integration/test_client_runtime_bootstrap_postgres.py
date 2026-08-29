@@ -531,3 +531,8 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
     assert "then substring(e.source_revision from 5 for 40)" in source
     assert "context.source_revision=(case when plan.source_revision" in source
     assert "then substring(plan.source_revision from 5 for 40)" in source
+
+    migration = Path("migrations/0070_checkpoint_v2_dirty_source_revision.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "substring(new.source_revision from 5 for 40)" in migration
