@@ -25,6 +25,7 @@ _AGENTS_RELATIVE = Path(".config") / "opencode" / "agents"
 _PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
 _MANAGED_AGENT_MARKER = "# zekam-managed-agent/v1"
 _MANAGED_PLUGIN_MARKER_PREFIX = "// zekam-managed-plugin/v"
+_LIFECYCLE_PLUGIN_SPEC = "./plugins/zekam-lifecycle.js"
 _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Exact approved plan ile bagli gercek proje dosyalarini "
     "degistiren builder subagent",
@@ -255,7 +256,6 @@ export const ZekamLifecycle = async ({ directory }) => {
       ["--completed", text(data.completed)],
       ["--pending", text(data.pending)],
       ["--next-action", text(data.nextAction)],
-      ["--task-label", text(data.title) ?? text(data.info?.title)],
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
     await enqueue(args)
@@ -719,8 +719,20 @@ def plan_opencode_agent_bootstrap(
 
     document = _load_config(config_path)
     updated = dict(document)
-    config_update_required = updated.get("default_agent") != DEFAULT_AGENT
+    configured_plugins = updated.get("plugin", [])
+    if not isinstance(configured_plugins, list) or any(
+        not isinstance(item, str) for item in configured_plugins
+    ):
+        raise ConfigurationError("OpenCode plugin config listesi gecersiz")
+    plugins = list(configured_plugins)
+    plugin_config_missing = _LIFECYCLE_PLUGIN_SPEC not in plugins
+    if plugin_config_missing:
+        plugins.append(_LIFECYCLE_PLUGIN_SPEC)
+    config_update_required = (
+        updated.get("default_agent") != DEFAULT_AGENT or plugin_config_missing
+    )
     updated["default_agent"] = DEFAULT_AGENT
+    updated["plugin"] = plugins
 
     create: list[str] = []
     update: list[str] = []

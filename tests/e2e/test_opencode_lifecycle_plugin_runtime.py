@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import subprocess
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -89,6 +94,194 @@ if (Bun.env.RUN_PRECOMPACT === "1") {
         encoding="utf-8",
     )
     return runner, fake_executable
+
+
+def _native_opencode() -> Path:
+    configured = os.environ.get("OPENCODE_EXECUTABLE")
+    found = configured or shutil.which("opencode")
+    if found is None:
+        pytest.skip("OpenCode runtime bulunamadi")
+    candidate = Path(found)
+    if candidate.suffix.casefold() in {".bat", ".cmd", ".ps1"}:
+        candidate = candidate.parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
+    if not candidate.is_file():
+        pytest.fail(f"OpenCode native executable bulunamadi: {candidate}")
+    return candidate.resolve()
+
+
+def _free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _request(url: str, *, method: str = "GET", body: dict[str, object] | None = None) -> object:
+    payload = None if body is None else json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def test_real_opencode_process_loads_plugin_and_emits_provider_free_lifecycle(
+    tmp_path: Path,
+) -> None:
+    bun = _bun_executable()
+    executable = _native_opencode()
+    user_home = tmp_path / "user"
+    config_root = user_home / ".config" / "opencode"
+    plugin_root = config_root / "plugins"
+    project = tmp_path / "project"
+    plugin_root.mkdir(parents=True)
+    project.mkdir()
+    model_cache = Path.home() / ".cache" / "opencode" / "models.json"
+    if not model_cache.is_file():
+        pytest.fail("OpenCode provider-free model metadata cache bulunamadi")
+    isolated_cache = user_home / ".cache" / "opencode"
+    isolated_cache.mkdir(parents=True)
+    shutil.copy2(model_cache, isolated_cache / "models.json")
+    installed_config = Path.home() / ".config" / "opencode"
+    installed_modules = installed_config / "node_modules"
+    installed_plugin = installed_modules / "@opencode-ai" / "plugin"
+    if not installed_plugin.is_dir() or not (installed_config / "package.json").is_file():
+        pytest.fail("OpenCode provider-free plugin runtime dependency bulunamadi")
+    shutil.copytree(installed_modules, config_root / "node_modules")
+    shutil.copy2(installed_config / "package.json", config_root / "package.json")
+    if (installed_config / "package-lock.json").is_file():
+        shutil.copy2(installed_config / "package-lock.json", config_root / "package-lock.json")
+    (config_root / "opencode.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://opencode.ai/config.json",
+                "plugin": ["./plugins/zekam-lifecycle.js"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_root / "zekam-lifecycle.js").write_text(
+        opencode_template_bundle()["plugins/zekam-lifecycle.js"], encoding="utf-8"
+    )
+    capture = tmp_path / "zekam-calls.jsonl"
+    fake_source = tmp_path / "fake-zekam-capture.js"
+    fake_source.write_text(
+        'import { appendFileSync } from "node:fs"\n'
+        'appendFileSync(Bun.env.ZEKAM_CAPTURE, JSON.stringify(Bun.argv.slice(2)) + "\\n")\n',
+        encoding="utf-8",
+    )
+    fake_executable = tmp_path / (
+        "fake-zekam-capture.exe" if os.name == "nt" else "fake-zekam-capture"
+    )
+    subprocess.run(
+        [bun, "build", "--compile", str(fake_source), "--outfile", str(fake_executable)],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    environment = dict(os.environ)
+    for key in tuple(environment):
+        if any(
+            marker in key.upper()
+            for marker in ("API_KEY", "AUTH_TOKEN", "SECRET", "PASSWORD")
+        ):
+            environment.pop(key, None)
+    environment.update(
+        {
+            "USERPROFILE": str(user_home),
+            "HOME": str(user_home),
+            "XDG_CONFIG_HOME": str(user_home / ".config"),
+            "XDG_CACHE_HOME": str(user_home / ".cache"),
+            "ZEKAM_HOME": str(tmp_path / "zekam-home"),
+            "ZEKAM_EXECUTABLE": str(fake_executable),
+            "ZEKAM_CAPTURE": str(capture),
+            "NO_PROXY": "127.0.0.1,localhost",
+            "DISABLE_AUTOUPDATER": "1",
+            "DISABLE_TELEMETRY": "1",
+            "NO_COLOR": "1",
+        }
+    )
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        environment[key] = "http://127.0.0.1:9"
+    port = _free_loopback_port()
+    server = subprocess.Popen(
+        [
+            str(executable),
+            "serve",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "ERROR",
+        ],
+        cwd=project,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    base = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 20
+        while True:
+            if server.poll() is not None:
+                stdout, stderr = server.communicate(timeout=2)
+                pytest.fail(f"OpenCode server erken kapandi: {stdout[-500:]} {stderr[-500:]}")
+            try:
+                health = _request(f"{base}/global/health")
+                if isinstance(health, dict) and health.get("healthy") is True:
+                    break
+            except (OSError, urllib.error.URLError):
+                pass
+            if time.monotonic() >= deadline:
+                pytest.fail("OpenCode loopback server zamaninda hazir olmadi")
+            time.sleep(0.1)
+        directory = urllib.parse.quote(str(project), safe="")
+        session = _request(
+            f"{base}/session?directory={directory}",
+            method="POST",
+            body={"title": "Zekam provider-free lifecycle harness"},
+        )
+        assert isinstance(session, dict)
+        session_id = str(session["id"])
+        assert _request(
+            f"{base}/session/{session_id}?directory={directory}", method="DELETE"
+        ) is True
+        deadline = time.monotonic() + 10
+        calls: list[list[str]] = []
+        while time.monotonic() < deadline:
+            if capture.is_file():
+                calls = [
+                    json.loads(line)
+                    for line in capture.read_text(encoding="utf-8").splitlines()
+                ]
+                event_types = {
+                    call[call.index("--type") + 1]
+                    for call in calls
+                    if "--type" in call
+                }
+                if {"session.created", "session.deleted"} <= event_types:
+                    break
+            time.sleep(0.1)
+        event_types = {
+            call[call.index("--type") + 1] for call in calls if "--type" in call
+        }
+        assert {"session.created", "session.deleted"} <= event_types
+        assert all(call[:2] == ["opencode", "event"] for call in calls)
+        assert all("provider-free lifecycle harness" not in " ".join(call) for call in calls)
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=5)
 
 
 def _environment(home: Path, fake_executable: Path, **extra: str) -> dict[str, str]:

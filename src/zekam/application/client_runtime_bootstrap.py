@@ -19,6 +19,7 @@ from zekam.application.client_lifecycle_composition import (
     _configure_active_memory_hook_runtime,
 )
 from zekam.application.client_lifecycle_continuity import (
+    _HYDRATING_EVENT_TYPES,
     _HYDRATION_NAMESPACE,
     _SESSION_START_HYDRATION_TOKEN_BUDGET,
 )
@@ -94,6 +95,7 @@ from zekam.infrastructure.postgres.security_repository import AuthorizationRepos
 
 _BOOTSTRAP_STEP_ID = "client-lifecycle-bootstrap"
 _LIFECYCLE_STEP_ID = "client-lifecycle-drain"
+_CLOSE_STEP_ID = "projection-aware-close"
 _CAPABILITY = "client.lifecycle.codex-bootstrap"
 _BOOTSTRAP_OPERATION = "client-lifecycle-bootstrap-materialize/v1"
 _BOOTSTRAP_ADAPTER_DIGEST = digest("client-lifecycle-bootstrap-materializer/v1")
@@ -109,6 +111,7 @@ class ClientRuntimeBootstrapPlan:
     client_id: str
     session_id: str
     entry_digest: str
+    event_type: str
     source_revision: str
     policy_digest: str
     bootstrap_resource: str
@@ -127,6 +130,7 @@ class ClientRuntimeBootstrapPlan:
             "client_id": self.client_id,
             "session_id": self.session_id,
             "entry_digest": self.entry_digest,
+            "event_type": self.event_type,
             "source_revision": self.source_revision,
             "policy_digest": self.policy_digest,
             "bootstrap_resource": self.bootstrap_resource,
@@ -198,6 +202,7 @@ class ClientRuntimeBootstrapService:
         session_id: str,
         entry_digest: str,
         source_revision: str,
+        event_type: str = "session_start",
         rebootstrap: bool = False,
         now: dt.datetime | None = None,
     ) -> ClientRuntimeBootstrapPlan:
@@ -218,6 +223,8 @@ class ClientRuntimeBootstrapService:
             raise PolicyViolation("Client runtime bootstrap Work actionable degil")
         if client_id != "codex" or not session_id.strip():
             raise PolicyViolation("Client runtime bootstrap reviewed Codex session ister")
+        if not event_type.strip():
+            raise PolicyViolation("Client runtime bootstrap lifecycle event type ister")
         governance = GovernanceService(self.connection, self.realm, actor_id=actor_id)
         policy = governance.policies.current(DEFAULT_POLICY_NAME)
         if policy is None:
@@ -233,6 +240,7 @@ class ClientRuntimeBootstrapService:
             client_id=client_id,
             session_id=session_id,
             entry_digest=entry_digest,
+            event_type=event_type,
             source_revision=source_revision,
             policy_digest=policy.policy_digest,
             bootstrap_resource=bootstrap_resource,
@@ -289,27 +297,43 @@ class ClientRuntimeBootstrapService:
                 constraints=("claim-before-effect", "max-attempts-one"),
                 now=moment,
             )
+            run_id = new_uuid7(now=moment)
+            close_resource = (
+                f"work:{plan.project_id}:{work.id}:projection-close:{run_id}"
+            )
+            plan_steps = [
+                PlanStep(
+                    step_id=_BOOTSTRAP_STEP_ID,
+                    title="Claim sonrasinda lifecycle child isini materialize et",
+                    effect=EffectKind.DATABASE_WRITE,
+                    logical_resources=(plan.bootstrap_resource,),
+                    risk="high",
+                ),
+                PlanStep(
+                    step_id=_LIFECYCLE_STEP_ID,
+                    title="Pending Codex lifecycle deliverysini isle",
+                    effect=EffectKind.DATABASE_WRITE,
+                    logical_resources=(plan.lifecycle_resource,),
+                    risk="high",
+                    depends_on=(_BOOTSTRAP_STEP_ID,),
+                ),
+            ]
+            if plan.event_type == "pre_close":
+                plan_steps.append(
+                    PlanStep(
+                        step_id=_CLOSE_STEP_ID,
+                        title="Verified Work ve staged pre-close zincirini atomik kapat",
+                        effect=EffectKind.DATABASE_WRITE,
+                        logical_resources=(close_resource,),
+                        risk="high",
+                        depends_on=(_LIFECYCLE_STEP_ID,),
+                    )
+                )
             task_plan = graph.create_plan(
                 work.id,
                 source_revision=plan.source_revision,
                 policy_digest=plan.policy_digest,
-                steps=(
-                    PlanStep(
-                        step_id=_BOOTSTRAP_STEP_ID,
-                        title="Claim sonrasinda lifecycle child isini materialize et",
-                        effect=EffectKind.DATABASE_WRITE,
-                        logical_resources=(plan.bootstrap_resource,),
-                        risk="high",
-                    ),
-                    PlanStep(
-                        step_id=_LIFECYCLE_STEP_ID,
-                        title="Pending Codex lifecycle deliverysini isle",
-                        effect=EffectKind.DATABASE_WRITE,
-                        logical_resources=(plan.lifecycle_resource,),
-                        risk="high",
-                        depends_on=(_BOOTSTRAP_STEP_ID,),
-                    ),
-                ),
+                steps=tuple(plan_steps),
                 now=moment,
             )
             if not plan.rebootstrap:
@@ -320,7 +344,7 @@ class ClientRuntimeBootstrapService:
                     self.connection, self.realm.id
                 ).assert_rebootstrap_admissible(work.id)
             run = ExecutionRun.create(
-                id=new_uuid7(now=moment),
+                id=run_id,
                 realm_id=self.realm.id,
                 project_id=plan.project_id,
                 work_item_id=work.id,
@@ -384,13 +408,39 @@ class ClientRuntimeBootstrapService:
                 now=moment,
                 step_id=_LIFECYCLE_STEP_ID,
             )
-            for assignment in (
+            close_builder = None
+            close_verifier = None
+            if plan.event_type == "pre_close":
+                close_builder = _assignment(
+                    plan=plan,
+                    task_plan_id=task_plan.id,
+                    role=AssignmentRole.BUILDER,
+                    agent_ref="projection-close-worker",
+                    parent=coordinator.id,
+                    now=moment,
+                    step_id=_CLOSE_STEP_ID,
+                    resource=close_resource,
+                )
+                close_verifier = _assignment(
+                    plan=plan,
+                    task_plan_id=task_plan.id,
+                    role=AssignmentRole.VERIFIER,
+                    agent_ref="projection-close-verifier",
+                    parent=coordinator.id,
+                    now=moment,
+                    step_id=_CLOSE_STEP_ID,
+                    resource=close_resource,
+                )
+            plan_assignments = [
                 coordinator,
                 bootstrap_assignment,
                 bootstrap_verifier,
                 builder,
                 verifier,
-            ):
+            ]
+            if close_builder is not None and close_verifier is not None:
+                plan_assignments.extend((close_builder, close_verifier))
+            for assignment in plan_assignments:
                 stored_id, created = assignments.create(assignment)
                 if not created or stored_id != assignment.id:
                     raise PolicyViolation("Client runtime bootstrap assignment replay")
@@ -422,6 +472,17 @@ class ClientRuntimeBootstrapService:
                 now=moment,
             )
             AuthorizationRepository(self.connection, self.realm.id).issue(bootstrap_authorization)
+            bootstrap_payload = {
+                "schema": "zekam-codex-lifecycle-bootstrap-job/v1",
+                "entry_digest": plan.entry_digest,
+                "authorization_id": str(bootstrap_authorization.id),
+                "effect_digest": bootstrap_effect_digest,
+                "child_assignment_id": str(builder.id),
+                "context_created_at": plan.prepared_at.isoformat(),
+                "context_manifest_digest": _planned_manifest(plan).manifest_digest,
+            }
+            if close_builder is not None:
+                bootstrap_payload["close_assignment_id"] = str(close_builder.id)
             job, created = jobs.enqueue(
                 Job.create(
                     realm_id=self.realm.id,
@@ -440,15 +501,7 @@ class ClientRuntimeBootstrapService:
                     step_id=_BOOTSTRAP_STEP_ID,
                     assignment_id=bootstrap_assignment.id,
                     run_id=run.id,
-                    payload={
-                        "schema": "zekam-codex-lifecycle-bootstrap-job/v1",
-                        "entry_digest": plan.entry_digest,
-                        "authorization_id": str(bootstrap_authorization.id),
-                        "effect_digest": bootstrap_effect_digest,
-                        "child_assignment_id": str(builder.id),
-                        "context_created_at": plan.prepared_at.isoformat(),
-                        "context_manifest_digest": _planned_manifest(plan).manifest_digest,
-                    },
+                    payload=bootstrap_payload,
                     now=moment,
                 )
             )
@@ -492,7 +545,7 @@ class ClaimedLifecycleBootstrapService:
         moment = now or dt.datetime.now(dt.UTC)
         job = work.job
         payload = dict(job.payload)
-        expected_keys = {
+        base_keys = {
             "schema",
             "entry_digest",
             "authorization_id",
@@ -501,8 +554,9 @@ class ClaimedLifecycleBootstrapService:
             "context_created_at",
             "context_manifest_digest",
         }
+        expected_key_sets = {frozenset(base_keys), frozenset(base_keys | {"close_assignment_id"})}
         if (
-            set(payload) != expected_keys
+            frozenset(payload) not in expected_key_sets
             or payload.get("schema") != "zekam-codex-lifecycle-bootstrap-job/v1"
             or job.kind is not JobKind.MUTATION
             or job.max_attempts != 1
@@ -533,6 +587,11 @@ class ClaimedLifecycleBootstrapService:
         try:
             authorization_id = UUID(str(payload["authorization_id"]))
             child_assignment_id = UUID(str(payload["child_assignment_id"]))
+            close_assignment_id = (
+                None
+                if payload.get("close_assignment_id") is None
+                else UUID(str(payload["close_assignment_id"]))
+            )
         except (TypeError, ValueError) as exc:
             raise PolicyViolation("Lifecycle bootstrap payload UUID drift") from exc
         authorization = authorizations.get(authorization_id)
@@ -567,6 +626,7 @@ class ClaimedLifecycleBootstrapService:
                 work=work,
                 entry=entry,
                 child_assignment_id=child_assignment_id,
+                close_assignment_id=close_assignment_id,
                 authorizations=authorizations,
                 context_created_at=context_created_at,
                 now=moment,
@@ -783,6 +843,7 @@ class ClaimedLifecycleBootstrapService:
         work: Any,
         entry: Any,
         child_assignment_id: UUID,
+        close_assignment_id: UUID | None,
         authorizations: AuthorizationRepository,
         context_created_at: dt.datetime,
         now: dt.datetime,
@@ -993,6 +1054,48 @@ class ClaimedLifecycleBootstrapService:
         )
         if not child_created or child.id != child_job_id:
             raise PolicyViolation("Lifecycle child job replay reddedildi")
+        close_job_id = None
+        if entry.internal_event_type == "pre_close":
+            if close_assignment_id is None:
+                raise PolicyViolation("Pre-close projection close assignment ister")
+            close_resource = (
+                f"work:{job.project_id}:{job.work_item_id}:projection-close:{job.run_id}"
+            )
+            close_job_id = new_uuid7(now=now)
+            close_job, close_created = JobRepository(
+                self.connection, self.realm_id
+            ).enqueue(
+                replace(
+                    Job.create(
+                        realm_id=self.realm_id,
+                        project_id=job.project_id,
+                        kind=JobKind.MUTATION,
+                        idempotency_key=(
+                            f"projection-close:{entry.delivery_id}:parent:{job.id}"
+                        ),
+                        resources=parse_requests(write=(close_resource,)),
+                        required_capabilities=("client.lifecycle.projection-close",),
+                        max_attempts=1,
+                        work_item_id=job.work_item_id,
+                        plan_id=job.plan_id,
+                        step_id=_CLOSE_STEP_ID,
+                        assignment_id=close_assignment_id,
+                        run_id=job.run_id,
+                        payload={
+                            "schema": "zekam-projection-close-job/v1",
+                            "source_authorization_id": str(parent_authorization.id),
+                            "lifecycle_job_id": str(child.id),
+                            "entry_digest": entry.entry_digest,
+                        },
+                        now=now,
+                    ),
+                    id=close_job_id,
+                )
+            )
+            if not close_created or close_job.id != close_job_id:
+                raise PolicyViolation("Projection close child job replay reddedildi")
+        elif close_assignment_id is not None:
+            raise PolicyViolation("Non-close lifecycle close assignment tasiyamaz")
         result_body = {
             "schema": "zekam-client-runtime-bootstrap-materialized/v1",
             "parent_job_id": str(job.id),
@@ -1003,6 +1106,7 @@ class ClaimedLifecycleBootstrapService:
             "packet_digest": packet.packet_digest,
             "child_assignment_id": str(child_assignment_id),
             "child_job_id": str(child.id),
+            "close_job_id": None if close_job_id is None else str(close_job_id),
             "lifecycle_authorization_id": str(lifecycle_authorization.id),
             "hydration_authorization_id": (
                 None if hydration_authorization is None else str(hydration_authorization.id)
@@ -1163,7 +1267,7 @@ class ClaimedLifecycleBootstrapService:
             policy_digest=policy_digest,
             migration_digest=migration_digest,
         )
-        if entry.internal_event_type != "session_start":
+        if entry.internal_event_type not in _HYDRATING_EVENT_TYPES:
             return lifecycle_plan, None
         inventory = continuity.preview_hydration_inventory(
             project_id=job.project_id,
@@ -1171,6 +1275,7 @@ class ClaimedLifecycleBootstrapService:
             run_id=job.run_id,
             session_id=entry.session_id,
             client_id=entry.client_id,
+            event_type=entry.internal_event_type,
             event_body=lifecycle_plan.event.body(),
             event_digest=lifecycle_plan.event.event_digest,
         )
@@ -1189,7 +1294,10 @@ class ClaimedLifecycleBootstrapService:
                 session_id=entry.session_id,
                 client_id=entry.client_id,
                 token_budget=_SESSION_START_HYDRATION_TOKEN_BUDGET,
-                idempotency_key=(f"session-start:{lifecycle_plan.event.event_id}:hydration"),
+                idempotency_key=(
+                    f"{entry.internal_event_type.replace('_', '-')}:"
+                    f"{lifecycle_plan.event.event_id}:hydration"
+                ),
                 created_at=entry.occurred_at,
             ),
             inventory,
@@ -1255,7 +1363,7 @@ class ClaimedLifecycleBootstrapService:
             source_digest=projection_source_digest,
             projection_ref="projection/active-work",
             projection_digest=digest(body),
-            generator_version="client-runtime-bootstrap/v1",
+            generator_version="memory-continuity-shadow/v1",
             generated_at=now,
         )
         MemoryContinuityRepository(self.connection, self.realm_id).store_projection_receipt(

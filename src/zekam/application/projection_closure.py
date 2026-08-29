@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import UUID, uuid5
@@ -26,6 +27,7 @@ from zekam.domain.session_continuity import (
     CloseStatus,
     ProjectionGenerationReceipt,
     SessionCloseReceipt,
+    TruthClass,
 )
 from zekam.domain.work import EvidenceRef, WorkItem, WorkState
 
@@ -473,6 +475,35 @@ class ProjectionClosureApplyReceipt:
         }
 
 
+def _completion_evidence(receipt: SessionCloseReceipt) -> tuple[EvidenceRef, ...]:
+    evidence = [
+        EvidenceRef(
+            kind="closure-checkpoint",
+            reference=receipt.checkpoint_ref.ref,
+            digest_value=receipt.checkpoint_ref.digest_value,
+        )
+    ]
+    verifier = tuple(
+        item
+        for item in receipt.verified_outcomes
+        if item.truth_class is TruthClass.REPO_FACT
+        and item.ref.startswith("db:agents.result_receipt/")
+    )
+    if verifier:
+        refs = {(item.ref, item.digest_value) for item in verifier}
+        if len(verifier) != len(receipt.verified_outcomes) or len(refs) != 1:
+            raise PolicyViolation("Projection close independent verifier evidence drift")
+        reference, digest_value = next(iter(refs))
+        evidence.append(
+            EvidenceRef(
+                kind="independent-verifier",
+                reference=reference,
+                digest_value=digest_value,
+            )
+        )
+    return tuple(evidence)
+
+
 def _completed_projection(
     receipt: SessionCloseReceipt,
     completed: WorkItem,
@@ -555,14 +586,9 @@ class ProjectionAwareClosureService:
         snapshot.assert_ready(now=moment)
         if receipt.closed_at < snapshot.work_item.updated_at or receipt.closed_at > moment:
             raise PolicyViolation("Projection close receipt zamani Work/apply sirasi ile uyusmuyor")
-        evidence = EvidenceRef(
-            kind="closure-checkpoint",
-            reference=receipt.checkpoint_ref.ref,
-            digest_value=receipt.checkpoint_ref.digest_value,
-        )
         completed = snapshot.work_item.with_state(
             WorkState.COMPLETED,
-            evidence=(evidence,),
+            evidence=_completion_evidence(receipt),
             now=receipt.closed_at,
         )
         projection = _completed_projection(receipt, completed, snapshot.release)
@@ -581,6 +607,7 @@ class ProjectionAwareClosureService:
         authorization_id: UUID,
         claim_id: UUID,
         now: dt.datetime | None = None,
+        transaction_bound: bool = False,
     ) -> ProjectionClosureApplyReceipt:
         moment = now or dt.datetime.now(dt.UTC)
         if moment.tzinfo is None or moment.utcoffset() is None:
@@ -596,9 +623,15 @@ class ProjectionAwareClosureService:
         if replay is not None:
             return replay
         try:
-            with self.repository.connection.transaction():
-                with self.repository.connection.cursor() as cursor:
-                    cursor.execute("set transaction isolation level serializable")
+            transaction = (
+                nullcontext()
+                if transaction_bound
+                else self.repository.connection.transaction()
+            )
+            with transaction:
+                if not transaction_bound:
+                    with self.repository.connection.cursor() as cursor:
+                        cursor.execute("set transaction isolation level serializable")
                 current = self.repository.read_closure_snapshot(plan.receipt, lock=True)
                 current.assert_ready(now=moment)
                 if not plan.receipt.verified_outcomes:
@@ -614,13 +647,7 @@ class ProjectionAwareClosureService:
                     raise PolicyViolation("Projection closure snapshot stale; replan required")
                 expected_completed = current.work_item.with_state(
                     WorkState.COMPLETED,
-                    evidence=(
-                        EvidenceRef(
-                            kind="closure-checkpoint",
-                            reference=plan.receipt.checkpoint_ref.ref,
-                            digest_value=plan.receipt.checkpoint_ref.digest_value,
-                        ),
-                    ),
+                    evidence=_completion_evidence(plan.receipt),
                     now=plan.receipt.closed_at,
                 )
                 expected_projection = _completed_projection(

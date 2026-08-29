@@ -39,6 +39,7 @@ LIFECYCLE_EFFECT_OPERATION = "client-lifecycle-drain"
 LIFECYCLE_ADAPTER_DIGEST = digest({"adapter": "claimedwork-codex-lifecycle", "version": 1})
 _HYDRATION_NAMESPACE = UUID("68cb28f0-0a80-4fba-a00c-b6e340e7e648")
 _SESSION_START_HYDRATION_TOKEN_BUDGET = 4096
+_HYDRATING_EVENT_TYPES = frozenset({"session_start", "pre_close"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,10 +176,10 @@ class PostgresLifecycleContinuityAdmission:
             hydration_plan = None
             hydration_apply = None
             hydration_authorization_id = None
-            if entry.internal_event_type == "session_start":
+            if entry.internal_event_type in _HYDRATING_EVENT_TYPES:
                 if self.delivery.hydration_authorization_id is None:
                     raise PolicyViolation(
-                        "Session-start exact pre-issued hydration authorization ister"
+                        "Lifecycle bootstrap exact pre-issued hydration authorization ister"
                     )
                 hydration_plan = self.memory_continuity.prepare_hydration(
                     HydrationPreparation(
@@ -193,7 +194,10 @@ class PostgresLifecycleContinuityAdmission:
                         session_id=applied.session_id,
                         client_id=applied.client_id,
                         token_budget=_SESSION_START_HYDRATION_TOKEN_BUDGET,
-                        idempotency_key=f"session-start:{applied.event_id}:hydration",
+                        idempotency_key=(
+                            f"{entry.internal_event_type.replace('_', '-')}:"
+                            f"{applied.event_id}:hydration"
+                        ),
                         created_at=entry.occurred_at,
                     )
                 )
@@ -213,7 +217,7 @@ class PostgresLifecycleContinuityAdmission:
                 )
             elif self.delivery.hydration_authorization_id is not None:
                 raise PolicyViolation(
-                    "Hydration authorization yalniz session-start delivery tasiyabilir"
+                    "Hydration authorization yalniz bootstrap hydration delivery tasiyabilir"
                 )
             # ``pre_close`` is a two-effect protocol.  The lifecycle effect owns
             # the immutable event, hook receipt and governed admission, while
@@ -261,20 +265,10 @@ class PostgresLifecycleContinuityAdmission:
             step_id = self.delivery.work.job.step_id
             if step_id is None:
                 raise PolicyViolation("Lifecycle claimed job exact step_id tasimali")
-            self.repository.store_job_checkpoint(
-                execution=post_hook_execution,
-                job_id=self.delivery.work.job.id,
-                step_id=step_id,
-                result_digest=result_digest,
-                now=terminal_at,
-            )
-            if not host.finish(
-                self.delivery.work,
-                outcome=AttemptOutcome.SUCCEEDED,
-                result_digest=result_digest,
-                now=terminal_at,
-            ):
-                raise PolicyViolation("Lifecycle claimed job terminal finish reddedildi")
+            # Persist the immutable admission before the deterministic
+            # checkpoint verifier reads it. Its constraint is deferred, so
+            # checkpoint, terminal job state and hydration admission are still
+            # required in this same transaction at commit.
             self.repository.record_governed_admission(
                 lifecycle_event_id=canonical_ack.event_id,
                 entry_digest=entry.entry_digest,
@@ -299,6 +293,20 @@ class PostgresLifecycleContinuityAdmission:
                 result_formula_digest=result_digest,
                 now=terminal_at,
             )
+            self.repository.store_job_checkpoint(
+                execution=post_hook_execution,
+                job_id=self.delivery.work.job.id,
+                step_id=step_id,
+                result_digest=result_digest,
+                now=terminal_at,
+            )
+            if not host.finish(
+                self.delivery.work,
+                outcome=AttemptOutcome.SUCCEEDED,
+                result_digest=result_digest,
+                now=terminal_at,
+            ):
+                raise PolicyViolation("Lifecycle claimed job terminal finish reddedildi")
             if (
                 hydration_plan is not None
                 and hydration_apply is not None
@@ -449,7 +457,7 @@ class PostgresLifecycleContinuityAdmission:
             or terminal.continuity_event_digest != self.delivery.plan.event.event_digest
         ):
             raise PolicyViolation("Lifecycle terminal lookup effect receipt drift")
-        if entry.internal_event_type == "session_start":
+        if entry.internal_event_type in _HYDRATING_EVENT_TYPES:
             self.repository.lookup_lifecycle_hydration(
                 continuity_event_id=terminal.continuity_event_id
             )
@@ -540,9 +548,10 @@ class PostgresLifecycleContinuityAdmission:
             or canonical_event.get("client_id") != self.delivery.client_instance_id
         ):
             raise PolicyViolation("Lifecycle hydration admission identity drift")
-        if plan_event.event_type == "session_start":
-            # Session start is the bounded bootstrap: it creates its exact
-            # hydration receipt and immutable admission in this transaction.
+        if plan_event.event_type in _HYDRATING_EVENT_TYPES:
+            # Session start and pre-close are bounded bootstrap events: each
+            # creates its exact same-run hydration receipt and immutable
+            # admission in this transaction.
             return
         self.memory_continuity.assert_mutating_admission(
             project_id=plan_event.project_id,

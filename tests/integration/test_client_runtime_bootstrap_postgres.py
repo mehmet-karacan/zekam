@@ -25,6 +25,7 @@ from zekam.application.worker import (
     WorkerSettings,
     run_codex_lifecycle_bootstrap_once,
     run_codex_lifecycle_once,
+    run_projection_close_once,
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
@@ -497,29 +498,179 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
         )
         assert cursor.fetchone()[0] == 0
 
+    stop_hook = parse_codex_hook_input(
+        json.dumps(
+            {
+                "session_id": entry.session_id,
+                "hook_event_name": "Stop",
+                "turn_id": str(uuid4()),
+                "stop_hook_active": False,
+                "permission_mode": "default",
+            }
+        )
+    )
+    close_moment = dt.datetime.now(dt.UTC)
+    close_entry = spool.stage(
+        stop_hook.observation_body(client_version=CODEX_REVIEWED_VERSION),
+        delivery_id=stop_hook.delivery_id(
+            occurrence_id=str(uuid4()), client_version=CODEX_REVIEWED_VERSION
+        ),
+        occurred_at=close_moment,
+    )
+    graph.update_details(
+        work_item.id,
+        acceptance_criteria=(AcceptanceCriterion("terminal child receipt", True),),
+        reason="session lifecycle independently verified before pre-close",
+        now=close_moment,
+    )
     rebootstrap = service.prepare(
         project_id=base_run.project_id,
         work_item_id=work_item.id,
         actor_id=actor.id,
         client_id="codex",
         session_id=entry.session_id,
-        entry_digest=entry.entry_digest,
+        entry_digest=close_entry.entry_digest,
         source_revision=base_run.source_revision,
+        event_type="pre_close",
         rebootstrap=True,
-        now=now + dt.timedelta(seconds=1),
+        now=close_moment,
     )
     assert rebootstrap.rebootstrap is True
     reapplied = service.apply(
         rebootstrap,
         supplied_plan_digest=rebootstrap.plan_digest,
-        current_entry_digest=entry.entry_digest,
+        current_entry_digest=close_entry.entry_digest,
         current_source_revision=base_run.source_revision,
-        now=now + dt.timedelta(seconds=1),
+        now=close_moment,
     )
     assert reapplied.task_plan_id != applied.task_plan_id
     assert JobRepository(connection, realm.id).get(reapplied.job_id).state is JobState.READY
     assert graph.snapshot(work_item.id).plan is not None
     assert graph.snapshot(work_item.id).plan.revision == 2
+    assert tuple(
+        step.step_id for step in graph.snapshot(work_item.id).plan.steps
+    ) == (
+        "client-lifecycle-bootstrap",
+        "client-lifecycle-drain",
+        "projection-aware-close",
+    )
+    graph.transition(
+        work_item.id,
+        WorkState.VERIFICATION,
+        now=close_moment + dt.timedelta(microseconds=1),
+    )
+
+    assert run_codex_lifecycle_bootstrap_once(
+        connection,
+        realm.id,
+        home=home,
+        settings=WorkerSettings(
+            worker_label="pre-close-bootstrap-worker",
+            capabilities=("client.lifecycle.codex-bootstrap",),
+            max_iterations=1,
+        ),
+    ) is not None
+    close_children = JobRepository(connection, realm.id).list_by_state(JobState.READY)
+    close_lifecycle = next(
+        item
+        for item in close_children
+        if item.run_id == reapplied.run_id and item.step_id == "client-lifecycle-drain"
+    )
+    close_job = next(
+        item
+        for item in close_children
+        if item.run_id == reapplied.run_id and item.step_id == "projection-aware-close"
+    )
+    assert "hydration_authorization_id" in close_lifecycle.payload
+    assert "source_authorization_id" in close_job.payload
+    assert "actor_id" not in close_job.payload
+    assert run_codex_lifecycle_once(
+        connection,
+        realm.id,
+        home=home,
+        settings=WorkerSettings(
+            worker_label="pre-close-lifecycle-worker",
+            capabilities=("client.lifecycle.codex-drain",),
+            max_iterations=1,
+        ),
+    ) is not None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select event.id,outbox.state,outbox.terminal_receipt_digest,hydration.id"
+            " from continuity.session_lifecycle_event event"
+            " join continuity.lifecycle_delivery_outbox outbox"
+            " on outbox.realm_id=event.realm_id and outbox.event_id=event.id"
+            " join continuity.lifecycle_hydration_admission hydration"
+            " on hydration.realm_id=event.realm_id"
+            " and hydration.continuity_event_id=event.id"
+            " where event.realm_id=%s and event.run_id=%s"
+            " and event.event_type='pre_close'",
+            (realm.id, reapplied.run_id),
+        )
+        staged = cursor.fetchone()
+    assert staged is not None
+    assert staged[1:3] == ("pending", None)
+    assert staged[3] is not None
+
+    close_result = run_projection_close_once(
+        connection,
+        realm.id,
+        settings=WorkerSettings(
+            worker_label="projection-close-worker",
+            capabilities=("client.lifecycle.projection-close",),
+            max_iterations=1,
+        ),
+    )
+    assert close_result is not None
+    assert graph.items.get(work_item.id).state is WorkState.COMPLETED
+    assert JobRepository(connection, realm.id).get(close_job.id).state is JobState.COMPLETED
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select outbox.state,outbox.terminal_receipt_digest,run.state,"
+            " exists(select 1 from continuity.session_close_receipt receipt"
+            " where receipt.realm_id=outbox.realm_id"
+            " and receipt.receipt_digest=outbox.terminal_receipt_digest)"
+            " from continuity.lifecycle_delivery_outbox outbox"
+            " join continuity.session_lifecycle_event event"
+            " on event.realm_id=outbox.realm_id and event.id=outbox.event_id"
+            " join runtime.execution_run run"
+            " on run.realm_id=event.realm_id and run.id=event.run_id"
+            " where outbox.realm_id=%s and event.run_id=%s"
+            " and event.event_type='pre_close'",
+            (realm.id, reapplied.run_id),
+        )
+        terminal = cursor.fetchone()
+        cursor.execute(
+            "select evidence.value->>'kind',evidence.value->>'reference',"
+            " evidence.value->>'digest' from work.work_item item"
+            " cross join lateral jsonb_array_elements(item.acceptance_evidence) evidence"
+            " where item.realm_id=%s and item.id=%s order by evidence.value->>'kind'",
+            (realm.id, work_item.id),
+        )
+        evidence = cursor.fetchall()
+        cursor.execute(
+            "select assignment.role,assignment.agent_ref,invocation.execution_identity,"
+            " result.envelope_digest from agents.invocation invocation"
+            " join agents.assignment assignment on assignment.realm_id=invocation.realm_id"
+            " and assignment.id=invocation.assignment_id"
+            " join agents.result_receipt result on result.realm_id=invocation.realm_id"
+            " and result.invocation_id=invocation.id"
+            " where invocation.realm_id=%s"
+            " and invocation.client_id='zekam-projection-close-db-verifier'",
+            (realm.id,),
+        )
+        verifier = cursor.fetchone()
+    assert terminal is not None
+    assert terminal[0] == "completed"
+    assert str(terminal[1]).startswith("sha256:")
+    assert terminal[2:] == ("completed", True)
+    assert [row[0] for row in evidence] == ["closure-checkpoint", "independent-verifier"]
+    assert evidence[1][1].startswith("db:agents.result_receipt/")
+    assert str(evidence[1][2]).startswith("sha256:")
+    assert verifier is not None
+    assert verifier[0:2] == ("verifier", "projection-close-verifier")
+    assert str(verifier[2]).startswith("projection-close-db-verifier:")
+    assert str(verifier[3]).startswith("sha256:")
 
 
 def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> None:

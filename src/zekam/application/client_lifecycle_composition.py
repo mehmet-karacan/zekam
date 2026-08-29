@@ -16,6 +16,7 @@ from zekam.application.client_lifecycle_bridge import (
     LifecycleRequest,
 )
 from zekam.application.client_lifecycle_continuity import (
+    _HYDRATING_EVENT_TYPES,
     LIFECYCLE_ADAPTER_DIGEST,
     LIFECYCLE_EFFECT_OPERATION,
     ClaimedLifecycleDelivery,
@@ -317,7 +318,7 @@ def recover_committed_codex_delivery(
         raise PolicyViolation("Committed lifecycle terminal Codex session binding drift")
     if terminal["event_type"] != entry.internal_event_type:
         raise PolicyViolation("Committed lifecycle terminal event type drift")
-    if entry.internal_event_type == "session_start":
+    if entry.internal_event_type in _HYDRATING_EVENT_TYPES:
         repository.lookup_lifecycle_hydration(
             continuity_event_id=UUID(str(terminal["continuity_event_id"]))
         )
@@ -559,11 +560,11 @@ def compose_codex_lifecycle_handler(
         if not entries:
             raise PolicyViolation("Codex lifecycle claimed job icin pending delivery yok")
         entry = entries[0]
-        if (entry.internal_event_type == "session_start") != (
+        if (entry.internal_event_type in _HYDRATING_EVENT_TYPES) != (
             hydration_authorization_id is not None
         ):
             raise PolicyViolation(
-                "Codex session-start job exact hydration authorization payload ister"
+                "Codex hydration bootstrap job exact authorization payload ister"
             )
         raw_inputs = repository.claimed_plan_inputs(
             job_id=work.job.id,

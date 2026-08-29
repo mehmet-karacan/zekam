@@ -768,6 +768,75 @@ def run_codex_lifecycle_bootstrap_once(
         raise
 
 
+def run_projection_close_once(
+    connection: Any,
+    realm_id: UUID,
+    *,
+    settings: WorkerSettings,
+) -> str | None:
+    """Claim one verified staged pre-close and atomically complete its Work."""
+
+    from zekam.application.projection_close_runtime import ProjectionCloseRuntimeService
+    from zekam.domain.runtime import JobState
+
+    if settings.capabilities != ("client.lifecycle.projection-close",):
+        raise PolicyViolation("Projection close worker exact tek capability ister")
+    service = ProjectionCloseRuntimeService(connection, realm_id)
+    job_id = service.next_ready_job_id()
+    if job_id is None:
+        return None
+    service.assert_release_ready(job_id)
+    host = ExecutionHost(connection, realm_id, worker_label=settings.worker_label)
+    job = host.jobs.get(job_id)
+    if any(
+        value is None
+        for value in (
+            job.work_item_id,
+            job.plan_id,
+            job.step_id,
+            job.assignment_id,
+            job.run_id,
+        )
+    ):
+        raise PolicyViolation("Projection close exact queue identity eksik")
+    work = host.jobs.claim_exact(
+        job.id,
+        project_id=job.project_id,
+        work_item_id=job.work_item_id,
+        plan_id=job.plan_id,
+        step_id=job.step_id,
+        assignment_id=job.assignment_id,
+        run_id=job.run_id,
+        capabilities=settings.capabilities,
+        worker_label=settings.worker_label,
+        lease_seconds=settings.lease_seconds,
+    )
+    try:
+        return service.execute(work, now=dt.datetime.now(dt.UTC))
+    except Exception:
+        current = host.jobs.get(job.id)
+        if current.state is JobState.RUNNING:
+            claims = host.ledger.claims_for_job(job.id)
+            outcome = AttemptOutcome.RECOVERY_REQUIRED if claims else AttemptOutcome.FAILED
+            finished = host.finish(
+                work,
+                outcome=outcome,
+                failure_category=(None if claims else FailureCategory.ADAPTER),
+                result_digest=digest(
+                    {
+                        "schema": "zekam-projection-close-worker-failure/v1",
+                        "job_id": str(job.id),
+                        "receiptless_claim": bool(claims),
+                    }
+                ),
+            )
+            if not finished:
+                raise PolicyViolation(
+                    "Projection close worker terminal finish reddedildi"
+                ) from None
+        raise
+
+
 def run_codex_runtime_once(
     connection: Any,
     realm_id: UUID,
@@ -800,7 +869,17 @@ def run_codex_runtime_once(
             max_iterations=1,
         ),
     )
-    return child_result or parent_result
+    close_result = run_projection_close_once(
+        connection,
+        realm_id,
+        settings=WorkerSettings(
+            worker_label=f"{worker_label}-close",
+            capabilities=("client.lifecycle.projection-close",),
+            lease_seconds=lease_seconds,
+            max_iterations=1,
+        ),
+    )
+    return close_result or child_result or parent_result
 
 
 def noop_handler(work: ClaimedWork) -> str:

@@ -31,6 +31,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
 
     stored = json.loads(config.read_text(encoding="utf-8"))
     assert stored["default_agent"] == DEFAULT_AGENT
+    assert stored["plugin"] == ["./plugins/zekam-lifecycle.js"]
     assert stored["provider"]["litellm"]["options"]["timeout"] == 60
     agents = user_home / ".config" / "opencode" / "agents"
     installed = {item.name for item in agents.iterdir()}
@@ -90,7 +91,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert plugin.is_file()
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
     assert "session.error" in plugin.read_text(encoding="utf-8")
-    assert '"--task-label"' in plugin.read_text(encoding="utf-8")
+    assert '"--task-label"' not in plugin.read_text(encoding="utf-8")
     plugin_body = plugin.read_text(encoding="utf-8")
     assert plugin_body.startswith("// zekam-managed-plugin/v2")
     assert "opencode-plugin-spool" in plugin_body

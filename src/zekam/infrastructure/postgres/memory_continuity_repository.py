@@ -1078,6 +1078,7 @@ class MemoryContinuityRepository:
         run_id: UUID,
         session_id: str,
         client_id: str,
+        preview_event_type: str | None = None,
         preview_event_body: Mapping[str, Any] | None = None,
         preview_event_digest: str | None = None,
     ) -> tuple[HydrationInventorySnapshot, tuple[Any, ...]]:
@@ -1091,8 +1092,13 @@ class MemoryContinuityRepository:
 
         if not session_id.strip() or not client_id.strip():
             raise ValidationFailed("Hydration inventory session/client bos olamaz")
-        if (preview_event_body is None) != (preview_event_digest is None):
-            raise ValidationFailed("Hydration preview event body/digest birlikte ister")
+        if not (
+            (preview_event_body is None and preview_event_digest is None
+             and preview_event_type is None)
+            or (preview_event_body is not None and preview_event_digest is not None
+                and preview_event_type in {"session_start", "pre_close"})
+        ):
+            raise ValidationFailed("Hydration preview event type/body/digest birlikte ister")
         if (
             preview_event_body is not None
             and digest(dict(preview_event_body)) != preview_event_digest
@@ -1145,16 +1151,18 @@ class MemoryContinuityRepository:
                 " join lateral (select version,checksum from core.schema_migrations"
                 " order by version desc limit 1) migration on true"
                 " join lateral (select lifecycle.event_body,lifecycle.event_digest,"
-                " lifecycle.event_type from continuity.session_lifecycle_event lifecycle"
+                " lifecycle.event_type,lifecycle.sequence,lifecycle.id"
+                " from continuity.session_lifecycle_event lifecycle"
                 " where lifecycle.realm_id=run.realm_id"
                 " and lifecycle.project_id=run.project_id"
                 " and lifecycle.work_item_id=run.work_item_id"
                 " and lifecycle.run_id=run.id and lifecycle.session_id=run.session_id"
                 " and lifecycle.client_id=run.client_id"
-                " and lifecycle.event_type in ('session_start','hydration_required')"
+                " and lifecycle.event_type in ('session_start','pre_close','hydration_required')"
                 " and %s::jsonb is null"
-                " union all select %s::jsonb,%s::text,'session_start'::text"
-                " where %s::jsonb is not null limit 1) event"
+                " union all select %s::jsonb,%s::text,%s::text,null::integer,null::uuid"
+                " where %s::jsonb is not null"
+                " order by sequence desc nulls first,id desc nulls first limit 1) event"
                 " on true"
                 " join lateral (select jsonb_agg(jsonb_build_object("
                 " 'candidate_id',fragment.candidate_id,'content_kind',fragment.content_kind,"
@@ -1229,6 +1237,7 @@ class MemoryContinuityRepository:
                     None if preview_event_body is None else canonical_json(preview_event_body),
                     None if preview_event_body is None else canonical_json(preview_event_body),
                     preview_event_digest,
+                    preview_event_type,
                     None if preview_event_body is None else canonical_json(preview_event_body),
                     ACTIVE_WORK_PROJECTION_REF,
                     self.realm_id,
@@ -1405,6 +1414,7 @@ class MemoryContinuityRepository:
         run_id: UUID,
         session_id: str,
         client_id: str,
+        event_type: str,
         event_body: Mapping[str, Any],
         event_digest: str,
     ) -> HydrationInventorySnapshot:
@@ -1416,6 +1426,7 @@ class MemoryContinuityRepository:
             run_id=run_id,
             session_id=session_id,
             client_id=client_id,
+            preview_event_type=event_type,
             preview_event_body=event_body,
             preview_event_digest=event_digest,
         )
@@ -1732,7 +1743,29 @@ class MemoryContinuityRepository:
             lifecycle = cursor.fetchall()
             pre_close_outbox_id: UUID | None = None
             predecessor_digest: str | None = None
-            for expected_sequence, row in enumerate(lifecycle, start=1):
+            expected_sequence = int(lifecycle[0][2]) if lifecycle else 1
+            if lifecycle and lifecycle[0][3] is not None:
+                cursor.execute(
+                    "select count(*) from continuity.session_lifecycle_event predecessor"
+                    " where predecessor.realm_id=%s and predecessor.project_id=%s"
+                    " and predecessor.work_item_id=%s and predecessor.session_id=%s"
+                    " and predecessor.client_id=%s and predecessor.sequence=%s"
+                    " and predecessor.event_digest=%s and predecessor.run_id<>%s",
+                    (
+                        self.realm_id,
+                        project_id,
+                        work_item_id,
+                        session_id,
+                        client_id,
+                        expected_sequence - 1,
+                        str(lifecycle[0][3]),
+                        run_id,
+                    ),
+                )
+                if int(cursor.fetchone()[0]) != 1:
+                    pending.append("lifecycle-cross-run-predecessor-missing")
+                predecessor_digest = str(lifecycle[0][3])
+            for row in lifecycle:
                 sequence = int(row[2])
                 previous_digest = None if row[3] is None else str(row[3])
                 event_digest = str(row[5])
@@ -1745,6 +1778,7 @@ class MemoryContinuityRepository:
                 if row[6] is None:
                     pending.append("lifecycle-outbox-missing")
                 predecessor_digest = event_digest
+                expected_sequence += 1
             if not lifecycle or str(lifecycle[-1][1]) != "pre_close":
                 pending.append("pre-close-not-current")
             else:

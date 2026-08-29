@@ -225,6 +225,7 @@ def client_runtime_bootstrap_command(
                 client_id="codex",
                 session_id=entry.session_id,
                 entry_digest=entry.entry_digest,
+                event_type=entry.internal_event_type,
                 source_revision=source_revision,
                 rebootstrap=rebootstrap,
             )

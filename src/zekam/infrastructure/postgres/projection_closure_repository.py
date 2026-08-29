@@ -46,6 +46,81 @@ class ProjectionClosureRepository:
             )
             return bool(cursor.fetchone()[0])
 
+    def _assert_staged_lifecycle_admission(
+        self,
+        *,
+        event_id: UUID,
+        outbox_id: UUID,
+        close_job_id: UUID,
+        task_plan_digest: str,
+        outbox_plan_digest: str,
+        policy_digest: str,
+        event_body: dict[str, Any],
+    ) -> None:
+        """Mirror migration 0074's immutable lifecycle-to-close bridge."""
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select envelope.checkpoint_disposition,envelope.checkpoint_id,"
+                " envelope.checkpoint_digest,envelope.checkpoint_v2_id,"
+                " envelope.checkpoint_v2_digest"
+                " from client.codex_lifecycle_admission admission"
+                " join runtime.execution_envelope envelope"
+                " on envelope.realm_id=admission.realm_id and envelope.id=admission.envelope_id"
+                " join security.authorization auth"
+                " on auth.realm_id=admission.realm_id and auth.id=admission.authorization_id"
+                " join runtime.effect_claim claim"
+                " on claim.realm_id=admission.realm_id and claim.id=admission.claim_id"
+                " join runtime.effect_receipt effect"
+                " on effect.realm_id=admission.realm_id and effect.id=admission.effect_receipt_id"
+                " where admission.realm_id=%s and admission.continuity_event_id=%s"
+                " and admission.delivery_outbox_id=%s and admission.job_id<>%s"
+                " and admission.work_plan_digest=%s and admission.effect_plan_digest=%s"
+                " and admission.policy_digest=%s"
+                " and admission.envelope_digest=envelope.envelope_digest"
+                " and auth.state='consumed'"
+                " and auth.consumed_by='client-lifecycle-bridge/v1'"
+                " and auth.plan_digest=admission.effect_plan_digest"
+                " and claim.authorization_id=auth.id and claim.job_id=admission.job_id"
+                " and effect.claim_id=claim.id and effect.status='completed'",
+                (
+                    self.realm_id,
+                    event_id,
+                    outbox_id,
+                    close_job_id,
+                    task_plan_digest,
+                    outbox_plan_digest,
+                    policy_digest,
+                ),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise PolicyViolation("Projection closure staged lifecycle admission eksik")
+            disposition = str(row[0])
+            checkpoint_ref = event_body.get("checkpoint_ref")
+            if disposition == "not-applicable-genesis":
+                valid = checkpoint_ref is None
+            elif disposition == "bound" and row[1] is not None:
+                valid = checkpoint_ref == f"checkpoint:{row[1]}"
+                cursor.execute(
+                    "select exists(select 1 from work.checkpoint where realm_id=%s"
+                    " and id=%s and checkpoint_digest=%s)",
+                    (self.realm_id, row[1], row[2]),
+                )
+                valid = valid and bool(cursor.fetchone()[0])
+            elif disposition == "bound-v2" and row[3] is not None:
+                valid = checkpoint_ref == f"checkpoint-v2:{row[3]}"
+                cursor.execute(
+                    "select exists(select 1 from work.checkpoint_v2 where realm_id=%s"
+                    " and id=%s and checkpoint_digest=%s)",
+                    (self.realm_id, row[3], row[4]),
+                )
+                valid = valid and bool(cursor.fetchone()[0])
+            else:
+                valid = False
+        if not valid:
+            raise PolicyViolation("Projection closure lifecycle checkpoint binding drift")
+
     def read_closure_snapshot(
         self,
         receipt: SessionCloseReceipt,
@@ -187,12 +262,13 @@ class ProjectionClosureRepository:
                 raise PolicyViolation("Projection closure checkpoint binding drift")
 
             cursor.execute(
-                "select resource,mode from runtime.resource_lock"
-                " where realm_id=%s and job_id=%s and lease_id=%s"
-                " order by resource,mode" + suffix,
-                (self.realm_id, receipt.job_id, lease_id),
+                "select resource,mode,lease_id from runtime.resource_lock"
+                " where realm_id=%s and job_id=%s"
+                " order by resource,mode",
+                (self.realm_id, receipt.job_id),
             )
-            locks = tuple((str(row[0]), str(row[1])) for row in cursor.fetchall())
+            lock_rows = cursor.fetchall()
+            locks = tuple((str(row[0]), str(row[1])) for row in lock_rows)
             expected_lock = (
                 (
                     f"work:{receipt.project_id}:{receipt.work_item_id}:"
@@ -200,7 +276,9 @@ class ProjectionClosureRepository:
                     "write",
                 ),
             )
-            if locks != expected_lock:
+            if locks != expected_lock or tuple(UUID(str(row[2])) for row in lock_rows) != (
+                lease_id,
+            ):
                 raise PolicyViolation("Projection closure logical lock exact degil")
             lock_digest = digest([{"resource": resource, "mode": mode} for resource, mode in locks])
 
@@ -235,10 +313,18 @@ class ProjectionClosureRepository:
             pre_close_body = pre_close[9]
             if (
                 not isinstance(pre_close_body, dict)
-                or pre_close_body.get("checkpoint_ref") != receipt.checkpoint_ref.ref
                 or pre_close_body.get("plan_ref") != f"work-plan:{task_plan_id}"
             ):
-                raise PolicyViolation("Projection closure pre_close Plan/checkpoint binding drift")
+                raise PolicyViolation("Projection closure pre_close Plan binding drift")
+            self._assert_staged_lifecycle_admission(
+                event_id=UUID(str(pre_close[0])),
+                outbox_id=UUID(str(pre_close[4])),
+                close_job_id=receipt.job_id,
+                task_plan_digest=str(task_plan[4]),
+                outbox_plan_digest=str(pre_close[5]),
+                policy_digest=receipt.policy_digest,
+                event_body=pre_close_body,
+            )
             expected_payload = digest(
                 {
                     "event_digest": str(pre_close[1]),
@@ -306,9 +392,23 @@ class ProjectionClosureRepository:
             session_id=receipt.session_id,
             client_id=receipt.client_id,
         )
-        if str(pre_close_body.get("source_revision")) != release.source_head:
+        source_revision = str(pre_close_body.get("source_revision"))
+        if (
+            source_revision[4:44]
+            if source_revision.startswith("git:") and ";state:sha256:" in source_revision
+            else source_revision
+        ) != release.source_head:
             raise PolicyViolation("Projection closure pre_close/source revision drift")
-        if str(task_plan[2]) != release.source_head or str(task_plan[3]) != receipt.policy_digest:
+        task_source = str(task_plan[2])
+        if (
+            (
+                task_source[4:44]
+                if task_source.startswith("git:") and ";state:sha256:" in task_source
+                else task_source
+            )
+            != release.source_head
+            or str(task_plan[3]) != receipt.policy_digest
+        ):
             raise PolicyViolation("Projection closure current Plan source/policy drift")
         return ProjectionClosureSnapshot(
             work_item=work,
@@ -715,7 +815,6 @@ class ProjectionClosureRepository:
         if (
             (int(pre_close[2]) == 1) != (previous_digest is None)
             or (int(pre_close[2]) > 1 and (previous is None or str(previous[0]) != previous_digest))
-            or pre_close[4].get("checkpoint_ref") != receipt.checkpoint_ref.ref
             or pre_close[4].get("plan_ref") != f"work-plan:{task_plan_id}"
             or str(pre_close[4].get("source_revision")) != str(task_plan[2])
             or str(pre_close[6])
@@ -844,7 +943,7 @@ class ProjectionClosureRepository:
             cursor.execute(
                 "select job_id,attempt_id,operation,effect_digest,authorization_digest,"
                 " authorization_id,resources,fencing_token,claim_digest"
-                " from runtime.effect_claim where realm_id=%s and id=%s for update",
+                " from runtime.effect_claim where realm_id=%s and id=%s",
                 (self.realm_id, claim_id),
             )
             claim = cursor.fetchone()
