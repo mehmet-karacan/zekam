@@ -541,6 +541,57 @@ def verify_command(
     console.print(f"[green]Verification:[/green] revision {updated.revision}")
 
 
+@app.command("activate")
+def activate_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    evidence: Annotated[
+        list[str] | None,
+        typer.Option("--kanit", help="kind=reference bicimli exact aktivasyon kaniti"),
+    ] = None,
+    apply: Annotated[bool, typer.Option("--uygula", help="Work'u atomik active yapar")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Yalniz proposed Work'u exact kanitlarla control-plane'de active yapar."""
+
+    references: list[EvidenceRef] = []
+    for entry in evidence or []:
+        kind, separator, value = entry.partition("=")
+        if not separator or not kind.strip() or not value.strip():
+            raise fail("Kanit bicimi `kind=reference` olmali")
+        references.append(EvidenceRef(kind=kind.strip(), reference=value.strip()))
+    if not references:
+        raise fail("Work activation en az bir exact --kanit ister")
+    if not apply:
+        console.print(f"hedef durum: active, aktivasyon kanit: {len(references)}")
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            with realm_context.connection.transaction():
+                current = service.items.get(work_item_id)
+                if current.project_id != project_id or current.state is not WorkState.PROPOSED:
+                    raise ZekamError("Work activation exact proposed Work ister")
+                service.transition(
+                    work_item_id,
+                    WorkState.READY,
+                    evidence=tuple(references),
+                    reason="exact input ve baseline kaniti ile control-plane activation",
+                )
+                updated = service.transition(
+                    work_item_id,
+                    WorkState.ACTIVE,
+                    reason="control-plane activation actionable gate",
+                )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print(f"[green]Active:[/green] revision {updated.revision}")
+
+
 @app.command("reopen")
 def reopen_command(
     project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],

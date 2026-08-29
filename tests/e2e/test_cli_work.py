@@ -128,6 +128,118 @@ def test_create_and_list(cli_home: Path, realm_flags: list[str], registered_proj
     assert rows[0]["state"] == "proposed"
 
 
+def test_activate_requires_exact_evidence_and_only_accepts_proposed(
+    cli_home: Path, realm_flags: list[str], registered_project: str
+) -> None:
+    _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "create",
+        registered_project,
+        "Aktivasyon",
+        "--numara",
+        "activate-1",
+        "--uygula",
+    )
+
+    missing_evidence = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activate",
+        registered_project,
+        "activate-1",
+        "--uygula",
+    )
+    assert missing_evidence.exit_code == 70
+    assert "en az bir exact --kanit ister" in missing_evidence.stderr
+
+    activated = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activate",
+        registered_project,
+        "activate-1",
+        "--kanit",
+        "input=sha256:test-input",
+        "--kanit",
+        "baseline=git:test-head",
+        "--uygula",
+    )
+    assert activated.exit_code == 0, activated.stdout
+    assert "Active:" in activated.stdout
+
+    history = _run(cli_home, realm_flags, "work", "history", registered_project, "activate-1")
+    assert [row["state"] for row in json.loads(history.stdout)["revisions"]] == [
+        "proposed",
+        "ready",
+        "active",
+    ]
+
+    duplicate = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activate",
+        registered_project,
+        "activate-1",
+        "--kanit",
+        "input=sha256:test-input",
+        "--uygula",
+    )
+    assert duplicate.exit_code == 70
+    assert "exact proposed Work ister" in duplicate.stderr
+
+    _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "create",
+        registered_project,
+        "Bloklu aktivasyon",
+        "--numara",
+        "activate-blocked",
+        "--uygula",
+    )
+    related = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "relate",
+        registered_project,
+        "activate-1",
+        "blocks",
+        "activate-blocked",
+        "--uygula",
+    )
+    assert related.exit_code == 0, related.stdout
+    blocked = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activate",
+        registered_project,
+        "activate-blocked",
+        "--kanit",
+        "input=sha256:test-input",
+        "--uygula",
+    )
+    assert blocked.exit_code == 6
+    blocked_history = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "history",
+        registered_project,
+        "activate-blocked",
+    )
+    assert [row["state"] for row in json.loads(blocked_history.stdout)["revisions"]] == [
+        "proposed"
+    ]
+
+
 def test_lifecycle_through_cli(
     cli_home: Path, realm_flags: list[str], registered_project: str
 ) -> None:
