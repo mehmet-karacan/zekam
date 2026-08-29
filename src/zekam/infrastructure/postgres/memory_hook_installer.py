@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from zekam.application.governance import EffectRequest
 from zekam.application.memory_hooks import (
     MEMORY_HOOK_EVENTS,
     memory_hook_bundle,
@@ -15,6 +16,7 @@ from zekam.application.memory_hooks import (
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.identifiers import new_uuid7
+from zekam.domain.work import EffectKind
 from zekam.infrastructure.postgres.config_provenance_repository import (
     ConfigProvenanceRepository,
 )
@@ -30,9 +32,71 @@ class MemoryHookInstallReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryHookUpgradePlan:
+    realm_id: UUID
+    current_generation: int
+    current_hook_set_digest: str
+    expected_bundle_digest: str
+    resource: str
+    effect_digest: str
+    plan_digest: str
+
+    @property
+    def effect_request(self) -> EffectRequest:
+        return EffectRequest(
+            action="memory-hook-upgrade",
+            effects=(EffectKind.DATABASE_WRITE,),
+            resources=(self.resource,),
+            required_capabilities=(),
+        )
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-memory-hook-upgrade-plan/v1",
+            "realm_id": str(self.realm_id),
+            "current_generation": self.current_generation,
+            "current_hook_set_digest": self.current_hook_set_digest,
+            "expected_bundle_digest": self.expected_bundle_digest,
+            "resource": self.resource,
+            "effect_digest": self.effect_digest,
+            "plan_digest": self.plan_digest,
+            "grants_authority": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PostgresMemoryHookInstaller:
     connection: Any
     realm_id: UUID
+
+    def plan_upgrade(self) -> MemoryHookUpgradePlan:
+        _, generation, current_digest = self._current()
+        if current_digest is None:
+            raise PolicyViolation("Memory hook upgrade current generation ister")
+        bundle_digest = memory_hook_bundle(self.realm_id).bundle_digest
+        resource = f"hooks:current-generation:{self.realm_id}"
+        effect_digest = EffectRequest(
+            action="memory-hook-upgrade",
+            effects=(EffectKind.DATABASE_WRITE,),
+            resources=(resource,),
+            required_capabilities=(),
+        ).effect_digest
+        plan_digest = digest(
+            {
+                "schema": "zekam-memory-hook-upgrade-plan/v1",
+                "effect_digest": effect_digest,
+                "grants_authority": False,
+            }
+        )
+        return MemoryHookUpgradePlan(
+            self.realm_id,
+            generation,
+            current_digest,
+            bundle_digest,
+            resource,
+            effect_digest,
+            plan_digest,
+        )
 
     def ensure(self, *, installed_at: dt.datetime) -> MemoryHookInstallReceipt:
         with self.connection.transaction():

@@ -156,6 +156,17 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract("memory upgrade-plan", "Exact upgrade ve rollback planini uretir", False),
     CommandContract("memory upgrade-verify", "Upgrade kanit ve verifier bagini dogrular", False),
     CommandContract(
+        "memory hook-upgrade-plan", "Exact hook generation upgrade planini okur", False
+    ),
+    CommandContract(
+        "memory hook-upgrade-apply",
+        "Exact hook generation upgrade'ini claim ve receipt ile uygular",
+        True,
+        True,
+        True,
+        (0, 4, 6, 64, 70),
+    ),
+    CommandContract(
         "memory hydration-apply", "Hydration receipt uygular", True, True, True, (0, 4, 6, 64, 70)
     ),
     CommandContract(

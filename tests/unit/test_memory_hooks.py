@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime as dt
 from uuid import uuid4
 
+import pytest
+
 from zekam.application.memory_hooks import (
     MEMORY_HOOK_EVENTS,
     MEMORY_HOOK_REVISION,
@@ -11,6 +13,7 @@ from zekam.application.memory_hooks import (
 )
 from zekam.domain.canonical import digest
 from zekam.domain.hook_runtime import HookExecutionMode, HookResultKind
+from zekam.infrastructure.postgres.memory_hook_installer import PostgresMemoryHookInstaller
 
 
 def test_memory_hook_bundle_is_deterministic_exact_and_authority_free() -> None:
@@ -68,3 +71,28 @@ def test_memory_hook_bundle_is_deterministic_exact_and_authority_free() -> None:
     assert all(
         item.payload["command_digest"] == digest(item.payload["command"]) for item in results
     )
+
+
+def test_memory_hook_upgrade_plan_binds_current_generation_and_code_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    realm_id = uuid4()
+    current_digest = digest("current-hooks")
+
+    # The plan is read-only; a DB snapshot supplies only the immutable current identity.
+    monkeypatch.setattr(
+        PostgresMemoryHookInstaller,
+        "_current",
+        lambda _self: (uuid4(), 7, current_digest),
+    )
+    installer = PostgresMemoryHookInstaller(object(), realm_id)
+
+    first = installer.plan_upgrade()
+    second = installer.plan_upgrade()
+
+    assert first == second
+    assert first.current_generation == 7
+    assert first.current_hook_set_digest == current_digest
+    assert first.expected_bundle_digest == memory_hook_bundle(realm_id).bundle_digest
+    assert first.resource == f"hooks:current-generation:{realm_id}"
+    assert first.body()["grants_authority"] is False

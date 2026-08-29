@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from zekam.application.memory_hooks import memory_hook_bundle
 from zekam.application.memory_observability import (
     REQUIRED_MEMORY_DIMENSIONS,
     MemoryContinuityHealthReport,
@@ -151,31 +152,52 @@ class PostgresMemoryHealthReader:
         )
 
     def _required_hooks(self) -> MemoryHealthDimension:
+        expected_bundle = memory_hook_bundle(self.realm_id)
+        expected = {
+            spec.event_type.value: (spec.hook_digest, runtime.runtime_digest)
+            for spec, runtime in zip(
+                expected_bundle.specs, expected_bundle.runtimes, strict=True
+            )
+        }
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select spec.event_type,count(*)"
+                "select spec.event_type,count(*),min(spec.hook_digest),"
+                " min(runtime.runtime_digest)"
                 " from hooks.current_generation current_set"
                 " join hooks.compiled_set_entry entry"
                 " on entry.realm_id=current_set.realm_id"
                 " and entry.compiled_set_id=current_set.compiled_set_id"
                 " join hooks.spec_revision spec"
                 " on spec.realm_id=entry.realm_id and spec.id=entry.spec_revision_id"
+                " join hooks.runtime_revision runtime"
+                " on runtime.realm_id=entry.realm_id"
+                " and runtime.id=entry.runtime_revision_id"
                 " where current_set.realm_id=%s and spec.required"
                 " and entry.runtime_revision_id is not null"
                 " and entry.disabled_reason is null and spec.event_type=any(%s)"
                 " group by spec.event_type",
                 (self.realm_id, list(_CONTINUITY_EVENTS)),
             )
-            counts = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
-        invalid = sum(counts.get(event, 0) != 1 for event in _CONTINUITY_EVENTS)
+            observed = {
+                str(row[0]): (int(row[1]), str(row[2]), str(row[3]))
+                for row in cursor.fetchall()
+            }
+        invalid = sum(
+            observed.get(event, (0, "", ""))
+            != (1, expected[event][0], expected[event][1])
+            for event in _CONTINUITY_EVENTS
+        )
         if invalid:
             return _unhealthy(
                 "required-hook-runtime",
-                f"{invalid} lifecycle eventi exact-one required handler saglamiyor",
+                f"{invalid} lifecycle eventi exact code revision handler tasimiyor",
                 "db:hooks.current_generation/continuity",
                 invalid,
-                "memory.required-hook-count-invalid",
-                "Required lifecycle spec/runtime setini derleyin; unrelated hook'lari koruyun",
+                "memory.required-hook-revision-drift",
+                (
+                    "Exact memory hook upgrade planini uretin; unrelated hook'lari "
+                    "koruyarak governed generation aktivasyonu uygulayin"
+                ),
                 failed=True,
             )
         return _passed(

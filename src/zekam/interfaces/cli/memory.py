@@ -16,6 +16,12 @@ from rich.console import Console
 
 from zekam.application.composition import build_context
 from zekam.application.config import core_root
+from zekam.application.control_plane_completion import (
+    ControlPlaneCompletionRequest,
+    ControlPlaneCompletionService,
+)
+from zekam.application.execution import ExecutionHost
+from zekam.application.governance import DEFAULT_POLICY_NAME, GovernanceService
 from zekam.application.memory_continuity import HydrationPreparation, MemoryContinuityService
 from zekam.application.memory_control import (
     MemoryControlOperation,
@@ -37,9 +43,14 @@ from zekam.application.obsidian_projection import (
     ObsidianProjectionService,
     build_obsidian_projection,
 )
+from zekam.application.work_graph import WorkGraphService
+from zekam.domain.canonical import digest
+from zekam.domain.context_continuity import Checkpoint
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.markdown_projection import ObsidianProfile, ObsidianProjectionBundle
 from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.domain.resources import parse_requests
+from zekam.domain.runtime import AttemptOutcome, FailureCategory, Job, JobKind
 from zekam.domain.session_continuity import (
     CloseStatus,
     ContextOmissionReference,
@@ -48,6 +59,20 @@ from zekam.domain.session_continuity import (
     FreshnessDimension,
     SessionCloseReceipt,
     TruthClass,
+)
+from zekam.domain.work import (
+    AcceptanceCriterion,
+    EffectKind,
+    EvidenceRef,
+    PlanStep,
+    WorkState,
+    WorkType,
+)
+from zekam.infrastructure.postgres.context_continuity_repository import (
+    ContextContinuityRepository,
+)
+from zekam.infrastructure.postgres.control_plane_completion_repository import (
+    PostgresControlPlaneCompletionRepository,
 )
 from zekam.infrastructure.postgres.markdown_projection_repository import (
     PostgresMarkdownProjectionRepository,
@@ -58,6 +83,7 @@ from zekam.infrastructure.postgres.memory_continuity_repository import (
 from zekam.infrastructure.postgres.memory_control_repository import (
     PostgresMemoryControlRepository,
 )
+from zekam.infrastructure.postgres.memory_hook_installer import PostgresMemoryHookInstaller
 from zekam.infrastructure.postgres.memory_observability_repository import (
     PostgresMemoryHealthReader,
 )
@@ -86,6 +112,326 @@ _READ_EXIT = {
     MemoryDimensionStatus.UNAVAILABLE: 1,
     MemoryDimensionStatus.FAILED: 2,
 }
+
+
+@app.command("hook-upgrade-plan")
+def hook_upgrade_plan(
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Plan the exact managed hook generation upgrade without mutation."""
+    try:
+        with RealmSession(home, realm) as context:
+            plan = PostgresMemoryHookInstaller(
+                context.connection, context.realm_id
+            ).plan_upgrade()
+    except ZekamError as exc:
+        raise _raise(exc) from exc
+    _emit(plan.body() | {"apply": False})
+
+
+@app.command("hook-upgrade-apply")
+def hook_upgrade_apply(
+    expected_plan_digest: Annotated[str, typer.Option("--plan-digest")],
+    project_id: Annotated[UUID, typer.Option("--project-id")],
+    work_item_id: Annotated[UUID, typer.Option("--work-item-id")],
+    task_plan_id: Annotated[UUID, typer.Option("--task-plan-id")],
+    authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
+    actor_id: Annotated[UUID | None, typer.Option("--actor-id")] = None,
+    authorize: Annotated[bool, typer.Option("--yetkilendir")] = False,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Apply one exact hook upgrade through job, claim and terminal receipt gates."""
+    if not apply:
+        raise fail("Hook upgrade apply --uygula ister", 64)
+    try:
+        with RealmSession(home, realm) as context:
+            installer = PostgresMemoryHookInstaller(context.connection, context.realm_id)
+            plan = installer.plan_upgrade()
+            if plan.plan_digest != expected_plan_digest:
+                raise PolicyViolation("Memory hook upgrade plan digest drift")
+            governance = GovernanceService(
+                context.connection,
+                context.realm,
+                actor_id=actor_id,
+            )
+            if authorize:
+                if actor_id is None or authorization_id is not None:
+                    raise ValidationFailed(
+                        "Hook upgrade --yetkilendir exact --actor-id ve bos authorization ister"
+                    )
+                target_work = WorkGraphService(
+                    context.connection, context.realm, actor_id=actor_id
+                ).items.get(work_item_id)
+                if target_work.project_id != project_id:
+                    raise PolicyViolation("Hook upgrade target Work/project binding drift")
+                graph = WorkGraphService(context.connection, context.realm, actor_id=actor_id)
+                prep_work = graph.create_item(
+                    project_id=project_id,
+                    type=WorkType.MAINTENANCE,
+                    title="Memory hook generation governed upgrade",
+                    summary=(
+                        "Exact code bundle revision'ini unrelated hook'lari koruyarak aktive et"
+                    ),
+                    acceptance_criteria=(
+                        AcceptanceCriterion("Effect claim effect'ten once kalici yazilir"),
+                        AcceptanceCriterion("Terminal receipt yeni generation digestini baglar"),
+                    ),
+                )
+                graph.set_intent(
+                    prep_work.id,
+                    goal=f"Target Work {work_item_id} icin exact hook generation upgrade",
+                    non_goals=("provider-call", "unrelated-hook-rewrite", "silent-retry"),
+                    outcomes=("new-hook-generation", "terminal-effect-receipt"),
+                    constraints=("max-attempts-one", "claim-before-effect"),
+                )
+                prep_work = graph.transition(prep_work.id, WorkState.READY)
+                prep_work = graph.transition(prep_work.id, WorkState.ACTIVE)
+                policy = governance.policies.current(DEFAULT_POLICY_NAME)
+                if policy is None:
+                    raise PolicyViolation("Hook upgrade current policy ister")
+                prep_plan = graph.create_plan(
+                    prep_work.id,
+                    source_revision=f"memory-hook-upgrade:{plan.plan_digest}",
+                    policy_digest=policy.policy_digest,
+                    steps=(
+                        PlanStep(
+                            step_id="memory-hook-upgrade",
+                            title="Exact managed memory hook generation upgrade",
+                            effect=EffectKind.DATABASE_WRITE,
+                            logical_resources=(plan.resource,),
+                            risk="high",
+                        ),
+                    ),
+                )
+                work_item_id = prep_work.id
+                task_plan_id = prep_plan.id
+                authorization_id = governance.issue_authorization(
+                    request=plan.effect_request,
+                    actor_id=actor_id,
+                    plan=prep_plan,
+                    lifetime=dt.timedelta(minutes=15),
+                ).id
+            if authorization_id is None:
+                raise AuthorizationRequired(
+                    "Hook upgrade --authorization-id veya --yetkilendir ister"
+                )
+            authorizations = AuthorizationRepository(context.connection, context.realm_id)
+            authorization = authorizations.get(authorization_id)
+            graph = WorkGraphService(context.connection, context.realm, actor_id=actor_id)
+            bound_work = graph.items.get(work_item_id)
+            bound_plan = graph.plans.current(work_item_id)
+            rejection = authorization.rejection_reason(dt.datetime.now(dt.UTC))
+            if (
+                rejection is not None
+                or bound_work.project_id != project_id
+                or bound_plan is None
+                or bound_plan.id != task_plan_id
+                or bound_plan.project_id != project_id
+                or bound_plan.source_revision != f"memory-hook-upgrade:{plan.plan_digest}"
+                or len(bound_plan.steps) != 1
+                or bound_plan.steps[0].step_id != "memory-hook-upgrade"
+                or bound_plan.steps[0].logical_resources != (plan.resource,)
+                or authorization.work_item_id != work_item_id
+                or authorization.plan_id != task_plan_id
+                or authorization.plan_digest != bound_plan.plan_digest
+                or authorization.effect_digest != plan.effect_digest
+                or not authorization.scope.covers_effect("database-write")
+                or not authorization.scope.covers_resource(plan.resource)
+            ):
+                raise AuthorizationRequired(
+                    f"Memory hook upgrade exact authorization yok: {rejection or 'scope-mismatch'}"
+                )
+            capability = f"memory.hook-upgrade.{plan.plan_digest[-16:]}"
+            resources = parse_requests(write=(plan.resource,))
+            host = ExecutionHost(
+                context.connection, context.realm_id, worker_label="memory-hook-upgrade"
+            )
+            job, created = host.jobs.enqueue(
+                Job.create(
+                    realm_id=context.realm_id,
+                    project_id=project_id,
+                    kind=JobKind.MUTATION,
+                    idempotency_key=f"memory-hook-upgrade:{plan.plan_digest}",
+                    resources=resources,
+                    required_capabilities=(capability,),
+                    max_attempts=1,
+                    work_item_id=work_item_id,
+                    plan_id=task_plan_id,
+                    step_id="memory-hook-upgrade",
+                )
+            )
+            if not created:
+                raise PolicyViolation("Memory hook upgrade runtime replay reddedildi")
+            claimed = host.acquire_work(capabilities=(capability,))
+            if claimed is None or claimed.job.id != job.id:
+                raise PolicyViolation("Memory hook upgrade job claim edilemedi")
+            claim = host.claim_effect(
+                claimed,
+                operation="memory-hook-upgrade",
+                effect_digest=plan.effect_digest,
+                authorization_digest=authorization.authorization_digest,
+                authorization_id=authorization.id,
+                idempotency_key=plan.plan_digest,
+                resources=resources,
+                adapter_digest=digest(
+                    {"adapter": "memory-hook-installer/v2", "plan_digest": plan.plan_digest}
+                ),
+            )
+            effect_started = False
+            receipt_known = False
+            terminalization_started = False
+            try:
+                governance.require_authorized(
+                    plan.effect_request,
+                    authorization=authorization,
+                    consumed_by="cli:memory:hook-upgrade-apply",
+                )
+                effect_started = True
+                receipt = installer.ensure(installed_at=dt.datetime.now(dt.UTC))
+                result = {
+                    "schema": "zekam-memory-hook-upgrade-receipt/v1",
+                    "job_id": str(job.id),
+                    "claim_id": str(claim.id),
+                    "generation": receipt.generation,
+                    "hook_set_digest": receipt.hook_set_digest,
+                    "bundle_digest": receipt.bundle_digest,
+                    "created": receipt.created,
+                    "plan_digest": plan.plan_digest,
+                    "grants_authority": False,
+                }
+                result_digest = digest(result)
+                terminal = host.record_success(
+                    claim,
+                    result_digest=result_digest,
+                    adapter_evidence_digest=digest(
+                        {"plan_digest": plan.plan_digest, "result_digest": result_digest}
+                    ),
+                )
+                receipt_known = True
+                terminal_moment = dt.datetime.now(dt.UTC)
+                checkpoint = Checkpoint(
+                    checkpoint_id=f"memory-hook-upgrade-{job.id}",
+                    project_id=str(project_id),
+                    work_item_id=str(work_item_id),
+                    plan_revision_id=str(task_plan_id),
+                    source_revision=bound_plan.source_revision,
+                    plan_steps=("memory-hook-upgrade",),
+                    completed_steps=("memory-hook-upgrade",),
+                    pending_steps=(),
+                    step_results=(("memory-hook-upgrade", result_digest),),
+                    context_manifest_digest=plan.plan_digest,
+                    journal_head_digest=terminal.adapter_evidence_digest or result_digest,
+                    next_safe_action="reprepare-lifecycle-runtime-template",
+                    created_at=terminal_moment,
+                )
+                checkpoint_id = ContextContinuityRepository(
+                    context.connection,
+                    context.realm_id,
+                    project_id,
+                    work_item_id,
+                ).store_checkpoint(
+                    checkpoint,
+                    task_plan_id=task_plan_id,
+                    job_id=job.id,
+                )
+                if not host.finish(
+                    claimed,
+                    outcome=AttemptOutcome.SUCCEEDED,
+                    result_digest=result_digest,
+                    now=terminal_moment,
+                ):
+                    raise PolicyViolation("Memory hook upgrade terminal attempt kapanmadi")
+                terminalization_started = True
+                prep_work = graph.items.get(work_item_id)
+                graph.update_details(
+                    prep_work.id,
+                    acceptance_criteria=tuple(
+                        AcceptanceCriterion(item.text, verified=True)
+                        for item in prep_work.acceptance_criteria
+                    ),
+                    reason="Memory hook upgrade terminal receipt verified",
+                    now=terminal_moment,
+                )
+                graph.transition(prep_work.id, WorkState.VERIFICATION, now=terminal_moment)
+                completion = ControlPlaneCompletionService(
+                    PostgresControlPlaneCompletionRepository(
+                        context.connection, context.realm_id
+                    )
+                ).complete(
+                    ControlPlaneCompletionRequest(
+                        project_id=project_id,
+                        work_item_id=work_item_id,
+                        task_plan_id=task_plan_id,
+                        job_id=job.id,
+                        attempt_id=claimed.attempt_id,
+                        checkpoint_id=checkpoint_id,
+                        source_authorization_id=authorization.id,
+                        source_authorization_digest=authorization.authorization_digest,
+                        source_claim_id=claim.id,
+                        source_claim_digest=claim.claim_digest,
+                        source_effect_receipt_id=terminal.id,
+                        source_operation="memory-hook-upgrade",
+                        source_consumed_by="cli:memory:hook-upgrade-apply",
+                        source_effect_digest=plan.effect_digest,
+                        source_adapter_digest=claim.adapter_digest,
+                        source_adapter_evidence_digest=(
+                            terminal.adapter_evidence_digest or result_digest
+                        ),
+                        source_resources=(plan.resource,),
+                        source_effects=(EffectKind.DATABASE_WRITE.value,),
+                        source_data_classifications=(),
+                        evidence=(
+                            EvidenceRef(
+                                kind="runtime-receipt",
+                                reference=str(terminal.id),
+                                digest_value=result_digest,
+                            ),
+                        ),
+                    )
+                )
+                _emit(
+                    result
+                    | {
+                        "effect_receipt_id": str(terminal.id),
+                        "checkpoint_id": str(checkpoint_id),
+                        "completion_receipt_id": str(completion.effect_receipt_id),
+                        "preparatory_work_id": str(work_item_id),
+                        "task_plan_id": str(task_plan_id),
+                        "authorization_id": str(authorization.id),
+                    }
+                )
+                return
+            except Exception as exc:
+                if effect_started:
+                    if not terminalization_started:
+                        host.jobs.mark_recovery_required(
+                            job.id,
+                            (
+                                "memory-hook-upgrade-success-receipt-recovery"
+                                if receipt_known
+                                else "memory-hook-upgrade-effect-uncertain"
+                            ),
+                        )
+                    raise
+                if host.ledger.receipt_for_claim(claim.id) is None:
+                    host.record_failure(
+                        claim,
+                        category=(
+                            FailureCategory.POLICY
+                            if isinstance(exc, PolicyViolation)
+                            else FailureCategory.INTERNAL
+                        ),
+                        failure_digest=digest(
+                            {"error_type": type(exc).__name__, "plan_digest": plan.plan_digest}
+                        ),
+                    )
+                host.finish(claimed, outcome=AttemptOutcome.FAILED)
+                raise
+    except ZekamError as exc:
+        raise _raise(exc) from exc
 
 
 def _document(value: Any) -> dict[str, Any]:
