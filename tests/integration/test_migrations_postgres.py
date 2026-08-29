@@ -476,6 +476,28 @@ def test_0076_to_0077_novelty_upgrade_down_reapply_is_catalog_safe(
         assert [item.version for item in migrations.upgrade(connection, target=77)] == [77]
 
 
+def test_0078_removes_overbroad_global_authorization_uniqueness(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection, target=77)
+        assert [item.version for item in migrations.upgrade(connection, target=78)] == [78]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from pg_trigger where tgrelid='runtime.effect_claim'::regclass"
+                " and tgname='effect_claim_authorization_once' and not tgisinternal"
+            )
+            assert cursor.fetchone()[0] == 0
+        assert migrations.downgrade(connection, target=78).version == 78
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*) from pg_trigger where tgrelid='runtime.effect_claim'::regclass"
+                " and tgname='effect_claim_authorization_once' and not tgisinternal"
+            )
+            assert cursor.fetchone()[0] == 1
+        assert [item.version for item in migrations.upgrade(connection, target=78)] == [78]
+
+
 def test_upgrade_is_idempotent(blank_database: DatabaseSettings) -> None:
     with connect(blank_database) as connection:
         migrations.upgrade(connection)
