@@ -612,7 +612,7 @@ def compose_codex_lifecycle_handler(
             metadata=(),
             classification=DataClassification.INTERNAL,
             payload=entry.observation,
-            idempotency_key=f"{entry.delivery_id}:job:{work.job.id}",
+            idempotency_key=entry.delivery_id,
             occurred_at=entry.occurred_at,
             ingested_at=entry.occurred_at,
         )
@@ -662,7 +662,7 @@ def compose_codex_lifecycle_handler(
             resources=(ResourceRequest.parse(plan.resource, LockMode.WRITE),),
             adapter_digest=LIFECYCLE_ADAPTER_DIGEST,
             authorization_id=authorization.id,
-            idempotency_key=entry.delivery_id,
+            idempotency_key=f"{entry.delivery_id}:job:{work.job.id}",
         )
         session_binding_id = hook_store.start_session(
             session_ref=f"codex:{entry.session_id}:{entry.entry_digest}"
