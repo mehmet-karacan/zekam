@@ -14,7 +14,7 @@ from zekam.domain.errors import ValidationFailed
 
 def test_reviewed_secret_fixture_allowlist_is_exact_and_digest_bound() -> None:
     policy = load_secret_scan_allowlist()
-    assert len(policy.allowances) == 30
+    assert len(policy.allowances) == 31
     assert policy.policy_digest.startswith("sha256:")
     assert all(item.relative_path.startswith("tests/") for item in policy.allowances)
 
