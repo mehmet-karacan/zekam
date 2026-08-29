@@ -169,12 +169,8 @@ def lifecycle_template_recovery_command(
                 document = document | {"authorization_id": str(authorization.id)}
             if apply:
                 if authorization_id is None:
-                    raise ValidationFailed(
-                        "Lifecycle template recovery --authorization-id ister"
-                    )
-                document = service.apply(
-                    plan, authorization_id=authorization_id
-                ).as_dict()
+                    raise ValidationFailed("Lifecycle template recovery --authorization-id ister")
+                document = service.apply(plan, authorization_id=authorization_id).as_dict()
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print_json(json.dumps(document, ensure_ascii=False, default=str))

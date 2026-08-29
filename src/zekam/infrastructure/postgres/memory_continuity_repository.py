@@ -1093,10 +1093,16 @@ class MemoryContinuityRepository:
         if not session_id.strip() or not client_id.strip():
             raise ValidationFailed("Hydration inventory session/client bos olamaz")
         if not (
-            (preview_event_body is None and preview_event_digest is None
-             and preview_event_type is None)
-            or (preview_event_body is not None and preview_event_digest is not None
-                and preview_event_type in {"session_start", "pre_close"})
+            (
+                preview_event_body is None
+                and preview_event_digest is None
+                and preview_event_type is None
+            )
+            or (
+                preview_event_body is not None
+                and preview_event_digest is not None
+                and preview_event_type in {"session_start", "pre_close"}
+            )
         ):
             raise ValidationFailed("Hydration preview event type/body/digest birlikte ister")
         if (

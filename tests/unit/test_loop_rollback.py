@@ -101,4 +101,3 @@ def test_loop_change_set_handles_exact_new_file_without_touching_other_paths(
         applied_at=NOW + dt.timedelta(seconds=4),
     )
     assert not (root / "generated.txt").exists()
-

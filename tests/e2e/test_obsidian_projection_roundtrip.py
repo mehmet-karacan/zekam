@@ -129,9 +129,7 @@ def test_immutable_generation_and_atomic_current_roundtrip(
     second_published = store.publish(store.stage(second))
     assert Path(second_published.stable_vault) == stable
     assert next(stable.glob("01_ACTIVE/**/*.md")).read_bytes() != first_bytes
-    marker = json.loads(
-        (stable / ".zekam-managed-files.json").read_text(encoding="utf-8")
-    )
+    marker = json.loads((stable / ".zekam-managed-files.json").read_text(encoding="utf-8"))
     assert marker["generation"] == second.projection_digest.removeprefix("sha256:")
     assert (
         store.verify_current(

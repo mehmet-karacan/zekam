@@ -135,6 +135,4 @@ def test_source_superseded_run_can_cancel_exact_unclaimed_ready_close() -> None:
     plan = TerminalRunReconciliationService(
         _Connection(newer=False, current_source="git:new", ready_close=True), _realm()
     ).prepare(run_id=RUN_ID, now=NOW + dt.timedelta(minutes=1))
-    assert plan.cancelled_job_ids == (
-        UUID("00000000-0000-8000-8000-00000000000b"),
-    )
+    assert plan.cancelled_job_ids == (UUID("00000000-0000-8000-8000-00000000000b"),)

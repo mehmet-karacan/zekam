@@ -624,9 +624,7 @@ class ProjectionAwareClosureService:
             return replay
         try:
             transaction = (
-                nullcontext()
-                if transaction_bound
-                else self.repository.connection.transaction()
+                nullcontext() if transaction_bound else self.repository.connection.transaction()
             )
             with transaction:
                 if not transaction_bound:

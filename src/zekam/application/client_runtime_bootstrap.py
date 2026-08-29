@@ -298,9 +298,7 @@ class ClientRuntimeBootstrapService:
                 now=moment,
             )
             run_id = new_uuid7(now=moment)
-            close_resource = (
-                f"work:{plan.project_id}:{work.id}:projection-close:{run_id}"
-            )
+            close_resource = f"work:{plan.project_id}:{work.id}:projection-close:{run_id}"
             plan_steps = [
                 PlanStep(
                     step_id=_BOOTSTRAP_STEP_ID,
@@ -571,10 +569,7 @@ class ClaimedLifecycleBootstrapService:
         entry_digest = str(payload["entry_digest"])
         spool = ClientLifecycleSpool(home, client_id="codex")
         pending = spool.pending(limit=1)
-        if (
-            len(pending) != 1
-            or pending[0].entry_digest != entry_digest
-        ):
+        if len(pending) != 1 or pending[0].entry_digest != entry_digest:
             raise PolicyViolation("Lifecycle bootstrap exact spool head ister")
         entry = pending[0]
         try:
@@ -1033,9 +1028,7 @@ class ClaimedLifecycleBootstrapService:
                     realm_id=self.realm_id,
                     project_id=job.project_id,
                     kind=JobKind.MUTATION,
-                    idempotency_key=(
-                        f"codex-lifecycle:{entry.delivery_id}:parent:{job.id}"
-                    ),
+                    idempotency_key=(f"codex-lifecycle:{entry.delivery_id}:parent:{job.id}"),
                     resources=parse_requests(
                         write=(f"memory:{job.project_id}:session:{entry.session_id}",)
                     ),
@@ -1062,17 +1055,13 @@ class ClaimedLifecycleBootstrapService:
                 f"work:{job.project_id}:{job.work_item_id}:projection-close:{job.run_id}"
             )
             close_job_id = new_uuid7(now=now)
-            close_job, close_created = JobRepository(
-                self.connection, self.realm_id
-            ).enqueue(
+            close_job, close_created = JobRepository(self.connection, self.realm_id).enqueue(
                 replace(
                     Job.create(
                         realm_id=self.realm_id,
                         project_id=job.project_id,
                         kind=JobKind.MUTATION,
-                        idempotency_key=(
-                            f"projection-close:{entry.delivery_id}:parent:{job.id}"
-                        ),
+                        idempotency_key=(f"projection-close:{entry.delivery_id}:parent:{job.id}"),
                         resources=parse_requests(write=(close_resource,)),
                         required_capabilities=("client.lifecycle.projection-close",),
                         max_attempts=1,

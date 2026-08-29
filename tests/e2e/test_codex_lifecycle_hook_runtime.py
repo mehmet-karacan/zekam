@@ -404,17 +404,13 @@ def test_real_codex_command_hooks_spool_content_free_loopback_lifecycle(
         # the same installed hook entrypoint receives the two official wire
         # envelopes to prove Pre/PostCompact parser and spool parity.
         deadline = time.monotonic() + 5.0
-        natural_entries = ClientLifecycleSpool(
-            zekam_home, client_id="codex"
-        ).pending(limit=256)
+        natural_entries = ClientLifecycleSpool(zekam_home, client_id="codex").pending(limit=256)
         while (
             not any(item.external_event_type == "Stop" for item in natural_entries)
             and time.monotonic() < deadline
         ):
             time.sleep(0.05)
-            natural_entries = ClientLifecycleSpool(
-                zekam_home, client_id="codex"
-            ).pending(limit=256)
+            natural_entries = ClientLifecycleSpool(zekam_home, client_id="codex").pending(limit=256)
         stop = next(item for item in natural_entries if item.external_event_type == "Stop")
         turn_id = stop.observation["turn_id"]
         assert isinstance(turn_id, str)

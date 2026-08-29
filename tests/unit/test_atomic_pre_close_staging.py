@@ -23,9 +23,9 @@ def test_pre_close_does_not_finalize_lifecycle_outbox_with_hook_digest() -> None
 
 
 def test_terminal_lookup_accepts_only_open_pre_close_or_terminal_other_event() -> None:
-    source = (
-        ROOT / "src/zekam/infrastructure/postgres/client_lifecycle_repository.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "src/zekam/infrastructure/postgres/client_lifecycle_repository.py").read_text(
+        encoding="utf-8"
+    )
 
     assert source.count("event_type='pre_close'") >= 2
     assert source.count("outbox.terminal_receipt_digest is null") >= 2
@@ -88,12 +88,8 @@ def test_non_pre_close_requires_exact_terminal_outbox_digest() -> None:
 
 
 def test_migration_73_is_exactly_reversible_and_refuses_live_staged_down() -> None:
-    up = (ROOT / "migrations/0073_atomic_pre_close_staging.sql").read_text(
-        encoding="utf-8"
-    )
-    down = (ROOT / "migrations/0073_atomic_pre_close_staging.down.sql").read_text(
-        encoding="utf-8"
-    )
+    up = (ROOT / "migrations/0073_atomic_pre_close_staging.sql").read_text(encoding="utf-8")
+    down = (ROOT / "migrations/0073_atomic_pre_close_staging.down.sql").read_text(encoding="utf-8")
 
     assert "pg_get_functiondef" in up and "baseline drift" in up
     assert "legacy terminal pre-close lacks close receipt" in up

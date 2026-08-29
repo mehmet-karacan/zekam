@@ -486,7 +486,7 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     with connection.cursor() as cursor:
         cursor.execute(
             "select count(*) from runtime.job where realm_id=%s and run_id=%s"
-                " and state in ('ready','running','recovery-required')",
+            " and state in ('ready','running','recovery-required')",
             (realm.id, child.run_id),
         )
         assert cursor.fetchone()[0] == 0
@@ -550,9 +550,7 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     assert JobRepository(connection, realm.id).get(reapplied.job_id).state is JobState.READY
     assert graph.snapshot(work_item.id).plan is not None
     assert graph.snapshot(work_item.id).plan.revision == 2
-    assert tuple(
-        step.step_id for step in graph.snapshot(work_item.id).plan.steps
-    ) == (
+    assert tuple(step.step_id for step in graph.snapshot(work_item.id).plan.steps) == (
         "client-lifecycle-bootstrap",
         "client-lifecycle-drain",
         "projection-aware-close",
@@ -563,16 +561,19 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
         now=close_moment + dt.timedelta(microseconds=1),
     )
 
-    assert run_codex_lifecycle_bootstrap_once(
-        connection,
-        realm.id,
-        home=home,
-        settings=WorkerSettings(
-            worker_label="pre-close-bootstrap-worker",
-            capabilities=("client.lifecycle.codex-bootstrap",),
-            max_iterations=1,
-        ),
-    ) is not None
+    assert (
+        run_codex_lifecycle_bootstrap_once(
+            connection,
+            realm.id,
+            home=home,
+            settings=WorkerSettings(
+                worker_label="pre-close-bootstrap-worker",
+                capabilities=("client.lifecycle.codex-bootstrap",),
+                max_iterations=1,
+            ),
+        )
+        is not None
+    )
     close_children = JobRepository(connection, realm.id).list_by_state(JobState.READY)
     close_lifecycle = next(
         item
@@ -587,16 +588,19 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     assert "hydration_authorization_id" in close_lifecycle.payload
     assert "source_authorization_id" in close_job.payload
     assert "actor_id" not in close_job.payload
-    assert run_codex_lifecycle_once(
-        connection,
-        realm.id,
-        home=home,
-        settings=WorkerSettings(
-            worker_label="pre-close-lifecycle-worker",
-            capabilities=("client.lifecycle.codex-drain",),
-            max_iterations=1,
-        ),
-    ) is not None
+    assert (
+        run_codex_lifecycle_once(
+            connection,
+            realm.id,
+            home=home,
+            settings=WorkerSettings(
+                worker_label="pre-close-lifecycle-worker",
+                capabilities=("client.lifecycle.codex-drain",),
+                max_iterations=1,
+            ),
+        )
+        is not None
+    )
     with connection.cursor() as cursor:
         cursor.execute(
             "select event.id,outbox.state,outbox.terminal_receipt_digest,hydration.id"
@@ -677,9 +681,9 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
 
 
 def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> None:
-    source = Path(
-        "src/zekam/infrastructure/postgres/client_lifecycle_repository.py"
-    ).read_text(encoding="utf-8")
+    source = Path("src/zekam/infrastructure/postgres/client_lifecycle_repository.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "s.revision=(case when e.source_revision" in source
     assert "~ '^git:[0-9a-f]{40};state:sha256:[0-9a-f]{64}$'" in source
@@ -694,17 +698,13 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
     )
     assert "substring(new.source_revision from 5 for 40)" in migration
 
-    admission_migration = Path(
-        "migrations/0071_codex_lifecycle_plan_body_admission.sql"
-    ).read_text(encoding="utf-8")
+    admission_migration = Path("migrations/0071_codex_lifecycle_plan_body_admission.sql").read_text(
+        encoding="utf-8"
+    )
     assert "payload_key not in ('schema','authorization_id'" in admission_migration
     assert "'hydration_authorization_id','lifecycle_plan_body')" in admission_migration
-    assert "job.payload->'lifecycle_plan_body'=admission.effect_plan_body" in (
-        admission_migration
-    )
-    assert "continuity_event.idempotency_key||'':job:''||job.id::text" in (
-        admission_migration
-    )
+    assert "job.payload->'lifecycle_plan_body'=admission.effect_plan_body" in (admission_migration)
+    assert "continuity_event.idempotency_key||'':job:''||job.id::text" in (admission_migration)
 
     dirty_admission_migration = Path(
         "migrations/0072_codex_lifecycle_dirty_source_admission.sql"
@@ -712,9 +712,7 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
     assert "when envelope.source_revision ~ '^git:[0-9a-f]{40};state:" in (
         dirty_admission_migration
     )
-    assert "then substring(envelope.source_revision from 5 for 40)" in (
-        dirty_admission_migration
-    )
+    assert "then substring(envelope.source_revision from 5 for 40)" in (dirty_admission_migration)
 
     bootstrap = Path("src/zekam/application/client_runtime_bootstrap.py").read_text(
         encoding="utf-8"
@@ -727,4 +725,4 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
         encoding="utf-8"
     )
     assert 'idempotency_key=f"{entry.delivery_id}:job:{work.job.id}"' in composition
-    assert 'f"{entry.delivery_id}:job:{terminal[\'job_id\']}"' in composition
+    assert "f\"{entry.delivery_id}:job:{terminal['job_id']}\"" in composition

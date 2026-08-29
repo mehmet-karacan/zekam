@@ -151,9 +151,9 @@ class GitLoopPatchAdapter:
         return target.read_bytes()
 
     def _dirty_paths(self) -> tuple[str, ...]:
-        tracked = run_read_only(
-            self.source_root, "diff", "--name-only", "-z", "HEAD", "--"
-        ).split("\0")
+        tracked = run_read_only(self.source_root, "diff", "--name-only", "-z", "HEAD", "--").split(
+            "\0"
+        )
         untracked = run_read_only(
             self.source_root, "ls-files", "--others", "--exclude-standard", "-z"
         ).split("\0")
@@ -220,8 +220,7 @@ class GitLoopPatchAdapter:
         if head != baseline.source_revision:
             raise PolicyViolation("Loop rollback source HEAD drift")
         observed = tuple(
-            _entry(item.path, self._content(item.path))
-            for item in baseline.protected_dirty_entries
+            _entry(item.path, self._content(item.path)) for item in baseline.protected_dirty_entries
         )
         if observed != baseline.protected_dirty_entries:
             raise PolicyViolation("User dirty baseline attempt sirasinda drift etti")

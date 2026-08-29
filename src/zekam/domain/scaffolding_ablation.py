@@ -65,8 +65,7 @@ class ScaffoldingArmEvidence:
         self.profile.__post_init__()
         self.metrics.__post_init__()
         if not all(
-            value.strip()
-            for value in (self.arm_id, self.tested_model_id, self.source_revision)
+            value.strip() for value in (self.arm_id, self.tested_model_id, self.source_revision)
         ):
             raise ValidationFailed("Scaffolding arm identity/model/source ister")
         for value in (
@@ -134,9 +133,7 @@ class ScaffoldingAblationPair:
             if getattr(self.baseline, field) != getattr(self.candidate, field)
         ]
         if drift:
-            raise PolicyViolation(
-                "Scaffolding paired control drift: " + ",".join(sorted(drift))
-            )
+            raise PolicyViolation("Scaffolding paired control drift: " + ",".join(sorted(drift)))
         if self.baseline.evidence_manifest_digest == self.candidate.evidence_manifest_digest:
             raise ValidationFailed("Scaffolding arms distinct evidence ister")
         if self.baseline.profile.feature_universe != self.candidate.profile.feature_universe:

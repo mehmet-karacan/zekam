@@ -94,9 +94,7 @@ class LoopChangeBaseline:
             "dirty_state_digest": self.dirty_state_digest,
             "allowed_paths": list(self.allowed_paths),
             "allowed_entries": [item.as_dict() for item in self.allowed_entries],
-            "protected_dirty_entries": [
-                item.as_dict() for item in self.protected_dirty_entries
-            ],
+            "protected_dirty_entries": [item.as_dict() for item in self.protected_dirty_entries],
             "captured_at": self.captured_at,
             "grants_authority": False,
         }

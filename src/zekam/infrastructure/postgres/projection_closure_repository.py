@@ -401,14 +401,10 @@ class ProjectionClosureRepository:
             raise PolicyViolation("Projection closure pre_close/source revision drift")
         task_source = str(task_plan[2])
         if (
-            (
-                task_source[4:44]
-                if task_source.startswith("git:") and ";state:sha256:" in task_source
-                else task_source
-            )
-            != release.source_head
-            or str(task_plan[3]) != receipt.policy_digest
-        ):
+            task_source[4:44]
+            if task_source.startswith("git:") and ";state:sha256:" in task_source
+            else task_source
+        ) != release.source_head or str(task_plan[3]) != receipt.policy_digest:
             raise PolicyViolation("Projection closure current Plan source/policy drift")
         return ProjectionClosureSnapshot(
             work_item=work,

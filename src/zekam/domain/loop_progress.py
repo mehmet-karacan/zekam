@@ -191,8 +191,7 @@ def evaluate_attempt_gates(
         if ordinals != tuple(sorted(set(ordinals))) or current.attempt_ordinal <= ordinals[-1]:
             raise ValidationFailed("Loop attempt history ordinal sirasi gecersiz")
         if any(
-            item.novelty.objective_digest != current.novelty.objective_digest
-            for item in history
+            item.novelty.objective_digest != current.novelty.objective_digest for item in history
         ):
             raise ValidationFailed("Loop novelty history objective drift")
 
@@ -280,8 +279,7 @@ def evaluate_attempt_gates(
         and current.diagnosis_evidence_digest not in prior_diagnoses
     )
     diagnostic_retries = sum(
-        item.progress_state is ProgressState.PLATEAU
-        and item.diagnosis_evidence_digest is not None
+        item.progress_state is ProgressState.PLATEAU and item.diagnosis_evidence_digest is not None
         for item in history
     )
     if new_diagnosis and diagnostic_retries < diagnostic_patience:
@@ -340,12 +338,15 @@ class LoopProgressCheckpoint:
             raise ValidationFailed("Loop checkpoint source ve diagnosis ref ister")
         if self.next_attempt_ordinal < 2:
             raise ValidationFailed("Progress checkpoint attempt 2+ icindir")
-        if min(
-            self.remaining_attempts,
-            self.remaining_tokens,
-            self.remaining_cost_micros,
-            self.remaining_time_seconds,
-        ) < 0:
+        if (
+            min(
+                self.remaining_attempts,
+                self.remaining_tokens,
+                self.remaining_cost_micros,
+                self.remaining_time_seconds,
+            )
+            < 0
+        ):
             raise ValidationFailed("Loop remaining budget negatif olamaz")
         if not self.next_allowed_focus.strip():
             raise ValidationFailed("Loop checkpoint next allowed focus ister")

@@ -185,10 +185,7 @@ def test_real_opencode_process_loads_plugin_and_emits_provider_free_lifecycle(
     )
     environment = dict(os.environ)
     for key in tuple(environment):
-        if any(
-            marker in key.upper()
-            for marker in ("API_KEY", "AUTH_TOKEN", "SECRET", "PASSWORD")
-        ):
+        if any(marker in key.upper() for marker in ("API_KEY", "AUTH_TOKEN", "SECRET", "PASSWORD")):
             environment.pop(key, None)
     environment.update(
         {
@@ -250,28 +247,21 @@ def test_real_opencode_process_loads_plugin_and_emits_provider_free_lifecycle(
         )
         assert isinstance(session, dict)
         session_id = str(session["id"])
-        assert _request(
-            f"{base}/session/{session_id}?directory={directory}", method="DELETE"
-        ) is True
+        assert (
+            _request(f"{base}/session/{session_id}?directory={directory}", method="DELETE") is True
+        )
         deadline = time.monotonic() + 10
         calls: list[list[str]] = []
         while time.monotonic() < deadline:
             if capture.is_file():
                 calls = [
-                    json.loads(line)
-                    for line in capture.read_text(encoding="utf-8").splitlines()
+                    json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()
                 ]
-                event_types = {
-                    call[call.index("--type") + 1]
-                    for call in calls
-                    if "--type" in call
-                }
+                event_types = {call[call.index("--type") + 1] for call in calls if "--type" in call}
                 if {"session.created", "session.deleted"} <= event_types:
                     break
             time.sleep(0.1)
-        event_types = {
-            call[call.index("--type") + 1] for call in calls if "--type" in call
-        }
+        event_types = {call[call.index("--type") + 1] for call in calls if "--type" in call}
         assert {"session.created", "session.deleted"} <= event_types
         assert all(call[:2] == ["opencode", "event"] for call in calls)
         assert all("provider-free lifecycle harness" not in " ".join(call) for call in calls)

@@ -121,9 +121,11 @@ class LifecycleTemplateRecoveryService:
         if actor_id != plan.actor_id or plan.plan_digest != str(payload["plan_digest"]):
             raise PolicyViolation("Lifecycle template recovery actor/plan drift")
         claims = EffectLedger(self.connection, self.realm.id).claims_for_job(job.id)
-        if len(claims) != 1 or EffectLedger(self.connection, self.realm.id).receipt_for_claim(
-            claims[0].id
-        ) is not None:
+        if (
+            len(claims) != 1
+            or EffectLedger(self.connection, self.realm.id).receipt_for_claim(claims[0].id)
+            is not None
+        ):
             raise PolicyViolation("Lifecycle template recovery exact receiptless claim ister")
         claim = claims[0]
         with self.connection.cursor() as cursor:
@@ -147,9 +149,9 @@ class LifecycleTemplateRecoveryService:
             raise PolicyViolation(
                 "Lifecycle template recovery expired lease ve eksik envelope ister"
             )
-        template = LifecycleRuntimeTemplateRepository(
-            self.connection, self.realm.id
-        ).at_effect(job.id, claim.id)
+        template = LifecycleRuntimeTemplateRepository(self.connection, self.realm.id).at_effect(
+            job.id, claim.id
+        )
         template_digest = _template_digest(template)
         result_digest = digest(
             {
@@ -237,9 +239,7 @@ class LifecycleTemplateRecoveryService:
         return RecoveryReconciliationService(
             self.connection, self.realm
         ).governance.issue_authorization(
-            request=replace(
-                plan.reconciliation.effect_request, required_capabilities=()
-            ),
+            request=replace(plan.reconciliation.effect_request, required_capabilities=()),
             actor_id=actor_id,
             plan_digest=plan.plan_digest,
             work_item_id=plan.reconciliation.work_item_id,

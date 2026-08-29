@@ -155,9 +155,7 @@ class PostgresMemoryHealthReader:
         expected_bundle = memory_hook_bundle(self.realm_id)
         expected = {
             spec.event_type.value: (spec.hook_digest, runtime.runtime_digest)
-            for spec, runtime in zip(
-                expected_bundle.specs, expected_bundle.runtimes, strict=True
-            )
+            for spec, runtime in zip(expected_bundle.specs, expected_bundle.runtimes, strict=True)
         }
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -179,12 +177,10 @@ class PostgresMemoryHealthReader:
                 (self.realm_id, list(_CONTINUITY_EVENTS)),
             )
             observed = {
-                str(row[0]): (int(row[1]), str(row[2]), str(row[3]))
-                for row in cursor.fetchall()
+                str(row[0]): (int(row[1]), str(row[2]), str(row[3])) for row in cursor.fetchall()
             }
         invalid = sum(
-            observed.get(event, (0, "", ""))
-            != (1, expected[event][0], expected[event][1])
+            observed.get(event, (0, "", "")) != (1, expected[event][0], expected[event][1])
             for event in _CONTINUITY_EVENTS
         )
         if invalid:

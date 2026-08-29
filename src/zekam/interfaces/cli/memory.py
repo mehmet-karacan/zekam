@@ -122,9 +122,7 @@ def hook_upgrade_plan(
     """Plan the exact managed hook generation upgrade without mutation."""
     try:
         with RealmSession(home, realm) as context:
-            plan = PostgresMemoryHookInstaller(
-                context.connection, context.realm_id
-            ).plan_upgrade()
+            plan = PostgresMemoryHookInstaller(context.connection, context.realm_id).plan_upgrade()
     except ZekamError as exc:
         raise _raise(exc) from exc
     _emit(plan.body() | {"apply": False})
@@ -357,9 +355,7 @@ def hook_upgrade_apply(
                 )
                 graph.transition(prep_work.id, WorkState.VERIFICATION, now=terminal_moment)
                 completion = ControlPlaneCompletionService(
-                    PostgresControlPlaneCompletionRepository(
-                        context.connection, context.realm_id
-                    )
+                    PostgresControlPlaneCompletionRepository(context.connection, context.realm_id)
                 ).complete(
                     ControlPlaneCompletionRequest(
                         project_id=project_id,

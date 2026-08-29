@@ -20,11 +20,14 @@ class LoopProgressCompilerPolicy:
     def __post_init__(self) -> None:
         if self.max_packet_tokens < 128:
             raise ValidationFailed("Progress packet token budget en az 128 olmali")
-        if min(
-            self.max_rejected_hypotheses,
-            self.max_new_evidence_refs,
-            self.max_forbidden_retries,
-        ) < 0:
+        if (
+            min(
+                self.max_rejected_hypotheses,
+                self.max_new_evidence_refs,
+                self.max_forbidden_retries,
+            )
+            < 0
+        ):
             raise ValidationFailed("Progress packet liste limitleri negatif olamaz")
         if self.max_focus_characters < 1 or self.max_reference_characters < 1:
             raise ValidationFailed("Progress packet metin limitleri pozitif olmali")
@@ -48,9 +51,11 @@ class LoopProgressCompiler:
             label="validator diagnosis ref",
             maximum=self.policy.max_reference_characters,
         )
-        rejected = checkpoint.rejected_hypothesis_digests[
-            -self.policy.max_rejected_hypotheses :
-        ] if self.policy.max_rejected_hypotheses else ()
+        rejected = (
+            checkpoint.rejected_hypothesis_digests[-self.policy.max_rejected_hypotheses :]
+            if self.policy.max_rejected_hypotheses
+            else ()
+        )
         evidence = checkpoint.new_evidence_refs[-self.policy.max_new_evidence_refs :]
         if not self.policy.max_new_evidence_refs:
             evidence = ()

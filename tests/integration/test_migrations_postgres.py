@@ -964,9 +964,7 @@ def test_0063_projection_closure_runtime_guard_exact_roundtrip(
     alias_before = "projection_ref->>'digest'=prior_projection.projection_digest"
     alias_after = "projection_ref.value->>'digest'=prior_projection.projection_digest"
     checkpoint_before = "checkpoint.completed_steps=checkpoint.plan_steps"
-    checkpoint_after = (
-        "checkpoint.completed_steps=array_remove(checkpoint.plan_steps,job.step_id)"
-    )
+    checkpoint_after = "checkpoint.completed_steps=array_remove(checkpoint.plan_steps,job.step_id)"
     with connect(blank_database) as connection:
         migrations.upgrade(connection, target=62)
         with connection.cursor() as cursor:
@@ -1556,9 +1554,7 @@ def test_projection_close_hydration_source_accepts_dirty_revision(
             definition = str(cursor.fetchone()[0])
 
     plain = "hydration_event.event_body->>'source_revision'=source_head_"
-    dirty = (
-        "substring(hydration_event.event_body->>'source_revision' from 5 for 40)"
-    )
+    dirty = "substring(hydration_event.event_body->>'source_revision' from 5 for 40)"
     assert plain not in definition
     assert definition.count(dirty) == 1
 

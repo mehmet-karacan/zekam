@@ -94,10 +94,7 @@ def _managed_hook(group: Any, client_id: str) -> bool:
     if not isinstance(hooks, list) or len(hooks) != 1 or not isinstance(hooks[0], dict):
         return False
     command = hooks[0].get("command")
-    return (
-        isinstance(command, str)
-        and f"{_COMMAND_MARKER}{client_id} " in command
-    )
+    return isinstance(command, str) and f"{_COMMAND_MARKER}{client_id} " in command
 
 
 def _mentions_managed(group: Any, client_id: str) -> bool:
@@ -105,10 +102,7 @@ def _mentions_managed(group: Any, client_id: str) -> bool:
         rendered = json.dumps(group, ensure_ascii=True)
     except (TypeError, ValueError):
         return False
-    return (
-        _LEGACY_COMMAND_PREFIX + client_id in rendered
-        or _COMMAND_MARKER + client_id in rendered
-    )
+    return _LEGACY_COMMAND_PREFIX + client_id in rendered or _COMMAND_MARKER + client_id in rendered
 
 
 def _group(client_id: str, python_executable: Path, event: str) -> dict[str, Any]:
@@ -184,9 +178,7 @@ def plan_client_hook_bootstrap(
         )
         rendered = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         action = (
-            "unchanged"
-            if original == rendered
-            else ("create" if original is None else "update")
+            "unchanged" if original == rendered else ("create" if original is None else "update")
         )
         files.append(ClientHookFilePlan(client_id, path, document, original, action))
     return ClientHookBootstrapPlan(tuple(files))

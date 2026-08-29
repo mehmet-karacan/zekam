@@ -59,9 +59,7 @@ def _vector(previous: float, current: float):  # type: ignore[no-untyped-def]
         )
 
     baseline = (evidence(previous, "baseline"),)
-    return evaluate_progress(
-        (spec,), baseline, baseline, (evidence(current, "current"),)
-    )
+    return evaluate_progress((spec,), baseline, baseline, (evidence(current, "current"),))
 
 
 def _novelty(label: str, *, hypothesis: str | None = None, failure: str | None = None):  # type: ignore[no-untyped-def]
@@ -134,9 +132,7 @@ def test_repeated_patch_hypothesis_and_failure_are_first_class_stops() -> None:
         evaluate_attempt_gates(repeated_hypothesis, (first,), stall_limit=2).stop_reason
         is LoopStopReason.REPEATED_HYPOTHESIS
     )
-    repeated_failure = _attempt(
-        2, "two", "b", "c", ProgressState.IMPROVED, failure="failure:one"
-    )
+    repeated_failure = _attempt(2, "two", "b", "c", ProgressState.IMPROVED, failure="failure:one")
     assert (
         evaluate_attempt_gates(repeated_failure, (first,), stall_limit=2).stop_reason
         is LoopStopReason.REPEATED_FAILURE_SIGNATURE
@@ -146,8 +142,7 @@ def test_repeated_patch_hypothesis_and_failure_are_first_class_stops() -> None:
 def test_noop_plateau_regression_and_oscillation_stop() -> None:
     no_op = _attempt(1, "noop", "a", "a", ProgressState.IMPROVED)
     assert (
-        evaluate_attempt_gates(no_op, (), stall_limit=2).stop_reason
-        is LoopStopReason.NO_PROGRESS
+        evaluate_attempt_gates(no_op, (), stall_limit=2).stop_reason is LoopStopReason.NO_PROGRESS
     )
     first = _attempt(1, "one", "a", "b", ProgressState.PLATEAU)
     second = _attempt(2, "two", "b", "c", ProgressState.PLATEAU)
@@ -169,9 +164,7 @@ def test_noop_plateau_regression_and_oscillation_stop() -> None:
 
 def test_new_diagnosis_can_retry_but_is_not_measured_progress() -> None:
     current = _attempt(1, "diagnostic", "a", "b", ProgressState.PLATEAU)
-    decision = evaluate_attempt_gates(
-        current, (), stall_limit=3, diagnostic_patience=1
-    )
+    decision = evaluate_attempt_gates(current, (), stall_limit=3, diagnostic_patience=1)
     assert decision.allow_next_attempt
     assert decision.diagnostic_retry
     assert not decision.progress_counted

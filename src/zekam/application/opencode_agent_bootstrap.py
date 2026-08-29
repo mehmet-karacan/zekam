@@ -728,9 +728,7 @@ def plan_opencode_agent_bootstrap(
     plugin_config_missing = _LIFECYCLE_PLUGIN_SPEC not in plugins
     if plugin_config_missing:
         plugins.append(_LIFECYCLE_PLUGIN_SPEC)
-    config_update_required = (
-        updated.get("default_agent") != DEFAULT_AGENT or plugin_config_missing
-    )
+    config_update_required = updated.get("default_agent") != DEFAULT_AGENT or plugin_config_missing
     updated["default_agent"] = DEFAULT_AGENT
     updated["plugin"] = plugins
 

@@ -36,9 +36,7 @@ class TerminalRunReconciliationPlan:
 
     @property
     def resource(self) -> str:
-        return (
-            f"work:{self.project_id}:execution-run:{self.work_item_id}:{self.run_id}"
-        )
+        return f"work:{self.project_id}:execution-run:{self.work_item_id}:{self.run_id}"
 
     @property
     def plan_digest(self) -> str:
@@ -144,8 +142,7 @@ class TerminalRunReconciliationService:
             )
             terminal_rows = tuple(row for row in rows if row not in cancelable)
             if any(
-                str(row[1]) not in {"completed", "failed", "cancelled"}
-                for row in terminal_rows
+                str(row[1]) not in {"completed", "failed", "cancelled"} for row in terminal_rows
             ) or len(terminal_rows) + len(cancelable) != len(rows):
                 raise PolicyViolation("Run reconciliation live job varken reddedildi")
             if any(row[3] is None or row[4] is None for row in terminal_rows):
@@ -170,10 +167,7 @@ class TerminalRunReconciliationService:
                         "Run reconciliation failed veya completed-only terminal job ister"
                     )
                 if any(
-                    row[6] is None
-                    or row[7] is None
-                    or str(row[8]) != "completed"
-                    or row[9] is None
+                    row[6] is None or row[7] is None or str(row[8]) != "completed" or row[9] is None
                     for row in terminal_rows
                 ):
                     raise PolicyViolation(
@@ -352,9 +346,7 @@ class TerminalRunReconciliationService:
             "state": "failed",
             "mode": plan.mode,
             "superseded_by_run_id": (
-                None
-                if plan.superseded_by_run_id is None
-                else str(plan.superseded_by_run_id)
+                None if plan.superseded_by_run_id is None else str(plan.superseded_by_run_id)
             ),
             "superseded_by_source_revision": plan.superseded_by_source_revision,
             "cancelled_job_ids": [str(item) for item in plan.cancelled_job_ids],

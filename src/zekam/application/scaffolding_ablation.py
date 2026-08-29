@@ -44,8 +44,7 @@ class ScaffoldingAblationService:
             ),
             ScaffoldingAblationGate(
                 "scaffolding.reliability-no-regression",
-                candidate.reliability
-                >= baseline.reliability - policy.max_reliability_drop,
+                candidate.reliability >= baseline.reliability - policy.max_reliability_drop,
                 baseline.reliability,
                 candidate.reliability,
                 baseline.reliability - policy.max_reliability_drop,

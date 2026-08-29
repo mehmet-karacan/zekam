@@ -235,9 +235,7 @@ def test_activate_requires_exact_evidence_and_only_accepts_proposed(
         registered_project,
         "activate-blocked",
     )
-    assert [row["state"] for row in json.loads(blocked_history.stdout)["revisions"]] == [
-        "proposed"
-    ]
+    assert [row["state"] for row in json.loads(blocked_history.stdout)["revisions"]] == ["proposed"]
 
 
 def test_activation_rollback_is_revision_bound_and_unbootstrapped(

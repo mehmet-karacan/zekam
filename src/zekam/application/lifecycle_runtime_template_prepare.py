@@ -435,9 +435,7 @@ def run_lifecycle_template_prepare_once(
 
     moment = now or dt.datetime.now(dt.UTC)
     host = ExecutionHost(connection, realm.id, worker_label=worker_label)
-    claimed = host.acquire_work(
-        capabilities=("client.lifecycle.template-prepare",), now=moment
-    )
+    claimed = host.acquire_work(capabilities=("client.lifecycle.template-prepare",), now=moment)
     if claimed is None:
         return None
     job = claimed.job
@@ -492,8 +490,7 @@ def run_lifecycle_template_prepare_once(
         UUID(str(payload["authorization_id"]))
     )
     resource = (
-        f"db-object:lifecycle-template:{plan.project_id}:"
-        f"{plan.plan_digest.removeprefix('sha256:')}"
+        f"db-object:lifecycle-template:{plan.project_id}:{plan.plan_digest.removeprefix('sha256:')}"
     )
     request = EffectRequest(
         action="lifecycle-template-prepare-v1",
@@ -623,8 +620,7 @@ def run_lifecycle_template_prepare_once(
     graph.update_details(
         prep_work.id,
         acceptance_criteria=tuple(
-            AcceptanceCriterion(item.text, verified=True)
-            for item in prep_work.acceptance_criteria
+            AcceptanceCriterion(item.text, verified=True) for item in prep_work.acceptance_criteria
         ),
         reason="Lifecycle template terminal receipt verified",
         now=terminal_moment,
@@ -721,9 +717,7 @@ def _bind_prepare_runtime(
     ):
         raise PolicyViolation("Lifecycle template runtime override binding drift")
     candidate, manifest = _prepare_manifest(plan, job.work_item_id)
-    context = ContextContinuityRepository(
-        connection, realm.id, job.project_id, job.work_item_id
-    )
+    context = ContextContinuityRepository(connection, realm.id, job.project_id, job.work_item_id)
     manifest_id = context.store_manifest(manifest)
     packet = ContextPacket.create(
         realm_id=realm.id,
@@ -852,215 +846,211 @@ def _bind_prepare_runtime(
 def materialize_lifecycle_template(
     connection: Any, realm: Any, plan: LifecycleTemplatePreparePlan
 ) -> dict[str, Any]:
-        """Materialize only after the caller acquired job and effect claim."""
+    """Materialize only after the caller acquired job and effect claim."""
 
-        self = LifecycleRuntimeTemplatePrepareService(connection, realm)
+    self = LifecycleRuntimeTemplatePrepareService(connection, realm)
 
-        inventory = load_inventory()
-        binding = load_provider_bindings().for_modality(Modality.CODE)
-        inventory_records = {
-            item.model_id: item for item in inventory.records if item.enabled
-        }
-        if binding.model_id not in inventory_records:
-            raise PolicyViolation("Lifecycle template provider binding current inventory disinda")
-        integration = ProjectIntegrationService(self.connection, self.realm)
-        prepared = prepare_project_context(
-            integration,
-            plan.project_id,
-            inventory_digest=inventory.snapshot_digest,
-            policy_digest=plan.policy_digest,
+    inventory = load_inventory()
+    binding = load_provider_bindings().for_modality(Modality.CODE)
+    inventory_records = {item.model_id: item for item in inventory.records if item.enabled}
+    if binding.model_id not in inventory_records:
+        raise PolicyViolation("Lifecycle template provider binding current inventory disinda")
+    integration = ProjectIntegrationService(self.connection, self.realm)
+    prepared = prepare_project_context(
+        integration,
+        plan.project_id,
+        inventory_digest=inventory.snapshot_digest,
+        policy_digest=plan.policy_digest,
+    )
+    if prepared.context.source_revision != plan.source_revision:
+        raise PolicyViolation("Lifecycle template routing context source drift")
+
+    target = ExecutionTargetSnapshot(
+        client_id="codex",
+        slot="lifecycle",
+        execution_mode="native-sequential",
+        model_selectable=True,
+        structured_result=False,
+        cancellation=False,
+        max_concurrency=1,
+        cost_evidence_digest=digest("codex-lifecycle-provider-free-cost-unknown/v1"),
+        capability_digest=digest("codex-lifecycle-local-control-plane/v1"),
+        captured_at=plan.prepared_at,
+        expires_at=plan.expires_at,
+    )
+    role_policy = RoleRoutingPolicy(
+        role=AgentRole.IMPLEMENTER,
+        target_layer=RoutingLayer.PROJECT,
+        required_layers=(
+            RoutingLayer.GENERAL,
+            RoutingLayer.WORKLOAD,
+            RoutingLayer.PROJECT,
+        ),
+        top_k=1,
+        fallback_model_ids=(),
+        max_cost=0,
+        max_latency_ms=0,
+        independent_from_roles=(),
+        policy_digest=plan.policy_digest,
+    )
+    routing = ModelRoutingRepository(self.connection, self.realm.id)
+    execution = ExecutionRunRepository(self.connection, self.realm.id)
+    with self.connection.transaction():
+        ModelInventoryRepository(self.connection, self.realm.id).upsert(
+            inventory_records[binding.model_id]
         )
-        if prepared.context.source_revision != plan.source_revision:
-            raise PolicyViolation("Lifecycle template routing context source drift")
-
-        target = ExecutionTargetSnapshot(
-            client_id="codex",
-            slot="lifecycle",
-            execution_mode="native-sequential",
-            model_selectable=True,
-            structured_result=False,
-            cancellation=False,
-            max_concurrency=1,
-            cost_evidence_digest=digest("codex-lifecycle-provider-free-cost-unknown/v1"),
-            capability_digest=digest("codex-lifecycle-local-control-plane/v1"),
+        context_id, context_inserted = routing.store_project_context(prepared.context)
+        target_id, target_inserted = routing.store_execution_target(target)
+        role_policy_id = routing.store_role_policy(role_policy, effective_from=plan.prepared_at)
+        route_digest = digest(
+            {
+                "schema": "zekam-codex-lifecycle-route/v1",
+                "project_id": str(plan.project_id),
+                "context_digest": prepared.context.context_digest,
+                "target_digest": target.snapshot_digest,
+                "model_id": binding.model_id,
+                "policy_digest": plan.policy_digest,
+            }
+        )
+        route_id = uuid4()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "insert into models.model_route_decision"
+                " (id,realm_id,role_policy_id,execution_target_id,project_id,"
+                " project_context_id,role,target_layer,workload,technology,"
+                " inventory_digest,routing_policy_digest,policy_digest,"
+                " execution_target_digest,excluded_model_ids,excluded_execution_identities,"
+                " status,primary_model_id,fallback_model_id,evidence_digest,"
+                " authority_granted,decided_at) values"
+                " (%s,%s,%s,%s,%s,%s,'implementer','project','client-lifecycle','python',"
+                " %s,%s,%s,%s,'{}'::text[],'{}'::text[],'selected',%s,null,%s,false,%s)"
+                " on conflict (realm_id,evidence_digest) do nothing returning id",
+                (
+                    route_id,
+                    self.realm.id,
+                    role_policy_id,
+                    target_id,
+                    plan.project_id,
+                    context_id,
+                    inventory.snapshot_digest,
+                    plan.policy_digest,
+                    plan.policy_digest,
+                    target.snapshot_digest,
+                    binding.model_id,
+                    route_digest,
+                    plan.prepared_at,
+                ),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    "select id from models.model_route_decision"
+                    " where realm_id=%s and evidence_digest=%s",
+                    (self.realm.id, route_digest),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise PolicyViolation("Lifecycle template route replay kayboldu")
+            route_id = UUID(str(row[0]))
+            cursor.execute(
+                "select compiled.config_effective_digest"
+                " from hooks.current_generation current"
+                " join hooks.compiled_set compiled on compiled.realm_id=current.realm_id"
+                " and compiled.id=current.compiled_set_id where current.realm_id=%s",
+                (self.realm.id,),
+            )
+            hook_row = cursor.fetchone()
+            cursor.execute(
+                "select permission_profile_digest from tools.compiled_set"
+                " where realm_id=%s and role='builder'"
+                " order by created_at desc,id desc limit 1",
+                (self.realm.id,),
+            )
+            tool_row = cursor.fetchone()
+        if hook_row is None or tool_row is None:
+            raise PolicyViolation("Lifecycle template current hook/tool generation ister")
+        config_digest = str(hook_row[0])
+        permission_profile_digest = str(tool_row[0])
+        provider = ProviderBindingSnapshot.create(
+            realm_id=self.realm.id,
+            model_id=binding.model_id,
+            provider_ref=binding.provider_ref,
+            endpoint_ref=binding.endpoint_ref,
+            operation=binding.operation,
             captured_at=plan.prepared_at,
             expires_at=plan.expires_at,
         )
-        role_policy = RoleRoutingPolicy(
-            role=AgentRole.IMPLEMENTER,
-            target_layer=RoutingLayer.PROJECT,
-            required_layers=(
-                RoutingLayer.GENERAL,
-                RoutingLayer.WORKLOAD,
-                RoutingLayer.PROJECT,
+        provider_id, provider_inserted = execution.create_provider_binding(provider)
+        sticky = ExecutionEnvironmentSnapshot.create(
+            realm_id=self.realm.id,
+            environment_id="codex-lifecycle-local",
+            execution_identity="codex:lifecycle",
+            provider="local-control-plane",
+            platform=platform.system().casefold(),
+            executor_protocol_version="zekam-client-lifecycle/v1",
+            cwd_locator="workspace:zekam",
+            workspace_roots=("workspace:zekam",),
+            shell=ShellSnapshot(
+                kind="powershell",
+                binary_digest=digest("powershell-runtime"),
+                startup_profile_digest=digest("profile-not-loaded"),
             ),
-            top_k=1,
-            fallback_model_ids=(),
-            max_cost=0,
-            max_latency_ms=0,
-            independent_from_roles=(),
-            policy_digest=plan.policy_digest,
+            permission_profile_id="current-builder-tool-set",
+            permission_profile_digest=permission_profile_digest,
+            filesystem_policy_digest=digest("exact-source-root-only"),
+            network_policy_digest=digest("remote-calls-default-deny"),
+            tool_runtime_digest=digest("zekam-client-lifecycle-tools/v1"),
+            capability_digest=target.capability_digest,
+            config_effective_digest=config_digest,
+            source_revision=plan.source_revision,
+            captured_at=plan.prepared_at,
+            expires_at=plan.expires_at,
         )
-        routing = ModelRoutingRepository(self.connection, self.realm.id)
-        execution = ExecutionRunRepository(self.connection, self.realm.id)
-        with self.connection.transaction():
-            ModelInventoryRepository(self.connection, self.realm.id).upsert(
-                inventory_records[binding.model_id]
-            )
-            context_id, context_inserted = routing.store_project_context(prepared.context)
-            target_id, target_inserted = routing.store_execution_target(target)
-            role_policy_id = routing.store_role_policy(
-                role_policy, effective_from=plan.prepared_at
-            )
-            route_digest = digest(
-                {
-                    "schema": "zekam-codex-lifecycle-route/v1",
-                    "project_id": str(plan.project_id),
-                    "context_digest": prepared.context.context_digest,
-                    "target_digest": target.snapshot_digest,
-                    "model_id": binding.model_id,
-                    "policy_digest": plan.policy_digest,
-                }
-            )
-            route_id = uuid4()
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "insert into models.model_route_decision"
-                    " (id,realm_id,role_policy_id,execution_target_id,project_id,"
-                    " project_context_id,role,target_layer,workload,technology,"
-                    " inventory_digest,routing_policy_digest,policy_digest,"
-                    " execution_target_digest,excluded_model_ids,excluded_execution_identities,"
-                    " status,primary_model_id,fallback_model_id,evidence_digest,"
-                    " authority_granted,decided_at) values"
-                    " (%s,%s,%s,%s,%s,%s,'implementer','project','client-lifecycle','python',"
-                    " %s,%s,%s,%s,'{}'::text[],'{}'::text[],'selected',%s,null,%s,false,%s)"
-                    " on conflict (realm_id,evidence_digest) do nothing returning id",
-                    (
-                        route_id,
-                        self.realm.id,
-                        role_policy_id,
-                        target_id,
-                        plan.project_id,
-                        context_id,
-                        inventory.snapshot_digest,
-                        plan.policy_digest,
-                        plan.policy_digest,
-                        target.snapshot_digest,
-                        binding.model_id,
-                        route_digest,
-                        plan.prepared_at,
-                    ),
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    cursor.execute(
-                        "select id from models.model_route_decision"
-                        " where realm_id=%s and evidence_digest=%s",
-                        (self.realm.id, route_digest),
-                    )
-                    row = cursor.fetchone()
-                if row is None:
-                    raise PolicyViolation("Lifecycle template route replay kayboldu")
-                route_id = UUID(str(row[0]))
-                cursor.execute(
-                    "select compiled.config_effective_digest"
-                    " from hooks.current_generation current"
-                    " join hooks.compiled_set compiled on compiled.realm_id=current.realm_id"
-                    " and compiled.id=current.compiled_set_id where current.realm_id=%s",
-                    (self.realm.id,),
-                )
-                hook_row = cursor.fetchone()
-                cursor.execute(
-                    "select permission_profile_digest from tools.compiled_set"
-                    " where realm_id=%s and role='builder'"
-                    " order by created_at desc,id desc limit 1",
-                    (self.realm.id,),
-                )
-                tool_row = cursor.fetchone()
-            if hook_row is None or tool_row is None:
-                raise PolicyViolation("Lifecycle template current hook/tool generation ister")
-            config_digest = str(hook_row[0])
-            permission_profile_digest = str(tool_row[0])
-            provider = ProviderBindingSnapshot.create(
-                realm_id=self.realm.id,
-                model_id=binding.model_id,
-                provider_ref=binding.provider_ref,
-                endpoint_ref=binding.endpoint_ref,
-                operation=binding.operation,
-                captured_at=plan.prepared_at,
-                expires_at=plan.expires_at,
-            )
-            provider_id, provider_inserted = execution.create_provider_binding(provider)
-            sticky = ExecutionEnvironmentSnapshot.create(
-                realm_id=self.realm.id,
-                environment_id="codex-lifecycle-local",
-                execution_identity="codex:lifecycle",
-                provider="local-control-plane",
-                platform=platform.system().casefold(),
-                executor_protocol_version="zekam-client-lifecycle/v1",
-                cwd_locator="workspace:zekam",
-                workspace_roots=("workspace:zekam",),
-                shell=ShellSnapshot(
-                    kind="powershell",
-                    binary_digest=digest("powershell-runtime"),
-                    startup_profile_digest=digest("profile-not-loaded"),
-                ),
-                permission_profile_id="current-builder-tool-set",
-                permission_profile_digest=permission_profile_digest,
-                filesystem_policy_digest=digest("exact-source-root-only"),
-                network_policy_digest=digest("remote-calls-default-deny"),
-                tool_runtime_digest=digest("zekam-client-lifecycle-tools/v1"),
-                capability_digest=target.capability_digest,
-                config_effective_digest=config_digest,
-                source_revision=plan.source_revision,
-                captured_at=plan.prepared_at,
-                expires_at=plan.expires_at,
-            )
-            sticky_id, sticky_inserted = execution.create_environment_snapshot(sticky)
-            current_env = reprobe_snapshot(
-                sticky,
-                captured_at=plan.prepared_at + dt.timedelta(microseconds=1),
-                expires_at=plan.expires_at,
-            )
-            current_id, current_inserted = execution.create_environment_snapshot(current_env)
-            probe_id, probe_inserted = execution.record_environment_probe(
-                detect_environment_drift(sticky, current_env, checked_at=current_env.captured_at)
-            )
+        sticky_id, sticky_inserted = execution.create_environment_snapshot(sticky)
+        current_env = reprobe_snapshot(
+            sticky,
+            captured_at=plan.prepared_at + dt.timedelta(microseconds=1),
+            expires_at=plan.expires_at,
+        )
+        current_id, current_inserted = execution.create_environment_snapshot(current_env)
+        probe_id, probe_inserted = execution.record_environment_probe(
+            detect_environment_drift(sticky, current_env, checked_at=current_env.captured_at)
+        )
 
-        template = LifecycleRuntimeTemplateRepository(
-            self.connection, self.realm.id
-        ).current(plan.project_id, plan.source_revision, plan.policy_digest)
-        return {
-            "schema": "zekam-lifecycle-template-prepare-result/v1",
-            "applied": True,
-            "plan_digest": plan.plan_digest,
-            "routing_context_snapshot_id": str(context_id),
-            "route_decision_id": str(route_id),
-            "execution_target_id": str(target_id),
-            "provider_binding_id": str(provider_id),
-            "sticky_environment_snapshot_id": str(sticky_id),
-            "current_environment_snapshot_id": str(current_id),
-            "environment_probe_id": str(probe_id),
-            "template_digest": digest(
-                {
-                    "routing_context": template.routing_context_digest,
-                    "route": template.route_decision_digest,
-                    "target": template.execution_target_digest,
-                    "provider": template.provider_binding_digest,
-                    "environment": template.execution_environment_snapshot_digest,
-                    "hooks": template.hook_set_digest,
-                    "tools": template.compiled_tool_set_digest,
-                }
-            ),
-            "inserted": {
-                "context": context_inserted,
-                "target": target_inserted,
-                "provider": provider_inserted,
-                "sticky_environment": sticky_inserted,
-                "current_environment": current_inserted,
-                "probe": probe_inserted,
-            },
-            "provider_calls": 0,
-            "network_calls": 0,
-            "grants_authority": False,
-        }
+    template = LifecycleRuntimeTemplateRepository(self.connection, self.realm.id).current(
+        plan.project_id, plan.source_revision, plan.policy_digest
+    )
+    return {
+        "schema": "zekam-lifecycle-template-prepare-result/v1",
+        "applied": True,
+        "plan_digest": plan.plan_digest,
+        "routing_context_snapshot_id": str(context_id),
+        "route_decision_id": str(route_id),
+        "execution_target_id": str(target_id),
+        "provider_binding_id": str(provider_id),
+        "sticky_environment_snapshot_id": str(sticky_id),
+        "current_environment_snapshot_id": str(current_id),
+        "environment_probe_id": str(probe_id),
+        "template_digest": digest(
+            {
+                "routing_context": template.routing_context_digest,
+                "route": template.route_decision_digest,
+                "target": template.execution_target_digest,
+                "provider": template.provider_binding_digest,
+                "environment": template.execution_environment_snapshot_digest,
+                "hooks": template.hook_set_digest,
+                "tools": template.compiled_tool_set_digest,
+            }
+        ),
+        "inserted": {
+            "context": context_inserted,
+            "target": target_inserted,
+            "provider": provider_inserted,
+            "sticky_environment": sticky_inserted,
+            "current_environment": current_inserted,
+            "probe": probe_inserted,
+        },
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }

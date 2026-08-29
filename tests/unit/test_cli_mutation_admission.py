@@ -541,8 +541,8 @@ def test_apply_surface_has_exact_reviewed_hydration_partition() -> None:
         ("research", "start"),
         ("trace", "start"),
         ("trace", "stop"),
-            ("work", "transition"),
-            ("work", "sync-spec"),
+        ("work", "transition"),
+        ("work", "sync-spec"),
     }
     exemptions = dict(DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.exemptions)
     assert (

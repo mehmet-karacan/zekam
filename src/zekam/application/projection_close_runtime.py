@@ -153,8 +153,8 @@ class ProjectionCloseRuntimeService:
         if tuple(str(request.resource) for request in job.resources) != (resource,):
             raise PolicyViolation("Projection close exact resource drift")
 
-        checkpoint_id, checkpoint, envelope, completed_results = (
-            self._bind_checkpoint_envelope(work, resource=resource, now=moment)
+        checkpoint_id, checkpoint, envelope, completed_results = self._bind_checkpoint_envelope(
+            work, resource=resource, now=moment
         )
         receipt = self._receipt(
             work,
@@ -332,9 +332,7 @@ class ProjectionCloseRuntimeService:
             provider_id=template.provider_ref,
             route_decision_digest=template.route_decision_digest,
             reasoning_profile_digest=digest("projection-close-runtime-reasoning/v1"),
-            execution_environment_snapshot_digest=(
-                template.execution_environment_snapshot_digest
-            ),
+            execution_environment_snapshot_digest=(template.execution_environment_snapshot_digest),
             context_manifest_digest=manifest_digest,
             exposed_tool_set_digest=template.compiled_tool_set_digest,
             hook_set_digest=template.hook_set_digest,
@@ -476,9 +474,7 @@ class ProjectionCloseRuntimeService:
             envelope_digest=envelope.envelope_digest,
             fencing_token=work.lease.fencing_token,
             completed_steps=tuple(
-                DigestReference(
-                    f"work-plan-step:{step}", result, TruthClass.REPO_FACT
-                )
+                DigestReference(f"work-plan-step:{step}", result, TruthClass.REPO_FACT)
                 for step, result in completed_results
             ),
             changed_artifacts=(),

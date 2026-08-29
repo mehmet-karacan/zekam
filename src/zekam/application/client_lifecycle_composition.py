@@ -369,8 +369,7 @@ def recover_committed_codex_delivery(
         }
     )
     if (
-        terminal["claim_idempotency_key"]
-        != f"{entry.delivery_id}:job:{terminal['job_id']}"
+        terminal["claim_idempotency_key"] != f"{entry.delivery_id}:job:{terminal['job_id']}"
         or expected_claim != terminal["claim_digest"]
         or terminal["execution_identity"]
         != f"{terminal['worker_label']}:{terminal['fencing_token']}"
@@ -563,9 +562,7 @@ def compose_codex_lifecycle_handler(
         if (entry.internal_event_type in _HYDRATING_EVENT_TYPES) != (
             hydration_authorization_id is not None
         ):
-            raise PolicyViolation(
-                "Codex hydration bootstrap job exact authorization payload ister"
-            )
+            raise PolicyViolation("Codex hydration bootstrap job exact authorization payload ister")
         raw_inputs = repository.claimed_plan_inputs(
             job_id=work.job.id,
             attempt_id=work.attempt_id,
@@ -629,8 +626,7 @@ def compose_codex_lifecycle_handler(
         authorization = authorizations.get(authorization_id)
         planned_body = payload.get("lifecycle_plan_body")
         if planned_body is not None and (
-            not isinstance(planned_body, dict)
-            or digest(planned_body) != authorization.plan_digest
+            not isinstance(planned_body, dict) or digest(planned_body) != authorization.plan_digest
         ):
             raise PolicyViolation("Codex lifecycle stored plan body authorization drift")
         if (
