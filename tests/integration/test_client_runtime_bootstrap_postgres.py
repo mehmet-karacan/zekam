@@ -519,3 +519,13 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     assert JobRepository(connection, realm.id).get(reapplied.job_id).state is JobState.READY
     assert graph.snapshot(work_item.id).plan is not None
     assert graph.snapshot(work_item.id).plan.revision == 2
+
+
+def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> None:
+    source = Path(
+        "src/zekam/infrastructure/postgres/client_lifecycle_repository.py"
+    ).read_text(encoding="utf-8")
+
+    assert "s.revision=(case when e.source_revision" in source
+    assert "~ '^git:[0-9a-f]{40};state:sha256:[0-9a-f]{64}$'" in source
+    assert "then substring(e.source_revision from 5 for 40)" in source
