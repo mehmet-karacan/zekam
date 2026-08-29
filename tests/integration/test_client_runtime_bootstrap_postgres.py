@@ -529,6 +529,8 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
     assert "s.revision=(case when e.source_revision" in source
     assert "~ '^git:[0-9a-f]{40};state:sha256:[0-9a-f]{64}$'" in source
     assert "then substring(e.source_revision from 5 for 40)" in source
+    assert source.count("source.revision=(case when envelope.source_revision") == 2
+    assert source.count("then substring(envelope.source_revision from 5 for 40)") == 2
     assert "context.source_revision=(case when plan.source_revision" in source
     assert "then substring(plan.source_revision from 5 for 40)" in source
 
