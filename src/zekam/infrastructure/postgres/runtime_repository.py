@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from zekam.domain.canonical import canonical_json
+from zekam.domain.canonical import canonical_json, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, NotFound, PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.resources import LockMode, ResourceRequest, lock_order
@@ -868,19 +868,20 @@ class EffectLedger:
                     (request.attempt_id, self.realm_id, request.job_id),
                 )
                 attempt = cursor.fetchone()
-                if attempt not in {
-                    (AttemptOutcome.FAILED.value, receipt.failure_category.value, None),
-                    (
-                        AttemptOutcome.RECOVERY_REQUIRED.value,
-                        receipt.failure_category.value,
-                        request.failure_digest,
-                    ),
-                    (
-                        AttemptOutcome.RECOVERY_REQUIRED.value,
-                        None,
-                        request.failure_digest,
-                    ),
-                }:
+                failed_attempt = attempt == (
+                    AttemptOutcome.FAILED.value,
+                    receipt.failure_category.value,
+                    None,
+                )
+                terminal_recovery_attempt = (
+                    attempt is not None
+                    and attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value
+                    and attempt[1] in {None, receipt.failure_category.value}
+                    and attempt[2] is not None
+                )
+                if terminal_recovery_attempt:
+                    parse_digest(str(attempt[2]))
+                if not failed_attempt and not terminal_recovery_attempt:
                     raise PolicyViolation("Failure reconciliation replay attempt drift")
                 return RecoveryFinalization(receipt=receipt, created=False)
             if state is not JobState.RECOVERY_REQUIRED:
@@ -901,11 +902,13 @@ class EffectLedger:
                 raise ConcurrencyConflict("Failure reconciliation attempt fence drift")
             terminal_recovery = attempt[0] == AttemptOutcome.RECOVERY_REQUIRED.value
             if terminal_recovery:
-                if (
-                    attempt[2] not in {None, receipt.failure_category.value}
-                    or attempt[3] != request.failure_digest
-                ):
+                if attempt[2] not in {None, receipt.failure_category.value} or attempt[3] is None:
                     raise PolicyViolation("Failure reconciliation recovery attempt drift")
+                # The attempt result records why the worker stopped; the exact failed
+                # receipt records the independently observed adapter failure.  Both are
+                # claim-bound digests, but they are different evidence and need not be
+                # byte-identical.
+                parse_digest(str(attempt[3]))
                 cursor.execute(
                     "select count(*) from runtime.lease"
                     " where realm_id = %s and job_id = %s and attempt_id = %s",
