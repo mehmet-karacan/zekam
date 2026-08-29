@@ -31,6 +31,7 @@ class TerminalRunReconciliationPlan:
     evidence_digest: str
     mode: str = "failed-terminal-job"
     superseded_by_run_id: UUID | None = None
+    superseded_by_source_revision: str | None = None
 
     @property
     def resource(self) -> str:
@@ -52,6 +53,7 @@ class TerminalRunReconciliationPlan:
                 "superseded_by_run_id": (
                     None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
                 ),
+                "superseded_by_source_revision": self.superseded_by_source_revision,
                 "evidence_digest": self.evidence_digest,
             }
         )
@@ -77,6 +79,7 @@ class TerminalRunReconciliationPlan:
             "superseded_by_run_id": (
                 None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
             ),
+            "superseded_by_source_revision": self.superseded_by_source_revision,
             "evidence_digest": self.evidence_digest,
             "resource": self.resource,
             "plan_digest": self.plan_digest,
@@ -100,7 +103,8 @@ class TerminalRunReconciliationService:
         moment = now or dt.datetime.now(dt.UTC)
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select project_id,work_item_id,plan_id,created_at from runtime.execution_run"
+                "select project_id,work_item_id,plan_id,created_at,source_revision"
+                " from runtime.execution_run"
                 " where realm_id=%s and id=%s and state='active'",
                 (self.realm.id, run_id),
             )
@@ -142,6 +146,7 @@ class TerminalRunReconciliationService:
                 raise PolicyViolation("Run reconciliation live lease varken reddedildi")
             failed_terminal = any(str(row[1]) == "failed" for row in rows)
             superseded_by_run_id: UUID | None = None
+            superseded_by_source_revision: str | None = None
             mode = "failed-terminal-job"
             if not failed_terminal:
                 if any(str(row[1]) != "completed" for row in rows):
@@ -165,12 +170,27 @@ class TerminalRunReconciliationService:
                     (self.realm.id, header[0], header[1], header[3]),
                 )
                 newer = cursor.fetchall()
-                if not newer:
-                    raise PolicyViolation(
-                        "Run reconciliation completed-only run icin newer superseding run ister"
+                if newer:
+                    superseded_by_run_id = UUID(str(newer[0][0]))
+                    mode = "superseded-completed-only"
+                else:
+                    cursor.execute(
+                        "select revision.revision from projects.source_binding binding"
+                        " join projects.source_revision revision"
+                        " on revision.realm_id=binding.realm_id"
+                        " and revision.binding_id=binding.id"
+                        " where binding.realm_id=%s and binding.project_id=%s"
+                        " order by revision.observed_at desc,revision.revision desc limit 1",
+                        (self.realm.id, header[0]),
                     )
-                superseded_by_run_id = UUID(str(newer[0][0]))
-                mode = "superseded-completed-only"
+                    source_row = cursor.fetchone()
+                    if source_row is None or str(source_row[0]) == str(header[4]):
+                        raise PolicyViolation(
+                            "Run reconciliation completed-only run icin newer run veya "
+                            "superseding source ister"
+                        )
+                    superseded_by_source_revision = str(source_row[0])
+                    mode = "source-superseded-completed-only"
         evidence = [
             {
                 "job_id": str(row[0]),
@@ -194,6 +214,7 @@ class TerminalRunReconciliationService:
             evidence_digest=digest(evidence),
             mode=mode,
             superseded_by_run_id=superseded_by_run_id,
+            superseded_by_source_revision=superseded_by_source_revision,
         )
 
     def issue_authorization(
@@ -284,6 +305,7 @@ class TerminalRunReconciliationService:
                         if plan.superseded_by_run_id is None
                         else str(plan.superseded_by_run_id)
                     ),
+                    "superseded_by_source_revision": plan.superseded_by_source_revision,
                     "evidence": plan.evidence_digest,
                 }
             )
@@ -305,6 +327,7 @@ class TerminalRunReconciliationService:
                 if plan.superseded_by_run_id is None
                 else str(plan.superseded_by_run_id)
             ),
+            "superseded_by_source_revision": plan.superseded_by_source_revision,
             "reconciliation_job_id": str(job.id),
             "claim_id": str(claim.id),
             "receipt_id": str(receipt.id),

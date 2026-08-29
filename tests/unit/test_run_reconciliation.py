@@ -23,8 +23,9 @@ NOW = dt.datetime(2026, 8, 29, tzinfo=dt.UTC)
 
 
 class _Cursor:
-    def __init__(self, *, newer: bool) -> None:
+    def __init__(self, *, newer: bool, current_source: str) -> None:
         self.newer = newer
+        self.current_source = current_source
         self.rows: list[tuple[object, ...]] = []
 
     def __enter__(self) -> _Cursor:
@@ -35,7 +36,7 @@ class _Cursor:
 
     def execute(self, statement: str, _parameters: object) -> None:
         if "from runtime.execution_run" in statement and "created_at>%s" not in statement:
-            self.rows = [(PROJECT_ID, WORK_ID, PLAN_ID, NOW)]
+            self.rows = [(PROJECT_ID, WORK_ID, PLAN_ID, NOW, "git:old")]
         elif "from runtime.job job" in statement and "left join" in statement:
             self.rows = [
                 (
@@ -55,6 +56,8 @@ class _Cursor:
             self.rows = [(0,)]
         elif "created_at>%s" in statement:
             self.rows = [(NEWER_RUN_ID,)] if self.newer else []
+        elif "from projects.source_binding" in statement:
+            self.rows = [(self.current_source,)]
         else:  # pragma: no cover - sorgu drift'i testi acikca bozsun
             raise AssertionError(statement)
 
@@ -66,11 +69,12 @@ class _Cursor:
 
 
 class _Connection:
-    def __init__(self, *, newer: bool) -> None:
+    def __init__(self, *, newer: bool, current_source: str = "git:old") -> None:
         self.newer = newer
+        self.current_source = current_source
 
     def cursor(self) -> _Cursor:
-        return _Cursor(newer=self.newer)
+        return _Cursor(newer=self.newer, current_source=self.current_source)
 
 
 def _realm() -> Realm:
@@ -87,7 +91,16 @@ def test_completed_only_run_requires_and_binds_newer_superseding_run() -> None:
     assert plan.as_dict()["superseded_by_run_id"] == str(NEWER_RUN_ID)
 
 
-def test_completed_only_run_without_newer_run_fails_closed() -> None:
+def test_completed_only_run_without_superseding_run_or_source_fails_closed() -> None:
     service = TerminalRunReconciliationService(_Connection(newer=False), _realm())
-    with pytest.raises(PolicyViolation, match="newer superseding run"):
+    with pytest.raises(PolicyViolation, match="newer run veya superseding source"):
         service.prepare(run_id=RUN_ID, now=NOW + dt.timedelta(minutes=1))
+
+
+def test_completed_only_run_accepts_newer_canonical_source() -> None:
+    plan = TerminalRunReconciliationService(
+        _Connection(newer=False, current_source="git:new"), _realm()
+    ).prepare(run_id=RUN_ID, now=NOW + dt.timedelta(minutes=1))
+    assert plan.mode == "source-superseded-completed-only"
+    assert plan.superseded_by_run_id is None
+    assert plan.superseded_by_source_revision == "git:new"

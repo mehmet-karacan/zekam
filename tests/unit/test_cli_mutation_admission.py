@@ -178,6 +178,7 @@ def test_registry_exemptions_are_narrow_and_never_grant_authority() -> None:
         ("trace", "purge-expired"): MutationAdmissionExemption.CONTROL_PLANE,
         ("work", "create"): MutationAdmissionExemption.BOOTSTRAP,
         ("work", "relate"): MutationAdmissionExemption.CONTROL_PLANE,
+        ("work", "verify"): MutationAdmissionExemption.CONTROL_PLANE,
         ("worker", "codex-lifecycle-tick"): MutationAdmissionExemption.HYDRATION,
         ("worker", "client-runtime-bootstrap"): MutationAdmissionExemption.CONTROL_PLANE,
         ("worker", "lifecycle-template-prepare"): MutationAdmissionExemption.CONTROL_PLANE,
@@ -496,7 +497,7 @@ def test_codex_lifecycle_non_session_entry_rechecks_exact_execution(
 def test_every_real_apply_parameter_is_classified_mutating_without_alias_bypass() -> None:
     paths = _apply_command_paths()
 
-    assert len(paths) == 63
+    assert len(paths) == 64
     for path in paths:
         python_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": True})
         public_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"uygula": True})
@@ -542,7 +543,7 @@ def test_apply_surface_has_exact_reviewed_hydration_partition() -> None:
     exemptions = dict(DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.exemptions)
     assert (
         sum(value is MutationAdmissionExemption.CONTROL_PLANE for value in exemptions.values())
-        == 34
+        == 35
     )
 
 

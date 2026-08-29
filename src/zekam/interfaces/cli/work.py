@@ -488,6 +488,59 @@ def transition_command(
     console.print(f"[green]Yeni durum:[/green] {updated.state.value} (revision {updated.revision})")
 
 
+@app.command("verify")
+def verify_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    evidence: Annotated[
+        list[str] | None,
+        typer.Option("--kanit", help="kind=reference bicimli exact kanit"),
+    ] = None,
+    apply: Annotated[bool, typer.Option("--uygula", help="Kriterleri atomik dogrular")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Exact kanitlarla tum kriterleri dogrular ve Work'u verification'a alir."""
+
+    references: list[EvidenceRef] = []
+    for entry in evidence or []:
+        kind, separator, value = entry.partition("=")
+        if not separator or not value.strip():
+            raise fail("Kanit bicimi `kind=reference` olmali")
+        references.append(EvidenceRef(kind=kind.strip(), reference=value.strip()))
+    if not references:
+        raise fail("Work verification en az bir exact --kanit ister")
+    if not apply:
+        console.print(f"verification kanit: {len(references)}")
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            with realm_context.connection.transaction():
+                current = service.items.get(work_item_id)
+                if current.state is not WorkState.ACTIVE or not current.acceptance_criteria:
+                    raise ZekamError("Work verification exact active ve kriterli Work ister")
+                service.update_details(
+                    work_item_id,
+                    acceptance_criteria=tuple(
+                        AcceptanceCriterion(item.text, verified=True)
+                        for item in current.acceptance_criteria
+                    ),
+                    reason="exact acceptance evidence ile kriterler dogrulandi",
+                )
+                updated = service.transition(
+                    work_item_id,
+                    WorkState.VERIFICATION,
+                    evidence=tuple(references),
+                )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print(f"[green]Verification:[/green] revision {updated.revision}")
+
+
 @app.command("relate")
 def relate_command(
     project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],

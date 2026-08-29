@@ -363,6 +363,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("trace", "purge-expired"): MutationAdmissionExemption.CONTROL_PLANE,
     ("work", "create"): MutationAdmissionExemption.BOOTSTRAP,
     ("work", "relate"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("work", "verify"): MutationAdmissionExemption.CONTROL_PLANE,
     ("memory", "upgrade-apply-shadow"): MutationAdmissionExemption.BOOTSTRAP,
     ("memory", "hook-upgrade-apply"): MutationAdmissionExemption.CONTROL_PLANE,
     ("memory", "hydration-apply"): MutationAdmissionExemption.HYDRATION,
