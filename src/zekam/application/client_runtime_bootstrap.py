@@ -659,9 +659,20 @@ class ClaimedLifecycleBootstrapService:
         moment = now or dt.datetime.now(dt.UTC)
         job = work.job
         payload = dict(job.payload)
-        expected = {"schema", "authorization_id", "hydration_authorization_id"}
+        payload_keys = set(payload)
+        allowed_payload_keys = {
+            frozenset({"schema", "authorization_id", "lifecycle_plan_body"}),
+            frozenset(
+                {
+                    "schema",
+                    "authorization_id",
+                    "hydration_authorization_id",
+                    "lifecycle_plan_body",
+                }
+            ),
+        }
         if (
-            set(payload) != expected
+            frozenset(payload_keys) not in allowed_payload_keys
             or payload.get("schema") != "zekam-codex-lifecycle-job/v1"
             or job.kind is not JobKind.MUTATION
             or job.required_capabilities != ("client.lifecycle.codex-drain",)
