@@ -15,8 +15,8 @@ from zekam.application.memory_hooks import (
 )
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.security import DataClassification
 from zekam.domain.identifiers import new_uuid7
+from zekam.domain.security import DataClassification
 from zekam.domain.work import EffectKind
 from zekam.infrastructure.postgres.config_provenance_repository import (
     ConfigProvenanceRepository,
