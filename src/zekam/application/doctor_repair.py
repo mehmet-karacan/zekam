@@ -14,7 +14,7 @@ from typing import Any
 
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation
-from zekam.infrastructure.postgres import routine_integrity
+from zekam.infrastructure.postgres import migrations, routine_integrity
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +105,71 @@ class DatabaseRoutinePlan:
 
 
 @dataclass(frozen=True, slots=True)
+class DatabaseMigrationPlan:
+    """Exact siradaki migration'i immutable bir repair adimina baglar."""
+
+    status: migrations.MigrationStatus
+    blocked_reasons: tuple[str, ...]
+
+    @property
+    def required(self) -> bool:
+        return bool(self.status.pending)
+
+    @property
+    def next_migration(self) -> migrations.Migration | None:
+        return self.status.pending[0] if self.status.pending else None
+
+    @property
+    def plan_digest(self) -> str:
+        return digest(self.body())
+
+    def body(self) -> dict[str, Any]:
+        next_migration = self.next_migration
+        return {
+            "schema": "zekam-doctor-database-migration-plan/v1",
+            "current_head": self.status.head,
+            "target": (
+                None
+                if next_migration is None
+                else {
+                    "version": next_migration.version,
+                    "name": next_migration.name,
+                    "checksum": next_migration.checksum,
+                }
+            ),
+            "pending": [
+                {
+                    "version": item.version,
+                    "name": item.name,
+                    "checksum": item.checksum,
+                }
+                for item in self.status.pending
+            ],
+            "drift": [
+                {
+                    "kind": item.kind.value,
+                    "version": item.version,
+                    "detail": item.detail,
+                }
+                for item in self.status.drift
+            ],
+            "blocked_reasons": list(self.blocked_reasons),
+            "strategy": "one-migration-per-effect+checksum+advisory-lock",
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.body() | {
+            "required": self.required,
+            "applicable": self.required and not self.blocked_reasons,
+            "migration_plan_digest": self.plan_digest,
+            "grants_authority": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DoctorRepairPlan:
     git: GitFastForwardPlan
+    migrations: DatabaseMigrationPlan | None
     routines: DatabaseRoutinePlan | None
 
     @property
@@ -118,6 +181,8 @@ class DoctorRepairPlan:
         steps: list[str] = []
         if self.git.required:
             steps.append("git-fast-forward")
+        if self.migrations is not None and self.migrations.required:
+            steps.append("postgres-migration-upgrade")
         if self.routines is not None and self.routines.required:
             steps.append("postgres-routine-repair")
         return tuple(steps)
@@ -126,6 +191,8 @@ class DoctorRepairPlan:
     def next_step(self) -> str | None:
         if self.git.required:
             return "git-fast-forward"
+        if self.migrations is not None and self.migrations.required:
+            return "postgres-migration-upgrade"
         if self.routines is not None and self.routines.required:
             return "postgres-routine-repair"
         return None
@@ -134,6 +201,8 @@ class DoctorRepairPlan:
     def blocked_reasons(self) -> tuple[str, ...]:
         if self.git.required:
             return tuple(sorted(set(self.git.blocked_reasons)))
+        if self.migrations is not None and self.migrations.required:
+            return tuple(sorted(set(self.migrations.blocked_reasons)))
         if self.routines is not None and self.routines.required:
             return tuple(sorted(set(self.routines.blocked_reasons)))
         return ()
@@ -142,6 +211,7 @@ class DoctorRepairPlan:
         return {
             "schema": "zekam-doctor-repair-plan/v1",
             "git": self.git.as_dict(),
+            "migrations": None if self.migrations is None else self.migrations.as_dict(),
             "routines": None if self.routines is None else self.routines.as_dict(),
             "execution_order": list(self.required_steps),
         }
@@ -234,8 +304,19 @@ def build_doctor_repair_plan(
     migrations_directory: Path | None = None,
 ) -> DoctorRepairPlan:
     git = plan_git_fast_forward(core_path)
+    migration_plan: DatabaseMigrationPlan | None = None
     routines: DatabaseRoutinePlan | None = None
     if connection is not None:
+        migration_status = migrations.status(connection, migrations_directory)
+        migration_blocked: list[str] = []
+        if migration_status.drift:
+            migration_blocked.append("migration-drift")
+        if git.required:
+            migration_blocked.append("git-fast-forward-must-run-first")
+        migration_plan = DatabaseMigrationPlan(
+            status=migration_status,
+            blocked_reasons=tuple(migration_blocked),
+        )
         routine_status = routine_integrity.status(connection, migrations_directory)
         blocked: list[str] = []
         if routine_status.migration_drift:
@@ -245,7 +326,7 @@ def build_doctor_repair_plan(
         if git.required:
             blocked.append("git-fast-forward-must-run-first")
         routines = DatabaseRoutinePlan(status=routine_status, blocked_reasons=tuple(blocked))
-    return DoctorRepairPlan(git=git, routines=routines)
+    return DoctorRepairPlan(git=git, migrations=migration_plan, routines=routines)
 
 
 def apply_git_fast_forward(

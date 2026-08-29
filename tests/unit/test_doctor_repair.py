@@ -6,9 +6,23 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
-from zekam.application.doctor_repair import apply_git_fast_forward, plan_git_fast_forward
+from zekam.application.doctor_repair import (
+    DatabaseMigrationPlan,
+    DoctorRepairPlan,
+    apply_git_fast_forward,
+    plan_git_fast_forward,
+)
 from zekam.domain.errors import PolicyViolation
+from zekam.infrastructure.postgres.migrations import (
+    AppliedMigration,
+    DriftFinding,
+    DriftKind,
+    Migration,
+    MigrationStatus,
+)
+from zekam.interfaces.cli.main import app
 
 pytestmark = pytest.mark.unit
 
@@ -90,3 +104,68 @@ def test_remote_drift_after_plan_is_rejected_without_merge(tmp_path: Path) -> No
         apply_git_fast_forward(local, plan=plan, plan_digest=plan.plan_digest)
 
     assert _git(local, "rev-parse", "HEAD") == old_head
+
+
+def _migration(version: int, tmp_path: Path, checksum: str = "a" * 64) -> Migration:
+    return Migration(
+        version=version,
+        name=f"change_{version}",
+        path=tmp_path / f"{version:04d}_change_{version}.sql",
+        checksum=checksum,
+    )
+
+
+def test_doctor_plan_selects_one_exact_migration_before_routine_repair(
+    tmp_path: Path,
+) -> None:
+    writer, local = _repositories(tmp_path)
+    del writer
+    git = plan_git_fast_forward(local)
+    first = _migration(2, tmp_path)
+    second = _migration(3, tmp_path, checksum="b" * 64)
+    status = MigrationStatus(
+        head=1,
+        applied=(AppliedMigration(1, "base", "c" * 64),),
+        pending=(first, second),
+        drift=(),
+    )
+    migration_plan = DatabaseMigrationPlan(status=status, blocked_reasons=())
+    plan = DoctorRepairPlan(git=git, migrations=migration_plan, routines=None)
+
+    assert migration_plan.next_migration == first
+    assert plan.required_steps == ("postgres-migration-upgrade",)
+    assert plan.next_step == "postgres-migration-upgrade"
+    assert plan.as_dict()["migrations"]["target"] == {
+        "version": 2,
+        "name": "change_2",
+        "checksum": "a" * 64,
+    }
+
+
+def test_migration_drift_is_fail_closed_and_changes_plan_digest(tmp_path: Path) -> None:
+    pending = _migration(2, tmp_path)
+    clean = DatabaseMigrationPlan(
+        status=MigrationStatus(head=1, applied=(), pending=(pending,), drift=()),
+        blocked_reasons=(),
+    )
+    drifted = DatabaseMigrationPlan(
+        status=MigrationStatus(
+            head=1,
+            applied=(),
+            pending=(pending,),
+            drift=(DriftFinding(DriftKind.CHECKSUM_MISMATCH, 1, "changed"),),
+        ),
+        blocked_reasons=("migration-drift",),
+    )
+
+    assert clean.plan_digest != drifted.plan_digest
+    assert drifted.required
+    assert not drifted.as_dict()["applicable"]
+
+
+def test_doctor_cli_exposes_explicit_bounded_prepare_option() -> None:
+    result = CliRunner().invoke(app, ["doctor", "--help"])
+
+    assert result.exit_code == 0
+    assert "--hazirla" in result.stdout
+    assert "pending migration ve routine" in result.stdout

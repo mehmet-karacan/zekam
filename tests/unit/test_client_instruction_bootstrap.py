@@ -31,6 +31,7 @@ def test_missing_client_instruction_files_are_created_and_idempotent(tmp_path: P
     for item in repeat.files:
         body = item.path.read_text(encoding="utf-8")
         assert body.count("zekam-managed-client-instructions/v1:start") == 1
+        assert "zekam doctor --hazirla --json" in body
         assert "zekam loop status" in body
         assert "Obsidian projection salt okunur" in body
 

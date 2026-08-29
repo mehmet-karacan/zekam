@@ -81,6 +81,20 @@ zekam doctor --json
 Doctor **salt okunurdur**: migration uygulamaz, kuyruktan iş almaz, model çağırmaz,
 policy değiştirmez.
 
+Git pull/merge sonrasında kullanıcı migration veya kolon ayrıntısını bilmek zorunda
+değildir. Yerel veritabanını açıkça hazırlamak için tek komut kullanılır:
+
+```bash
+zekam doctor --hazirla --json
+```
+
+`--hazirla`; Git'i değiştirmez. Kaynak ağacındaki checksum-doğrulanmış pending
+migration'ları her biri ayrı authorization/claim/terminal receipt ile sırayla uygular,
+eksik PostgreSQL routine nesnelerini onarır ve en sonda doctor kontrolünü tekrarlar.
+Migration drift'i, dirty/diverged Git güncellemesi veya migration dosyası olmayan bir
+şema beklentisi varsa tahminde bulunmaz ve fail-closed durur. Düz `zekam doctor` her
+zaman salt okunur kalır.
+
 | Kategori | Kontroller |
 |---|---|
 | `core` | sürüm, Python, yapılandırma, `ZEKAM_HOME` yerleşimi, git istemcisi |

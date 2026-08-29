@@ -225,6 +225,19 @@ def test_local_effects_are_exact_visible_and_authority_free(path: tuple[str, ...
     assert not admission.grants_authority
 
 
+def test_doctor_prepare_is_classified_as_explicit_control_plane_mutation() -> None:
+    registry = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY
+
+    read_only = registry.classify(("doctor",), {"prepare": False})
+    prepare = registry.classify(("doctor",), {"prepare": True})
+
+    assert not read_only.mutating
+    assert prepare.mutating
+    assert prepare.exemption is MutationAdmissionExemption.CONTROL_PLANE
+    assert not prepare.requires_existing_hydration
+    assert not prepare.grants_authority
+
+
 def test_unknown_local_effect_cannot_claim_the_carve_out() -> None:
     with pytest.raises(PolicyViolation, match="exact reviewed admission"):
         assert_local_effect_admission(("future", "writer"))

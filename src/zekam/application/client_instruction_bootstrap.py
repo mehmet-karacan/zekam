@@ -19,6 +19,9 @@ _MANAGED_BODY = "\n".join(
         "## Zekam managed bootstrap",
         "",
         "- Zekam ile ilgili calismadan once `zekam doctor --json` calistir.",
+        "- Git pull/merge sonrasinda doctor pending migration veya eksik routine bildirirse "
+        "ve kullanici local DB hazirlamayi yetkilendirdiyse `zekam doctor --hazirla --json` "
+        "calistir; bu komut kayitli migration'lari bounded uygular ve final doctor yapar.",
         "- Genel veya proje-baglamli soruyu once "
         '`zekam ask "<exact soru>" --json` ile bounded ve salt okunur olarak ara; '
         "retrieval authority degildir.",

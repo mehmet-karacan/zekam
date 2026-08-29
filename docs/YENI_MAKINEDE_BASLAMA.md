@@ -79,6 +79,17 @@ zekam setup --uygula
 model envanteri ve scheduler kurulumunu çalıştırıp son `doctor --json` kontrolünü yapar.
 `doctor` hiçbir değişiklik yapmaz ve eksiklerin sıralı `repair_plan` alanını raporlar.
 
+Daha sonra bu makineye yeni kod `git pull` veya merge ile geldiğinde tam kurulumu
+tekrarlamak gerekmez:
+
+```powershell
+zekam doctor --hazirla --json
+```
+
+Bu komut yalnız Git'te zaten mevcut, checksum-doğrulanmış migration ve eksik routine
+onarımını bounded ve receipt-bound biçimde tamamlar. Git'i pull etmez; migration drift
+veya tanımsız şema farkında işlemi durdurur.
+
 ```bash
 .venv/bin/zekam init
 .venv/bin/zekam db upgrade --uygula

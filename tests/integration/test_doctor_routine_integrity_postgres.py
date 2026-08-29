@@ -13,12 +13,12 @@ from zekam.application.doctor_repair_runtime import apply_doctor_repair_with_run
 from zekam.application.governance import GovernanceService, default_capabilities
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.realm_context import RealmContext
-from zekam.domain.realm import Actor, ActorKind
+from zekam.domain.realm import Actor, ActorKind, Realm
 from zekam.domain.security import AuthorizationState
 from zekam.domain.work import WorkState
-from zekam.infrastructure.postgres import routine_integrity
+from zekam.infrastructure.postgres import migrations, routine_integrity
 from zekam.infrastructure.postgres.connection import configure_session, connect, reset_role
-from zekam.infrastructure.postgres.core_repository import ActorRepository
+from zekam.infrastructure.postgres.core_repository import ActorRepository, RealmRepository
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.postgres.work_repository import WorkItemRepository
 
@@ -124,3 +124,56 @@ def test_runtime_repair_writes_work_authorization_claim_and_terminal_receipt(
                 connection, plan_digest=missing.repair_plan_digest
             )
         configure_session(connection, realm_id=realm.id)
+
+
+def test_runtime_migration_repair_applies_exact_next_version_with_terminal_receipt(
+    isolated_migrated_database: DatabaseSettings,
+    context: ApplicationContext,
+) -> None:
+    with connect(isolated_migrated_database) as connection:
+        migrations.downgrade(connection, target=78)
+        realm = Realm.create(slug="doctor-migration", display_name="Doctor migration")
+        configure_session(connection, realm_id=realm.id, role=None)
+        RealmRepository(connection).create(realm)
+        configure_session(connection, realm_id=realm.id)
+        realm_context = RealmContext(realm=realm, connection=connection)
+        governance = GovernanceService(connection, realm)
+        governance.ensure_default_policy()
+        for capability in default_capabilities(realm.id):
+            if governance.capabilities.current(capability.name) is None:
+                governance.capabilities.append(capability)
+        actor = Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="migration-tester")
+        ActorRepository(connection, realm.id).add(actor)
+        project = ProjectIntegrationService(connection, realm).register(
+            source_path=context.core_path,
+            slug="doctor-migration-test",
+        )
+        repair_plan = build_doctor_repair_plan(
+            core_path=context.core_path,
+            connection=connection,
+            migrations_directory=context.core_path / "migrations",
+        )
+
+        assert repair_plan.next_step == "postgres-migration-upgrade"
+        assert repair_plan.migrations is not None
+        assert repair_plan.migrations.next_migration is not None
+        assert repair_plan.migrations.next_migration.version == 78
+
+        result = apply_doctor_repair_with_runtime(
+            realm_context,
+            context,
+            repair_plan=repair_plan,
+            plan_digest=repair_plan.plan_digest,
+            actor_id=actor.id,
+            project_id=project.id,
+        )
+
+        current = migrations.status(connection)
+        authorization = AuthorizationRepository(connection, realm.id).get(result.authorization_id)
+        work = WorkItemRepository(connection, realm.id).get(result.work_id)
+        assert current.head == 78
+        assert current.is_current
+        assert authorization.state is AuthorizationState.CONSUMED
+        assert work.state is WorkState.COMPLETED
+        assert result.step == "postgres-migration-upgrade"
+        assert result.receipt_id

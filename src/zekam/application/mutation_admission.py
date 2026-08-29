@@ -445,7 +445,11 @@ class CliMutationAdmissionRegistry:
                     mutation_parameters=(
                         (*_APPLY_PARAMETER_NAMES, "authorize", "yetkilendir")
                         if command_path == ("worker", "lifecycle-template-recovery")
-                        else _APPLY_PARAMETER_NAMES
+                        else (
+                            (*_APPLY_PARAMETER_NAMES, "prepare")
+                            if command_path == ("doctor",)
+                            else _APPLY_PARAMETER_NAMES
+                        )
                     ),
                 )
             )

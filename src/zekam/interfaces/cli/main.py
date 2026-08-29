@@ -176,6 +176,13 @@ def doctor(
             help="Exact --plan-digest ile siradaki tek onarim adimini uygular",
         ),
     ] = False,
+    prepare: Annotated[
+        bool,
+        typer.Option(
+            "--hazirla",
+            help="Git sonrasi pending migration ve routine onarimlarini bounded uygular",
+        ),
+    ] = False,
     plan_digest: Annotated[
         str | None,
         typer.Option("--plan-digest", help="Uygulanacak exact doctor repair plan digest'i"),
@@ -197,7 +204,9 @@ def doctor(
         report = service.run(categories=category or None)
         selected_plan: DoctorRepairPlan | None = None
         applied_result: dict[str, object] | None = None
-        if repair_plan or apply:
+        if prepare and (apply or plan_digest is not None):
+            raise PolicyViolation("--hazirla, --uygula veya --plan-digest ile birlikte kullanilmaz")
+        if repair_plan or apply or prepare:
             if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
                 with connect(context.settings.database) as connection:
                     selected_plan = build_doctor_repair_plan(
@@ -207,7 +216,47 @@ def doctor(
                     )
             else:
                 selected_plan = build_doctor_repair_plan(core_path=context.core_path)
-        if apply:
+        automatic_results: list[dict[str, object]] = []
+        if prepare:
+            if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
+                raise PolicyViolation("Doctor hazirlama PostgreSQL Work Graph ister")
+            for _ in range(64):
+                with connect(context.settings.database) as connection:
+                    selected_plan = build_doctor_repair_plan(
+                        core_path=context.core_path,
+                        connection=connection,
+                        migrations_directory=context.core_path / "migrations",
+                    )
+                if selected_plan.next_step is None:
+                    break
+                if selected_plan.next_step == "git-fast-forward":
+                    raise PolicyViolation(
+                        "--hazirla Git mutation yapmaz; once temiz ff-only pull/merge gerekir"
+                    )
+                if selected_plan.blocked_reasons:
+                    raise PolicyViolation(
+                        "Doctor hazirlama bloke: " + ",".join(selected_plan.blocked_reasons)
+                    )
+                with RealmSession(home, realm) as realm_context:
+                    exact_project_id = _doctor_project_id(
+                        realm_context,
+                        context,
+                        requested=project_id,
+                    )
+                    exact_actor_id = _doctor_actor_id(realm_context, requested=actor_id)
+                    runtime_result = apply_doctor_repair_with_runtime(
+                        realm_context,
+                        context,
+                        repair_plan=selected_plan,
+                        plan_digest=selected_plan.plan_digest,
+                        actor_id=exact_actor_id,
+                        project_id=exact_project_id,
+                    )
+                    automatic_results.append(runtime_result.as_dict())
+            else:
+                raise PolicyViolation("Doctor hazirlama 64 adim sinirinda tamamlanamadi")
+            report = build_doctor(context).run(categories=category or None)
+        elif apply:
             if plan_digest is None:
                 raise PolicyViolation("--uygula exact --plan-digest ister")
             if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
@@ -242,6 +291,8 @@ def doctor(
             document["doctor_repair_plan"] = selected_plan.as_dict()
         if applied_result is not None:
             document["doctor_repair_result"] = applied_result
+        if automatic_results:
+            document["doctor_prepare_results"] = automatic_results
         console.print_json(json.dumps(document, ensure_ascii=False, default=str))
     else:
         _render_report(report)
@@ -251,6 +302,11 @@ def doctor(
             console.print(
                 "[green]Onarim dogrulandi:[/green] "
                 f"{applied_result['step']} receipt={applied_result['receipt_id']}"
+            )
+        for item in automatic_results:
+            console.print(
+                "[green]Hazirlama adimi dogrulandi:[/green] "
+                f"{item['step']} receipt={item['receipt_id']}"
             )
     raise typer.Exit(EXIT_CODES[report.overall])
 
@@ -547,6 +603,14 @@ def _render_doctor_repair_plan(plan: DoctorRepairPlan) -> None:
     console.print()
     console.print(table)
     if document["next_step"] is not None:
+        if document["next_step"] in {
+            "postgres-migration-upgrade",
+            "postgres-routine-repair",
+        }:
+            console.print(
+                "Tum yerel DB hazirlama adimlarini bounded uygulamak icin: "
+                f"`{PRODUCT.cli} doctor --hazirla`"
+            )
         console.print(
             "Uygulamak icin exact plan digest ile tekrar calistirin: "
             f"`{PRODUCT.cli} doctor --uygula --plan-digest {plan.plan_digest}`"

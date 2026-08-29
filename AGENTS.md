@@ -23,3 +23,6 @@
     resolved `issue_key` ile OpenCode `jira` MCP aracını çağır. GPU sayısal taskları
     `SKYRSM-<sayı>`, SKY sayısal taskları `TLCSKY-<sayı>` olarak çözülür. Belirsizlikte key
     uydurma.
+17. Git pull/merge sonrasında doctor pending migration veya eksik routine bildirirse ve
+    kullanıcı local DB hazırlamayı yetkilendirdiyse `zekam doctor --hazirla --json` çalıştır.
+    Bu komut kayıtlı migration'ları bounded uygular; düz doctor salt okunur kalır.

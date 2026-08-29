@@ -38,7 +38,7 @@ from zekam.domain.work import (
     WorkState,
     WorkType,
 )
-from zekam.infrastructure.postgres import routine_integrity
+from zekam.infrastructure.postgres import migrations, routine_integrity
 from zekam.infrastructure.postgres.connection import configure_session, reset_role
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
@@ -415,6 +415,23 @@ def _effect_request(
             touches_external_system=True,
             required_capabilities=("git.read", "process.run"),
         )
+    if step == "postgres-migration-upgrade":
+        migration_plan = repair_plan.migrations
+        if migration_plan is None or migration_plan.next_migration is None:
+            raise PolicyViolation("Migration repair plani yok")
+        target = migration_plan.next_migration
+        resources = (
+            f"project:{project_id}:database",
+            f"db-object:migration:{target.version}:{target.checksum}",
+        )
+        return resources, EffectRequest(
+            action=step,
+            effects=(EffectKind.DATABASE_WRITE,),
+            resources=resources,
+            data_classifications=(DataClassification.LOCAL_ONLY,),
+            reversible=target.has_down,
+            required_capabilities=("database.write",),
+        )
     routines = repair_plan.routines
     if routines is None:
         raise PolicyViolation("Routine repair plani yok")
@@ -445,6 +462,64 @@ def _apply_step(
             plan=repair_plan.git,
             plan_digest=repair_plan.git.plan_digest,
         ).as_dict()
+    if step == "postgres-migration-upgrade":
+        migration_plan = repair_plan.migrations
+        if migration_plan is None or migration_plan.next_migration is None:
+            raise PolicyViolation("Migration repair plani yok")
+        directory = context.core_path / "migrations"
+        before = migrations.status(realm_context.connection, directory)
+        before_binding = (
+            before.head,
+            tuple((item.version, item.name, item.checksum) for item in before.applied),
+            tuple((item.version, item.name, item.checksum) for item in before.pending),
+            tuple((item.kind.value, item.version, item.detail) for item in before.drift),
+        )
+        planned_binding = (
+            migration_plan.status.head,
+            tuple(
+                (item.version, item.name, item.checksum)
+                for item in migration_plan.status.applied
+            ),
+            tuple(
+                (item.version, item.name, item.checksum)
+                for item in migration_plan.status.pending
+            ),
+            tuple(
+                (item.kind.value, item.version, item.detail)
+                for item in migration_plan.status.drift
+            ),
+        )
+        if before_binding != planned_binding:
+            raise PolicyViolation("Migration repair plani veritabani durumu degistigi icin stale")
+        target = migration_plan.next_migration
+        reset_role(realm_context.connection)
+        try:
+            applied = migrations.upgrade(
+                realm_context.connection,
+                directory,
+                target=target.version,
+            )
+            after = migrations.status(realm_context.connection, directory)
+        finally:
+            configure_session(
+                realm_context.connection,
+                realm_id=realm_context.realm_id,
+            )
+        if len(applied) != 1 or applied[0].version != target.version:
+            raise PolicyViolation("Doctor exact tek migration uygulamadi")
+        recorded = next((item for item in after.applied if item.version == target.version), None)
+        if recorded is None or recorded.checksum != target.checksum or after.drift:
+            raise PolicyViolation("Migration effect sonrasi checksum/head dogrulamasi basarisiz")
+        return {
+            "schema": "zekam-doctor-migration-repair-result/v1",
+            "previous_head": before.head,
+            "head": after.head,
+            "version": target.version,
+            "name": target.name,
+            "checksum": target.checksum,
+            "remaining_pending": [item.label for item in after.pending],
+            "verified": True,
+        }
     routines = repair_plan.routines
     if routines is None:
         raise PolicyViolation("Routine repair plani yok")
