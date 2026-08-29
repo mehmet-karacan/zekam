@@ -30,6 +30,7 @@ oracle = [
 api = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "psutil>=6,<8",
 ]
 knowledge-docs = [
     # Yalniz izin verici lisansli yerel PDF render hatti. Runtime, V8/XFA ve
@@ -43,6 +44,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML>=6.0",
+    "types-psutil>=7.0",
     "jsonschema>=4.23",
     # Kalite kapilari: bagimlilik audit ve olu kod taramasi.
     "pip-audit>=2.7",

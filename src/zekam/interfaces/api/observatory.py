@@ -18,6 +18,7 @@ from zekam.application.observatory import (
     OpenCodeLifecycleProjectionReader,
     RuntimeProjectionReader,
 )
+from zekam.infrastructure.process_observer import BoundedProcessObserver
 
 _STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
@@ -82,11 +83,12 @@ def create_app(
                     "claude",
                     Path.home() / ".claude" / "projects",
                 ),
-            )
+            ),
+            process_reader=BoundedProcessObserver(),
         ),
     )
     app = FastAPI(
-        title="Zekam Neuro Observatory",
+        title="Zekam Canlı Yürütme Gözleme Merkezi",
         version="1",
         docs_url=None,
         redoc_url=None,

@@ -15,7 +15,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,6 +30,7 @@ from zekam.domain.observability import (
     OperationsDashboard,
     ProjectionTile,
 )
+from zekam.domain.process_observation import ProcessObservationSnapshot
 
 SNAPSHOT_SCHEMA = "zekam-observatory-snapshot/v2"
 MAX_MARKDOWN_BYTES = 64 * 1024
@@ -89,6 +90,14 @@ class ObservatoryAgent:
     active_tool: str | None = None
     parent_agent_id: str | None = None
     started_at: dt.datetime | None = None
+    session_id: str | None = None
+    process_id: str | None = None
+    binding_confidence: str = "unbound"
+    availability: str = "stale"
+    current_action: str = "unknown"
+    process_status: str | None = None
+    cpu_percent: float | None = None
+    rss_bytes: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +117,14 @@ class ObservatoryAgent:
             "active_tool": self.active_tool,
             "parent_agent_id": self.parent_agent_id,
             "started_at": _iso(self.started_at),
+            "session_id": self.session_id,
+            "process_id": self.process_id,
+            "binding_confidence": self.binding_confidence,
+            "availability": self.availability,
+            "current_action": self.current_action,
+            "process_status": self.process_status,
+            "cpu_percent": self.cpu_percent,
+            "rss_bytes": self.rss_bytes,
         }
 
 
@@ -192,6 +209,10 @@ class RuntimeProjectionReader(Protocol):
         ...
 
 
+class ProcessObservationReader(Protocol):
+    def read(self) -> ProcessObservationSnapshot: ...
+
+
 @dataclass(frozen=True, slots=True)
 class OpenCodeLifecycleProjectionReader:
     """Project the sanitized local OpenCode ledger into observatory cards."""
@@ -224,9 +245,6 @@ class OpenCodeLifecycleProjectionReader:
             session_id = str(item["session_id"])
             session_metadata = metadata.get(session_id, {})
             node_id = session_nodes[session_id]
-            agent_name = str(
-                item.get("agent") or session_metadata.get("agent") or "OpenCode session"
-            )
             model_ref = item.get("model_ref") or session_metadata.get("model_ref")
             occurred_at = _parse_timestamp(item.get("updated_at"))
             if session_metadata.get("updated_at"):
@@ -239,20 +257,11 @@ class OpenCodeLifecycleProjectionReader:
             )
             age = dt.datetime.now(dt.UTC) - occurred_at
             observed_state = str(item.get("status") or "unknown")
-            if age <= dt.timedelta(seconds=45) and observed_state in {
-                "active",
-                "busy",
-                "claimed",
-                "executing",
-                "in_progress",
-                "running",
-            }:
-                observed_state = "active"
+            observed_state = "recent" if age <= dt.timedelta(minutes=5) else "stale"
             canonical_ref = f"runtime:opencode-lifecycle/{session_id}"
-            task_label = sanitize_observatory_label(
-                str(item.get("task_label") or session_metadata.get("title") or agent_name),
-                fallback="OpenCode session",
-            )
+            task_label = f"OpenCode session {_short_id(session_id)}"
+            current_tool = _safe_tool_name(item.get("last_tool"))
+            active_tool = _safe_tool_name(item.get("active_tool"))
             nodes.append(
                 GraphNode(
                     node_id=node_id,
@@ -280,23 +289,26 @@ class OpenCodeLifecycleProjectionReader:
                     heartbeat_at=occurred_at,
                     task_label=task_label,
                     model_ref=None if model_ref is None else str(model_ref),
-                    current_tool=None if item.get("last_tool") is None else str(item["last_tool"]),
-                    active_tool=(
-                        None if item.get("active_tool") is None else str(item["active_tool"])
-                    ),
+                    current_tool=current_tool,
+                    active_tool=active_tool,
                     parent_agent_id=(
                         None
                         if item.get("parent_session_id") is None
                         else f"opencode-session:{_short_id(str(item['parent_session_id']))}"
                     ),
                     started_at=started_at,
+                    session_id=session_id,
+                    binding_confidence="unbound",
+                    availability="stale",
+                    current_action=_safe_current_action(str(item.get("status") or ""), active_tool),
                 )
             )
         for item in recent_events(self.home, limit=MAX_EVENTS):
             session_id = str(item["session_id"])
             event_type = str(item.get("event_type") or "session.status")
-            if item.get("tool"):
-                event_type = f"{event_type} · {item['tool']}"
+            safe_tool = _safe_tool_name(item.get("tool"))
+            if safe_tool:
+                event_type = f"{event_type} · {safe_tool}"
             events.append(
                 ObservatoryEvent(
                     event_id=f"opencode-event:{item['event_id']}",
@@ -341,13 +353,18 @@ class LocalSessionFileProjectionReader:
     index_path: Path | None = None
     active_seconds: int = 45
     recent_seconds: int = 300
+    max_directories: int = 512
+    max_candidates: int = 64
 
     def read(self) -> RuntimeProjection:
         now = dt.datetime.now(dt.UTC)
-        titles = _session_title_index(self.index_path)
         candidates: list[tuple[Path, dt.datetime]] = []
         if self.root.is_dir():
-            for path in self.root.rglob("*.jsonl"):
+            for path in _bounded_session_files(
+                self.root,
+                max_directories=self.max_directories,
+                max_candidates=self.max_candidates,
+            ):
                 if "tool-results" in path.parts:
                     continue
                 try:
@@ -373,10 +390,9 @@ class LocalSessionFileProjectionReader:
         for path, updated_at in candidates[:8]:
             session_id = _session_id_from_path(path)
             node_id = f"{self.client}-session:{_short_id(session_id)}"
-            title = titles.get(session_id, f"{self.client.title()} session {session_id[-8:]}")
-            label = sanitize_observatory_label(title, fallback=f"{self.client.title()} session")
+            label = f"{self.client.title()} session {_short_id(session_id)}"
             age_seconds = (now - updated_at).total_seconds()
-            state = "active" if age_seconds <= self.active_seconds else "checkpointed"
+            state = "recent" if age_seconds <= self.active_seconds else "stale"
             canonical_ref = f"runtime:{self.client}-sessions/{session_id}"
             nodes.append(GraphNode(node_id, "agent-session", label, canonical_ref))
             edges.append(GraphEdge(f"client:{self.client}", node_id, "runs-session"))
@@ -390,6 +406,10 @@ class LocalSessionFileProjectionReader:
                     heartbeat_at=updated_at,
                     task_label=label,
                     started_at=updated_at,
+                    session_id=session_id,
+                    binding_confidence="unbound",
+                    availability="stale",
+                    current_action="unknown",
                 )
             )
             events.append(
@@ -422,9 +442,21 @@ class LocalSessionFileProjectionReader:
 @dataclass(frozen=True, slots=True)
 class CompositeRuntimeProjectionReader:
     readers: tuple[RuntimeProjectionReader, ...]
+    process_reader: ProcessObservationReader | None = None
 
     def read(self) -> RuntimeProjection:
         projections = tuple(reader.read() for reader in self.readers)
+        if self.process_reader is not None:
+            try:
+                processes = self.process_reader.read()
+            except Exception as exc:
+                processes = ProcessObservationSnapshot(
+                    dt.datetime.now(dt.UTC),
+                    (),
+                    False,
+                    f"process-read-failed:{type(exc).__name__}",
+                )
+            return _correlated_client_projection(projections, processes)
         return RuntimeProjection(
             generated_at=dt.datetime.now(dt.UTC),
             tiles=unavailable_runtime_projection("local-client-sessions").tiles,
@@ -450,6 +482,138 @@ class EmptyRuntimeProjectionReader:
 
     def read(self) -> RuntimeProjection:
         return unavailable_runtime_projection(self.detail)
+
+
+def _correlated_client_projection(
+    projections: tuple[RuntimeProjection, ...],
+    processes: ProcessObservationSnapshot,
+) -> RuntimeProjection:
+    nodes = [node for item in projections for node in item.nodes]
+    edges = [edge for item in projections for edge in item.edges]
+    events = [event for item in projections for event in item.events]
+    sessions_by_client: dict[str, list[ObservatoryAgent]] = {}
+    for agent in (agent for item in projections for agent in item.agents):
+        sessions_by_client.setdefault(agent.client, []).append(agent)
+    for sessions in sessions_by_client.values():
+        sessions.sort(
+            key=lambda item: item.heartbeat_at or dt.datetime.min.replace(tzinfo=dt.UTC),
+            reverse=True,
+        )
+    roots_by_client: dict[str, list[Any]] = {}
+    for process in processes.roots:
+        roots_by_client.setdefault(process.client.value, []).append(process)
+    for roots in roots_by_client.values():
+        roots.sort(key=lambda item: item.identity.key)
+
+    correlated: list[ObservatoryAgent] = []
+    clients = tuple(sorted(set(sessions_by_client) | set(roots_by_client)))
+    for client in clients:
+        sessions = sessions_by_client.get(client, [])
+        roots = roots_by_client.get(client, [])
+        if roots and not any(node.node_id == f"client:{client}" for node in nodes):
+            nodes.append(
+                GraphNode(
+                    node_id=f"client:{client}",
+                    kind="client",
+                    label=client.title(),
+                    canonical_ref=f"runtime:{client}-processes",
+                )
+            )
+        for index, process in enumerate(roots):
+            process_node_id = process.identity.key
+            nodes.append(
+                GraphNode(
+                    node_id=process_node_id,
+                    kind="os-process",
+                    label=f"{client.title()} CLI",
+                    canonical_ref=process_node_id,
+                )
+            )
+            edges.append(GraphEdge(f"client:{client}", process_node_id, "runs-process"))
+            if index < len(sessions):
+                session = sessions[index]
+                confidence = "exact" if session.process_id == process_node_id else "heuristic"
+                availability = (
+                    "waiting" if process.status in {"sleeping", "idle", "waiting"} else "live"
+                )
+                correlated.append(
+                    replace(
+                        session,
+                        state=availability,
+                        process_id=process_node_id,
+                        binding_confidence=confidence,
+                        availability=availability,
+                        process_status=process.status,
+                        cpu_percent=process.cpu_percent,
+                        rss_bytes=process.rss_bytes,
+                        started_at=process.started_at,
+                    )
+                )
+                edges.append(
+                    GraphEdge(
+                        process_node_id,
+                        session.agent_id,
+                        f"{confidence}-session-bind",
+                    )
+                )
+            else:
+                correlated.append(
+                    ObservatoryAgent(
+                        agent_id=process_node_id,
+                        label=f"{client.title()} CLI",
+                        client=client,
+                        state="unbound",
+                        canonical_ref=process_node_id,
+                        started_at=process.started_at,
+                        process_id=process_node_id,
+                        binding_confidence="unbound",
+                        availability="unbound",
+                        current_action="unknown",
+                        process_status=process.status,
+                        cpu_percent=process.cpu_percent,
+                        rss_bytes=process.rss_bytes,
+                    )
+                )
+            events.append(
+                ObservatoryEvent(
+                    event_id=f"process-event:{process_node_id}",
+                    event_type="process.observed",
+                    source=client,
+                    occurred_at=process.started_at,
+                    canonical_ref=process_node_id,
+                    agent_id=process_node_id,
+                )
+            )
+        correlated.extend(
+            replace(
+                session,
+                state="stale",
+                process_id=None,
+                binding_confidence="unbound",
+                availability="stale",
+                process_status=None,
+                cpu_percent=None,
+                rss_bytes=None,
+            )
+            for session in sessions[len(roots) :]
+        )
+
+    return RuntimeProjection(
+        generated_at=dt.datetime.now(dt.UTC),
+        tiles=unavailable_runtime_projection("local-live-execution").tiles,
+        nodes=_unique_nodes(tuple(nodes)),
+        edges=_unique_edges(tuple(edges)),
+        agents=tuple(correlated[:MAX_AGENTS]),
+        events=tuple(sorted(events, key=lambda item: item.occurred_at, reverse=True)[:MAX_EVENTS]),
+        source_digest=digest(
+            {
+                "processes": processes.source_digest,
+                "sessions": [item.source_digest for item in projections],
+            }
+        ),
+        available=processes.available,
+        detail=processes.detail,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -645,11 +809,11 @@ def _client_observation_tiles(
     tiles: tuple[ProjectionTile, ...],
     agents: tuple[ObservatoryAgent, ...],
 ) -> tuple[ProjectionTile, ...]:
-    active_states = {"active", "running", "claimed", "executing", "in_progress"}
-    active = tuple(agent for agent in agents if agent.state in active_states)
+    open_states = {"live", "waiting", "unbound"}
+    active = tuple(agent for agent in agents if agent.availability in open_states)
     observed = {
-        "work": sum(agent.parent_agent_id is None for agent in active),
-        "run": len(active),
+        "work": len({agent.process_id for agent in active if agent.process_id}),
+        "run": sum(agent.session_id is not None for agent in active),
         "model": len({agent.model_ref for agent in active if agent.model_ref}),
     }
     return tuple(
@@ -797,6 +961,64 @@ def scan_repository(core_path: Path) -> RepositoryProjection:
     )
 
 
+def _bounded_session_files(
+    root: Path,
+    *,
+    max_directories: int,
+    max_candidates: int,
+) -> tuple[Path, ...]:
+    """Bounded directory walk; file contents and absolute paths never leave this process."""
+
+    pending = [root]
+    visited = 0
+    found: list[Path] = []
+    while pending and visited < max_directories and len(found) < max_candidates:
+        directory = pending.pop(0)
+        visited += 1
+        try:
+            entries = sorted(os.scandir(directory), key=lambda item: item.name.casefold())
+        except OSError:
+            continue
+        for entry in entries:
+            if len(found) >= max_candidates:
+                break
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name not in {"tool-results", ".git", "node_modules"}:
+                        pending.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=False) and entry.name.casefold().endswith(
+                    ".jsonl"
+                ):
+                    found.append(Path(entry.path))
+            except OSError:
+                continue
+    return tuple(found)
+
+
+def _safe_tool_name(value: Any) -> str | None:
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,48}", candidate):
+        return None
+    if _UNSAFE_LABEL.search(candidate):
+        return None
+    return candidate
+
+
+def _safe_current_action(state: str, active_tool: str | None) -> str:
+    if active_tool:
+        return "tool"
+    normalized = state.casefold().replace("-", "_")
+    if normalized in {"busy", "claimed", "executing", "in_progress", "running"}:
+        return "executing"
+    if normalized in {"waiting", "idle", "checkpointed", "paused"}:
+        return "waiting"
+    if normalized in {"planning", "queued"}:
+        return "planning"
+    return "unknown"
+
+
 def _read_prefix(path: Path) -> str:
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -828,14 +1050,14 @@ def _opencode_session_metadata(
         with sqlite3.connect(uri, uri=True, timeout=0.2) as connection:
             connection.execute("pragma query_only = on")
             rows = connection.execute(
-                "select id, title, agent, model, time_created, time_updated "
+                "select id, model, time_created, time_updated "
                 f"from session where id in ({placeholders})",
                 session_ids,
             ).fetchall()
     except sqlite3.Error:
         return {}
     result: dict[str, dict[str, str]] = {}
-    for session_id, title, agent, model, created_at, updated_at in rows:
+    for session_id, model, created_at, updated_at in rows:
         model_ref = ""
         try:
             document = json.loads(str(model))
@@ -843,8 +1065,6 @@ def _opencode_session_metadata(
         except (TypeError, ValueError, json.JSONDecodeError):
             pass
         result[str(session_id)] = {
-            "title": sanitize_observatory_label(str(title), fallback="OpenCode session"),
-            "agent": sanitize_observatory_label(str(agent), fallback="OpenCode session"),
             "model_ref": model_ref,
             "created_at": dt.datetime.fromtimestamp(int(created_at) / 1000, tz=dt.UTC).isoformat(),
             "updated_at": dt.datetime.fromtimestamp(int(updated_at) / 1000, tz=dt.UTC).isoformat(),
@@ -855,28 +1075,6 @@ def _opencode_session_metadata(
 def _session_id_from_path(path: Path) -> str:
     matches = _SESSION_ID.findall(path.stem)
     return matches[-1] if matches else path.stem[-80:]
-
-
-def _session_title_index(path: Path | None) -> dict[str, str]:
-    if path is None or not path.is_file():
-        return {}
-    try:
-        if path.stat().st_size > 2 * 1024 * 1024:
-            return {}
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return {}
-    titles: dict[str, str] = {}
-    for line in lines[-2000:]:
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        session_id = item.get("id")
-        title = item.get("thread_name")
-        if isinstance(session_id, str) and isinstance(title, str):
-            titles[session_id] = sanitize_observatory_label(title, fallback="Session")
-    return titles
 
 
 def sanitize_observatory_label(

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zekam.local/schemas/observatory_snapshot.schema.json",
-  "title": "Zekam Neuro Observatory Snapshot",
+  "title": "Zekam Canlı Yürütme Gözleme Merkezi Snapshot",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -99,7 +99,10 @@
         "additionalProperties": false,
         "required": [
           "agent_id", "label", "client", "state", "canonical_ref",
-          "job_id", "work_item_id", "step_id", "heartbeat_at", "lease_expires_at"
+          "job_id", "work_item_id", "step_id", "heartbeat_at", "lease_expires_at",
+          "task_label", "model_ref", "current_tool", "active_tool", "parent_agent_id",
+          "started_at", "session_id", "process_id", "binding_confidence", "availability",
+          "current_action", "process_status", "cpu_percent", "rss_bytes"
         ],
         "properties": {
           "agent_id": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -111,7 +114,21 @@
           "work_item_id": { "type": ["string", "null"] },
           "step_id": { "type": ["string", "null"] },
           "heartbeat_at": { "type": ["string", "null"], "format": "date-time" },
-          "lease_expires_at": { "type": ["string", "null"], "format": "date-time" }
+          "lease_expires_at": { "type": ["string", "null"], "format": "date-time" },
+          "task_label": { "type": ["string", "null"], "maxLength": 128 },
+          "model_ref": { "type": ["string", "null"], "maxLength": 256 },
+          "current_tool": { "type": ["string", "null"], "maxLength": 48 },
+          "active_tool": { "type": ["string", "null"], "maxLength": 48 },
+          "parent_agent_id": { "type": ["string", "null"], "maxLength": 512 },
+          "started_at": { "type": ["string", "null"], "format": "date-time" },
+          "session_id": { "type": ["string", "null"], "maxLength": 256 },
+          "process_id": { "type": ["string", "null"], "maxLength": 128 },
+          "binding_confidence": { "enum": ["exact", "strong", "heuristic", "unbound"] },
+          "availability": { "enum": ["live", "waiting", "stale", "unbound"] },
+          "current_action": { "enum": ["unknown", "planning", "executing", "tool", "waiting"] },
+          "process_status": { "type": ["string", "null"], "maxLength": 32 },
+          "cpu_percent": { "type": ["number", "null"], "minimum": 0 },
+          "rss_bytes": { "type": ["integer", "null"], "minimum": 0 }
         }
       }
     },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
 from pathlib import Path
@@ -14,6 +15,12 @@ from zekam.application.observatory import (
 )
 from zekam.application.opencode_lifecycle import record_event
 from zekam.domain.observability import REQUIRED_TILES
+from zekam.domain.process_observation import (
+    ObservedClient,
+    ProcessIdentity,
+    ProcessObservation,
+    ProcessObservationSnapshot,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -154,9 +161,9 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
     ).snapshot()
 
     assert any(agent.client == "opencode" for agent in snapshot.agents)
-    assert any(agent.state == "active" for agent in snapshot.agents)
+    assert any(agent.state == "recent" for agent in snapshot.agents)
     assert any(agent.active_tool == "bash" for agent in snapshot.agents)
-    assert any(agent.task_label == "Sky 11267 task detaylarini al" for agent in snapshot.agents)
+    assert all("Sky 11267" not in (agent.task_label or "") for agent in snapshot.agents)
     assert any(event.source == "opencode" for event in snapshot.events)
     assert any(event.event_type == "tool.execute.before · bash" for event in snapshot.events)
     assert any(node.node_id == "client:opencode" for node in snapshot.graph.nodes)
@@ -168,12 +175,12 @@ def test_opencode_lifecycle_is_visible_without_postgresql(tmp_path: Path) -> Non
         for edge in snapshot.graph.edges
     )
     tiles = {tile.key: tile.value for tile in snapshot.dashboard.tiles}
-    assert tiles["work"] == 1
-    assert tiles["run"] == 2
-    assert tiles["model"] == 2
+    assert tiles["work"] == 0
+    assert tiles["run"] == 0
+    assert tiles["model"] == 0
 
 
-def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: Path) -> None:
+def test_opencode_prompt_derived_title_is_not_exposed_from_session_metadata(tmp_path: Path) -> None:
     root = tmp_path / "core"
     home = tmp_path / "home"
     database = tmp_path / "opencode.db"
@@ -202,7 +209,9 @@ def test_opencode_title_is_backfilled_from_read_only_session_metadata(tmp_path: 
     ).snapshot()
 
     session = next(agent for agent in snapshot.agents if agent.client == "opencode")
-    assert session.task_label == "Sky 11267 task details"
+    assert session.task_label is not None
+    assert session.task_label.startswith("OpenCode session ")
+    assert "Sky 11267" not in json.dumps(snapshot.as_dict(), ensure_ascii=False)
     assert session.model_ref == "litellm/Qwen/Qwen3.5-27B-FP8"
 
 
@@ -224,7 +233,7 @@ def test_codex_and_claude_file_heartbeats_are_client_scoped(tmp_path: Path) -> N
 
     clients = {agent.client for agent in snapshot.agents}
     assert clients == {"codex", "claude"}
-    assert all(agent.state == "active" for agent in snapshot.agents)
+    assert all(agent.state == "recent" for agent in snapshot.agents)
     assert {event.source for event in snapshot.events} == {"codex", "claude"}
 
 
@@ -234,3 +243,87 @@ def test_client_without_observed_session_does_not_create_graph_node(tmp_path: Pa
     assert projection.available is False
     assert projection.nodes == ()
     assert projection.agents == ()
+
+
+def test_fresh_session_without_os_process_is_stale_not_open_cli(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    codex_root = tmp_path / "codex"
+    _write(root / "README.md", "# Zekam\n")
+    _write(codex_root / "rollout-01a02b31-a697-7553-8a72-c5ba348997a2.jsonl", "")
+
+    class NoProcesses:
+        def read(self) -> ProcessObservationSnapshot:
+            return ProcessObservationSnapshot(dt.datetime.now(dt.UTC), (), True, "os-process-scan")
+
+    reader = CompositeRuntimeProjectionReader(
+        (LocalSessionFileProjectionReader("codex", codex_root),),
+        process_reader=NoProcesses(),
+    )
+    snapshot = ObservatoryService(root, client_reader=reader).snapshot()
+
+    assert snapshot.agents[0].availability == "stale"
+    assert snapshot.agents[0].process_id is None
+    tiles = {tile.key: tile.value for tile in snapshot.dashboard.tiles}
+    assert tiles["work"] == 0
+
+
+def test_process_and_session_are_heuristically_bound_without_claiming_canonical_ownership(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "core"
+    codex_root = tmp_path / "codex"
+    _write(root / "README.md", "# Zekam\n")
+    _write(codex_root / "rollout-01a02b31-a697-7553-8a72-c5ba348997a2.jsonl", "")
+    now = dt.datetime.now(dt.UTC)
+
+    class OneProcess:
+        def read(self) -> ProcessObservationSnapshot:
+            process = ProcessObservation(
+                identity=ProcessIdentity(4242, 1_700_000_000_000_000),
+                parent_pid=1,
+                client=ObservedClient.CODEX,
+                executable="codex.exe",
+                status="running",
+                started_at=now,
+                cpu_percent=2.0,
+                rss_bytes=8192,
+            )
+            return ProcessObservationSnapshot(now, (process,), True, "os-process-scan")
+
+    reader = CompositeRuntimeProjectionReader(
+        (LocalSessionFileProjectionReader("codex", codex_root),),
+        process_reader=OneProcess(),
+    )
+    snapshot = ObservatoryService(root, client_reader=reader).snapshot()
+    session = next(agent for agent in snapshot.agents if agent.client == "codex")
+
+    assert session.availability == "live"
+    assert session.binding_confidence == "heuristic"
+    assert session.process_id == "process:4242:1700000000000000"
+    assert session.canonical_ref.startswith("runtime:codex-sessions/")
+    assert any(edge.kind == "heuristic-session-bind" for edge in snapshot.graph.edges)
+
+
+def test_open_process_without_session_is_unbound(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    _write(root / "README.md", "# Zekam\n")
+    now = dt.datetime.now(dt.UTC)
+
+    class OneProcess:
+        def read(self) -> ProcessObservationSnapshot:
+            process = ProcessObservation(
+                identity=ProcessIdentity(5151, 1_700_000_000_000_000),
+                parent_pid=1,
+                client=ObservedClient.CLAUDE,
+                executable="claude.exe",
+                status="sleeping",
+                started_at=now,
+            )
+            return ProcessObservationSnapshot(now, (process,), True, "os-process-scan")
+
+    reader = CompositeRuntimeProjectionReader((), process_reader=OneProcess())
+    snapshot = ObservatoryService(root, client_reader=reader).snapshot()
+
+    assert snapshot.agents[0].state == "unbound"
+    assert snapshot.agents[0].binding_confidence == "unbound"
+    assert snapshot.agents[0].session_id is None
