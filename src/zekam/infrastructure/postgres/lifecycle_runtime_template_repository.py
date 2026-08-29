@@ -211,7 +211,7 @@ class LifecycleRuntimeTemplateRepository:
                 " join projects.source_revision revision on revision.realm_id=binding.realm_id"
                 " and revision.binding_id=binding.id where binding.realm_id=%s"
                 " and binding.project_id=%s group by revision.revision"
-                " order by max(revision.observed_at) desc,max(revision.id) desc"
+                " order by max(revision.observed_at) desc,revision.revision desc"
                 " limit 2",
                 (self.realm_id, project_id),
             )
