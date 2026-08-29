@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -14,7 +15,8 @@ from zekam.domain.errors import ConfigurationError
 
 _EVENTS = ("SessionStart", "PreCompact", "PostCompact", "Stop", "SessionEnd")
 _REPARSE_POINT = 0x400
-_COMMAND_PREFIX = "python -m zekam.interfaces.cli.client hook --client "
+_COMMAND_MARKER = "-m zekam.interfaces.cli.client hook --client "
+_LEGACY_COMMAND_PREFIX = "python " + _COMMAND_MARKER
 _VERSIONS = {"codex": "0.150.1", "claude-code": "2.1.224"}
 
 
@@ -70,8 +72,19 @@ def _load(path: Path) -> tuple[dict[str, Any], str | None]:
     return document, text
 
 
-def _command(client_id: str) -> str:
-    return f"{_COMMAND_PREFIX}{client_id} --client-version {_VERSIONS[client_id]}"
+def _command(client_id: str, python_executable: Path) -> str:
+    return shlex.join(
+        (
+            str(python_executable),
+            "-m",
+            "zekam.interfaces.cli.client",
+            "hook",
+            "--client",
+            client_id,
+            "--client-version",
+            _VERSIONS[client_id],
+        )
+    )
 
 
 def _managed_hook(group: Any, client_id: str) -> bool:
@@ -81,7 +94,10 @@ def _managed_hook(group: Any, client_id: str) -> bool:
     if not isinstance(hooks, list) or len(hooks) != 1 or not isinstance(hooks[0], dict):
         return False
     command = hooks[0].get("command")
-    return isinstance(command, str) and command.startswith(_COMMAND_PREFIX + client_id + " ")
+    return (
+        isinstance(command, str)
+        and f"{_COMMAND_MARKER}{client_id} " in command
+    )
 
 
 def _mentions_managed(group: Any, client_id: str) -> bool:
@@ -89,7 +105,10 @@ def _mentions_managed(group: Any, client_id: str) -> bool:
         rendered = json.dumps(group, ensure_ascii=True)
     except (TypeError, ValueError):
         return False
-    return _COMMAND_PREFIX + client_id in rendered
+    return (
+        _LEGACY_COMMAND_PREFIX + client_id in rendered
+        or _COMMAND_MARKER + client_id in rendered
+    )
 
 
 def _group(client_id: str, python_executable: Path, event: str) -> dict[str, Any]:
@@ -105,7 +124,7 @@ def _group(client_id: str, python_executable: Path, event: str) -> dict[str, Any
     )
     hook: dict[str, Any] = {
         "type": "command",
-        "command": _command(client_id),
+        "command": _command(client_id, python_executable),
         "timeout": 3 if event == "SessionEnd" else 10,
     }
     if client_id == "codex":

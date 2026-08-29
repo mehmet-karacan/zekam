@@ -38,6 +38,8 @@ def test_create_real_client_hook_files_and_repeat_is_idempotent(tmp_path: Path) 
         codex_hook = codex["hooks"][event][0]["hooks"][0]
         claude_hook = claude["hooks"][event][0]["hooks"][0]
         assert codex_hook["commandWindows"]
+        assert str(Path(sys.executable)) in codex_hook["command"]
+        assert str(Path(sys.executable)) in claude_hook["command"]
         assert "--client codex --client-version 0.150.1" in codex_hook["command"]
         assert "commandWindows" not in claude_hook
         assert "--client claude-code --client-version 2.1.224" in claude_hook["command"]

@@ -64,6 +64,13 @@ def test_installed_claude_contract_and_isolated_hook_delivery(tmp_path: Path) ->
     zekam_home = tmp_path / "zekam-home"
     environment = dict(os.environ)
     environment["ZEKAM_HOME"] = str(zekam_home)
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        str(source_root)
+        if not existing_pythonpath
+        else str(source_root) + os.pathsep + existing_pythonpath
+    )
     session_id = "00000000-0000-8000-8000-000000000001"
     fixtures = (
         ("SessionStart", {"source": "startup", "permission_mode": "default"}),
