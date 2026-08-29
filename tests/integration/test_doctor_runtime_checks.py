@@ -69,6 +69,19 @@ def test_kuyruk_kontrolu_derinlik_ve_recovery_raporlar(
     assert result.status is expected
 
 
+def test_normal_pending_queue_depth_warning_alone_stays_passed(
+    migrated_database: DatabaseSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_checks, "QUEUE_DEPTH_WARNING", -1)
+
+    result = runtime_checks.QueueCheck(settings=migrated_database).run()
+
+    assert result.evidence["recovery"] == 0
+    assert result.status is CheckStatus.PASSED
+    assert [finding.code for finding in result.findings] == ["runtime.queue-depth"]
+
+
 def test_model_kontrolu_envanter_durumunu_bildirir(
     migrated_database: DatabaseSettings,
 ) -> None:

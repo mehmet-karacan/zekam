@@ -26,7 +26,8 @@ CATEGORY = "runtime"
 #: alaninda boyle isaretlenir.
 CROSS_REALM = True
 
-#: Kuyruk derinligi bu esigin uzerindeyse uyari uretilir.
+#: Kuyruk derinligi bu esigin uzerindeyse bilgilendirici uyari uretilir. Normal
+#: ready/running backlog tek basina recovery veya saglik arizasi degildir.
 QUEUE_DEPTH_WARNING = 100
 
 #: Recovery bekleyen is sayisi sifirdan buyukse dikkat gerekir.
@@ -225,7 +226,10 @@ class QueueCheck:
                     next_action="Worker sayisini artirin veya backpressure sinirini gozden gecirin",
                 )
             )
-        status = CheckStatus.PASSED if not findings else CheckStatus.DEGRADED
+        # Normal ready/running isler kuyrugun calisma durumudur. Yalniz gercek,
+        # continuation ile uzlastirilmamis recovery doctor durumunu dusurur;
+        # derinlik uyarisi kapasite gorunurlugu olarak kalir.
+        status = CheckStatus.DEGRADED if recovery > RECOVERY_ATTENTION else CheckStatus.PASSED
         return CheckResult(
             check_id=self.check_id,
             category=self.category,
