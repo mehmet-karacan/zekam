@@ -373,6 +373,41 @@ def test_apply_race_returns_only_exact_terminal_replay_without_second_effect() -
     assert repository.apply_calls == 1
 
 
+def test_transaction_bound_apply_preserves_original_failure_for_owner_rollback() -> None:
+    receipt, snapshot = _fixture()
+    repository = Repository(snapshot)
+    repository.race_after_effect = True
+    authorizations = Authorizations()
+    service = ProjectionAwareClosureService(repository, authorizations)
+    plan = service.prepare(receipt, idempotency_key="projection-close:bound", now=NOW)
+    authorization = Authorization.issue(
+        realm_id=receipt.realm_id,
+        actor_id=uuid4(),
+        work_item_id=receipt.work_item_id,
+        plan_id=snapshot.task_plan_id,
+        plan_digest=plan.plan_digest,
+        effect_digest=plan.effect_digest,
+        scope=AuthorizationScope(
+            allowed_resources=(plan.resource,), allowed_effects=("database-write",)
+        ),
+        risk="high",
+        lifetime=dt.timedelta(minutes=5),
+        now=NOW,
+    )
+    authorizations.current = authorization
+
+    with pytest.raises(ConcurrencyConflict, match="concurrent terminal commit"):
+        service.apply(
+            plan,
+            authorization_id=authorization.id,
+            claim_id=uuid4(),
+            now=NOW,
+            transaction_bound=True,
+        )
+
+    assert repository.apply_calls == 1
+
+
 def test_apply_preexisting_terminal_replay_bypasses_snapshot_and_effect() -> None:
     receipt, snapshot = _fixture()
     repository = Repository(snapshot)

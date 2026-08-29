@@ -61,6 +61,19 @@ def test_shipped_migrations_are_discoverable_and_ordered() -> None:
     )
 
 
+def test_projection_close_dirty_hydration_source_migration_is_exact() -> None:
+    migration = (
+        default_migrations_dir() / "0075_projection_close_dirty_hydration_source.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.count("hydration_event.event_body->>'source_revision'") == 4
+    dirty_source_binding = (
+        "then substring(hydration_event.event_body->>'source_revision' from 5 for 40)"
+    )
+    assert dirty_source_binding in migration
+    assert "0075 refused: projection hydration source baseline drift" in migration
+
+
 def test_shipped_migrations_use_only_zekam_database_identity() -> None:
     removed_slug = "".join(chr(item) for item in (101, 110, 97, 105))
     migrations = tuple(default_migrations_dir().glob("*.sql"))

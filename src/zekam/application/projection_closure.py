@@ -708,6 +708,12 @@ class ProjectionAwareClosureService:
                     applied_at=moment,
                 )
         except Exception:
+            if transaction_bound:
+                # The caller owns the surrounding transaction. PostgreSQL keeps
+                # it aborted after a statement failure, so a replay query here
+                # would only hide the original error behind
+                # InFailedSqlTransaction. Let the owner roll back first.
+                raise
             # The effect is never retried here.  A concurrent winner may have
             # committed after the first lookup; only its fully verified exact
             # terminal chain can turn the failed apply into a replay receipt.
