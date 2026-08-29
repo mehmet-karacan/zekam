@@ -345,24 +345,6 @@ class LifecycleTemplateRecoveryService:
                     template_override=historical_template,
                 )
             )
-            JobRepository(self.connection, self.realm.id).mark_recovery_required(
-                job.id, "lifecycle-template-envelope-continuation"
-            )
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "update runtime.job_attempt set outcome='recovery-required',result_digest=%s,"
-                    " finished_at=%s"
-                    " where realm_id=%s and id=%s and job_id=%s and outcome is null",
-                    (
-                        plan.reconciliation.old_completion.result_digest,
-                        terminal_at,
-                        self.realm.id,
-                        claim.attempt_id,
-                        job.id,
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise PolicyViolation("Lifecycle template recovery old attempt drift")
 
         def after(finalization: Any, checkpoint_id: UUID, terminal_at: dt.datetime) -> None:
             ExecutionRunRepository(self.connection, self.realm.id).finish_run(

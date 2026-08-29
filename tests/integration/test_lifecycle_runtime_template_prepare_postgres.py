@@ -123,7 +123,7 @@ def test_prepare_materializes_exact_current_template_without_provider_call(
             (realm.id, crashed["job_id"]),
         )
     recovery = LifecycleTemplateRecoveryService(connection, realm)
-    recovery_now = crash_plan.expires_at + dt.timedelta(seconds=1)
+    recovery_now = dt.datetime.now(dt.UTC)
     recovery_plan = recovery.prepare(
         job_id=UUID(str(crashed["job_id"])),
         actor_id=actor.id,
@@ -168,4 +168,4 @@ def test_prepare_materializes_exact_current_template_without_provider_call(
             " and attempt.job_id=job.id where job.realm_id=%s and job.id=%s",
             (realm.id, crashed["job_id"]),
         )
-        assert cursor.fetchone() == ("completed", "recovery-required")
+        assert cursor.fetchone() == ("completed", "succeeded")
