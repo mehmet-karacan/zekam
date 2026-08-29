@@ -623,7 +623,12 @@ def compose_codex_lifecycle_handler(
             or authorization.plan_digest != plan.plan_digest
             or authorization.effect_digest != plan.effect_digest
         ):
-            raise PolicyViolation("Codex lifecycle pre-issued authorization exact plan drift")
+            raise PolicyViolation(
+                "Codex lifecycle pre-issued authorization exact plan drift: "
+                f"authorized_plan={authorization.plan_digest}, current_plan={plan.plan_digest}, "
+                f"authorized_effect={authorization.effect_digest}, "
+                f"current_effect={plan.effect_digest}"
+            )
         host = ExecutionHost(connection, realm_id, worker_label=work.lease.worker_label)
         claim = host.claim_effect(
             work,
