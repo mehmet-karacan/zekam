@@ -519,7 +519,10 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
     )
     graph.update_details(
         work_item.id,
-        acceptance_criteria=(AcceptanceCriterion("terminal child receipt", True),),
+        acceptance_criteria=(
+            AcceptanceCriterion("terminal child receipt", True),
+            AcceptanceCriterion("projection verifier receipt", True),
+        ),
         reason="session lifecycle independently verified before pre-close",
         now=close_moment,
     )

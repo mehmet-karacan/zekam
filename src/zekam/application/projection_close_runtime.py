@@ -627,13 +627,16 @@ class ProjectionCloseRuntimeService:
             reference=f"db:agents.result_receipt/{invocation_id}",
             digest_value=verdict_digest,
         )
-        outcomes = tuple(
+        # One verifier receipt covers the complete acceptance-criteria vector in
+        # ``verdict_body``.  Repeating the same reference once per criterion
+        # violates SessionCloseReceipt's immutable uniqueness contract when a
+        # Work has multiple criteria.
+        outcomes = (
             DigestReference(
                 f"db:agents.result_receipt/{invocation_id}",
                 verdict_digest,
                 TruthClass.REPO_FACT,
-            )
-            for index, _ in enumerate(current.acceptance_criteria, start=1)
+            ),
         )
         return evidence, outcomes
 
