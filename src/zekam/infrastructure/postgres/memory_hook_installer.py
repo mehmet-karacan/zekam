@@ -15,6 +15,7 @@ from zekam.application.memory_hooks import (
 )
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.security import DataClassification
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.work import EffectKind
 from zekam.infrastructure.postgres.config_provenance_repository import (
@@ -47,6 +48,7 @@ class MemoryHookUpgradePlan:
             action="memory-hook-upgrade",
             effects=(EffectKind.DATABASE_WRITE,),
             resources=(self.resource,),
+            data_classifications=(DataClassification.LOCAL_ONLY,),
             required_capabilities=(),
         )
 
@@ -79,6 +81,7 @@ class PostgresMemoryHookInstaller:
             action="memory-hook-upgrade",
             effects=(EffectKind.DATABASE_WRITE,),
             resources=(resource,),
+            data_classifications=(DataClassification.LOCAL_ONLY,),
             required_capabilities=(),
         ).effect_digest
         plan_digest = digest(

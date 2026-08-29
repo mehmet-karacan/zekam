@@ -95,4 +95,7 @@ def test_memory_hook_upgrade_plan_binds_current_generation_and_code_bundle(
     assert first.current_hook_set_digest == current_digest
     assert first.expected_bundle_digest == memory_hook_bundle(realm_id).bundle_digest
     assert first.resource == f"db-object:memory-hook-generation:{realm_id}"
+    assert tuple(item.value for item in first.effect_request.data_classifications) == (
+        "local-only",
+    )
     assert first.body()["grants_authority"] is False
