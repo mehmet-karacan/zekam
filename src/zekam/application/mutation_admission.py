@@ -373,6 +373,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("worker", "lifecycle-template-recovery"): MutationAdmissionExemption.RECOVERY,
     ("worker", "lifecycle-template-tick"): MutationAdmissionExemption.CONTROL_PLANE,
     ("worker", "reconcile-failed-receipt"): MutationAdmissionExemption.RECOVERY,
+    ("worker", "reconcile-terminal-run"): MutationAdmissionExemption.RECOVERY,
     ("worker", "recovery-authorize"): MutationAdmissionExemption.RECOVERY,
     ("worker", "reconcile-recovery"): MutationAdmissionExemption.RECOVERY,
     ("worker", "run"): MutationAdmissionExemption.RECOVERY,

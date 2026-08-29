@@ -42,6 +42,7 @@ from zekam.application.recovery_reconciliation import (
     RecoveryReconciliationPlan,
     RecoveryReconciliationService,
 )
+from zekam.application.run_reconciliation import TerminalRunReconciliationService
 from zekam.application.worker import (
     ScheduledHandler,
     ShutdownSignal,
@@ -276,6 +277,43 @@ def reconcile_failed_receipt_command(
             if apply:
                 if actor_id is None:
                     raise ValidationFailed("Failed receipt reconciliation --actor-id ister")
+                authorization = service.issue_authorization(plan, actor_id=actor_id)
+                document = service.apply(plan, authorization_id=authorization.id) | {
+                    "authorization_id": str(authorization.id),
+                    "applied": True,
+                }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if as_json:
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+    else:
+        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@app.command("reconcile-terminal-run")
+def reconcile_terminal_run_command(
+    run_id: Annotated[UUID, typer.Option("--run-id", help="Exact stale active run UUID")],
+    actor_id: Annotated[
+        UUID | None, typer.Option("--actor-id", help="Exact aktif human actor UUID")
+    ] = None,
+    apply: Annotated[
+        bool, typer.Option("--uygula", help="One-shot authorization ile uzlastirir")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Yalniz terminal failed job'lara bagli stale active run'i kapatir."""
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = TerminalRunReconciliationService(
+                realm_context.connection, realm_context.realm
+            )
+            plan = service.prepare(run_id=run_id)
+            document = plan.as_dict() | {"applied": False}
+            if apply:
+                if actor_id is None:
+                    raise ValidationFailed("Run reconciliation --actor-id ister")
                 authorization = service.issue_authorization(plan, actor_id=actor_id)
                 document = service.apply(plan, authorization_id=authorization.id) | {
                     "authorization_id": str(authorization.id),
