@@ -404,6 +404,24 @@ class MemoryContinuityRepository:
                     raise ConcurrencyConflict("Projection receipt idempotency replay drift")
                 return False
             cursor.execute(
+                "select project_id,work_item_id,source_ref,projection_digest,generator_version"
+                " from continuity.projection_generation_receipt"
+                " where realm_id=%s and projection_ref=%s and source_digest=%s",
+                (self.realm_id, receipt.projection_ref, receipt.source_digest),
+            )
+            canonical = cursor.fetchone()
+            if canonical is not None:
+                expected = (
+                    receipt.project_id,
+                    receipt.work_item_id,
+                    receipt.source_ref,
+                    receipt.projection_digest,
+                    receipt.generator_version,
+                )
+                if tuple(canonical) != expected:
+                    raise ConcurrencyConflict("Projection receipt canonical replay drift")
+                return False
+            cursor.execute(
                 "insert into continuity.projection_generation_receipt"
                 " (id,realm_id,project_id,work_item_id,idempotency_key,source_ref,source_digest,"
                 " projection_ref,projection_digest,generator_version,classification,"

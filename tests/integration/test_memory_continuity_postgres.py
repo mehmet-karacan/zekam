@@ -226,6 +226,21 @@ def _canonical_projection(
     assert repository.store_projection_receipt(
         projection, idempotency_key=f"projection-canonical-{work.id}"
     )
+    equivalent = ProjectionGenerationReceipt(
+        receipt_id=uuid4(),
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        source_ref=projection.source_ref,
+        source_digest=projection.source_digest,
+        projection_ref=projection.projection_ref,
+        projection_digest=projection.projection_digest,
+        generator_version=projection.generator_version,
+        generated_at=NOW + dt.timedelta(seconds=1),
+    )
+    assert not repository.store_projection_receipt(
+        equivalent, idempotency_key=f"projection-rebootstrap-{work.id}"
+    )
     return projection
 
 
