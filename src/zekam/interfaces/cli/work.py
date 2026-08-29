@@ -6,7 +6,9 @@ kullanilmaz. Durum degistiren komutlar `--uygula` ister.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
@@ -42,6 +44,7 @@ from zekam.interfaces.cli.session import (
 
 app = typer.Typer(name="work", help="Work Graph islemleri", no_args_is_help=True)
 console = Console()
+_MAX_ACTIVE_SPEC_BYTES = 1_048_576
 
 
 class ProjectionFormat(StrEnum):
@@ -71,6 +74,48 @@ def _work_id(service: WorkGraphService, project_id: UUID, reference: str) -> UUI
 
 def _render(items: tuple[object, ...]) -> None:
     console.print_json(json.dumps(items, ensure_ascii=False, default=str))
+
+
+def _read_active_spec(path: Path, expected_digest: str) -> tuple[str, tuple[str, ...], str]:
+    """Read the bounded UTF-8 living spec and extract its exact completion checklist."""
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ZekamError("Aktif gorev spec dosyasi okunamadi") from exc
+    if not raw or len(raw) > _MAX_ACTIVE_SPEC_BYTES:
+        raise ZekamError("Aktif gorev spec dosyasi bounded boyutta olmali")
+    actual_digest = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+    if expected_digest.strip().lower() != actual_digest:
+        raise ZekamError("Aktif gorev spec SHA-256 drift")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ZekamError("Aktif gorev spec UTF-8 olmali") from exc
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("# "):
+        raise ZekamError("Aktif gorev spec H1 basligi ister")
+    title = lines[0][2:].strip()
+    if "—" in title:
+        title = title.split("—", 1)[1].strip()
+    section_start = next(
+        (index for index, line in enumerate(lines) if line.startswith("## 17.")),
+        None,
+    )
+    if section_start is None:
+        raise ZekamError("Aktif gorev spec tamamlanma olcutleri bolumu ister")
+    criteria: list[str] = []
+    for line in lines[section_start + 1 :]:
+        if line.startswith("## "):
+            break
+        match = re.fullmatch(r"- \[[ xX]\] (.+)", line.strip())
+        if match:
+            criteria.append(match.group(1).strip())
+    if not title or not criteria:
+        raise ZekamError("Aktif gorev spec title ve kabul kriterleri ister")
+    if len(criteria) != len(set(criteria)):
+        raise ZekamError("Aktif gorev spec kabul kriterleri tekil olmali")
+    return title, tuple(criteria), actual_digest
 
 
 @app.command("create")
@@ -613,9 +658,7 @@ def activation_rollback_command(
     if not evidence.strip():
         raise fail("Activation rollback exact --kanit ister")
     if not apply:
-        console.print(
-            f"hedef durum: proposed, beklenen revision: {expected_revision}, kanit: 1"
-        )
+        console.print(f"hedef durum: proposed, beklenen revision: {expected_revision}, kanit: 1")
         console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
         return
     try:
@@ -633,15 +676,11 @@ def activation_rollback_command(
                     or snapshot.intent is not None
                     or snapshot.plan is not None
                 ):
-                    raise ZekamError(
-                        "Activation rollback exact unbootstrapped active Work ister"
-                    )
+                    raise ZekamError("Activation rollback exact unbootstrapped active Work ister")
                 service.transition(
                     work_item_id,
                     WorkState.READY,
-                    evidence=(
-                        EvidenceRef(kind="activation-rollback", reference=evidence.strip()),
-                    ),
+                    evidence=(EvidenceRef(kind="activation-rollback", reference=evidence.strip()),),
                     reason="unbootstrapped control-plane activation rollback",
                 )
                 updated = service.transition(
@@ -652,6 +691,73 @@ def activation_rollback_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print(f"[green]Proposed:[/green] revision {updated.revision}")
+
+
+@app.command("sync-spec")
+def sync_spec_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    input_file: Annotated[Path, typer.Option("--input-file", help="Exact UTF-8 living spec")],
+    input_digest: Annotated[
+        str, typer.Option("--input-digest", help="Exact sha256:<hex> spec digest")
+    ],
+    expected_revision: Annotated[
+        int, typer.Option("--beklenen-revision", help="Exact current Work revision")
+    ],
+    run_id: Annotated[
+        UUID | None, typer.Option("--run-id", help="Mutation admission exact active run")
+    ] = None,
+    session_id: Annotated[
+        str | None, typer.Option("--session-id", help="Hydration admission exact session")
+    ] = None,
+    apply: Annotated[
+        bool, typer.Option("--uygula", help="Spec revision'ini atomik kaydeder")
+    ] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Bounded UTF-8 living spec'i exact digest ile kanonik Work revision'ina alir."""
+
+    del run_id, session_id  # Merkezi mutation-admission exact kimligi dogrular.
+    if expected_revision < 1:
+        raise fail("Spec sync pozitif --beklenen-revision ister")
+    try:
+        title, criteria, actual_digest = _read_active_spec(input_file, input_digest)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if not apply:
+        console.print(
+            f"spec digest: {actual_digest}, kriter: {len(criteria)}, "
+            f"beklenen revision: {expected_revision}"
+        )
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            with realm_context.connection.transaction():
+                current = service.items.get(work_item_id)
+                if (
+                    current.project_id != project_id
+                    or current.state is not WorkState.ACTIVE
+                    or current.revision != expected_revision
+                ):
+                    raise ZekamError("Spec sync exact active Work revision ister")
+                updated = service.update_details(
+                    work_item_id,
+                    title=title,
+                    acceptance_criteria=tuple(
+                        AcceptanceCriterion(text=value, verified=False) for value in criteria
+                    ),
+                    reason=f"living spec exact UTF-8 sync {actual_digest}",
+                )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print(
+        f"[green]Spec synchronized:[/green] revision {updated.revision}, kriter {len(criteria)}"
+    )
 
 
 @app.command("reopen")

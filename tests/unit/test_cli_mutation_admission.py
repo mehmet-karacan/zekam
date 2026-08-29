@@ -500,7 +500,7 @@ def test_codex_lifecycle_non_session_entry_rechecks_exact_execution(
 def test_every_real_apply_parameter_is_classified_mutating_without_alias_bypass() -> None:
     paths = _apply_command_paths()
 
-    assert len(paths) == 67
+    assert len(paths) == 68
     for path in paths:
         python_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": True})
         public_name = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"uygula": True})
@@ -541,7 +541,8 @@ def test_apply_surface_has_exact_reviewed_hydration_partition() -> None:
         ("research", "start"),
         ("trace", "start"),
         ("trace", "stop"),
-        ("work", "transition"),
+            ("work", "transition"),
+            ("work", "sync-spec"),
     }
     exemptions = dict(DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.exemptions)
     assert (
