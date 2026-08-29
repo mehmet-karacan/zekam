@@ -414,6 +414,13 @@ def transition_command(
         list[str] | None,
         typer.Option("--kanit", help="kind=reference bicimli kanit (tekrarlanabilir)"),
     ] = None,
+    verify_all_criteria: Annotated[
+        bool,
+        typer.Option(
+            "--tum-kriterleri-dogrula",
+            help="Yalniz verification gecisinde tum kriterleri exact kanitlarla dogrular",
+        ),
+    ] = False,
     apply: Annotated[bool, typer.Option("--uygula", help="Gercekten uygular")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -426,8 +433,16 @@ def transition_command(
             raise fail("Kanit bicimi `kind=reference` olmali")
         references.append(EvidenceRef(kind=kind.strip(), reference=value.strip()))
 
+    if verify_all_criteria and target is not WorkState.VERIFICATION:
+        raise fail("--tum-kriterleri-dogrula yalniz verification hedefinde kullanilir")
+    if verify_all_criteria and not references:
+        raise fail("Kabul kriteri dogrulamasi en az bir exact --kanit ister")
+
     if not apply:
-        console.print(f"hedef durum: {target.value}, kanit: {len(references)}")
+        console.print(
+            f"hedef durum: {target.value}, kanit: {len(references)}, "
+            f"tum kriterler: {str(verify_all_criteria).lower()}"
+        )
         console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
         return
     if target is WorkState.COMPLETED:
@@ -440,11 +455,25 @@ def transition_command(
         with RealmSession(home, realm) as realm_context:
             service = _service(realm_context)
             project_id = _project_id(realm_context, project)
-            updated = service.transition(
-                _work_id(service, project_id, reference),
-                target,
-                evidence=tuple(references),
-            )
+            work_item_id = _work_id(service, project_id, reference)
+            with realm_context.connection.transaction():
+                if verify_all_criteria:
+                    current = service.items.get(work_item_id)
+                    if not current.acceptance_criteria:
+                        raise ZekamError("Dogrulanacak kabul kriteri bulunamadi")
+                    service.update_details(
+                        work_item_id,
+                        acceptance_criteria=tuple(
+                            AcceptanceCriterion(item.text, verified=True)
+                            for item in current.acceptance_criteria
+                        ),
+                        reason="exact acceptance evidence ile kriterler dogrulandi",
+                    )
+                updated = service.transition(
+                    work_item_id,
+                    target,
+                    evidence=tuple(references),
+                )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     console.print(f"[green]Yeni durum:[/green] {updated.state.value} (revision {updated.revision})")
