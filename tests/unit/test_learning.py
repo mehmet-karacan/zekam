@@ -355,6 +355,25 @@ def test_sinirsiz_iterasyon_reddedilir() -> None:
         IterationBudget(max_cost_units=0)
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_loop_scalar_adapter_nonfinite_olcumu_fail_closed_yapar(value: float) -> None:
+    with pytest.raises(ValidationFailed, match="sonlu"):
+        _outcome(1, value)
+    with pytest.raises(ValidationFailed, match="sonlu"):
+        evaluate_loop((), IterationBudget(), goal_score=value)
+
+
+def test_dogrulanmamis_scalar_artis_shared_progress_sayilmaz() -> None:
+    budget = IterationBudget(max_iterations=8, stall_limit=2)
+    outcomes = (
+        _outcome(1, 0.1),
+        _outcome(2, 0.5, verified=False),
+        _outcome(3, 0.9, verified=False),
+    )
+    decision = evaluate_loop(outcomes, budget, goal_score=1.0)
+    assert decision.reason is StopReason.NO_PROGRESS
+
+
 # -- T06: baglam etkinligi -----------------------------------------------------
 
 

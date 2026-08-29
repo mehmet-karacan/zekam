@@ -81,6 +81,7 @@ class ContextCandidateKind(StrEnum):
     TOOL_RESULT_SUMMARY = "tool-result-summary"
     TEST_EVIDENCE = "test-evidence"
     CHECKPOINT = "checkpoint"
+    LOOP_PROGRESS_PACKET = "loop-progress-packet"
 
 
 def _safe_logical(value: str, label: str) -> None:

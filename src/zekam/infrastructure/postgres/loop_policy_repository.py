@@ -65,22 +65,48 @@ class PostgresLoopPolicyRepository:
                 (attempt_id, surface, dispatch_id),
             )
 
-    def admit(self, request: LoopAttemptRequest) -> LoopAdmission:
-        attempt_id = new_uuid7()
+    def admit(
+        self,
+        request: LoopAttemptRequest,
+        *,
+        attempt_id: UUID | None = None,
+    ) -> LoopAdmission:
+        resolved_attempt_id = attempt_id or new_uuid7()
+        legacy_semantic_digest = digest(
+            {
+                "prompt_digest": request.prompt_digest,
+                "context_digest": request.context_digest,
+                "action_digest": request.action_digest,
+            }
+        )
+        legacy_binding_digest = digest(
+            {
+                "source_revision": request.source_revision,
+                "plan_digest": request.plan_digest,
+                "policy_revision_digest": request.policy_revision_digest,
+                "validator_spec_digest": request.validator_spec_digest,
+                "predecessor_attempt_id": (
+                    None
+                    if request.predecessor_attempt_id is None
+                    else str(request.predecessor_attempt_id)
+                ),
+            }
+        )
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "select admitted,attempt_id,ordinal,terminal_state,reason"
-                " from runtime.admit_loop_attempt(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-                " %s,%s,%s,%s,%s)",
+                " from runtime.admit_loop_attempt_current("
+                " %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                " %s,%s,%s,%s,%s,%s)",
                 (
-                    attempt_id,
+                    resolved_attempt_id,
                     request.loop_id,
                     request.predecessor_attempt_id,
-                    request.semantic_request_digest,
+                    legacy_semantic_digest,
                     request.prompt_digest,
                     request.context_digest,
                     request.action_digest,
-                    request.binding_digest,
+                    legacy_binding_digest,
                     request.source_revision,
                     request.plan_digest,
                     request.policy_revision_digest,
@@ -90,6 +116,12 @@ class PostgresLoopPolicyRepository:
                     request.reserved_cost_micros,
                     list(request.delta_evidence_ids),
                     request.delta_digest,
+                    request.attempt_ordinal,
+                    request.objective_digest,
+                    request.validator_asset_manifest_digest,
+                    request.progress_packet_digest,
+                    request.metric_vector_digest,
+                    request.novelty_digest,
                 ),
             )
             row = cursor.fetchone()
@@ -120,7 +152,8 @@ class PostgresLoopPolicyRepository:
         outcome_id = new_uuid7()
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "select runtime.complete_loop_attempt(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "select runtime.complete_loop_attempt_current("
+                " %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     outcome_id,
                     attempt_id,
@@ -132,6 +165,11 @@ class PostgresLoopPolicyRepository:
                     validation.actual_input_tokens,
                     validation.actual_output_tokens,
                     validation.actual_cost_micros,
+                    validation.progress_packet_digest,
+                    validation.metric_vector_digest,
+                    validation.progress_decision_digest,
+                    list(validation.metric_evidence_refs),
+                    None if validation.progress_state is None else str(validation.progress_state),
                 ),
             )
             return str(cursor.fetchone()[0])

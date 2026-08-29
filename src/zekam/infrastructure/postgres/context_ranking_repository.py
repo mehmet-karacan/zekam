@@ -19,6 +19,10 @@ from zekam.application.context_recipe import (
     ContextRecipeRole,
     RecipeContextPacket,
 )
+from zekam.application.loop_progress_hydration import (
+    CurrentLoopContextBinding,
+    build_loop_progress_hydration,
+)
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.context_continuity import (
     DEFAULT_TOKENIZER_PROFILE_DIGEST,
@@ -28,6 +32,7 @@ from zekam.domain.context_continuity import (
     EvidenceReference,
 )
 from zekam.domain.errors import NotFound, PolicyViolation
+from zekam.domain.loop_progress import LoopProgressPacket
 from zekam.infrastructure.postgres.context_continuity_repository import (
     ContextContinuityRepository,
 )
@@ -153,6 +158,40 @@ class ContextRankingRepository:
         with self.connection.transaction():
             return self._issue_candidate_set(snapshot)
 
+    def issue_loop_attempt_candidate_set(
+        self,
+        snapshot: ContextRankingSnapshot,
+        *,
+        loop_id: UUID,
+        progress_packet: LoopProgressPacket,
+    ) -> ContextCandidateSet:
+        """Issue the normal canonical set plus one exact attempt 2+ packet."""
+
+        with self.connection.transaction():
+            self.assert_current_snapshot(snapshot)
+            current, packet_recorded_at = self._assert_current_loop_packet(loop_id, progress_packet)
+            candidates, contents = self._current_candidate_material(snapshot)
+            database_now = self._current_row(UUID(snapshot.assignment_id))[6]
+            hydration = build_loop_progress_hydration(
+                progress_packet,
+                current=current,
+                observed_at=packet_recorded_at,
+                identity_refs=snapshot.request.target_identity_refs,
+                scope_ref=snapshot.request.step_scope_ref or snapshot.step_ref,
+                role=snapshot.request.role,
+                authority=AuthorityLevel.CANONICAL,
+            )
+            extended_candidates = (*candidates, hydration.candidate)
+            extended_contents = {**contents, hydration.candidate.candidate_id: hydration.content}
+            candidate_set = ContextCandidateSetIssuer.issue(
+                snapshot,
+                extended_candidates,
+                extended_contents,
+                now=database_now,
+            )
+            self._store_candidate_set(candidate_set)
+            return candidate_set
+
     def _issue_candidate_set(
         self,
         snapshot: ContextRankingSnapshot,
@@ -163,6 +202,10 @@ class ContextRankingRepository:
         candidate_set = ContextCandidateSetIssuer.issue(
             snapshot, candidates, contents, now=database_now
         )
+        self._store_candidate_set(candidate_set)
+        return candidate_set
+
+    def _store_candidate_set(self, candidate_set: ContextCandidateSet) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "insert into work.context_candidate_set"
@@ -174,7 +217,7 @@ class ContextRankingRepository:
                     self.realm_id,
                     self.project_id,
                     self.work_item_id,
-                    snapshot.snapshot_digest,
+                    candidate_set.ranking_snapshot_digest,
                     candidate_set.candidate_set_digest,
                     candidate_set.candidate_fingerprint,
                     len(candidate_set.candidates),
@@ -184,7 +227,6 @@ class ContextRankingRepository:
                     candidate_set.expires_at,
                 ),
             )
-        return candidate_set
 
     def _current_candidate_material(
         self, snapshot: ContextRankingSnapshot
@@ -238,10 +280,31 @@ class ContextRankingRepository:
         return tuple(candidates), contents
 
     def assert_current_context(
-        self, snapshot: ContextRankingSnapshot, candidate_set: ContextCandidateSet
+        self,
+        snapshot: ContextRankingSnapshot,
+        candidate_set: ContextCandidateSet,
+        *,
+        loop_id: UUID | None = None,
+        progress_packet: LoopProgressPacket | None = None,
     ) -> None:
         self.assert_current_snapshot(snapshot)
         current_candidates, _ = self._current_candidate_material(snapshot)
+        if progress_packet is not None:
+            if loop_id is None:
+                raise PolicyViolation("Loop progress context exact loop kimligi ister")
+            current, packet_recorded_at = self._assert_current_loop_packet(loop_id, progress_packet)
+            hydration = build_loop_progress_hydration(
+                progress_packet,
+                current=current,
+                observed_at=packet_recorded_at,
+                identity_refs=snapshot.request.target_identity_refs,
+                scope_ref=snapshot.request.step_scope_ref or snapshot.step_ref,
+                role=snapshot.request.role,
+                authority=AuthorityLevel.CANONICAL,
+            )
+            current_candidates = (*current_candidates, hydration.candidate)
+        elif loop_id is not None:
+            raise PolicyViolation("Loop kimligi progress packet olmadan kullanilamaz")
         current_fingerprint = digest(
             [
                 item.candidate_digest
@@ -276,11 +339,27 @@ class ContextRankingRepository:
         role: ContextRecipeRole,
         token_budget: int,
         minimum_authority: AuthorityLevel,
+        loop_attempt_ordinal: int = 1,
+        loop_progress_packet_digest: str | None = None,
+        loop_id: UUID | None = None,
+        progress_packet: LoopProgressPacket | None = None,
     ) -> RecipeContextPacket:
         """Current lock, compile ve manifest insert'i tek transaction'da tamamlar."""
 
         with self.connection.transaction():
-            self.assert_current_context(snapshot, candidate_set)
+            if loop_attempt_ordinal > 1 and (
+                progress_packet is None
+                or loop_id is None
+                or loop_progress_packet_digest != progress_packet.packet_digest
+                or loop_attempt_ordinal != progress_packet.attempt_ordinal
+            ):
+                raise PolicyViolation("Attempt 2+ context exact loop progress packet ister")
+            self.assert_current_context(
+                snapshot,
+                candidate_set,
+                loop_id=loop_id,
+                progress_packet=progress_packet,
+            )
             database_now = self._current_row(UUID(snapshot.assignment_id))[6]
             packet = ContextRecipeRegistry().compile(
                 role,
@@ -289,8 +368,50 @@ class ContextRankingRepository:
                 minimum_authority=minimum_authority,
                 now=database_now,
                 ranking_snapshot=snapshot,
+                loop_attempt_ordinal=loop_attempt_ordinal,
+                loop_progress_packet_digest=loop_progress_packet_digest,
             )
             ContextContinuityRepository(
                 self.connection, self.realm_id, self.project_id, self.work_item_id
             ).store_manifest(packet.manifest)
         return packet
+
+    def _assert_current_loop_packet(
+        self,
+        loop_id: UUID,
+        packet: LoopProgressPacket,
+    ) -> tuple[CurrentLoopContextBinding, dt.datetime]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select v2.stable_objective_digest,policy.policy_body->>'source_revision',"
+                " policy.policy_body->>'plan_digest',"
+                " policy.policy_body->>'policy_revision_digest',manifest.manifest_digest,"
+                " v2.progress_token_budget,packet.packet_body,packet.packet_digest,"
+                " packet.created_at"
+                " from runtime.loop_policy_v2 v2"
+                " join runtime.loop_policy policy on policy.realm_id=v2.realm_id"
+                "  and policy.id=v2.loop_id"
+                " join runtime.validator_asset_manifest manifest"
+                "  on manifest.realm_id=v2.realm_id and manifest.id=v2.validator_manifest_id"
+                " join runtime.loop_progress_packet packet on packet.realm_id=v2.realm_id"
+                "  and packet.loop_id=v2.loop_id and packet.attempt_id=%s"
+                " where v2.realm_id=%s and v2.loop_id=%s",
+                (packet.predecessor_attempt_id, self.realm_id, loop_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise PolicyViolation("Current canonical loop progress packet bulunamadi")
+        current = CurrentLoopContextBinding(
+            objective_digest=str(row[0]),
+            source_revision=str(row[1]),
+            plan_digest=str(row[2]),
+            policy_revision_digest=str(row[3]),
+            validator_asset_manifest_digest=str(row[4]),
+        )
+        if (
+            str(row[7]) != packet.packet_digest
+            or row[6] != packet.as_dict()
+            or packet.estimated_tokens > int(row[5])
+        ):
+            raise PolicyViolation("Loop progress packet body/digest/token policy drift")
+        return current, row[8]

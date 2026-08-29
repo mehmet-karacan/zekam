@@ -799,6 +799,11 @@ def run_projection_close_once(
         )
     ):
         raise PolicyViolation("Projection close exact queue identity eksik")
+    assert job.work_item_id is not None
+    assert job.plan_id is not None
+    assert job.step_id is not None
+    assert job.assignment_id is not None
+    assert job.run_id is not None
     work = host.jobs.claim_exact(
         job.id,
         project_id=job.project_id,

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/metric-spec.schema.json",
+  "title": "Zekam MetricSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metric_id", "name", "unit", "direction", "role", "source_kind", "target_value", "min_value", "max_value", "minimum_meaningful_delta", "regression_tolerance", "aggregation"],
+  "properties": {
+    "metric_id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "unit": {"type": "string", "minLength": 1},
+    "direction": {"enum": ["maximize", "minimize", "target", "range"]},
+    "role": {"enum": ["primary", "hard-guard", "secondary", "cost"]},
+    "source_kind": {"type": "string", "minLength": 1},
+    "target_value": {"type": ["number", "null"]},
+    "min_value": {"type": ["number", "null"]},
+    "max_value": {"type": ["number", "null"]},
+    "minimum_meaningful_delta": {"type": "number", "minimum": 0},
+    "regression_tolerance": {"type": "number", "minimum": 0},
+    "aggregation": {"enum": ["latest", "mean", "median", "p95", "sum"]}
+  }
+}

@@ -106,11 +106,23 @@ class RecipeContextPacket:
     manifest: ContextManifest
     recipe_excluded: tuple[str, ...]
     issuance_seal: str
+    loop_attempt_ordinal: int = 1
+    loop_progress_packet_digest: str | None = None
     grants_authority: bool = False
 
     def __post_init__(self) -> None:
         parse_digest(self.recipe_digest)
         parse_digest(self.issuance_seal)
+        if self.loop_attempt_ordinal < 1:
+            raise ValidationFailed("Context recipe loop attempt ordinal pozitif olmali")
+        if self.loop_attempt_ordinal == 1 and self.loop_progress_packet_digest is not None:
+            raise PolicyViolation("Ilk attempt progress packet context'i tasiyamaz")
+        if self.loop_attempt_ordinal > 1:
+            if self.role is not ContextRecipeRole.BUILDER:
+                raise PolicyViolation("Attempt 2+ progress packet yalniz builder recipe'sindedir")
+            if self.loop_progress_packet_digest is None:
+                raise PolicyViolation("Attempt 2+ recipe progress packet digest ister")
+            parse_digest(self.loop_progress_packet_digest)
         if self.requested_token_budget < self.manifest.token_budget:
             raise ValidationFailed("Recipe effective budget istek budgetini asamaz")
         if self.grants_authority:
@@ -136,6 +148,8 @@ class RecipeContextPacket:
             "effective_token_budget": self.manifest.token_budget,
             "manifest_digest": self.manifest.manifest_digest,
             "recipe_excluded": list(self.recipe_excluded),
+            "loop_attempt_ordinal": self.loop_attempt_ordinal,
+            "loop_progress_packet_digest": self.loop_progress_packet_digest,
             "grants_authority": False,
         }
 
@@ -216,6 +230,7 @@ DEFAULT_CONTEXT_RECIPES = (
             ContextCandidateKind.TOOL_RESULT_SUMMARY,
             ContextCandidateKind.TEST_EVIDENCE,
             ContextCandidateKind.CHECKPOINT,
+            ContextCandidateKind.LOOP_PROGRESS_PACKET,
         },
         {
             ContextCandidateKind.ARCHITECTURE_RULE,
@@ -224,7 +239,7 @@ DEFAULT_CONTEXT_RECIPES = (
         },
         12000,
         8,
-        4000,
+        8192,
     ),
     _recipe(
         "verifier-v1",
@@ -302,6 +317,24 @@ class ContextRecipeRegistry:
             raise PolicyViolation("Context recipe packet candidate kimlikleri tekil olmali")
         if any(item.kind not in current.allowed_kinds for item in selected):
             raise PolicyViolation("Context recipe packet forbidden kind iceriyor")
+        progress = tuple(
+            item for item in selected if item.kind is ContextCandidateKind.LOOP_PROGRESS_PACKET
+        )
+        if packet.loop_attempt_ordinal == 1 and progress:
+            raise PolicyViolation("Ilk attempt progress packet context'i iceremez")
+        if packet.loop_attempt_ordinal > 1:
+            if len(progress) != 1 or "required" not in progress[0].reason_codes:
+                raise PolicyViolation("Attempt 2+ exact ve required progress packet ister")
+            candidate = next(
+                (
+                    item
+                    for item in packet.manifest.selected
+                    if item.kind is ContextCandidateKind.LOOP_PROGRESS_PACKET
+                ),
+                None,
+            )
+            if candidate is None:
+                raise PolicyViolation("Attempt 2+ progress packet selection eksik")
         if current.role is ContextRecipeRole.COORDINATOR and any(
             item.kind in {ContextCandidateKind.SOURCE_SLICE, ContextCandidateKind.SOURCE_DIFF}
             for item in selected
@@ -345,6 +378,8 @@ class ContextRecipeRegistry:
         minimum_authority: AuthorityLevel,
         now: dt.datetime,
         ranking_snapshot: ContextRankingSnapshot,
+        loop_attempt_ordinal: int = 1,
+        loop_progress_packet_digest: str | None = None,
     ) -> RecipeContextPacket:
         ContextCandidateSetIssuer.verify(candidate_set, ranking_snapshot, now=now)
         candidates = candidate_set.candidates
@@ -352,23 +387,43 @@ class ContextRecipeRegistry:
         recipe = self.for_role(role)
         if token_budget < 1:
             raise ValidationFailed("Context recipe token budget pozitif olmali")
-        eligible = tuple(item for item in candidates if item.kind in recipe.allowed_kinds)
+        if loop_attempt_ordinal < 1:
+            raise ValidationFailed("Context recipe loop attempt ordinal pozitif olmali")
+        if loop_attempt_ordinal == 1:
+            if loop_progress_packet_digest is not None:
+                raise PolicyViolation("Ilk attempt progress packet digest tasiyamaz")
+            dynamic_allowed = recipe.allowed_kinds - {ContextCandidateKind.LOOP_PROGRESS_PACKET}
+        else:
+            if role is not ContextRecipeRole.BUILDER:
+                raise PolicyViolation("Attempt 2+ progress packet yalniz builder recipe'sindedir")
+            if loop_progress_packet_digest is None:
+                raise PolicyViolation("Attempt 2+ progress packet digest ister")
+            parse_digest(loop_progress_packet_digest)
+            dynamic_allowed = recipe.allowed_kinds
+        eligible = tuple(item for item in candidates if item.kind in dynamic_allowed)
         forbidden_required = tuple(
             item.candidate_id
             for item in candidates
-            if item.required and item.kind not in recipe.allowed_kinds
+            if item.required and item.kind not in dynamic_allowed
         )
         if forbidden_required:
             raise PolicyViolation("Excluded context candidate required olarak isaretlenemez")
         excluded = tuple(
-            sorted(
-                item.candidate_id for item in candidates if item.kind not in recipe.allowed_kinds
-            )
+            sorted(item.candidate_id for item in candidates if item.kind not in dynamic_allowed)
         )
         missing = recipe.required_kinds - {item.kind for item in eligible}
         if missing:
             names = ", ".join(sorted(item.value for item in missing))
             raise PolicyViolation(f"Context recipe required kind eksik: {names}")
+        progress_candidates = tuple(
+            item for item in eligible if item.kind is ContextCandidateKind.LOOP_PROGRESS_PACKET
+        )
+        if loop_attempt_ordinal > 1:
+            if len(progress_candidates) != 1 or not progress_candidates[0].required:
+                raise PolicyViolation("Attempt 2+ exact required progress packet candidate ister")
+            evidence_digests = {ref.evidence_digest for ref in progress_candidates[0].evidence_refs}
+            if loop_progress_packet_digest not in evidence_digests:
+                raise PolicyViolation("Progress packet candidate digest binding drift")
         for kind in recipe.allowed_kinds:
             matching = tuple(item for item in eligible if item.kind is kind)
             groups: dict[tuple[object, ...], ContextCandidate] = {}
@@ -388,12 +443,15 @@ class ContextRecipeRegistry:
                 raise PolicyViolation(f"Context recipe per-kind candidate limiti asildi: {kind}")
             if sum(item.token_count for item in unique) > recipe.per_kind_token_limit:
                 raise PolicyViolation(f"Context recipe per-kind token limiti asildi: {kind}")
-        for kind in recipe.required_kinds:
+        dynamic_required = recipe.required_kinds | (
+            {ContextCandidateKind.LOOP_PROGRESS_PACKET} if loop_attempt_ordinal > 1 else set()
+        )
+        for kind in dynamic_required:
             if sum(item.kind is kind for item in eligible) != 1:
                 raise PolicyViolation(f"Context recipe required kind tekil olmali: {kind}")
 
         required_ids: set[str] = set()
-        for kind in recipe.required_kinds:
+        for kind in dynamic_required:
             required_matches = [item for item in eligible if item.kind is kind]
             selected = sorted(
                 required_matches,
@@ -439,7 +497,7 @@ class ContextRecipeRegistry:
                     item.token_count,
                 )
                 for item in candidates
-                if item.kind not in recipe.allowed_kinds
+                if item.kind not in dynamic_allowed
             ),
             contents=contents,
             ranking_snapshot_digest=ranking_snapshot.snapshot_digest,
@@ -460,6 +518,8 @@ class ContextRecipeRegistry:
             "effective_token_budget": manifest.token_budget,
             "manifest_digest": manifest.manifest_digest,
             "recipe_excluded": list(excluded),
+            "loop_attempt_ordinal": loop_attempt_ordinal,
+            "loop_progress_packet_digest": loop_progress_packet_digest,
             "grants_authority": False,
         }
         return RecipeContextPacket(
@@ -470,4 +530,6 @@ class ContextRecipeRegistry:
             manifest,
             excluded,
             self._seal_packet_body(packet_body),
+            loop_attempt_ordinal,
+            loop_progress_packet_digest,
         )

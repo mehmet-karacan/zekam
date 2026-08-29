@@ -43,6 +43,95 @@ class ProgressState(StrEnum):
     INVALID = "invalid"
 
 
+class ValidatorAssetRole(StrEnum):
+    TEST = "test"
+    FIXTURE = "fixture"
+    METRIC = "metric"
+    THRESHOLD = "threshold"
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatorAsset:
+    asset_id: str
+    logical_ref: str
+    content_digest: str
+    role: ValidatorAssetRole
+
+    def __post_init__(self) -> None:
+        if not self.asset_id.strip() or not self.logical_ref.strip():
+            raise ValidationFailed("Validator asset kimlik ve logical ref ister")
+        parse_digest(self.content_digest)
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "asset_id": self.asset_id,
+            "logical_ref": self.logical_ref,
+            "content_digest": self.content_digest,
+            "role": str(self.role),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatorAssetManifest:
+    manifest_id: UUID
+    objective_id: UUID
+    validator_spec_digest: str
+    source_revision: str
+    builder_assignment_id: UUID
+    verifier_assignment_id: UUID
+    assets: tuple[ValidatorAsset, ...]
+    created_at: dt.datetime
+    grants_authority: bool = False
+
+    def __post_init__(self) -> None:
+        if self.grants_authority:
+            raise PolicyViolation("Validator asset manifest authority veremez")
+        parse_digest(self.validator_spec_digest)
+        if not self.source_revision.strip():
+            raise ValidationFailed("Validator asset manifest source revision ister")
+        if self.builder_assignment_id == self.verifier_assignment_id:
+            raise PolicyViolation("Builder kendi validator asset verifier'i olamaz")
+        asset_ids = tuple(item.asset_id for item in self.assets)
+        logical_refs = tuple(item.logical_ref for item in self.assets)
+        if (
+            not asset_ids
+            or len(set(asset_ids)) != len(asset_ids)
+            or len(set(logical_refs)) != len(logical_refs)
+            or self.assets
+            != tuple(sorted(self.assets, key=lambda item: (item.asset_id, item.logical_ref)))
+        ):
+            raise ValidationFailed("Validator asset listesi dolu, tekil ve kanonik olmali")
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            raise ValidationFailed("Validator asset manifest zamani timezone-aware olmali")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-validator-asset-manifest/v1",
+            "manifest_id": str(self.manifest_id),
+            "objective_id": str(self.objective_id),
+            "validator_spec_digest": self.validator_spec_digest,
+            "source_revision": self.source_revision,
+            "builder_assignment_id": str(self.builder_assignment_id),
+            "verifier_assignment_id": str(self.verifier_assignment_id),
+            "assets": [item.as_dict() for item in self.assets],
+            "created_at": self.created_at,
+            "grants_authority": False,
+        }
+
+    @property
+    def manifest_digest(self) -> str:
+        return digest(self.as_dict())
+
+    @property
+    def logical_refs(self) -> tuple[str, ...]:
+        return tuple(item.logical_ref for item in self.assets)
+
+    def assert_builder_write_scope(self, write_resources: tuple[str, ...]) -> None:
+        overlap = set(self.logical_refs) & set(write_resources)
+        if overlap:
+            raise PolicyViolation("Builder validator asset write scope disinda olmali")
+
+
 @dataclass(frozen=True, slots=True)
 class MetricSpec:
     metric_id: str
@@ -223,6 +312,8 @@ class MeasurementEvidence:
                 raise ValidationFailed(f"Measurement {label} bos olamaz")
         if not math.isfinite(self.value):
             raise ValidationFailed("Measurement value sonlu olmali")
+        if not self.producer_self_report and self.measurement_identity == self.verifier_identity:
+            raise PolicyViolation("Measurement producer ve verifier kimligi farkli olmali")
         parse_digest(self.evidence_digest)
         if self.measured_at.tzinfo is None:
             raise ValidationFailed("Measurement zamani timezone-aware olmali")
@@ -294,9 +385,7 @@ class ProgressVector:
             raise ValidationFailed("Progress vector metric cardinality/binding drift")
         if any(
             result.favorable_delta != delta
-            for result, (_metric_id, delta) in zip(
-                self.metric_results, self.deltas, strict=False
-            )
+            for result, (_metric_id, delta) in zip(self.metric_results, self.deltas, strict=False)
         ):
             raise ValidationFailed("Progress vector result/delta drift")
         if self.value_per_cost is not None and not math.isfinite(self.value_per_cost):

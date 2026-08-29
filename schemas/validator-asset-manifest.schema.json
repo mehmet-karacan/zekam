@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/validator-asset-manifest.schema.json",
+  "title": "Zekam ValidatorAssetManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "manifest_id", "objective_digest", "validator_spec_digest", "source_revision", "builder_assignment_id", "verifier_assignment_id", "assets", "created_at", "grants_authority"],
+  "properties": {
+    "schema": {"const": "zekam-validator-asset-manifest/v1"},
+    "manifest_id": {"type": "string", "format": "uuid"},
+    "objective_digest": {"$ref": "#/$defs/digest"},
+    "validator_spec_digest": {"$ref": "#/$defs/digest"},
+    "source_revision": {"type": "string", "minLength": 1},
+    "builder_assignment_id": {"type": "string", "format": "uuid"},
+    "verifier_assignment_id": {"type": "string", "format": "uuid"},
+    "assets": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["asset_id", "logical_ref", "content_digest", "role"], "properties": {"asset_id": {"type": "string", "minLength": 1}, "logical_ref": {"type": "string", "minLength": 1}, "content_digest": {"$ref": "#/$defs/digest"}, "role": {"enum": ["test", "fixture", "metric", "threshold"]}}}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "grants_authority": {"const": false}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

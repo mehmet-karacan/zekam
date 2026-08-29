@@ -17,6 +17,9 @@ from zekam.domain.optimization import (
     MetricSpec,
     OptimizationObjective,
     ProgressState,
+    ValidatorAsset,
+    ValidatorAssetManifest,
+    ValidatorAssetRole,
     evaluate_progress,
 )
 
@@ -135,9 +138,7 @@ def test_hard_guard_regression_rejects_even_when_primary_scalar_improves() -> No
     vector = evaluate_progress(specs, previous, previous, current)
     assert vector.progress_state is ProgressState.REGRESSED
     assert any(
-        item.regressed
-        for item in vector.metric_results
-        if item.role is MetricRole.HARD_GUARD
+        item.regressed for item in vector.metric_results if item.role is MetricRole.HARD_GUARD
     )
 
 
@@ -146,8 +147,7 @@ def test_self_report_and_missing_measurement_are_invalid_not_progress() -> None:
     valid = (_evidence("quality", 0.0, suffix="baseline"),)
     self_report = (_evidence("quality", 1.0, suffix="current", self_report=True),)
     assert (
-        evaluate_progress(specs, valid, valid, self_report).progress_state
-        is ProgressState.INVALID
+        evaluate_progress(specs, valid, valid, self_report).progress_state is ProgressState.INVALID
     )
     assert evaluate_progress(specs, valid, valid, ()).progress_state is ProgressState.INVALID
 
@@ -159,3 +159,37 @@ def test_nonfinite_and_malformed_metric_specs_fail_closed() -> None:
         _spec("quality", MetricDirection.MAXIMIZE, target_value=None)
     with pytest.raises(ValidationFailed, match="min_value/max_value"):
         _spec("range", MetricDirection.RANGE, min_value=2.0, max_value=1.0)
+
+
+def test_validator_asset_manifest_is_immutable_and_outside_builder_write_scope() -> None:
+    builder_id, verifier_id = uuid4(), uuid4()
+    manifest = ValidatorAssetManifest(
+        manifest_id=uuid4(),
+        objective_id=uuid4(),
+        validator_spec_digest=digest("validator"),
+        source_revision="git:abc",
+        builder_assignment_id=builder_id,
+        verifier_assignment_id=verifier_id,
+        assets=(
+            ValidatorAsset(
+                "fixture",
+                "validator/fixtures/golden.json",
+                digest("fixture"),
+                ValidatorAssetRole.FIXTURE,
+            ),
+            ValidatorAsset(
+                "threshold",
+                "validator/thresholds/quality.json",
+                digest("threshold"),
+                ValidatorAssetRole.THRESHOLD,
+            ),
+        ),
+        created_at=NOW,
+    )
+
+    assert manifest.manifest_digest.startswith("sha256:")
+    manifest.assert_builder_write_scope(("src/feature.py",))
+    with pytest.raises(PolicyViolation, match="write scope"):
+        manifest.assert_builder_write_scope(("validator/thresholds/quality.json",))
+    with pytest.raises(PolicyViolation, match="kendi validator"):
+        replace(manifest, verifier_assignment_id=builder_id)

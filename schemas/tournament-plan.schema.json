@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/tournament-plan.schema.json",
+  "title": "Zekam TournamentPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "candidate_count", "candidate_assignments", "shared_objective_digest", "candidate_context_digest", "candidate_isolation", "selector_assignment_id", "selector_model_id", "selector_execution_identity", "selector_spec_digest", "human_final_gate", "budget", "grants_authority", "plan_digest"],
+  "properties": {
+    "schema": {"const": "zekam-tournament-plan/v1"},
+    "candidate_count": {"type": "integer", "minimum": 2},
+    "candidate_assignments": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["assignment_id", "model_id", "execution_identity", "token_budget", "cost_budget_micros"], "properties": {"assignment_id": {"type": "string", "format": "uuid"}, "model_id": {"type": "string", "minLength": 1}, "execution_identity": {"type": "string", "minLength": 1}, "token_budget": {"type": "integer", "minimum": 1}, "cost_budget_micros": {"type": "integer", "minimum": 1}}}},
+    "shared_objective_digest": {"$ref": "#/$defs/digest"},
+    "candidate_context_digest": {"$ref": "#/$defs/digest"},
+    "candidate_isolation": {"const": true},
+    "selector_assignment_id": {"type": "string", "format": "uuid"},
+    "selector_model_id": {"type": "string", "minLength": 1},
+    "selector_execution_identity": {"type": "string", "minLength": 1},
+    "selector_spec_digest": {"$ref": "#/$defs/digest"},
+    "human_final_gate": {"type": "boolean"},
+    "budget": {"type": "object", "additionalProperties": false, "required": ["max_candidates", "max_tokens", "max_cost_micros", "deadline"], "properties": {"max_candidates": {"type": "integer", "minimum": 2}, "max_tokens": {"type": "integer", "minimum": 1}, "max_cost_micros": {"type": "integer", "minimum": 1}, "deadline": {"type": "string", "format": "date-time"}}},
+    "grants_authority": {"const": false},
+    "plan_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

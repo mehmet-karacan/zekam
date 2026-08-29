@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/measurement-evidence.schema.json",
+  "title": "Zekam MeasurementEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metric_id", "value", "evidence_ref", "evidence_digest", "source_revision", "measured_at", "measurement_identity", "verifier_identity", "producer_self_report"],
+  "properties": {
+    "metric_id": {"type": "string", "minLength": 1},
+    "value": {"type": "number"},
+    "evidence_ref": {"type": "string", "minLength": 1},
+    "evidence_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_revision": {"type": "string", "minLength": 1},
+    "measured_at": {"type": "string", "format": "date-time"},
+    "measurement_identity": {"type": "string", "minLength": 1},
+    "verifier_identity": {"type": "string", "minLength": 1},
+    "producer_self_report": {"const": false}
+  }
+}

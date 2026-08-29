@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/optimization-objective.schema.json",
+  "title": "Zekam OptimizationObjective",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["objective_id", "realm_id", "project_id", "work_item_id", "plan_id", "step_id", "artifact_ref", "artifact_baseline_digest", "measurement_plan_digest", "validator_asset_manifest_digest", "metric_specs", "max_attempts", "max_tokens", "max_cost_micros", "deadline", "reversibility_class", "created_at", "grants_authority"],
+  "properties": {
+    "objective_id": {"type": "string", "format": "uuid"},
+    "realm_id": {"type": "string", "format": "uuid"},
+    "project_id": {"type": "string", "format": "uuid"},
+    "work_item_id": {"type": "string", "format": "uuid"},
+    "plan_id": {"type": "string", "format": "uuid"},
+    "step_id": {"type": "string", "minLength": 1},
+    "artifact_ref": {"type": "string", "minLength": 1},
+    "artifact_baseline_digest": {"$ref": "#/$defs/digest"},
+    "measurement_plan_digest": {"$ref": "#/$defs/digest"},
+    "validator_asset_manifest_digest": {"$ref": "#/$defs/digest"},
+    "metric_specs": {"type": "array", "minItems": 1, "items": {"$ref": "metric-spec.schema.json"}},
+    "max_attempts": {"type": "integer", "minimum": 1, "maximum": 100},
+    "max_tokens": {"type": "integer", "minimum": 1},
+    "max_cost_micros": {"type": "integer", "minimum": 1},
+    "deadline": {"type": "string", "format": "date-time"},
+    "reversibility_class": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "grants_authority": {"const": false}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

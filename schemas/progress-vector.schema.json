@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/progress-vector.schema.json",
+  "title": "Zekam ProgressVector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["baseline_values", "previous_values", "current_values", "deltas", "hard_guard_results", "primary_progress_results", "target_results", "evidence_digests", "value_per_cost", "progress_state", "invalid_reasons"],
+  "properties": {
+    "baseline_values": {"$ref": "#/$defs/vector"},
+    "previous_values": {"$ref": "#/$defs/vector"},
+    "current_values": {"$ref": "#/$defs/vector"},
+    "deltas": {"$ref": "#/$defs/vector"},
+    "hard_guard_results": {"type": "array", "items": {"$ref": "#/$defs/result"}},
+    "primary_progress_results": {"type": "array", "items": {"$ref": "#/$defs/result"}},
+    "target_results": {"type": "array", "items": {"$ref": "#/$defs/result"}},
+    "evidence_digests": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}},
+    "value_per_cost": {"type": ["number", "null"]},
+    "progress_state": {"enum": ["improved", "target-reached", "plateau", "regressed", "invalid"]},
+    "invalid_reasons": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "vector": {"type": "object", "additionalProperties": {"type": "number"}},
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metric_id", "role", "favorable_delta", "meaningful_progress", "regressed", "target_reached"],
+      "properties": {
+        "metric_id": {"type": "string", "minLength": 1},
+        "role": {"enum": ["primary", "hard-guard", "secondary", "cost"]},
+        "favorable_delta": {"type": "number"},
+        "meaningful_progress": {"type": "boolean"},
+        "regressed": {"type": "boolean"},
+        "target_reached": {"type": "boolean"}
+      }
+    }
+  }
+}

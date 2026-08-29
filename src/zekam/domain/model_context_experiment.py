@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 from dataclasses import dataclass
 from enum import StrEnum
@@ -16,6 +17,14 @@ from zekam.domain.model_benchmark import (
     VerifierIdentity,
     VerifierVerdict,
     aggregate_trials,
+)
+from zekam.domain.optimization import (
+    MeasurementEvidence,
+    MetricDirection,
+    MetricRole,
+    MetricSpec,
+    ProgressState,
+    evaluate_progress,
 )
 
 
@@ -385,6 +394,19 @@ def _comparison(
 ) -> tuple[tuple[ExperimentGate, ...], float, float, float]:
     bv, cv = _value(b.aggregate), _value(c.aggregate)
     ratio = cv / bv if bv > 0 else 0.0
+    specs = _experiment_metric_specs(b, p)
+    baseline_evidence = _experiment_metric_evidence(b, bv, "baseline")
+    candidate_evidence = _experiment_metric_evidence(c, cv, "candidate")
+    progress = evaluate_progress(
+        specs,
+        baseline_evidence,
+        baseline_evidence,
+        candidate_evidence,
+        cost_micros=max(0, int(c.aggregate.cost.mean * 1_000_000)),
+    )
+    if progress.progress_state is ProgressState.INVALID:
+        raise ValidationFailed("experiment generic metric vector invalid")
+    metric_results = {item.metric_id: item for item in progress.metric_results}
     gates = (
         ExperimentGate(
             "experiment.baseline-approved", b.aggregate.approved, True, b.aggregate.approved, True
@@ -401,46 +423,155 @@ def _comparison(
         ),
         ExperimentGate(
             "experiment.quality-no-regression",
-            c.aggregate.quality.mean >= b.aggregate.quality.mean - p.max_quality_drop,
+            not metric_results["quality"].regressed,
             b.aggregate.quality.mean,
             c.aggregate.quality.mean,
             b.aggregate.quality.mean - p.max_quality_drop,
         ),
         ExperimentGate(
             "experiment.reliability-no-regression",
-            c.aggregate.reliability.mean >= b.aggregate.reliability.mean - p.max_reliability_drop,
+            not metric_results["reliability"].regressed,
             b.aggregate.reliability.mean,
             c.aggregate.reliability.mean,
             b.aggregate.reliability.mean - p.max_reliability_drop,
         ),
         ExperimentGate(
             "experiment.latency-budget",
-            c.aggregate.latency_ms.p95
-            <= b.aggregate.latency_ms.p95 * (1 + p.max_latency_increase_ratio),
+            not metric_results["latency-p95"].regressed,
             b.aggregate.latency_ms.p95,
             c.aggregate.latency_ms.p95,
             b.aggregate.latency_ms.p95 * (1 + p.max_latency_increase_ratio),
         ),
         ExperimentGate(
             "experiment.token-budget",
-            c.aggregate.token_count.mean
-            <= b.aggregate.token_count.mean * (1 + p.max_token_increase_ratio),
+            not metric_results["tokens"].regressed,
             b.aggregate.token_count.mean,
             c.aggregate.token_count.mean,
             b.aggregate.token_count.mean * (1 + p.max_token_increase_ratio),
         ),
         ExperimentGate(
             "experiment.cost-budget",
-            c.aggregate.cost.mean <= b.aggregate.cost.mean * (1 + p.max_cost_increase_ratio),
+            not metric_results["cost"].regressed,
             b.aggregate.cost.mean,
             c.aggregate.cost.mean,
             b.aggregate.cost.mean * (1 + p.max_cost_increase_ratio),
         ),
         ExperimentGate(
-            "experiment.cost-value", ratio >= p.minimum_value_ratio, bv, cv, p.minimum_value_ratio
+            "experiment.cost-value",
+            bv > 0 and metric_results["value"].target_reached,
+            bv,
+            cv,
+            p.minimum_value_ratio,
         ),
     )
     return gates, bv, cv, ratio
+
+
+def _experiment_metric_specs(
+    baseline: ExperimentArm, policy: ModelContextExperimentPolicy
+) -> tuple[MetricSpec, ...]:
+    """Map the established experiment gates onto the shared metric semantics."""
+
+    bv = _value(baseline.aggregate)
+    return (
+        MetricSpec(
+            "cost",
+            "cost",
+            "cost-unit",
+            MetricDirection.MINIMIZE,
+            MetricRole.HARD_GUARD,
+            "benchmark-aggregate",
+            target_value=0.0,
+            regression_tolerance=baseline.aggregate.cost.mean * policy.max_cost_increase_ratio,
+        ),
+        MetricSpec(
+            "latency-p95",
+            "latency p95",
+            "millisecond",
+            MetricDirection.MINIMIZE,
+            MetricRole.HARD_GUARD,
+            "benchmark-aggregate",
+            target_value=0.0,
+            regression_tolerance=(
+                baseline.aggregate.latency_ms.p95 * policy.max_latency_increase_ratio
+            ),
+        ),
+        MetricSpec(
+            "quality",
+            "quality",
+            "ratio",
+            MetricDirection.MAXIMIZE,
+            MetricRole.HARD_GUARD,
+            "benchmark-aggregate",
+            target_value=1.0,
+            regression_tolerance=policy.max_quality_drop,
+        ),
+        MetricSpec(
+            "reliability",
+            "reliability",
+            "ratio",
+            MetricDirection.MAXIMIZE,
+            MetricRole.HARD_GUARD,
+            "benchmark-aggregate",
+            target_value=1.0,
+            regression_tolerance=policy.max_reliability_drop,
+        ),
+        MetricSpec(
+            "tokens",
+            "tokens",
+            "token",
+            MetricDirection.MINIMIZE,
+            MetricRole.HARD_GUARD,
+            "benchmark-aggregate",
+            target_value=0.0,
+            regression_tolerance=(
+                baseline.aggregate.token_count.mean * policy.max_token_increase_ratio
+            ),
+        ),
+        MetricSpec(
+            "value",
+            "quality reliability per cost",
+            "ratio",
+            MetricDirection.MAXIMIZE,
+            MetricRole.PRIMARY,
+            "benchmark-aggregate",
+            target_value=bv * policy.minimum_value_ratio,
+        ),
+    )
+
+
+def _experiment_metric_evidence(
+    arm: ExperimentArm, value: float, label: str
+) -> tuple[MeasurementEvidence, ...]:
+    values = {
+        "cost": arm.aggregate.cost.mean,
+        "latency-p95": arm.aggregate.latency_ms.p95,
+        "quality": arm.aggregate.quality.mean,
+        "reliability": arm.aggregate.reliability.mean,
+        "tokens": arm.aggregate.token_count.mean,
+        "value": value,
+    }
+    measured_at = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+    return tuple(
+        MeasurementEvidence(
+            metric_id=metric_id,
+            value=metric_value,
+            evidence_ref=f"experiment:{arm.arm_id}:{metric_id}:{label}",
+            evidence_digest=digest(
+                {
+                    "arm_digest": arm.arm_digest,
+                    "metric_id": metric_id,
+                    "value": metric_value,
+                    "aggregate_evidence_digest": arm.aggregate.evidence_digest,
+                }
+            ),
+            source_revision=arm.source_revision,
+            measured_at=measured_at,
+            measurement_identity=f"benchmark:{arm.model_id}",
+            verifier_identity=(f"{arm.verifier.model_id}:{arm.verifier.execution_identity}"),
+        )
+        for metric_id, metric_value in sorted(values.items())
+    )
 
 
 def _validate_pair(b: ExperimentArm, c: ExperimentArm) -> None:

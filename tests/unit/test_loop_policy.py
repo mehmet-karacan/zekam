@@ -21,6 +21,7 @@ from zekam.domain.loop_policy import (
     LoopTerminalState,
     LoopValidation,
 )
+from zekam.domain.optimization import ProgressState
 
 NOW = dt.datetime(2026, 8, 25, tzinfo=dt.UTC)
 TERMINALS = tuple(sorted(LoopTerminalState, key=str))
@@ -98,6 +99,59 @@ def test_semantic_request_uuid_ve_predecessor_degisiminden_etkilenmez() -> None:
     second = replace(first, predecessor_attempt_id=uuid4())
     assert first.semantic_request_digest == second.semantic_request_digest
     assert first.binding_digest != second.binding_digest
+    assert first.binding_digest == digest(
+        {
+            "source_revision": first.source_revision,
+            "plan_digest": first.plan_digest,
+            "policy_revision_digest": first.policy_revision_digest,
+            "validator_spec_digest": first.validator_spec_digest,
+            "predecessor_attempt_id": None,
+        }
+    )
+
+
+def test_measured_loop_policy_v2_additive_ve_exact_bindinglidir() -> None:
+    policy = _policy(
+        objective_id=uuid4(),
+        stable_objective_digest=digest("objective"),
+        measurement_plan_digest=digest("measurement-plan"),
+        validator_manifest_id=uuid4(),
+        validator_asset_manifest_digest=digest("validator-assets"),
+        metric_specs_digest=digest("metric-specs"),
+        stall_limit=2,
+        diagnostic_patience=1,
+        progress_token_budget=256,
+        minimum_value_per_cost=0.0,
+    )
+    assert policy.body()["measured_v2"]["stable_objective_digest"] == digest("objective")
+    with pytest.raises(ValidationFailed, match="exact ve tam"):
+        _policy(objective_id=uuid4())
+
+
+def test_attempt2_progress_packet_ve_rephrase_proof_novelty_ister() -> None:
+    with pytest.raises(ValidationFailed, match=r"attempt 2\+"):
+        _request(attempt_ordinal=2, predecessor_attempt_id=uuid4())
+    novelty = digest(
+        {
+            "objective": "same",
+            "hypothesis": "same",
+            "patch": "same",
+            "failure": "same",
+        }
+    )
+    request = _request(
+        attempt_ordinal=2,
+        predecessor_attempt_id=uuid4(),
+        objective_digest=digest("objective"),
+        validator_asset_manifest_digest=digest("validator-assets"),
+        progress_packet_digest=digest("packet"),
+        metric_vector_digest=digest("metric-vector"),
+        novelty_digest=novelty,
+    )
+    rephrased = replace(request, prompt_digest=digest("rephrased prompt"))
+    assert request.semantic_request_digest == novelty
+    assert rephrased.semantic_request_digest == novelty
+    assert request.binding_digest != _request().binding_digest
 
 
 class Ledger:
@@ -190,4 +244,45 @@ def test_executor_exceptioni_sessiz_retry_yerine_manual_review_yapar() -> None:
             effect=broken,
             validator=lambda _value, _admission: pytest.fail("validator calismamali"),
         )
+    assert len(ledger.interrupted) == 1
+
+
+@pytest.mark.parametrize(
+    ("producer_self_report", "hard_guard_regressed", "message"),
+    (
+        (True, False, "self-report"),
+        (False, True, "Hard guard"),
+    ),
+)
+def test_executor_v2_beyan_ve_guard_regresyonunu_progress_saymaz(
+    producer_self_report: bool, hard_guard_regressed: bool, message: str
+) -> None:
+    request = _request()
+    admission = LoopAdmission(
+        True, request.loop_id, uuid4(), 1, None, "admitted", digest("decision")
+    )
+    ledger = Ledger(admission)
+    validation = LoopValidation(
+        outcome=LoopAttemptOutcome.RETRYABLE_FAILURE,
+        validator_spec_digest=request.validator_spec_digest,
+        actual_input_tokens=10,
+        actual_output_tokens=10,
+        actual_cost_micros=10,
+        result_invocation_id=uuid4(),
+        verifier_invocation_id=uuid4(),
+        metric_evidence_refs=("evidence:external",),
+        metric_vector_digest=digest("metric-vector"),
+        progress_state=ProgressState.IMPROVED,
+        progress_decision_digest=digest("progress-decision"),
+        progress_packet_digest=digest("progress-packet"),
+        producer_self_report=producer_self_report,
+        hard_guard_regressed=hard_guard_regressed,
+    )
+    with pytest.raises(PolicyViolation, match=message):
+        BoundedLoopExecutor(ledger).execute(
+            request,
+            effect=lambda: "result",
+            validator=lambda _value, _admission: validation,
+        )
+    assert ledger.completed == []
     assert len(ledger.interrupted) == 1

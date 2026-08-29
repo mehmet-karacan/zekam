@@ -312,6 +312,27 @@ class PostgresMarkdownProjectionRepository:
                 " order by c.logical_candidate_id,c.created_at,c.id limit %s",
                 (self.realm_id, project_id),
             )
+            cursor.execute("select to_regclass('runtime.loop_policy_v2') is not null")
+            measured_plane_exists = bool(cursor.fetchone()[0])
+            loop_rows = (
+                bounded(
+                    cursor,
+                    "select lp.id,v2.stable_objective_digest,v2.policy_digest,lp.max_attempts,"
+                    " lp.max_tokens,lp.max_cost_micros,lp.deadline,packet.ordinal,"
+                    " packet.improved,packet.stop_reason,packet.packet_digest,"
+                    " coalesce(packet.created_at,lp.created_at)"
+                    " from runtime.loop_policy lp join runtime.loop_policy_v2 v2"
+                    " on v2.realm_id=lp.realm_id and v2.loop_id=lp.id"
+                    " left join lateral (select ordinal,improved,stop_reason,"
+                    "packet_digest,created_at"
+                    " from runtime.loop_progress_packet p where p.realm_id=lp.realm_id"
+                    " and p.loop_id=lp.id order by p.ordinal desc,p.id desc limit 1) packet on true"
+                    " where lp.realm_id=%s and lp.project_id=%s order by lp.id limit %s",
+                    (self.realm_id, project_id),
+                )
+                if measured_plane_exists
+                else ()
+            )
 
         if (
             sum(
@@ -323,6 +344,7 @@ class PostgresMarkdownProjectionRepository:
                     skill_rows,
                     failure_rows,
                     candidate_rows,
+                    loop_rows,
                 )
             )
             > limit
@@ -564,6 +586,48 @@ class PostgresMarkdownProjectionRepository:
                         else (supersedes_by_candidate[candidate_id],)
                     ),
                     superseded_by=(() if row[8] is None else (str(row[8]),)),
+                )
+            )
+
+        for row in loop_rows:
+            loop_id = str(row[0])
+            ordinal = None if row[7] is None else int(row[7])
+            stop_reason = None if row[9] is None else str(row[9])
+            packet_digest = None if row[10] is None else str(row[10])
+            status = stop_reason or ("measured-progress" if bool(row[8]) else "active")
+            summary = (
+                f"Objective: {row[1]}; policy: {row[2]}; attempt: "
+                f"{ordinal or 0}/{int(row[3])}; improved: {bool(row[8])}; "
+                f"stop: {stop_reason or 'none'}; tokens: {int(row[4])}; "
+                f"cost_micros: {int(row[5])}; deadline: {row[6]}; "
+                f"packet: {packet_digest or 'none'}"
+            )
+            source_digest = packet_digest or str(row[2])
+            record = ProjectionRecord(
+                "measured-loop",
+                loop_id,
+                f"Measured loop {loop_id}",
+                status,
+                summary,
+                (
+                    ProjectionSourceRef(
+                        "runtime-loop",
+                        loop_id,
+                        f"attempt-{ordinal or 0}",
+                        source_digest,
+                    ),
+                ),
+            )
+            result.append(
+                ObsidianProjectionRecord(
+                    record,
+                    ObsidianNoteKind.KNOWLEDGE,
+                    realm_slug,
+                    project_id,
+                    TruthClass.REPO_FACT,
+                    DataClassification.INTERNAL,
+                    row[11],
+                    memory_class="measured-loop",
                 )
             )
         return tuple(sorted(result, key=lambda item: item.identity))

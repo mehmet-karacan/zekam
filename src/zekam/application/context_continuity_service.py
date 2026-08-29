@@ -23,6 +23,7 @@ from zekam.domain.context_continuity import (
     validate_resume,
 )
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.loop_progress import LoopProgressPacket
 
 if TYPE_CHECKING:
     from zekam.infrastructure.postgres.context_ranking_repository import (
@@ -137,6 +138,10 @@ class ContextContinuityService:
         now: dt.datetime,
         ranking_snapshot: ContextRankingSnapshot,
         repository: ContextRankingRepository,
+        loop_attempt_ordinal: int = 1,
+        loop_progress_packet_digest: str | None = None,
+        loop_id: UUID | None = None,
+        progress_packet: LoopProgressPacket | None = None,
     ) -> RecipeContextPacket:
         del now
         return repository.compile_current(
@@ -145,6 +150,10 @@ class ContextContinuityService:
             role=role,
             token_budget=token_budget,
             minimum_authority=minimum_authority,
+            loop_attempt_ordinal=loop_attempt_ordinal,
+            loop_progress_packet_digest=loop_progress_packet_digest,
+            loop_id=loop_id,
+            progress_packet=progress_packet,
         )
 
     def resume(

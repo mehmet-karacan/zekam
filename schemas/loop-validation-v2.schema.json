@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/loop-validation-v2.schema.json",
+  "title": "Zekam LoopValidation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "validator_spec_digest", "actual_input_tokens", "actual_output_tokens", "actual_cost_micros", "result_invocation_id", "verifier_invocation_id", "effect_receipt_id", "metric_evidence_refs", "metric_vector_digest", "progress_state", "progress_decision_digest", "producer_self_report", "hard_guard_regressed"],
+  "properties": {
+    "outcome": {"enum": ["retryable-failure", "passed", "blocked", "manual-review"]},
+    "validator_spec_digest": {"$ref": "#/$defs/digest"},
+    "actual_input_tokens": {"type": "integer", "minimum": 0},
+    "actual_output_tokens": {"type": "integer", "minimum": 0},
+    "actual_cost_micros": {"type": "integer", "minimum": 0},
+    "result_invocation_id": {"type": "string", "format": "uuid"},
+    "verifier_invocation_id": {"type": "string", "format": "uuid"},
+    "effect_receipt_id": {"type": ["string", "null"], "format": "uuid"},
+    "metric_evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "metric_vector_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "progress_state": {"type": ["string", "null"], "enum": ["improved", "target-reached", "plateau", "regressed", "invalid", null]},
+    "progress_decision_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "producer_self_report": {"type": "boolean"},
+    "hard_guard_regressed": {"type": "boolean"}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

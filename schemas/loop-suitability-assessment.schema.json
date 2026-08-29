@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zekam.local/schemas/loop-suitability-assessment.schema.json",
+  "title": "Zekam LoopSuitabilityAssessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "measurement_available", "measurement_source_tier", "measurement_estimated_cost_micros", "action_estimated_cost_micros", "measurement_to_action_ratio", "reversible", "idempotent_or_receipt_bound", "creative_diversity_goal", "human_judgment_required", "distinct_deliverable_count", "dependency_edge_count", "expected_coordination_cost_micros", "recommended_pattern", "reason_codes", "grants_authority", "assessment_digest"],
+  "properties": {
+    "schema": {"const": "zekam-loop-suitability-assessment/v1"},
+    "measurement_available": {"type": ["boolean", "null"]},
+    "measurement_source_tier": {"enum": ["deterministic-external", "independent-verifier", "human-review", "model-self-report", "unknown"]},
+    "measurement_estimated_cost_micros": {"type": ["integer", "null"], "minimum": 0},
+    "action_estimated_cost_micros": {"type": ["integer", "null"], "minimum": 0},
+    "measurement_to_action_ratio": {"type": ["number", "string", "null"]},
+    "reversible": {"type": ["boolean", "null"]},
+    "idempotent_or_receipt_bound": {"type": ["boolean", "null"]},
+    "creative_diversity_goal": {"type": "boolean"},
+    "human_judgment_required": {"type": "boolean"},
+    "distinct_deliverable_count": {"type": ["integer", "null"], "minimum": 0},
+    "dependency_edge_count": {"type": ["integer", "null"], "minimum": 0},
+    "expected_coordination_cost_micros": {"type": ["integer", "null"], "minimum": 0},
+    "recommended_pattern": {"enum": ["direct", "single-pass", "bounded-loop", "tournament", "graph", "queue-human-review", "blocked"]},
+    "reason_codes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "grants_authority": {"const": false},
+    "assessment_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

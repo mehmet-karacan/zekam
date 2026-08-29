@@ -19,6 +19,7 @@ from zekam.domain.loop_policy import (
     LoopTerminalState,
     LoopValidation,
 )
+from zekam.domain.optimization import ProgressState
 from zekam.infrastructure.clients.adapters import ClientAdapter
 
 T = TypeVar("T")
@@ -69,6 +70,7 @@ class BoundedLoopExecutor:
             validation = validator(value, admission)
             if validation.validator_spec_digest != request.validator_spec_digest:
                 raise PolicyViolation("Loop validator sonucu immutable spec ile uyusmuyor")
+            self._assert_v2_progress(validation)
             state = self.ledger.complete(admission.attempt_id, validation)
         except Exception as exc:
             self.ledger.interrupt(
@@ -83,6 +85,27 @@ class BoundedLoopExecutor:
             raise
         terminal = None if state == "active" else LoopTerminalState(state)
         return LoopExecutionResult(value, admission, validation, terminal)
+
+    @staticmethod
+    def _assert_v2_progress(validation: LoopValidation) -> None:
+        if validation.progress_state is None:
+            return
+        if validation.producer_self_report and validation.progress_state in {
+            ProgressState.IMPROVED,
+            ProgressState.TARGET_REACHED,
+        }:
+            raise PolicyViolation("Producer self-report measured progress sayilamaz")
+        if validation.hard_guard_regressed and validation.progress_state in {
+            ProgressState.IMPROVED,
+            ProgressState.TARGET_REACHED,
+        }:
+            raise PolicyViolation("Hard guard regresyonu measured progress sayilamaz")
+        if (
+            validation.outcome is not None
+            and validation.outcome.value == "passed"
+            and validation.progress_state is not ProgressState.TARGET_REACHED
+        ):
+            raise PolicyViolation("Measured loop passed sonucu target-reached ister")
 
 
 @dataclass(frozen=True, slots=True)

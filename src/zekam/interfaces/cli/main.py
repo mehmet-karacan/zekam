@@ -63,6 +63,7 @@ from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import governance as governance_commands
 from zekam.interfaces.cli import jira as jira_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
+from zekam.interfaces.cli import loop as loop_commands
 from zekam.interfaces.cli import memory as memory_commands
 from zekam.interfaces.cli import model as model_commands
 from zekam.interfaces.cli import opencode as opencode_commands
@@ -120,6 +121,7 @@ app.command("ask")(ask_commands.ask_command)
 app.add_typer(sandbox_commands.sandbox_app)
 app.add_typer(sandbox_commands.git_app)
 app.add_typer(knowledge_commands.app)
+app.add_typer(loop_commands.app)
 app.add_typer(memory_commands.app)
 app.add_typer(jira_commands.app)
 app.add_typer(scheduler_commands.scheduler_app)

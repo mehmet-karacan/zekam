@@ -9,12 +9,21 @@ ilerleme durgunlugu durdurucudur.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
+from zekam.domain.optimization import (
+    MeasurementEvidence,
+    MetricDirection,
+    MetricRole,
+    MetricSpec,
+    ProgressState,
+    evaluate_progress,
+)
 
 #: Bir dersin uretilebilmesi icin gereken bagimsiz gozlem sayisi.
 MINIMUM_OBSERVATIONS = 2
@@ -428,6 +437,8 @@ class IterationOutcome:
             raise ValidationFailed("iterasyon 1'den kucuk olamaz")
         if self.cost_units < 0:
             raise ValidationFailed("maliyet negatif olamaz")
+        if not math.isfinite(self.score):
+            raise ValidationFailed("iterasyon skoru sonlu olmali")
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,7 +468,14 @@ def evaluate_loop(
     goal_score: float,
     blocked: bool = False,
 ) -> LoopDecision:
-    """Dongu kararini uretir: ilerleme kanidi yoksa devam edilmez."""
+    """Legacy scalar API'yi shared directional optimization cekirdegine uyarlar."""
+
+    if not math.isfinite(goal_score):
+        raise ValidationFailed("dongu hedef skoru sonlu olmali")
+    if outcomes:
+        ordinals = tuple(item.iteration for item in outcomes)
+        if ordinals != tuple(sorted(set(ordinals))):
+            raise ValidationFailed("dongu iteration sirasi tekil ve artan olmali")
 
     spent = sum(item.cost_units for item in outcomes)
     best = max((item.score for item in outcomes), default=0.0)
@@ -480,13 +498,62 @@ def evaluate_loop(
 
 
 def _stalled(outcomes: tuple[IterationOutcome, ...], limit: int) -> bool:
-    """Son `limit` iterasyonda en iyi skor iyilesmediyse durgunluk vardir."""
+    """Son turlari shared directional progress semantigiyle degerlendirir."""
 
     if len(outcomes) <= limit:
         return False
-    baseline = max(item.score for item in outcomes[: len(outcomes) - limit])
+    historical = outcomes[: len(outcomes) - limit]
+    baseline_outcome = max(historical, key=lambda item: item.score)
     recent = outcomes[len(outcomes) - limit :]
-    return all(item.score <= baseline + 1e-9 for item in recent)
+    return all(
+        _scalar_progress(baseline_outcome, item).progress_state
+        in {ProgressState.PLATEAU, ProgressState.REGRESSED, ProgressState.INVALID}
+        for item in recent
+    )
+
+
+def _scalar_progress(previous: IterationOutcome, current: IterationOutcome):  # type: ignore[no-untyped-def]
+    """Legacy score'u tek primary maximize metric olarak shared evaluator'a baglar."""
+
+    spec = MetricSpec(
+        metric_id="legacy-score",
+        name="legacy score",
+        unit="point",
+        direction=MetricDirection.MAXIMIZE,
+        role=MetricRole.PRIMARY,
+        source_kind="legacy-independent-verifier",
+        target_value=max(previous.score, current.score) + 1.0,
+        minimum_meaningful_delta=1e-9,
+        regression_tolerance=1e-9,
+    )
+
+    def evidence(item: IterationOutcome, label: str) -> MeasurementEvidence:
+        return MeasurementEvidence(
+            metric_id="legacy-score",
+            value=item.score,
+            evidence_ref=f"learning:iteration:{item.iteration}:{label}",
+            evidence_digest=digest(
+                {
+                    "iteration": item.iteration,
+                    "score": item.score,
+                    "verified": item.verified,
+                    "label": label,
+                }
+            ),
+            source_revision="learning-evaluate-loop/v2-adapter",
+            measured_at=dt.datetime(1970, 1, 1, tzinfo=dt.UTC),
+            measurement_identity=(
+                "legacy-external-measurer" if item.verified else "legacy-producer"
+            ),
+            verifier_identity=(
+                "legacy-independent-verifier" if item.verified else "legacy-producer"
+            ),
+            producer_self_report=not item.verified,
+        )
+
+    baseline = (evidence(previous, "baseline"),)
+    current_evidence = (evidence(current, "current"),)
+    return evaluate_progress((spec,), baseline, baseline, current_evidence)
 
 
 @dataclass(frozen=True, slots=True)

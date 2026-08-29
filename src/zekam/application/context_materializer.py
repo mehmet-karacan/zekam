@@ -47,6 +47,7 @@ _RECIPE_FRAGMENT_KIND = {
     ContextCandidateKind.TOOL_RESULT_SUMMARY: ContextContentKind.TOOL_RESULT,
     ContextCandidateKind.TEST_EVIDENCE: ContextContentKind.TOOL_RESULT,
     ContextCandidateKind.CHECKPOINT: ContextContentKind.CHECKPOINT,
+    ContextCandidateKind.LOOP_PROGRESS_PACKET: ContextContentKind.CHECKPOINT,
 }
 
 
