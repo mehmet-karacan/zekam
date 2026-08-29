@@ -210,7 +210,8 @@ class LifecycleRuntimeTemplateRepository:
                 "select revision.revision from projects.source_binding binding"
                 " join projects.source_revision revision on revision.realm_id=binding.realm_id"
                 " and revision.binding_id=binding.id where binding.realm_id=%s"
-                " and binding.project_id=%s order by revision.observed_at desc,revision.id desc"
+                " and binding.project_id=%s group by revision.revision"
+                " order by max(revision.observed_at) desc,max(revision.id) desc"
                 " limit 2",
                 (self.realm_id, project_id),
             )
@@ -218,8 +219,6 @@ class LifecycleRuntimeTemplateRepository:
         if not rows:
             raise PolicyViolation("Lifecycle bootstrap canonical source revision bulunamadi")
         latest = str(rows[0][0])
-        if len(rows) > 1 and str(rows[1][0]) == latest:
-            raise PolicyViolation("Lifecycle bootstrap source revision belirsiz")
         return latest
 
     def next_bootstrap_job_id(self) -> UUID | None:

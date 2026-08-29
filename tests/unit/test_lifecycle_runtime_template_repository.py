@@ -110,6 +110,13 @@ def test_bootstrap_parent_selector_is_exact_and_bounded() -> None:
     assert "cardinality(write_resources)=1" in connection.current_cursor.query
 
 
+def test_current_source_revision_collapses_duplicate_observations() -> None:
+    repository = LifecycleRuntimeTemplateRepository(_Connection([("a" * 40,)]), uuid4())
+
+    assert repository.current_source_revision(uuid4()) == "a" * 40
+    assert "group by revision.revision" in repository.connection.current_cursor.query
+
+
 def test_bootstrap_parent_selector_fails_closed_on_ambiguity() -> None:
     repository = LifecycleRuntimeTemplateRepository(_Connection([(uuid4(),), (uuid4(),)]), uuid4())
     with pytest.raises(PolicyViolation, match="belirsiz"):
