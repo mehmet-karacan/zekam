@@ -23,9 +23,10 @@ NOW = dt.datetime(2026, 8, 29, tzinfo=dt.UTC)
 
 
 class _Cursor:
-    def __init__(self, *, newer: bool, current_source: str) -> None:
+    def __init__(self, *, newer: bool, current_source: str, ready_close: bool) -> None:
         self.newer = newer
         self.current_source = current_source
+        self.ready_close = ready_close
         self.rows: list[tuple[object, ...]] = []
 
     def __enter__(self) -> _Cursor:
@@ -50,8 +51,25 @@ class _Cursor:
                     RECEIPT_ID,
                     "completed",
                     "sha256:" + "2" * 64,
+                    ["client.lifecycle.codex-bootstrap"],
                 )
             ]
+            if self.ready_close:
+                self.rows.append(
+                    (
+                        UUID("00000000-0000-8000-8000-00000000000b"),
+                        "ready",
+                        "projection-aware-close",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        ["client.lifecycle.projection-close"],
+                    )
+                )
         elif "from runtime.lease" in statement:
             self.rows = [(0,)]
         elif "created_at>%s" in statement:
@@ -69,12 +87,19 @@ class _Cursor:
 
 
 class _Connection:
-    def __init__(self, *, newer: bool, current_source: str = "git:old") -> None:
+    def __init__(
+        self, *, newer: bool, current_source: str = "git:old", ready_close: bool = False
+    ) -> None:
         self.newer = newer
         self.current_source = current_source
+        self.ready_close = ready_close
 
     def cursor(self) -> _Cursor:
-        return _Cursor(newer=self.newer, current_source=self.current_source)
+        return _Cursor(
+            newer=self.newer,
+            current_source=self.current_source,
+            ready_close=self.ready_close,
+        )
 
 
 def _realm() -> Realm:
@@ -104,3 +129,12 @@ def test_completed_only_run_accepts_newer_canonical_source() -> None:
     assert plan.mode == "source-superseded-completed-only"
     assert plan.superseded_by_run_id is None
     assert plan.superseded_by_source_revision == "git:new"
+
+
+def test_source_superseded_run_can_cancel_exact_unclaimed_ready_close() -> None:
+    plan = TerminalRunReconciliationService(
+        _Connection(newer=False, current_source="git:new", ready_close=True), _realm()
+    ).prepare(run_id=RUN_ID, now=NOW + dt.timedelta(minutes=1))
+    assert plan.cancelled_job_ids == (
+        UUID("00000000-0000-8000-8000-00000000000b"),
+    )

@@ -32,6 +32,7 @@ class TerminalRunReconciliationPlan:
     mode: str = "failed-terminal-job"
     superseded_by_run_id: UUID | None = None
     superseded_by_source_revision: str | None = None
+    cancelled_job_ids: tuple[UUID, ...] = ()
 
     @property
     def resource(self) -> str:
@@ -54,6 +55,7 @@ class TerminalRunReconciliationPlan:
                     None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
                 ),
                 "superseded_by_source_revision": self.superseded_by_source_revision,
+                "cancelled_job_ids": [str(item) for item in self.cancelled_job_ids],
                 "evidence_digest": self.evidence_digest,
             }
         )
@@ -80,6 +82,7 @@ class TerminalRunReconciliationPlan:
                 None if self.superseded_by_run_id is None else str(self.superseded_by_run_id)
             ),
             "superseded_by_source_revision": self.superseded_by_source_revision,
+            "cancelled_job_ids": [str(item) for item in self.cancelled_job_ids],
             "evidence_digest": self.evidence_digest,
             "resource": self.resource,
             "plan_digest": self.plan_digest,
@@ -115,7 +118,7 @@ class TerminalRunReconciliationService:
                 "select job.id,job.state,job.step_id,attempt.id,attempt.outcome,"
                 " attempt.result_digest,claim.id,receipt.id,receipt.status,"
                 " coalesce(receipt.result_digest,receipt.failure_digest,"
-                " receipt.adapter_evidence_digest)"
+                " receipt.adapter_evidence_digest),job.required_capabilities"
                 " from runtime.job job"
                 " left join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
                 " and attempt.job_id=job.id"
@@ -130,9 +133,22 @@ class TerminalRunReconciliationService:
             rows = cursor.fetchall()
             if not rows:
                 raise PolicyViolation("Run reconciliation terminal job kaniti ister")
-            if any(str(row[1]) not in {"completed", "failed", "cancelled"} for row in rows):
+            cancelable = tuple(
+                row
+                for row in rows
+                if str(row[1]) == "ready"
+                and row[3] is None
+                and row[6] is None
+                and row[7] is None
+                and tuple(row[10] or ()) == ("client.lifecycle.projection-close",)
+            )
+            terminal_rows = tuple(row for row in rows if row not in cancelable)
+            if any(
+                str(row[1]) not in {"completed", "failed", "cancelled"}
+                for row in terminal_rows
+            ) or len(terminal_rows) + len(cancelable) != len(rows):
                 raise PolicyViolation("Run reconciliation live job varken reddedildi")
-            if any(row[3] is None or row[4] is None for row in rows):
+            if any(row[3] is None or row[4] is None for row in terminal_rows):
                 raise PolicyViolation("Run reconciliation terminal attempt kaniti eksik")
             if any(row[6] is not None and row[7] is None for row in rows):
                 raise PolicyViolation("Run reconciliation receiptless claim varken reddedildi")
@@ -144,12 +160,12 @@ class TerminalRunReconciliationService:
             )
             if int(cursor.fetchone()[0]) != 0:
                 raise PolicyViolation("Run reconciliation live lease varken reddedildi")
-            failed_terminal = any(str(row[1]) == "failed" for row in rows)
+            failed_terminal = any(str(row[1]) == "failed" for row in terminal_rows)
             superseded_by_run_id: UUID | None = None
             superseded_by_source_revision: str | None = None
             mode = "failed-terminal-job"
             if not failed_terminal:
-                if any(str(row[1]) != "completed" for row in rows):
+                if any(str(row[1]) != "completed" for row in terminal_rows):
                     raise PolicyViolation(
                         "Run reconciliation failed veya completed-only terminal job ister"
                     )
@@ -158,7 +174,7 @@ class TerminalRunReconciliationService:
                     or row[7] is None
                     or str(row[8]) != "completed"
                     or row[9] is None
-                    for row in rows
+                    for row in terminal_rows
                 ):
                     raise PolicyViolation(
                         "Run reconciliation completed-only terminal receipt zinciri ister"
@@ -215,6 +231,7 @@ class TerminalRunReconciliationService:
             mode=mode,
             superseded_by_run_id=superseded_by_run_id,
             superseded_by_source_revision=superseded_by_source_revision,
+            cancelled_job_ids=tuple(UUID(str(row[0])) for row in cancelable),
         )
 
     def issue_authorization(
@@ -292,6 +309,17 @@ class TerminalRunReconciliationService:
                 adapter_digest=digest({"adapter": "terminal-run-reconciliation/v1"}),
                 now=moment,
             )
+            for stale_job_id in plan.cancelled_job_ids:
+                with self.connection.cursor() as cursor:
+                    cursor.execute(
+                        "update runtime.job set state='cancelled' where realm_id=%s and id=%s"
+                        " and state='ready' and attempt_count=0"
+                        " and required_capabilities="
+                        " array['client.lifecycle.projection-close']::text[]",
+                        (self.realm.id, stale_job_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise PolicyViolation("Run reconciliation stale close job drift")
             ExecutionRunRepository(self.connection, self.realm.id).finish_run(
                 plan.run_id, state="failed", terminal_at=moment
             )
@@ -306,6 +334,7 @@ class TerminalRunReconciliationService:
                         else str(plan.superseded_by_run_id)
                     ),
                     "superseded_by_source_revision": plan.superseded_by_source_revision,
+                    "cancelled_job_ids": [str(item) for item in plan.cancelled_job_ids],
                     "evidence": plan.evidence_digest,
                 }
             )
@@ -328,6 +357,7 @@ class TerminalRunReconciliationService:
                 else str(plan.superseded_by_run_id)
             ),
             "superseded_by_source_revision": plan.superseded_by_source_revision,
+            "cancelled_job_ids": [str(item) for item in plan.cancelled_job_ids],
             "reconciliation_job_id": str(job.id),
             "claim_id": str(claim.id),
             "receipt_id": str(receipt.id),

@@ -541,6 +541,39 @@ def verify_command(
     console.print(f"[green]Verification:[/green] revision {updated.revision}")
 
 
+@app.command("reopen")
+def reopen_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    evidence: Annotated[str, typer.Option("--kanit", help="Exact reopen kanit referansi")],
+    apply: Annotated[bool, typer.Option("--uygula", help="Work'u active duruma geri alir")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Stale close sonrasi verification Work'u kanitla yeniden active yapar."""
+
+    if not evidence.strip():
+        raise fail("Work reopen exact --kanit ister")
+    reference_evidence = EvidenceRef(kind="reopen", reference=evidence.strip())
+    if not apply:
+        console.print("hedef durum: active, kanit: 1")
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            updated = service.transition(
+                _work_id(service, project_id, reference),
+                WorkState.ACTIVE,
+                evidence=(reference_evidence,),
+                reason="stale projection close sonrasi exact reproject",
+            )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print(f"[green]Yeniden active:[/green] revision {updated.revision}")
+
+
 @app.command("relate")
 def relate_command(
     project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
