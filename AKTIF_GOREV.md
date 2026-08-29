@@ -1,1469 +1,1712 @@
-# AKTİF GÖREV — Zekam Memory Learning Loop ve Obsidian Projection
+# AKTİF GÖREV — Zekam Ölçümlü Loop ve Graph Yürütme Düzlemi
 
-## 0. Bu dosyanın kullanım kuralı
+## 0. Bu dosyanın kullanım ve handoff kuralı
 
 Bu dosya önce dış görev girdisi olarak `../zekam-girdi/AKTIF_GOREV.md` konumundan okunur.
-Ajan görevi ve mevcut repo durumunu doğruladıktan sonra, görev girdisinde yapısal veya
-güvenlik açısından problem yoksa bu dosya repo kökündeki `AKTIF_GOREV.md` dosyasına
-kopyalanır ve artık güncel aktif görev olarak burada tutulur.
-
-Önerilen akış:
+Ajan, görevi güncel kaynak kodu ve kanonik çalışma durumu ile doğruladıktan sonra ancak
+problem yoksa repo kökündeki `AKTIF_GOREV.md` üzerine kontrollü olarak kopyalar.
 
 ```text
 <workspace>/
 ├── zekam/
-│   └── AKTIF_GOREV.md          ← doğrulama sonrası güncel aktif görev
+│   └── AKTIF_GOREV.md          ← doğrulama sonrası yaşayan aktif görev
 └── zekam-girdi/
     └── AKTIF_GOREV.md          ← dışarıdan gelen görev girdisi
 ```
 
 Kurallar:
 
-1. Önce `../zekam-girdi/AKTIF_GOREV.md` okunur ve doğrulanır.
-2. Görev, mevcut HEAD ve Zekam sözleşmeleriyle çelişiyorsa körlemesine kopyalanmaz; sorun
-   raporlanır ve mevcut kök görev korunur.
-3. Problem yoksa dış görev dosyası repo kökündeki `AKTIF_GOREV.md` üzerine kontrollü
-   olarak kopyalanır.
-4. Bundan sonra görev ilerledikçe kökteki `AKTIF_GOREV.md` güncel tutulur.
-5. `zekam-girdi` yalnız giriş/handoff alanıdır; aktif çalışmanın yaşayan görev kaydı
-   repo kökündeki `AKTIF_GOREV.md` olur.
-6. `AKTIF_GOREV.yaml` veya kanonik PostgreSQL Work state varsa bunlarla drift oluşturulmaz;
-   gerekli senkron Zekam'ın mevcut sözleşmelerine göre yapılır.
+1. Önce `../zekam-girdi/AKTIF_GOREV.md` okunur.
+2. `git status --short --branch`, branch, HEAD, son commitler, migration head, doctor,
+   lease, claim, checkpoint, receipt, recovery ve kanonik Work durumu doğrulanır.
+3. Önceki aktif görev gerçekten kapanmadan bu görev kök görevin üzerine yazılmaz.
+4. Görev güncel HEAD, mimari sözleşmeler, güvenlik politikaları veya kanonik Work state ile
+   çelişiyorsa körlemesine kopyalanmaz; problem raporlanır ve mevcut kök görev korunur.
+5. Problem yoksa dış görev dosyası repo kökündeki `AKTIF_GOREV.md` üzerine kopyalanır.
+6. Kopyalamadan sonra kökteki `AKTIF_GOREV.md` yaşayan ve güncel aktif görev kaydıdır.
+7. `zekam-girdi` yalnız giriş/handoff alanıdır; ilerleme oradaki dosyada tutulmaz.
+8. `AKTIF_GOREV.yaml` veya kanonik PostgreSQL Work state ile drift oluşturulmaz. Markdown
+   hiçbir zaman Work/Plan/Run/Authorization otoritesi değildir.
+9. Kullanıcıya ait alakasız değişiklikler korunur; `stash`, `reset --hard`, `clean`, history
+   rewrite veya toplu geri alma yapılmaz.
+10. Kullanıcı açıkça istemedikçe commit, push, PR, merge veya GitHub workflow tetikleyici
+    değişikliği yapılmaz.
 
 ---
 
-## 1. Görev kimliği
+## 1. Görev kimliği ve doğrulanmış başlangıç durumu
 
 | Alan | Değer |
 |---|---|
-| Görev | Zekam Memory Learning Loop ve Obsidian Projection |
+| Görev | Zekam Ölçümlü Loop ve Graph Yürütme Düzlemi |
 | Durum | Uygulamaya hazır görev spesifikasyonu |
-| Öncelik | P0 + P1 |
-| Analiz tarihi | 2026-08-27 |
-| İncelenen `main` HEAD | `0be98185f4393e0f56db46164939b9873214123e` |
-| Kanonik otorite | PostgreSQL Work Graph + Memory Continuity tabloları |
-| İnsan arayüzü | Üretilmiş Markdown / Obsidian projeksiyonu |
-| İlk gerçek istemci | Mevcut OpenCode yaşam döngüsü entegrasyonu |
-| İkinci istemci hedefi | Öncelik Codex; doğrulanabilir lifecycle yüzeyi yoksa Claude Code |
-| Çalışma modu | Önce shadow, kanıt sonrası enforced |
+| Öncelik | P0 + P1; P2 yalnız ölçümle gerekirse |
+| Analiz tarihi | 2026-08-28 |
+| İncelenen GitHub `main` HEAD | `be5e1a7390f759577d670095c20706804d2077c7` |
+| Önceki görev başlangıç HEAD’i | `0be98185f4393e0f56db46164939b9873214123e` |
+| Önceki başlangıçtan sonraki commit | 8 |
+| Git’te görülen en yeni migration | `0065_projection_close_checkpoint_v2_compat` |
+| Kanonik otorite | PostgreSQL Work/Runtime/Memory/Model tabloları |
+| Loop runtime temeli | `runtime.loop_*` + `BoundedLoopExecutor` |
+| Graph temeli | `TaskPlan` DAG + `RoutePlanner` + `AgentGraphRoot` |
+| Ölçüm temeli | `learning.evaluate_loop` + model/context experiment altyapısı |
+| CI | Yalnız manuel `workflow_dispatch`; otomatik PR/push açılmayacak |
 | Uzak model çağrıları | Varsayılan kapalı |
-| GitHub yazma/push | Ayrı açık kullanıcı yetkisi olmadan yasak |
+| GitHub yazma | Ayrı açık kullanıcı yetkisi olmadan yasak |
 
-### Yeniden tabanlama kuralı
+### 1.1 Önceki görevin Git kaynak kodu doğrulaması
 
-Uygulama başlangıcında `main` HEAD yukarıdaki SHA ile aynı değilse görev iptal edilmez.
-Ajan:
+Önceki “Memory Learning Loop ve Obsidian Projection” görevinin kaynak kodu tarafında
+önemli teslimatlar gerçekten eklenmiştir:
 
-1. Yeni HEAD’i kaydeder.
-2. Bu görevdeki her boşluğu güncel kod üzerinde yeniden doğrular.
-3. Artık kapanmış maddeleri tekrar yapmaz.
-4. Yeni çakışmaları ve kapsam değişimini bir `baseline-drift` receipt’iyle görünür kılar.
-5. Kullanıcı değişikliklerini korur; alakasız dosyaları geri almaz.
+- lifecycle event → candidate compiler orchestration,
+- durable compiler watermark/job yolu,
+- Codex ikinci lifecycle harness’i,
+- OpenCode/Codex cross-harness continuity,
+- private/public güvenlik filtreli Obsidian projection,
+- projection-aware close ve release kapıları,
+- high-risk autofill preview/fill/submit guard,
+- closure/doctor uyumluluk düzeltmeleri,
+- migration `0057`–`0065` aralığı,
+- Codex/Claude/OpenCode için idempotent managed client instruction bootstrap,
+- immutable Obsidian generation'dan watcher-friendly sabit `GUNCEL_BELLEK` kasası.
+
+Son `main` commit'i bu iki kullanıcı-deneyimi katmanını eklemiştir. Commit risk notuna
+göre lifecycle runtime bootstrap ve otomatik projection publish hâlâ sonraki güvenli adım
+olarak görülmektedir. Bu görev mevcut bootstrap/store kodunu yeniden yazmayacak; gereken
+yerde receipt-bound runtime composition ve ölçümlü projection görünümü olarak genişletecektir.
+
+Bu görev, tamamlanmış parçaları yeniden yazmayacaktır.
+
+### 1.2 Önceki görevin kapanışında görülen kanonik drift
+
+GitHub’daki kaynak kodu güncel olsa da repo kökündeki `AKTIF_GOREV.yaml` hâlâ daha eski:
+
+- source HEAD `b8d970c...`,
+- migration head `55`,
+- eski Memory Continuity Work kimliği,
+- eski projection digest ve next-safe-action
+
+bilgilerini taşımaktadır. Git yalnız kaynak kodunu gösterir; yerel PostgreSQL’in gerçekten
+`0065`’e yükseltildiğini, yeni Work/Run/receipt zincirinin kapandığını veya projection’ın
+yeniden üretildiğini kanıtlamaz.
+
+**Bu nedenle bu yeni görevin ilk zorunlu kapısı şudur:**
+
+```text
+önceki source implementation
++ güncel migration head
++ kanonik Work/Plan/Run/receipt
++ root Markdown/YAML projection
++ doctor/close sonucu
+```
+
+birbiriyle uzlaştırılmadan yeni görev kanonik aktif iş olarak başlatılamaz.
+
+### 1.3 Yeniden tabanlama kuralı
+
+Uygulama başladığında HEAD yukarıdaki SHA’dan ilerideyse görev iptal edilmez. Ajan:
+
+1. Güncel HEAD ve migration head’i kaydeder.
+2. Bu dosyadaki her açığı güncel kod üzerinde yeniden doğrular.
+3. Artık çözülmüş maddeleri tekrar uygulamaz.
+4. Yeni çakışma veya kapsam farkını görünür `baseline-drift` kanıtı olarak kaydeder.
+5. Önerilen dosya/migration numaralarını güncel HEAD’e göre yeniden sıralar.
 
 ---
 
 ## 2. Misyon
 
-Zekam’da hâlihazırda bulunan Memory Continuity Plane’i, uçtan uca çalışan ve
-kanıtlanabilir bir **Memory Learning Loop** hâline getir.
+Zekam’ın mevcut bounded-loop, learning, benchmark, Work DAG, route planner, worker,
+checkpoint, claim/receipt ve context continuity parçalarını tek bir kanıtlanabilir
+**ölçümlü yürütme düzleminde** birleştir.
 
-Hedef, yapay zekânın Markdown dosyalarına kontrolsüz biçimde “kendi gerçeğini”
-yazması değildir. Hedef şudur:
+Hedef daha fazla ajan veya daha uzun `while true` çalıştırmak değildir. Hedef:
 
 ```text
-typed lifecycle event
-→ immutable ledger
-→ deterministic delta / bounded observation
-→ optional model-generated candidate
-→ policy + provenance + dedupe + conflict checks
-→ review / exact authorization
-→ canonical memory revision
-→ deterministic Obsidian projection
-→ bounded next-session hydration
+ölçülebilir hedef
+→ uygun yürütme biçimini seç
+→ bir tur/graph dalgası çalıştır
+→ dış ve sabit ölçümle sonucu değerlendir
+→ yalnız anlamlı yeni bilgi ve ilerlemeyi taşı
+→ tekrar, durgunluk, metrik kandırma ve riskte dur
+→ kanıtlı sonucu kabul et veya geri al
 ```
 
-Obsidian bu mimaride yeni bir otorite veya ayrı bir bellek motoru olmayacaktır.
-Yalnızca insanın okuyabildiği, bağlar arasında gezebildiği, gerektiğinde tamamen
-silinip kanonik veriden yeniden üretilebildiği bir projeksiyon olacaktır.
+döngüsünü kurmaktır.
+
+Temel ayrım:
+
+```text
+Loop  = aynı kanonik artifact/hedef üzerinde ölçümlü iyileştirme turları
+Graph = farklı işleri gerçek dependency ve typed artifact akışıyla doğru sırada yürütme
+```
+
+Bir graph node’u kendi içinde bounded loop olabilir. Loop ve graph birbirinin alternatifi
+olmak zorunda değildir; farklı sorunları çözerler.
 
 ---
 
-## 3. Kaynak fikirlerin Zekam’a uyarlanmış özeti
+## 3. Kaynak altyazıdan alınan ve Zekam’a uyarlanan ilkeler
 
-İncelenen video altyazısındaki yararlı fikirler:
+Kaynak metnin ana tezi şudur: ölçüm, tur arası durum aktarımı ve durma şartı yoksa loop
+yoktur; yalnız pahalı tekrar vardır.
 
-- oturum başlangıcında son durumun zorunlu yüklenmesi,
-- oturum kapanışında yapılanlar, kararlar, açık işler ve sonraki adımın özetlenmesi,
-- compaction öncesinde kaybı önleyen checkpoint,
-- günlük notlar/daylog,
-- WikiLink tabanlı bilgi bağlantıları,
-- Git ile geçmiş ve cihazlar arası eşleme,
-- modelden bağımsız düz Markdown,
-- tekrar eden işlerden skill/prosedür çıkarma,
-- başarısızlıkları kaydedip aynı hataya yeniden düşmeme,
-- düşük maliyetli modellerle özet/hijyen, güçlü modellerle zor analiz,
-- bilinmeyen alanı uydurmak yerine boş bırakma ve kaynağı belirtme,
-- zamanla büyüyen, kullanıcıyla birlikte öğrenen ikinci beyin.
+### 3.1 Aynen korunacak ilkeler
 
-Aynen alınmaması gereken noktalar:
+1. **Her tur model için yeni bir hayattır.** İlerlemeyi modelin hafızasına değil, dışarıdaki
+   kanonik checkpoint/progress packet taşır.
+2. **Aynı işi tekrar çağırmak loop değildir.** Yeni tur; yeni kanıt, yeni hipotez veya
+   ölçülmüş ilerleme taşımak zorundadır.
+3. **Ölçüm yoksa loop yoktur.** “İlerliyorum” diyen model beyanı ölçüm sayılmaz.
+4. **Geçti/kaldı tek başına yön göstermez.** Mümkün olduğunda sayı, yön, delta ve hangi
+   boyutta iyileşme/regresyon olduğu taşınır.
+5. **Ölçmek yapmaktan ucuz ve güvenilir olmalıdır.** Aksi durumda önce ölçüm altyapısı
+   iyileştirilir; loop başlatılmaz.
+6. **Üreten ile ölçen ayrılır.** Builder kendi çıktısını tek başına puanlayamaz.
+7. **Validator’ın sınavı sabitlenir.** Builder test, fixture, metric code veya threshold’u
+   kolaylaştırarak başarı üretemez.
+8. **Ham geçmiş taşınmaz.** Başarısız denemenin tam çıktısı değil, kısa sonuç, kök neden,
+   metric delta, patch/evidence digest ve sonraki odak taşınır.
+9. **Graph yalnız gerçek decomposition varsa kurulur.** Tek artifact için gereksiz graph,
+   yeni nesil mikroservis karmaşıklığıdır.
+10. **Paralellik ajan sayısı değildir.** Gerçekten aynı anda çalışabilen bağımsız node’ların
+    zaman aralıkları ve kaynak çakışmasızlığı kanıtlanır.
+11. **Yaratıcı çeşitlilik loop değildir.** Birden fazla bağımsız aday üretip seçmek
+    `tournament` biçimidir; aynı fikri kendi kendine cilalamak değildir.
+12. **Geri alınamaz effect loop gövdesi olmaz.** Deploy, migration apply, para/kripto,
+    dış mesaj, submit ve benzeri işler queue + exact authorization + insan gate ister.
+13. **Durma şartı zorunludur.** Hedef, attempt, token, cost, deadline, plateau, tekrar,
+    oscillation, risk veya manual-review sınırlarından biri loop’u kapatır.
+14. **No-op en kolay kazanç olamaz.** Hiçbir şey değiştirmemek ilerleme sayılmaz.
+15. **Scaffolding kalıcı dogma değildir.** Özet, ikinci kontrol, fallback veya ek prompt
+    katmanı paired ablation ile değer üretmiyorsa deprecation adayı olur.
+16. **Model + program birlikte çalışır.** Program sıra, bütçe, veri akışı ve sınırı zorlar;
+    model bounded karar/üretim yapar.
 
-- kişisel, kurumsal ve gizli tüm veriyi aynı fiziksel vault/senkron sınırına toplamak,
-- ham konuşmaları sınırsız saklamak,
-- model çıktısını doğrudan doğrulanmış gerçek saymak,
-- yapay zekânın güvenlik, CI, migration veya retention kurallarını kendi başına değiştirmesi,
-- Git veya iCloud üzerinden secret/PII yaymak,
-- yüksek riskli formları kaynak ve insan onayı olmadan otomatik göndermek,
-- Mem0 veya başka bir servisi Work/Policy/Authorization otoritesine çevirmek.
+### 3.2 Aynen alınmayacak veya sınırlandırılacak noktalar
+
+- Çok sayıda loop’u yalnız token bol diye sınırsız başlatmak.
+- Token/maliyet bütçesini abonelik hissiyatına göre varsaymak.
+- Modelin kendi yazdığı testi kendi başarısının tek ölçütü yapmak.
+- Aynı model veya aynı execution identity’yi builder ve verifier olarak kullanmak.
+- Graph/loop seçimini yalnız “iş zor” sezgisine bırakmak.
+- Creative output’ta modelin kendi önceki adayını tekrar tekrar savunmasına izin vermek.
+- Başarısız attempt’in tam transcript/log’unu sonraki prompta yığmak.
+- Geri alma için kullanıcı değişikliklerini silmek veya blanket `git reset` kullanmak.
+- Riskli effect’i loop tekrar politikasına sokmak.
+- Metrik yükseldi diye güvenlik, doğruluk veya reliability hard guard’ını düşürmek.
+- Loop/graph altyapısının kendi policy veya validator sınırlarını otomatik gevşetmesi.
 
 ---
 
 ## 4. Güncel Zekam teşhisi
 
-### 4.1 Güçlü ve korunması gereken mevcut yapı
+### 4.1 Güçlü ve korunması gereken mevcut loop temeli
 
-Güncel kod tabanı aşağıdaki temel taşlara zaten sahiptir:
+Mevcut `LoopPolicy` ve PostgreSQL runtime aşağıdakileri zaten zorlamaktadır:
 
-1. **Kanonik PostgreSQL yaklaşımı**
-   - Work state, lease, checkpoint, receipt, evidence ve memory continuity durumu DB’dedir.
-   - Markdown/YAML çıktıları türetilmiş ve salt okunur projeksiyondur.
-   - SQLite yalnız kısıtlı minimum profildir; tam otoriteye sessiz fallback yapamaz.
+- exact Work/Plan/Step/Assignment/Context binding,
+- ayrı validator assignment,
+- max attempt, token, cost ve deadline,
+- required evidence delta,
+- forbidden effect sınıfları,
+- exact predecessor attempt,
+- aynı semantic request için yeni kanıt olmadan tekrar reddi,
+- result ve validator receipt zorunluluğu,
+- effect varsa claim + terminal receipt,
+- exception sonrası sessiz retry yerine manual-review,
+- append-only attempt/checkpoint/terminal ledger.
 
-2. **Yaşam döngüsü sözleşmesi**
-   - session start, checkpoint, pre-compaction ve close olayları için tipli modeller vardır.
-   - digest, idempotency, boyut limiti ve lifecycle receipt zinciri bulunur.
-   - transcript/secret benzeri payload’lar reddedilir.
+Bunlar korunacak; yeni bir paralel “loop engine” yazılmayacaktır.
 
-3. **İstemci köprüsü**
-   - Codex, Claude Code ve OpenCode için genel adapter kayıtları vardır.
-   - `lifecycle-events-v2` yalnız exact contract doğrulamasıyla etkinleşir.
-   - OpenCode için gerçek plugin/outbox/drain entegrasyonu bulunmaktadır.
+### 4.2 Güçlü ve korunması gereken graph temeli
 
-4. **Aday derleyici ve kalıcılık altlığı**
-   - candidate-only compiler;
-   - sınıflandırma, schema sanitize, dedupe, supersession, conflict ve quarantine;
-   - watermark, candidate, hygiene ve compiler receipt kalıcılığı;
-   - secret ve riskli sınıfların otomatik terfiye kapatılması vardır.
+Mevcut yapı:
 
-5. **Hydration ve projeksiyon tazeliği**
-   - MUST/SHOULD/ON_DEMAND/NEVER_AUTO_LOAD katmanları;
-   - token bütçesi;
-   - source HEAD + migration head + DB digest bağlaması;
-   - stale projeksiyonda fail-closed davranışı tasarlanmıştır.
+- `TaskPlan.steps[*].depends_on` ile kanonik DAG,
+- cycle reddi,
+- ready-step hesabı,
+- logical resource conflict kontrolü,
+- worker/quota/token/cost/provider/policy kapasitesinin minimumuna göre paralellik,
+- recovery önceliği,
+- `direct/single/sequential/parallel/blocked/recovery` route kararları,
+- AgentGraph root/spawn/message kayıtları,
+- queue/lease/fencing/claim/receipt/recovery
 
-6. **Governance ve operasyon**
-   - shadow/enforced upgrade protokolü;
-   - exact authorization;
-   - bağımsız verifier ayrımı;
-   - doctor/repair;
-   - worker, scheduler, job, lease, claim ve terminal receipt modeli vardır.
+özelliklerine sahiptir.
 
-7. **Bellek tasarım belgeleri**
-   - Native PostgreSQL MemoryEngine’in otorite olması,
-   - Mem0’nun yalnız opsiyonel adapter olması,
-   - candidate → reviewed → active → superseded/revoked/archived yaşam döngüsü,
-   - semantic/procedural/failure/preference sınıfları önceden tanımlanmıştır.
+Yeni graph düzlemi ikinci bir dependency store kurmayacak; TaskPlan ve RoutePlanner üzerine
+ölçümlü topology selection ve graph execution evidence ekleyecektir.
 
-### 4.2 Güncel açıklar
+### 4.3 Mevcut ölçüm parçaları
 
-#### P0 — Projeksiyon kapanış tutarsızlığı
+Zekam’da iki değerli fakat ayrı kalan ölçüm hattı vardır:
 
-Repo kökündeki üretilmiş aktif görev projeksiyonu “completed” görünürken eski source
-HEAD’i taşımakta ve hâlâ yapılacak güvenli adım göstermektedir. Bu, tasarlanan
-projection freshness invariant’ının kapanış/release yolunda kesin zorunluluk olarak
-her durumda uygulanmadığını gösterir.
+1. `learning.evaluate_loop`
+   - iteration score,
+   - cost,
+   - verified flag,
+   - goal,
+   - stall limit,
+   - no-progress stop.
 
-**Karar:** `completed`, lease release ve release gate; aynı transaction/closure receipt
-zincirinde güncel source HEAD, migration head, DB digest ve projeksiyon receipt’i olmadan
-başarılı olamaz.
+2. Model/context experiment altyapısı
+   - paired trial,
+   - minimum tekrar,
+   - quality/reliability/latency/token/cost,
+   - independent verifier,
+   - no-regression gates,
+   - ContextAblationProfile,
+   - baseline/candidate karşılaştırması.
 
-#### Operasyonel karar — CI bilinçli olarak manuel kalacak
+Bu iki yapı canonical runtime loop ile birleştirilmeli; üçüncü bir ölçüm modeli eklenmemelidir.
 
-`quality.yml` ve `package-acceptance.yml` yalnız `workflow_dispatch` ile çalışmaktadır.
-Bu durum şu an bir açık değildir; GitHub kullanım süresi/limiti nedeniyle bilinçli
-operasyon tercihidir.
+### 4.4 Kapanması gereken gerçek açıklar
 
-**Karar:** otomatik `pull_request` / `push` CI tetiklemeleri bu görev kapsamında
-açılmayacaktır. Mevcut manuel CI korunur. Kullanıcı ileride açıkça isterse otomatik CI
-ayrı bir değişiklik olarak etkinleştirilebilir. Yerel testler ve bağımsız verifier yine
-zorunludur; GitHub CI çalıştırılması gerektiğinde kullanıcı tarafından manuel başlatılır.
+#### A-01 — Runtime loop yalnız terminal outcome görüyor, yönlü metric vector görmüyor
 
-#### P0 — Hook kayıt yapısı var, semantik orchestration eksik
+Canonical loop sonucu `retryable-failure/passed/blocked/manual-review` ve kullanım
+sayılarını saklıyor. Neden ilerlediği, hangi metriğin ne kadar değiştiği, hangi guard’ın
+regrese olduğu ve marjinal değerin maliyete oranı canonical checkpoint’te yoktur.
 
-`memory_hooks.py` gerekli tetikleyicileri tanır; fakat varsayılan handler’lar ağırlıklı
-olarak “observation accepted” seviyesinde sabit sonuç döndürür. Hook ile:
+#### A-02 — Learning score döngüsü ile runtime loop iki ayrı dünya
 
-- lifecycle ledger,
-- checkpoint,
-- candidate compilation,
-- projection refresh,
-- gap/repair
+`learning.evaluate_loop` score/stall bilir; `runtime.loop_*` ise bu kararı kullanmaz.
+Aynı ürün içinde iki farklı loop semantiği uzun vadede drift üretir.
 
-arasında tek bir üretim orchestration yolu açık biçimde bağlanmamıştır.
+#### A-03 — Yeni evidence retry admission sağlar ama model-visible ilerleme paketine bağlı değildir
 
-**Karar:** hook hiçbir zaman doğrudan Markdown yazmamalı. Hook, tipli olayı
-`MemoryContinuityOrchestrator` üzerinden ledger/outbox/job zincirine vermelidir.
+Bir evidence ID’nin kayıtlı olması, sonraki model çağrısının bu kanıttan türetilmiş kısa
+sonuç, metric delta ve sonraki odak bilgisini gerçekten gördüğünü kanıtlamaz.
 
-#### P0 — Derleyici var, sürekli öğrenme döngüsü kanıtlanmış değil
+#### A-04 — Semantic request digest prompt yeniden yazılarak aşılabilir
 
-`MemoryCandidateCompiler` ve PostgreSQL persistence katmanı vardır; fakat incelenen üretim
-yüzeylerinde session close/pre-compaction veya scheduler/worker’dan derleyiciye giden
-uçtan uca, crash-safe ve replay-safe orchestration yolu açıkça kanıtlanmamıştır.
+Mevcut digest prompt/context/action’a bağlıdır. Aynı hipotez farklı cümleyle yazılırsa,
+aynı problem tekrar yaşanabilir. Stable objective, artifact, hypothesis, patch ve failure
+signature kimlikleri eksiktir.
 
-**Karar:** event-driven enqueue + durable scheduled catch-up birlikte uygulanmalıdır.
+#### A-05 — Graph mı loop mu direct mi kararı için suitability gate yok
 
-#### P0 — İkinci gerçek harness eksik
+RoutePlanner hazır planı nasıl çalıştıracağını seçer; fakat planın baştan graph olması
+gerekip gerekmediğini, creative tournament mı, bounded loop mu, queue/human gate mi
+olacağını ölçümlü biçimde seçmez.
 
-Genel Codex/Claude/OpenCode adapter’ları vardır; gerçek runtime entegrasyonu ve kapsamlı
-E2E kanıtı OpenCode tarafında görünmektedir. İkinci somut istemcinin aynı lifecycle
-sözleşmesini gerçekten uyguladığı kanıtlanmalıdır.
+#### A-06 — Graph koordinasyon maliyeti ölçülmüyor
 
-**Karar:** öncelik Codex’tir. Codex’in kurulu sürümünde exact ve güvenilir lifecycle
-yüzeyi bulunamazsa Claude Code seçilir; seçim ADR ile belgelenir. Destek varmış gibi
-taklit edilmez.
+Edge sayısı, mesaj/token overhead’i, dependency wait, critical path, gerçek overlap,
+parallel efficiency ve fan-in maliyeti route kararına geri beslenmiyor.
 
-#### P1 — Obsidian/Markdown insan projeksiyonu yok
+#### A-07 — Validator spec digest var; validator asset freeze eksik
 
-Mevcut projeksiyon altyapısı görev/hydration için güçlüdür; fakat daylog, karar, bilgi,
-skill, failure ve bağlantı grafiğini insan için düzenleyen deterministik Obsidian profili
-yoktur.
+Test/eval fixture’ları, metric implementation, threshold ve ilgili dosyaların tam content
+manifest’i builder’ın yazma scope’undan bağımsız biçimde dondurulmalıdır.
 
-#### P1 — Skill/failure/daylog akışları uçtan uca değil
+#### A-08 — Tournament ayrı bir first-class pattern değil
 
-Tasarım belgeleri semantic/procedural/failure memory’yi tarif etmektedir. Bunların
-gözlemden adaya, review’dan active revision’a ve Obsidian görünümüne kadar tamamlanmış
-tek bir operasyon yolu gereklidir.
+Creative çeşitlilik üretip bağımsız seçme akışı loop/graph içine yanlış biçimde
+sıkıştırılabilir.
 
-#### P1 — Yüksek riskli otomasyon için ortak güvenlik kapısı yok
+#### A-09 — Forbidden effect policy configurable; global fail-closed invariant yeterince güçlü değil
 
-Videodaki form doldurma örneği Zekam’da doğrudan uygulanmamalıdır. Alan bazlı kaynak,
-güven, bilinmeyeni boş bırakma, önizleme ve insan onayı için reusable guard gerekir.
+Deploy, migration apply, external message ve benzeri effect’lerin loop body’ye yanlış
+policy ile alınması kesin olarak engellenmelidir.
+
+#### A-10 — Tek attempt executor var; durable multi-attempt orchestration üretim yolu net değil
+
+`BoundedLoopExecutor` tek admitted attempt’i effect → validator → ledger sırasıyla kapatır.
+Bir sonraki attempt’in durable job olarak yalnız ölçüm kararından sonra enqueue edilmesi,
+crash sonrası devamı, pause/cancel ve progress hydration için tek production orchestration
+yolu gereklidir.
+
+#### A-11 — Scaffolding ablation mevcut experiment altyapısına bağlanmamış
+
+Model/context ablation vardır; ancak loop summary, retry hint, second checker, fallback,
+extra critic veya graph coordinator katmanlarının değerini düzenli ölçen ürün yolu yoktur.
+
+#### A-12 — Önceki aktif görev projection’ı kanonik olarak uzlaştırılmamış görünüyor
+
+Yeni iş başlamadan source implementation ile root Markdown/YAML projection ve DB Work
+state eşleştirilmelidir.
+
+#### A-13 — Sabit `GUNCEL_BELLEK` yolu var; otomatik runtime publish bağı ayrıca kanıtlanmalı
+
+Projection store doğrulanmış immutable generation'ı sabit `GUNCEL_BELLEK` dizinine
+materialize edebilmektedir. Yeni loop/graph görünümü ikinci bir vault/store veya yeni bir
+"current" pointer tasarlamamalıdır. Bunun yerine mevcut stable-vault yolunu kullanmalı;
+projection build → publish → verification → receipt zincirinin runtime/close akışında ne
+zaman otomatik çalışacağı exact policy ve idempotency ile bağlanmalıdır.
 
 ---
 
 ## 5. Değiştirilemez mimari kararlar
 
-### K-01 — Tek kanonik otorite
+### K-01 — Yeni bir paralel loop motoru kurulmayacak
 
-Kanonik gerçek PostgreSQL’dedir. Obsidian, Markdown, Git, Mem0, embedding index,
-cache veya herhangi bir model otorite üretemez.
+`LoopPolicy`, `PostgresLoopPolicyRepository`, `BoundedLoopExecutor`, `learning.evaluate_loop`
+ve model/context experiment ortak generic ölçüm sözleşmesine bağlanacaktır.
 
-### K-02 — Model çıktısı yalnız adaydır
+### K-02 — Model beyanı progress değildir
 
-Model tarafından çıkarılan özet, ilişki, skill, tercih veya karar:
+Producer modelin “ilerledim”, “düzelttim” veya “buldum” ifadesi ölçüm kaynağı olamaz.
+Progress yalnız dış evidence ile üretilir.
 
-- active memory olamaz,
-- Work state değiştiremez,
-- policy gevşetemez,
-- lease/approval üretemez,
-- exact authorization yerine geçemez.
+Ölçüm güven sırası:
 
-### K-03 — Obsidian salt okunur projeksiyondur
+```text
+1. deterministic test / static analysis / benchmark / runtime telemetry
+2. immutable rule-based evaluator
+3. bağımsız model verifier
+4. insan review
+5. producer self-report → yalnız observation, progress değil
+```
 
-Obsidian içindeki üretilmiş notlar varsayılan olarak elle düzenlenmez. İnsan düzeltmesi
-gerekiyorsa ayrı bir `feedback/correction` komutu ile kanonik candidate veya correction
-evidence oluşturulur; sonraki projection build notu yeniden üretir.
+### K-03 — Tek scalar skor zorunlu ve yeterli değildir
 
-### K-04 — Ham transcript kalıcı bellek değildir
+Bir objective birden fazla metric taşır. Her metric:
 
-Ham prompt/response/transcript:
+- `maximize`,
+- `minimize`,
+- `target`,
+- `range`
 
-- Git’e yazılmaz,
-- otomatik hydration’a girmez,
-- secret/PII içerme riski nedeniyle yalnız açık politika altında kısa süreli local CAS’ta
-  tutulabilir,
-- active semantic/procedural memory üretmek için tek başına kanıt sayılmaz.
+yönlerinden birine ve `primary`, `hard-guard`, `secondary`, `cost` rollerinden birine
+sahiptir.
 
-### K-05 — Realm ve güven sınırları ayrıdır
+Progress için:
 
-Aynı Zekam motoru birden çok realm destekleyebilir; fakat:
+- bütün hard guard’lar tolerance içinde kalmalı,
+- en az bir primary metric minimum anlamlı delta kadar iyileşmeli veya hedefe ulaşmalı,
+- invalid/NaN/eksik ölçüm progress sayılmamalı,
+- scalar “value” yalnız sıralama/UI yardımı olabilir; tek kabul kapısı olamaz.
 
-- kişisel,
-- kurumsal,
-- kamuya açık
+### K-04 — Yeni evidence ile ölçülmüş ilerleme farklı şeylerdir
 
-veriler aynı fiziksel senkron hedefinde zorunlu olarak birleşmez. Cross-realm retrieval
-varsayılan kapalıdır. Kurumsal veri kişisel Git/iCloud’a çıkamaz.
+Yeni diagnosis veya araştırma evidence’i retry admission sağlayabilir; fakat metric
+iyileşmesi sayılmaz. Diagnostic turlar sınırlı patience kullanır.
 
-### K-06 — Git veritabanı değildir
+### K-05 — Attempt 2+ progress packet olmadan başlayamaz
 
-Git:
+Her yeni attempt, predecessor outcome’dan deterministik üretilmiş bounded
+`LoopProgressPacket` taşır. Tam transcript veya bütün geçmiş taşınmaz.
 
-- kod,
-- public-safe projection,
-- sanitize edilmiş manifest/receipt,
-- geri alınabilir sürüm geçmişi
+### K-06 — Rephrase novelty değildir
 
-için kullanılabilir. Secret, raw transcript, kişisel belge veya tam DB dump Git’e girmez.
+Prompt cümlesi değişse bile aynı:
 
-### K-07 — Mem0 opsiyoneldir
+- objective,
+- artifact,
+- hypothesis,
+- patch,
+- failure signature,
+- validator diagnosis
 
-Mem0 daha sonra:
+tekrarı canonical fingerprint ile yakalanır.
 
-- working/instant cache,
-- external semantic index,
-- hızlandırıcı adapter
+### K-07 — Topology policy ile seçilir
 
-olarak eklenebilir. Native PostgreSQL çalışması Mem0 olmadan devam eder. Mem0 sonucu
-untrusted external projection sayılır.
+Desteklenen first-class pattern’ler:
 
-### K-08 — Self-healing ile self-authority ayrıdır
+```text
+direct
+single-pass
+tournament
+bounded-loop
+graph
+queue-human-review
+blocked
+```
 
-Sistem bozuk projeksiyonu yeniden üretebilir; fakat kendi güvenlik politikasını,
-migration’ını, CI kuralını veya retention kararını tek başına değiştiremez.
+### K-08 — Graph kanonik TaskPlan DAG’dır
 
-### K-09 — Bilinmeyen veri uydurulmaz
+Yeni graph store, yeni dependency gerçeği veya TaskPlan’a paralel plan modeli kurulmaz.
+AgentGraph runtime spawn/message kanıtıdır; Work/TaskPlan otoritesinin yerine geçmez.
 
-Özellikle form, resmi belge, ödeme, vergi, sözleşme veya iletişim otomasyonunda kaynak
-bulunamayan alan boş kalır ve `missing/unknown` olarak raporlanır.
+### K-09 — Loop graph node’u olabilir
 
-### K-10 — Uzak model çağrısı varsayılan kapalıdır
+Graph node execution mode `direct`, `bounded-loop`, `tournament` veya `human-gate`
+olabilir. Bütün graph’ı baştan sona tek loop olarak tekrar çalıştırmak varsayılan değildir.
 
-Candidate extraction için model zorunlu değildir. Deterministik extractor çalışabilmeli;
-model gerekiyorsa Provider Gate, sınıflandırma, redaction, bütçe ve receipt uygulanır.
+### K-10 — Geri alınamaz effect loop body olamaz
+
+Aşağıdakiler fail-closed biçimde `queue-human-review` ister:
+
+- deploy/release,
+- migration apply,
+- git push/merge,
+- dış mesaj/mail gönderimi,
+- form submit,
+- para/kripto/ödeme,
+- imza, CAPTCHA, MFA/OTP,
+- destructive delete,
+- policy/authorization gevşetme.
+
+### K-11 — Validator asset’leri immutable binding ister
+
+Validator assignment yetmez. Test/eval/fixture/metric/threshold dosyaları content digest
+manifest’iyle bağlanır. Builder aynı loop policy altında bunları değiştiremez.
+
+### K-12 — Bir worker handler içinde `while true` yok
+
+Her attempt ayrı durable job/attempt/claim/receipt zinciridir. Sonraki attempt yalnız
+validator ve progress decision’dan sonra enqueue edilir.
+
+### K-13 — Ham geçmiş değil, bounded state taşınır
+
+Progress packet token budget’i aşamaz; kaynaklar digest/reference olarak taşınır.
+
+### K-14 — No-op ve metric gaming başarı değildir
+
+Artifact/patch değişmemiş ve hedefe zaten ulaşılmamışsa progress yoktur. Testi veya
+threshold’u kolaylaştırmak invalidates evaluation.
+
+### K-15 — Scaffolding yalnız kanıtla kalır
+
+Ablation baseline’i geçmeyen ek katman otomatik silinmez; deprecation candidate üretir ve
+review ister.
+
+### K-16 — CI ve GitHub politikası değişmeyecek
+
+GitHub Actions `workflow_dispatch` olarak manuel kalır. Kullanıcı açıkça istemedikçe:
+
+- `pull_request`/`push` trigger eklenmez,
+- workflow çalıştırılmaz,
+- commit/push/PR oluşturulmaz.
+
+Yerel kalite, PostgreSQL ve bağımsız verifier kapıları yine zorunludur.
+
+### K-17 — Mevcut client bootstrap ve `GUNCEL_BELLEK` yeniden kullanılacak
+
+Global Codex/Claude/OpenCode managed instruction bootstrap ile Obsidian stable-vault
+materialization mevcut ortak giriş ve insan-görünüm katmanıdır. Loop/graph görevi yeni
+client talimat dosyaları, yeni vault kökü veya alternatif current-pointer üretmez. Gerekli
+genişletmeler mevcut managed section ve projection receipt sözleşmesi üzerinden additive
+yapılır.
 
 ---
 
 ## 6. Hedef mimari
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ Codex / Claude Code / OpenCode / CLI / Worker                       │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ content-free, typed lifecycle event
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ ClientLifecycleBridge + exact adapter contract                      │
-│ schema • size limit • secret/transcript rejection • idempotency     │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Immutable Lifecycle Ledger + Outbox + Receipts                      │
-└───────────────┬───────────────────────────────┬─────────────────────┘
-                │                               │
-                │ start                         │ close/pre-compact/checkpoint
-                ▼                               ▼
-┌──────────────────────────┐     ┌────────────────────────────────────┐
-│ Bounded Hydration        │     │ Memory Learning Orchestrator       │
-│ MUST/SHOULD/ON_DEMAND    │     │ enqueue • watermark • replay       │
-└──────────────────────────┘     └─────────────────┬──────────────────┘
-                                                  ▼
-                                  ┌────────────────────────────────────┐
-                                  │ Candidate Compiler                 │
-                                  │ deterministic delta first         │
-                                  │ optional governed model extractor │
-                                  └─────────────────┬──────────────────┘
-                                                    ▼
-                                  ┌────────────────────────────────────┐
-                                  │ Candidate / Conflict / Quarantine  │
-                                  │ Hygiene findings + receipts        │
-                                  └─────────────────┬──────────────────┘
-                                                    │ exact review/promotion
-                                                    ▼
-                                  ┌────────────────────────────────────┐
-                                  │ Canonical Memory Revisions         │
-                                  │ semantic • procedural • failure    │
-                                  │ preference • episodic              │
-                                  └──────────────┬─────────────────────┘
-                                                 │
-                         ┌───────────────────────┴─────────────────────┐
-                         ▼                                             ▼
-          ┌──────────────────────────────┐           ┌──────────────────────────┐
-          │ Context Compiler / Retrieval │           │ Obsidian Projection      │
-          │ source + validity + budget   │           │ deterministic/read-only  │
-          └──────────────────────────────┘           └──────────────────────────┘
+User / Work Intent
+        │
+        ▼
+Objective + Measurement Contract
+        │
+        ▼
+Topology Suitability Gate
+        │
+        ├── direct / single-pass
+        ├── tournament
+        ├── bounded-loop
+        ├── graph
+        └── queue-human-review
+
+Bounded loop node:
+
+Objective + baseline
+        │
+        ▼
+Durable attempt job
+        │
+        ▼
+Builder effect (bounded/reversible)
+        │
+        ▼
+Frozen external measurement
+        │
+        ▼
+Metric vector + verifier receipt
+        │
+        ▼
+Progress decision
+        │
+        ├── target reached → passed
+        ├── meaningful progress → next progress packet + enqueue
+        ├── diagnostic delta → bounded diagnostic retry
+        ├── plateau/repeat/oscillation → blocked/manual review
+        └── budget/risk → terminal
+
+Graph:
+
+TaskPlan DAG
+  ├── node A [direct]
+  ├── node B [bounded-loop]
+  ├── node C [tournament]
+  └── fan-in verifier/human gate
+        │
+        ▼
+Graph execution receipt
+(critical path, overlap, wait, cost, result evidence)
 ```
 
-### Kapanış davranışı
-
-`session_close` kullanıcıyı uzun bir model çağrısını beklemeye zorlamaz.
-
-1. Final checkpoint yazılır.
-2. Bounded close summary observation kaydedilir.
-3. Compiler job/outbox kaydı atomik biçimde enqueue edilir.
-4. Zorunlu projection freshness ve lifecycle receipt’leri doğrulanır.
-5. Close receipt yayımlanır.
-6. Worker candidate compilation ve Obsidian projection catch-up işlemlerini yürütür.
-7. Sonraki session start, yalnız doğrulanmış ve güncel hydration paketini yükler.
-
-Close sırasında deterministik mini-derleme yapılabilir; fakat uzak provider çağrısı close
-transaction’ını açık tutamaz.
-
 ---
 
-## 7. Hakikat sınıfları
+## 7. Yeni veya genişletilecek domain sözleşmeleri
 
-| Sınıf | Otorite | Örnek | Otomatik hydrate |
-|---|---|---|---|
-| Work state | Kanonik | aktif görev, lease, checkpoint | Evet, MUST |
-| Evidence | Kanıt | test sonucu, source revision, receipt | Gerektiğinde |
-| Observation | Ham olmayan gözlem | session close delta | Hayır |
-| Candidate | Öneri | yeni karar/skill/failure adayı | Hayır |
-| Active memory revision | Yardımcı kanonik bilgi | doğrulanmış domain kuralı | Politika ile |
-| Projection | Türetilmiş görünüm | Obsidian notu | Kaynak değildir |
-| External cache | Otoritesiz | Mem0 sonucu | Doğrulama sonrası |
-| Raw transcript | Hassas geçici veri | tam konuşma | Asla otomatik değil |
+### 7.1 `OptimizationObjective`
 
----
-
-## 8. Uygulama paketleri
-
-# P0-A — Kapanış, projeksiyon ve görev handoff doğruluğu
-
-## Amaç
-
-“Tamamlandı” durumunun eski projeksiyon veya eksik receipt ile oluşmasını engelle;
-ayrıca `zekam-girdi` → repo kökü aktif görev handoff’unu güvenli ve deterministik yap.
-
-## Yapılacaklar
-
-1. `zekam close`, work completion ve lease release yollarında ortak bir
-   `ProjectionFreshnessReleaseGate` kullan.
-2. Gate şu exact bağları doğrulasın:
-   - source HEAD,
-   - source tree digest,
-   - migration head,
-   - database revision digest,
-   - active work revision,
-   - projection receipt digest,
-   - lifecycle receipt completeness.
-3. `completed` + pending next-safe-action gibi durumları invariant ihlali say.
-4. Stale root projection:
-   - release’i bloklasın,
-   - doctor’da görünür olsun,
-   - güvenli ve idempotent projection refresh planı üretsin.
-5. `.github/workflows/quality.yml` ve `.github/workflows/package-acceptance.yml`
-   mevcut manuel `workflow_dispatch` davranışını korusun; otomatik `pull_request`/`push`
-   tetiklemeleri kullanıcı açıkça istemedikçe eklenmesin.
-6. `../zekam-girdi/AKTIF_GOREV.md` için bir handoff doğrulaması uygula:
-   - dosya varlığı ve okunabilirliği,
-   - görev formatı,
-   - scope/güvenlik ihlali,
-   - güncel HEAD ile çelişki,
-   - aktif lease/work state ile uyum
-   kontrol edilsin.
-7. Doğrulama başarılıysa `../zekam-girdi/AKTIF_GOREV.md` kontrollü/atomic biçimde repo
-   kökündeki `AKTIF_GOREV.md` üzerine kopyalansın; ardından kök dosya yaşayan aktif görev
-   olarak güncel tutulsun. Doğrulama başarısızsa kökteki mevcut dosya korunmalı.
-8. Tüm mutating CLI yollarında `MemoryAdmissionService.assert_mutating_admission`
-   veya eşdeğer tek kapının gerçekten çağrıldığını contract/E2E testleriyle kanıtla.
-9. SQLite minimum profilinin full continuity admission gibi davranamadığını negatif test et.
-
-## Kabul ölçütleri
-
-- Güncel olmayan projeksiyonla `close/completed/release` başarısız.
-- Refresh sonrası aynı komut başarılı ve exact receipt üretir.
-- CI manuel `workflow_dispatch` olarak kalır; otomatik tetikleyici bu görevde eklenmez.
-- Geçerli `zekam-girdi/AKTIF_GOREV.md` doğrulama sonrası köke alınır ve kök görev güncel tutulur.
-- Geçersiz/çelişkili görev girdisi kökteki aktif görevin üzerine yazamaz.
-- Mutating komutların admission bypass testi yoktur; her yeni mutating yüzey ortak kapıyı
-  kullanır.
-
----
-
-# P0-B — Memory Learning Orchestrator ve durable compiler worker
-
-## Amaç
-
-Mevcut hook, lifecycle ledger, candidate compiler, PostgreSQL store ve worker’ı tek üretim
-döngüsüne bağla.
-
-## Önerilen sorumluluk
-
-Yeni bir application servisi oluştur:
+Zorunlu alanlar:
 
 ```text
-src/zekam/application/memory_continuity_orchestrator.py
+objective_id
+realm_id
+project_id
+work_item_id
+plan_id
+step_id
+artifact_ref
+artifact_baseline_digest
+measurement_plan_digest
+validator_asset_manifest_digest
+metric_specs[]
+max_attempts
+max_tokens
+max_cost_micros
+deadline
+reversibility_class
+created_at
+objective_digest
+grants_authority=false
 ```
 
-Bu servis:
+Objective prompt metnine değil, kanonik iş/artifact/measurement kimliğine bağlıdır.
 
-- lifecycle event’i doğrular,
-- immutable ledger’a append eder,
-- event türüne göre hydration/checkpoint/close planı üretir,
-- compiler outbox/job kaydı açar,
-- watermark ve idempotency anahtarı belirler,
-- sonuç receipt’ini kaydeder,
-- projection catch-up gereksinimini işaretler,
-- gap/recovery durumunu görünür kılar.
-
-## Hook bağlantısı
-
-`memory_hooks.py` içindeki varsayılan placeholder handler’lar:
-
-- doğrudan dosya yazmayacak,
-- doğrudan model çağırmayacak,
-- kanonik memory terfi ettirmeyecek,
-- yalnız `MemoryContinuityOrchestrator` komutunu çalıştıracak.
-
-Tetikleyici matrisi:
-
-| Hook | Zorunlu işlem |
-|---|---|
-| `session_start` | exact hydration oluştur, receipt yaz, mutation admission’dan önce tamamla |
-| `checkpoint` | bounded structured delta kaydet |
-| `pre_compaction` | checkpoint + compaction boundary receipt |
-| `session_close` | final checkpoint + close observation + compiler enqueue |
-| `compact` sonrası | önceki checkpoint bağını doğrula, gap varsa fail-closed |
-| client crash/idle | bounded orphan/gap gözlemi, sessiz “completed” yok |
-
-## Compiler job
-
-Mevcut scheduler/worker yapısını genişlet:
-
-- yeni job: `memory-candidate-compile`,
-- önerilen interval: `5m`,
-- overlap: `skip`,
-- misfire: `run-once`,
-- close/pre-compaction event’i aynı işi hemen enqueue edebilir,
-- schedule, kaçırılmış veya yarım kalmış işleri catch-up eder.
-
-Job davranışı:
-
-1. Watermark’tan sonraki eligible lifecycle/observation kayıtlarını claim et.
-2. Source sırasını deterministik kur.
-3. Policy ve sınıflandırmayı uygula.
-4. Deterministik extractor ile temel adayları üret.
-5. Model extractor gerekiyorsa ayrı provider-call job kullan; DB transaction açıkken
-   provider çağırma.
-6. Model sonucunu untrusted schema-bound proposal olarak parse et.
-7. Mevcut `MemoryCandidateCompiler.compile_batch` akışına ver.
-8. candidate/conflict/quarantine/hygiene ve compiler receipt’lerini tek kısa transaction’da
-   kaydet.
-9. Watermark yalnız terminal receipt sonrası ilerlesin.
-10. Crash, claim sonrası receipt yokluğu veya digest mismatch durumunda
-    `recovery-required` üret; sessiz retry yapma.
-
-## Aday üretim kaynakları
-
-Eligible:
-
-- explicit user statement receipt,
-- Work/Run/Research/Verification evidence,
-- trusted imported record,
-- accepted lifecycle structured delta,
-- doğrulanmış failure/root-cause evidence.
-
-Tek başına eligible olmayan:
-
-- model cevabı,
-- ham transcript,
-- private reasoning,
-- doğrulanmamış tahmin,
-- dış cache sonucu,
-- kaynaksız web metni.
-
-## Kabul ölçütleri
-
-- Aynı event iki kez işlendiğinde tek candidate/receipt oluşur.
-- Out-of-order olay deterministik biçimde conflict/gap üretir.
-- Worker restart sonrası watermark doğru devam eder.
-- Provider kapalıyken deterministik akış çalışır.
-- Provider açıkken payload redacted, bounded ve receipt’li olur.
-- Secret/PII/raw-transcript candidate active yola giremez.
-- `compiler-shadow-report` backlog, lag, quarantine ve son receipt’i gösterir.
-- Shadow modda active memory değişmez.
-
----
-
-# P0-C — İkinci gerçek istemci/harness
-
-## Amaç
-
-OpenCode dışında en az bir gerçek istemcinin aynı lifecycle sözleşmesini eksiksiz
-uyguladığını kanıtla.
-
-## Seçim kuralı
-
-1. Kurulu ve kullanılan Codex sürümünün lifecycle/hook/notification yüzeyini gerçek
-   çalışma ortamında keşfet.
-2. Exact contract version, event ordering ve local outbox mümkünse Codex’i uygula.
-3. Codex bu garantileri vermiyorsa Claude Code’u incele ve uygula.
-4. Hiçbiri exact sözleşmeyi sağlayamıyorsa “destekleniyor” etiketi verme;
-   generic adapter pasif kalır ve gap raporlanır.
-5. Seçimi `docs/adr/` altında kısa ADR ile kaydet.
-
-## Zorunlu davranış
-
-- content-free lifecycle payload,
-- local durable outbox,
-- idempotent drain,
-- exact adapter version,
-- session start/checkpoint/pre-compaction/close parity,
-- secret/transcript reddi,
-- offline çalışmada event kaybı yerine pending outbox,
-- duplicate event replay güvenliği.
-
-## E2E
-
-Aynı sentetik iş akışı OpenCode ve ikinci harness ile çalıştırılır. Her ikisi için:
-
-- aynı lifecycle invariant seti,
-- aynı hydration sınıfları,
-- aynı candidate batch digest,
-- istemciye özel kimlik/provenance,
-- duplicate üretmeyen replay
-
-kanıtlanır.
-
----
-
-# P1-D — Deterministik Obsidian projeksiyonu
-
-## Amaç
-
-İnsanın Zekam hafızasını rahat okuyabildiği, bağlantılar arasında gezebildiği ve Git’te
-güvenle izleyebildiği bir Markdown görünümü üret.
-
-## Profil ayrımı
-
-En az iki profil:
-
-### `private-local`
-
-- yalnız aynı realm ve local güven sınırı,
-- internal kayıtlar policy’ye göre bulunabilir,
-- secret, raw transcript, credential ve private reasoning yine dışarı çıkmaz,
-- varsayılan olarak Git ignore,
-- yerel Obsidian kullanımı için.
-
-### `public-safe`
-
-- yalnız `public` sınıfı,
-- portable relative linkler,
-- absolute path, host, kullanıcı adı, e-posta, token, connection string yok,
-- Git’e alınabilen profil.
-
-Opsiyonel sonraki profil:
-
-### `mobile-sanitized`
-
-- minimal metadata,
-- hassas alanları çıkarılmış,
-- ayrı sync target,
-- varsayılan kapalı.
-
-## Realm kuralı
-
-Her realm ayrı projection root kullanır. Örnek:
+### 7.2 `MetricSpec`
 
 ```text
-ZEKAM_HOME/projections/obsidian/<realm>/<profile>/
+metric_id
+name
+unit
+direction: maximize|minimize|target|range
+role: primary|hard-guard|secondary|cost
+source_kind
+target_value|min_value|max_value
+minimum_meaningful_delta
+regression_tolerance
+aggregation
+spec_digest
 ```
 
-Kişisel ve kurumsal realm aynı iCloud/Git hedefinde birleştirilmez.
-
-## Dizin standardı
+### 7.3 `MeasurementEvidence`
 
 ```text
-00_HOME/
-  INDEX.md
-  BUGUN.md
-  ACIK_ISLER.md
-
-01_ACTIVE/
-  PROJELER/
-  CALISMA_OGELERI/
-
-02_DECISIONS/
-  YYYY/
-  <decision-id>-<slug>.md
-
-03_KNOWLEDGE/
-  KAVRAMLAR/
-  SISTEMLER/
-  VARLIKLAR/
-
-04_SKILLS/
-  <skill-id>-<slug>.md
-
-05_FAILURES/
-  <failure-id>-<slug>.md
-
-06_DAYLOGS/
-  YYYY/
-  YYYY-MM-DD.md
-
-07_RELATIONS/
-  ORPHANS.md
-  CONFLICTS.md
-  SUPERSEDED.md
-
-90_ARCHIVE/
-
-_META/
-  README.md
-  manifest.json
-  projection-receipt.json
-  source-map.json
-  schema-version
-```
-
-## Frontmatter sözleşmesi
-
-Her üretilmiş not en az şunları taşır:
-
-```yaml
----
-schema: zekam-obsidian-note/v1
-id: <canonical-id>
-realm: <realm-slug>
-truth_class: active-memory
-memory_class: semantic
-status: active
-classification: internal
-source_refs:
-  - <portable-evidence-ref>
-source_digest: sha256:...
-record_digest: sha256:...
-projection_digest: sha256:...
-confidence: 0.92
-valid_from: 2026-08-27T00:00:00Z
-valid_until:
-last_verified_at: 2026-08-27T00:00:00Z
-supersedes:
-superseded_by:
-generated_at: 2026-08-27T00:00:00Z
-editable: false
----
-```
-
-Not gövdesinde:
-
-- kısa özet,
-- neden önemli,
-- kaynak/kanıtlar,
-- ilişkiler,
-- geçerlilik/tazelik,
-- conflict/supersession durumu,
-- insan için sonraki güvenli eylem
-
-bulunur.
-
-## WikiLink üretimi
-
-WikiLink modelin serbest çağrışımıyla değil:
-
-1. canonical `memory_relation`,
-2. exact project/work/evidence bağı,
-3. approved high-confidence relation,
-4. controlled alias map
-
-üzerinden üretilir.
-
-Belirsiz ilişki active link yapılmaz; `relation-candidate` olarak ayrı raporlanır.
-
-## Atomic projection build
-
-1. DB snapshot/source binding al.
-2. Staging dizinine tüm notları üret.
-3. Manifest, dosya digest’leri ve source-map oluştur.
-4. Privacy scanner ve link checker çalıştır.
-5. Aynı snapshot için byte-level determinism doğrula.
-6. Projection receipt yaz.
-7. Atomic directory swap yap.
-8. Hata olursa önceki geçerli projeksiyon olduğu gibi kalır.
-
-## CLI yüzeyi
-
-Mevcut `zekam memory` grubuna aşağıdaki eşdeğer işlevler eklenir:
-
-```text
-zekam memory obsidian-plan
-zekam memory obsidian-apply --plan-digest ... --uygula
-zekam memory obsidian-verify
-zekam memory obsidian-status
-```
-
-İsimler mevcut CLI konvansiyonuna göre uyarlanabilir; davranış değişmez:
-
-- plan salt okunur,
-- apply exact plan digest ve gerekli authorization ister,
-- verify DB ↔ manifest ↔ file digest parity kontrol eder,
-- status tazelik ve son receipt’i gösterir.
-
----
-
-# P1-E — Daylog, karar, bilgi, skill ve failure döngüleri
-
-## Daylog
-
-Daylog kanonik otorite değildir. Aşağıdakilerden deterministik üretilir:
-
-- o gün kapanan lifecycle session’ları,
-- tamamlanan Work item’ları,
-- alınan kanonik kararlar,
-- oluşturulan candidate’lar,
-- açık kalan işler,
-- doğrulanmış failure/recovery kayıtları.
-
-Format:
-
-```text
-Bugün tamamlananlar
-Kararlar
-Yeni öğrenilenler
-Açık kalanlar
-Riskler / engeller
-Yarın için kanonik next-safe-action
-Kaynak receipt’ler
-```
-
-Model daylog metnini güzelleştirebilir; fakat içerik listesi ve kaynak bağları deterministik
-olmalıdır.
-
-## Karar belleği
-
-Bir karar active olması için:
-
-- karar konusu,
-- seçilen seçenek,
-- reddedilen seçenekler,
-- gerekçe,
-- source revision/evidence,
-- geçerlilik,
-- owner/reviewer,
-- supersession bağı
-
-taşır.
-
-“Model böyle önerdi” tek başına karar kanıtı değildir.
-
-## Skill/procedural memory
-
-Skill kendi kendine aktifleşmez.
-
-Önerilen akış:
-
-```text
-tekrarlı başarılı execution evidence
-→ skill candidate
-→ fixture / replay
-→ farklı reviewer
-→ gerekiyorsa bağımsız verifier
-→ exact promotion authorization
-→ active procedural memory
-→ generated skill projection
-```
-
-Skill kaydı:
-
-- hangi problem sınıfını çözdüğü,
-- precondition,
-- deterministic adımlar,
-- yasaklı durumlar,
-- gerekli tool/capability sürümleri,
-- test fixture,
-- başarı ve hata metrikleri,
-- rollback/recovery,
-- kaynak evidence
-
-taşır.
-
-## Failure memory
-
-Failure memory için occurrence key:
-
-```text
-normalized problem class
-+ project capability digest
-+ tool/adapter/version
-+ root-cause digest
-```
-
-Root cause doğrulanmadıysa kayıt `hypothesis` kalır. Aynı hata geldiğinde Context Compiler:
-
-- doğrulanmış failure/procedural memory’yi öne çıkarır,
-- daha önce reddedilmiş yaklaşımı görünür biçimde yasaklı öneri yapar,
-- ortam veya source revision farkını gösterir.
-
----
-
-# P1-F — Yönetilen self-healing ve self-modification
-
-## Yetki matrisi
-
-| İşlem | Otonom | Review | Exact insan yetkisi | Yasak |
-|---|---:|---:|---:|---:|
-| Stale projeksiyonu yeniden üretme | ✓ |  |  |  |
-| Index/cache rebuild | ✓ |  |  |  |
-| Candidate üretme | ✓ |  |  |  |
-| Secret şüphesini quarantine etme | ✓ |  |  |  |
-| Gap/incident açma | ✓ |  |  |  |
-| Relation önerme | ✓ | ✓ |  |  |
-| Skill önerme | ✓ | ✓ |  |  |
-| Candidate active terfi |  | ✓ | ✓ |  |
-| Merge/supersede/revoke |  | ✓ | ✓ |  |
-| Retention/purge |  | ✓ | ✓ |  |
-| Migration uygulama |  |  | ✓ |  |
-| Security/privacy policy değiştirme |  |  | ✓ |  |
-| CI/branch protection değiştirme |  |  | ✓ |  |
-| Uzak adapter/sync açma |  |  | ✓ |  |
-| Modelin doğrudan canonical memory yazması |  |  |  | ✓ |
-| Approval bypass |  |  |  | ✓ |
-| Secret’i projection/Git’e çıkarma |  |  |  | ✓ |
-| Force-push/history rewrite |  |  |  | ✓ |
-| Root `AKTIF_GOREV.*` dosyasını elle otorite sayma |  |  |  | ✓ |
-
-Doctor/repair yalnız önceden tanımlı, digest-bound ve testli recipe’leri otonom
-uygulayabilir. Yeni repair recipe üretimi candidate/review sürecine girer.
-
----
-
-# P1-G — Yüksek riskli form ve belge otomasyonu koruması
-
-## Amaç
-
-Videodaki “vault’tan form doldurma” kabiliyetini Zekam’a güvenli bir reusable primitive
-olarak kazandırmak; otomatik gönderim sistemi kurmak değil.
-
-## Ortak `FieldEvidence` sözleşmesi
-
-Her alan için:
-
-```text
-field_name
-normalized_value
-display_value
-source_ref
-source_digest
+metric_id
+value
+evidence_ref
+evidence_digest
 source_revision
-extracted_at
-confidence
-classification
-validation_rules
-status = verified | conflicting | missing | expired | prohibited
+measured_at
+measurement_identity
+verifier_identity
+producer_self_report=false
 ```
 
-## Kurallar
+Secret veya raw output yerine değer + bounded metadata + digest saklanır.
 
-- `missing`, `conflicting`, `expired` veya `prohibited` alan doldurulmaz.
-- Bir model değeri uyduramaz veya “makul varsayım” kullanamaz.
-- Form doldurulmadan önce read-only preview üretilir.
-- Preview:
-  - doldurulacak alan,
-  - değer,
-  - kaynak,
-  - confidence,
-  - boş bırakma nedeni
-  gösterir.
-- Resmi/finansal/hukuki/kurumsal belgede insan onayı zorunludur.
-- Varsayılan davranış `fill-only`; `submit/send` kapalıdır.
-- Submit için ayrı exact authorization ve terminal receipt gerekir.
-- CAPTCHA, MFA, imza, ödeme veya hukuki beyan otomatik bypass edilmez.
-- Sonuç kanıtı ekran görüntüsüne değil mümkünse yapılandırılmış response/receipt’e bağlanır.
-- Hassas alanlar log/projection’a maskeli düşer.
-
-## Negatif testler
-
-- Kaynaksız vergi numarası uydurulmaz.
-- Eski adres current sayılmaz.
-- İki kaynak çelişiyorsa alan boş kalır.
-- Preview olmadan submit mümkün değildir.
-- Fill yetkisi submit yetkisi sayılmaz.
-- Secret/public-safe projection’a sızmaz.
-
----
-
-# P1-H — Legacy bellek dokümanları ve Mem0
-
-Mevcut:
-
-- `bellek/BELLEK_MIMARISI_MEM0_UYARLAMASI.md`
-- `bellek/BELLEK_YASAM_DONGUSU_VE_HIJYEN.md`
-- `bellek/MEMORY_ENGINE_PORTU.md`
-
-belgeleri değerlidir; fakat elle güncellenen paralel runtime hakikati olmamalıdır.
-
-Yapılacak:
-
-1. Belgeleri ADR/reference statüsüne getir.
-2. Uygulanan sözleşmeler için güncel source path ve schema revision ekle.
-3. Runtime durum, backlog veya current policy bilgisi içeriyorsa bunu üretilmiş projeksiyona
-   taşı.
-4. Çelişen veya eski bölüm varsa silme yerine `superseded-by` bağıyla arşivle.
-5. Mem0 adapter’ını bu görevin P0 kapsamına alma.
-6. Yalnız `MemoryEngine` portunun capability/no-dual-authority testlerini koru.
-7. Mem0 sonraki ayrı görevde, native engine tamamen çalışır durumdayken opsiyonel cache/index
-   olarak eklenebilir.
-
----
-
-# P2 — Gözlemlenebilirlik, kalite ve UX
-
-## Zorunlu ölçümler
-
-- lifecycle event sayısı ve eksik event oranı,
-- hydration admission başarısı/blok nedeni,
-- compiler backlog ve en eski kayıt yaşı,
-- candidate üretim/dedupe/conflict/quarantine oranı,
-- candidate review/accept/reject oranı,
-- active memory kullanım ve verifier başarısı,
-- projection freshness ve build süresi,
-- broken link/orphan relation sayısı,
-- public-safe privacy finding sayısı,
-- provider call/redaction/budget kullanımı,
-- ikinci harness parity sonucu,
-- recovery-required job/claim/receipt sayısı.
-
-## SLO/invariant
-
-- Required lifecycle receipt completeness: `%100`
-- Release anında projection mismatch: `0`
-- Aynı idempotency key için duplicate active candidate: `0`
-- Public-safe secret/PII finding: `0`
-- Aynı snapshot için projection digest farklılığı: `0`
-- Unknown field’in otomatik uydurulması: `0`
-- Receipt’siz completed effect: `0`
-
-Sayısal latency/backlog eşikleri gerçek shadow ölçümünden sonra policy’ye yazılır; bu görev
-kanıtsız sabit performans rakamı uydurmaz.
-
----
-
-## 9. Dosya düzeyi uygulama rehberi
-
-Aşağıdaki liste hedef sorumlulukları gösterir. Güncel HEAD’de eşdeğer modül varsa yenisini
-oluşturmak yerine onu genişlet.
-
-### Değişmesi beklenen mevcut dosyalar
+### 7.4 `ProgressVector`
 
 ```text
-.github/workflows/quality.yml
-.github/workflows/package-acceptance.yml
-
-src/zekam/application/memory_hooks.py
-src/zekam/application/memory_continuity.py
-src/zekam/application/client_lifecycle_bridge.py
-src/zekam/application/memory_candidate_compiler.py
-src/zekam/application/continuity_projection.py
-src/zekam/application/worker.py
-
-src/zekam/infrastructure/postgres/memory_continuity_repository.py
-
-src/zekam/interfaces/cli/memory.py
-src/zekam/interfaces/cli/worker.py
-
-src/zekam/domain/scheduler.py
-
-config/memory_continuity_policy.yaml
-config/memory_routing_policy.yaml
-
-AGENTS.md
-00_BASLA.md
-README.md
+baseline_values
+previous_values
+current_values
+deltas
+hard_guard_results
+primary_progress_results
+target_results
+value_per_cost
+progress_state: improved|target-reached|plateau|regressed|invalid
+progress_digest
 ```
 
-Dokümanlar yalnız davranış gerçekten değiştiğinde güncellenir; koddan önce gerçek dışı
-özellik ilan edilmez.
+### 7.5 `LoopProgressPacket`
 
-### Oluşması muhtemel yeni modüller
+Attempt 2+ için MUST context parçasıdır:
 
 ```text
-src/zekam/application/memory_continuity_orchestrator.py
-src/zekam/application/memory_compiler_composition.py
-src/zekam/application/obsidian_projection.py
-src/zekam/application/high_risk_autofill_guard.py
-
-src/zekam/infrastructure/clients/<selected_harness>_lifecycle.py
-
-docs/adr/ADR-xxxx-second-lifecycle-harness.md
-docs/architecture/MEMORY_LEARNING_LOOP.md
-docs/architecture/OBSIDIAN_PROJECTION.md
+objective_digest
+artifact_before_digest
+artifact_after_digest
+predecessor_attempt_id
+attempt_ordinal
+previous_metric_vector
+current_metric_vector
+metric_deltas
+accepted_hypothesis_digest
+rejected_hypothesis_digests[]
+patch_digest
+failure_signature
+validator_diagnosis_ref/digest
+new_evidence_refs[]
+remaining_attempt/token/cost/time budget
+next_allowed_focus
+forbidden_retries[]
+packet_digest
+grants_authority=false
 ```
 
-### Migration kuralı
+Packet yalnız gereken kısa metni taşır; full log/transcript/response taşımaz.
 
-Yeni migration yalnız mevcut `0055/0056` şemasında gerçekten eksik kalıcı alan/tablo/index
-varsa eklenir.
+### 7.6 `AttemptNoveltyFingerprint`
 
-- Önce schema diff çıkar.
-- Mevcut tabloyla çözülebilen şey için migration yazma.
-- Yeni migration forward-only, transactional ve fresh/upgrade DB testli olmalı.
-- Migration head, code, policy, projection receipt ve component stamp birlikte güncellenmeli.
-- Down migration zorunlu değilse bile operational rollback planı zorunludur.
+```text
+objective_digest
+artifact_digest
+hypothesis_digest
+patch_digest
+failure_signature
+action_semantics_digest
+novelty_digest
+```
+
+Aynı objective altında prompt rephrase ile aynı fingerprint tekrar kullanılamaz.
+
+### 7.7 `LoopSuitabilityAssessment`
+
+```text
+measurement_available
+measurement_source_tier
+measurement_estimated_cost
+action_estimated_cost
+measurement_to_action_ratio
+reversible
+idempotent_or_receipt_bound
+creative_diversity_goal
+human_judgment_required
+distinct_deliverable_count
+dependency_edge_count
+expected_coordination_cost
+recommended_pattern
+reason_codes[]
+assessment_digest
+```
+
+Bilinmeyen kritik alan varsa loop/graph varsayılmaz; `single-pass`, `blocked` veya
+`queue-human-review` seçilir.
+
+### 7.8 `ExecutionTopologyDecision`
+
+```text
+pattern
+objective_digest
+plan_digest
+node_modes
+parallelism_ceiling
+estimated_calls
+estimated_tokens
+estimated_cost
+estimated_coordination_overhead
+required_human_gates
+reason_codes
+decision_digest
+grants_authority=false
+```
+
+### 7.9 `ValidatorAssetManifest`
+
+```text
+validator_spec_digest
+fixture_refs + content_digests
+metric_code_refs + content_digests
+threshold_policy_digest
+allowed_read_resources
+forbidden_builder_write_resources
+source_revision
+manifest_digest
+```
+
+Validator asset değişikliği yeni plan/policy revision gerektirir; mevcut attempt içinde
+sessizce değiştirilemez.
+
+### 7.10 `GraphExecutionReceipt`
+
+```text
+graph_root_id
+plan_digest
+node_receipts[]
+edge_wait_durations
+critical_path
+max_observed_concurrency
+parallel_overlap_duration
+parallel_efficiency
+coordination_input/output_tokens
+coordination_cost
+fan_in_result_digest
+terminal_state
+receipt_digest
+```
+
+### 7.11 `TournamentPlan`
+
+```text
+candidate_count
+candidate_assignments[]
+shared_objective_digest
+candidate_context_digest
+candidate_isolation=true
+selector_assignment_id
+selector_spec_digest
+human_final_gate
+budget
+plan_digest
+```
+
+Adaylar birbirlerinin üretimini görmez; selector builder’larla aynı kimlik değildir.
 
 ---
 
-## 10. Veri sözleşmeleri
+## 8. Yürütme biçimi seçim tablosu
 
-### 10.1 Lifecycle event
+| Durum | Seçim | Gerekçe |
+|---|---|---|
+| Tek işlem, açık kabul, retry gereksiz | `direct` | En düşük overhead |
+| Tek bounded üretim, bir kez çalıştırma | `single-pass` | Loop maliyeti gereksiz |
+| Aynı artifact, objective ölçüm ucuz, effect reversible | `bounded-loop` | Ölçümlü iterasyon anlamlı |
+| Yaratıcı/çeşitli aday üretimi ve sonradan seçim | `tournament` | Self-polishing yerine çeşitlilik |
+| En az iki farklı deliverable/dependency/fan-in | `graph` | Gerçek veri ve sıra bağımlılığı |
+| Geri alınamaz/high-risk effect | `queue-human-review` | Loop retry yasak |
+| Ölçüm yok veya ölçüm yapmaktan pahalı | `single-pass` / `blocked` | Önce ölçüm altyapısı |
+| Tek artifact için yalnız ajan sayısı artırma | Graph reddi | Pahalı kopya üretimi |
 
-```yaml
-schema: zekam-lifecycle-event/v2
-event_id: <uuid7>
-realm_id: <uuid>
-project_id: <uuid>
-work_item_id: <uuid-or-null>
-session_id: <portable-session-id>
-client_kind: opencode
-client_version: <exact-version>
-adapter_contract: lifecycle-events-v2
-event_type: session_start
-occurred_at: <timezone-aware>
-source_head: <git-sha-or-null>
-payload_digest: sha256:...
-idempotency_key: sha256:...
-classification: internal
-payload:
-  checkpoint_ref: <portable-ref-or-null>
-  changed_work_item_ids: []
-  evidence_refs: []
-  decision_refs: []
-  failure_refs: []
-```
+Graph admission için en az biri kanıtlanmalıdır:
 
-Payload şu içerikleri taşımaz:
+- farklı typed output üreten en az iki node,
+- gerçek dependency edge,
+- anlamlı parallel-ready bağımsız iş,
+- ayrı doğrulama/fan-in ihtiyacı.
 
-- transcript,
-- prompt,
-- response,
-- chain-of-thought/private reasoning,
-- bearer/token/password/secret,
-- tam dosya içeriği,
-- kontrolsüz stack trace,
-- absolute sensitive path.
-
-### 10.2 Memory candidate
-
-```yaml
-schema: zekam-memory-candidate/v1
-candidate_id: <uuid7>
-memory_class: semantic
-scope:
-  realm_id: <uuid>
-  project_id: <uuid>
-  work_item_id:
-subject_keys: []
-summary: <bounded-sanitized-text>
-evidence_refs: []
-source_revisions: []
-producer:
-  kind: deterministic-extractor
-  model:
-classification: internal
-confidence: 0.0
-status: candidate
-conflicts_with: []
-supersedes: []
-idempotency_key: sha256:...
-record_digest: sha256:...
-```
-
-### 10.3 Compiler receipt
-
-```yaml
-schema: zekam-memory-compiler-receipt/v1
-batch_id: <uuid7>
-watermark_before: <value>
-watermark_after: <value>
-source_digest: sha256:...
-policy_digest: sha256:...
-extractor_digest: sha256:...
-input_count: 0
-candidate_count: 0
-deduped_count: 0
-conflict_count: 0
-quarantine_count: 0
-provider_call_receipts: []
-status: completed
-receipt_digest: sha256:...
-grants_authority: false
-```
-
-### 10.4 Projection receipt
-
-```yaml
-schema: zekam-obsidian-projection-receipt/v1
-realm_id: <uuid>
-profile: public-safe
-source_head: <git-sha>
-source_tree_digest: sha256:...
-migration_head: 56
-database_revision_digest: sha256:...
-memory_snapshot_digest: sha256:...
-manifest_digest: sha256:...
-file_count: 0
-privacy_scan_digest: sha256:...
-link_check_digest: sha256:...
-projection_digest: sha256:...
-status: completed
-grants_authority: false
-```
+Yalnız “iş zor” veya “çok ajan daha iyi olabilir” gerekçesi graph için yeterli değildir.
 
 ---
 
-## 11. Test planı
+## 9. Work package’ları
 
-### Unit
+## WP-00 — Önceki görevi kanonik olarak uzlaştır
 
-- lifecycle payload schema/size/classification,
-- transcript/secret key rejection,
-- hook → orchestrator command mapping,
-- idempotency key determinism,
-- compiler ranked ordering,
-- candidate dedupe/conflict/supersession,
-- frontmatter rendering,
-- WikiLink alias collision,
-- field evidence status,
-- self-modification authority matrix.
+### Amaç
 
-### Integration — PostgreSQL
+Önceki source implementation ile DB/Work/projection durumunu eşleştir.
 
-- fresh DB migration,
-- mevcut DB upgrade,
-- event ledger append/replay,
-- compiler watermark claim,
-- store output atomicity,
-- crash before/after receipt,
-- recovery-required reconciliation,
-- candidate promotion authorization,
-- projection snapshot read consistency,
-- realm/RLS isolation,
-- SQLite minimum profile negative parity.
+### Yapılacaklar
 
-### E2E
+1. Güncel branch/HEAD ve migration head’i doğrula.
+2. Local DB current revision’ı oku; Git’teki migration head ile karşılaştır.
+3. Önceki Memory Learning/Obsidian task’ına ait Work/Plan/Run/step/checkpoint/receipt’i bul.
+4. Açık claim, stale lease, pending/recovery job veya incomplete close varsa önce recovery yap.
+5. Root `AKTIF_GOREV.yaml` ve generated Markdown projection’ı kanonik state’ten yeniden üret.
+6. Previous source implementation gerçekten kabul kapılarını geçmediyse yeni task’a geçme.
+7. Önceki task kapanış receipt’ini kaydet; sonra bu dosyayı kök aktif görev yap.
 
-Önerilen testler:
+### Kabul
+
+- Root YAML güncel source/migration/DB digest taşır.
+- `completed` ile pending next action çelişmez.
+- Git’teki commit varlığı tek başına tamamlanma kanıtı sayılmaz.
+
+---
+
+## WP-01 — Generic ölçüm ve objective çekirdeğini birleştir
+
+### Amaç
+
+`learning.evaluate_loop`, runtime LoopPolicy ve model/context experiment metriklerini ortak
+bir domain çekirdeğine bağla.
+
+### Yapılacaklar
+
+1. Generic metric direction/role/evidence/progress sözleşmelerini oluştur.
+2. `learning.IterationOutcome/LoopDecision` davranışını backward-compatible adapter ile bu
+   çekirdeğe taşı.
+3. Model/context experiment quality/reliability/latency/token/cost metric’lerini aynı generic
+   yapıyı kullanacak şekilde bağla.
+4. Runtime loop v1’i bozma; additive v2 schema/model ekle.
+5. Binary test objective için `0→1` geçişini yönlü metric olarak destekle.
+6. Hard guard regresyonunu scalar skor yükselse bile reddet.
+
+### Kabul
+
+- Üç ayrı loop/experiment değerlendirme semantiği kalmaz.
+- Eski testler adapter üzerinden geçmeye devam eder.
+- NaN/Inf/eksik ölçüm fail-closed olur.
+
+---
+
+## WP-02 — Measured LoopPolicy v2 ve progress checkpoint
+
+### Amaç
+
+Her canonical loop attempt sonucunu metric vector ve progress decision ile kapat.
+
+### Yapılacaklar
+
+1. Loop policy’yi objective/measurement/validator asset digest’leriyle bağla.
+2. `LoopValidation` v2’ye metric evidence refs, vector digest ve progress state ekle.
+3. `runtime.loop_attempt_outcome` ve `runtime.loop_checkpoint` için additive v2 tablolar veya
+   revision-safe kolonlar ekle.
+4. `complete_loop_attempt_v2` result + verifier + metric evidence + effect receipt’i atomik
+   doğrulasın.
+5. `retryable-failure` tek başına devam kararı vermesin; progress evaluator karar versin.
+6. New diagnosis retry hakkı ile measured improvement’ı ayrı tut.
+
+### Kabul
+
+- Her attempt’in “neden devam/dur” cevabı metric/evidence ile açıklanır.
+- Producer self-report progress source olarak kabul edilmez.
+
+---
+
+## WP-03 — Deterministik `LoopProgressPacket` ve bounded hydration
+
+### Amaç
+
+Turlar arasında bütün geçmişi değil, gerekli state’i güvenli biçimde taşı.
+
+### Yapılacaklar
+
+1. Predecessor checkpoint’ten deterministic packet compiler yaz.
+2. Attempt 2+ context recipe’sinde packet’i MUST yap.
+3. Packet token boyutunu policy ile sınırla.
+4. Full logs, raw transcript, complete patch ve önceki response’ları context’e alma.
+5. Kaynaklar reference + digest olarak taşınsın.
+6. Packet `next_allowed_focus` ve `forbidden_retries` taşısın.
+7. Packet source/plan/policy/validator drift’inde stale sayılsın.
+
+### Kabul
+
+- Aynı model yeni turda predecessor metric/failure/next focus bilgisini gerçekten görür.
+- Packet olmadan ikinci attempt admission reddedilir.
+- Context büyüklüğü attempt sayısıyla lineer olarak şişmez.
+
+---
+
+## WP-04 — Rephrase-proof tekrar, stagnation ve oscillation kapıları
+
+### Amaç
+
+Aynı gecenin üç kez yaşanmasını prompt değiştirerek aşılması mümkün olmayacak şekilde
+engelle.
+
+### Yapılacaklar
+
+1. Stable objective/artifact/hypothesis/patch/failure fingerprint üret.
+2. Aynı hypothesis + aynı failure signature tekrarını reddet.
+3. Aynı patch digest’i yeniden uygulamayı reddet.
+4. Diagnostic evidence için sınırlı patience tanımla.
+5. Plateau, regression ve A↔B oscillation detector ekle.
+6. No-op attempt’i progress sayma.
+7. Repeated hypothesis terminal reason’larını first-class yap.
+
+### Yeni stop reason adayları
 
 ```text
-tests/e2e/test_memory_learning_loop_runtime.py
-tests/e2e/test_cross_harness_memory_continuity.py
-tests/e2e/test_memory_compiler_worker_runtime.py
-tests/e2e/test_obsidian_projection_roundtrip.py
-tests/e2e/test_projection_freshness_release_gate.py
-tests/e2e/test_high_risk_autofill_guard.py
+no-progress
+repeated-hypothesis
+repeated-patch
+repeated-failure-signature
+oscillation
+metric-regression
+invalid-measurement
+validator-drift
+risk-escalation
 ```
 
-Senaryolar:
+### Kabul
 
-1. Session start hydration olmadan mutation reddedilir.
-2. Checkpoint → pre-compaction → close tam receipt zinciri üretir.
-3. Compaction öncesi crash gap oluşturur; sessiz veri kaybı olmaz.
-4. Aynı event replay duplicate candidate üretmez.
-5. Worker crash ve restart watermark’ı bozmaz.
-6. OpenCode ve ikinci harness aynı invariant setini geçer.
-7. Shadow mode active memory değiştirmez.
-8. Enforced mode yalnız exact authorization sonrası etkinleşir.
-9. Obsidian projection aynı snapshot için byte-identical olur.
-10. Atomic swap hatasında önceki projeksiyon korunur.
-11. Stale root projection close/release’i bloklar.
-12. Public-safe export secret/PII içermez.
-13. Broken WikiLink build’i başarısız eder.
-14. Unknown form alanı boş kalır.
-15. Fill receipt submit yetkisi sağlamaz.
-16. Receipt’siz effect `completed` olamaz.
-17. PostgreSQL kapalıyken full continuity SQLite’a sessiz düşmez.
+- Prompt rephrase duplicate guard’ı aşamaz.
+- İki farklı UUID aynı semantik giriş için novelty üretmez.
+- Plateau policy limitinde loop otomatik ve kanıtlı durur.
 
-### Security
+---
 
-- prompt injection içeren imported note,
-- path traversal,
-- symlink escape,
-- absolute path sızıntısı,
-- token/credential regex,
-- e-posta/PII,
-- cross-realm retrieval,
-- public/private profile karışması,
-- malicious Markdown/frontmatter,
-- forged projection receipt,
-- stale policy digest,
-- self-promotion by same actor/model,
-- external cache authority escalation.
+## WP-05 — Validator asset freeze ve reward-hacking savunması
 
-### CI kabulü
+### Amaç
 
-- `ruff`,
-- format check,
-- type check,
-- unit/integration/E2E seçimi,
-- fresh DB migration,
-- upgrade DB migration,
-- security/privacy suite,
+Builder’ın sınavı kolaylaştırarak loop’u geçmesini engelle.
+
+### Yapılacaklar
+
+1. Test/eval fixture/metric/threshold dosyalarından immutable manifest üret.
+2. Builder logical write resources bu manifestteki asset’leri kapsayamaz.
+3. TDD gerekiyorsa ayrı `test-author` veya verifier phase’i testleri önce üretip dondursun.
+4. Test/fixture değişikliği yeni Plan/Validator revision gerektirsin.
+5. Metric code digest değişirse mevcut attempt invalid olsun.
+6. Builder/verifier model ve execution identity ayrımı yüksek riskte zorunlu kalsın.
+7. No-op veya threshold loosening için negatif test ekle.
+
+### Kabul
+
+- Builder testi kolaylaştırarak passed üretemez.
+- Validator asset drift attempt’i kapatır ve replan ister.
+
+---
+
+## WP-06 — Durable multi-attempt loop orchestrator
+
+### Amaç
+
+Tek attempt executor’ı mevcut worker/queue üzerinde crash-safe uzun loop’a dönüştür.
+
+### Yapılacaklar
+
+1. Yeni paralel daemon kurma; mevcut worker composition’a explicit loop-attempt handler ekle.
+2. Her queue job tam bir attempt çalıştırır; handler içinde sonsuz döngü olmaz.
+3. Sıra:
+
+```text
+admit
+→ bind dispatch
+→ builder effect
+→ canonical result receipt
+→ frozen measurement
+→ verifier receipt
+→ progress evaluation
+→ checkpoint
+→ terminal veya next-attempt enqueue
+```
+
+4. Next attempt enqueue aynı transaction/outbox/idempotency sözleşmesine bağlı olsun.
+5. Crash after claim/effect, receipt replay ve recovery-required senaryolarını uygula.
+6. Pause/cancel/drain sonrası yeni attempt açma.
+7. Remaining quota/token/cost/deadline her attempt öncesi yeniden doğrulansın.
+8. Remote model route yalnız mevcut provider policy ve exact authorization ile çalışsın.
+
+### Kabul
+
+- Worker yeniden başlasa loop duplicate attempt üretmez.
+- Claim + no receipt sessiz retry olmaz.
+- Terminal loop yeniden enqueue edilmez.
+
+---
+
+## WP-07 — Execution topology suitability planner
+
+### Amaç
+
+Plan yürütülmeden önce direct/loop/tournament/graph/queue-human-review seçimini kanıtlı yap.
+
+### Yapılacaklar
+
+1. `LoopSuitabilityAssessment` üret.
+2. Measurement/action cost ratio ve measurement source tier hesapla.
+3. Reversibility ve high-risk effect gate uygula.
+4. Distinct deliverable, dependency ve expected coordination overhead ölç.
+5. Creative diversity goal’da tournament seç.
+6. Topology decision authority vermesin; TaskPlan revision’a bağlansın.
+7. Ambiguous/unknown critical field’de fail-closed davran.
+
+### Kabul
+
+- Tek artifact ve measurable objective için gereksiz graph reddedilir.
+- Ölçümü olmayan iş loop’a alınmaz.
+- Geri alınamaz iş human gate’e gider.
+
+---
+
+## WP-08 — Mevcut TaskPlan/RoutePlanner’a graph execution evidence ekle
+
+### Amaç
+
+Graph’ın gerçekten paralel ve değerli olduğunu dışarıdan ölç.
+
+### Yapılacaklar
+
+1. TaskPlan dependency gerçeğini değiştirme.
+2. Node execution mode metadata’sını additive olarak ekle.
+3. Ready/independent node’ların actual start/end interval’larını kaydet.
+4. Critical path, dependency wait ve resource wait hesapla.
+5. Max observed concurrency ve overlap duration üret.
+6. Coordination token/cost/message sayısını ölç.
+7. Fan-in failure hiçbir child hatasını yutmasın.
+8. Graph overhead beklenen değeri aşıyorsa future topology feedback üret.
+
+### Paralellik tanımı
+
+```text
+parallelism = aynı zaman aralığında active olan,
+              dependency’si tamamlanmış,
+              logical-resource conflict taşımayan node sayısı
+```
+
+Ajan sayısı tek başına paralellik değildir.
+
+### Kabul
+
+- “30 ajan vardı” değil, gerçek overlap/critical-path kanıtı raporlanır.
+- Sequential graph yanlışlıkla parallel raporlanmaz.
+
+---
+
+## WP-09 — Tournament pattern
+
+### Amaç
+
+Creative veya alternatif üretim işlerini yanlış iterative loop’tan ayır.
+
+### Yapılacaklar
+
+1. N bağımsız candidate assignment oluştur.
+2. Candidate’lar birbirlerinin çıktısını görmesin.
+3. Ortak objective/context/constraints binding kullan.
+4. Selector ayrı assignment/model/execution identity olsun.
+5. Qualitative selection gerekiyorsa human final gate destekle.
+6. Candidate sayısı, token/cost ve deadline bounded olsun.
+7. Tournament sonucu active decision/skill/policy’ye otomatik terfi etmesin.
+
+### Kabul
+
+- Creative thumbnail/metin alternatifi loop yerine tournament’a route edilir.
+- Kendi fikrini tekrar puanlayan producer selector olamaz.
+
+---
+
+## WP-10 — Loop-owned reversible change set
+
+### Amaç
+
+İyileşmeyen attempt’i yalnız kendi değişikliklerini geri alarak temizle.
+
+### Yapılacaklar
+
+1. Attempt başlamadan exact source/tree ve allowed path snapshot al.
+2. Değişen dosyaları loop-owned change set olarak kaydet.
+3. Patch digest ve changed resource list’i checkpoint’e bağla.
+4. Passed/meaningful improvement durumunda candidate change set korunabilir.
+5. Regression/invalid durumunda yalnız loop-owned inverse patch uygulanabilir.
+6. User-owned veya başlangıçta dirty dosyalara blanket reset uygulanmaz.
+7. Commit ancak test/verifier/policy geçtikten ve kullanıcı yetkisi varsa yapılır.
+
+### Kabul
+
+- Başarısız attempt kullanıcı değişikliğini silemez.
+- `git reset --hard`, `clean`, force checkout rollback değildir.
+
+---
+
+## WP-11 — Scaffolding ablation ve deprecation candidate
+
+### Amaç
+
+Bugünkü model eksiklerini kapatan fakat ileride yük olacak katmanları ölç.
+
+### Değerlendirilecek feature örnekleri
+
+- attempt summary,
+- second checker,
+- critic node,
+- fallback parser,
+- retry hint,
+- extra context section,
+- graph coordinator,
+- reranker,
+- duplicate guard’ın belirli heuristic katmanları.
+
+### Yapılacaklar
+
+1. Mevcut `ContextAblationProfile` ve paired trial altyapısını genişlet.
+2. Baseline ve candidate aynı fixture/repetition/verifier ile çalışsın.
+3. Quality/reliability düşmeden latency/token/cost değeri ölçülsün.
+4. Fark üretmeyen scaffolding yalnız deprecation candidate olsun.
+5. Otomatik kod/policy silme yapılmasın; review + rollback planı zorunlu olsun.
+
+### Kabul
+
+- “Bu katman artık gereksiz” kararı anekdotla değil paired evidence ile üretilir.
+
+---
+
+## WP-12 — Observability, CLI ve Obsidian projection
+
+### Amaç
+
+Loop/graph durumunu model self-report’u yerine dışarıdan okunabilir yap.
+
+### CLI önerileri
+
+```text
+zekam loop assess
+zekam loop plan
+zekam loop status
+zekam loop attempts
+zekam loop progress
+zekam loop stop
+zekam topology decide
+zekam graph status
+zekam graph critical-path
+zekam tournament status
+zekam experiment ablate
+```
+
+Varsayılan bütün plan/assess/status komutları salt okunur olmalıdır. Mutation `--uygula` ve
+exact authorization ister.
+
+### Observatory/Obsidian görünümü
+
+Mevcut immutable generation store ve sabit `GUNCEL_BELLEK` kasası kullanılacaktır. Yeni
+bir vault yolu veya paralel projection store kurulmaz. Otomatik publish ancak current
+source/objective/progress digest'lerine bağlı projection receipt ile yapılır.
+
+- objective ve metric yönleri,
+- baseline/current/target,
+- attempt timeline,
+- patch/hypothesis/failure signatures,
+- stop reason,
+- token/cost/deadline,
+- graph critical path ve overlap,
+- tournament candidates/selector,
+- scaffolding ablation sonucu,
+- source/validator/progress digest’leri.
+
+Raw prompt/response/transcript gösterilmez.
+
+---
+
+## WP-13 — Security, threat model ve operasyon runbook
+
+### Tehditler
+
+- prompt rephrase ile duplicate bypass,
+- forged metric evidence,
+- producer self-scoring,
+- validator asset mutation,
+- threshold loosening,
+- no-op reward gaming,
+- repeated patch/hypothesis,
+- oscillation,
+- context poisoning,
+- raw history/token explosion,
+- graph coordination denial-of-service,
+- false parallelism,
+- cross-resource concurrent writes,
+- irreversible effect retry,
+- stale source/plan/policy/validator binding,
+- quota/cost overrun,
+- child failure fan-in’de yutulması,
+- rollback’in kullanıcı dosyasını silmesi.
+
+### Runbook’lar
+
+- loop plateau/manual-review,
+- invalid measurement,
+- validator drift,
+- graph deadlock/blocker,
+- crash after effect,
+- pause/drain/cancel,
+- quota fallback,
+- loop-owned rollback,
+- stale progress packet,
+- previous task projection reconciliation.
+
+---
+
+## 10. Ölçüm ve progress karar kuralları
+
+### 10.1 Progress
+
+Bir attempt yalnız şu durumda `improved` olur:
+
+```text
+all hard guards within tolerance
+AND
+(at least one primary metric improved by minimum meaningful delta
+ OR all required targets reached)
+AND
+measurement evidence valid and externally bound
+AND
+no validator asset drift
+AND
+no prohibited effect/recovery gap
+```
+
+### 10.2 Binary test
+
+Binary test sonucu yalnız:
+
+```text
+fail (0) → pass (1)
+```
+
+delta’sında progress sayılır. `pass → pass` yeni progress değildir; ek objective gerekiyorsa
+ayrı metric tanımlanır.
+
+### 10.3 Diagnosis
+
+Yeni kök neden/diagnosis:
+
+- retry admission sağlayabilir,
+- `new-failure-diagnosis` evidence olur,
+- metric improvement değildir,
+- aynı diagnosis tekrar kullanılamaz,
+- policy’nin diagnostic patience sınırına tabidir.
+
+### 10.4 Maliyet değeri
+
+Her attempt için en az:
+
+```text
+marginal_primary_gain
+actual_tokens
+actual_cost
+elapsed_time
+context_tokens
+coordination_cost
+```
+
+izlenir. Minimum value-per-cost sınırı policy’ye bağlıdır; tek başına quality düşürmek için
+kullanılmaz.
+
+### 10.5 Ölçüm maliyeti
+
+Loop suitability için:
+
+```text
+measurement_to_action_ratio = estimated_measurement_cost / estimated_action_cost
+```
+
+hesaplanır. Ratio policy sınırını aşıyor, measurement güvenilir değil veya action geri
+alınamıyorsa loop reddedilir.
+
+---
+
+## 11. Progress packet içerik ve eleme politikası
+
+### MUST include
+
+- objective/artifact kimliği,
+- son attempt sonucu,
+- metric vector ve delta,
+- hard guard regressions,
+- kısa verifier diagnosis,
+- accepted/rejected hypothesis digest’leri,
+- patch/failure signature,
+- remaining budget,
+- next allowed focus,
+- kaynak/evidence reference’ları.
+
+### MUST NOT include
+
+- ham transcript,
+- bütün model response’ları,
+- tam test log’u,
+- tam patch body,
+- önceki bütün promptlar,
+- secret/credential/PII,
+- private reasoning,
+- gereksiz graph mesaj geçmişi.
+
+### Boyut kuralı
+
+Packet ayrı token bütçesi taşır. Bütçeye sığmayan optional evidence açık omission reason ile
+çıkarılır. Required state sığmıyorsa fail-closed olur; sessiz truncate edilmez.
+
+---
+
+## 12. Durma matrisi
+
+| Durum | Terminal/karar |
+|---|---|
+| Hedef doğrulandı | `passed` |
+| Hard guard regrese | `blocked` veya rollback + bounded retry |
+| Attempt/token/cost/deadline doldu | `budget-exhausted` |
+| Stall limit boyunca anlamlı delta yok | `no-progress` |
+| Aynı hypothesis/failure/patch tekrarlandı | `blocked` |
+| A↔B oscillation | `manual-review` |
+| Ölçüm invalid/forged/stale | `manual-review` |
+| Validator asset drift | `replan-required` |
+| Risk seviyesi yükseldi | `manual-review` |
+| Geri alınamaz effect gerekiyor | `queue-human-review` |
+| Claim var, receipt yok | `recovery-required` |
+| Kullanıcı pause/cancel | `cancelled/paused`; yeni attempt yok |
+
+Harness’in kendi timeout’u canonical stop reason yerine geçmez; yalnız son güvenlik ağıdır.
+
+---
+
+## 13. Dosya ve entegrasyon rehberi
+
+Güncel HEAD yeniden incelendikten sonra en küçük doğru değişiklik yapılmalıdır. Önerilen
+yerleşim:
+
+### Domain
+
+- `src/zekam/domain/optimization.py`
+  - generic metric/objective/evidence/progress sözleşmeleri.
+- `src/zekam/domain/loop_progress.py`
+  - progress packet, novelty, stagnation/oscillation.
+- `src/zekam/domain/execution_topology.py`
+  - pattern ve suitability/decision contract’ları.
+- `src/zekam/domain/loop_policy.py`
+  - additive v2 binding; v1 backward compatibility.
+- `src/zekam/domain/learning.py`
+  - duplicate score evaluator’ı shared optimization çekirdeğine adapter yap.
+- `src/zekam/domain/model_context_experiment.py`
+  - generic metric + scaffolding ablation reuse.
+- `src/zekam/domain/agent_graph.py`
+  - yalnız runtime evidence gerekiyorsa genişlet; TaskPlan dependency gerçeğini kopyalama.
+
+### Application
+
+- `src/zekam/application/loop_service.py`
+  - v2 validation/progress closure.
+- `src/zekam/application/loop_orchestrator.py`
+  - one-job-per-attempt durable orchestration.
+- `src/zekam/application/loop_progress_compiler.py`
+  - bounded packet compiler.
+- `src/zekam/application/topology_planner.py`
+  - direct/loop/tournament/graph/human gate seçimi.
+- `src/zekam/application/route_planner.py`
+  - topology decision ve graph feedback entegrasyonu.
+- `src/zekam/application/context_recipe.py`
+  - attempt 2+ progress packet MUST.
+- `src/zekam/application/worker.py`
+  - explicit loop-attempt handler/composition; sonsuz handler yok.
+- `src/zekam/application/observatory.py`
+  - metric/attempt/critical-path projection.
+- `src/zekam/application/client_instruction_bootstrap.py`
+  - yeni dosya üretmeden mevcut managed section'a yalnız gerekli bounded komutları ekle.
+- `src/zekam/infrastructure/storage/obsidian_projection_store.py`
+  - mevcut immutable generation + `GUNCEL_BELLEK` publish yolunu kullan; ikinci store kurma.
+
+### PostgreSQL
+
+- mevcut `loop_policy_repository.py` genişletilir,
+- ölçüm/progress/topology için additive repository eklenebilir,
+- current head’te next migration `0066` görünmektedir; uygulama anında migration discovery ile
+  next sequential number yeniden belirlenmelidir,
+- mevcut v1 tablolar drop/overwrite edilmez,
+- append-only/RLS/realm/idempotency/trigger kuralları korunur.
+
+### Schemas
+
+Önerilen yeni JSON schema’lar:
+
+```text
+optimization-objective.schema.json
+metric-spec.schema.json
+measurement-evidence.schema.json
+progress-vector.schema.json
+loop-progress-packet.schema.json
+loop-validation-v2.schema.json
+loop-suitability-assessment.schema.json
+execution-topology-decision.schema.json
+validator-asset-manifest.schema.json
+graph-execution-receipt.schema.json
+tournament-plan.schema.json
+```
+
+### CLI
+
+- plan/status varsayılan dry-run/read-only,
+- mutation `--uygula`, exact scope ve authorization,
+- JSON output strict ve schema-bound,
+- free-text authoritative değildir.
+
+---
+
+## 14. Test ve kabul matrisi
+
+### 14.1 Domain/unit
+
+1. Maximize/minimize/target/range metric delta doğru hesaplanır.
+2. Hard guard regression scalar value artsa da reddedilir.
+3. NaN/Inf/eksik metric invalid olur.
+4. Producer self-report progress sayılmaz.
+5. Yeni diagnosis retry sağlar ama improvement sayılmaz.
+6. Prompt rephrase aynı hypothesis fingerprint’ini aşamaz.
+7. Aynı patch digest tekrar kullanılamaz.
+8. No-op progress sayılmaz.
+9. Plateau stall limitinde durur.
+10. A↔B oscillation yakalanır.
+11. Packet required alanları ve token budget’i doğrulanır.
+12. Full history packet’e giremez.
+13. Suitability measurement/action ratio hesaplar.
+14. Reversible false ise loop seçilmez.
+15. Creative diversity goal tournament seçer.
+16. Tek artifact için gereksiz graph reddedilir.
+17. Graph node loop mode taşıyabilir.
+18. Validator asset manifest drift’i fail-closed olur.
+
+### 14.2 PostgreSQL/integration
+
+1. Attempt 2+ progress packet olmadan admission reddedilir.
+2. Same objective/hypothesis farklı prompt digest ile tekrar reddedilir.
+3. Metric evidence başka realm/work/plan’dan bağlanamaz.
+4. Result/verifier/measurement receipt cardinality exact olur.
+5. Builder ve validator execution identity aynı olamaz.
+6. Validator fixture değiştirilirse current attempt kapanamaz.
+7. Next-attempt enqueue idempotenttir.
+8. Terminal loop yeni job üretmez.
+9. Budget concurrency yarışında sınır aşılmaz.
+10. Crash after effect → recovery-required.
+11. Claim + receipt replay canonical sonucu döndürür.
+12. Loop-owned inverse patch kullanıcı dosyasına dokunmaz.
+13. Graph critical path deterministic hesaplanır.
+14. Actual overlap olmadan parallel receipt üretilemez.
+15. Child failure fan-in’de yutulamaz.
+16. RLS/cross-realm negative testleri geçer.
+17. Fresh DB + upgrade DB migration geçer.
+18. SQLite full measured-loop authority’ye sessiz düşmez.
+
+### 14.3 E2E
+
+1. Basit deterministic bug fix: fail→pass ve loop terminal passed.
+2. Aynı bug üç kez aynı hypothesis ile çözülmeye çalışılır: ikinci duplicate bloklanır.
+3. Benchmark climb: improve olan patch korunur; regression yalnız loop-owned patch ile geri alınır.
+4. Creative aday işi tournament’a gider.
+5. Migration/deploy/external message loop’a alınmaz; human queue oluşur.
+6. Üç bağımsız step graph’ta gerçek overlap ile çalışır.
+7. Dependency’li step predecessor bitmeden başlamaz.
+8. Graph overhead yüksekse future topology feedback simpler pattern önerir.
+9. Worker restart sonrası next attempt duplicate olmaz.
+10. Progress packet sayesinde yeni harness predecessor state’i görür.
+11. Context attempt sayısıyla sınırsız büyümez.
+12. Scaffolding with/without paired experiment kanıt üretir.
+13. Observatory/Obsidian raw transcript/secret içermez.
+14. `zekam close` güncel source/projection/receipt ile kapanır.
+
+### 14.4 Security
+
+- forged metric value/evidence,
+- prompt injection in diagnosis,
+- threshold loosening,
+- builder writes tests/fixtures,
+- self-verifier,
+- same model/execution identity on critical work,
+- path traversal/symlink escape,
+- secret/PII/raw transcript,
+- cross-realm evidence,
+- stale plan/policy/source/validator,
+- irreversible effect retry,
+- budget overflow,
+- graph resource conflict,
+- fake parallelism,
+- user-file rollback damage,
+- no-op reward gaming.
+
+### 14.5 CI politikası
+
+Aşağıdakiler yerelde zorunludur:
+
+- package validator,
+- protocol/schema generation check,
+- ruff format/check,
+- mypy,
+- unit/integration/E2E/security,
+- fresh/upgrade PostgreSQL,
 - package build/install/smoke,
-- projection determinism fixture
+- bağımsız verifier.
 
-Bu kontroller yerelde zorunlu olarak çalıştırılmalıdır. GitHub Actions tarafında mevcut
-manuel `workflow_dispatch` korunur; kullanıcı ayrıca isterse manuel CI da çalıştırılır.
-Otomatik PR/push tetikleyicisi bu görevin kabul koşulu değildir.
-
----
-
-## 12. Rollout
-
-### Gate 1 — Shadow orchestration
-
-- Hook → ledger → compiler worker çalışır.
-- Candidate üretilir; active memory değişmez.
-- Backlog, conflict ve quarantine ölçülür.
-- Provider kapalı tutulur.
-
-### Gate 2 — Projection
-
-- `private-local` ve `public-safe` build edilir.
-- Determinism/privacy/link testleri geçer.
-- Obsidian yalnız bu üretilmiş dizini açar.
-- Legacy elle yazılan bellek runtime otoritesi olmaktan çıkar.
-
-### Gate 3 — Enforced lifecycle
-
-- Session start hydration ve close receipt admission için zorunlu olur.
-- Stale projection/gap fail-closed çalışır.
-- OpenCode + ikinci harness parity geçer.
-
-### Gate 4 — Kontrollü promotion
-
-- Önce preference ve düşük riskli semantic candidate’lar.
-- Sonra failure/procedural candidate’lar bağımsız review ile.
-- Skill active etme ayrı authorization ister.
-
-### Gate 5 — Opsiyonel provider/cache
-
-- Gerçek ihtiyaç ve ölçüm varsa düşük maliyetli summarizer route’u açılır.
-- Mem0 ayrı görev ve ayrı adapter olarak değerlendirilir.
-- Native engine hiçbir aşamada Mem0’ya bağımlı olmaz.
+GitHub Actions tarafında mevcut `workflow_dispatch` korunur. Otomatik `push` veya
+`pull_request` tetikleyicisi eklenmez. Kullanıcı ayrıca isterse manuel workflow çalıştırılır.
 
 ---
 
-## 13. Rollback ve recovery
+## 15. Rollout
 
-- Feature mode exact authorization ile `enforced → shadow → disabled` alınabilir.
-- Worker job definition pause edilebilir; ledger ve receipts silinmez.
-- Obsidian projeksiyonu silinip kanonik snapshot’tan yeniden üretilebilir.
-- Eski geçerli projection manifest’i atomic rollback için tutulur.
-- Candidate’lar active’e otomatik çevrilmez; rollback’te candidate state korunabilir.
-- Active memory değişikliği overwrite edilmez; superseding/revoke revision üretilir.
-- External provider/cache devre dışı kaldığında native deterministic yol devam eder.
-- Claim var, terminal receipt yoksa iş `recovery-required` olur; sessiz retry yasaktır.
-- Git history rewrite/force-push rollback yöntemi değildir.
-- DB restore ayrı backup/restore runbook ve restore drill receipt’i ister.
+### Gate 0 — Önceki görev reconciliation
 
----
+- DB migration ve source HEAD eşleşir.
+- Eski Work/Run/receipt kapanır.
+- Root projections güncellenir.
 
-## 14. Tamamlanma ölçütleri
+### Gate 1 — Shadow metric recording
 
-Görev yalnız aşağıdakilerin tümü sağlandığında tamamlandı sayılır:
+- Mevcut loop davranışı değişmeden metric/evidence/progress vector kaydedilir.
+- Karar hâlâ v1 path’ten gelir; v1/v2 farkı gözlemlenir.
 
-- [ ] Güncel HEAD üzerinde boşluklar yeniden doğrulandı.
-- [ ] Repo-root projection stale iken close/release bloklanıyor.
-- [ ] Completed durum ile pending next-safe-action çelişkisi engelleniyor.
-- [ ] CI mevcut manuel `workflow_dispatch` modunda korundu; otomatik tetikleyici eklenmedi.
-- [ ] Tüm mutating yollar ortak lifecycle admission kapısından geçiyor.
-- [ ] Hook’lar placeholder değil, orchestrator’a bağlı.
-- [ ] Compiler event-driven enqueue + scheduled catch-up ile üretimde çalışıyor.
-- [ ] Watermark, idempotency, crash recovery ve terminal receipt E2E kanıtlandı.
-- [ ] OpenCode dışında bir gerçek harness exact lifecycle sözleşmesini geçti.
-- [ ] Obsidian `private-local` ve `public-safe` profilleri deterministik üretiliyor.
-- [ ] Obsidian dosyaları kanonik kaynak değil ve read-only/generated olarak işaretli.
-- [ ] WikiLink’ler kanonik relation/source bağlarından üretiliyor.
-- [ ] Daylog, decision, skill ve failure görünümleri oluşturuldu.
-- [ ] Skill active etmek review + exact authorization istiyor.
-- [ ] High-risk autofill guard unknown alanı boş bırakıyor ve submit’i ayrı yetkiye bağlıyor.
-- [ ] Public-safe privacy scan sıfır finding ile geçiyor.
-- [ ] Fresh DB ve upgrade DB testleri geçiyor.
-- [ ] SQLite minimum profil full authority gibi davranamıyor.
-- [ ] Full test suite ve package acceptance geçiyor.
-- [ ] Bağımsız verifier builder’dan farklı model ve execution identity ile kanıt üretti.
-- [ ] `zekam close` güncel projection/receipt üretip lease’i güvenli kapattı.
-- [ ] Repo temiz veya yalnız açıkça belgelenmiş kullanıcı değişiklikleri var.
-- [ ] Kullanıcı açıkça istemedikçe push yapılmadı.
+### Gate 2 — Progress packet enforcement
+
+- Attempt 2+ packet zorunlu olur.
+- Duplicate/plateau detector shadow’dan enforced’a geçer.
+
+### Gate 3 — Measured continuation
+
+- Next attempt yalnız v2 progress decision ile enqueue edilir.
+- No-progress ve invalid measurement terminal olur.
+
+### Gate 4 — Topology planner advisory
+
+- Direct/loop/tournament/graph/human önerisi üretilir; mevcut planla karşılaştırılır.
+- Yanlış yönlendirme oranı ölçülür.
+
+### Gate 5 — Topology enforcement
+
+- Passing eval ve bağımsız verifier sonrası topology decision admission’a bağlanır.
+
+### Gate 6 — Graph evidence ve tournament
+
+- Critical path/overlap/overhead kaydı ve tournament selector devreye girer.
+
+### Gate 7 — Scaffolding ablation
+
+- Değer üretmeyen katmanlar yalnız deprecation candidate olur.
 
 ---
 
-## 15. Yasak kısa yollar
+## 16. Rollback ve recovery
 
-- Root `AKTIF_GOREV.md` dosyasını elle düzenleyip kanonik durumu taklit etmek.
-- Obsidian’ı ayrı source-of-truth yapmak.
-- Session transcript’ini “kolay olsun” diye Markdown’a dökmek.
-- Model özetini doğrudan active memory yazmak.
-- Hook içinde uzun provider çağrısı yapmak.
-- DB transaction açıkken dış modele/Mem0’ya gitmek.
-- Idempotency yerine “aynı görünüyorsa atla” yaklaşımı kullanmak.
-- Secret/PII testlerini yalnız regex’e bırakmak.
-- Manuel CI tercihinden dolayı testleri atlamak veya doğrulama kanıtı üretmemek.
-- İkinci harness desteğini gerçek E2E olmadan ilan etmek.
-- Aynı actor/model’in procedural skill üretip kendi kendine onaylaması.
-- Public ve private projection’ı aynı manifest/sync target’a karıştırmak.
-- Bilinmeyen form alanını varsayımla doldurmak.
-- Hata sonrası history rewrite veya kullanıcı değişikliklerini silmek.
-- Mevcut worker/scheduler yerine gereksiz paralel daemon kurmak.
-- Mem0’yu canonical Work/Memory/Policy veritabanı yapmak.
+- Feature mode `disabled/shadow/enforced` olmalı; enforced geçiş exact authorization ister.
+- V1 loop path additive migration süresince korunur.
+- V2 decision problemi olursa new-attempt enqueue pause edilir; mevcut append-only evidence
+  silinmez.
+- Progress packet projection yeniden üretilebilir.
+- Topology planner enforced’dan advisory/shadow’a alınabilir.
+- Graph/tournament yeni Work gerçeği yaratmaz; TaskPlan korunur.
+- Loop-owned patch inverse receipt ile geri alınır; blanket Git rollback yapılmaz.
+- Validator asset manifest eski geçerli revision’a dönebilir; history rewrite yapılmaz.
+- Claim var, terminal receipt yoksa recovery-required; sessiz retry yok.
+- DB rollback rehearsal bounded ve ayrı kanıtlıdır.
 
 ---
 
-## 16. Uygulayıcı ajanın çalışma protokolü
+## 17. Tamamlanma ölçütleri
 
-1. Gerçek repo kökünde olduğunu doğrula.
-2. `git status --short --branch` ile kullanıcı değişikliklerini kaydet.
-3. `AGENTS.md` ve `00_BASLA.md` başlangıç protokolünü uygula.
-4. `zekam continue --project-key zekam` çalıştır; lease/checkpoint/doctor durumunu doğrula.
-5. Önce `../zekam-girdi/AKTIF_GOREV.md` dosyasını dış görev girdisi olarak oku ve doğrula.
-6. Girdi mevcut HEAD, scope, güvenlik ve aktif work state ile uyumluysa dosyayı kontrollü
-   olarak repo kökündeki `AKTIF_GOREV.md` üzerine kopyala. Problem varsa kopyalama; mevcut
-   kök görevi koru ve sorunu raporla.
-7. Kopyalama sonrasında repo kökündeki `AKTIF_GOREV.md` yaşayan aktif görev kaydıdır; iş
-   ilerledikçe bunu güncel tut. `AKTIF_GOREV.yaml`/DB state ile drift yaratma.
-8. Güncel HEAD ile baseline farkını çıkar.
-9. Her P0 boşluğu kod ve testle yeniden kanıtla; mevcut çözümü yeniden yazma.
-10. Önce test/contract, sonra en küçük doğru uygulama, sonra E2E yap.
-11. Security/privacy invariant’larını özellikten sonra değil aynı değişiklikte ekle.
-12. Migration ancak gerçek schema ihtiyacı varsa yaz.
-13. Her etkili adım için plan/claim/receipt/idempotency sözleşmesine uy.
-14. Uzak çağrıları varsayılan kapalı tut.
-15. Alakasız kullanıcı dosyalarını değiştirme, stash/reset/clean yapma.
-16. Bağımsız verifier çalıştır.
-17. Sonunda:
-    - değişen dosyaları,
-    - migration durumunu,
-    - test komutlarını ve sonuçlarını,
-    - CI durumunu,
-    - projection/receipt digest’lerini,
-    - bilinen açıkları,
-    - rollback adımlarını
-    raporla.
-18. `zekam close --project-key zekam` ile kapanışı tamamla.
-19. Açık kullanıcı yetkisi olmadan commit/push/PR oluşturma. CI otomasyonu veya GitHub
-    workflow tetikleyici değişikliği de açık kullanıcı talebi olmadan yapılmaz.
+Görev yalnız aşağıdakilerin tümü sağlandığında tamamlanır:
 
----
-
-## 17. Beklenen teslimatlar
-
-1. Memory Learning Orchestrator uygulaması.
-2. Durable compiler worker/scheduler entegrasyonu.
-3. Hook → lifecycle → compiler → candidate → projection E2E akışı.
-4. İkinci gerçek harness ve ADR.
-5. Obsidian projection generator + CLI.
-6. `private-local` ve `public-safe` profil politikaları.
-7. Daylog/decision/knowledge/skill/failure projection’ları.
-8. High-risk autofill guard.
-9. Projection freshness release gate.
-10. Manuel CI politikasının korunması ve yerel/bağımsız doğrulama kanıtları.
-11. Unit/integration/E2E/security testleri.
-12. Architecture ve operasyon dokümanları.
-13. Bağımsız verification evidence.
-14. Doğrulanmış `zekam-girdi` → kök `AKTIF_GOREV.md` handoff’u, güncel aktif görev ve close receipt.
-15. Push yapılmadığını veya ayrıca yetkilendirilmişse exact push/PR receipt’ini belirten sonuç
-    raporu.
+- [ ] Önceki Memory Learning/Obsidian implementation kanonik DB ve root projection ile uzlaştırıldı.
+- [ ] Yeni aktif görev kanonik Work/Plan/Run olarak kaydedildi.
+- [ ] Generic objective/metric/evidence/progress çekirdeği oluşturuldu.
+- [ ] `learning.evaluate_loop`, runtime LoopPolicy ve model/context experiment aynı çekirdeği kullanıyor.
+- [ ] Runtime loop v1 backward compatibility korunuyor.
+- [ ] Loop validation v2 directional metric vector taşıyor.
+- [ ] Hard guard no-regression enforced.
+- [ ] Producer self-report progress sayılmıyor.
+- [ ] Attempt 2+ bounded progress packet olmadan başlayamıyor.
+- [ ] Full history/transcript context’e yığılmıyor.
+- [ ] Prompt rephrase aynı hypothesis/patch/failure tekrarını aşamıyor.
+- [ ] No-op, plateau ve oscillation stop kapıları geçiyor.
+- [ ] Validator asset manifest immutable ve builder write scope dışında.
+- [ ] Durable worker bir job = bir attempt kuralıyla çalışıyor.
+- [ ] Next-attempt enqueue idempotent ve crash-safe.
+- [ ] Direct/single/tournament/loop/graph/human topology planner mevcut.
+- [ ] Tek artifact için gereksiz graph reddediliyor.
+- [ ] Geri alınamaz effect queue-human-review’a yönleniyor.
+- [ ] Graph gerçek critical path/overlap/coordination evidence üretiyor.
+- [ ] Fake parallelism raporlanamıyor.
+- [ ] Tournament candidate isolation ve independent selector geçiyor.
+- [ ] İyileşmeyen attempt yalnız loop-owned patch’i geri alıyor.
+- [ ] Scaffolding ablation paired evidence üretiyor.
+- [ ] Observatory/Obsidian metric ve stop reason görünümü üretiyor.
+- [ ] Projection mevcut immutable generation store ve sabit `GUNCEL_BELLEK` yolunu kullanıyor.
+- [ ] Otomatik stable-vault publish varsa exact projection receipt/idempotency ile bağlı.
+- [ ] Secret/PII/raw transcript hiçbir projection/evidence’e sızmıyor.
+- [ ] Fresh DB, upgrade DB, full local quality ve security testleri geçiyor.
+- [ ] Bağımsız verifier builder’dan farklı model ve execution identity ile onaylıyor.
+- [ ] CI manuel `workflow_dispatch` olarak kaldı; otomatik tetikleyici eklenmedi.
+- [ ] Kullanıcı açıkça istemedikçe commit/push/PR oluşturulmadı.
+- [ ] `zekam close` güncel projection/receipt ile işi güvenli kapattı.
 
 ---
 
-## 18. Kısa yürütme promptu
+## 18. Yasak kısa yollar
+
+- Yeni ve mevcut loop semantiğini paralel iki ayrı engine olarak bırakmak.
+- `while true` ile worker handler içinde dönmek.
+- Modelin “ilerledim” beyanını score yapmak.
+- Sadece passed/failed taşıyıp metric yönünü saklamamak.
+- Bütün geçmişi her attempt’e yüklemek.
+- Prompt değişti diye aynı hypothesis’i yeni saymak.
+- New evidence’i otomatik improvement saymak.
+- Builder’a test/fixture/threshold değiştirme izni vermek.
+- Tek artifact için ajan sayısını artırıp graph demek.
+- Creative işi self-scoring loop’a sokmak.
+- Deploy/migration/message/submit effect’ini loop içinde retry etmek.
+- Graph paralelliğini ajan sayısıyla raporlamak.
+- Child failure’ı fan-in’de yutmak.
+- İyileşmeyen attempt için kullanıcı worktree’sini resetlemek.
+- Ablation olmadan “artık gereksiz” diye koruma katmanını silmek.
+- Mevcut client bootstrap veya `GUNCEL_BELLEK` yanında ikinci bir bootstrap/vault yolu kurmak.
+- Otomatik GitHub CI açmak.
+- Kullanıcı onayı olmadan commit/push/PR oluşturmak.
+
+---
+
+## 19. Uygulayıcı ajanın çalışma protokolü
+
+1. Gerçek repo kökünü doğrula.
+2. `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, manifest ve policy dosyalarını oku.
+3. Git/HEAD/migration/doctor/lease/claim/receipt/recovery durumunu çıkar.
+4. Önce `../zekam-girdi/AKTIF_GOREV.md` dosyasını doğrula.
+5. Önceki aktif görevin source implementation + canonical DB/projection close parity’sini tamamla.
+6. Problem yoksa bu dosyayı kök `AKTIF_GOREV.md` üzerine kopyala ve yaşayan aktif görev yap.
+7. Kanonik Work/Intent/Plan oluştur; Markdown’dan authority türetme.
+8. Güncel kod üzerinde gap analysis yap; çözülmüş parçaları yeniden yazma.
+9. Yeni paralel loop/graph store kurma; mevcut `LoopPolicy`, `TaskPlan`, `RoutePlanner`,
+   `learning` ve experiment altyapısını konsolide et.
+10. Önce contract/schema/test, sonra en küçük additive implementation yap.
+11. Her migration için fresh, upgrade ve bounded rollback rehearsal yap.
+12. Her effect için claim/receipt/idempotency/recovery kurallarına uy.
+13. Uzak model/provider çağrılarını varsayılan kapalı tut.
+14. Local testleri ve bağımsız verifier’ı çalıştır.
+15. GitHub CI manual kalsın; kullanıcı açıkça istemedikçe workflow tetikleme/değiştirme.
+16. Kullanıcı dosyalarını koru; blanket reset/clean/stash yapma.
+17. Kök `AKTIF_GOREV.md` görev ilerledikçe güncel tutulur; DB/YAML projection ile drift
+    görünür ve kapanışta uzlaştırılır.
+18. Sonuçta değişen dosya, schema/migration, test, metric, projection, receipt, risk ve
+    rollback kanıtlarını raporla.
+19. `zekam close --project-key zekam` ile kapanışı tamamla.
+20. Açık kullanıcı yetkisi olmadan commit/push/PR oluşturma.
+
+---
+
+## 20. Beklenen teslimatlar
+
+1. Önceki görev parity/reconciliation receipt’i.
+2. Generic optimization objective/metric/evidence/progress domain’i.
+3. Measured LoopPolicy v2 ve PostgreSQL persistence.
+4. LoopProgressPacket compiler ve context integration.
+5. Rephrase-proof novelty/stagnation/oscillation gate’leri.
+6. ValidatorAssetManifest ve builder write isolation.
+7. Durable one-attempt-per-job loop orchestrator.
+8. ExecutionTopology suitability planner.
+9. TaskPlan/RoutePlanner graph execution evidence.
+10. Tournament pattern ve independent selector.
+11. Loop-owned reversible change-set/rollback receipt’i.
+12. Scaffolding ablation campaign entegrasyonu.
+13. CLI/Observatory/Obsidian projections ve mevcut `GUNCEL_BELLEK` publish entegrasyonu.
+14. Unit/integration/E2E/security testleri.
+15. Architecture/threat model/runbook belgeleri.
+16. Bağımsız verification evidence.
+17. Güncel root `AKTIF_GOREV.md` + kanonik Work/YAML projection + close receipt.
+18. CI’nin manuel kaldığı ve push yapılmadığına ilişkin sonuç kaydı.
+
+---
+
+## 21. Kısa uygulama promptu
 
 ```text
-Zekam repo kökünde çalış. AGENTS.md ve 00_BASLA.md başlangıç protokolünü uygula;
-git/lease/checkpoint/doctor durumunu doğrula. Önce ../zekam-girdi/AKTIF_GOREV.md
-dosyasını oku ve güncel HEAD, scope, güvenlik ve aktif work state ile doğrula. Problem
-yoksa bu dosyayı kontrollü olarak repo kökündeki AKTIF_GOREV.md üzerine kopyala ve bundan
-sonra kökteki AKTIF_GOREV.md dosyasını yaşayan/güncel aktif görev olarak tut; problem
-varsa kökteki mevcut görevin üzerine yazma ve problemi raporla. Mevcut Memory Continuity
-Plane’i yeniden yazmadan hook → immutable lifecycle ledger → durable compiler worker →
-candidate/review/promotion → deterministik Obsidian projection → bounded hydration
-döngüsünü tamamla. PostgreSQL tek otorite, Obsidian salt okunur projeksiyon, model çıktısı
-yalnız candidate, remote calls varsayılan kapalı olsun. Stale projection close/release’i
-bloklasın ve OpenCode yanında ikinci gerçek harness E2E geçsin. CI mevcut manuel
-workflow_dispatch modunda kalsın; pull_request/push otomatik CI tetikleyicilerini ben
-açıkça istemedikçe etkinleştirme. Secret, PII ve raw transcript’i projection/Git’e
-çıkarma; high-risk alanlarda kaynaksız değeri boş bırak ve submit’i ayrı exact yetkiye
-bağla. Tüm yerel testleri, bağımsız verifier’ı ve zekam close kapanışını çalıştır; ben
-açıkça yetkilendirmedikçe commit/push/PR oluşturma.
+Zekam repo kökünde çalış. AGENTS.md, 00_BASLA.md ve DEVAM_PROTOKOLU.md başlangıç
+kurallarını uygula; git/HEAD/migration/doctor/lease/claim/receipt/recovery durumunu
+doğrula. Önce ../zekam-girdi/AKTIF_GOREV.md dosyasını oku. Önceki Memory
+Learning/Obsidian görevinin kaynak kodu main’de uygulanmış olsa da root AKTIF_GOREV.yaml
+eski source/migration bilgisi taşıyorsa önce kanonik PostgreSQL Work/Run/receipt ve root
+projection parity’sini tamamla. Problem yoksa dış görev dosyasını kontrollü biçimde kök
+AKTIF_GOREV.md üzerine kopyala ve bundan sonra kökteki dosyayı yaşayan/güncel aktif görev
+olarak tut; problem varsa mevcut görevin üzerine yazma.
+
+Yeni paralel bir loop veya graph engine kurma. Mevcut LoopPolicy/runtime.loop_*,
+BoundedLoopExecutor, learning.evaluate_loop, model/context experiment, TaskPlan DAG,
+RoutePlanner, AgentGraph ve worker/queue altyapısını konsolide ederek ölçümlü yürütme
+düzlemini uygula. Her loop stable objective, dış ve immutable directional metric vector,
+frozen validator assets, rephrase-proof hypothesis/patch/failure fingerprint, bounded
+LoopProgressPacket, no-op/plateau/oscillation stop kapıları ve one-job-per-attempt durable
+orchestration kullansın. Yeni evidence retry hakkı verebilir ama ölçülmüş progress sayılmasın.
+
+İş için önce topology suitability üret: tek işte direct/single, ölçümü ucuz ve reversible
+aynı artifact’ta bounded-loop, yaratıcı çeşitlilikte tournament, gerçek farklı deliverable
+ve dependency’de graph, geri alınamaz/high-risk effect’te queue-human-review seç. Graph
+TaskPlan gerçeğini kopyalamasın; gerçek critical path, wait, overlap, coordination cost ve
+fan-in receipt’i üretsin. Builder test/fixture/metric/threshold asset’lerini değiştiremesin;
+regression yalnız loop-owned inverse patch ile geri alınsın, kullanıcı değişiklikleri
+korunsun. Scaffolding yalnız paired ablation kanıtıyla deprecation adayı olsun. Mevcut
+managed client instruction bootstrap ve immutable generationdan üretilen `GUNCEL_BELLEK`
+yolunu yeniden kullan; ikinci bootstrap/vault/store kurma, otomatik publish'i exact
+projection receipt ve idempotency'ye bağla.
+
+PostgreSQL tek otorite, model self-report authority/progress değil, raw transcript/secret/PII
+yasak, remote calls varsayılan kapalı olsun. Tüm yerel quality, fresh/upgrade DB,
+unit/integration/E2E/security testlerini ve builder’dan farklı model+execution identity’ye
+sahip bağımsız verifier’ı çalıştır. GitHub Actions workflow_dispatch olarak manuel kalsın;
+ben açıkça istemedikçe otomatik CI tetikleyicisi, commit, push veya PR oluşturma. Sonunda
+root task/projection’ı kanonik state ile uzlaştırıp zekam close ile receipt-bound kapanış yap.
 ```
