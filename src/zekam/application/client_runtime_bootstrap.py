@@ -970,6 +970,7 @@ class ClaimedLifecycleBootstrapService:
                         "schema": "zekam-codex-lifecycle-job/v1",
                         "authorization_id": str(lifecycle_authorization.id),
                         "hydration_authorization_id": str(hydration_authorization.id),
+                        "lifecycle_plan_body": lifecycle_plan.body(),
                     },
                     now=now,
                 ),

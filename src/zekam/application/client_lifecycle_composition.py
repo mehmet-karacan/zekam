@@ -519,6 +519,14 @@ def compose_codex_lifecycle_handler(
                     "schema",
                     "authorization_id",
                     "hydration_authorization_id",
+                    "lifecycle_plan_body",
+                }
+            ),
+            frozenset(
+                {
+                    "schema",
+                    "authorization_id",
+                    "hydration_authorization_id",
                     "bootstrap_parent_job_id",
                     "context_manifest_id",
                     "context_manifest_digest",
@@ -617,17 +625,32 @@ def compose_codex_lifecycle_handler(
             migration_digest=inputs.migration_digest,
         )
         authorization = authorizations.get(authorization_id)
+        planned_body = payload.get("lifecycle_plan_body")
+        if planned_body is not None and (
+            not isinstance(planned_body, dict)
+            or digest(planned_body) != authorization.plan_digest
+        ):
+            raise PolicyViolation("Codex lifecycle stored plan body authorization drift")
         if (
             authorization.work_item_id != work.job.work_item_id
             or authorization.plan_id != work.job.plan_id
             or authorization.plan_digest != plan.plan_digest
             or authorization.effect_digest != plan.effect_digest
         ):
+            drift_fields = (
+                []
+                if not isinstance(planned_body, dict)
+                else sorted(
+                    key
+                    for key in set(planned_body) | set(plan.body())
+                    if planned_body.get(key) != plan.body().get(key)
+                )
+            )
             raise PolicyViolation(
                 "Codex lifecycle pre-issued authorization exact plan drift: "
                 f"authorized_plan={authorization.plan_digest}, current_plan={plan.plan_digest}, "
                 f"authorized_effect={authorization.effect_digest}, "
-                f"current_effect={plan.effect_digest}"
+                f"current_effect={plan.effect_digest}, drift_fields={drift_fields}"
             )
         host = ExecutionHost(connection, realm_id, worker_label=work.lease.worker_label)
         claim = host.claim_effect(
