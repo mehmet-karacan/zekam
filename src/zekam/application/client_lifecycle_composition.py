@@ -665,7 +665,8 @@ def compose_codex_lifecycle_handler(
             idempotency_key=f"{entry.delivery_id}:job:{work.job.id}",
         )
         session_binding_id = hook_store.start_session(
-            session_ref=f"codex:{entry.session_id}:{entry.entry_digest}"
+            session_ref=f"codex:{entry.session_id}:{entry.entry_digest}",
+            reuse_existing=True,
         )
         result = drain_claimed_codex_delivery(
             spool=spool,
