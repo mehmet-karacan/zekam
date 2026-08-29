@@ -520,9 +520,8 @@ class ClaimedLifecycleBootstrapService:
         if (
             len(pending) != 1
             or pending[0].entry_digest != entry_digest
-            or pending[0].internal_event_type != "session_start"
         ):
-            raise PolicyViolation("Lifecycle bootstrap exact SessionStart spool head ister")
+            raise PolicyViolation("Lifecycle bootstrap exact spool head ister")
         entry = pending[0]
         try:
             context_created_at = dt.datetime.fromisoformat(str(payload["context_created_at"]))
@@ -930,23 +929,32 @@ class ClaimedLifecycleBootstrapService:
             lifetime=dt.timedelta(minutes=10),
             now=now,
         )
-        hydration_authorization = Authorization.issue(
-            realm_id=self.realm_id,
-            actor_id=parent_authorization.actor_id,
-            work_item_id=job.work_item_id,
-            plan_id=job.plan_id,
-            plan_digest=hydration_plan.plan_digest,
-            effect_digest=hydration_plan.effect_digest,
-            scope=AuthorizationScope(
-                allowed_resources=(hydration_plan.resource,),
-                allowed_effects=("database-write",),
-            ),
-            risk="high",
-            lifetime=dt.timedelta(minutes=10),
-            now=now,
-        )
         authorizations.issue(lifecycle_authorization)
-        authorizations.issue(hydration_authorization)
+        hydration_authorization = None
+        if hydration_plan is not None:
+            hydration_authorization = Authorization.issue(
+                realm_id=self.realm_id,
+                actor_id=parent_authorization.actor_id,
+                work_item_id=job.work_item_id,
+                plan_id=job.plan_id,
+                plan_digest=hydration_plan.plan_digest,
+                effect_digest=hydration_plan.effect_digest,
+                scope=AuthorizationScope(
+                    allowed_resources=(hydration_plan.resource,),
+                    allowed_effects=("database-write",),
+                ),
+                risk="high",
+                lifetime=dt.timedelta(minutes=10),
+                now=now,
+            )
+            authorizations.issue(hydration_authorization)
+        child_payload = {
+            "schema": "zekam-codex-lifecycle-job/v1",
+            "authorization_id": str(lifecycle_authorization.id),
+            "lifecycle_plan_body": lifecycle_plan.body(),
+        }
+        if hydration_authorization is not None:
+            child_payload["hydration_authorization_id"] = str(hydration_authorization.id)
         child, child_created = JobRepository(self.connection, self.realm_id).enqueue(
             replace(
                 Job.create(
@@ -966,12 +974,7 @@ class ClaimedLifecycleBootstrapService:
                     step_id=_LIFECYCLE_STEP_ID,
                     assignment_id=child_assignment_id,
                     run_id=job.run_id,
-                    payload={
-                        "schema": "zekam-codex-lifecycle-job/v1",
-                        "authorization_id": str(lifecycle_authorization.id),
-                        "hydration_authorization_id": str(hydration_authorization.id),
-                        "lifecycle_plan_body": lifecycle_plan.body(),
-                    },
+                    payload=child_payload,
                     now=now,
                 ),
                 id=child_job_id,
@@ -990,7 +993,9 @@ class ClaimedLifecycleBootstrapService:
             "child_assignment_id": str(child_assignment_id),
             "child_job_id": str(child.id),
             "lifecycle_authorization_id": str(lifecycle_authorization.id),
-            "hydration_authorization_id": str(hydration_authorization.id),
+            "hydration_authorization_id": (
+                None if hydration_authorization is None else str(hydration_authorization.id)
+            ),
             "template_digest": digest(
                 {name: getattr(template, name) for name in template.__dataclass_fields__}
             ),
@@ -1078,7 +1083,7 @@ class ClaimedLifecycleBootstrapService:
         policy_digest: str,
         packet: ContextPacket,
         now: dt.datetime,
-    ) -> tuple[Any, Any]:
+    ) -> tuple[Any, Any | None]:
         if job.work_item_id is None or job.plan_id is None or job.run_id is None:
             raise PolicyViolation("Lifecycle child plan parent identity eksik")
         runtime = HookRuntime(max_workers=1)
@@ -1147,6 +1152,8 @@ class ClaimedLifecycleBootstrapService:
             policy_digest=policy_digest,
             migration_digest=migration_digest,
         )
+        if entry.internal_event_type != "session_start":
+            return lifecycle_plan, None
         inventory = continuity.preview_hydration_inventory(
             project_id=job.project_id,
             work_item_id=job.work_item_id,

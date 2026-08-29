@@ -514,6 +514,7 @@ def compose_codex_lifecycle_handler(
         allowed_payload_keys = {
             frozenset({"schema", "authorization_id"}),
             frozenset({"schema", "authorization_id", "hydration_authorization_id"}),
+            frozenset({"schema", "authorization_id", "lifecycle_plan_body"}),
             frozenset(
                 {
                     "schema",

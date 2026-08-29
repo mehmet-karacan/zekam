@@ -207,13 +207,13 @@ def client_runtime_bootstrap_command(
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
-    """Pending Codex SessionStart icin effect-free governed runtime kurar."""
+    """Pending Codex lifecycle olayi icin effect-free governed runtime kurar."""
 
     try:
         spool = ClientLifecycleSpool(resolve_home(home), client_id="codex")
         pending = spool.pending(limit=1)
-        if not pending or pending[0].internal_event_type != "session_start":
-            raise ValidationFailed("Pending Codex SessionStart spool head bulunamadi")
+        if not pending:
+            raise ValidationFailed("Pending Codex lifecycle spool head bulunamadi")
         entry = pending[0]
         source_revision = _bootstrap_source_revision(home)
         with RealmSession(home, realm) as realm_context:
