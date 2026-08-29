@@ -1,104 +1,49 @@
 (() => {
   "use strict";
 
-  const canvas = document.getElementById("brain-canvas");
-  const context = canvas.getContext("2d", { alpha: true });
-  const wrap = document.getElementById("brain-wrap");
-  const search = document.getElementById("graph-search");
+  const snapshotSchema = "zekam-observatory-snapshot/v3";
+  const liveStates = new Set(["live", "waiting", "unbound"]);
+  const dangerousStates = new Set(["recovery-required", "receiptless", "completed-unbound", "blocked", "expired"]);
+  const clientLabels = { opencode: "OpenCode", codex: "Codex", claude: "Claude", zekam: "Zekam CLI" };
+  const safeActionLabels = { unknown: "Bilinmiyor", planning: "Planlıyor", executing: "Yürütüyor", tool: "Tool çalışıyor", waiting: "Bekliyor" };
+  const anchors = { opencode: [0.18, 0.28], codex: [0.22, 0.73], claude: [0.52, 0.23], zekam: [0.54, 0.72], runtime: [0.80, 0.50] };
+  const colors = { live: "#ffc15a", waiting: "#ff941f", unbound: "#a76f32", stale: "#665c50", danger: "#f03a2f", runtime: "#d88a2c" };
+
+  const canvas = document.getElementById("execution-canvas");
+  const context = canvas.getContext?.("2d") || null;
+  const graphStage = document.getElementById("graph-stage");
+  const fallback = document.getElementById("graph-fallback");
+  const searchInput = document.getElementById("search-input");
+  const clientFilter = document.getElementById("client-filter");
+  const stateFilter = document.getElementById("state-filter");
+  const projectFilter = document.getElementById("project-filter");
   const motionToggle = document.getElementById("motion-toggle");
-  const recenterButton = document.getElementById("recenter-button");
-  const liveNetworkToggle = document.getElementById("live-network-toggle");
-  const shell = document.querySelector(".shell");
-  const brainStage = document.querySelector(".brain-stage");
-  const workspace = document.querySelector(".workspace");
+  const viewToggle = document.getElementById("view-toggle");
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   const state = {
     snapshot: null,
+    structure: null,
+    telemetry: null,
     nodes: [],
     edges: [],
-    nodeMap: new Map(),
     positions: new Map(),
-    selected: null,
-    hovered: null,
-    focus: "all",
-    liveMode: false,
-    liveNodeIds: new Set(),
-    activeNodeIds: new Set(),
+    nodeMap: new Map(),
     query: "",
-    paused: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    connected: false,
-    source: null,
-    pollTimer: null,
-    lastFrame: 0,
-    time: 0,
-    dpr: 1,
+    client: "all",
+    status: "all",
+    project: "all",
+    paused: reducedMotion.matches,
+    listMode: !context,
+    hovered: null,
+    selected: null,
     width: 0,
     height: 0,
-    pointer: { x: 0, y: 0 },
+    time: 0,
+    structureDigest: "",
+    telemetryDigest: "",
+    pollingTimer: null,
   };
-
-  const palette = {
-    system: "#b6ffe7",
-    "runtime-root": "#76ffd0",
-    "runtime-cluster": "#83f8d2",
-    "document-cluster": "#83a79d",
-    work: "#76ffd0",
-    job: "#9fffe0",
-    agent: "#ffce73",
-    "agent-session": "#72ddff",
-    client: "#ffffff",
-    tool: "#76ffd0",
-    model: "#8de9ff",
-    knowledge: "#62e8ff",
-    memory: "#c7a3ff",
-    scheduler: "#ffce73",
-    report: "#ff9cc3",
-    document: "#86a9a0",
-  };
-
-  const clusterCenters = {
-    system: [0.50, 0.50],
-    "runtime-root": [0.50, 0.64],
-    work: [0.25, 0.38],
-    run: [0.50, 0.27],
-    client: [0.50, 0.14],
-    model: [0.77, 0.19],
-    knowledge: [0.82, 0.52],
-    memory: [0.82, 0.69],
-    scheduler: [0.39, 0.83],
-    reports: [0.17, 0.52],
-    architecture: [0.20, 0.20],
-    operations: [0.43, 0.17],
-    contracts: [0.82, 0.32],
-    docs: [0.60, 0.79],
-    core: [0.24, 0.72],
-  };
-
-  const clusterRadiusCaps = {
-    work: 0.09, run: 0.11, model: 0.08, knowledge: 0.085, memory: 0.08,
-    scheduler: 0.07, reports: 0.09, architecture: 0.08, operations: 0.075,
-    contracts: 0.08, docs: 0.13, core: 0.09,
-  };
-
-  const domainPalette = {
-    system: "#b6ffe7", "runtime-root": "#76ffd0", work: "#76ffd0",
-    run: "#72ddff", model: "#8de9ff", knowledge: "#62e8ff",
-    memory: "#c7a3ff", scheduler: "#ffce73", reports: "#ff9cc3",
-    architecture: "#8ed7c5", operations: "#7be7c7", contracts: "#8db8ff",
-    docs: "#86a9a0", core: "#83a79d",
-  };
-
-  const domainLabels = {
-    work: "İŞLER", run: "ÇALIŞMA AĞI", model: "MODELLER", knowledge: "BİLGİ",
-    memory: "BELLEK", scheduler: "ZAMANLAYICI", reports: "RAPOR VE KANIT",
-    architecture: "MİMARİ", operations: "OPERASYON", contracts: "SÖZLEŞMELER",
-    docs: "BELGELER", core: "KANONİK ÇEKİRDEK",
-  };
-
-  function colorWithAlpha(color, alpha) {
-    const value = color.replace("#", "");
-    return `rgba(${Number.parseInt(value.slice(0, 2), 16)},${Number.parseInt(value.slice(2, 4), 16)},${Number.parseInt(value.slice(4, 6), 16)},${alpha})`;
-  }
 
   function hash(value) {
     let result = 2166136261;
@@ -109,974 +54,406 @@
     return result >>> 0;
   }
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+  function shortId(value) {
+    if (!value) return "—";
+    const text = String(value);
+    return text.length <= 12 ? text : `${text.slice(0, 7)}…${text.slice(-4)}`;
   }
 
-  function fmtTime(value, withSeconds = true) {
+  function fmtTime(value) {
     if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
-    return new Intl.DateTimeFormat("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: withSeconds ? "2-digit" : undefined,
-      hour12: false,
-    }).format(date);
+    return new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date);
   }
 
-  function relativeTime(value) {
-    if (!value) return "—";
-    const delta = Date.now() - new Date(value).getTime();
-    if (!Number.isFinite(delta)) return "—";
-    const seconds = Math.max(0, Math.round(delta / 1000));
-    if (seconds < 60) return `${seconds} sn önce`;
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `${minutes} dk önce`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `${hours} sa önce`;
-    return `${Math.round(hours / 24)} gün önce`;
-  }
-
-  function elapsedTime(value) {
+  function fmtAge(value) {
     if (!value) return "—";
     const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
-    if (!Number.isFinite(seconds)) return "—";
     if (seconds < 60) return `${seconds} sn`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} dk ${seconds % 60} sn`;
-    return `${Math.floor(seconds / 3600)} sa ${Math.floor((seconds % 3600) / 60)} dk`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} dk`;
+    return `${Math.floor(seconds / 3600)} sa`;
   }
 
-  function setConnection(mode, label) {
-    const status = document.getElementById("live-status");
-    const stream = document.getElementById("stream-state");
-    const liveLabel = document.getElementById("live-label");
-    status.classList.remove("is-live", "is-error", "is-connecting");
-    status.classList.add(mode === "live" ? "is-live" : mode === "error" ? "is-error" : "is-connecting");
-    liveLabel.textContent = label;
-    stream.textContent = mode === "live" ? "SSE canlı" : mode === "error" ? "polling" : "bağlanıyor";
-    state.connected = mode === "live";
+  function text(element, value) {
+    element.textContent = value == null ? "—" : String(value);
   }
 
-  function tileGlyph(key) {
-    return { work: "◇", run: "◉", model: "△", knowledge: "⌁", memory: "∞", scheduler: "◷" }[key] || "·";
+  function setConnection(kind, label) {
+    const target = document.getElementById("connection-state");
+    target.className = `status-chip is-${kind}`;
+    target.lastChild.textContent = ` ${label}`;
   }
 
-  function renderTiles(tiles) {
-    const target = document.getElementById("tile-grid");
-    const runtimeAvailable = Boolean(state.snapshot?.runtime?.available);
-    const visibleTiles = (tiles || []).filter((tile) => runtimeAvailable || Number(tile.value || 0) > 0);
-    target.hidden = visibleTiles.length === 0;
-    target.innerHTML = visibleTiles.map((tile) => `
-      <article class="metric-tile" data-key="${escapeHtml(tile.key)}">
-        <div class="metric-top"><span>${escapeHtml(tile.title)}</span><span class="metric-glyph">${tileGlyph(tile.key)}</span></div>
-        <strong>${Number(tile.value || 0).toLocaleString("tr-TR")}</strong>
-        <small title="${escapeHtml(tile.drill_down)}">${escapeHtml(tile.detail || tile.drill_down)}</small>
-      </article>
-    `).join("");
+  function currentAgents() {
+    return state.telemetry?.agents || state.snapshot?.agents || [];
   }
 
-  function renderAgents(agents) {
-    const list = document.getElementById("agent-list");
-    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const allRows = [...(agents || [])];
-    const byId = new Map(allRows.map((agent) => [agent.agent_id, agent]));
-    const visibleIds = new Set(allRows.filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
-    for (const agent of allRows) {
-      if (!visibleIds.has(agent.agent_id)) continue;
-      let parent = agent.parent_agent_id;
-      while (parent && byId.has(parent)) {
-        visibleIds.add(parent);
-        parent = byId.get(parent).parent_agent_id;
+  function currentEvents() {
+    return state.telemetry?.events || state.snapshot?.events || [];
+  }
+
+  function currentCanonical() {
+    return state.structure?.canonical_runtime || state.snapshot?.canonical_runtime || { entities: [], contradictions: [], available: false };
+  }
+
+  function matchesFilters(item) {
+    if (state.client !== "all" && item.client && item.client !== state.client) return false;
+    const itemState = item.availability || item.state || "unknown";
+    if (state.status !== "all" && itemState !== state.status) return false;
+    if (state.project !== "all" && item.project_id !== state.project) return false;
+    if (!state.query) return true;
+    const haystack = [item.label, item.client, item.state, item.availability, item.current_action, item.kind, item.entity_id, item.work_item_id, item.job_id]
+      .filter(Boolean).join(" ").toLocaleLowerCase("tr-TR");
+    return haystack.includes(state.query);
+  }
+
+  function updateProjectFilter() {
+    const values = new Set();
+    for (const agent of currentAgents()) if (agent.project_id) values.add(agent.project_id);
+    for (const entity of currentCanonical().entities || []) if (entity.project_id) values.add(entity.project_id);
+    const current = projectFilter.value;
+    projectFilter.replaceChildren(new Option("Tüm projeler", "all"));
+    for (const value of [...values].sort()) projectFilter.append(new Option(shortId(value), value));
+    projectFilter.value = values.has(current) ? current : "all";
+    state.project = projectFilter.value;
+  }
+
+  function renderMetrics() {
+    const agents = currentAgents();
+    const canonical = currentCanonical();
+    const openProcessIds = new Set(agents.filter((item) => item.process_id && liveStates.has(item.availability)).map((item) => item.process_id));
+    const liveSessions = agents.filter((item) => item.session_id && item.process_id && ["live", "waiting"].includes(item.availability)).length;
+    const activeAgents = (canonical.entities || []).filter((item) => item.kind.startsWith("agent-") && item.state === "active").length;
+    const runningTools = agents.filter((item) => item.current_action === "tool" && item.process_id).length;
+    const recovery = (canonical.contradictions || []).filter((item) => item.state === "recovery-required").length + (canonical.entities || []).filter((item) => item.state === "recovery-required").length;
+    const receiptless = (canonical.entities || []).filter((item) => item.kind === "claim" && item.state === "receiptless").length;
+    const values = { "open-cli": openProcessIds.size, "live-session": liveSessions, "active-agent": activeAgents, "running-tool": runningTools, recovery, receiptless };
+    for (const [key, value] of Object.entries(values)) text(document.querySelector(`[data-metric="${key}"] strong`), value);
+  }
+
+  function stateLabel(value) {
+    const labels = { live: "CANLI", waiting: "BEKLİYOR", stale: "STALE", unbound: "UNBOUND", "recovery-required": "RECOVERY", blocked: "BLOKLU", completed: "TAMAMLANDI", "completed-unbound": "KANITSIZ" };
+    return labels[value] || String(value || "BİLİNMİYOR").toLocaleUpperCase("tr-TR");
+  }
+
+  function renderSessionCards() {
+    const target = document.getElementById("session-cards");
+    const roots = currentAgents().filter((item) => item.process_id && liveStates.has(item.availability) && matchesFilters(item));
+    target.replaceChildren();
+    for (const agent of roots) {
+      const card = document.createElement("article");
+      card.className = "session-card";
+      card.dataset.state = agent.availability;
+      card.tabIndex = 0;
+      const header = document.createElement("header");
+      const title = document.createElement("h3");
+      text(title, clientLabels[agent.client] || agent.client);
+      const status = document.createElement("span");
+      status.className = "state";
+      text(status, stateLabel(agent.availability));
+      header.append(title, status);
+      const facts = document.createElement("dl");
+      const rows = [
+        ["Process", shortId(agent.process_id)],
+        ["Session", agent.session_id ? shortId(agent.session_id) : "eşleşmedi"],
+        ["Bağ güveni", agent.binding_confidence],
+        ["Aksiyon", safeActionLabels[agent.current_action] || "Bilinmiyor"],
+        ["OS durumu", agent.process_status || "unknown"],
+        ["Yaş", fmtAge(agent.started_at)],
+      ];
+      for (const [label, value] of rows) {
+        const row = document.createElement("div");
+        const dt = document.createElement("dt"); const dd = document.createElement("dd");
+        text(dt, label); text(dd, value); row.append(dt, dd); facts.append(row);
+      }
+      card.append(header, facts);
+      card.addEventListener("click", () => openDetail(agent, "CLI / SESSION"));
+      card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") openDetail(agent, "CLI / SESSION"); });
+      target.append(card);
+    }
+    text(document.getElementById("root-process-count"), `${roots.length} CLI`);
+    if (!roots.length) {
+      const empty = document.createElement("p"); empty.className = "empty-state"; text(empty, "Filtreye uyan açık root CLI yok."); target.append(empty);
+    }
+  }
+
+  function renderRegistry() {
+    const target = document.getElementById("session-registry");
+    const rows = currentAgents().filter((item) => item.session_id && matchesFilters(item));
+    target.replaceChildren();
+    for (const agent of rows.slice(0, 64)) {
+      const tr = document.createElement("tr");
+      const values = [clientLabels[agent.client] || agent.client, stateLabel(agent.availability), agent.binding_confidence, safeActionLabels[agent.current_action] || "Bilinmiyor", fmtAge(agent.heartbeat_at)];
+      for (const [index, value] of values.entries()) { const td = document.createElement("td"); if (index === 1) td.className = "state-mark"; text(td, value); tr.append(td); }
+      tr.addEventListener("click", () => openDetail(agent, "SESSION"));
+      target.append(tr);
+    }
+    text(document.getElementById("session-total"), rows.length);
+  }
+
+  function renderEvents() {
+    const target = document.getElementById("event-feed");
+    const rows = currentEvents().filter((item) => state.client === "all" || item.source === state.client).slice(0, 48);
+    target.replaceChildren();
+    for (const event of rows) {
+      const li = document.createElement("li"); const strong = document.createElement("strong"); const meta = document.createElement("span");
+      text(strong, event.event_type); text(meta, `${event.source} · ${fmtTime(event.occurred_at)} · ${shortId(event.job_id || event.agent_id)}`);
+      li.append(strong, meta); li.addEventListener("click", () => openDetail(event, "OLAY")); target.append(li);
+    }
+    text(document.getElementById("event-total"), rows.length);
+  }
+
+  function renderRuntimeChain() {
+    const target = document.getElementById("runtime-chain");
+    const canonical = currentCanonical();
+    const acceptedKinds = new Set(["job", "attempt", "lease", "claim", "receipt"]);
+    const rows = (canonical.entities || []).filter((item) => (acceptedKinds.has(item.kind) || item.kind.startsWith("agent-")) && matchesFilters(item)).slice(0, 48);
+    target.replaceChildren();
+    for (const entity of rows) {
+      const row = document.createElement("button"); row.type = "button"; row.className = `chain-row${dangerousStates.has(entity.state) ? " is-danger" : ""}`;
+      const kind = document.createElement("span"); kind.className = "kind"; text(kind, entity.kind);
+      const id = document.createElement("span"); id.className = "id"; text(id, shortId(entity.entity_id));
+      const status = document.createElement("span"); status.className = "chain-state"; text(status, stateLabel(entity.state));
+      row.append(kind, id, status); row.addEventListener("click", () => openDetail(entity, "KANONİK RUNTIME")); target.append(row);
+    }
+    text(document.getElementById("contradiction-total"), (canonical.contradictions || []).length);
+  }
+
+  function renderResources() {
+    const target = document.getElementById("resource-bars");
+    const rows = currentAgents().filter((item) => item.process_id && liveStates.has(item.availability) && matchesFilters(item));
+    target.replaceChildren();
+    for (const agent of rows) {
+      const cpu = Math.min(100, Math.max(0, Number(agent.cpu_percent || 0)));
+      const memoryMb = Math.max(0, Number(agent.rss_bytes || 0) / 1048576);
+      const item = document.createElement("div"); item.className = "resource-item";
+      const header = document.createElement("header"); const label = document.createElement("span"); const value = document.createElement("span");
+      text(label, clientLabels[agent.client] || agent.client); text(value, `${cpu.toFixed(1)}% · ${memoryMb.toFixed(0)} MB`); header.append(label, value);
+      const track = document.createElement("div"); track.className = "resource-track"; const fill = document.createElement("i"); fill.style.width = `${Math.max(2, cpu)}%`; track.append(fill); item.append(header, track); target.append(item);
+    }
+    if (!rows.length) { const empty = document.createElement("p"); empty.className = "hero-copy"; text(empty, "Canlı process telemetrisi yok."); target.append(empty); }
+  }
+
+  function graphKind(entity) {
+    if (entity.kind.startsWith("agent-")) return "agent";
+    return entity.kind;
+  }
+
+  function buildGraph() {
+    const nodes = [];
+    const edges = [];
+    const known = new Set();
+    const addNode = (node) => { if (!known.has(node.id)) { known.add(node.id); nodes.push(node); } };
+    const agents = currentAgents().filter(matchesFilters);
+    for (const agent of agents) {
+      const clientId = `client:${agent.client}`;
+      addNode({ id: clientId, label: clientLabels[agent.client] || agent.client, kind: "client", client: agent.client, state: "live", data: { client: agent.client, state: "live" } });
+      const nodeId = agent.process_id || `session:${agent.session_id || agent.agent_id}`;
+      addNode({ id: nodeId, label: agent.process_id ? (clientLabels[agent.client] || agent.client) : `${clientLabels[agent.client] || agent.client} stale`, kind: agent.process_id ? "process" : "session", client: agent.client, state: agent.availability, project_id: agent.project_id, data: agent });
+      edges.push({ source: clientId, target: nodeId, kind: agent.process_id ? "runs-process" : "observed-session" });
+      if (agent.session_id && agent.process_id) {
+        const sessionId = `session:${agent.session_id}`;
+        addNode({ id: sessionId, label: `Session ${shortId(agent.session_id)}`, kind: "session", client: agent.client, state: agent.availability, data: agent });
+        edges.push({ source: nodeId, target: sessionId, kind: `${agent.binding_confidence}-bind` });
       }
     }
-    const depth = (agent) => {
-      let value = 0;
-      let parent = agent.parent_agent_id;
-      while (parent && byId.has(parent) && value < 4) {
-        value += 1;
-        parent = byId.get(parent).parent_agent_id;
-      }
-      return value;
-    };
-    const rows = allRows.filter((agent) => visibleIds.has(agent.agent_id)).sort((left, right) => depth(left) - depth(right));
-    const activeCount = allRows.filter((agent) => activeStates.has(agent.state)).length;
-    document.getElementById("agent-count").textContent = activeCount.toLocaleString("tr-TR");
-    document.getElementById("agent-badge").textContent = `${activeCount} LIVE`;
-    document.getElementById("active-session-count").textContent = activeCount.toLocaleString("tr-TR");
-    if (!rows.length) {
-      list.innerHTML = '<div class="agent-empty">Aktif lease gözlenmiyor.<br>Belge grafı çalışmaya devam ediyor.</div>';
-      return;
+    const canonical = currentCanonical();
+    const runtimeEntities = (canonical.entities || []).filter(matchesFilters).slice(0, 160);
+    for (const entity of runtimeEntities) {
+      addNode({ id: entity.entity_id, label: `${entity.kind} ${shortId(entity.entity_id.split(":").pop())}`, kind: graphKind(entity), client: "runtime", state: entity.state, project_id: entity.project_id, data: entity });
     }
-    list.innerHTML = rows.map((agent) => {
-      const initials = String(agent.client || "zk").slice(0, 2).toUpperCase();
-      return `
-        <article class="agent-card ${activeStates.has(agent.state) ? "is-active" : "is-context"}" data-agent="${escapeHtml(agent.agent_id)}" style="--session-depth:${depth(agent)}">
-          <div class="agent-top">
-            <div class="agent-identity">
-              <span class="agent-avatar">${escapeHtml(initials)}</span>
-              <div><strong>${escapeHtml(agent.task_label || agent.label)}</strong><small>${escapeHtml(agent.client)} · ${escapeHtml(agent.model_ref || "model —")}</small></div>
-            </div>
-            <span class="agent-state">${escapeHtml(agent.state)}</span>
-          </div>
-          <div class="agent-progress"><span></span></div>
-          <div class="agent-meta">
-            <span>${escapeHtml(agent.active_tool ? `aktif araç ${agent.active_tool}` : agent.current_tool ? `son araç ${agent.current_tool}` : agent.step_id || "araç bekleniyor")}</span>
-            <span>${elapsedTime(agent.started_at)} · ${relativeTime(agent.heartbeat_at)}</span>
-          </div>
-        </article>
-      `;
-    }).join("");
-  }
-
-  function normalizedClient(value) {
-    const client = String(value || "").toLowerCase();
-    if (client.includes("opencode")) return "opencode";
-    if (client.includes("codex")) return "codex";
-    if (client.includes("claude")) return "claude";
-    return client || "zekam";
-  }
-
-  function toolNodeId(agent) {
-    return `tool:${agent.agent_id}:${String(agent.active_tool || "tool").toLowerCase()}`;
-  }
-
-  function renderClients(agents, events) {
-    const target = document.getElementById("client-grid");
-    const known = [
-      { key: "opencode", label: "OpenCode", glyph: "OC" },
-      { key: "codex", label: "Codex", glyph: "CX" },
-      { key: "claude", label: "Claude", glyph: "CL" },
-    ];
-    const now = Date.now();
-    target.innerHTML = known.map((client) => {
-      const sessions = (agents || []).filter((agent) => normalizedClient(agent.client) === client.key);
-      const clientEvents = (events || []).filter((event) => {
-        if (normalizedClient(event.source) === client.key) return true;
-        return sessions.some((agent) => agent.agent_id === event.agent_id);
-      });
-      const timestamps = [...sessions.map((item) => item.heartbeat_at), ...clientEvents.map((item) => item.occurred_at)]
-        .map((value) => Date.parse(value || ""))
-        .filter(Number.isFinite);
-      const latest = timestamps.length ? Math.max(...timestamps) : 0;
-      const live = latest > 0 && now - latest < 30000;
-      const status = live ? "CANLI" : sessions.length ? "BEKLEMEDE" : "SİNYAL YOK";
-      return `
-        <article class="client-card client-${client.key} ${live ? "is-live" : ""}">
-          <span class="client-glyph">${client.glyph}</span>
-          <div><strong>${client.label}</strong><small>${sessions.length} oturum · ${latest ? relativeTime(new Date(latest).toISOString()) : "veri yok"}</small></div>
-          <span class="client-status">${status}</span>
-        </article>
-      `;
-    }).join("");
-  }
-
-  function renderEvents(events) {
-    const list = document.getElementById("event-list");
-    const rows = events || [];
-    document.getElementById("event-count").textContent = `${rows.length} olay`;
-    document.getElementById("event-rate").textContent = rows.length.toLocaleString("tr-TR");
-    if (!rows.length) {
-      list.innerHTML = '<div class="empty-copy">Henüz içeriksiz runtime olayı yok.</div>';
-      return;
+    for (const entity of runtimeEntities) if (entity.parent_id && known.has(entity.parent_id) && known.has(entity.entity_id)) edges.push({ source: entity.parent_id, target: entity.entity_id, kind: "canonical-chain" });
+    for (const contradiction of canonical.contradictions || []) {
+      if (!matchesFilters(contradiction)) continue;
+      const id = `contradiction:${contradiction.contradiction_id}`;
+      addNode({ id, label: contradiction.kind, kind: "contradiction", client: "runtime", state: "recovery-required", data: contradiction });
+      const target = contradiction.job_id ? `job:${contradiction.job_id}` : null;
+      if (target && known.has(target)) edges.push({ source: target, target: id, kind: "contradiction" });
     }
-    list.innerHTML = rows.slice(0, 40).map((event) => `
-      <div class="event-row">
-        <time datetime="${escapeHtml(event.occurred_at)}">${fmtTime(event.occurred_at)}</time>
-        <span class="event-mark"></span>
-        <div><strong>${escapeHtml(event.event_type)}</strong><small>${escapeHtml(event.job_id ? `job ${event.job_id.slice(0, 8)}` : event.canonical_ref)}</small></div>
-        <span class="event-source source-${escapeHtml(normalizedClient(event.source))}">${escapeHtml(normalizedClient(event.source).toUpperCase())}</span>
-      </div>
-    `).join("");
+    state.nodes = nodes;
+    state.edges = edges.filter((edge) => known.has(edge.source) && known.has(edge.target));
+    state.nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    calculatePositions();
+    renderFallback();
+    text(document.getElementById("visible-node-count"), nodes.length);
+    text(document.getElementById("visible-edge-count"), state.edges.length);
+    document.getElementById("graph-empty").hidden = nodes.length > 0;
   }
 
-  function renderCausal(causal) {
-    const projection = causal || {};
-    const nodes = projection.nodes || [];
-    const edges = projection.edges || [];
-    const orphans = projection.orphans || [];
-    const list = document.getElementById("orphan-list");
-    const chain = document.getElementById("causal-chain-list");
-    document.getElementById("orphan-count").textContent = `${orphans.length} bosluk`;
-    document.getElementById("causal-summary").textContent = projection.available
-      ? `${nodes.length} kanonik kayit · ${edges.length} exact bag · ${projection.truncated ? "sinirli gorunum" : "tam gorunum"}`
-      : `Dogrulanamadi · ${projection.detail || "canli realm yok"}`;
-    const latestWork = nodes.find((item) => item.work_item_id)?.work_item_id;
-    const nodeMap = new Map(nodes.map((item) => [item.node_id, item]));
-    const chainEdges = edges.filter((edge) => {
-      const source = nodeMap.get(edge.source_node_id);
-      const target = nodeMap.get(edge.target_node_id);
-      return source && target && source.work_item_id === latestWork && target.work_item_id === latestWork;
-    }).slice(0, 12);
-    chain.innerHTML = chainEdges.length
-      ? chainEdges.map((edge) => {
-          const source = nodeMap.get(edge.source_node_id);
-          const target = nodeMap.get(edge.target_node_id);
-          return `
-          <div class="causal-step" data-source="${escapeHtml(edge.source_node_id)}" data-target="${escapeHtml(edge.target_node_id)}">
-            <div><strong>${escapeHtml(source.kind)} · ${escapeHtml(source.node_id.slice(-12))}</strong><small>${fmtTime(source.occurred_at)} · ${escapeHtml(source.state)}</small></div>
-            <span class="causal-direction">→ ${escapeHtml(edge.kind)} →</span>
-            <div><strong>${escapeHtml(target.kind)} · ${escapeHtml(target.node_id.slice(-12))}</strong><small>${fmtTime(target.occurred_at)} · ${escapeHtml(target.state)}</small></div>
-          </div>
-        `;
-        }).join("")
-      : '<div class="causal-clear">Kanonik korelasyon zinciri yok.</div>';
-    if (!orphans.length) {
-      list.innerHTML = '<div class="causal-clear">Gecikme esigini asan yapisal kanit boslugu yok.</div>';
-      return;
-    }
-    list.innerHTML = orphans.slice(0, 12).map((item) => `
-      <article class="orphan-row severity-${escapeHtml(item.severity)}">
-        <div><strong>${escapeHtml(item.orphan_kind)}</strong><small>${escapeHtml(item.reason)}</small></div>
-        <span>${escapeHtml(item.severity)}</span>
-      </article>
-    `).join("");
-  }
-
-  function renderReports(reports) {
-    const list = document.getElementById("report-list");
-    const rows = reports || [];
-    document.getElementById("report-count").textContent = rows.length;
-    if (!rows.length) {
-      list.innerHTML = '<div class="empty-copy">Rapor bulunamadı.</div>';
-      return;
-    }
-    list.innerHTML = rows.map((report) => `
-      <div class="report-item" title="${escapeHtml(report.canonical_ref)}">
-        <strong>${escapeHtml(report.title)}</strong>
-        <span>${relativeTime(report.modified_at)} · ${escapeHtml(report.relative_path)}</span>
-      </div>
-    `).join("");
-  }
-
-  function graphDomain(node) {
-    if (node.kind === "client") return "run";
-    if (node.kind === "agent-session") return "run";
-    if (node.kind === "tool") return "run";
-    if (node.node_id.startsWith("runtime:cluster:")) return node.node_id.split(":").at(-1);
-    if (node.node_id.startsWith("cluster:docs:")) return node.node_id.split(":").at(-1);
-    const kind = node.kind;
-    if (["work", "job", "agent", "model", "knowledge", "memory", "scheduler"].includes(kind)) return kind === "job" || kind === "agent" ? "run" : kind;
-    if (kind === "report") return "reports";
-    if (kind === "system" || kind === "runtime-root") return kind;
-    const ref = node.canonical_ref.toLowerCase();
-    if (ref.includes("mimari")) return "architecture";
-    if (ref.includes("operasyon")) return "operations";
-    if (ref.includes("bellek") || ref.includes("memory")) return "memory";
-    if (ref.includes("knowledge") || ref.includes("rag") || ref.includes("bilgi")) return "knowledge";
-    if (ref.includes("guvenlik") || ref.includes("model") || ref.includes("sozlesme")) return "contracts";
-    return "docs";
-  }
-
-  function calculatePositions(nodes) {
-    const positions = new Map();
+  function calculatePositions() {
     const groups = new Map();
-    for (const node of nodes) {
-      const domain = graphDomain(node);
-      if (!groups.has(domain)) groups.set(domain, []);
-      groups.get(domain).push(node);
-    }
-
-    for (const [domain, rows] of groups.entries()) {
-      const center = clusterCenters[domain] || clusterCenters.docs;
-      rows.sort((left, right) => left.node_id.localeCompare(right.node_id)).forEach((node, index) => {
-        const seed = hash(node.node_id);
-        const isRoot = node.kind === "system" || node.kind === "runtime-root";
-        const isCluster = node.kind.endsWith("cluster");
-        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-        const angle = index * goldenAngle + ((seed % 1000) / 1000 - 0.5) * 0.24;
-        const clusterRadius = Math.min(clusterRadiusCaps[domain] || 0.09, 0.045 + Math.sqrt(rows.length) * 0.01);
-        const radius = isRoot ? 0 : isCluster ? 0.012 : 0.028 + Math.sqrt((index + 1) / rows.length) * clusterRadius;
-        const x = center[0] + Math.cos(angle) * radius;
-        const y = center[1] + Math.sin(angle) * radius * 0.72;
-        positions.set(node.node_id, {
-          x: Math.max(0.08, Math.min(0.92, x)),
-          y: Math.max(0.08, Math.min(0.91, y)),
-          vx: 0,
-          vy: 0,
-          seed,
-        });
+    for (const node of state.nodes) { const group = node.client in anchors ? node.client : "runtime"; if (!groups.has(group)) groups.set(group, []); groups.get(group).push(node); }
+    const positions = new Map();
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    for (const [group, rows] of groups.entries()) {
+      rows.sort((left, right) => left.id.localeCompare(right.id));
+      const [anchorX, anchorY] = anchors[group] || anchors.runtime;
+      rows.forEach((node, index) => {
+        if (node.kind === "client") { positions.set(node.id, { x: anchorX, y: anchorY }); return; }
+        const seed = hash(node.id) / 4294967295;
+        const radius = Math.min(group === "runtime" ? .22 : .16, .035 + Math.sqrt((index + 1) / Math.max(1, rows.length)) * (group === "runtime" ? .20 : .14));
+        const angle = index * goldenAngle + seed * .7;
+        positions.set(node.id, { x: Math.max(.04, Math.min(.96, anchorX + Math.cos(angle) * radius)), y: Math.max(.08, Math.min(.92, anchorY + Math.sin(angle) * radius)) });
       });
     }
-    const agents = (state.snapshot?.agents || []).filter((agent) => state.liveNodeIds.has(agent.agent_id)).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
-    const activeMap = new Map(agents.map((agent) => [agent.agent_id, agent]));
-    const roots = agents.filter((agent) => !agent.parent_agent_id || !activeMap.has(agent.parent_agent_id)).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
-    const clientAnchors = { opencode: 0.32, codex: 0.5, claude: 0.68, zekam: 0.5 };
-    const outsideSystemCore = (x, y, seed) => {
-      const dx = x - 0.5;
-      const dy = y - 0.5;
-      const minimumDistance = 0.14;
-      if (Math.hypot(dx, dy) >= minimumDistance) return { x, y };
-      const direction = dx === 0 ? (seed % 2 ? 1 : -1) : Math.sign(dx);
-      const safeDy = Math.min(Math.abs(dy), minimumDistance * 0.86);
-      const safeDx = Math.sqrt(minimumDistance ** 2 - safeDy ** 2) * direction;
-      return { x: 0.5 + safeDx, y };
-    };
-    positions.set("client:opencode", { x: 0.32, y: 0.11, vx: 0, vy: 0, seed: 1 });
-    positions.set("client:codex", { x: 0.5, y: 0.12, vx: 0, vy: 0, seed: 2 });
-    positions.set("client:claude", { x: 0.68, y: 0.11, vx: 0, vy: 0, seed: 3 });
-    positions.set("system:zekam", { x: 0.5, y: 0.5, vx: 0, vy: 0, seed: 4 });
-    roots.forEach((agent) => {
-      const client = normalizedClient(agent.client);
-      const siblings = roots.filter((candidate) => normalizedClient(candidate.client) === client);
-      const siblingIndex = siblings.findIndex((candidate) => candidate.agent_id === agent.agent_id);
-      const rootX = (clientAnchors[client] || 0.5) + (siblingIndex - (siblings.length - 1) / 2) * 0.1;
-      const placeBranch = (parent, x, y, depth) => {
-        const coreSafe = outsideSystemCore(x, y, hash(parent.agent_id));
-        const safeX = Math.max(0.12, Math.min(0.88, coreSafe.x));
-        const safeY = Math.max(0.18, Math.min(0.78, coreSafe.y));
-        positions.set(parent.agent_id, { x: safeX, y: safeY, vx: 0, vy: 0, seed: hash(parent.agent_id) });
-        if (depth >= 3) return;
-        const children = agents.filter((child) => child.parent_agent_id === parent.agent_id).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
-        const branchWidth = Math.max(0.12, 0.56 / Math.max(1, roots.length));
-        const spread = Math.max(0.1, branchWidth / Math.max(1, children.length));
-        children.forEach((child, index) => {
-          placeBranch(child, safeX + (index - (children.length - 1) / 2) * spread, safeY + 0.2, depth + 1);
-        });
-      };
-      placeBranch(agent, rootX, 0.32, 0);
-    });
-    agents.filter((agent) => agent.active_tool).forEach((agent) => {
-      const parent = positions.get(agent.agent_id);
-      if (!parent) return;
-      const offset = (hash(toolNodeId(agent)) % 2 ? 1 : -1) * 0.055;
-      const coreSafe = outsideSystemCore(parent.x + offset, parent.y + 0.13, hash(toolNodeId(agent)));
-      positions.set(toolNodeId(agent), {
-        x: Math.max(0.12, Math.min(0.88, coreSafe.x)),
-        y: Math.max(0.22, Math.min(0.8, coreSafe.y)),
-        vx: 0,
-        vy: 0,
-        seed: hash(toolNodeId(agent)),
-      });
-    });
     state.positions = positions;
   }
 
-  function applySnapshot(snapshot) {
-    if (!snapshot || snapshot.schema !== "zekam-observatory-snapshot/v2") return;
-    state.snapshot = snapshot;
-    document.body.classList.toggle("live-network-mode", state.liveMode);
-    const activeStates = new Set(["active", "running", "claimed", "executing", "in_progress"]);
-    const activeAgents = (snapshot.agents || []).filter((agent) => activeStates.has(agent.state));
-    const toolNodes = activeAgents.filter((agent) => agent.active_tool).map((agent) => ({
-      node_id: toolNodeId(agent),
-      kind: "tool",
-      label: `aktif araç ${agent.active_tool}`,
-      canonical_ref: `runtime:agent/${agent.agent_id}/tool/${String(agent.active_tool).toLowerCase()}`,
-      status: agent.state,
-      source: normalizedClient(agent.client),
-    }));
-    const toolEdges = activeAgents.filter((agent) => agent.active_tool).map((agent) => ({
-      source: agent.agent_id,
-      target: toolNodeId(agent),
-      kind: "executes-tool",
-    }));
-    state.nodes = [...(snapshot.graph?.nodes || []), ...toolNodes];
-    state.edges = [...(snapshot.graph?.edges || []), ...toolEdges];
-    state.nodeMap = new Map(state.nodes.map((node) => [node.node_id, node]));
-    const liveIds = new Set((snapshot.agents || []).filter((agent) => activeStates.has(agent.state)).map((agent) => agent.agent_id));
-    const activeIds = new Set(liveIds);
-    if (!liveIds.size) {
-      for (const nodeId of state.liveNodeIds) if (state.nodeMap.has(nodeId)) liveIds.add(nodeId);
+  function renderFallback() {
+    fallback.replaceChildren();
+    for (const node of state.nodes.slice(0, 256)) {
+      const row = document.createElement("button"); row.type = "button"; row.className = "fallback-row";
+      const kind = document.createElement("span"); const label = document.createElement("span"); const status = document.createElement("small");
+      text(kind, node.kind); text(label, node.label); text(status, stateLabel(node.state)); row.append(kind, label, status);
+      row.addEventListener("click", () => openDetail(node.data, node.kind)); fallback.append(row);
     }
-    if (!liveIds.size && snapshot.agents?.length) {
-      const latest = [...snapshot.agents].sort((left, right) => Date.parse(right.heartbeat_at || "") - Date.parse(left.heartbeat_at || ""))[0];
-      liveIds.add(latest.agent_id);
-    }
-    for (let pass = 0; pass < 4; pass += 1) {
-      for (const edge of state.edges) {
-        const joinsConversation = edge.kind === "delegates" && (liveIds.has(edge.source) || liveIds.has(edge.target));
-        const joinsClient = edge.kind === "runs-session" && liveIds.has(edge.target);
-        const joinsTool = edge.kind === "executes-tool" && liveIds.has(edge.source);
-        const joinsSystem = edge.kind === "reports-observation" && liveIds.has(edge.source);
-        if (joinsConversation || joinsClient || joinsTool || joinsSystem) {
-          liveIds.add(edge.source);
-          liveIds.add(edge.target);
-        }
+  }
+
+  function resizeCanvas() {
+    if (!context) return;
+    const bounds = graphStage.getBoundingClientRect();
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    state.width = Math.max(1, bounds.width); state.height = Math.max(1, bounds.height);
+    canvas.width = Math.round(state.width * ratio); canvas.height = Math.round(state.height * ratio);
+    canvas.style.width = `${state.width}px`; canvas.style.height = `${state.height}px`;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  function point(nodeId) {
+    const position = state.positions.get(nodeId); if (!position) return null;
+    return { x: position.x * state.width, y: position.y * state.height };
+  }
+
+  function nodeColor(node) {
+    if (node.kind === "contradiction" || dangerousStates.has(node.state)) return colors.danger;
+    if (node.client === "runtime") return colors.runtime;
+    return colors[node.state] || colors.stale;
+  }
+
+  function draw(timestamp) {
+    if (!context) return;
+    if (!state.paused) state.time = timestamp;
+    context.clearRect(0, 0, state.width, state.height);
+    for (const edge of state.edges) {
+      const source = point(edge.source); const target = point(edge.target); if (!source || !target) continue;
+      const danger = edge.kind === "contradiction";
+      context.beginPath(); context.moveTo(source.x, source.y);
+      const bend = (hash(`${edge.source}:${edge.target}`) % 31) - 15;
+      context.quadraticCurveTo((source.x + target.x) / 2 + bend, (source.y + target.y) / 2 - bend, target.x, target.y);
+      context.strokeStyle = danger ? "rgba(240,58,47,.72)" : "rgba(255,145,31,.24)";
+      context.lineWidth = danger ? 1.7 : 1; context.stroke();
+      if (!state.paused && !reducedMotion.matches && state.edges.indexOf(edge) < 120) {
+        const phase = (state.time * .00014 + (hash(edge.source) % 1000) / 1000) % 1;
+        const x = source.x + (target.x - source.x) * phase; const y = source.y + (target.y - source.y) * phase;
+        context.beginPath(); context.arc(x, y, danger ? 2.1 : 1.4, 0, Math.PI * 2); context.fillStyle = danger ? colors.red : colors.gold; context.fill();
       }
     }
-    for (let pass = 0; pass < 4; pass += 1) {
-      for (const edge of state.edges) {
-        const joinsConversation = edge.kind === "delegates" && activeIds.has(edge.target);
-        const joinsClient = edge.kind === "runs-session" && activeIds.has(edge.target);
-        const joinsTool = edge.kind === "executes-tool" && activeIds.has(edge.source);
-        const joinsSystem = edge.kind === "reports-observation" && activeIds.has(edge.source);
-        if (joinsConversation || joinsClient || joinsTool || joinsSystem) {
-          activeIds.add(edge.source);
-          activeIds.add(edge.target);
-        }
+    const ordered = [...state.nodes].sort((a, b) => Number(b.kind === "client") - Number(a.kind === "client") || a.id.localeCompare(b.id));
+    for (const node of ordered) {
+      const p = point(node.id); if (!p) continue;
+      const hovered = state.hovered?.id === node.id; const selected = state.selected?.id === node.id;
+      const radius = node.kind === "client" ? 10 : node.kind === "process" ? 8 : node.kind === "contradiction" ? 7 : 4.5;
+      const color = nodeColor(node); const pulse = state.paused ? 0 : Math.sin(state.time * .003 + hash(node.id)) * 1.2;
+      if (["client", "process", "contradiction"].includes(node.kind) || hovered || selected) {
+        context.beginPath(); context.arc(p.x, p.y, radius + 7 + Math.max(0, pulse), 0, Math.PI * 2); context.strokeStyle = `${color}55`; context.stroke();
+      }
+      context.beginPath(); context.arc(p.x, p.y, radius, 0, Math.PI * 2); context.fillStyle = color; context.shadowBlur = 14; context.shadowColor = color; context.fill(); context.shadowBlur = 0;
+      if (["client", "process", "contradiction"].includes(node.kind) || hovered || selected) {
+        const label = node.label.length > 26 ? `${node.label.slice(0, 25)}…` : node.label;
+        context.font = `${node.kind === "client" ? 11 : 9}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+        context.textAlign = "center"; context.fillStyle = "rgba(246,234,215,.78)"; context.fillText(label, p.x, p.y + radius + 14);
       }
     }
-    state.liveNodeIds = liveIds;
-    state.activeNodeIds = activeIds;
-    calculatePositions(state.nodes);
+    window.requestAnimationFrame(draw);
+  }
 
-    renderTiles(snapshot.dashboard?.tiles || []);
-    renderClients(snapshot.agents || [], snapshot.events || []);
-    renderAgents(snapshot.agents || []);
-    renderEvents(snapshot.events || []);
-    renderCausal(snapshot.causal);
-    renderReports(snapshot.reports || []);
+  function nearest(clientX, clientY) {
+    const bounds = canvas.getBoundingClientRect(); const x = clientX - bounds.left; const y = clientY - bounds.top;
+    let candidate = null; let distance = 18;
+    for (const node of state.nodes) { const p = point(node.id); if (!p) continue; const value = Math.hypot(p.x - x, p.y - y); if (value < distance) { candidate = node; distance = value; } }
+    return candidate;
+  }
 
-    const runtime = snapshot.runtime || {};
-    document.getElementById("runtime-mode").textContent = runtime.available ? "CANLI REALM" : "BELGE MODU";
-    document.getElementById("digest-value").textContent = String(snapshot.projection_digest || "—").replace("sha256:", "").slice(0, 10);
-    document.getElementById("snapshot-time").textContent = `snapshot ${fmtTime(snapshot.generated_at)}`;
-    const visibleNodes = state.liveMode && liveIds.size ? liveIds.size : state.nodes.length;
-    const visibleEdges = state.liveMode && liveIds.size ? state.edges.filter((edge) => liveIds.has(edge.source) && liveIds.has(edge.target)).length : state.edges.length;
-    document.getElementById("node-count").textContent = visibleNodes.toLocaleString("tr-TR");
-    document.getElementById("edge-count").textContent = visibleEdges.toLocaleString("tr-TR");
-    document.getElementById("graph-empty").hidden = state.nodes.length > 0;
+  function openDetail(data, kind) {
+    if (!data) return;
+    const drawer = document.getElementById("detail-drawer"); const facts = document.getElementById("detail-facts");
+    text(document.getElementById("detail-kind"), kind); text(document.getElementById("detail-title"), data.label || data.kind || data.event_type || "Detay");
+    facts.replaceChildren();
+    const allowed = ["client", "state", "availability", "binding_confidence", "current_action", "process_status", "entity_id", "kind", "work_item_id", "job_id", "parent_id", "terminal_receipt_bound", "event_type", "source", "occurred_at", "heartbeat_at", "started_at"];
+    for (const key of allowed) if (data[key] !== undefined && data[key] !== null) {
+      const row = document.createElement("div"); const dt = document.createElement("dt"); const dd = document.createElement("dd");
+      text(dt, key.replaceAll("_", " ")); text(dd, data[key]); row.append(dt, dd); facts.append(row);
+    }
+    drawer.hidden = false;
+  }
 
-    if (state.selected && !state.nodeMap.has(state.selected.node_id)) selectNode(null);
+  function renderAll() {
+    updateProjectFilter(); renderMetrics(); renderSessionCards(); renderRegistry(); renderEvents(); renderRuntimeChain(); renderResources(); buildGraph();
+    const source = state.snapshot || state.telemetry || {};
+    text(document.getElementById("snapshot-clock"), fmtTime(source.generated_at));
+    text(document.getElementById("snapshot-digest"), `DIGEST ${shortId(source.projection_digest || state.telemetryDigest || state.structureDigest)}`);
+  }
+
+  function applySnapshot(document) {
+    if (!document || document.schema !== snapshotSchema || document.read_only !== true || document.grants_authority !== false) throw new Error("unsafe snapshot");
+    state.snapshot = document; state.structure = null; state.telemetry = null;
+    state.structureDigest = ""; state.telemetryDigest = "";
+    renderAll(); setConnection("live", "CANLI");
+  }
+
+  function applyStructure(document) {
+    if (!document || document.schema !== "zekam-observatory-structure/v1" || document.read_only !== true) return;
+    if (document.projection_digest === state.structureDigest) return;
+    state.structureDigest = document.projection_digest; state.structure = document; renderAll();
+  }
+
+  function applyTelemetry(document) {
+    if (!document || document.schema !== "zekam-observatory-telemetry/v1" || document.read_only !== true) return;
+    if (document.projection_digest === state.telemetryDigest) return;
+    state.telemetryDigest = document.projection_digest; state.telemetry = document; renderAll();
   }
 
   async function fetchSnapshot() {
-    const response = await fetch("/api/observatory/snapshot", { cache: "no-store", headers: { Accept: "application/json" } });
+    const response = await fetch("/api/observatory/snapshot", { headers: { Accept: "application/json" }, cache: "no-store" });
     if (!response.ok) throw new Error(`snapshot ${response.status}`);
     applySnapshot(await response.json());
   }
 
   function schedulePolling() {
-    if (state.pollTimer) return;
-    state.pollTimer = window.setInterval(async () => {
-      try {
-        await fetchSnapshot();
-      } catch (_) {
-        setConnection("error", "YENİDEN BAĞLANIYOR");
-      }
-    }, 5000);
+    if (state.pollingTimer) return;
+    state.pollingTimer = window.setInterval(() => fetchSnapshot().catch(() => setConnection("error", "DEGRADE")), 5000);
   }
 
   function connectStream() {
-    if (state.source) state.source.close();
-    setConnection("connecting", "AKIŞ BAĞLANIYOR");
-    const source = new EventSource("/api/observatory/events");
-    state.source = source;
-    source.addEventListener("snapshot", (event) => {
-      try {
-        applySnapshot(JSON.parse(event.data));
-        setConnection("live", "SSE CANLI");
-        if (state.pollTimer) {
-          clearInterval(state.pollTimer);
-          state.pollTimer = null;
-        }
-      } catch (_) {
-        setConnection("error", "SNAPSHOT HATASI");
-      }
-    });
-    source.onopen = () => setConnection("live", "SSE CANLI");
-    source.onerror = () => {
-      setConnection("error", "POLLING YEDEK");
-      schedulePolling();
-    };
+    if (!("EventSource" in window)) { schedulePolling(); return; }
+    const stream = new EventSource("/api/observatory/events");
+    stream.addEventListener("structure", (event) => { try { applyStructure(JSON.parse(event.data)); } catch (_) { setConnection("error", "VERİ REDDEDİLDİ"); } });
+    stream.addEventListener("telemetry", (event) => { try { applyTelemetry(JSON.parse(event.data)); setConnection("live", "CANLI"); } catch (_) { setConnection("error", "VERİ REDDEDİLDİ"); } });
+    stream.onerror = () => { stream.close(); setConnection("error", "POLLING YEDEK"); schedulePolling(); };
   }
 
-  function resizeCanvas() {
-    const bounds = wrap.getBoundingClientRect();
-    state.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    state.width = Math.max(1, Math.round(bounds.width));
-    state.height = Math.max(1, Math.round(bounds.height));
-    canvas.width = Math.round(state.width * state.dpr);
-    canvas.height = Math.round(state.height * state.dpr);
-    canvas.style.width = `${state.width}px`;
-    canvas.style.height = `${state.height}px`;
-    context.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+  function updateFilters() {
+    state.query = searchInput.value.trim().toLocaleLowerCase("tr-TR"); state.client = clientFilter.value; state.status = stateFilter.value; state.project = projectFilter.value; renderAll();
   }
-
-  function brainPath(width, height) {
-    const path = new Path2D();
-    const cx = width * 0.5;
-    const cy = height * 0.51;
-    const sx = width * 0.455;
-    const sy = height * 0.455;
-    path.moveTo(cx, cy - sy * 0.94);
-    path.bezierCurveTo(cx - sx * 0.18, cy - sy * 1.03, cx - sx * 0.47, cy - sy * 0.99, cx - sx * 0.62, cy - sy * 0.78);
-    path.bezierCurveTo(cx - sx * 0.82, cy - sy * 0.79, cx - sx * 0.98, cy - sy * 0.62, cx - sx * 0.96, cy - sy * 0.39);
-    path.bezierCurveTo(cx - sx * 1.04, cy - sy * 0.18, cx - sx * 1.01, cy + sy * 0.08, cx - sx * 0.90, cy + sy * 0.20);
-    path.bezierCurveTo(cx - sx * 1.02, cy + sy * 0.38, cx - sx * 0.88, cy + sy * 0.62, cx - sx * 0.67, cy + sy * 0.66);
-    path.bezierCurveTo(cx - sx * 0.58, cy + sy * 0.88, cx - sx * 0.27, cy + sy * 1.00, cx, cy + sy * 0.79);
-    path.bezierCurveTo(cx + sx * 0.27, cy + sy * 1.00, cx + sx * 0.58, cy + sy * 0.88, cx + sx * 0.67, cy + sy * 0.66);
-    path.bezierCurveTo(cx + sx * 0.88, cy + sy * 0.62, cx + sx * 1.02, cy + sy * 0.38, cx + sx * 0.90, cy + sy * 0.20);
-    path.bezierCurveTo(cx + sx * 1.01, cy + sy * 0.08, cx + sx * 1.04, cy - sy * 0.18, cx + sx * 0.96, cy - sy * 0.39);
-    path.bezierCurveTo(cx + sx * 0.98, cy - sy * 0.62, cx + sx * 0.82, cy - sy * 0.79, cx + sx * 0.62, cy - sy * 0.78);
-    path.bezierCurveTo(cx + sx * 0.47, cy - sy * 0.99, cx + sx * 0.18, cy - sy * 1.03, cx, cy - sy * 0.94);
-    path.closePath();
-    return path;
-  }
-
-  function drawBrainBase() {
-    const path = brainPath(state.width, state.height);
-    context.save();
-    context.shadowBlur = 28;
-    context.shadowColor = "rgba(118,255,208,.18)";
-    const fill = context.createRadialGradient(state.width * 0.50, state.height * 0.48, 20, state.width * 0.50, state.height * 0.50, state.width * 0.42);
-    fill.addColorStop(0, "rgba(42,108,86,.12)");
-    fill.addColorStop(0.62, "rgba(12,47,38,.10)");
-    fill.addColorStop(1, "rgba(2,12,10,.03)");
-    context.fillStyle = fill;
-    context.fill(path);
-    context.shadowBlur = 0;
-    context.strokeStyle = "rgba(136,255,218,.42)";
-    context.lineWidth = 2.1;
-    context.stroke(path);
-    context.restore();
-
-    context.save();
-    context.clip(path);
-    drawGyri();
-    context.restore();
-
-    context.save();
-    context.beginPath();
-    context.moveTo(state.width * 0.5, state.height * 0.14);
-    context.bezierCurveTo(state.width * 0.48, state.height * 0.33, state.width * 0.52, state.height * 0.69, state.width * 0.50, state.height * 0.83);
-    context.strokeStyle = "rgba(118,255,208,.18)";
-    context.lineWidth = 1.2;
-    context.stroke();
-    context.restore();
-  }
-
-  function drawGyri() {
-    const width = state.width;
-    const height = state.height;
-    context.lineWidth = 0.9;
-    for (let index = 0; index < 38; index += 1) {
-      const seed = hash(`gyrus-${index}`);
-      const side = index % 2 === 0 ? -1 : 1;
-      const startX = width * (0.5 + side * (0.06 + ((seed % 100) / 100) * 0.25));
-      const startY = height * (0.21 + (((seed >>> 8) % 100) / 100) * 0.57);
-      const length = width * (0.07 + (((seed >>> 16) % 100) / 100) * 0.10);
-      context.beginPath();
-      context.moveTo(startX, startY);
-      context.bezierCurveTo(
-        startX + side * length * 0.28,
-        startY - height * 0.045,
-        startX + side * length * 0.65,
-        startY + height * 0.045,
-        startX + side * length,
-        startY + Math.sin(index) * height * 0.025,
-      );
-      context.strokeStyle = `rgba(126, 235, 199, ${0.105 + (index % 3) * 0.022})`;
-      context.stroke();
-    }
-  }
-
-  function nodeVisible(node) {
-    if (state.liveMode && state.liveNodeIds.size) return state.liveNodeIds.has(node.node_id);
-    const query = state.query.trim().toLowerCase();
-    const domain = graphDomain(node);
-    const focusMatch = state.focus === "all" || domain === state.focus || (state.focus === "run" && ["job", "agent"].includes(node.kind));
-    if (!focusMatch) return false;
-    if (!query) return true;
-    return `${node.label} ${node.kind} ${node.canonical_ref}`.toLowerCase().includes(query);
-  }
-
-  function pointFor(nodeId) {
-    const position = state.positions.get(nodeId);
-    if (!position) return null;
-    const marginX = state.width * 0.08;
-    const marginY = state.height * 0.05;
-    return {
-      x: marginX + position.x * (state.width - marginX * 2),
-      y: marginY + position.y * (state.height - marginY * 2),
-    };
-  }
-
-  function focusedNeighborhood() {
-    const focusId = state.hovered?.node_id || state.selected?.node_id;
-    if (!focusId) return null;
-    const nodeIds = new Set([focusId]);
-    const edgeKeys = new Set();
-    for (const edge of state.edges) {
-      if (edge.source !== focusId && edge.target !== focusId) continue;
-      nodeIds.add(edge.source);
-      nodeIds.add(edge.target);
-      edgeKeys.add(`${edge.source}\u0000${edge.target}\u0000${edge.kind}`);
-    }
-    return { nodeIds, edgeKeys };
-  }
-
-  function drawClusterRegions() {
-    const groups = new Map();
-    for (const node of state.nodes) {
-      if (!nodeVisible(node)) continue;
-      const domain = graphDomain(node);
-      if (["system", "runtime-root"].includes(domain)) continue;
-      const point = pointFor(node.node_id);
-      if (!point) continue;
-      if (!groups.has(domain)) groups.set(domain, []);
-      groups.get(domain).push(point);
-    }
-    for (const [domain, points] of groups.entries()) {
-      if (points.length < 2) continue;
-      const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
-      const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
-      const radiusX = Math.max(54, Math.max(...points.map((point) => Math.abs(point.x - centerX))) + 34);
-      const radiusY = Math.max(38, Math.max(...points.map((point) => Math.abs(point.y - centerY))) + 26);
-      const color = domainPalette[domain] || domainPalette.docs;
-      const gradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(radiusX, radiusY));
-      gradient.addColorStop(0, colorWithAlpha(color, 0.075));
-      gradient.addColorStop(1, colorWithAlpha(color, 0));
-      context.beginPath();
-      context.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
-      context.fillStyle = gradient;
-      context.fill();
-      context.strokeStyle = colorWithAlpha(color, 0.17);
-      context.lineWidth = 0.95;
-      context.stroke();
-      if (domainLabels[domain] && points.length >= 2 && state.width >= 720) {
-        const domainLabel = domainLabels[domain];
-        context.font = `12px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
-        context.textAlign = "center";
-        const labelY = centerY - radiusY + 18;
-        const labelWidth = context.measureText(domainLabel).width + 14;
-        context.fillStyle = "rgba(3,12,10,.76)";
-        context.fillRect(centerX - labelWidth / 2, labelY - 13, labelWidth, 18);
-        context.fillStyle = colorWithAlpha(color, 0.72);
-        context.fillText(domainLabel, centerX, labelY);
-      }
-    }
-  }
-
-  function drawEdges() {
-    const neighborhood = focusedNeighborhood();
-    for (const edge of state.edges) {
-      const sourceNode = state.nodeMap.get(edge.source);
-      const targetNode = state.nodeMap.get(edge.target);
-      if (!sourceNode || !targetNode || !nodeVisible(sourceNode) || !nodeVisible(targetNode)) continue;
-      const sourceCenter = pointFor(edge.source);
-      const targetCenter = pointFor(edge.target);
-      if (!sourceCenter || !targetCenter) continue;
-      const centerDx = targetCenter.x - sourceCenter.x;
-      const centerDy = targetCenter.y - sourceCenter.y;
-      const centerDistance = Math.max(1, Math.hypot(centerDx, centerDy));
-      const unitX = centerDx / centerDistance;
-      const unitY = centerDy / centerDistance;
-      const sourcePadding = Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36);
-      const targetPadding = Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36);
-      const source = {
-        x: sourceCenter.x + unitX * sourcePadding,
-        y: sourceCenter.y + unitY * sourcePadding,
-      };
-      const target = {
-        x: targetCenter.x - unitX * targetPadding,
-        y: targetCenter.y - unitY * targetPadding,
-      };
-      const active = state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target) && ["delegates", "runs-session", "executes-tool", "reports-observation"].includes(edge.kind);
-      const edgeKey = `${edge.source}\u0000${edge.target}\u0000${edge.kind}`;
-      const related = neighborhood?.edgeKeys.has(edgeKey) || false;
-      const alpha = active ? 0.9 : related ? 0.72 : neighborhood ? 0.055 : edge.kind === "markdown-link" ? 0.15 : 0.31;
-      const dx = target.x - source.x;
-      const dy = target.y - source.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      const direction = hash(`${edge.source}:${edge.target}:${edge.kind}`) % 2 ? 1 : -1;
-      const bend = Math.min(active ? 72 : 46, distance * (active ? 0.2 : 0.13));
-      const controlX = (source.x + target.x) / 2 - dy / distance * bend * direction;
-      const controlY = (source.y + target.y) / 2 + dx / distance * bend * direction;
-
-      context.beginPath();
-      context.moveTo(source.x, source.y);
-      context.quadraticCurveTo(controlX, controlY, target.x, target.y);
-      const edgeColor = domainPalette[graphDomain(sourceNode)] || domainPalette.docs;
-      context.strokeStyle = active ? colorWithAlpha(domainPalette.work, alpha) : colorWithAlpha(edgeColor, alpha);
-      context.lineWidth = active ? 3 : related ? 2 : edge.kind === "markdown-link" ? 0.8 : 1.15;
-      context.stroke();
-
-      if (state.liveMode || active) {
-        const arrowT = 0.9;
-        const oneMinusArrow = 1 - arrowT;
-        const arrowX = oneMinusArrow * oneMinusArrow * source.x + 2 * oneMinusArrow * arrowT * controlX + arrowT * arrowT * target.x;
-        const arrowY = oneMinusArrow * oneMinusArrow * source.y + 2 * oneMinusArrow * arrowT * controlY + arrowT * arrowT * target.y;
-        const tangentX = 2 * oneMinusArrow * (controlX - source.x) + 2 * arrowT * (target.x - controlX);
-        const tangentY = 2 * oneMinusArrow * (controlY - source.y) + 2 * arrowT * (target.y - controlY);
-        const angle = Math.atan2(tangentY, tangentX);
-        context.beginPath();
-        context.moveTo(arrowX, arrowY);
-        context.lineTo(arrowX - 10 * Math.cos(angle - 0.45), arrowY - 10 * Math.sin(angle - 0.45));
-        context.lineTo(arrowX - 10 * Math.cos(angle + 0.45), arrowY - 10 * Math.sin(angle + 0.45));
-        context.closePath();
-        context.fillStyle = active ? "rgba(190,255,233,.95)" : "rgba(123,183,165,.55)";
-        context.fill();
-
-      }
-
-      if (!state.paused && active) {
-        const phase = (state.time * 0.00022 + (hash(`${edge.source}:${edge.target}`) % 1000) / 1000) % 1;
-        const oneMinus = 1 - phase;
-        const pulseX = oneMinus * oneMinus * source.x + 2 * oneMinus * phase * controlX + phase * phase * target.x;
-        const pulseY = oneMinus * oneMinus * source.y + 2 * oneMinus * phase * controlY + phase * phase * target.y;
-        context.beginPath();
-        context.arc(pulseX, pulseY, 2.1, 0, Math.PI * 2);
-        context.fillStyle = "rgba(190,255,233,.95)";
-        context.shadowBlur = 12;
-        context.shadowColor = "#76ffd0";
-        context.fill();
-        context.shadowBlur = 0;
-      }
-    }
-  }
-
-  function nodeRadius(node) {
-    if (node.kind === "system") return 12;
-    if (node.kind === "runtime-root") return 10;
-    if (node.kind.endsWith("cluster")) return 7.2;
-    if (node.kind === "agent") return 7;
-    if (node.kind === "agent-session") return 8.2;
-    if (node.kind === "tool") return 7.2;
-    if (["work", "job", "model"].includes(node.kind)) return 6.4;
-    return 6.2;
-  }
-
-  function drawNodes() {
-    const labelBoxes = [];
-    const neighborhood = focusedNeighborhood();
-    const orderedNodes = [...state.nodes].sort((left, right) => Number(state.activeNodeIds.has(right.node_id)) - Number(state.activeNodeIds.has(left.node_id)) || left.node_id.localeCompare(right.node_id));
-    for (const node of orderedNodes) {
-      if (!nodeVisible(node)) continue;
-      const point = pointFor(node.node_id);
-      if (!point) continue;
-      const radius = nodeRadius(node);
-      const color = palette[node.kind] || palette.document;
-      const selected = state.selected?.node_id === node.node_id;
-      const hovered = state.hovered?.node_id === node.node_id;
-      const active = state.activeNodeIds.has(node.node_id);
-      const related = neighborhood?.nodeIds.has(node.node_id) || false;
-      const dimmed = Boolean(neighborhood) && !related && !active;
-      const pulse = state.paused ? 0 : Math.sin(state.time * 0.003 + (hash(node.node_id) % 100)) * 0.8;
-
-      context.save();
-      context.globalAlpha = dimmed ? 0.22 : 1;
-
-      if (active || selected || hovered || node.kind === "system") {
-        context.beginPath();
-        context.arc(point.x, point.y, radius + 5 + Math.max(0, pulse), 0, Math.PI * 2);
-        context.strokeStyle = selected ? "rgba(255,255,255,.52)" : active ? "rgba(118,255,208,.32)" : "rgba(118,255,208,.18)";
-        context.lineWidth = selected ? 1.2 : 0.7;
-        context.stroke();
-      }
-
-      if (active && !state.paused) {
-        for (let ring = 0; ring < 3; ring += 1) {
-          const expansion = (state.time * 0.035 + ring * 11 + hash(node.node_id) % 17) % 34;
-          context.beginPath();
-          context.arc(point.x, point.y, radius + 7 + expansion, 0, Math.PI * 2);
-          context.strokeStyle = `rgba(114,221,255,${Math.max(0, 0.34 - expansion / 100)})`;
-          context.lineWidth = 1.4;
-          context.stroke();
-        }
-      }
-
-      context.beginPath();
-      context.arc(point.x, point.y, radius + (active ? pulse * 0.15 : 0), 0, Math.PI * 2);
-      context.fillStyle = color;
-      context.shadowBlur = active || selected ? 20 : 11;
-      context.shadowColor = color;
-      context.fill();
-      context.shadowBlur = 0;
-
-      if (selected || hovered || active || node.kind === "system" || (state.liveMode && state.liveNodeIds.has(node.node_id))) {
-        const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
-        context.font = `${selected ? 17 : active ? 17 : state.liveMode ? 14 : 12}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
-        context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.72)";
-        context.textAlign = "center";
-        const labelWidth = context.measureText(label).width + 12;
-        const candidates = [
-          { x: point.x, y: point.y + radius + 17 },
-          { x: point.x, y: point.y - radius - 10 },
-          { x: point.x + labelWidth / 2 + radius + 7, y: point.y + 4 },
-          { x: point.x - labelWidth / 2 - radius - 7, y: point.y + 4 },
-        ];
-        let placedBox = null;
-        const position = candidates.find((candidate) => {
-          const box = { left: candidate.x - labelWidth / 2, right: candidate.x + labelWidth / 2, top: candidate.y - 13, bottom: candidate.y + 4 };
-          const inside = box.left >= 8 && box.right <= state.width - 8 && box.top >= 8 && box.bottom <= state.height - 8;
-          const clear = labelBoxes.every((other) => box.right < other.left || box.left > other.right || box.bottom < other.top || box.top > other.bottom);
-          if (inside && clear) { placedBox = box; labelBoxes.push(box); return true; }
-          return false;
-        });
-        if (position && placedBox) {
-          context.fillStyle = "rgba(3,12,10,.82)";
-          context.fillRect(placedBox.left - 3, placedBox.top - 2, labelWidth + 6, 20);
-          context.fillStyle = selected ? "rgba(235,255,248,.95)" : "rgba(188,218,208,.82)";
-          context.fillText(label, position.x, position.y);
-        }
-      }
-      context.restore();
-    }
-  }
-
-  function drawFrame(timestamp) {
-    if (!state.paused) state.time = timestamp;
-    context.clearRect(0, 0, state.width, state.height);
-    drawBrainBase();
-    context.save();
-    context.clip(brainPath(state.width, state.height));
-    drawClusterRegions();
-    drawEdges();
-    drawNodes();
-    context.restore();
-    state.lastFrame = timestamp;
-    window.requestAnimationFrame(drawFrame);
-  }
-
-  function nearestNode(clientX, clientY) {
-    const bounds = canvas.getBoundingClientRect();
-    const x = clientX - bounds.left;
-    const y = clientY - bounds.top;
-    let nearest = null;
-    let distance = 16;
-    for (const node of state.nodes) {
-      if (!nodeVisible(node)) continue;
-      const point = pointFor(node.node_id);
-      if (!point) continue;
-      const current = Math.hypot(point.x - x, point.y - y);
-      if (current < distance) {
-        distance = current;
-        nearest = node;
-      }
-    }
-    return { node: nearest, x, y };
-  }
-
-  function countLinks(nodeId) {
-    return state.edges.reduce((total, edge) => total + Number(edge.source === nodeId || edge.target === nodeId), 0);
-  }
-
-  function selectNode(node, point = null) {
-    state.selected = node;
-    const empty = document.getElementById("selection-empty");
-    const content = document.getElementById("selection-content");
-    const card = document.getElementById("node-card");
-    if (!node) {
-      empty.hidden = false;
-      content.hidden = true;
-      card.hidden = true;
-      return;
-    }
-    empty.hidden = true;
-    content.hidden = false;
-    document.getElementById("selection-kind").textContent = node.kind;
-    document.getElementById("selection-label").textContent = node.label;
-    document.getElementById("selection-ref").textContent = node.canonical_ref;
-    document.getElementById("selection-links").textContent = countLinks(node.node_id);
-    document.getElementById("selection-glyph").textContent = node.kind === "memory" ? "∞" : node.kind === "knowledge" ? "⌁" : node.kind === "model" ? "△" : "◉";
-
-    document.getElementById("node-kind").textContent = node.kind;
-    document.getElementById("node-label").textContent = node.label;
-    document.getElementById("node-ref").textContent = node.canonical_ref;
-    if (point) {
-      const left = Math.min(state.width - 296, Math.max(16, point.x + 14));
-      const top = Math.min(state.height - 180, Math.max(16, point.y - 22));
-      card.style.left = `${left}px`;
-      card.style.top = `${top}px`;
-    }
-    card.hidden = false;
-  }
-
-  canvas.addEventListener("pointermove", (event) => {
-    const result = nearestNode(event.clientX, event.clientY);
-    state.hovered = result.node;
-    canvas.style.cursor = result.node ? "pointer" : "crosshair";
-  });
+  [searchInput, clientFilter, stateFilter, projectFilter].forEach((element) => element.addEventListener("input", updateFilters));
+  document.addEventListener("keydown", (event) => { if (event.key === "/" && document.activeElement !== searchInput) { event.preventDefault(); searchInput.focus(); } if (event.key === "Escape") { document.getElementById("detail-drawer").hidden = true; searchInput.value = ""; updateFilters(); } });
+  motionToggle.addEventListener("click", () => { state.paused = !state.paused; motionToggle.setAttribute("aria-pressed", String(state.paused)); text(motionToggle, state.paused ? "HAREKETİ BAŞLAT" : "HAREKETİ DURDUR"); });
+  viewToggle.addEventListener("click", () => { state.listMode = !state.listMode; viewToggle.setAttribute("aria-pressed", String(state.listMode)); text(viewToggle, state.listMode ? "GRAF GÖRÜNÜMÜ" : "LİSTE GÖRÜNÜMÜ"); graphStage.hidden = state.listMode; fallback.hidden = !state.listMode; });
+  document.getElementById("detail-close").addEventListener("click", () => { document.getElementById("detail-drawer").hidden = true; });
+  canvas.addEventListener("pointermove", (event) => { state.hovered = nearest(event.clientX, event.clientY); canvas.style.cursor = state.hovered ? "pointer" : "crosshair"; });
   canvas.addEventListener("pointerleave", () => { state.hovered = null; });
-  canvas.addEventListener("click", (event) => {
-    const result = nearestNode(event.clientX, event.clientY);
-    selectNode(result.node, result);
-  });
-
-  document.getElementById("node-card-close").addEventListener("click", () => selectNode(null));
-  document.getElementById("copy-ref").addEventListener("click", async () => {
-    if (!state.selected) return;
-    try {
-      await navigator.clipboard.writeText(state.selected.canonical_ref);
-      document.getElementById("copy-ref").textContent = "Kopyalandı";
-      window.setTimeout(() => { document.getElementById("copy-ref").textContent = "Kanonik referansı kopyala"; }, 1200);
-    } catch (_) {
-      document.getElementById("copy-ref").textContent = "Kopyalanamadı";
-    }
-  });
-
-  search.addEventListener("input", () => { state.query = search.value; });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "/" && document.activeElement !== search) {
-      event.preventDefault();
-      search.focus();
-    }
-    if (event.key === "Escape") {
-      search.value = "";
-      state.query = "";
-      selectNode(null);
-    }
-    const focusByKey = { "1": "all", "2": "run", "3": "knowledge", "4": "memory", "5": "model" };
-    if (focusByKey[event.key] && document.activeElement !== search) setFocus(focusByKey[event.key]);
-  });
-
-  function setFocus(focus) {
-    state.focus = focus;
-    document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.focus === focus));
-  }
-  document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => setFocus(item.dataset.focus)));
-
-  motionToggle.addEventListener("click", () => {
-    state.paused = !state.paused;
-    motionToggle.textContent = state.paused ? "▶" : "Ⅱ";
-    motionToggle.setAttribute("aria-pressed", String(state.paused));
-  });
-  recenterButton.addEventListener("click", () => {
-    calculatePositions(state.nodes);
-    selectNode(null);
-  });
-  liveNetworkToggle.addEventListener("click", () => {
-    state.liveMode = !state.liveMode;
-    liveNetworkToggle.setAttribute("aria-pressed", String(state.liveMode));
-    liveNetworkToggle.textContent = state.liveMode ? "TÜM AĞA DÖN" : "CANLI ODAK";
-    document.body.classList.toggle("live-network-mode", state.liveMode);
-    applySnapshot(state.snapshot);
-  });
-
-  function syncPrimaryPanelGeometry() {
-    if (!shell || !brainStage || !workspace || window.matchMedia("(max-width: 1000px)").matches) {
-      shell?.style.removeProperty("--primary-panel-offset");
-      shell?.style.removeProperty("--primary-panel-height");
-      return;
-    }
-    const shellBounds = shell.getBoundingClientRect();
-    const stageBounds = brainStage.getBoundingClientRect();
-    shell.style.setProperty("--primary-panel-offset", `${Math.max(0, stageBounds.top - shellBounds.top)}px`);
-    shell.style.setProperty("--primary-panel-height", `${stageBounds.height}px`);
-  }
-
-  new ResizeObserver(resizeCanvas).observe(wrap);
-  const panelGeometryObserver = new ResizeObserver(syncPrimaryPanelGeometry);
-  panelGeometryObserver.observe(brainStage);
-  panelGeometryObserver.observe(workspace);
-  window.addEventListener("resize", syncPrimaryPanelGeometry);
-  window.setInterval(() => {
-    document.getElementById("clock").textContent = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
-  }, 1000);
+  canvas.addEventListener("click", (event) => { const node = nearest(event.clientX, event.clientY); state.selected = node; if (node) openDetail(node.data, node.kind); });
+  new ResizeObserver(resizeCanvas).observe(graphStage);
+  window.addEventListener("resize", resizeCanvas);
 
   async function boot() {
     resizeCanvas();
-    syncPrimaryPanelGeometry();
+    if (state.listMode) { graphStage.hidden = true; fallback.hidden = false; }
     try {
-      if (window.__ZEKAM_PREVIEW__) {
-        applySnapshot(window.__ZEKAM_PREVIEW__);
-        setConnection("live", "ÖNİZLEME");
-      } else {
-        await fetchSnapshot();
-        connectStream();
-      }
-    } catch (_) {
-      setConnection("error", "POLLING YEDEK");
-      schedulePolling();
-    }
-    window.requestAnimationFrame(drawFrame);
+      if (window.__ZEKAM_PREVIEW__) applySnapshot(window.__ZEKAM_PREVIEW__); else { await fetchSnapshot(); connectStream(); }
+    } catch (_) { setConnection("error", "POLLING YEDEK"); schedulePolling(); }
+    window.requestAnimationFrame(draw);
   }
 
   boot();

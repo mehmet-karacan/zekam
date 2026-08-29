@@ -98,6 +98,7 @@ class ObservatoryAgent:
     process_status: str | None = None
     cpu_percent: float | None = None
     rss_bytes: int | None = None
+    project_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +126,7 @@ class ObservatoryAgent:
             "process_status": self.process_status,
             "cpu_percent": self.cpu_percent,
             "rss_bytes": self.rss_bytes,
+            "project_id": self.project_id,
         }
 
 
@@ -183,6 +185,7 @@ class CanonicalRuntimeEntity:
     work_item_id: str | None = None
     job_id: str | None = None
     terminal_receipt_bound: bool = False
+    project_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +198,7 @@ class CanonicalRuntimeEntity:
             "work_item_id": self.work_item_id,
             "job_id": self.job_id,
             "terminal_receipt_bound": self.terminal_receipt_bound,
+            "project_id": self.project_id,
         }
 
 

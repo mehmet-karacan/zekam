@@ -414,7 +414,7 @@ class PostgresObservatoryProjectionReader:
         with connection.cursor() as cursor:
             cursor.execute(
                 "select l.id, l.job_id, l.worker_label, l.heartbeat_at, l.expires_at, "
-                "j.work_item_id, j.step_id, j.state "
+                "j.work_item_id, j.step_id, j.state, j.project_id "
                 "from runtime.lease l join runtime.job j on j.id = l.job_id "
                 "order by l.heartbeat_at desc limit %s",
                 (_AGENT_LIMIT,),
@@ -436,6 +436,7 @@ class PostgresObservatoryProjectionReader:
                 ),
                 heartbeat_at=_datetime(row[3]),
                 lease_expires_at=_datetime(row[4]),
+                project_id=str(row[8]),
             )
             for row in rows
         )
@@ -487,10 +488,11 @@ class PostgresObservatoryProjectionReader:
         contradictions: list[RuntimeContradiction] = []
         with connection.cursor() as cursor:
             cursor.execute(
-                "select id,state,created_at from work.work_item order by updated_at desc limit %s",
+                "select id,project_id,state,created_at from work.work_item "
+                "order by updated_at desc limit %s",
                 (_WORK_LIMIT,),
             )
-            for work_id, state, occurred_at in cursor.fetchall():
+            for work_id, project_id, state, occurred_at in cursor.fetchall():
                 value = str(work_id)
                 entities.append(
                     CanonicalRuntimeEntity(
@@ -500,11 +502,12 @@ class PostgresObservatoryProjectionReader:
                         canonical_ref=f"db:work.work_item/{value}",
                         occurred_at=_required_datetime(occurred_at),
                         work_item_id=value,
+                        project_id=str(project_id),
                     )
                 )
 
             cursor.execute(
-                "select j.id,j.work_item_id,j.state,j.created_at,"
+                "select j.id,j.project_id,j.work_item_id,j.state,j.created_at,"
                 " exists(select 1 from runtime.effect_claim c"
                 " where c.realm_id=j.realm_id and c.job_id=j.id),"
                 " exists(select 1 from runtime.effect_claim c"
@@ -516,6 +519,7 @@ class PostgresObservatoryProjectionReader:
             )
             for (
                 job_id,
+                project_id,
                 work_id,
                 raw_state,
                 occurred_at,
@@ -551,17 +555,18 @@ class PostgresObservatoryProjectionReader:
                         work_item_id=work,
                         job_id=job,
                         terminal_receipt_bound=terminal_bound,
+                        project_id=str(project_id),
                     )
                 )
 
             cursor.execute(
-                "select a.id,a.job_id,a.outcome,a.started_at,j.work_item_id "
+                "select a.id,a.job_id,a.outcome,a.started_at,j.project_id,j.work_item_id "
                 "from runtime.job_attempt a join runtime.job j "
                 "on j.realm_id=a.realm_id and j.id=a.job_id "
                 "order by a.started_at desc limit %s",
                 (_JOB_LIMIT,),
             )
-            for attempt_id, job_id, outcome, occurred_at, work_id in cursor.fetchall():
+            for attempt_id, job_id, outcome, occurred_at, project_id, work_id in cursor.fetchall():
                 attempt = str(attempt_id)
                 job = str(job_id)
                 work = None if work_id is None else str(work_id)
@@ -575,11 +580,13 @@ class PostgresObservatoryProjectionReader:
                         parent_id=f"job:{job}",
                         work_item_id=work,
                         job_id=job,
+                        project_id=str(project_id),
                     )
                 )
 
             cursor.execute(
-                "select a.id,a.work_item_id,a.parent_assignment_id,a.role,a.status,a.created_at,"
+                "select a.id,a.project_id,a.work_item_id,a.parent_assignment_id,"
+                "a.role,a.status,a.created_at,"
                 " j.id from agents.assignment a left join runtime.job j "
                 "on j.realm_id=a.realm_id and j.assignment_id=a.id "
                 "order by a.created_at desc limit %s",
@@ -587,6 +594,7 @@ class PostgresObservatoryProjectionReader:
             )
             for (
                 assignment_id,
+                project_id,
                 work_id,
                 parent_id,
                 role,
@@ -612,18 +620,28 @@ class PostgresObservatoryProjectionReader:
                         parent_id=parent,
                         work_item_id=work,
                         job_id=assignment_job,
+                        project_id=str(project_id),
                     )
                 )
 
             cursor.execute(
-                "select l.id,l.job_id,l.expires_at,l.heartbeat_at,j.work_item_id,j.state "
+                "select l.id,l.job_id,l.expires_at,l.heartbeat_at,"
+                "j.project_id,j.work_item_id,j.state "
                 "from runtime.lease l join runtime.job j "
                 "on j.realm_id=l.realm_id and j.id=l.job_id "
                 "order by l.heartbeat_at desc limit %s",
                 (_AGENT_LIMIT,),
             )
             now = dt.datetime.now(dt.UTC)
-            for lease_id, job_id, expires_at, heartbeat_at, work_id, job_state in cursor.fetchall():
+            for (
+                lease_id,
+                job_id,
+                expires_at,
+                heartbeat_at,
+                project_id,
+                work_id,
+                job_state,
+            ) in cursor.fetchall():
                 lease = str(lease_id)
                 job = str(job_id)
                 work = None if work_id is None else str(work_id)
@@ -652,11 +670,13 @@ class PostgresObservatoryProjectionReader:
                         parent_id=f"job:{job}",
                         work_item_id=work,
                         job_id=job,
+                        project_id=str(project_id),
                     )
                 )
 
             cursor.execute(
-                "select c.id,c.job_id,c.claimed_at,j.work_item_id,r.id,r.status,r.completed_at "
+                "select c.id,c.job_id,c.claimed_at,j.project_id,j.work_item_id,"
+                "r.id,r.status,r.completed_at "
                 "from runtime.effect_claim c join runtime.job j "
                 "on j.realm_id=c.realm_id and j.id=c.job_id "
                 "left join runtime.effect_receipt r "
@@ -668,6 +688,7 @@ class PostgresObservatoryProjectionReader:
                 claim_id,
                 job_id,
                 claimed_at,
+                project_id,
                 work_id,
                 receipt_id,
                 receipt_status,
@@ -688,6 +709,7 @@ class PostgresObservatoryProjectionReader:
                         work_item_id=work,
                         job_id=job,
                         terminal_receipt_bound=receipt_bound,
+                        project_id=str(project_id),
                     )
                 )
                 if receipt_id is None:
@@ -716,6 +738,7 @@ class PostgresObservatoryProjectionReader:
                             work_item_id=work,
                             job_id=job,
                             terminal_receipt_bound=True,
+                            project_id=str(project_id),
                         )
                     )
 

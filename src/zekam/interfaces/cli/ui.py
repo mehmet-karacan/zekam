@@ -12,7 +12,11 @@ from rich.console import Console
 from zekam.application.composition import build_context
 from zekam.domain.errors import ZekamError
 
-app = typer.Typer(name="ui", help="Salt okunur Neuro Observatory", no_args_is_help=True)
+app = typer.Typer(
+    name="ui",
+    help="Salt okunur Canli Yurutme Gozleme Merkezi",
+    no_args_is_help=True,
+)
 console = Console()
 error_console = Console(stderr=True)
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -63,7 +67,7 @@ def serve_command(
         typer.Option(min=500, max=30000, help="Projeksiyon yenileme araligi"),
     ] = 2000,
 ) -> None:
-    """Zekam'in read-only beyin/sinaps gozlem arayuzunu baslatir."""
+    """Zekam'in salt okunur canli yurutme gozlem arayuzunu baslatir."""
 
     lan_host: str | None = None
     if host not in _LOOPBACK_HOSTS:
@@ -96,5 +100,8 @@ def serve_command(
 
     mode = "canli realm" if resolved_realm is not None else "belge grafigi"
     display_host = f"[{host}]" if ":" in host else host
-    console.print(f"[green]Zekam Neuro Observatory:[/green] http://{display_host}:{port} ({mode})")
+    console.print(
+        "[green]Zekam Canli Yurutme Gozleme Merkezi:[/green] "
+        f"http://{display_host}:{port} ({mode})"
+    )
     uvicorn.run(web_app, host=host, port=port, access_log=False, log_level="warning")

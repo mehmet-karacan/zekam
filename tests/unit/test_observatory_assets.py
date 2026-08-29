@@ -8,111 +8,67 @@ from zekam.interfaces.api.observatory import validated_lan_hosts
 from zekam.interfaces.cli.ui import validate_lan_bind_host
 
 
-def test_observatory_assets_are_packaged_and_self_contained() -> None:
+def test_live_execution_assets_are_packaged_content_free_and_self_contained() -> None:
     static = files("zekam.interfaces.api").joinpath("static")
     index = static.joinpath("index.html").read_text(encoding="utf-8")
     script = static.joinpath("app.js").read_text(encoding="utf-8")
     style = static.joinpath("styles.css").read_text(encoding="utf-8")
 
-    assert "brain-canvas" in index
-    assert "client-grid" in index
-    assert "active-session-count" in index
-    assert "live-network-toggle" in index
-    assert "ZEKAM OBSERVATORY" in index
-    assert "EventSource" in script
-    assert 'label: "OpenCode"' in script
-    assert 'label: "Codex"' in script
-    assert 'label: "Claude"' in script
-    assert '"agent-session"' in script
-    assert '"reports-observation"' in script
-    assert "arrowT" in script
-    assert "labelBoxes" in script
-    assert "hash(edge.kind) % 7" not in script
-    assert 'edge.kind.includes("active")' not in script
-    assert "/running|recovery/" not in script
-    assert "state.activeNodeIds.has(edge.source) && state.activeNodeIds.has(edge.target)" in script
-    assert "font-size: 15px" in style
-    assert "live-network-mode .report-section" in style
-    assert "liveMode: false" in script
-    assert "runtimeAvailable || Number(tile.value || 0) > 0" in script
-    assert "target.hidden = visibleTiles.length === 0" in script
-    assert "repeat(auto-fit, minmax(220px, 1fr))" in style
-    assert "grid-template-columns: minmax(820px, 1fr) 480px" in style
-    assert "height: clamp(820px, 82vh, 1120px)" in style
-    assert (
-        "const clientAnchors = { opencode: 0.32, codex: 0.5, claude: 0.68, zekam: 0.5 }" in script
+    assert index.count("Zekam Canlı Yürütme Gözleme Merkezi") >= 2
+    assert "Repository" not in index
+    assert "Commits" not in index
+    assert "Contributors" not in index
+    assert "execution-canvas" in index
+    assert "Canlı Oturumlar" in index
+    assert "Session Registry" in index
+    assert "Canlı Olay Akışı" in index
+    assert "Queue / Lease / Receipt" in index
+    assert "Kaynak Kullanımı" in index
+    metrics = (
+        "AÇIK CLI",
+        "CANLI OTURUM",
+        "AKTİF AGENT",
+        "ÇALIŞAN TOOL",
+        "RECOVERY",
+        "RECEIPTLESS",
     )
-    assert "left.node_id.localeCompare(right.node_id)" in script
-    assert "const goldenAngle = Math.PI * (3 - Math.sqrt(5))" in script
-    assert "Math.sqrt((index + 1) / rows.length) * clusterRadius" in script
-    assert "|| left.node_id.localeCompare(right.node_id)" in script
-    assert "rail-event-panel" in index
-    assert "causal-title" in index
-    assert "function renderCausal(causal)" in script
-    assert "snapshot.causal" in script
-    assert "edge.source_node_id" in script
-    assert "edge.target_node_id" in script
-    assert "causal-direction" in script
-    assert "fmtTime(source.occurred_at)" in script
-    assert "agent-pulse-panel" in index
-    assert index.index("agent-pulse-panel") < index.index("rail-event-panel")
-    assert 'kind: "tool"' in script
-    assert 'kind: "executes-tool"' in script
-    assert "active_tool" in script
-    assert '{ source: toolNodeId(agent), target: "system:zekam"' not in script
-    assert "font-size: 14px; line-height: 1.45" in style
-    assert ".lower-grid { display: none; }" in style
-    assert 'edge.kind === "markdown-link" ? 0.8 : 1.15' in script
-    assert "function drawClusterRegions()" in script
-    assert "function focusedNeighborhood()" in script
-    assert 'if (node.kind === "tool") return "run"' in script
-    assert "neighborhood?.edgeKeys.has(edgeKey)" in script
-    assert "context.globalAlpha = dimmed ? 0.22 : 1" in script
-    assert "Math.random" not in script
-    assert "function syncPrimaryPanelGeometry()" in script
-    assert 'window.matchMedia("(max-width: 1000px)").matches' in script
-    assert "panelGeometryObserver.observe(brainStage)" in script
-    assert "height: var(--primary-panel-height, 100vh)" in style
-    assert "overflow-y: auto" in style
-    assert "margin-top: var(--primary-panel-offset, 0)" in style
-    assert ".agent-rail { position: relative; top: auto;" in style
-    assert ".agent-rail { position: relative; width: 100%; height: auto; margin-top: 0;" in style
-    assert "const sx = width * 0.455" in script
-    assert "const sy = height * 0.455" in script
-    assert "for (let index = 0; index < 38; index += 1)" in script
-    assert 'positions.set("system:zekam", { x: 0.5, y: 0.5' in script
-    assert "knowledge: [0.82, 0.52]" in script
-    assert "contracts: [0.82, 0.32]" in script
-    assert "const clusterRadiusCaps" in script
-    assert '"runtime-root": [0.50, 0.64]' in script
-    assert "const outsideSystemCore" in script
-    assert "Math.hypot(dx, dy) >= minimumDistance" in script
-    assert 'ref.includes("bellek") || ref.includes("memory")' in script
-    assert "points.length >= 2 && state.width >= 720" in script
-    assert 'node.kind === "system" || (state.liveMode' in script
-    assert ".brain-center-label { display: none; }" in style
-    assert "grid-template-columns: minmax(0,1fr) auto" in style
-    assert ".agent-identity > div { min-width: 0; }" in style
-    assert ".event-row > div { min-width: 0; overflow: hidden; }" in style
-    assert (
-        ".event-row strong, .event-row small { white-space: nowrap; overflow: hidden; "
-        "text-overflow: ellipsis; }" in style
-    )
-    assert "Math.min(nodeRadius(sourceNode) + 4, centerDistance * 0.36)" in script
-    assert "Math.min(nodeRadius(targetNode) + 8, centerDistance * 0.36)" in script
-    assert 'context.fillStyle = "rgba(3,12,10,.82)"' in script
-    assert 'if (node.kind === "agent-session") return 8.2' in script
-    assert ".agent-identity strong { display: block; font-size: 17px" in style
-    assert ".sidebar { display: none; }" in style
-    assert ".client-grid { grid-template-columns: repeat(3" in style
-    assert "@media (max-width: 1000px)" in style
-    assert ".client-grid, .agent-list { grid-template-columns: 1fr; }" in style
-    assert "zekam-observatory-snapshot/v2" in script
-    assert "@media (prefers-reduced-motion: reduce)" in style
+    for metric in metrics:
+        assert metric in index
+    assert "client-filter" in index
+    assert "state-filter" in index
+    assert "project-filter" in index
+    assert "graph-fallback" in index
+    assert "/assets/styles.css?v=13" in index
+    assert "/assets/app.js?v=13" in index
     assert "https://" not in index
     assert "http://" not in index
-    assert "/assets/styles.css?v=12" in index
-    assert "/assets/app.js?v=12" in index
+
+    assert 'const snapshotSchema = "zekam-observatory-snapshot/v3"' in script
+    assert "EventSource" in script
+    assert 'addEventListener("structure"' in script
+    assert 'addEventListener("telemetry"' in script
+    assert "structureDigest" in script
+    assert "telemetryDigest" in script
+    assert "Math.random" not in script
+    assert "textContent" in script
+    assert "innerHTML" not in script
+    assert "raw command" not in script.casefold()
+    assert "prompt_content" not in script
+    assert "model_response" not in script
+    assert "terminal_receipt_bound" in script
+    assert "binding_confidence" in script
+    assert "current_action" in script
+    assert "project-filter" in index
+
+    assert "--gold: #ffc15a" in style
+    assert "--orange: #f45f22" in style
+    assert "--red: #f03a2f" in style
+    assert "grid-template-columns: repeat(6" in style
+    assert "grid-template-columns: minmax(0, 1fr) 330px" in style
+    assert "grid-template-columns: 1.1fr 1fr 1.1fr .85fr" in style
+    assert "@media (max-width: 1380px)" in style
+    assert "@media (max-width: 1000px)" in style
+    assert "@media (prefers-reduced-motion: reduce)" in style
 
 
 def test_ui_lan_binding_requires_explicit_flag() -> None:
