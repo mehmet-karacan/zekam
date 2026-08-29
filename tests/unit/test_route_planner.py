@@ -13,7 +13,13 @@ from zekam.application.route_planner import (
     StepState,
     declared_resources,
 )
+from zekam.application.topology_planner import TopologySuitabilityRequest
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
+from zekam.domain.execution_topology import (
+    ExecutionTopologyPattern,
+    MeasurementSourceTier,
+)
 from zekam.domain.runtime import RouteKind
 from zekam.domain.work import EffectKind, PlanStep, TaskPlan, WorkItem, WorkType
 
@@ -50,6 +56,21 @@ def _generous() -> ExecutionBudget:
     )
 
 
+def _topology_request(plan: TaskPlan, **changes: object) -> TopologySuitabilityRequest:
+    values: dict[str, object] = {
+        "plan": plan,
+        "objective_digest": digest("route-objective"),
+        "measurement_available": True,
+        "measurement_source_tier": MeasurementSourceTier.DETERMINISTIC_EXTERNAL,
+        "measurement_estimated_cost_micros": 10,
+        "action_estimated_cost_micros": 100,
+        "reversible": True,
+        "idempotent_or_receipt_bound": True,
+    }
+    values.update(changes)
+    return TopologySuitabilityRequest(**values)  # type: ignore[arg-type]
+
+
 # -- butce -----------------------------------------------------------------------------
 
 
@@ -73,6 +94,26 @@ def test_negative_budget_is_rejected() -> None:
 
 def test_default_budget_is_serial() -> None:
     assert ExecutionBudget().ceiling == 1
+
+
+def test_topology_is_selected_before_route_and_binds_same_plan() -> None:
+    plan = _plan((PlanStep("edit", "Edit", EffectKind.FILE_WRITE),))
+    decision = RoutePlanner(_generous()).decide_with_topology(_topology_request(plan))
+    assert decision.topology.pattern is ExecutionTopologyPattern.BOUNDED_LOOP
+    assert decision.topology.plan_digest == plan.plan_digest
+    assert decision.route.kind is RouteKind.SINGLE
+    assert decision.route.reason == "topology-bounded-loop"
+    assert decision.as_dict()["grants_authority"] is False
+
+
+def test_high_risk_topology_blocks_route_even_when_step_is_ready() -> None:
+    plan = _plan((PlanStep("push", "Push", EffectKind.GIT_PUSH, risk="high"),))
+    decision = RoutePlanner(_generous()).decide_with_topology(
+        _topology_request(plan, reversible=None)
+    )
+    assert decision.topology.pattern is ExecutionTopologyPattern.QUEUE_HUMAN_REVIEW
+    assert decision.route.kind is RouteKind.BLOCKED
+    assert decision.route.steps == ()
 
 
 # -- karar turleri -------------------------------------------------------------------------

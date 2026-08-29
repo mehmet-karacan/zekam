@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from zekam.domain.errors import ValidationFailed
+from zekam.domain.execution_topology import (
+    ExecutionTopologyDecision,
+    ExecutionTopologyPattern,
+)
 from zekam.domain.resources import ResourceRequest, conflicts, parse_requests
 from zekam.domain.runtime import RouteKind
 from zekam.domain.work import PlanStep, TaskPlan, assert_acyclic_steps
@@ -109,6 +113,22 @@ class RouteDecision:
             "limiting_factor": self.limiting_factor,
             "blocked_steps": list(self.blocked_steps),
             "conflicts": [list(pair) for pair in self.conflicts],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TopologyRouteDecision:
+    """Topology suitability ve hazir-step kararini tek kanit zincirinde tutar."""
+
+    topology: ExecutionTopologyDecision
+    route: RouteDecision
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-topology-route-decision/v1",
+            "topology": self.topology.body(),
+            "route": self.route.as_dict(),
+            "grants_authority": False,
         }
 
 
@@ -232,6 +252,61 @@ class RoutePlanner:
             limiting_factor=self.budget.limiting_factor(),
             conflicts=found_conflicts,
         )
+
+    def decide_with_topology(
+        self,
+        request: Any,
+        states: Sequence[StepState] = (),
+    ) -> TopologyRouteDecision:
+        """Suitability'yi once uretir; sonra ayni TaskPlan icin route secer.
+
+        ``request`` bir ``TopologySuitabilityRequest`` olmalidir. Import dongusunu
+        onlemek icin runtime'da dogrulanir. High-risk ve eksik kanitli topology'ler
+        hazir adim bulunsa bile execution dalgasi uretemez.
+        """
+
+        from zekam.application.topology_planner import (
+            TopologyPlanner,
+            TopologySuitabilityRequest,
+            assert_topology_matches_plan,
+        )
+
+        if not isinstance(request, TopologySuitabilityRequest):
+            raise ValidationFailed("Route planner exact topology suitability request ister")
+        topology = TopologyPlanner().decide(request)
+        assert_topology_matches_plan(topology, request.plan)
+        if topology.pattern in {
+            ExecutionTopologyPattern.BLOCKED,
+            ExecutionTopologyPattern.QUEUE_HUMAN_REVIEW,
+        }:
+            route = RouteDecision(
+                kind=RouteKind.BLOCKED,
+                steps=(),
+                parallelism=0,
+                reason=f"topology-{topology.pattern.value}",
+                blocked_steps=tuple(sorted(step.step_id for step in request.plan.steps)),
+            )
+        elif topology.pattern in {
+            ExecutionTopologyPattern.BOUNDED_LOOP,
+            ExecutionTopologyPattern.TOURNAMENT,
+        }:
+            ready = self.ready_steps(request.plan, states)
+            if not ready:
+                route = self.decide(request.plan, states)
+            else:
+                route = RouteDecision(
+                    kind=RouteKind.SINGLE,
+                    steps=(ready[0].step_id,),
+                    parallelism=1,
+                    reason=f"topology-{topology.pattern.value}",
+                )
+        else:
+            route = self.decide(
+                request.plan,
+                states,
+                agentic=topology.pattern is not ExecutionTopologyPattern.DIRECT,
+            )
+        return TopologyRouteDecision(topology, route)
 
     def _independent_subset(
         self, ready: Sequence[PlanStep]
