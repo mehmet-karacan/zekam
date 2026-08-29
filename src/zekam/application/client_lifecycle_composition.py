@@ -368,7 +368,8 @@ def recover_committed_codex_delivery(
         }
     )
     if (
-        terminal["claim_idempotency_key"] != entry.delivery_id
+        terminal["claim_idempotency_key"]
+        != f"{entry.delivery_id}:job:{terminal['job_id']}"
         or expected_claim != terminal["claim_digest"]
         or terminal["execution_identity"]
         != f"{terminal['worker_label']}:{terminal['fencing_token']}"
@@ -602,7 +603,7 @@ def compose_codex_lifecycle_handler(
             metadata=(),
             classification=DataClassification.INTERNAL,
             payload=entry.observation,
-            idempotency_key=entry.delivery_id,
+            idempotency_key=f"{entry.delivery_id}:job:{work.job.id}",
             occurred_at=entry.occurred_at,
             ingested_at=entry.occurred_at,
         )

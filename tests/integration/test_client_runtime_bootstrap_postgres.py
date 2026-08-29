@@ -545,3 +545,9 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
     assert "reuse_existing=True" in bootstrap
     assert 'f"codex-lifecycle:{entry.delivery_id}:parent:{job.id}"' in bootstrap
     assert "Lifecycle child job replay reddedildi" in bootstrap
+
+    composition = Path("src/zekam/application/client_lifecycle_composition.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'idempotency_key=f"{entry.delivery_id}:job:{work.job.id}"' in composition
+    assert 'f"{entry.delivery_id}:job:{terminal[\'job_id\']}"' in composition
