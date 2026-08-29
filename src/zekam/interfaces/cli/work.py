@@ -592,6 +592,68 @@ def activate_command(
     console.print(f"[green]Active:[/green] revision {updated.revision}")
 
 
+@app.command("activation-rollback")
+def activation_rollback_command(
+    project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],
+    reference: Annotated[str, typer.Argument(help="Is kimligi veya dis numara")],
+    expected_revision: Annotated[
+        int, typer.Option("--beklenen-revision", help="Exact active Work revision")
+    ],
+    evidence: Annotated[str, typer.Option("--kanit", help="Exact rollback kanit referansi")],
+    apply: Annotated[
+        bool, typer.Option("--uygula", help="Unbootstrapped activation'i atomik geri alir")
+    ] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Yalniz Intent/Plan uretmemis exact active Work aktivasyonunu geri alir."""
+
+    if expected_revision < 1:
+        raise fail("Activation rollback pozitif --beklenen-revision ister")
+    if not evidence.strip():
+        raise fail("Activation rollback exact --kanit ister")
+    if not apply:
+        console.print(
+            f"hedef durum: proposed, beklenen revision: {expected_revision}, kanit: 1"
+        )
+        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        return
+    try:
+        with RealmSession(home, realm) as realm_context:
+            service = _service(realm_context)
+            project_id = _project_id(realm_context, project)
+            work_item_id = _work_id(service, project_id, reference)
+            with realm_context.connection.transaction():
+                current = service.items.get(work_item_id)
+                snapshot = service.snapshot(work_item_id)
+                if (
+                    current.project_id != project_id
+                    or current.state is not WorkState.ACTIVE
+                    or current.revision != expected_revision
+                    or snapshot.intent is not None
+                    or snapshot.plan is not None
+                ):
+                    raise ZekamError(
+                        "Activation rollback exact unbootstrapped active Work ister"
+                    )
+                service.transition(
+                    work_item_id,
+                    WorkState.READY,
+                    evidence=(
+                        EvidenceRef(kind="activation-rollback", reference=evidence.strip()),
+                    ),
+                    reason="unbootstrapped control-plane activation rollback",
+                )
+                updated = service.transition(
+                    work_item_id,
+                    WorkState.PROPOSED,
+                    reason="client runtime bootstrap icin proposed state restore",
+                )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print(f"[green]Proposed:[/green] revision {updated.revision}")
+
+
 @app.command("reopen")
 def reopen_command(
     project: Annotated[str, typer.Argument(help="Proje slug, alias veya kimlik")],

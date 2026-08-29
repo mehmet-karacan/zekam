@@ -240,6 +240,73 @@ def test_activate_requires_exact_evidence_and_only_accepts_proposed(
     ]
 
 
+def test_activation_rollback_is_revision_bound_and_unbootstrapped(
+    cli_home: Path, realm_flags: list[str], registered_project: str
+) -> None:
+    _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "create",
+        registered_project,
+        "Rollback aktivasyonu",
+        "--numara",
+        "rollback-1",
+        "--uygula",
+    )
+    activated = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activate",
+        registered_project,
+        "rollback-1",
+        "--kanit",
+        "input=sha256:test-input",
+        "--uygula",
+    )
+    assert activated.exit_code == 0, activated.stdout
+
+    stale = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activation-rollback",
+        registered_project,
+        "rollback-1",
+        "--beklenen-revision",
+        "2",
+        "--kanit",
+        "bootstrap=state-order-conflict",
+        "--uygula",
+    )
+    assert stale.exit_code == 70
+
+    rolled_back = _run(
+        cli_home,
+        realm_flags,
+        "work",
+        "activation-rollback",
+        registered_project,
+        "rollback-1",
+        "--beklenen-revision",
+        "3",
+        "--kanit",
+        "bootstrap=state-order-conflict",
+        "--uygula",
+    )
+    assert rolled_back.exit_code == 0, rolled_back.stdout
+    assert "Proposed:" in rolled_back.stdout
+    history = _run(cli_home, realm_flags, "work", "history", registered_project, "rollback-1")
+    assert [row["state"] for row in json.loads(history.stdout)["revisions"]] == [
+        "proposed",
+        "ready",
+        "active",
+        "ready",
+        "proposed",
+    ]
+
+
 def test_lifecycle_through_cli(
     cli_home: Path, realm_flags: list[str], registered_project: str
 ) -> None:
