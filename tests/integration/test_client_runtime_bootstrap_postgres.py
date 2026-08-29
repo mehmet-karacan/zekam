@@ -467,6 +467,7 @@ def test_claimed_bootstrap_materializes_exact_child_on_real_postgres(
         "schema",
         "authorization_id",
         "hydration_authorization_id",
+        "lifecycle_plan_body",
     }
     child_result = run_codex_lifecycle_once(
         connection,
@@ -538,6 +539,18 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
         encoding="utf-8"
     )
     assert "substring(new.source_revision from 5 for 40)" in migration
+
+    admission_migration = Path(
+        "migrations/0071_codex_lifecycle_plan_body_admission.sql"
+    ).read_text(encoding="utf-8")
+    assert "payload_key not in ('schema','authorization_id'" in admission_migration
+    assert "'hydration_authorization_id','lifecycle_plan_body')" in admission_migration
+    assert "job.payload->'lifecycle_plan_body'=admission.effect_plan_body" in (
+        admission_migration
+    )
+    assert "continuity_event.idempotency_key||'':job:''||job.id::text" in (
+        admission_migration
+    )
 
     bootstrap = Path("src/zekam/application/client_runtime_bootstrap.py").read_text(
         encoding="utf-8"
