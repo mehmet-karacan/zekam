@@ -1543,6 +1543,26 @@ def test_memory_continuity_base_and_exact_close_guards_coexist(
     assert {"close_identity", "close_exact_guard", "deny_update", "deny_delete"} <= names
 
 
+def test_projection_close_hydration_source_accepts_dirty_revision(
+    blank_database: DatabaseSettings,
+) -> None:
+    with connect(blank_database) as connection:
+        migrations.upgrade(connection)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select pg_get_functiondef(%s::regprocedure)",
+                (_PROJECTION_ADMISSION_SIGNATURE,),
+            )
+            definition = str(cursor.fetchone()[0])
+
+    plain = "hydration_event.event_body->>'source_revision'=source_head_"
+    dirty = (
+        "substring(hydration_event.event_body->>'source_revision' from 5 for 40)"
+    )
+    assert plain not in definition
+    assert definition.count(dirty) == 1
+
+
 def test_ledger_records_checksum_and_duration(blank_database: DatabaseSettings) -> None:
     with connect(blank_database) as connection:
         migrations.upgrade(connection)

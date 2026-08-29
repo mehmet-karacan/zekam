@@ -13,8 +13,14 @@ declare
         and hydration_outbox.created_at=hydration_event.ingested_at$replacement$;
 begin
   if exists(
-      select 1 from continuity.session_lifecycle_event event
-      where event.event_type='pre_close'
+      select 1 from work.completion_admission admission
+      join continuity.lifecycle_delivery_outbox outbox
+        on outbox.realm_id=admission.realm_id
+        and outbox.id=admission.pre_close_outbox_id
+      join continuity.session_lifecycle_event event
+        on event.realm_id=outbox.realm_id and event.id=outbox.event_id
+      where admission.mode='projection-aware'
+        and event.event_type='pre_close'
         and event.event_body->>'source_revision'
           ~ '^git:[0-9a-f]{40};state:sha256:[0-9a-f]{64}$'
   ) then
