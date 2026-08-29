@@ -1,4 +1,4 @@
-"""FastAPI surface for the read-only Zekam Neuro Observatory."""
+"""FastAPI surface for the read-only Canli Yurutme Gozleme Merkezi."""
 
 import asyncio
 import ipaddress

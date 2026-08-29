@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from zekam.infrastructure.process_observer import (
@@ -91,3 +92,38 @@ def test_missing_psutil_style_source_fails_closed() -> None:
     assert snapshot.available is False
     assert snapshot.detail == "psutil-not-installed"
     assert snapshot.processes == ()
+
+
+def test_sixty_four_roots_with_bounded_children_stays_bounded_and_fast() -> None:
+    samples: list[RawProcessSample] = []
+    for root_index in range(64):
+        root_pid = 10_000 + root_index * 100
+        samples.append(sample(root_pid, 1, "codex.exe", "codex"))
+        for child_index in range(24):
+            samples.append(
+                sample(
+                    root_pid + child_index + 1,
+                    root_pid,
+                    "node.exe",
+                    "node",
+                    "codex-cli",
+                )
+            )
+    observer = BoundedProcessObserver(
+        FakeSource(RawProcessScan(tuple(samples))),
+        max_processes=2048,
+        max_children_per_root=16,
+        budget_ms=2000,
+    )
+
+    started = time.perf_counter()
+    snapshot = observer.read()
+    duration_ms = (time.perf_counter() - started) * 1000
+
+    assert len(snapshot.roots) == 64
+    assert len(snapshot.processes) == 64 * 17
+    assert all(
+        sum(item.parent_identity_key == root.identity.key for item in snapshot.processes) == 16
+        for root in snapshot.roots
+    )
+    assert duration_ms < 250

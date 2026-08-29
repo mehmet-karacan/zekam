@@ -38,8 +38,8 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
     assert "state-filter" in index
     assert "project-filter" in index
     assert "graph-fallback" in index
-    assert "/assets/styles.css?v=13" in index
-    assert "/assets/app.js?v=13" in index
+    assert "/assets/styles.css?v=14" in index
+    assert "/assets/app.js?v=14" in index
     assert "https://" not in index
     assert "http://" not in index
 
@@ -59,6 +59,8 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
     assert "binding_confidence" in script
     assert "current_action" in script
     assert "project-filter" in index
+    assert 'diagnostics.get("diagnostics") === "graph"' in script
+    assert "benchmarkGraph" in script
 
     assert "--gold: #ffc15a" in style
     assert "--orange: #f45f22" in style

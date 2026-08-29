@@ -96,6 +96,18 @@ def test_structure_and_telemetry_payloads_have_independent_digests(tmp_path: Pat
     assert "graph" not in telemetry
 
 
+def test_unchanged_snapshot_digests_suppress_duplicate_sse_payloads(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    _write(root / "README.md", "# Zekam\n")
+    service = ObservatoryService(root, repository_refresh_seconds=60)
+
+    first = service.snapshot()
+    second = service.snapshot()
+
+    assert first.structure_digest == second.structure_digest
+    assert first.telemetry_digest == second.telemetry_digest
+
+
 def test_unconfigured_runtime_keeps_six_required_tiles(tmp_path: Path) -> None:
     root = tmp_path / "core"
     _write(root / "README.md", "# Zekam\n")

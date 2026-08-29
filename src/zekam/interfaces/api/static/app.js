@@ -281,9 +281,9 @@
     document.getElementById("graph-empty").hidden = nodes.length > 0;
   }
 
-  function calculatePositions() {
+  function deterministicPositions(nodes) {
     const groups = new Map();
-    for (const node of state.nodes) { const group = node.client in anchors ? node.client : "runtime"; if (!groups.has(group)) groups.set(group, []); groups.get(group).push(node); }
+    for (const node of nodes) { const group = node.client in anchors ? node.client : "runtime"; if (!groups.has(group)) groups.set(group, []); groups.get(group).push(node); }
     const positions = new Map();
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     for (const [group, rows] of groups.entries()) {
@@ -297,7 +297,27 @@
         positions.set(node.id, { x: Math.max(.04, Math.min(.96, anchorX + Math.cos(angle) * radius)), y: Math.max(.08, Math.min(.92, anchorY + Math.sin(angle) * radius)) });
       });
     }
-    state.positions = positions;
+    return positions;
+  }
+
+  function calculatePositions() {
+    state.positions = deterministicPositions(state.nodes);
+  }
+
+  function benchmarkGraph(nodeCount = 512, edgeCount = 1024) {
+    const boundedNodes = Math.max(1, Math.min(1024, Number(nodeCount) || 1));
+    const boundedEdges = Math.max(0, Math.min(4096, Number(edgeCount) || 0));
+    const nodes = Array.from({ length: boundedNodes }, (_, index) => ({ id: `benchmark:${index}`, client: "runtime", kind: "job", state: index % 29 === 0 ? "blocked" : "active" }));
+    const edges = Array.from({ length: boundedEdges }, (_, index) => ({ source: nodes[index % boundedNodes].id, target: nodes[(index * 17 + 1) % boundedNodes].id }));
+    const surface = document.createElement("canvas"); surface.width = 1440; surface.height = 900;
+    const drawing = surface.getContext("2d"); const started = performance.now();
+    const positions = deterministicPositions(nodes);
+    if (drawing) {
+      drawing.strokeStyle = "rgba(255,145,31,.24)"; drawing.fillStyle = colors.runtime;
+      for (const edge of edges) { const source = positions.get(edge.source); const target = positions.get(edge.target); if (!source || !target) continue; drawing.beginPath(); drawing.moveTo(source.x * 1440, source.y * 900); drawing.lineTo(target.x * 1440, target.y * 900); drawing.stroke(); }
+      for (const node of nodes) { const point = positions.get(node.id); if (!point) continue; drawing.beginPath(); drawing.arc(point.x * 1440, point.y * 900, 4.5, 0, Math.PI * 2); drawing.fill(); }
+    }
+    return Object.freeze({ nodeCount: nodes.length, edgeCount: edges.length, positioned: positions.size, durationMs: performance.now() - started });
   }
 
   function renderFallback() {
@@ -446,6 +466,12 @@
   canvas.addEventListener("click", (event) => { const node = nearest(event.clientX, event.clientY); state.selected = node; if (node) openDetail(node.data, node.kind); });
   new ResizeObserver(resizeCanvas).observe(graphStage);
   window.addEventListener("resize", resizeCanvas);
+  const diagnostics = new URLSearchParams(window.location.search);
+  if (diagnostics.get("diagnostics") === "graph") {
+    document.documentElement.dataset.zekamBenchmark = JSON.stringify(
+      benchmarkGraph(diagnostics.get("nodes"), diagnostics.get("edges")),
+    );
+  }
 
   async function boot() {
     resizeCanvas();
