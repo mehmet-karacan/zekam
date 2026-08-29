@@ -215,12 +215,18 @@ class PostgresLifecycleContinuityAdmission:
                 raise PolicyViolation(
                     "Hydration authorization yalniz session-start delivery tasiyabilir"
                 )
-            self.bridge.repository.finalize_lifecycle_delivery(
-                outbox_id=applied.outbox_id,
-                receipt_digest=hook_output.output_digest,
-                status="completed",
-                completed_at=terminal_at,
-            )
+            # ``pre_close`` is a two-effect protocol.  The lifecycle effect owns
+            # the immutable event, hook receipt and governed admission, while
+            # the later projection-aware close effect owns the terminal outbox
+            # receipt.  Completing this outbox with the hook digest would make
+            # the exact close job impossible to admit (0057/0073).
+            if entry.internal_event_type != "pre_close":
+                self.bridge.repository.finalize_lifecycle_delivery(
+                    outbox_id=applied.outbox_id,
+                    receipt_digest=hook_output.output_digest,
+                    status="completed",
+                    completed_at=terminal_at,
+                )
             result_digest = digest(
                 {
                     "schema": "zekam-client-lifecycle-effect-result/v1",

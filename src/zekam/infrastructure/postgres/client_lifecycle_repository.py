@@ -77,6 +77,30 @@ class LifecycleTerminalRecord:
     adapter_evidence_digest: str
 
 
+def _terminal_delivery_digest(
+    *,
+    event_type: str,
+    outbox_terminal_digest: str | None,
+    hook_output_digest: str,
+    pre_close_terminal_bound: bool = False,
+) -> str:
+    """Resolve the lifecycle-stage receipt without stealing close ownership."""
+
+    parse_digest(hook_output_digest)
+    if event_type == "pre_close":
+        if (outbox_terminal_digest is None) == pre_close_terminal_bound:
+            raise PolicyViolation("Pre-close lifecycle outbox/close receipt binding drift")
+        if outbox_terminal_digest is not None:
+            parse_digest(outbox_terminal_digest)
+        return hook_output_digest
+    if outbox_terminal_digest is None:
+        raise PolicyViolation("Lifecycle outbox terminal receipt digest eksik")
+    parse_digest(outbox_terminal_digest)
+    if outbox_terminal_digest != hook_output_digest:
+        raise PolicyViolation("Lifecycle outbox/hook terminal receipt digest drift")
+    return outbox_terminal_digest
+
+
 @dataclass(frozen=True, slots=True)
 class HookTerminalOutput:
     receipt_id: UUID
@@ -365,8 +389,44 @@ class ClientLifecycleRepository:
                 " and latest.attempt_id=envelope.attempt_id"
                 " order by latest.request_ordinal desc,latest.created_at desc,"
                 " latest.id desc limit 1)"
-                " and outbox.state='completed'"
-                " and outbox.terminal_receipt_digest=admission.terminal_hook_receipt_digest"
+                " and ((continuity_event.event_type='pre_close' and ("
+                "   (outbox.state in ('pending','processing')"
+                "    and outbox.terminal_receipt_digest is null"
+                "    and outbox.completed_at is null)"
+                "   or (outbox.state='completed' and outbox.completed_at is not null"
+                "    and exists(select 1 from continuity.session_close_receipt close_receipt"
+                "      where close_receipt.realm_id=outbox.realm_id"
+                "      and close_receipt.receipt_digest=outbox.terminal_receipt_digest"
+                "      and close_receipt.project_id=continuity_event.project_id"
+                "      and close_receipt.work_item_id=continuity_event.work_item_id"
+                "      and close_receipt.run_id=continuity_event.run_id"
+                "      and close_receipt.session_id=continuity_event.session_id"
+                "      and close_receipt.client_id=continuity_event.client_id"
+                "      and close_receipt.close_status='closed'"
+                "      and close_receipt.receipt_body->>'status'='closed'"
+                "      and close_receipt.receipt_body->>'receipt_id'=close_receipt.id::text"
+                "      and close_receipt.receipt_body->>'realm_id'=close_receipt.realm_id::text"
+                "      and close_receipt.receipt_body->>'project_id'="
+                "        continuity_event.project_id::text"
+                "      and close_receipt.receipt_body->>'work_item_id'="
+                "        continuity_event.work_item_id::text"
+                "      and close_receipt.receipt_body->>'run_id'=continuity_event.run_id::text"
+                "      and close_receipt.receipt_body->>'session_id'="
+                "        continuity_event.session_id"
+                "      and close_receipt.receipt_body->>'client_id'=continuity_event.client_id"
+                "      and close_receipt.receipt_digest="
+                "        models.capability_runtime_jsonb_digest(close_receipt.receipt_body)"
+                "      and exists(select 1 from work.completion_admission completion"
+                "        where completion.realm_id=close_receipt.realm_id"
+                "        and completion.close_receipt_id=close_receipt.id"
+                "        and completion.pre_close_outbox_id=outbox.id"
+                "        and completion.mode='projection-aware'"
+                "        and completion.operation='projection-aware-close'"
+                "        and completion.consumed_at is not null))))"
+                "  or (continuity_event.event_type<>'pre_close'"
+                "   and outbox.state='completed'"
+                "   and outbox.terminal_receipt_digest=admission.terminal_hook_receipt_digest"
+                "   and outbox.completed_at is not null))"
                 " and hook_receipt.status='completed'"
                 " and hook_receipt.effect_performed=false"
                 " and hook_receipt.grants_authority=false"
@@ -2210,7 +2270,33 @@ class ClientLifecycleRepository:
                 " receipt.output_digest,receipt.output_body->'command'->>'compiler_enqueue',"
                 " effect_receipt.id,effect_receipt.result_digest,"
                 " checkpoint.id,checkpoint.checkpoint_digest,"
-                " effect_receipt.adapter_evidence_digest"
+                " effect_receipt.adapter_evidence_digest,"
+                " exists(select 1 from continuity.session_close_receipt close_receipt"
+                "   where close_receipt.realm_id=outbox.realm_id"
+                "   and close_receipt.receipt_digest=outbox.terminal_receipt_digest"
+                "   and close_receipt.project_id=event.project_id"
+                "   and close_receipt.work_item_id=event.work_item_id"
+                "   and close_receipt.run_id=event.run_id"
+                "   and close_receipt.session_id=event.session_id"
+                "   and close_receipt.client_id=event.client_id"
+                "   and close_receipt.close_status='closed'"
+                "   and close_receipt.receipt_body->>'status'='closed'"
+                "   and close_receipt.receipt_body->>'receipt_id'=close_receipt.id::text"
+                "   and close_receipt.receipt_body->>'realm_id'=close_receipt.realm_id::text"
+                "   and close_receipt.receipt_body->>'project_id'=event.project_id::text"
+                "   and close_receipt.receipt_body->>'work_item_id'=event.work_item_id::text"
+                "   and close_receipt.receipt_body->>'run_id'=event.run_id::text"
+                "   and close_receipt.receipt_body->>'session_id'=event.session_id"
+                "   and close_receipt.receipt_body->>'client_id'=event.client_id"
+                "   and close_receipt.receipt_digest="
+                "     models.capability_runtime_jsonb_digest(close_receipt.receipt_body)"
+                "   and exists(select 1 from work.completion_admission completion"
+                "     where completion.realm_id=close_receipt.realm_id"
+                "     and completion.close_receipt_id=close_receipt.id"
+                "     and completion.pre_close_outbox_id=outbox.id"
+                "     and completion.mode='projection-aware'"
+                "     and completion.operation='projection-aware-close'"
+                "     and completion.consumed_at is not null))"
                 " from continuity.session_lifecycle_event event"
                 " join continuity.lifecycle_delivery_outbox outbox"
                 " on outbox.realm_id=event.realm_id and outbox.event_id=event.id"
@@ -2253,9 +2339,43 @@ class ClientLifecycleRepository:
                 "  and checkpoint_v2_verification.checkpoint_id=checkpoint_v2_result.checkpoint_id"
                 "  and checkpoint_v2_verification.step_id=checkpoint_v2_result.step_id"
                 " where event.realm_id=%s and event.idempotency_key=%s"
-                " and outbox.plan_digest=%s and outbox.state='completed'"
+                " and outbox.plan_digest=%s"
                 " and receipt.status='completed' and receipt.effect_performed=false"
-                " and receipt.output_digest=outbox.terminal_receipt_digest"
+                " and ((event.event_type='pre_close' and ("
+                "   (outbox.state in ('pending','processing')"
+                "    and outbox.terminal_receipt_digest is null"
+                "    and outbox.completed_at is null)"
+                "   or (outbox.state='completed' and outbox.completed_at is not null"
+                "    and exists(select 1 from continuity.session_close_receipt close_receipt"
+                "      where close_receipt.realm_id=outbox.realm_id"
+                "      and close_receipt.receipt_digest=outbox.terminal_receipt_digest"
+                "      and close_receipt.project_id=event.project_id"
+                "      and close_receipt.work_item_id=event.work_item_id"
+                "      and close_receipt.run_id=event.run_id"
+                "      and close_receipt.session_id=event.session_id"
+                "      and close_receipt.client_id=event.client_id"
+                "      and close_receipt.close_status='closed'"
+                "      and close_receipt.receipt_body->>'status'='closed'"
+                "      and close_receipt.receipt_body->>'receipt_id'=close_receipt.id::text"
+                "      and close_receipt.receipt_body->>'realm_id'=close_receipt.realm_id::text"
+                "      and close_receipt.receipt_body->>'project_id'=event.project_id::text"
+                "      and close_receipt.receipt_body->>'work_item_id'=event.work_item_id::text"
+                "      and close_receipt.receipt_body->>'run_id'=event.run_id::text"
+                "      and close_receipt.receipt_body->>'session_id'=event.session_id"
+                "      and close_receipt.receipt_body->>'client_id'=event.client_id"
+                "      and close_receipt.receipt_digest="
+                "        models.capability_runtime_jsonb_digest(close_receipt.receipt_body)"
+                "      and exists(select 1 from work.completion_admission completion"
+                "        where completion.realm_id=close_receipt.realm_id"
+                "        and completion.close_receipt_id=close_receipt.id"
+                "        and completion.pre_close_outbox_id=outbox.id"
+                "        and completion.mode='projection-aware'"
+                "        and completion.operation='projection-aware-close'"
+                "        and completion.consumed_at is not null))))"
+                "  or (event.event_type<>'pre_close'"
+                "   and outbox.state='completed'"
+                "   and receipt.output_digest=outbox.terminal_receipt_digest"
+                "   and outbox.completed_at is not null))"
                 " and receipt.grants_authority=false and job.state='completed'"
                 " and attempt.outcome='succeeded' and auth.id=%s"
                 " and auth.state='consumed'"
@@ -2373,10 +2493,13 @@ class ClientLifecycleRepository:
         if len(rows) != 1:
             raise PolicyViolation("Lifecycle exact terminal continuity/hook receipt zinciri yok")
         row = rows[0]
-        terminal_digest = str(row[3])
         output_digest = str(row[4])
-        if terminal_digest != output_digest:
-            raise PolicyViolation("Lifecycle outbox/hook terminal receipt digest drift")
+        terminal_digest = _terminal_delivery_digest(
+            event_type=event_type,
+            outbox_terminal_digest=(None if row[3] is None else str(row[3])),
+            hook_output_digest=output_digest,
+            pre_close_terminal_bound=bool(row[11]),
+        )
         compiler_text = str(row[5]).lower()
         if compiler_text not in {"true", "false"}:
             raise PolicyViolation("Lifecycle compiler enqueue receipt boolean degil")
