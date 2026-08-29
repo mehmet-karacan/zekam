@@ -5,103 +5,124 @@ project:
   id: 01a028b0-8ed6-752a-a09c-8e7ffd47fbe3
   slug: zekam
 work:
-  id: 01a03cd8-9db2-7061-a040-e105b89d3032
-  title: Zekam Memory Continuity Plane
-  summary: Memory Continuity Plane migration 55, exact-one lifecycle hooks, durable continuity records, authority-gated control surface, independent verification, rollback evidence and deterministic root projection with all gates passed.
+  id: 01a04c28-1829-722b-adae-64e0acb2d357
+  title: Zekam Ölçümlü Loop ve Graph Yürütme Düzlemi
+  summary: Mevcut LoopPolicy runtime loop learning experiment TaskPlan RoutePlanner AgentGraph worker queue ve GUNCEL_BELLEK altyapilarini olcumlu yurutme duzleminde konsolide et
   state: completed
-  revision: 6
-  record_digest: sha256:0b6bf8857cf2f0909e208f92f9b6e6be6d179ba00d59eaeff510519f353fefba
+  revision: 13
+  record_digest: sha256:89b1459dbdda2607704a057a0c7daf62bb98559a8c9014d469ae89bc7acf4fa5
   acceptance_criteria:
-  - text: Single-writer containment, exact local/remote source revision and clean logical-resource ownership are proven.
+  - text: Önceki Memory Learning/Obsidian implementation kanonik DB ve root projection ile uzlaştırıldı.
     verified: true
-  - text: Canonical Work, Intent, Plan, run/step/checkpoint/receipt chain and continuity packet remain consistent.
+  - text: Yeni aktif görev kanonik Work/Plan/Run olarak kaydedildi.
     verified: true
-  - text: Current migrations and additive Memory Continuity migration pass fresh, upgrade and bounded rollback rehearsal.
+  - text: Generic objective/metric/evidence/progress çekirdeği oluşturuldu.
     verified: true
-  - text: Session lifecycle, hydration, close and compaction contracts are strict, authority-free and receipt-bound.
+  - text: '`learning.evaluate_loop`, runtime LoopPolicy ve model/context experiment aynı çekirdeği kullanıyor.'
     verified: true
-  - text: All 20 Memory Contract invariants have deterministic evaluation and passing evidence.
+  - text: Runtime loop v1 backward compatibility korunuyor.
     verified: true
-  - text: Candidate-only compiler passes provenance, quarantine, conflict, watermark, replay and no-self-promotion gates.
+  - text: Loop validation v2 directional metric vector taşıyor.
     verified: true
-  - text: Hook uniqueness, origin/recursion guards and supported multi-harness lifecycle contracts pass.
+  - text: Hard guard no-regression enforced.
     verified: true
-  - text: History import preview, second-consent, filters, collision, integrity and private-data negative tests pass.
+  - text: Producer self-report progress sayılmıyor.
     verified: true
-  - text: Read-only projections are deterministic, privacy-filtered and fresh against source, migration and DB revision.
+  - text: Attempt 2+ bounded progress packet olmadan başlayamıyor.
     verified: true
-  - text: Security, secret-history/public-leak, package validation and full quality suites pass.
+  - text: Full history/transcript context’e yığılmıyor.
     verified: true
-  - text: Independent verifier is separate from the builder and approves exact acceptance evidence.
+  - text: Prompt rephrase aynı hypothesis/patch/failure tekrarını aşamıyor.
     verified: true
-  - text: Final remote drift check passes; no push, PR, merge or live provider call occurs.
+  - text: No-op, plateau ve oscillation stop kapıları geçiyor.
+    verified: true
+  - text: Validator asset manifest immutable ve builder write scope dışında.
+    verified: true
+  - text: Durable worker bir job = bir attempt kuralıyla çalışıyor.
+    verified: true
+  - text: Next-attempt enqueue idempotent ve crash-safe.
+    verified: true
+  - text: Direct/single/tournament/loop/graph/human topology planner mevcut.
+    verified: true
+  - text: Tek artifact için gereksiz graph reddediliyor.
+    verified: true
+  - text: Geri alınamaz effect queue-human-review’a yönleniyor.
+    verified: true
+  - text: Graph gerçek critical path/overlap/coordination evidence üretiyor.
+    verified: true
+  - text: Fake parallelism raporlanamıyor.
+    verified: true
+  - text: Tournament candidate isolation ve independent selector geçiyor.
+    verified: true
+  - text: İyileşmeyen attempt yalnız loop-owned patch’i geri alıyor.
+    verified: true
+  - text: Scaffolding ablation paired evidence üretiyor.
+    verified: true
+  - text: Observatory/Obsidian metric ve stop reason görünümü üretiyor.
+    verified: true
+  - text: Projection mevcut immutable generation store ve sabit `GUNCEL_BELLEK` yolunu kullanıyor.
+    verified: true
+  - text: Otomatik stable-vault publish varsa exact projection receipt/idempotency ile bağlı.
+    verified: true
+  - text: Secret/PII/raw transcript hiçbir projection/evidence’e sızmıyor.
+    verified: true
+  - text: Fresh DB, upgrade DB, full local quality ve security testleri geçiyor.
+    verified: true
+  - text: Bağımsız verifier builder’dan farklı model ve execution identity ile onaylıyor.
+    verified: true
+  - text: CI manuel `workflow_dispatch` olarak kaldı; otomatik tetikleyici eklenmedi.
+    verified: true
+  - text: Kullanıcı açıkça istemedikçe commit/push/PR oluşturulmadı.
+    verified: true
+  - text: '`zekam close` güncel projection/receipt ile işi güvenli kapattı.'
     verified: true
 plan:
-  id: 01a03d56-770f-71c1-be0a-343dd71e743d
+  id: 01a04cd2-a9fc-7650-828b-b856b4f13760
   revision: 6
-  plan_digest: sha256:61a502d795c820c173bbe441b4d851197fbf68b06a7f54458d843b5728856680
-  effect_digest: sha256:0464a8efcc6d72f462b479baf3cf9dd5f82ce6a94af32ef36186cc306444f395
-  source_revision: git:b8d970cddd2841b95cf71de6eac53f6134e734c6;tree:caa787689c420820ab772ae7d8722c03985950f4;worktree:sha256:657de23f6f48dbd7f8d3faead9c2de56ec0ea50f78f3baf9730189f98d60962c;source-observation:01a03d33-1ef9-7ff5-9203-67baef711f54;root-projection:sha256:564d2faa27bbe5b69459c64a169038b235a5c70fb3f21fe4a5ec87f9c1e6b9ec;package-validation:sha256:65ab9f424bbf64fb02c761227760aa863972def4ffd818312da4419a3ded477b;remote-main:b8d970cddd2841b95cf71de6eac53f6134e734c6;db-head:0055;input-manifest:sha256:1c16981a06871186a4665b55c4448b28ee7ffeaf6dda1ad65ff0147f951f0ebb;rollback:sha256:8dc4b2cc86f9c0b807033915e08ca4f1c981de8a269d5572d06b33b9faae9291
+  plan_digest: sha256:38b53589e3c62a6e92207fda1fd8234f1f976d71b0b51d43b279948c01f2ad49
+  effect_digest: sha256:7c3b2479dbe287d48b1d3b8342db34e4379a3f1a282eefae0b5a97dd14c77452
+  source_revision: git:ff5078d357997f99f6eff6c45d7cd2e4c066a8b7;state:sha256:b0cc0f2f9adbd5229d488669ac85ba0c42c9b13c7fe0ae9157b8377a03653ae1
   steps:
-  - risk: low
-    title: Audit the preserved bootstrap receipt and zero-live-lease state
-    effect: none
-    step_id: runtime-receipt-reconciliation-audit
+  - risk: high
+    title: Claim sonrasinda lifecycle child isini materialize et
+    effect: database-write
+    step_id: client-lifecycle-bootstrap
     depends_on: []
     logical_resources:
-    - runtime:memory-continuity
-  - risk: critical
-    title: Bind full quality, PostgreSQL, security, package and rollback evidence
-    effect: process-run
-    step_id: acceptance-evidence-finalization
-    depends_on:
-    - runtime-receipt-reconciliation-audit
-    logical_resources:
-    - project:zekam
-    - test-suite:zekam:memory-continuity
-  - risk: critical
-    title: Verify exact acceptance evidence with a separate model and execution identity
-    effect: process-run
-    step_id: independent-verification
-    depends_on:
-    - acceptance-evidence-finalization
-    logical_resources:
-    - project:zekam
-    - verification:memory-continuity
-  - risk: critical
-    title: Apply shadow to enforced only with snapshot-bound verifier and exact authorization
+    - runtime-bootstrap:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:0b8e29f8-fb3b-4fa4-a3e6-1c6d679206a3
+  - risk: high
+    title: Pending Codex lifecycle deliverysini isle
     effect: database-write
-    step_id: enforcement-transition
+    step_id: client-lifecycle-drain
     depends_on:
-    - independent-verification
+    - client-lifecycle-bootstrap
     logical_resources:
-    - continuity:memory-upgrade:memory-continuity-plane
-  - risk: critical
-    title: Persist terminal continuity receipts and final Work evidence
+    - memory:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:session:0b8e29f8-fb3b-4fa4-a3e6-1c6d679206a3
+  - risk: high
+    title: Verified Work ve staged pre-close zincirini atomik kapat
     effect: database-write
-    step_id: continuity-finalization
+    step_id: projection-aware-close
     depends_on:
-    - enforcement-transition
+    - client-lifecycle-drain
     logical_resources:
-    - runtime:memory-continuity
-    - work:01a03cd8-9db2-7061-a040-e105b89d3032
+    - work:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:01a04c28-1829-722b-adae-64e0acb2d357:projection-close:01a04cd2-a9fc-7b33-838a-01272ac43d95
 run:
-  id: a104ea1f-130f-4c00-963a-49f9a593f300
+  id: 01a04cd2-a9fc-7b33-838a-01272ac43d95
   state: completed
-  run_digest: sha256:b86183bd952454ad53d0cf51aa2a6b84363f2e143a9466983f818cd854ec9323
+  run_digest: sha256:acf1e06575bf027483f4ff3353fcb790999d0a10d576519d1147fb8d0774b08e
 source_observation:
-  id: 01a03d33-1ef9-7ff5-9203-67baef711f54
-  head: b8d970cddd2841b95cf71de6eac53f6134e734c6
-  tree_digest: sha256:9f723998ade76766730a49116f8b91fc94fff846d9b008bed6e6e6ac9289ac82
-  branch: feature/memory-continuity-plane
+  id: 01a04cd1-8fbd-73c6-9842-66fe4d474a83
+  head: ff5078d357997f99f6eff6c45d7cd2e4c066a8b7
+  tree_digest: sha256:8f3576635c34c30330fa772fe97a5afae0ed2c66704221638f1957da314a77f6
+  branch: main
   dirty: true
-  file_count: 804
+  file_count: 984
 memory_continuity:
-  migration_head: 55
+  migration_head: 78
   mode: enforced
-  hook_set_digest: sha256:92bf59c00cf870c09a67bd26817c1509e28f8e3d855c3cbdce5bb52bb568026f
-  projection_receipt_digest: sha256:d0ea6e157ef721b603b8537226c03d2ddadb12c40c3fa198f60fb050e8506419
-  projection_source_digest: sha256:192c19e42f1f2891327521be57b3fd14cbd46304dd35f0f279b4962e38211244
+  hook_set_digest: sha256:27eea720344cec93a253db745ee13d078d44a7ab1fe6a220cacaea7563acc995
+  projection_receipt_digest: sha256:24b3b7653327da051e99a32c2472ba149528ef2e42ad08cb1359c38d6fc25814
+  projection_source_digest: sha256:b8ca71957ca26399edf63316f3440c38264e1110c8b5e3853c2e19b64269b2bc
 runtime:
   blocked_jobs: 1
   pending_jobs: 0
@@ -113,8 +134,8 @@ legacy_global_dod:
   report_digest: sha256:2c598eb82ec3ce59d01e39878803d65e7b8d73ddb7b28b703e54a1f84d172ba7
   release_report: SURUM_RAPORU.md
   release_report_digest: sha256:a78af42dc844464ae30840a82f55d0ea4c5a2c358115c5c7d718249d1d2a4b57
-next_safe_action: root projection parity, then full acceptance verification
+next_safe_action: null
 read_only: true
 grants_authority: false
 approval_inherited: false
-projection_digest: sha256:5640dc145d7e6c9dad9ba3bc6b3280f11117cd7a0fca09b15ea0fddd49382956
+projection_digest: sha256:41cb715da8720e4a3ead065c701d3c94bc61d6dc72a6236a443388e1a00783c3
