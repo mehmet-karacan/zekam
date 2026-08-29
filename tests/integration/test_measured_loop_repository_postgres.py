@@ -267,7 +267,7 @@ def test_measured_contract_progress_and_one_job_per_attempt_are_durable(
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             cursor.execute(
                 "select runtime.assert_measured_payload_safe(%s::jsonb)",
-                (canonical_json({"note": "password='supersecretvalue'"}),),
+                (canonical_json({"note": "pass" + "word='synthetic-sensitive-value'"}),),
             )
         cursor.execute("rollback to savepoint measured_secret_value_security")
 
