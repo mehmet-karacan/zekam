@@ -11,7 +11,7 @@ from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import PolicyViolation
 
 
-def _template_source_revision(run_source_revision: str) -> str:
+def template_source_revision(run_source_revision: str) -> str:
     """Map a dirty-aware run identity to its immutable Git template revision."""
 
     marker = ";state:sha256:"
@@ -143,7 +143,7 @@ class LifecycleRuntimeTemplateRepository:
         project_id, source_revision, policy_digest = rows[0]
         return self.current(
             UUID(str(project_id)),
-            _template_source_revision(str(source_revision)),
+            template_source_revision(str(source_revision)),
             str(policy_digest),
         )
 

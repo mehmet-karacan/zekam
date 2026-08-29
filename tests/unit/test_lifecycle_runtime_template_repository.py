@@ -9,6 +9,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
     LifecycleRuntimeTemplateRepository,
+    template_source_revision,
 )
 
 
@@ -113,6 +114,14 @@ def test_bootstrap_parent_selector_fails_closed_on_ambiguity() -> None:
     repository = LifecycleRuntimeTemplateRepository(_Connection([(uuid4(),), (uuid4(),)]), uuid4())
     with pytest.raises(PolicyViolation, match="belirsiz"):
         repository.next_bootstrap_job_id()
+
+
+def test_template_source_revision_normalizes_dirty_aware_run_identity() -> None:
+    head = "a" * 40
+    dirty_state = "b" * 64
+
+    assert template_source_revision(f"git:{head};state:sha256:{dirty_state}") == head
+    assert template_source_revision(head) == head
 
 
 def test_bootstrap_template_is_resolved_from_exact_preclaim_job(

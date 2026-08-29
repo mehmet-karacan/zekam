@@ -86,6 +86,7 @@ from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunR
 from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
 from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
     LifecycleRuntimeTemplateRepository,
+    template_source_revision,
 )
 from zekam.infrastructure.postgres.memory_continuity_repository import MemoryContinuityRepository
 from zekam.infrastructure.postgres.runtime_repository import JobRepository
@@ -682,7 +683,11 @@ class ClaimedLifecycleBootstrapService:
             repository.bootstrap_context(job.run_id)
         )
         source_revision, policy_digest = str(run[0]), str(run[1])
-        template = repository.current(job.project_id, source_revision, policy_digest)
+        template = repository.current(
+            job.project_id,
+            template_source_revision(source_revision),
+            policy_digest,
+        )
         execution = ExecutionRunRepository(self.connection, self.realm_id)
         execution.bind_assignment_environment(
             AssignmentEnvironmentBinding.create(
