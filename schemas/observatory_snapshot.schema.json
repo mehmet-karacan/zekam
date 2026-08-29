@@ -16,11 +16,12 @@
     "events",
     "reports",
     "causal",
+    "canonical_runtime",
     "runtime",
     "safety"
   ],
   "properties": {
-    "schema": { "const": "zekam-observatory-snapshot/v2" },
+    "schema": { "const": "zekam-observatory-snapshot/v3" },
     "generated_at": { "type": "string", "format": "date-time" },
     "projection_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "read_only": { "const": true },
@@ -218,6 +219,54 @@
               "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
               "observed_at": { "type": "string", "format": "date-time" },
               "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "work_item_id": { "type": ["string", "null"] },
+              "job_id": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "canonical_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "entities", "contradictions", "available", "detail", "truncated", "read_only", "grants_authority"],
+      "properties": {
+        "schema": { "const": "zekam-canonical-runtime-projection/v1" },
+        "available": { "type": "boolean" },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "truncated": { "type": "boolean" },
+        "read_only": { "const": true },
+        "grants_authority": { "const": false },
+        "entities": {
+          "type": "array", "maxItems": 256,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["entity_id", "kind", "state", "canonical_ref", "occurred_at", "parent_id", "work_item_id", "job_id", "terminal_receipt_bound"],
+            "properties": {
+              "entity_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "state": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "occurred_at": { "type": "string", "format": "date-time" },
+              "parent_id": { "type": ["string", "null"], "maxLength": 512 },
+              "work_item_id": { "type": ["string", "null"] },
+              "job_id": { "type": ["string", "null"] },
+              "terminal_receipt_bound": { "type": "boolean" }
+            }
+          }
+        },
+        "contradictions": {
+          "type": "array", "maxItems": 64,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["contradiction_id", "kind", "severity", "state", "canonical_ref", "observed_at", "work_item_id", "job_id"],
+            "properties": {
+              "contradiction_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "severity": { "enum": ["medium", "high", "critical"] },
+              "state": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "canonical_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "observed_at": { "type": "string", "format": "date-time" },
               "work_item_id": { "type": ["string", "null"] },
               "job_id": { "type": ["string", "null"] }
             }

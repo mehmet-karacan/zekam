@@ -70,13 +70,30 @@ def test_unsafe_heading_falls_back_to_filename_and_body_is_not_exposed(tmp_path:
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert document["graph"]["derived"] is True
-    assert document["schema"] == "zekam-observatory-snapshot/v2"
+    assert document["schema"] == "zekam-observatory-snapshot/v3"
     assert document["causal"]["schema"] == "zekam-causal-projection/v1"
     assert document["causal"]["grants_authority"] is False
     schema_path = Path("schemas/observatory_snapshot.schema.json")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert set(schema["required"]) <= set(document)
     assert set(schema["properties"]["causal"]["required"]) <= set(document["causal"])
+    assert document["canonical_runtime"]["schema"] == "zekam-canonical-runtime-projection/v1"
+
+
+def test_structure_and_telemetry_payloads_have_independent_digests(tmp_path: Path) -> None:
+    root = tmp_path / "core"
+    _write(root / "README.md", "# Zekam\n")
+    snapshot = ObservatoryService(root).snapshot()
+
+    structure = snapshot.structure_dict()
+    telemetry = snapshot.telemetry_dict()
+
+    assert structure["schema"] == "zekam-observatory-structure/v1"
+    assert telemetry["schema"] == "zekam-observatory-telemetry/v1"
+    assert structure["projection_digest"] == snapshot.structure_digest
+    assert telemetry["projection_digest"] == snapshot.telemetry_digest
+    assert "agents" not in structure
+    assert "graph" not in telemetry
 
 
 def test_unconfigured_runtime_keeps_six_required_tiles(tmp_path: Path) -> None:

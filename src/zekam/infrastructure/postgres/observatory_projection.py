@@ -10,8 +10,11 @@ from uuid import UUID
 
 from zekam.application.config import DatabaseSettings
 from zekam.application.observatory import (
+    CanonicalRuntimeEntity,
+    CanonicalRuntimeProjection,
     ObservatoryAgent,
     ObservatoryEvent,
+    RuntimeContradiction,
     RuntimeProjection,
     runtime_projection_digest,
     sanitize_observatory_label,
@@ -39,6 +42,8 @@ _AGENT_LIMIT = 32
 _CAUSAL_NODE_LIMIT = 256
 _CAUSAL_EDGE_LIMIT = 512
 _ORPHAN_LIMIT = 128
+_RUNTIME_ENTITY_LIMIT = 256
+_CONTRADICTION_LIMIT = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,7 @@ class PostgresObservatoryProjectionReader:
             agents = self._agents(connection)
             events = self._events(connection)
             causal = self._causal(connection)
+            canonical_runtime = self._canonical_runtime(connection)
 
         material = {
             "realm_id": str(self.realm_id),
@@ -70,6 +76,7 @@ class PostgresObservatoryProjectionReader:
             "agents": [item.as_dict() for item in agents],
             "events": [item.as_dict() for item in events],
             "causal": causal.as_dict(),
+            "canonical_runtime": canonical_runtime.as_dict(),
         }
         return RuntimeProjection(
             generated_at=generated_at,
@@ -79,6 +86,7 @@ class PostgresObservatoryProjectionReader:
             agents=agents,
             events=events,
             causal=causal,
+            canonical_runtime=canonical_runtime,
             source_digest=runtime_projection_digest(material),
             available=True,
             detail="postgresql-realm-projection",
@@ -471,6 +479,260 @@ class PostgresObservatoryProjectionReader:
         )
         events.sort(key=lambda item: item.occurred_at, reverse=True)
         return tuple(events[:_EVENT_LIMIT])
+
+    def _canonical_runtime(self, connection: Any) -> CanonicalRuntimeProjection:
+        """Project exact runtime identities without payload or success self-reports."""
+
+        entities: list[CanonicalRuntimeEntity] = []
+        contradictions: list[RuntimeContradiction] = []
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select id,state,created_at from work.work_item order by updated_at desc limit %s",
+                (_WORK_LIMIT,),
+            )
+            for work_id, state, occurred_at in cursor.fetchall():
+                value = str(work_id)
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"work:{value}",
+                        kind="work",
+                        state=str(state),
+                        canonical_ref=f"db:work.work_item/{value}",
+                        occurred_at=_required_datetime(occurred_at),
+                        work_item_id=value,
+                    )
+                )
+
+            cursor.execute(
+                "select j.id,j.work_item_id,j.state,j.created_at,"
+                " exists(select 1 from runtime.effect_claim c"
+                " where c.realm_id=j.realm_id and c.job_id=j.id),"
+                " exists(select 1 from runtime.effect_claim c"
+                " join runtime.effect_receipt r on r.realm_id=c.realm_id"
+                " and r.claim_id=c.id and r.status in ('completed','failed')"
+                " where c.realm_id=j.realm_id and c.job_id=j.id)"
+                " from runtime.job j order by j.updated_at desc limit %s",
+                (_JOB_LIMIT,),
+            )
+            for (
+                job_id,
+                work_id,
+                raw_state,
+                occurred_at,
+                has_claim,
+                has_terminal,
+            ) in cursor.fetchall():
+                job = str(job_id)
+                work = None if work_id is None else str(work_id)
+                terminal_bound = bool(has_claim and has_terminal)
+                state = str(raw_state)
+                if state == "completed" and not terminal_bound:
+                    state = "completed-unbound"
+                    contradictions.append(
+                        RuntimeContradiction(
+                            contradiction_id=f"job-completed-unbound:{job}",
+                            kind="completed-without-terminal-receipt",
+                            severity="high",
+                            state=state,
+                            canonical_ref=f"db:runtime.job/{job}",
+                            observed_at=_required_datetime(occurred_at),
+                            work_item_id=work,
+                            job_id=job,
+                        )
+                    )
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"job:{job}",
+                        kind="job",
+                        state=state,
+                        canonical_ref=f"db:runtime.job/{job}",
+                        occurred_at=_required_datetime(occurred_at),
+                        parent_id=None if work is None else f"work:{work}",
+                        work_item_id=work,
+                        job_id=job,
+                        terminal_receipt_bound=terminal_bound,
+                    )
+                )
+
+            cursor.execute(
+                "select a.id,a.job_id,a.outcome,a.started_at,j.work_item_id "
+                "from runtime.job_attempt a join runtime.job j "
+                "on j.realm_id=a.realm_id and j.id=a.job_id "
+                "order by a.started_at desc limit %s",
+                (_JOB_LIMIT,),
+            )
+            for attempt_id, job_id, outcome, occurred_at, work_id in cursor.fetchall():
+                attempt = str(attempt_id)
+                job = str(job_id)
+                work = None if work_id is None else str(work_id)
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"attempt:{attempt}",
+                        kind="attempt",
+                        state="running" if outcome is None else str(outcome),
+                        canonical_ref=f"db:runtime.job_attempt/{attempt}",
+                        occurred_at=_required_datetime(occurred_at),
+                        parent_id=f"job:{job}",
+                        work_item_id=work,
+                        job_id=job,
+                    )
+                )
+
+            cursor.execute(
+                "select a.id,a.work_item_id,a.parent_assignment_id,a.role,a.status,a.created_at,"
+                " j.id from agents.assignment a left join runtime.job j "
+                "on j.realm_id=a.realm_id and j.assignment_id=a.id "
+                "order by a.created_at desc limit %s",
+                (_AGENT_LIMIT,),
+            )
+            for (
+                assignment_id,
+                work_id,
+                parent_id,
+                role,
+                state,
+                occurred_at,
+                job_id,
+            ) in cursor.fetchall():
+                assignment = str(assignment_id)
+                work = str(work_id)
+                assignment_job = None if job_id is None else str(job_id)
+                parent = (
+                    f"assignment:{parent_id}"
+                    if parent_id is not None
+                    else (f"job:{assignment_job}" if assignment_job is not None else f"work:{work}")
+                )
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"assignment:{assignment}",
+                        kind=f"agent-{role}",
+                        state=str(state),
+                        canonical_ref=f"db:agents.assignment/{assignment}",
+                        occurred_at=_required_datetime(occurred_at),
+                        parent_id=parent,
+                        work_item_id=work,
+                        job_id=assignment_job,
+                    )
+                )
+
+            cursor.execute(
+                "select l.id,l.job_id,l.expires_at,l.heartbeat_at,j.work_item_id,j.state "
+                "from runtime.lease l join runtime.job j "
+                "on j.realm_id=l.realm_id and j.id=l.job_id "
+                "order by l.heartbeat_at desc limit %s",
+                (_AGENT_LIMIT,),
+            )
+            now = dt.datetime.now(dt.UTC)
+            for lease_id, job_id, expires_at, heartbeat_at, work_id, job_state in cursor.fetchall():
+                lease = str(lease_id)
+                job = str(job_id)
+                work = None if work_id is None else str(work_id)
+                expires = _required_datetime(expires_at)
+                state = "expired" if expires <= now else "live"
+                if state == "expired" and str(job_state) == "running":
+                    contradictions.append(
+                        RuntimeContradiction(
+                            contradiction_id=f"expired-lease:{lease}",
+                            kind="running-job-with-expired-lease",
+                            severity="critical",
+                            state="recovery-required",
+                            canonical_ref=f"db:runtime.lease/{lease}",
+                            observed_at=expires,
+                            work_item_id=work,
+                            job_id=job,
+                        )
+                    )
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"lease:{lease}",
+                        kind="lease",
+                        state=state,
+                        canonical_ref=f"db:runtime.lease/{lease}",
+                        occurred_at=_required_datetime(heartbeat_at),
+                        parent_id=f"job:{job}",
+                        work_item_id=work,
+                        job_id=job,
+                    )
+                )
+
+            cursor.execute(
+                "select c.id,c.job_id,c.claimed_at,j.work_item_id,r.id,r.status,r.completed_at "
+                "from runtime.effect_claim c join runtime.job j "
+                "on j.realm_id=c.realm_id and j.id=c.job_id "
+                "left join runtime.effect_receipt r "
+                "on r.realm_id=c.realm_id and r.claim_id=c.id "
+                "order by c.claimed_at desc limit %s",
+                (_JOB_LIMIT,),
+            )
+            for (
+                claim_id,
+                job_id,
+                claimed_at,
+                work_id,
+                receipt_id,
+                receipt_status,
+                completed_at,
+            ) in cursor.fetchall():
+                claim = str(claim_id)
+                job = str(job_id)
+                work = None if work_id is None else str(work_id)
+                receipt_bound = receipt_id is not None
+                entities.append(
+                    CanonicalRuntimeEntity(
+                        entity_id=f"claim:{claim}",
+                        kind="claim",
+                        state="receipt-bound" if receipt_bound else "receiptless",
+                        canonical_ref=f"db:runtime.effect_claim/{claim}",
+                        occurred_at=_required_datetime(claimed_at),
+                        parent_id=f"job:{job}",
+                        work_item_id=work,
+                        job_id=job,
+                        terminal_receipt_bound=receipt_bound,
+                    )
+                )
+                if receipt_id is None:
+                    contradictions.append(
+                        RuntimeContradiction(
+                            contradiction_id=f"receiptless-claim:{claim}",
+                            kind="claim-without-terminal-receipt",
+                            severity="high",
+                            state="recovery-required",
+                            canonical_ref=f"db:runtime.effect_claim/{claim}",
+                            observed_at=_required_datetime(claimed_at),
+                            work_item_id=work,
+                            job_id=job,
+                        )
+                    )
+                else:
+                    receipt = str(receipt_id)
+                    entities.append(
+                        CanonicalRuntimeEntity(
+                            entity_id=f"receipt:{receipt}",
+                            kind="receipt",
+                            state=str(receipt_status),
+                            canonical_ref=f"db:runtime.effect_receipt/{receipt}",
+                            occurred_at=_required_datetime(completed_at),
+                            parent_id=f"claim:{claim}",
+                            work_item_id=work,
+                            job_id=job,
+                            terminal_receipt_bound=True,
+                        )
+                    )
+
+        entities.sort(key=lambda item: (item.occurred_at, item.entity_id), reverse=True)
+        contradictions.sort(
+            key=lambda item: (item.observed_at, item.contradiction_id), reverse=True
+        )
+        truncated = (
+            len(entities) > _RUNTIME_ENTITY_LIMIT or len(contradictions) > _CONTRADICTION_LIMIT
+        )
+        return CanonicalRuntimeProjection(
+            entities=tuple(entities[:_RUNTIME_ENTITY_LIMIT]),
+            contradictions=tuple(contradictions[:_CONTRADICTION_LIMIT]),
+            available=True,
+            detail="postgresql-exact-runtime-chain",
+            truncated=truncated,
+        )
 
     def _causal(self, connection: Any) -> CausalProjection:
         """Read a bounded FK-derived chain and delayed evidence gaps."""

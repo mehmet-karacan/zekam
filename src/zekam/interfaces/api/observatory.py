@@ -161,18 +161,31 @@ def create_app(
     @app.get("/api/observatory/events")
     async def events(request: Request) -> StreamingResponse:
         async def stream() -> Any:
-            last_digest = ""
+            last_structure_digest = ""
+            last_telemetry_digest = ""
             heartbeat = 0
             while not await request.is_disconnected():
                 projection = await asyncio.to_thread(service.snapshot)
-                if projection.projection_digest != last_digest:
+                changed = False
+                if projection.structure_digest != last_structure_digest:
                     payload = json.dumps(
-                        projection.as_dict(),
+                        projection.structure_dict(),
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
-                    yield f"event: snapshot\ndata: {payload}\n\n"
-                    last_digest = projection.projection_digest
+                    yield f"event: structure\ndata: {payload}\n\n"
+                    last_structure_digest = projection.structure_digest
+                    changed = True
+                if projection.telemetry_digest != last_telemetry_digest:
+                    payload = json.dumps(
+                        projection.telemetry_dict(),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    yield f"event: telemetry\ndata: {payload}\n\n"
+                    last_telemetry_digest = projection.telemetry_digest
+                    changed = True
+                if changed:
                     heartbeat = 0
                 else:
                     heartbeat += 1

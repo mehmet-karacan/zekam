@@ -428,7 +428,8 @@ def test_correlation_chain_and_orphan_detector_use_canonical_rows(
         f"job:{completed_job_id}",
     ) in orphans
 
-    projection = PostgresObservatoryProjectionReader(migrated_database, realm.id).read().causal
+    observatory = PostgresObservatoryProjectionReader(migrated_database, realm.id).read()
+    projection = observatory.causal
     assert projection.available is True
     assert {item.orphan_kind for item in projection.orphans} >= {
         "running-job-without-live-lease",
@@ -436,6 +437,21 @@ def test_correlation_chain_and_orphan_detector_use_canonical_rows(
     }
     assert all(item.canonical_ref.startswith("db:") for item in projection.nodes)
     assert projection.grants_authority is False
+    runtime = observatory.canonical_runtime
+    assert runtime.available is True
+    assert any(
+        item.entity_id == f"claim:{stale_claim_id}" and item.state == "receiptless"
+        for item in runtime.entities
+    )
+    assert any(
+        item.entity_id == f"job:{completed_job_id}" and item.state == "completed-unbound"
+        for item in runtime.entities
+    )
+    assert {item.kind for item in runtime.contradictions} >= {
+        "claim-without-terminal-receipt",
+        "completed-without-terminal-receipt",
+    }
+    assert runtime.grants_authority is False
 
     resolved_work_id, cli_chain, cli_truncated = _causal_chain_rows(connection, str(work_id))
     cli_orphans = _orphan_rows(connection)

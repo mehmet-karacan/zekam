@@ -32,7 +32,7 @@ from zekam.domain.observability import (
 )
 from zekam.domain.process_observation import ProcessObservationSnapshot
 
-SNAPSHOT_SCHEMA = "zekam-observatory-snapshot/v2"
+SNAPSHOT_SCHEMA = "zekam-observatory-snapshot/v3"
 MAX_MARKDOWN_BYTES = 64 * 1024
 MAX_DOCUMENT_NODES = 180
 MAX_DOCUMENT_EDGES = 360
@@ -173,6 +173,79 @@ class ObservatoryReport:
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalRuntimeEntity:
+    entity_id: str
+    kind: str
+    state: str
+    canonical_ref: str
+    occurred_at: dt.datetime
+    parent_id: str | None = None
+    work_item_id: str | None = None
+    job_id: str | None = None
+    terminal_receipt_bound: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "entity_id": self.entity_id,
+            "kind": self.kind,
+            "state": self.state,
+            "canonical_ref": self.canonical_ref,
+            "occurred_at": _iso(self.occurred_at),
+            "parent_id": self.parent_id,
+            "work_item_id": self.work_item_id,
+            "job_id": self.job_id,
+            "terminal_receipt_bound": self.terminal_receipt_bound,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeContradiction:
+    contradiction_id: str
+    kind: str
+    severity: str
+    state: str
+    canonical_ref: str
+    observed_at: dt.datetime
+    work_item_id: str | None = None
+    job_id: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contradiction_id": self.contradiction_id,
+            "kind": self.kind,
+            "severity": self.severity,
+            "state": self.state,
+            "canonical_ref": self.canonical_ref,
+            "observed_at": _iso(self.observed_at),
+            "work_item_id": self.work_item_id,
+            "job_id": self.job_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalRuntimeProjection:
+    entities: tuple[CanonicalRuntimeEntity, ...] = ()
+    contradictions: tuple[RuntimeContradiction, ...] = ()
+    available: bool = False
+    detail: str = "canonical-runtime-unavailable"
+    truncated: bool = False
+    read_only: bool = True
+    grants_authority: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-canonical-runtime-projection/v1",
+            "entities": [item.as_dict() for item in self.entities],
+            "contradictions": [item.as_dict() for item in self.contradictions],
+            "available": self.available,
+            "detail": self.detail,
+            "truncated": self.truncated,
+            "read_only": self.read_only,
+            "grants_authority": self.grants_authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RepositoryProjection:
     nodes: tuple[GraphNode, ...]
     edges: tuple[GraphEdge, ...]
@@ -191,6 +264,9 @@ class RuntimeProjection:
     agents: tuple[ObservatoryAgent, ...] = field(default_factory=tuple)
     events: tuple[ObservatoryEvent, ...] = field(default_factory=tuple)
     causal: CausalProjection = field(default_factory=CausalProjection)
+    canonical_runtime: CanonicalRuntimeProjection = field(
+        default_factory=CanonicalRuntimeProjection
+    )
     source_digest: str = field(default_factory=lambda: digest({"runtime": "empty"}))
     available: bool = False
     detail: str = "runtime-not-configured"
@@ -627,6 +703,7 @@ class ObservatorySnapshot:
     events: tuple[ObservatoryEvent, ...]
     reports: tuple[ObservatoryReport, ...]
     causal: CausalProjection
+    canonical_runtime: CanonicalRuntimeProjection
     runtime_available: bool
     runtime_detail: str
     read_only: bool = True
@@ -650,6 +727,7 @@ class ObservatorySnapshot:
             "events": [item.as_dict() for item in self.events],
             "reports": [item.as_dict() for item in self.reports],
             "causal": self.causal.as_dict(),
+            "canonical_runtime": self.canonical_runtime.as_dict(),
             "runtime": {
                 "available": self.runtime_available,
                 "detail": self.runtime_detail,
@@ -674,6 +752,55 @@ class ObservatorySnapshot:
         document = self._material()
         document["projection_digest"] = self.projection_digest
         return document
+
+    @property
+    def structure_digest(self) -> str:
+        return digest(
+            {
+                "graph": self.graph.as_dict(),
+                "canonical_runtime": self.canonical_runtime.as_dict(),
+            }
+        )
+
+    @property
+    def telemetry_digest(self) -> str:
+        return digest(
+            {
+                "dashboard": self.dashboard.as_dict(),
+                "agents": [item.as_dict() for item in self.agents],
+                "events": [item.as_dict() for item in self.events],
+                "runtime": {
+                    "available": self.runtime_available,
+                    "detail": self.runtime_detail,
+                },
+            }
+        )
+
+    def structure_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-observatory-structure/v1",
+            "projection_digest": self.structure_digest,
+            "graph": self.graph.as_dict(),
+            "canonical_runtime": self.canonical_runtime.as_dict(),
+            "read_only": True,
+            "grants_authority": False,
+        }
+
+    def telemetry_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-observatory-telemetry/v1",
+            "projection_digest": self.telemetry_digest,
+            "generated_at": _iso(self.generated_at),
+            "dashboard": self.dashboard.as_dict(),
+            "agents": [item.as_dict() for item in self.agents],
+            "events": [item.as_dict() for item in self.events],
+            "runtime": {
+                "available": self.runtime_available,
+                "detail": self.runtime_detail,
+            },
+            "read_only": True,
+            "grants_authority": False,
+        }
 
 
 @dataclass(slots=True)
@@ -751,6 +878,7 @@ class ObservatoryService:
             ),
             reports=repository.reports[:MAX_REPORTS],
             causal=runtime.causal,
+            canonical_runtime=runtime.canonical_runtime,
             runtime_available=runtime.available,
             runtime_detail=runtime.detail,
         )
