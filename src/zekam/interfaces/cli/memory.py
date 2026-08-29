@@ -382,7 +382,7 @@ def hook_upgrade_apply(
                         ),
                         source_resources=(plan.resource,),
                         source_effects=(EffectKind.DATABASE_WRITE.value,),
-                        source_data_classifications=(),
+                        source_data_classifications=("local-only",),
                         evidence=(
                             EvidenceRef(
                                 kind="runtime-receipt",
