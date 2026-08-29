@@ -6,7 +6,8 @@ end $$;
 
 drop function if exists runtime.admit_loop_attempt_current_v3(uuid,uuid,uuid,text,text,text,text,
   text,text,text,text,text,bigint,bigint,bigint,uuid[],text,integer,text,text,text,text,text,jsonb);
-drop index if exists runtime.effect_claim_authorization_once;
+drop trigger if exists effect_claim_authorization_once on runtime.effect_claim;
+drop function if exists runtime.enforce_effect_claim_authorization_once();
 drop trigger if exists assignment_resource_validator_asset_guard on agents.assignment_resource;
 drop function if exists runtime.protect_validator_asset_from_builder_write();
 drop trigger if exists loop_policy_v2_canonical on runtime.loop_policy_v2;

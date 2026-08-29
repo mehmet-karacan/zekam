@@ -459,10 +459,20 @@ def test_0076_to_0077_novelty_upgrade_down_reapply_is_catalog_safe(
             assert cursor.fetchone()[0] == 2
             cursor.execute("select to_regprocedure(%s) is not null", (signature,))
             assert cursor.fetchone()[0] is True
+            cursor.execute(
+                "select count(*) from pg_trigger where tgrelid='runtime.effect_claim'::regclass"
+                " and tgname='effect_claim_authorization_once' and not tgisinternal"
+            )
+            assert cursor.fetchone()[0] == 1
         assert migrations.downgrade(connection, target=77).version == 77
         with connection.cursor() as cursor:
             cursor.execute("select to_regprocedure(%s) is null", (signature,))
             assert cursor.fetchone()[0] is True
+            cursor.execute(
+                "select count(*) from pg_trigger where tgrelid='runtime.effect_claim'::regclass"
+                " and tgname='effect_claim_authorization_once' and not tgisinternal"
+            )
+            assert cursor.fetchone()[0] == 0
         assert [item.version for item in migrations.upgrade(connection, target=77)] == [77]
 
 
