@@ -552,6 +552,16 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
         admission_migration
     )
 
+    dirty_admission_migration = Path(
+        "migrations/0072_codex_lifecycle_dirty_source_admission.sql"
+    ).read_text(encoding="utf-8")
+    assert "when envelope.source_revision ~ '^git:[0-9a-f]{40};state:" in (
+        dirty_admission_migration
+    )
+    assert "then substring(envelope.source_revision from 5 for 40)" in (
+        dirty_admission_migration
+    )
+
     bootstrap = Path("src/zekam/application/client_runtime_bootstrap.py").read_text(
         encoding="utf-8"
     )
