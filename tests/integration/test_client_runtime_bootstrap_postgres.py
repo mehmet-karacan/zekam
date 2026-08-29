@@ -541,3 +541,5 @@ def test_lifecycle_currentness_accepts_dirty_aware_run_source_sql_contract() -> 
         encoding="utf-8"
     )
     assert "reuse_existing=True" in bootstrap
+    assert 'f"codex-lifecycle:{entry.delivery_id}:parent:{job.id}"' in bootstrap
+    assert "Lifecycle child job replay reddedildi" in bootstrap

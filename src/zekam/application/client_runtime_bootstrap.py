@@ -942,13 +942,15 @@ class ClaimedLifecycleBootstrapService:
         )
         authorizations.issue(lifecycle_authorization)
         authorizations.issue(hydration_authorization)
-        child, _ = JobRepository(self.connection, self.realm_id).enqueue(
+        child, child_created = JobRepository(self.connection, self.realm_id).enqueue(
             replace(
                 Job.create(
                     realm_id=self.realm_id,
                     project_id=job.project_id,
                     kind=JobKind.MUTATION,
-                    idempotency_key=f"codex-lifecycle:{entry.delivery_id}",
+                    idempotency_key=(
+                        f"codex-lifecycle:{entry.delivery_id}:parent:{job.id}"
+                    ),
                     resources=parse_requests(
                         write=(f"memory:{job.project_id}:session:{entry.session_id}",)
                     ),
@@ -969,6 +971,8 @@ class ClaimedLifecycleBootstrapService:
                 id=child_job_id,
             )
         )
+        if not child_created or child.id != child_job_id:
+            raise PolicyViolation("Lifecycle child job replay reddedildi")
         result_body = {
             "schema": "zekam-client-runtime-bootstrap-materialized/v1",
             "parent_job_id": str(job.id),
