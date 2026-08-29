@@ -219,8 +219,9 @@ def test_supplied_semantic_binding_ve_delta_digest_forge_edilemez(
         connection.cursor() as cursor,
     ):
         cursor.execute(
-            "select * from runtime.admit_loop_attempt("
-            " %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "select * from runtime.admit_loop_attempt_current("
+            " %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+            " %s,%s,%s,%s,%s,%s)",
             (
                 new_uuid7(),
                 policy.id,
@@ -239,6 +240,12 @@ def test_supplied_semantic_binding_ve_delta_digest_forge_edilemez(
                 request.reserved_cost_micros,
                 [],
                 request.delta_digest,
+                1,
+                None,
+                None,
+                None,
+                None,
+                None,
             ),
         )
 

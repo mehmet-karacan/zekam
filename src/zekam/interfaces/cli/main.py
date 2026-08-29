@@ -276,6 +276,8 @@ def init(
         persistence = _interactive_persistence_choice(resolved_home, persistence)
         persistence_plan = plan_persistence_setup(home=resolved_home, requested=persistence)
         context = build_context(home=home)
+        if not dry_run:
+            Path.home().mkdir(parents=True, exist_ok=True)
         opencode_plan = plan_opencode_agent_bootstrap(
             executable=_opencode_executable(context), user_home=Path.home()
         )
