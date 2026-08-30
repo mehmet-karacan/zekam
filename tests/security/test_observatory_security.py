@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -164,3 +165,27 @@ def test_http_surface_is_read_only_and_keeps_security_headers(context: Any) -> N
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["referrer-policy"] == "no-referrer"
     assert json.loads(body)["runtime"]["detail"] == "realm-id-required"
+
+
+def test_browser_projection_has_no_unsafe_content_sink_or_remote_dependency() -> None:
+    static = files("zekam.interfaces.api").joinpath("static")
+    index = static.joinpath("index.html").read_text(encoding="utf-8")
+    script = static.joinpath("app.js").read_text(encoding="utf-8")
+
+    for forbidden in (
+        "innerHTML",
+        "outerHTML",
+        "insertAdjacentHTML",
+        "document.write",
+        "eval(",
+        "new Function",
+        "localStorage",
+        "sessionStorage",
+    ):
+        assert forbidden not in script
+    assert "textContent" in script
+    assert "https://" not in index
+    assert "http://" not in index
+    assert "raw command line" not in script.casefold()
+    assert "prompt_content" not in script
+    assert "model_response" not in script

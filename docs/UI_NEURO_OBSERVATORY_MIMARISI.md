@@ -97,18 +97,33 @@ POST/PUT/PATCH/DELETE endpoint'i yoktur.
 
 ## Ekran düzeni
 
-- Üst şerit: bağlantı, read-only modu, authority kaynağı ve snapshot zamanı.
-- Altı metrik: Açık CLI, Aktif Oturum, Çalışan İş, Bekleyen, Bloklu / Hatalı, Son Canlı Sinyal.
-- Yürütme Alanı: deterministik altın-turuncu-kırmızı execution graph'ı.
-- Canlı Oturumlar: her gerçek root CLI için tek kart.
-- Alt paneller: dokuz güvenli kolonlu Session Registry, Canlı Olay Akışı,
-  Queue/Lease/Receipt ve CPU/RAM/child/sinyal yaşını gösteren Kaynak Kullanımı.
-- Filtreler: güvenli kimlik araması, istemci, durum ve kanonik proje ref'i.
-- Detail drawer: yalnız allowlist sanitize alanlar.
+- Yapışkan sistem şeridi: bağlantı, read-only modu, PostgreSQL authority kaynağı ve
+  snapshot zamanı.
+- Sol gözlem rayı: yürütme, aktivite, integrity, inspector, analitik ve diagnostics
+  bölümlerine klavye ile erişilebilen bağlantılar.
+- Altı kanıta dayalı KPI: Açık CLI, Aktif Oturum, Aktif Agent, Çalışan İş, Açık Claim ve
+  Son Sinyal. Payda yoksa oranlar `N/A` gösterilir; sahte yüzde üretilmez.
+- Yürütme Alanı: istemci/session/job kümeleri, deterministik hull haze, exact/heuristic/
+  unbound çizgi dili ve yalnız gerçek yeni olaylarda bounded pulse kullanan organik
+  altın-turuncu-kırmızı canvas.
+- Sağ ray: içeriksiz canlı aktivite, Work -> Job -> Attempt -> Claim -> Receipt integrity
+  zinciri ve allowlist alanlardan oluşan Session Inspector.
+- Alt analitik matris: normalize Session Registry, gerçek olay heatmap'i, agent/client
+  sıralaması, durum donut'ı ve açıkça kanonik olmadığı belirtilen bounded tarayıcı
+  telemetrisi.
+- Filtreler: güvenli kimlik araması, istemci, durum, binding confidence, zaman penceresi
+  ve kanonik proje ref'i.
+- Kontroller: pan, zoom, seçili düğüme odak, görünümü sığdır, animasyonu durdur ve
+  erişilebilir liste fallback'i.
+
+Canvas odağındayken ok tuşları görünümü kaydırır, `+`/`-` zoom yapar, `0` görünümü
+sığdırır; `Enter` veya `Space` güvenli düğüm seçimini inspector'a taşır.
 
 Canvas kullanılamazsa klavye ile erişilebilen liste fallback'i devreye girer. Durumlar
 yalnız renkle anlatılmaz. `prefers-reduced-motion` pulse ve particle hareketlerini kapatır;
-ayrıca kullanıcı hareket düğmesiyle animasyonu durdurabilir.
+ayrıca kullanıcı hareket düğmesiyle animasyonu durdurabilir. Sekme görünmez olduğunda
+`requestAnimationFrame` iptal edilir; tekrar görünür olduğunda tek çizim döngüsü kurulur.
+Renderer en çok 96 particle ve 72 etiketi aynı anda çizer.
 
 Exact korelasyonlar düz çizgi, heuristic korelasyonlar kesikli ve soluk çizgi kullanır.
 Periyodik `process.observed` taraması animasyon üretmez; pulse yalnız geçmişteki son beş
@@ -141,8 +156,24 @@ Temel yerel kapılar:
 ```
 
 Gerçek ekran kontrolü en az 1366x768 ve 1920x1080 viewport'larında yapılır; screenshot'lar
-repo dışındaki kullanıcı teslim alanına yazılır. `?diagnostics=graph&nodes=512&edges=1024`
-yalnız yerel, salt okunur sentetik çizim ölçümü üretir; gerçek veri veya authority taşımaz.
+repo dışındaki kullanıcı teslim alanına yazılır. Ayrıca 1024x768 ve 390x844 görünümünde
+yatay taşma olmaması, mobil kontrollerin en az 44 piksel olması, seçili inspector ve boş
+filtre durumu doğrulanır. `?diagnostics=graph&nodes=512&edges=1024` yalnız yerel, salt
+okunur sentetik çizim ölçümü üretir; gerçek veri veya authority taşımaz. Tanı 15 örnekten
+medyan ve p95 çizim süresini, tahmini FPS'i ve bounded particle/etiket sayılarını üretir.
+Diagnostics modu aynı 512 düğüm/1024 bağı ana etkileşimli renderer'a da yükler ve üst
+durum şeridinde açıkça `SENTETİK DIAGNOSTICS` yazar; bu grafik Work, receipt veya process
+kanıtı değildir.
+
+On dakikalık yerel dayanıklılık kapısı yalnız sayısal ve sanitize sayaçları okur:
+EventSource bağlantı sayısı, telemetry olay sayısı, bounded ring uzunluğu, DOM düğüm
+sayısı, animasyon/hidden-tab durumu ve tarayıcı sağlıyorsa JS heap kullanımı. Prompt,
+yanıt, komut, path veya process ayrıntısı bu tanı yüzeyine yazılmaz.
+
+Görsel kabul rubriği dört başlık taşır: referans kompozisyonu, execution veri mimarisi,
+interaction/motion ve okunabilirlik/responsive. İlk üç başlığın her biri en az 75/100,
+toplam skor en az 85/100 olmalıdır. Bu değerlendirme builder'dan bağımsız verifier
+tarafından yapılır.
 
 Bir teslim ancak process sayımı, içerik dışlama, terminal receipt semantiği, responsive UI
 ve bağımsız verifier kanıtları birlikte geçtiğinde tamamlanmış sayılır.

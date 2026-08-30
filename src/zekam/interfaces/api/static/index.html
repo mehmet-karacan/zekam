@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#090706">
+  <meta name="theme-color" content="#07080a">
   <title>Zekam Canlı Yürütme Gözleme Merkezi</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=15">
+  <link rel="stylesheet" href="/assets/styles.css?v=16">
 </head>
 <body>
   <div class="ambient-grid" aria-hidden="true"></div>
   <header class="system-bar">
     <a class="brand" href="#execution-field" aria-label="Zekam canlı yürütme ana alanı">
       <span class="brand-synapse" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
-      <span><strong>ZEKAM</strong><small>CANLI YÜRÜTME GÖZLEME MERKEZİ</small></span>
+      <span><strong>ZEKAM</strong><small>EXECUTION OBSERVATORY</small></span>
     </a>
     <div class="system-facts" aria-label="Sistem bağlantı durumu">
       <span id="connection-state" class="status-chip is-connecting"><i></i> BAĞLANIYOR</span>
@@ -22,92 +22,79 @@
       <span><small>SNAPSHOT</small><strong id="snapshot-clock">--:--:--</strong></span>
     </div>
   </header>
-
-  <main class="observatory-shell">
-    <section class="hero-row" aria-labelledby="page-title">
-      <div>
-        <p class="kicker">OS PROCESS + SESSION + KANONİK RUNTIME</p>
-        <h1 id="page-title">Zekam Canlı Yürütme Gözleme Merkezi</h1>
-        <p class="hero-copy">Açık CLI süreçlerini, oturum bağlarını ve receipt zincirini içerik taşımadan gözle.</p>
-      </div>
-      <div class="toolbar" role="search">
-        <label class="search-control"><span aria-hidden="true">⌕</span><input id="search-input" type="search" autocomplete="off" placeholder="İstemci, durum veya güvenli kimlik ara"><kbd>/</kbd></label>
-        <label><span>İstemci</span><select id="client-filter"><option value="all">Tümü</option><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="zekam">Zekam CLI</option></select></label>
-        <label><span>Durum</span><select id="state-filter"><option value="all">Tümü</option><option value="live">Canlı</option><option value="waiting">Bekliyor</option><option value="stale">Stale</option><option value="unbound">Unbound</option><option value="recovery-required">Recovery</option></select></label>
-        <label><span>Proje</span><select id="project-filter"><option value="all">Tüm projeler</option></select></label>
-      </div>
-    </section>
-
-    <section id="metric-strip" class="metric-strip" aria-label="Canlı yürütme metrikleri">
-      <article data-metric="open-cli" title="Yalnız OpenCode, Codex ve Claude gerçek root OS process sayısıdır."><span>AÇIK CLI</span><strong>0</strong><small>root OS process</small></article>
-      <article data-metric="active-session" title="Canlı bir root process ile bağlı live veya waiting session sayısıdır."><span>AKTİF OTURUM</span><strong>0</strong><small>process-bound session</small></article>
-      <article data-metric="running-work" title="PostgreSQL kanonik runtime.job içinde running durumundaki iş sayısıdır."><span>ÇALIŞAN İŞ</span><strong>0</strong><small>kanonik running job</small></article>
-      <article data-metric="waiting" title="Waiting root process/session ve PostgreSQL ready job kimliklerinin tekrarsız toplamıdır."><span>BEKLEYEN</span><strong>0</strong><small>waiting / ready</small></article>
-      <article data-metric="blocked-error" title="Bloklu, failed, recovery-required, expired veya terminal receipt bağı eksik kanonik kimlik sayısıdır."><span>BLOKLU / HATALI</span><strong>0</strong><small>kanıta dayalı sorun</small></article>
-      <article data-metric="last-live-signal" title="İçerik taşımayan en yeni process observation, heartbeat veya runtime event zamanıdır."><span>SON CANLI SİNYAL</span><strong>—</strong><small>content-free metadata</small></article>
-    </section>
-
-    <section class="primary-grid">
-      <article id="execution-field" class="execution-field panel" aria-labelledby="field-title">
-        <header class="panel-header field-header">
-          <div><p class="kicker">CANLI EXECUTION TOPOLOGY</p><h2 id="field-title">Yürütme Alanı</h2></div>
-          <div class="field-actions">
-            <span class="legend"><i class="gold"></i>canlı <i class="orange"></i>bekliyor <i class="red"></i>bloklu <i class="dim"></i>stale</span>
-            <button id="motion-toggle" type="button" aria-pressed="false">HAREKETİ DURDUR</button>
-            <button id="view-toggle" type="button" aria-pressed="false">LİSTE GÖRÜNÜMÜ</button>
+  <main class="cockpit-shell">
+    <nav class="nav-rail" aria-label="Gözleme bölümleri">
+      <p class="rail-kicker">OBSERVE</p>
+      <a class="rail-link is-active" href="#execution-field"><span>01</span><b>Yürütme</b><small>canlı topoloji</small></a>
+      <a class="rail-link" href="#activity-panel"><span>02</span><b>Aktivite</b><small>olay akışı</small></a>
+      <a class="rail-link" href="#integrity-panel"><span>03</span><b>Integrity</b><small>receipt zinciri</small></a>
+      <a class="rail-link" href="#inspector-panel"><span>04</span><b>Inspector</b><small>seçili oturum</small></a>
+      <a class="rail-link" href="#analytics"><span>05</span><b>Analitik</b><small>gerçek dağılım</small></a>
+      <a class="rail-link" href="#diagnostics"><span>06</span><b>Diagnostics</b><small>performans</small></a>
+      <div class="rail-truth"><i></i><strong>Yerel gözlem</strong><span>Mutation yüzeyi yok</span></div>
+    </nav>
+    <section class="workspace">
+      <section id="metric-strip" class="metric-strip" aria-label="Canlı yürütme metrikleri">
+        <article data-metric="open-cli" title="Yalnız gerçek root OS process sayısıdır."><span>AÇIK CLI</span><strong>0</strong><small>root process</small></article>
+        <article data-metric="active-session" title="Canlı process ile bağlı oturum sayısıdır."><span>AKTİF OTURUM</span><strong>0</strong><small>process-bound</small></article>
+        <article data-metric="active-agent" title="Gerçek snapshot içindeki aktif agent sayısıdır."><span>AKTİF AGENT</span><strong>0</strong><small>observed identity</small></article>
+        <article data-metric="running-work" title="PostgreSQL içindeki running job sayısıdır."><span>ÇALIŞAN İŞ</span><strong>0</strong><small>canonical job</small></article>
+        <article data-metric="open-claim" title="Terminal receipt bağı olmayan claim sayısıdır."><span>AÇIK CLAIM</span><strong>0</strong><small>receipt required</small></article>
+        <article data-metric="last-live-signal" title="En yeni içeriksiz sinyal yaşıdır."><span>SON SİNYAL</span><strong>—</strong><small>freshness</small></article>
+      </section>
+      <section class="topology-row">
+        <article id="execution-field" class="execution-field panel" aria-labelledby="field-title">
+          <header class="panel-header field-header">
+            <div><p class="kicker">LIVE EXECUTION FIELD</p><h1 id="field-title">Canlı Yürütme Alanı</h1></div>
+            <div class="field-actions" aria-label="Graf kontrolleri">
+              <button id="zoom-out" type="button" aria-label="Uzaklaştır">−</button><button id="zoom-in" type="button" aria-label="Yakınlaştır">+</button>
+              <button id="focus-selected" type="button">ODAKLA</button><button id="view-reset" type="button">SIĞDIR</button>
+              <button id="motion-toggle" type="button" aria-pressed="false">HAREKETİ DURDUR</button><button id="view-toggle" type="button" aria-pressed="false">LİSTE</button>
+            </div>
+          </header>
+          <div class="filter-bar" role="search">
+            <label class="search-control"><span aria-hidden="true">⌕</span><input id="search-input" type="search" autocomplete="off" placeholder="İstemci, durum veya güvenli kimlik ara"><kbd>/</kbd></label>
+            <label><span>İstemci</span><select id="client-filter"><option value="all">Tümü</option><option value="opencode">OpenCode</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="zekam">Zekam CLI</option></select></label>
+            <label><span>Durum</span><select id="state-filter"><option value="all">Tümü</option><option value="live">Canlı</option><option value="waiting">Bekliyor</option><option value="stale">Stale</option><option value="unbound">Unbound</option><option value="recovery-required">Recovery</option></select></label>
+            <label><span>Bağ</span><select id="binding-filter"><option value="all">Tümü</option><option value="exact">Exact</option><option value="heuristic">Heuristic</option><option value="unbound">Unbound</option></select></label>
+            <label><span>Zaman</span><select id="time-window"><option value="300">5 dk</option><option value="900">15 dk</option><option value="3600">1 saat</option><option value="all">Tümü</option></select></label>
+            <label><span>Proje</span><select id="project-filter"><option value="all">Tüm projeler</option></select></label>
           </div>
-        </header>
-        <div id="graph-stage" class="graph-stage">
-          <canvas id="execution-canvas" aria-label="Canlı CLI, session ve runtime bağlantı grafiği"></canvas>
-          <div class="field-hud top-left"><strong id="visible-node-count">0</strong><span>DÜĞÜM</span></div>
-          <div class="field-hud top-right"><strong id="visible-edge-count">0</strong><span>BAĞ</span></div>
-          <div id="graph-empty" class="empty-state" hidden><strong>Canlı yürütme kanıtı yok</strong><span>Process gözlemi unavailable olabilir veya filtre sonucu boş olabilir.</span></div>
-        </div>
-        <div id="graph-fallback" class="graph-fallback" hidden aria-live="polite"></div>
-      </article>
-
-      <aside class="session-rail panel" aria-labelledby="sessions-title">
-        <header class="panel-header">
-          <div><p class="kicker">GERÇEK ROOT PROCESS</p><h2 id="sessions-title">Canlı Oturumlar</h2></div>
-          <span id="root-process-count" class="count-badge">0 CLI</span>
-        </header>
-        <div id="session-cards" class="session-cards" aria-live="polite"></div>
-        <div class="truth-note"><strong>Gerçeklik kuralı</strong><p>Session kaydı tek başına “açık” değildir. Canlılık OS process kanıtından, başarı terminal receipt’ten gelir.</p></div>
-      </aside>
+          <div id="graph-stage" class="graph-stage" tabindex="0" role="application" aria-label="Canlı CLI, session, agent ve runtime bağlantı grafiği. Ok tuşlarıyla kaydırın, artı eksi ile yakınlaştırın.">
+            <canvas id="execution-canvas" aria-hidden="true"></canvas>
+            <div class="field-hud top-left"><strong id="visible-node-count">0</strong><span>DÜĞÜM</span></div>
+            <div class="field-hud top-right"><strong id="visible-edge-count">0</strong><span>BAĞ</span></div>
+            <div id="graph-tooltip" class="graph-tooltip" hidden></div>
+            <div id="graph-empty" class="empty-state" hidden><strong>Canlı yürütme kanıtı yok</strong><span>Process gözlemi unavailable veya filtre sonucu boş.</span></div>
+          </div>
+          <div class="graph-legend" aria-label="Graf açıklaması"><span><i class="live"></i>canlı</span><span><i class="waiting"></i>bekliyor</span><span><i class="danger"></i>bloklu / recovery</span><span><i class="verified"></i>verified receipt</span><span class="line exact"></span>exact<span class="line heuristic"></span>heuristic<span class="line unbound"></span>unbound</div>
+          <div id="graph-fallback" class="graph-fallback" hidden aria-live="polite"></div>
+        </article>
+        <aside class="right-rail" aria-label="Canlı yürütme ayrıntıları">
+          <section id="activity-panel" class="rail-panel panel" aria-labelledby="activity-title">
+            <header class="panel-header"><div><p class="kicker">CONTENT-FREE EVENTS</p><h2 id="activity-title">Canlı Aktivite</h2></div><span id="event-total" class="count-badge">0</span></header>
+            <ol id="event-feed" class="event-feed" aria-live="polite"></ol>
+          </section>
+          <section id="integrity-panel" class="rail-panel panel" aria-labelledby="integrity-title">
+            <header class="panel-header"><div><p class="kicker">CANONICAL CHAIN</p><h2 id="integrity-title">Runtime Integrity</h2></div><span id="integrity-score" class="score-badge">N/A</span></header>
+            <div id="integrity-metrics" class="integrity-metrics"></div><div id="runtime-chain" class="runtime-chain" aria-live="polite"></div>
+          </section>
+          <section id="inspector-panel" class="rail-panel panel inspector-panel" aria-labelledby="inspector-title">
+            <header class="panel-header"><div><p class="kicker">SANITIZED SELECTION</p><h2 id="inspector-title">Session Inspector</h2></div><button id="selection-clear" type="button" aria-label="Seçimi temizle">×</button></header>
+            <div id="session-inspector" class="session-inspector"><p>Graf veya tablodan güvenli bir kimlik seçin.</p></div>
+          </section>
+        </aside>
+      </section>
+      <section id="analytics" class="analytics-grid" aria-label="Canlı yürütme analitik matrisi">
+        <article class="panel analytics-panel registry-panel" aria-labelledby="registry-title"><header class="panel-header"><div><p class="kicker">NORMALIZED REGISTRY</p><h2 id="registry-title">Session Registry</h2></div><span id="session-total" class="count-badge">0</span></header><div class="table-wrap"><table><thead><tr><th>İstemci</th><th>PID</th><th>Session</th><th>Proje</th><th>Başlangıç</th><th>Durum</th><th>Bağ</th></tr></thead><tbody id="session-registry"></tbody></table></div></article>
+        <article class="panel analytics-panel" aria-labelledby="heatmap-title"><header class="panel-header"><div><p class="kicker">REAL EVENT DENSITY</p><h2 id="heatmap-title">Event Heatmap</h2></div><span id="heatmap-total" class="count-badge">0</span></header><div id="event-heatmap" class="event-heatmap" aria-label="Gerçek olay zaman yoğunluğu"></div></article>
+        <article class="panel analytics-panel" aria-labelledby="ranking-title"><header class="panel-header"><div><p class="kicker">OBSERVED LOAD</p><h2 id="ranking-title">Agent / Client Sıralaması</h2></div><span class="count-badge">REAL</span></header><ol id="agent-ranking" class="agent-ranking"></ol></article>
+        <article id="diagnostics" class="panel analytics-panel" aria-labelledby="state-title"><header class="panel-header"><div><p class="kicker">STATE + LOCAL RING</p><h2 id="state-title">Durum ve Telemetri</h2></div><span id="diagnostics-badge" class="count-badge">N/A</span></header><div class="state-telemetry"><div id="state-donut" class="state-donut"><strong>N/A</strong><span>STATE</span></div><div id="state-legend" class="state-legend"></div></div><canvas id="telemetry-sparkline" width="360" height="72" aria-label="Tarayıcı yerel ve kanonik olmayan son sinyal örnekleri"></canvas><p class="local-only-note">Tarayıcı yerel bounded ring buffer · kanonik değildir</p></article>
+      </section>
+      <footer class="safety-footer"><span>● PROMPT / YANIT YOK</span><span>● RAW COMMAND LINE YOK</span><span>● SECRET / PII / ABSOLUTE PATH YOK</span><span>● READ-ONLY PROJECTION</span><span id="snapshot-digest">DIGEST —</span></footer>
     </section>
-
-    <section class="operations-grid">
-      <article class="panel operation-panel" aria-labelledby="registry-title">
-        <header class="panel-header"><div><p class="kicker">NORMALIZED SESSION</p><h2 id="registry-title">Session Registry</h2></div><span id="session-total" class="count-badge">0</span></header>
-        <div class="table-wrap"><table><thead><tr><th>İstemci</th><th>PID</th><th>Session</th><th>Proje</th><th>Model</th><th>Başlangıç</th><th>Süre</th><th>Durum</th><th>Bağ</th></tr></thead><tbody id="session-registry"></tbody></table></div>
-      </article>
-      <article class="panel operation-panel" aria-labelledby="events-title">
-        <header class="panel-header"><div><p class="kicker">CONTENT-FREE TELEMETRY</p><h2 id="events-title">Canlı Olay Akışı</h2></div><span id="event-total" class="count-badge">0</span></header>
-        <ol id="event-feed" class="event-feed" aria-live="polite"></ol>
-      </article>
-      <article class="panel operation-panel" aria-labelledby="queue-title">
-        <header class="panel-header"><div><p class="kicker">EXACT ID CHAIN</p><h2 id="queue-title">Queue / Lease / Receipt</h2></div><span id="contradiction-total" class="count-badge danger">0</span></header>
-        <div id="runtime-chain" class="runtime-chain" aria-live="polite"></div>
-      </article>
-      <article class="panel operation-panel" aria-labelledby="resource-title">
-        <header class="panel-header"><div><p class="kicker">OS TELEMETRY</p><h2 id="resource-title">Kaynak Kullanımı</h2></div><span class="count-badge">BOUNDED</span></header>
-        <div id="resource-bars" class="resource-bars" aria-live="polite"></div>
-      </article>
-    </section>
-
-    <footer class="safety-footer">
-      <span>● PROMPT İÇERİĞİ YOK</span><span>● MODEL YANITI YOK</span><span>● RAW COMMAND LINE YOK</span><span>● SECRET / PII / ABSOLUTE PATH YOK</span><span id="snapshot-digest">DIGEST —</span>
-    </footer>
   </main>
-
-  <aside id="detail-drawer" class="detail-drawer" hidden aria-labelledby="detail-title">
-    <button id="detail-close" type="button" aria-label="Detay panelini kapat">×</button>
-    <p id="detail-kind" class="kicker">DÜĞÜM</p><h2 id="detail-title">Detay</h2>
-    <dl id="detail-facts"></dl>
-    <p class="drawer-note">Bu panel yalnız sanitize kimlik, durum ve korelasyon kanıtı gösterir.</p>
-  </aside>
-
   <noscript>Canlı SSE ve execution graph için JavaScript gereklidir.</noscript>
-  <script src="/assets/app.js?v=15" defer></script>
+  <script src="/assets/app.js?v=16" defer></script>
 </body>
 </html>
