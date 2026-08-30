@@ -26,11 +26,11 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
     assert "Kaynak Kullanımı" in index
     metrics = (
         "AÇIK CLI",
-        "CANLI OTURUM",
-        "AKTİF AGENT",
-        "ÇALIŞAN TOOL",
-        "RECOVERY",
-        "RECEIPTLESS",
+        "AKTİF OTURUM",
+        "ÇALIŞAN İŞ",
+        "BEKLEYEN",
+        "BLOKLU / HATALI",
+        "SON CANLI SİNYAL",
     )
     for metric in metrics:
         assert metric in index
@@ -38,8 +38,8 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
     assert "state-filter" in index
     assert "project-filter" in index
     assert "graph-fallback" in index
-    assert "/assets/styles.css?v=14" in index
-    assert "/assets/app.js?v=14" in index
+    assert "/assets/styles.css?v=15" in index
+    assert "/assets/app.js?v=15" in index
     assert "https://" not in index
     assert "http://" not in index
 
@@ -61,6 +61,10 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
     assert "project-filter" in index
     assert 'diagnostics.get("diagnostics") === "graph"' in script
     assert "benchmarkGraph" in script
+    assert "state.snapshot?.graph" not in script
+    assert "state.structure?.graph" not in script
+    assert 'event.event_type !== "process.observed"' in script
+    assert "age >= 0 && age <= 5000" in script
 
     assert "--gold: #ffc15a" in style
     assert "--orange: #f45f22" in style

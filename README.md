@@ -68,18 +68,19 @@ docker compose -f compose/docker-compose.yml up -d
 .venv/Scripts/zekam doctor
 ```
 
-## Neuro Observatory (read-only)
+## Zekam Canlı Yürütme Gözleme Merkezi (read-only)
 
-Repository belge grafini PostgreSQL olmadan, canli runtime projeksiyonunu ise exact realm
-kimligiyle acmak icin:
+Bu cihazda gerçekten açık OpenCode, Codex, Claude ve Zekam CLI süreçlerini; güvenli
+session bağlarını ve kanonik runtime zincirini izlemek için:
 
 ```bash
 .venv/Scripts/zekam ui serve
 .venv/Scripts/zekam ui serve --realm-id <REALM_UUID>
 ```
 
-Ilk surum yalniz loopback arayuzune baglanir ve mutation endpoint'i acmaz. Mimari, veri
-sinirlari ve sonraki OpenCode/Codex/Claude bridge plani:
+Varsayılan yüzey yalnız loopback adresine bağlanır ve mutation endpoint'i açmaz. Realm
+verilmezse yerel process/session görünümü çalışır, PostgreSQL realm tahmin edilmez. Mimari,
+durum semantiği, kurulum ve mahremiyet sınırları:
 [`docs/UI_NEURO_OBSERVATORY_MIMARISI.md`](docs/UI_NEURO_OBSERVATORY_MIMARISI.md).
 
 ## Paket doğrulama

@@ -23,6 +23,12 @@ class ProcessAvailability(StrEnum):
     UNBOUND = "unbound"
 
 
+class ProcessRole(StrEnum):
+    CLI_ROOT = "cli-root"
+    WORKER = "worker"
+    TOOL_CHILD = "tool-child"
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessIdentity:
     pid: int
@@ -45,8 +51,10 @@ class ProcessObservation:
     executable: str
     status: str
     started_at: dt.datetime
+    role: ProcessRole = ProcessRole.CLI_ROOT
     cpu_percent: float | None = None
     rss_bytes: int | None = None
+    child_process_count: int = 0
     root: bool = True
     parent_identity_key: str | None = None
 
@@ -57,6 +65,8 @@ class ProcessObservation:
             raise ValidationFailed("CPU yuzdesi negatif olamaz")
         if self.rss_bytes is not None and self.rss_bytes < 0:
             raise ValidationFailed("RSS negatif olamaz")
+        if self.child_process_count < 0:
+            raise ValidationFailed("Child process sayisi negatif olamaz")
 
     def safe_body(self) -> dict[str, object]:
         return {
@@ -68,8 +78,10 @@ class ProcessObservation:
             "executable": self.executable,
             "status": self.status,
             "started_at": self.started_at.isoformat(),
+            "role": self.role.value,
             "cpu_percent": self.cpu_percent,
             "rss_bytes": self.rss_bytes,
+            "child_process_count": self.child_process_count,
             "root": self.root,
             "parent_process_id": self.parent_identity_key,
         }

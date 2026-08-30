@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#090706">
   <title>Zekam Canlı Yürütme Gözleme Merkezi</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=14">
+  <link rel="stylesheet" href="/assets/styles.css?v=15">
 </head>
 <body>
   <div class="ambient-grid" aria-hidden="true"></div>
@@ -39,12 +39,12 @@
     </section>
 
     <section id="metric-strip" class="metric-strip" aria-label="Canlı yürütme metrikleri">
-      <article data-metric="open-cli"><span>AÇIK CLI</span><strong>0</strong><small>OS root process</small></article>
-      <article data-metric="live-session"><span>CANLI OTURUM</span><strong>0</strong><small>process-bound session</small></article>
-      <article data-metric="active-agent"><span>AKTİF AGENT</span><strong>0</strong><small>kanonik assignment</small></article>
-      <article data-metric="running-tool"><span>ÇALIŞAN TOOL</span><strong>0</strong><small>safe event metadata</small></article>
-      <article data-metric="recovery"><span>RECOVERY</span><strong>0</strong><small>uzlaştırma gerekli</small></article>
-      <article data-metric="receiptless"><span>RECEIPTLESS</span><strong>0</strong><small>terminal kanıt yok</small></article>
+      <article data-metric="open-cli" title="Yalnız OpenCode, Codex ve Claude gerçek root OS process sayısıdır."><span>AÇIK CLI</span><strong>0</strong><small>root OS process</small></article>
+      <article data-metric="active-session" title="Canlı bir root process ile bağlı live veya waiting session sayısıdır."><span>AKTİF OTURUM</span><strong>0</strong><small>process-bound session</small></article>
+      <article data-metric="running-work" title="PostgreSQL kanonik runtime.job içinde running durumundaki iş sayısıdır."><span>ÇALIŞAN İŞ</span><strong>0</strong><small>kanonik running job</small></article>
+      <article data-metric="waiting" title="Waiting root process/session ve PostgreSQL ready job kimliklerinin tekrarsız toplamıdır."><span>BEKLEYEN</span><strong>0</strong><small>waiting / ready</small></article>
+      <article data-metric="blocked-error" title="Bloklu, failed, recovery-required, expired veya terminal receipt bağı eksik kanonik kimlik sayısıdır."><span>BLOKLU / HATALI</span><strong>0</strong><small>kanıta dayalı sorun</small></article>
+      <article data-metric="last-live-signal" title="İçerik taşımayan en yeni process observation, heartbeat veya runtime event zamanıdır."><span>SON CANLI SİNYAL</span><strong>—</strong><small>content-free metadata</small></article>
     </section>
 
     <section class="primary-grid">
@@ -79,7 +79,7 @@
     <section class="operations-grid">
       <article class="panel operation-panel" aria-labelledby="registry-title">
         <header class="panel-header"><div><p class="kicker">NORMALIZED SESSION</p><h2 id="registry-title">Session Registry</h2></div><span id="session-total" class="count-badge">0</span></header>
-        <div class="table-wrap"><table><thead><tr><th>İstemci</th><th>Durum</th><th>Bağ</th><th>Aksiyon</th><th>Güncelleme</th></tr></thead><tbody id="session-registry"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>İstemci</th><th>PID</th><th>Session</th><th>Proje</th><th>Model</th><th>Başlangıç</th><th>Süre</th><th>Durum</th><th>Bağ</th></tr></thead><tbody id="session-registry"></tbody></table></div>
       </article>
       <article class="panel operation-panel" aria-labelledby="events-title">
         <header class="panel-header"><div><p class="kicker">CONTENT-FREE TELEMETRY</p><h2 id="events-title">Canlı Olay Akışı</h2></div><span id="event-total" class="count-badge">0</span></header>
@@ -108,6 +108,6 @@
   </aside>
 
   <noscript>Canlı SSE ve execution graph için JavaScript gereklidir.</noscript>
-  <script src="/assets/app.js?v=14" defer></script>
+  <script src="/assets/app.js?v=15" defer></script>
 </body>
 </html>

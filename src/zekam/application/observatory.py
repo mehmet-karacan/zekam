@@ -99,6 +99,9 @@ class ObservatoryAgent:
     cpu_percent: float | None = None
     rss_bytes: int | None = None
     project_id: str | None = None
+    process_role: str = "session"
+    executable_label: str | None = None
+    child_process_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -127,6 +130,9 @@ class ObservatoryAgent:
             "cpu_percent": self.cpu_percent,
             "rss_bytes": self.rss_bytes,
             "project_id": self.project_id,
+            "process_role": self.process_role,
+            "executable_label": self.executable_label,
+            "child_process_count": self.child_process_count,
         }
 
 
@@ -601,6 +607,9 @@ def _correlated_client_projection(
             )
         for index, process in enumerate(roots):
             process_node_id = process.identity.key
+            process_children = tuple(
+                item for item in processes.processes if item.parent_identity_key == process_node_id
+            )
             nodes.append(
                 GraphNode(
                     node_id=process_node_id,
@@ -627,6 +636,9 @@ def _correlated_client_projection(
                         cpu_percent=process.cpu_percent,
                         rss_bytes=process.rss_bytes,
                         started_at=process.started_at,
+                        process_role=process.role.value,
+                        executable_label=process.executable,
+                        child_process_count=process.child_process_count,
                     )
                 )
                 edges.append(
@@ -652,6 +664,34 @@ def _correlated_client_projection(
                         process_status=process.status,
                         cpu_percent=process.cpu_percent,
                         rss_bytes=process.rss_bytes,
+                        process_role=process.role.value,
+                        executable_label=process.executable,
+                        child_process_count=process.child_process_count,
+                    )
+                )
+            for child in process_children:
+                child_id = child.identity.key
+                child_state = (
+                    "waiting" if child.status in {"sleeping", "idle", "waiting"} else "live"
+                )
+                correlated.append(
+                    ObservatoryAgent(
+                        agent_id=child_id,
+                        label=child.executable,
+                        client=client,
+                        state=child_state,
+                        canonical_ref=child_id,
+                        parent_agent_id=process_node_id,
+                        started_at=child.started_at,
+                        process_id=child_id,
+                        binding_confidence="exact",
+                        availability=child_state,
+                        current_action="tool",
+                        process_status=child.status,
+                        cpu_percent=child.cpu_percent,
+                        rss_bytes=child.rss_bytes,
+                        process_role=child.role.value,
+                        executable_label=child.executable,
                     )
                 )
             events.append(
@@ -659,7 +699,7 @@ def _correlated_client_projection(
                     event_id=f"process-event:{process_node_id}",
                     event_type="process.observed",
                     source=client,
-                    occurred_at=process.started_at,
+                    occurred_at=processes.observed_at,
                     canonical_ref=process_node_id,
                     agent_id=process_node_id,
                 )

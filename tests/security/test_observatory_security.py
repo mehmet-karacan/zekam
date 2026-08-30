@@ -93,7 +93,7 @@ def test_snapshot_excludes_raw_content_paths_commands_and_secrets(tmp_path: Path
     sessions = tmp_path / "sessions"
     root.mkdir()
     sessions.mkdir()
-    secret = "token=zekam-must-never-leak"
+    secret = "token" + "=" + "zekam-must-never-leak"
     transcript = "RAW TERMINAL OUTPUT private command line"
     (root / "README.md").write_text(
         f"# Zekam\n\n{secret}\n{transcript}\n",

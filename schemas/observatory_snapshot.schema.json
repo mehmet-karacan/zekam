@@ -104,7 +104,7 @@
           "task_label", "model_ref", "current_tool", "active_tool", "parent_agent_id",
           "started_at", "session_id", "process_id", "binding_confidence", "availability",
           "current_action", "process_status", "cpu_percent", "rss_bytes"
-          , "project_id"
+          , "project_id", "process_role", "executable_label", "child_process_count"
         ],
         "properties": {
           "agent_id": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -132,6 +132,9 @@
           "cpu_percent": { "type": ["number", "null"], "minimum": 0 },
           "rss_bytes": { "type": ["integer", "null"], "minimum": 0 }
           , "project_id": { "type": ["string", "null"] }
+          , "process_role": { "enum": ["session", "cli-root", "worker", "tool-child"] }
+          , "executable_label": { "type": ["string", "null"], "maxLength": 64 }
+          , "child_process_count": { "type": "integer", "minimum": 0, "maximum": 64 }
         }
       }
     },

@@ -4,10 +4,11 @@
   const snapshotSchema = "zekam-observatory-snapshot/v3";
   const liveStates = new Set(["live", "waiting", "unbound"]);
   const dangerousStates = new Set(["recovery-required", "receiptless", "completed-unbound", "blocked", "expired"]);
+  const cliMetricClients = new Set(["opencode", "codex", "claude"]);
   const clientLabels = { opencode: "OpenCode", codex: "Codex", claude: "Claude", zekam: "Zekam CLI" };
   const safeActionLabels = { unknown: "Bilinmiyor", planning: "Planlıyor", executing: "Yürütüyor", tool: "Tool çalışıyor", waiting: "Bekliyor" };
   const anchors = { opencode: [0.18, 0.28], codex: [0.22, 0.73], claude: [0.52, 0.23], zekam: [0.54, 0.72], runtime: [0.80, 0.50] };
-  const colors = { live: "#ffc15a", waiting: "#ff941f", unbound: "#a76f32", stale: "#665c50", danger: "#f03a2f", runtime: "#d88a2c" };
+  const colors = { live: "#ffc15a", waiting: "#ff941f", unbound: "#a76f32", stale: "#665c50", danger: "#f03a2f", runtime: "#d88a2c", receipt: "#63b36a" };
 
   const canvas = document.getElementById("execution-canvas");
   const context = canvas.getContext?.("2d") || null;
@@ -43,6 +44,7 @@
     structureDigest: "",
     telemetryDigest: "",
     pollingTimer: null,
+    pulseTargets: new Set(),
   };
 
   function hash(value) {
@@ -73,6 +75,11 @@
     if (seconds < 60) return `${seconds} sn`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)} dk`;
     return `${Math.floor(seconds / 3600)} sa`;
+  }
+
+  function processPid(value) {
+    const parts = String(value || "").split(":");
+    return parts.length >= 3 && /^\d+$/.test(parts[1]) ? parts[1] : "—";
   }
 
   function text(element, value) {
@@ -122,13 +129,21 @@
   function renderMetrics() {
     const agents = currentAgents();
     const canonical = currentCanonical();
-    const openProcessIds = new Set(agents.filter((item) => item.process_id && liveStates.has(item.availability)).map((item) => item.process_id));
-    const liveSessions = agents.filter((item) => item.session_id && item.process_id && ["live", "waiting"].includes(item.availability)).length;
-    const activeAgents = (canonical.entities || []).filter((item) => item.kind.startsWith("agent-") && item.state === "active").length;
-    const runningTools = agents.filter((item) => item.current_action === "tool" && item.process_id).length;
-    const recovery = (canonical.contradictions || []).filter((item) => item.state === "recovery-required").length + (canonical.entities || []).filter((item) => item.state === "recovery-required").length;
-    const receiptless = (canonical.entities || []).filter((item) => item.kind === "claim" && item.state === "receiptless").length;
-    const values = { "open-cli": openProcessIds.size, "live-session": liveSessions, "active-agent": activeAgents, "running-tool": runningTools, recovery, receiptless };
+    const entities = canonical.entities || [];
+    const openProcessIds = new Set(agents.filter((item) => item.process_id && item.process_role === "cli-root" && cliMetricClients.has(item.client) && liveStates.has(item.availability)).map((item) => item.process_id));
+    const activeSessionIds = new Set(agents.filter((item) => item.process_role !== "tool-child" && item.session_id && item.process_id && ["live", "waiting"].includes(item.availability)).map((item) => `${item.client}:${item.session_id}`));
+    const runningWorkIds = new Set(entities.filter((item) => item.kind === "job" && item.state === "running").map((item) => item.job_id || item.entity_id));
+    const waitingIds = new Set();
+    for (const item of agents) if (item.process_id && item.process_role !== "tool-child" && item.availability === "waiting") waitingIds.add(`process:${item.process_id}`);
+    for (const item of entities) if (item.kind === "job" && ["ready", "waiting", "pending", "queued"].includes(item.state)) waitingIds.add(`job:${item.job_id || item.entity_id}`);
+    const blockedIds = new Set();
+    for (const item of canonical.contradictions || []) blockedIds.add(item.job_id ? `job:${item.job_id}` : `contradiction:${item.contradiction_id}`);
+    for (const item of entities) if (["blocked", "failed", "recovery-required", "expired", "receiptless", "completed-unbound"].includes(item.state)) blockedIds.add(item.job_id ? `job:${item.job_id}` : item.entity_id);
+    const signals = [];
+    for (const item of agents) for (const value of [item.heartbeat_at, item.started_at]) if (value && Number.isFinite(Date.parse(value))) signals.push(value);
+    for (const item of currentEvents()) if (item.occurred_at && Number.isFinite(Date.parse(item.occurred_at))) signals.push(item.occurred_at);
+    const lastSignal = signals.sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+    const values = { "open-cli": openProcessIds.size, "active-session": activeSessionIds.size, "running-work": runningWorkIds.size, waiting: waitingIds.size, "blocked-error": blockedIds.size, "last-live-signal": fmtAge(lastSignal) };
     for (const [key, value] of Object.entries(values)) text(document.querySelector(`[data-metric="${key}"] strong`), value);
   }
 
@@ -139,7 +154,7 @@
 
   function renderSessionCards() {
     const target = document.getElementById("session-cards");
-    const roots = currentAgents().filter((item) => item.process_id && liveStates.has(item.availability) && matchesFilters(item));
+    const roots = currentAgents().filter((item) => item.process_id && item.process_role !== "tool-child" && liveStates.has(item.availability) && matchesFilters(item));
     target.replaceChildren();
     for (const agent of roots) {
       const card = document.createElement("article");
@@ -155,7 +170,7 @@
       header.append(title, status);
       const facts = document.createElement("dl");
       const rows = [
-        ["Process", shortId(agent.process_id)],
+        ["PID", processPid(agent.process_id)],
         ["Session", agent.session_id ? shortId(agent.session_id) : "eşleşmedi"],
         ["Bağ güveni", agent.binding_confidence],
         ["Aksiyon", safeActionLabels[agent.current_action] || "Bilinmiyor"],
@@ -180,12 +195,12 @@
 
   function renderRegistry() {
     const target = document.getElementById("session-registry");
-    const rows = currentAgents().filter((item) => item.session_id && matchesFilters(item));
+    const rows = currentAgents().filter((item) => item.session_id && item.process_role !== "tool-child" && matchesFilters(item));
     target.replaceChildren();
     for (const agent of rows.slice(0, 64)) {
       const tr = document.createElement("tr");
-      const values = [clientLabels[agent.client] || agent.client, stateLabel(agent.availability), agent.binding_confidence, safeActionLabels[agent.current_action] || "Bilinmiyor", fmtAge(agent.heartbeat_at)];
-      for (const [index, value] of values.entries()) { const td = document.createElement("td"); if (index === 1) td.className = "state-mark"; text(td, value); tr.append(td); }
+      const values = [clientLabels[agent.client] || agent.client, processPid(agent.process_id), shortId(agent.session_id), shortId(agent.project_id), shortId(agent.model_ref), fmtTime(agent.started_at), fmtAge(agent.started_at), stateLabel(agent.availability), agent.binding_confidence];
+      for (const [index, value] of values.entries()) { const td = document.createElement("td"); if (index === 7) td.className = "state-mark"; text(td, value); tr.append(td); }
       tr.addEventListener("click", () => openDetail(agent, "SESSION"));
       target.append(tr);
     }
@@ -222,14 +237,15 @@
 
   function renderResources() {
     const target = document.getElementById("resource-bars");
-    const rows = currentAgents().filter((item) => item.process_id && liveStates.has(item.availability) && matchesFilters(item));
+    const rows = currentAgents().filter((item) => item.process_id && item.process_role !== "tool-child" && liveStates.has(item.availability) && matchesFilters(item));
     target.replaceChildren();
     for (const agent of rows) {
       const cpu = Math.min(100, Math.max(0, Number(agent.cpu_percent || 0)));
       const memoryMb = Math.max(0, Number(agent.rss_bytes || 0) / 1048576);
       const item = document.createElement("div"); item.className = "resource-item";
       const header = document.createElement("header"); const label = document.createElement("span"); const value = document.createElement("span");
-      text(label, clientLabels[agent.client] || agent.client); text(value, `${cpu.toFixed(1)}% · ${memoryMb.toFixed(0)} MB`); header.append(label, value);
+      const signal = agent.heartbeat_at || currentEvents().find((event) => event.agent_id === agent.process_id)?.occurred_at;
+      text(label, clientLabels[agent.client] || agent.client); text(value, `${cpu.toFixed(1)}% · ${memoryMb.toFixed(0)} MB · ${agent.child_process_count || 0} child · ${fmtAge(signal)}`); header.append(label, value);
       const track = document.createElement("div"); track.className = "resource-track"; const fill = document.createElement("i"); fill.style.width = `${Math.max(2, cpu)}%`; track.append(fill); item.append(header, track); target.append(item);
     }
     if (!rows.length) { const empty = document.createElement("p"); empty.className = "hero-copy"; text(empty, "Canlı process telemetrisi yok."); target.append(empty); }
@@ -244,19 +260,28 @@
     const nodes = [];
     const edges = [];
     const known = new Set();
+    const agentNodeIds = new Map();
     const addNode = (node) => { if (!known.has(node.id)) { known.add(node.id); nodes.push(node); } };
     const agents = currentAgents().filter(matchesFilters);
     for (const agent of agents) {
       const clientId = `client:${agent.client}`;
       addNode({ id: clientId, label: clientLabels[agent.client] || agent.client, kind: "client", client: agent.client, state: "live", data: { client: agent.client, state: "live" } });
       const nodeId = agent.process_id || `session:${agent.session_id || agent.agent_id}`;
-      addNode({ id: nodeId, label: agent.process_id ? (clientLabels[agent.client] || agent.client) : `${clientLabels[agent.client] || agent.client} stale`, kind: agent.process_id ? "process" : "session", client: agent.client, state: agent.availability, project_id: agent.project_id, data: agent });
-      edges.push({ source: clientId, target: nodeId, kind: agent.process_id ? "runs-process" : "observed-session" });
-      if (agent.session_id && agent.process_id) {
+      const isChild = agent.process_role === "tool-child";
+      addNode({ id: nodeId, label: isChild ? (agent.executable_label || "tool child") : agent.process_id ? (clientLabels[agent.client] || agent.client) : `${clientLabels[agent.client] || agent.client} stale`, kind: isChild ? "tool-child" : agent.process_id ? "process" : "session", client: agent.client, state: agent.availability, project_id: agent.project_id, data: agent });
+      agentNodeIds.set(agent.agent_id, nodeId);
+      if (agent.process_id) agentNodeIds.set(agent.process_id, nodeId);
+      if (!isChild) edges.push({ source: clientId, target: nodeId, kind: agent.process_id ? "runs-process" : "observed-session" });
+      if (agent.session_id && agent.process_id && !isChild) {
         const sessionId = `session:${agent.session_id}`;
         addNode({ id: sessionId, label: `Session ${shortId(agent.session_id)}`, kind: "session", client: agent.client, state: agent.availability, data: agent });
         edges.push({ source: nodeId, target: sessionId, kind: `${agent.binding_confidence}-bind` });
       }
+    }
+    for (const agent of agents) {
+      const source = agent.parent_agent_id ? agentNodeIds.get(agent.parent_agent_id) : null;
+      const target = agentNodeIds.get(agent.agent_id);
+      if (source && target && source !== target) edges.push({ source, target, kind: agent.process_role === "tool-child" ? "runs-tool-child" : "delegates" });
     }
     const canonical = currentCanonical();
     const runtimeEntities = (canonical.entities || []).filter(matchesFilters).slice(0, 160);
@@ -264,6 +289,11 @@
       addNode({ id: entity.entity_id, label: `${entity.kind} ${shortId(entity.entity_id.split(":").pop())}`, kind: graphKind(entity), client: "runtime", state: entity.state, project_id: entity.project_id, data: entity });
     }
     for (const entity of runtimeEntities) if (entity.parent_id && known.has(entity.parent_id) && known.has(entity.entity_id)) edges.push({ source: entity.parent_id, target: entity.entity_id, kind: "canonical-chain" });
+    for (const agent of agents) {
+      const source = agentNodeIds.get(agent.agent_id);
+      const target = agent.job_id ? `job:${agent.job_id}` : agent.work_item_id ? `work:${agent.work_item_id}` : null;
+      if (source && target && known.has(source) && known.has(target)) edges.push({ source, target, kind: `${agent.binding_confidence}-runtime-bind` });
+    }
     for (const contradiction of canonical.contradictions || []) {
       if (!matchesFilters(contradiction)) continue;
       const id = `contradiction:${contradiction.contradiction_id}`;
@@ -347,6 +377,7 @@
 
   function nodeColor(node) {
     if (node.kind === "contradiction" || dangerousStates.has(node.state)) return colors.danger;
+    if (node.kind === "receipt" && node.data?.terminal_receipt_bound) return colors.receipt;
     if (node.client === "runtime") return colors.runtime;
     return colors[node.state] || colors.stale;
   }
@@ -358,12 +389,14 @@
     for (const edge of state.edges) {
       const source = point(edge.source); const target = point(edge.target); if (!source || !target) continue;
       const danger = edge.kind === "contradiction";
-      context.beginPath(); context.moveTo(source.x, source.y);
+      const heuristic = edge.kind.includes("heuristic");
+      context.beginPath(); context.moveTo(source.x, source.y); context.setLineDash(heuristic ? [5, 6] : []);
       const bend = (hash(`${edge.source}:${edge.target}`) % 31) - 15;
-      context.quadraticCurveTo((source.x + target.x) / 2 + bend, (source.y + target.y) / 2 - bend, target.x, target.y);
-      context.strokeStyle = danger ? "rgba(240,58,47,.72)" : "rgba(255,145,31,.24)";
+      if (heuristic) context.quadraticCurveTo((source.x + target.x) / 2 + bend, (source.y + target.y) / 2 - bend, target.x, target.y); else context.lineTo(target.x, target.y);
+      context.strokeStyle = danger ? "rgba(240,58,47,.72)" : heuristic ? "rgba(255,145,31,.13)" : "rgba(255,145,31,.24)";
       context.lineWidth = danger ? 1.7 : 1; context.stroke();
-      if (!state.paused && !reducedMotion.matches && state.edges.indexOf(edge) < 120) {
+      context.setLineDash([]);
+      if (!state.paused && !reducedMotion.matches && state.edges.indexOf(edge) < 120 && (state.pulseTargets.has(edge.source) || state.pulseTargets.has(edge.target))) {
         const phase = (state.time * .00014 + (hash(edge.source) % 1000) / 1000) % 1;
         const x = source.x + (target.x - source.x) * phase; const y = source.y + (target.y - source.y) * phase;
         context.beginPath(); context.arc(x, y, danger ? 2.1 : 1.4, 0, Math.PI * 2); context.fillStyle = danger ? colors.red : colors.gold; context.fill();
@@ -374,7 +407,7 @@
       const p = point(node.id); if (!p) continue;
       const hovered = state.hovered?.id === node.id; const selected = state.selected?.id === node.id;
       const radius = node.kind === "client" ? 10 : node.kind === "process" ? 8 : node.kind === "contradiction" ? 7 : 4.5;
-      const color = nodeColor(node); const pulse = state.paused ? 0 : Math.sin(state.time * .003 + hash(node.id)) * 1.2;
+      const color = nodeColor(node); const pulse = !state.paused && state.pulseTargets.has(node.id) ? Math.sin(state.time * .003 + hash(node.id)) * 1.2 : 0;
       if (["client", "process", "contradiction"].includes(node.kind) || hovered || selected) {
         context.beginPath(); context.arc(p.x, p.y, radius + 7 + Math.max(0, pulse), 0, Math.PI * 2); context.strokeStyle = `${color}55`; context.stroke();
       }
@@ -400,7 +433,7 @@
     const drawer = document.getElementById("detail-drawer"); const facts = document.getElementById("detail-facts");
     text(document.getElementById("detail-kind"), kind); text(document.getElementById("detail-title"), data.label || data.kind || data.event_type || "Detay");
     facts.replaceChildren();
-    const allowed = ["client", "state", "availability", "binding_confidence", "current_action", "process_status", "entity_id", "kind", "work_item_id", "job_id", "parent_id", "terminal_receipt_bound", "event_type", "source", "occurred_at", "heartbeat_at", "started_at"];
+    const allowed = ["client", "state", "availability", "binding_confidence", "current_action", "process_status", "process_role", "executable_label", "child_process_count", "entity_id", "kind", "work_item_id", "job_id", "parent_id", "terminal_receipt_bound", "event_type", "source", "occurred_at", "heartbeat_at", "started_at"];
     for (const key of allowed) if (data[key] !== undefined && data[key] !== null) {
       const row = document.createElement("div"); const dt = document.createElement("dt"); const dd = document.createElement("dd");
       text(dt, key.replaceAll("_", " ")); text(dd, data[key]); row.append(dt, dd); facts.append(row);
@@ -409,6 +442,11 @@
   }
 
   function renderAll() {
+    const now = Date.now();
+    state.pulseTargets = new Set(currentEvents().filter((event) => {
+      const age = now - Date.parse(event.occurred_at);
+      return event.event_type !== "process.observed" && age >= 0 && age <= 5000;
+    }).flatMap((event) => [event.job_id ? `job:${event.job_id}` : null, event.agent_id]).filter(Boolean));
     updateProjectFilter(); renderMetrics(); renderSessionCards(); renderRegistry(); renderEvents(); renderRuntimeChain(); renderResources(); buildGraph();
     const source = state.snapshot || state.telemetry || {};
     text(document.getElementById("snapshot-clock"), fmtTime(source.generated_at));

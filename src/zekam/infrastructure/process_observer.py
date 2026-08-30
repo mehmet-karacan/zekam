@@ -13,6 +13,7 @@ from zekam.domain.process_observation import (
     ProcessIdentity,
     ProcessObservation,
     ProcessObservationSnapshot,
+    ProcessRole,
 )
 
 
@@ -60,30 +61,33 @@ class PsutilProcessSource:
         wrapper_names = {
             "bun",
             "bun.exe",
-            "cmd.exe",
             "node",
             "node.exe",
-            "powershell.exe",
-            "pwsh",
-            "pwsh.exe",
-            "python",
-            "python.exe",
-            "pythonw.exe",
         }
-        inspected = 0
-        for process in psutil.process_iter(attrs=attrs, ad_value=None):
-            inspected += 1
-            if inspected > limit or (time.monotonic() - started) * 1000 >= budget_ms:
+        processes = tuple(psutil.process_iter(attrs=attrs, ad_value=None))
+        if len(processes) > limit:
+            processes = processes[:limit]
+            truncated = True
+
+        def priority(process: object) -> int:
+            info = getattr(process, "info", {})
+            name = str(info.get("name") or "unknown").casefold()
+            if any(marker in name for marker in ("opencode", "codex", "claude", "zekam")):
+                return 0
+            return 1 if name in wrapper_names else 2
+
+        for process in sorted(processes, key=priority):
+            info = process.info
+            name = str(info.get("name") or "unknown")
+            lowered_name = name.casefold()
+            if lowered_name not in wrapper_names and not any(
+                marker in lowered_name for marker in ("opencode", "codex", "claude", "zekam")
+            ):
+                continue
+            if (time.monotonic() - started) * 1000 >= budget_ms:
                 truncated = True
                 break
             try:
-                info = process.info
-                name = str(info.get("name") or "unknown")
-                lowered_name = name.casefold()
-                if lowered_name not in wrapper_names and not any(
-                    marker in lowered_name for marker in ("opencode", "codex", "claude", "zekam")
-                ):
-                    continue
                 argv = (
                     tuple(str(value) for value in process.cmdline()[:12])
                     if lowered_name in wrapper_names
@@ -115,6 +119,44 @@ class PsutilProcessSource:
                 denied += 1
             except (psutil.NoSuchProcess, psutil.ZombieProcess, KeyError, TypeError, ValueError):
                 vanished += 1
+        seen = {sample.pid for sample in samples}
+        roots = tuple(samples)
+        for target in roots:
+            if (time.monotonic() - started) * 1000 >= budget_ms or len(samples) >= limit:
+                truncated = True
+                break
+            try:
+                descendants = psutil.Process(target.pid).children(recursive=True)
+            except psutil.AccessDenied:
+                denied += 1
+                continue
+            except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                vanished += 1
+                continue
+            for child in descendants:
+                if child.pid in seen:
+                    continue
+                if (time.monotonic() - started) * 1000 >= budget_ms or len(samples) >= limit:
+                    truncated = True
+                    break
+                try:
+                    memory = child.memory_info()
+                    samples.append(
+                        RawProcessSample(
+                            pid=int(child.pid),
+                            parent_pid=int(child.ppid()),
+                            name=str(child.name() or "unknown"),
+                            create_time=float(child.create_time()),
+                            status=str(child.status()),
+                            cpu_percent=float(child.cpu_percent(interval=None)),
+                            rss_bytes=int(memory.rss),
+                        )
+                    )
+                    seen.add(child.pid)
+                except psutil.AccessDenied:
+                    denied += 1
+                except (psutil.NoSuchProcess, psutil.ZombieProcess, TypeError, ValueError):
+                    vanished += 1
         return RawProcessScan(tuple(samples), truncated, denied, vanished)
 
 
@@ -156,15 +198,33 @@ class BoundedProcessObserver:
         for root in roots:
             client = classified[root.pid]
             root_identity = identity(root)
-            observations.append(observation(root, client, root=True))
             children = tuple(
                 sample
                 for sample in scan.samples
-                if sample.parent_pid == root.pid and sample.pid in by_pid
+                if sample.pid != root.pid and _descends_from(sample, root.pid, by_pid)
             )[: self.max_children_per_root]
+            observations.append(
+                observation(
+                    root,
+                    client,
+                    root=True,
+                    role=classify_role(root, client),
+                    child_process_count=len(children),
+                )
+            )
             for child in children:
                 observations.append(
-                    observation(child, client, root=False, parent_identity_key=root_identity.key)
+                    observation(
+                        child,
+                        client,
+                        root=False,
+                        role=ProcessRole.TOOL_CHILD,
+                        parent_identity_key=(
+                            identity(by_pid[child.parent_pid]).key
+                            if child.parent_pid in by_pid
+                            else root_identity.key
+                        ),
+                    )
                 )
         observations.sort(key=lambda item: (not item.root, item.client.value, item.identity.key))
         return ProcessObservationSnapshot(
@@ -187,7 +247,9 @@ def observation(
     client: ObservedClient,
     *,
     root: bool,
+    role: ProcessRole,
     parent_identity_key: str | None = None,
+    child_process_count: int = 0,
 ) -> ProcessObservation:
     created = max(sample.create_time, 1.0)
     executable = PurePath(sample.name).name[:64] or "unknown"
@@ -198,11 +260,38 @@ def observation(
         executable=executable,
         status=safe_status(sample.status),
         started_at=dt.datetime.fromtimestamp(created, tz=dt.UTC),
+        role=role,
         cpu_percent=sample.cpu_percent,
         rss_bytes=sample.rss_bytes,
+        child_process_count=child_process_count,
         root=root,
         parent_identity_key=parent_identity_key,
     )
+
+
+def _descends_from(
+    sample: RawProcessSample,
+    root_pid: int,
+    by_pid: dict[int, RawProcessSample],
+) -> bool:
+    parent_pid = sample.parent_pid
+    visited: set[int] = set()
+    while parent_pid is not None and parent_pid not in visited:
+        if parent_pid == root_pid:
+            return True
+        visited.add(parent_pid)
+        parent = by_pid.get(parent_pid)
+        if parent is None:
+            return False
+        parent_pid = parent.parent_pid
+    return False
+
+
+def classify_role(sample: RawProcessSample, client: ObservedClient) -> ProcessRole:
+    tokens = tuple(PurePath(value).name.casefold() for value in sample.argv[:12])
+    if client is ObservedClient.ZEKAM and any(value == "worker" for value in tokens):
+        return ProcessRole.WORKER
+    return ProcessRole.CLI_ROOT
 
 
 def classify_client(sample: RawProcessSample) -> ObservedClient | None:

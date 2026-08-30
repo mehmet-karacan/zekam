@@ -59,6 +59,9 @@ def test_real_cli_roots_exclude_wrappers_children_and_ui_server() -> None:
         (10, "opencode"),
     ]
     assert {item.identity.pid for item in snapshot.processes if not item.root} == {11, 21}
+    assert all(item.role.value == "cli-root" for item in snapshot.roots)
+    assert all(item.child_process_count == 1 for item in snapshot.roots if item.identity.pid != 30)
+    assert all(item.role.value == "tool-child" for item in snapshot.processes if not item.root)
     assert 40 not in {item.identity.pid for item in snapshot.processes}
 
 

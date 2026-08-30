@@ -5,6 +5,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from jsonschema import Draft202012Validator, FormatChecker
+
 from zekam.application.observatory import (
     CompositeRuntimeProjectionReader,
     LocalSessionFileProjectionReader,
@@ -75,6 +77,8 @@ def test_unsafe_heading_falls_back_to_filename_and_body_is_not_exposed(tmp_path:
     assert document["causal"]["grants_authority"] is False
     schema_path = Path("schemas/observatory_snapshot.schema.json")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(document)
     assert set(schema["required"]) <= set(document)
     assert set(schema["properties"]["causal"]["required"]) <= set(document["causal"])
     assert document["canonical_runtime"]["schema"] == "zekam-canonical-runtime-projection/v1"
@@ -313,7 +317,7 @@ def test_process_and_session_are_heuristically_bound_without_claiming_canonical_
                 client=ObservedClient.CODEX,
                 executable="codex.exe",
                 status="running",
-                started_at=now,
+                started_at=now - dt.timedelta(minutes=12),
                 cpu_percent=2.0,
                 rss_bytes=8192,
             )
@@ -331,6 +335,8 @@ def test_process_and_session_are_heuristically_bound_without_claiming_canonical_
     assert session.process_id == "process:4242:1700000000000000"
     assert session.canonical_ref.startswith("runtime:codex-sessions/")
     assert any(edge.kind == "heuristic-session-bind" for edge in snapshot.graph.edges)
+    observed = next(event for event in snapshot.events if event.event_type == "process.observed")
+    assert observed.occurred_at == now
 
 
 def test_open_process_without_session_is_unbound(tmp_path: Path) -> None:
