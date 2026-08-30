@@ -97,6 +97,7 @@ def _real_plan(
         actor_id=uuid4(),
         source_revision=source,
         policy_digest="sha256:" + "2" * 64,
+        adopt_existing=False,
         prepared_at=now,
         expires_at=now + dt.timedelta(minutes=30),
     )

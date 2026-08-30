@@ -115,6 +115,7 @@ class LifecycleTemplateRecoveryService:
             actor_id=UUID(str(payload["actor_id"])),
             source_revision=str(payload["source_revision"]),
             policy_digest=str(payload["policy_digest"]),
+            adopt_existing=bool(payload.get("adopt_existing", False)),
             prepared_at=dt.datetime.fromisoformat(str(payload["prepared_at"])),
             expires_at=dt.datetime.fromisoformat(str(payload["expires_at"])),
         )

@@ -72,6 +72,13 @@ def lifecycle_template_prepare_command(
     source_revision: Annotated[
         str, typer.Option("--source-revision", help="Exact canonical source revision")
     ],
+    adopt_existing: Annotated[
+        bool,
+        typer.Option(
+            "--adopt-existing",
+            help="Lifecycle izi olmayan verified Work icin exact pre-close adoption",
+        ),
+    ] = False,
     plan_digest: Annotated[
         str | None, typer.Option("--plan-digest", help="Dry-run exact plan digest")
     ] = None,
@@ -94,6 +101,7 @@ def lifecycle_template_prepare_command(
                 work_item_id=work_id,
                 actor_id=actor_id,
                 source_revision=source_revision,
+                adopt_existing=adopt_existing,
             )
             document = plan.as_dict()
             if apply:

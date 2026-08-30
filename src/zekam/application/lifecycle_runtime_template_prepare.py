@@ -98,13 +98,14 @@ class LifecycleTemplatePreparePlan:
     actor_id: UUID
     source_revision: str
     policy_digest: str
+    adopt_existing: bool
     prepared_at: dt.datetime
     expires_at: dt.datetime
 
     def authority_body(self) -> dict[str, Any]:
         """Return the stable authority binding used across separate CLI processes."""
 
-        return {
+        body = {
             "schema": "zekam-lifecycle-template-prepare-plan/v1",
             "realm_id": str(self.realm_id),
             "project_id": str(self.project_id),
@@ -119,6 +120,9 @@ class LifecycleTemplatePreparePlan:
             "network_calls": 0,
             "grants_authority": False,
         }
+        if self.adopt_existing:
+            body["adopt_existing"] = True
+        return body
 
     def body(self) -> dict[str, Any]:
         return self.authority_body() | {
@@ -146,6 +150,7 @@ class LifecycleRuntimeTemplatePrepareService:
         work_item_id: UUID,
         actor_id: UUID,
         source_revision: str,
+        adopt_existing: bool = False,
         now: dt.datetime | None = None,
     ) -> LifecycleTemplatePreparePlan:
         moment = now or dt.datetime.now(dt.UTC)
@@ -158,8 +163,26 @@ class LifecycleRuntimeTemplatePrepareService:
         if work.project_id != project_id or work.state not in {
             WorkState.PROPOSED,
             WorkState.ACTIVE,
+            WorkState.VERIFICATION,
         }:
             raise PolicyViolation("Lifecycle template prepare exact current Work ister")
+        if work.state is WorkState.VERIFICATION:
+            if not adopt_existing:
+                raise PolicyViolation(
+                    "Lifecycle template verification Work icin explicit adoption ister"
+                )
+            current_plan = WorkGraphService(
+                self.connection, self.realm, actor_id=actor_id
+            ).plans.current(work_item_id)
+            if current_plan is None:
+                raise PolicyViolation("Lifecycle template adoption current TaskPlan ister")
+            LifecycleRuntimeTemplateRepository(
+                self.connection, self.realm.id
+            ).assert_legacy_adoption_admissible(
+                work_item_id, task_plan_id=current_plan.id
+            )
+        elif adopt_existing:
+            raise PolicyViolation("Lifecycle template adoption verification Work ister")
         policy = GovernanceService(self.connection, self.realm).policies.current(
             DEFAULT_POLICY_NAME
         )
@@ -178,6 +201,7 @@ class LifecycleRuntimeTemplatePrepareService:
             actor_id=actor_id,
             source_revision=source_revision,
             policy_digest=policy.policy_digest,
+            adopt_existing=adopt_existing,
             prepared_at=moment,
             expires_at=moment + dt.timedelta(minutes=30),
         )
@@ -197,6 +221,7 @@ class LifecycleRuntimeTemplatePrepareService:
             work_item_id=plan.work_item_id,
             actor_id=plan.actor_id,
             source_revision=plan.source_revision,
+            adopt_existing=plan.adopt_existing,
             now=plan.prepared_at,
         )
         if current.plan_digest != plan.plan_digest:
@@ -401,7 +426,8 @@ class LifecycleRuntimeTemplatePrepareService:
                         "authorization_id": str(authorization.id),
                         "effect_digest": request.effect_digest,
                         "run_id": str(run.id),
-                    },
+                    }
+                    | ({"adopt_existing": True} if plan.adopt_existing else {}),
                     now=plan.prepared_at,
                 )
             )
@@ -455,7 +481,7 @@ def run_lifecycle_template_prepare_once(
         "run_id",
     }
     if (
-        set(payload) != expected
+        frozenset(payload) not in {frozenset(expected), frozenset(expected | {"adopt_existing"})}
         or payload.get("schema") != "zekam-lifecycle-template-prepare-job/v1"
         or job.max_attempts != 1
         or job.kind is not JobKind.MUTATION
@@ -473,6 +499,7 @@ def run_lifecycle_template_prepare_once(
         actor_id=UUID(str(payload["actor_id"])),
         source_revision=str(payload["source_revision"]),
         policy_digest=str(payload["policy_digest"]),
+        adopt_existing=bool(payload.get("adopt_existing", False)),
         prepared_at=dt.datetime.fromisoformat(str(payload["prepared_at"])),
         expires_at=dt.datetime.fromisoformat(str(payload["expires_at"])),
     )
@@ -484,6 +511,7 @@ def run_lifecycle_template_prepare_once(
         work_item_id=plan.work_item_id,
         actor_id=plan.actor_id,
         source_revision=plan.source_revision,
+        adopt_existing=plan.adopt_existing,
         now=plan.prepared_at,
     )
     authorization = AuthorizationRepository(connection, realm.id).get(

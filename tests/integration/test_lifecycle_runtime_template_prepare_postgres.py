@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -18,10 +18,13 @@ from zekam.application.lifecycle_template_recovery import LifecycleTemplateRecov
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.canonical import digest
+from zekam.domain.errors import PolicyViolation
+from zekam.domain.execution_run import ExecutionRun
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.tool_registry import CompiledToolSet
-from zekam.domain.work import AcceptanceCriterion, WorkType
+from zekam.domain.work import AcceptanceCriterion, EffectKind, PlanStep, WorkState, WorkType
 from zekam.infrastructure.postgres.core_repository import ActorRepository
+from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
 from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
     LifecycleRuntimeTemplateRepository,
 )
@@ -29,6 +32,83 @@ from zekam.infrastructure.postgres.memory_hook_installer import PostgresMemoryHo
 from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+
+
+def test_prepare_accepts_pre_close_work_in_verification(
+    realm_session: tuple[Any, Any], tmp_path: Any
+) -> None:
+    realm, connection = realm_session
+    GovernanceService(connection, realm).ensure_default_policy()
+    source = tmp_path / "template-verification-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(source_path=source)
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="template-verification-reviewer")
+    )
+    graph = WorkGraphService(connection, realm, actor_id=actor.id)
+    work = graph.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Prepare pre-close lifecycle template",
+        acceptance_criteria=(AcceptanceCriterion("current exact template", verified=True),),
+    )
+    graph.set_intent(
+        work.id,
+        goal="Adopt exact pre-close runtime",
+        non_goals=("general verification bootstrap",),
+        outcomes=("receipt-bound close",),
+        constraints=("legacy adoption only",),
+    )
+    scan = ProjectIntegrationService(connection, realm).scan(project.id)
+    task_plan = graph.create_plan(
+        work.id,
+        source_revision=scan.revision.revision,
+        policy_digest=digest("verification-adoption-policy"),
+        steps=(PlanStep("legacy-step", "Legacy step", EffectKind.NONE),),
+    )
+    graph.transition(work.id, WorkState.READY)
+    graph.transition(work.id, WorkState.ACTIVE)
+    now = dt.datetime.now(dt.UTC)
+    run = ExecutionRun.create(
+        id=uuid4(),
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        plan_id=task_plan.id,
+        client_id="codex",
+        session_id="template-verification-session",
+        source_revision=task_plan.source_revision,
+        policy_digest=task_plan.policy_digest,
+        max_input_tokens=64,
+        max_output_tokens=32,
+        max_cost_micros=1,
+        deadline=now + dt.timedelta(minutes=15),
+        created_at=now,
+    )
+    runs = ExecutionRunRepository(connection, realm.id)
+    runs.create_run(run)
+    runs.activate_run(run.id, started_at=now)
+    graph.transition(work.id, WorkState.VERIFICATION)
+
+    service = LifecycleRuntimeTemplatePrepareService(connection, realm)
+    with pytest.raises(PolicyViolation, match="explicit adoption"):
+        service.prepare(
+            project_id=project.id,
+            work_item_id=work.id,
+            actor_id=actor.id,
+            source_revision=scan.revision.revision,
+        )
+    plan = service.prepare(
+        project_id=project.id,
+        work_item_id=work.id,
+        actor_id=actor.id,
+        source_revision=scan.revision.revision,
+        adopt_existing=True,
+    )
+
+    assert plan.work_item_id == work.id
+    assert plan.adopt_existing is True
+    assert plan.work_revision == graph.items.get(work.id).revision
 
 
 def test_prepare_materializes_exact_current_template_without_provider_call(
