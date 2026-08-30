@@ -39,6 +39,7 @@ from zekam.domain.agents import AgentAssignment, AssignmentRole, AssignmentStatu
 from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
+    Checkpoint,
     ContextCandidate,
     JournalEntry,
     compile_context,
@@ -94,11 +95,14 @@ from zekam.infrastructure.postgres.runtime_repository import JobRepository
 from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 _BOOTSTRAP_STEP_ID = "client-lifecycle-bootstrap"
+_ADOPTION_STEP_ID = "client-lifecycle-legacy-adoption"
 _LIFECYCLE_STEP_ID = "client-lifecycle-drain"
 _CLOSE_STEP_ID = "projection-aware-close"
 _CAPABILITY = "client.lifecycle.codex-bootstrap"
 _BOOTSTRAP_OPERATION = "client-lifecycle-bootstrap-materialize/v1"
 _BOOTSTRAP_ADAPTER_DIGEST = digest("client-lifecycle-bootstrap-materializer/v1")
+_ADOPTION_OPERATION = "client-lifecycle-legacy-run-adoption/v1"
+_ADOPTION_ADAPTER_DIGEST = digest("client-lifecycle-legacy-run-adoption/v1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +111,7 @@ class ClientRuntimeBootstrapPlan:
     project_id: UUID
     work_item_id: UUID
     work_revision: int
+    work_record_digest: str
     actor_id: UUID
     client_id: str
     session_id: str
@@ -118,6 +123,8 @@ class ClientRuntimeBootstrapPlan:
     lifecycle_resource: str
     prepared_at: dt.datetime
     rebootstrap: bool
+    adopt_existing: bool
+    adopted_run_id: UUID | None
 
     def body(self) -> dict[str, Any]:
         return {
@@ -126,6 +133,7 @@ class ClientRuntimeBootstrapPlan:
             "project_id": str(self.project_id),
             "work_item_id": str(self.work_item_id),
             "work_revision": self.work_revision,
+            "work_record_digest": self.work_record_digest,
             "actor_id": str(self.actor_id),
             "client_id": self.client_id,
             "session_id": self.session_id,
@@ -136,6 +144,12 @@ class ClientRuntimeBootstrapPlan:
             "bootstrap_resource": self.bootstrap_resource,
             "lifecycle_resource": self.lifecycle_resource,
             "rebootstrap": self.rebootstrap,
+            "adopt_existing": self.adopt_existing,
+            "adopted_run_id": (
+                None if self.adopted_run_id is None else str(self.adopted_run_id)
+            ),
+            "adoption_resource": self.adoption_resource,
+            "adoption_effect_digest": self.adoption_effect_digest,
             "strategy": "control-plane-only-then-governed-worker-tick",
             "grants_authority": False,
         }
@@ -149,6 +163,32 @@ class ClientRuntimeBootstrapPlan:
         """Backward-compatible name for the child lifecycle resource."""
 
         return self.lifecycle_resource
+
+    @property
+    def adoption_resource(self) -> str | None:
+        if self.adopted_run_id is None:
+            return None
+        return (
+            f"work:{self.project_id}:execution-run:{self.work_item_id}:"
+            f"{self.adopted_run_id}:legacy-adoption"
+        )
+
+    @property
+    def adoption_effect_digest(self) -> str | None:
+        resource = self.adoption_resource
+        if resource is None:
+            return None
+        return digest(
+            {
+                "schema": "zekam-client-runtime-legacy-adoption-effect/v1",
+                "operation": _ADOPTION_OPERATION,
+                "resource": resource,
+                "work_item_id": str(self.work_item_id),
+                "work_revision": self.work_revision,
+                "work_record_digest": self.work_record_digest,
+                "adopted_run_id": str(self.adopted_run_id),
+            }
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return self.body() | {
@@ -168,6 +208,9 @@ class ClientRuntimeBootstrapResult:
     verifier_assignment_id: UUID
     bootstrap_assignment_id: UUID
     job_id: UUID
+    adoption_job_id: UUID | None = None
+    adoption_claim_id: UUID | None = None
+    adoption_receipt_id: UUID | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -180,6 +223,15 @@ class ClientRuntimeBootstrapResult:
             "verifier_assignment_id": str(self.verifier_assignment_id),
             "bootstrap_assignment_id": str(self.bootstrap_assignment_id),
             "job_id": str(self.job_id),
+            "adoption_job_id": (
+                None if self.adoption_job_id is None else str(self.adoption_job_id)
+            ),
+            "adoption_claim_id": (
+                None if self.adoption_claim_id is None else str(self.adoption_claim_id)
+            ),
+            "adoption_receipt_id": (
+                None if self.adoption_receipt_id is None else str(self.adoption_receipt_id)
+            ),
             "applied": True,
             "effect_started": False,
             "next_safe_action": "bind execution envelope and session hydration authority",
@@ -204,6 +256,7 @@ class ClientRuntimeBootstrapService:
         source_revision: str,
         event_type: str = "session_start",
         rebootstrap: bool = False,
+        adopt_existing: bool = False,
         now: dt.datetime | None = None,
     ) -> ClientRuntimeBootstrapPlan:
         moment = now or dt.datetime.now(dt.UTC)
@@ -212,13 +265,35 @@ class ClientRuntimeBootstrapService:
         if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
             raise PolicyViolation("Client runtime bootstrap aktif human actor ister")
         work = graph.items.get(work_item_id)
-        expected_state = WorkState.ACTIVE if rebootstrap else WorkState.PROPOSED
+        if rebootstrap and adopt_existing:
+            raise PolicyViolation("Re-bootstrap ve legacy adoption ayni anda kullanilamaz")
+        expected_state = (
+            WorkState.VERIFICATION
+            if adopt_existing
+            else WorkState.ACTIVE
+            if rebootstrap
+            else WorkState.PROPOSED
+        )
         if work.project_id != project_id or work.state is not expected_state:
             raise PolicyViolation("Client runtime bootstrap exact Work state ister")
+        adopted_run_id = None
         if rebootstrap:
             LifecycleRuntimeTemplateRepository(
                 self.connection, self.realm.id
             ).assert_rebootstrap_admissible(work_item_id)
+        elif adopt_existing:
+            snapshot = graph.snapshot(work_item_id)
+            if (
+                event_type != "pre_close"
+                or snapshot.plan is None
+                or any(not item.verified for item in work.acceptance_criteria)
+            ):
+                raise PolicyViolation("Legacy adoption verified pre_close Work ister")
+            adopted_run_id = LifecycleRuntimeTemplateRepository(
+                self.connection, self.realm.id
+            ).assert_legacy_adoption_admissible(
+                work_item_id, task_plan_id=snapshot.plan.id
+            )
         if not graph.snapshot(work_item_id).is_actionable:
             raise PolicyViolation("Client runtime bootstrap Work actionable degil")
         if client_id != "codex" or not session_id.strip():
@@ -236,6 +311,7 @@ class ClientRuntimeBootstrapService:
             project_id=project_id,
             work_item_id=work_item_id,
             work_revision=work.revision,
+            work_record_digest=work.record_digest,
             actor_id=actor_id,
             client_id=client_id,
             session_id=session_id,
@@ -247,6 +323,8 @@ class ClientRuntimeBootstrapService:
             lifecycle_resource=lifecycle_resource,
             prepared_at=moment,
             rebootstrap=rebootstrap,
+            adopt_existing=adopt_existing,
+            adopted_run_id=adopted_run_id,
         )
 
     def apply(
@@ -272,10 +350,18 @@ class ClientRuntimeBootstrapService:
         if policy is None or policy.policy_digest != plan.policy_digest:
             raise PolicyViolation("Client runtime bootstrap policy drift")
         work = graph.items.get(plan.work_item_id)
+        expected_state = (
+            WorkState.VERIFICATION
+            if plan.adopt_existing
+            else WorkState.ACTIVE
+            if plan.rebootstrap
+            else WorkState.PROPOSED
+        )
         if (
             work.project_id != plan.project_id
-            or work.state is not (WorkState.ACTIVE if plan.rebootstrap else WorkState.PROPOSED)
+            or work.state is not expected_state
             or work.revision != plan.work_revision
+            or work.record_digest != plan.work_record_digest
             or not graph.snapshot(work.id).is_actionable
         ):
             raise PolicyViolation("Client runtime bootstrap Work state/revision drift")
@@ -284,11 +370,40 @@ class ClientRuntimeBootstrapService:
         runs = ExecutionRunRepository(self.connection, self.realm.id)
         jobs = JobRepository(self.connection, self.realm.id)
         prior_plan = graph.snapshot(work.id).plan
+        adoption_job_id = None
+        adoption_claim_id = None
+        adoption_receipt_id = None
         with self.connection.transaction():
-            if plan.rebootstrap:
+            if plan.rebootstrap or plan.adopt_existing:
                 if prior_plan is None:
-                    raise PolicyViolation("Explicit re-bootstrap prior reviewed Plan ister")
-                assignments.complete_terminal_plan(prior_plan.id, now=moment)
+                    raise PolicyViolation("Lifecycle continuation prior reviewed Plan ister")
+                if plan.adopt_existing:
+                    adopted_run_id = LifecycleRuntimeTemplateRepository(
+                        self.connection, self.realm.id
+                    ).assert_legacy_adoption_admissible(
+                        work.id, task_plan_id=prior_plan.id
+                    )
+                    if adopted_run_id != plan.adopted_run_id:
+                        raise PolicyViolation("Lifecycle legacy adoption run binding drift")
+                if plan.rebootstrap:
+                    assignments.complete_terminal_plan(prior_plan.id, now=moment)
+                else:
+                    with self.connection.cursor() as cursor:
+                        cursor.execute(
+                            "select count(*) from agents.assignment"
+                            " where realm_id=%s and plan_id=%s",
+                            (self.realm.id, prior_plan.id),
+                        )
+                        assignment_count = int(cursor.fetchone()[0])
+                    if assignment_count:
+                        assignments.complete_terminal_plan(prior_plan.id, now=moment)
+            if plan.adopt_existing:
+                graph.transition(
+                    work.id,
+                    WorkState.ACTIVE,
+                    reason="verified legacy Work governed pre_close adoption",
+                    now=moment,
+                )
             graph.set_intent(
                 work.id,
                 goal="Pending Codex lifecycle deliverysini governed worker ile tamamla",
@@ -299,13 +414,28 @@ class ClientRuntimeBootstrapService:
             )
             run_id = new_uuid7(now=moment)
             close_resource = f"work:{plan.project_id}:{work.id}:projection-close:{run_id}"
-            plan_steps = [
+            plan_steps = []
+            if plan.adopt_existing:
+                adoption_resource = plan.adoption_resource
+                if adoption_resource is None:
+                    raise PolicyViolation("Lifecycle legacy adoption resource binding eksik")
+                plan_steps.append(
+                    PlanStep(
+                        step_id=_ADOPTION_STEP_ID,
+                        title="Bos legacy run'i receipt ile terminale al",
+                        effect=EffectKind.DATABASE_WRITE,
+                        logical_resources=(adoption_resource,),
+                        risk="high",
+                    )
+                )
+            plan_steps.extend([
                 PlanStep(
                     step_id=_BOOTSTRAP_STEP_ID,
                     title="Claim sonrasinda lifecycle child isini materialize et",
                     effect=EffectKind.DATABASE_WRITE,
                     logical_resources=(plan.bootstrap_resource,),
                     risk="high",
+                    depends_on=((_ADOPTION_STEP_ID,) if plan.adopt_existing else ()),
                 ),
                 PlanStep(
                     step_id=_LIFECYCLE_STEP_ID,
@@ -315,7 +445,7 @@ class ClientRuntimeBootstrapService:
                     risk="high",
                     depends_on=(_BOOTSTRAP_STEP_ID,),
                 ),
-            ]
+            ])
             if plan.event_type == "pre_close":
                 plan_steps.append(
                     PlanStep(
@@ -334,10 +464,10 @@ class ClientRuntimeBootstrapService:
                 steps=tuple(plan_steps),
                 now=moment,
             )
-            if not plan.rebootstrap:
+            if not plan.rebootstrap and not plan.adopt_existing:
                 graph.transition(work.id, WorkState.READY, now=moment)
                 graph.transition(work.id, WorkState.ACTIVE, now=moment)
-            else:
+            elif plan.rebootstrap:
                 LifecycleRuntimeTemplateRepository(
                     self.connection, self.realm.id
                 ).assert_rebootstrap_admissible(work.id)
@@ -358,7 +488,6 @@ class ClientRuntimeBootstrapService:
                 created_at=moment,
             )
             runs.create_run(run)
-            runs.activate_run(run.id, started_at=moment)
             coordinator = _assignment(
                 plan=plan,
                 task_plan_id=task_plan.id,
@@ -366,8 +495,23 @@ class ClientRuntimeBootstrapService:
                 agent_ref="client-runtime-coordinator",
                 parent=None,
                 now=moment,
-                step_id=_BOOTSTRAP_STEP_ID,
+                step_id=(_ADOPTION_STEP_ID if plan.adopt_existing else _BOOTSTRAP_STEP_ID),
             )
+            adoption_assignment = None
+            if plan.adopt_existing:
+                adoption_resource = plan.adoption_resource
+                if adoption_resource is None:
+                    raise PolicyViolation("Lifecycle legacy adoption resource binding eksik")
+                adoption_assignment = _assignment(
+                    plan=plan,
+                    task_plan_id=task_plan.id,
+                    role=AssignmentRole.BUILDER,
+                    agent_ref="client-runtime-legacy-adoption-worker",
+                    parent=coordinator.id,
+                    now=moment,
+                    step_id=_ADOPTION_STEP_ID,
+                    resource=adoption_resource,
+                )
             bootstrap_assignment = _assignment(
                 plan=plan,
                 task_plan_id=task_plan.id,
@@ -436,12 +580,164 @@ class ClientRuntimeBootstrapService:
                 builder,
                 verifier,
             ]
+            if adoption_assignment is not None:
+                plan_assignments.append(adoption_assignment)
             if close_builder is not None and close_verifier is not None:
                 plan_assignments.extend((close_builder, close_verifier))
             for assignment in plan_assignments:
                 stored_id, created = assignments.create(assignment)
                 if not created or stored_id != assignment.id:
                     raise PolicyViolation("Client runtime bootstrap assignment replay")
+            if plan.adopt_existing:
+                adoption_resource = plan.adoption_resource
+                adoption_effect_digest = plan.adoption_effect_digest
+                if (
+                    adoption_resource is None
+                    or adoption_effect_digest is None
+                    or plan.adopted_run_id is None
+                    or adoption_assignment is None
+                ):
+                    raise PolicyViolation("Lifecycle legacy adoption effect binding eksik")
+                adoption_authorization = Authorization.issue(
+                    realm_id=self.realm.id,
+                    actor_id=plan.actor_id,
+                    work_item_id=work.id,
+                    plan_id=task_plan.id,
+                    plan_digest=task_plan.plan_digest,
+                    effect_digest=adoption_effect_digest,
+                    scope=AuthorizationScope(
+                        allowed_resources=(adoption_resource,),
+                        allowed_effects=("database-write",),
+                        data_classifications=(AuthorizationClassification.INTERNAL,),
+                    ),
+                    risk="high",
+                    lifetime=dt.timedelta(minutes=15),
+                    now=moment,
+                )
+                authorizations = AuthorizationRepository(self.connection, self.realm.id)
+                authorizations.issue(adoption_authorization)
+                adoption_capability = f"client.lifecycle.legacy-adoption.{plan.plan_digest[-16:]}"
+                adoption_host = ExecutionHost(
+                    self.connection,
+                    self.realm.id,
+                    worker_label="client-lifecycle-legacy-adoption",
+                )
+                adoption_job, created = adoption_host.jobs.enqueue(
+                    Job.create(
+                        realm_id=self.realm.id,
+                        project_id=plan.project_id,
+                        kind=JobKind.MUTATION,
+                        idempotency_key=f"legacy-run-adoption:{plan.plan_digest}",
+                        resources=parse_requests(write=(adoption_resource,)),
+                        required_capabilities=(adoption_capability,),
+                        max_attempts=1,
+                        work_item_id=work.id,
+                        plan_id=task_plan.id,
+                        step_id=_ADOPTION_STEP_ID,
+                        assignment_id=adoption_assignment.id,
+                        payload={
+                            "schema": "zekam-client-runtime-legacy-adoption-job/v1",
+                            "work_item_id": str(work.id),
+                            "adopted_run_id": str(plan.adopted_run_id),
+                            "plan_digest": plan.plan_digest,
+                        },
+                        now=moment,
+                    )
+                )
+                if not created:
+                    raise PolicyViolation("Lifecycle legacy adoption job replay reddedildi")
+                adopted_work = adoption_host.acquire_work(
+                    capabilities=(adoption_capability,), now=moment
+                )
+                if adopted_work is None or adopted_work.job.id != adoption_job.id:
+                    raise PolicyViolation("Lifecycle legacy adoption job claim edilemedi")
+                adoption_claim = adoption_host.claim_effect(
+                    adopted_work,
+                    operation=_ADOPTION_OPERATION,
+                    effect_digest=adoption_effect_digest,
+                    authorization_digest=adoption_authorization.authorization_digest,
+                    authorization_id=adoption_authorization.id,
+                    resources=parse_requests(write=(adoption_resource,)),
+                    adapter_digest=_ADOPTION_ADAPTER_DIGEST,
+                    idempotency_key=f"legacy-run-adoption:{plan.plan_digest}",
+                    now=moment,
+                )
+                consumed = authorizations.consume(
+                    adoption_authorization.id,
+                    effect_digest=adoption_effect_digest,
+                    consumed_by="client-runtime-bootstrap:legacy-adoption",
+                    now=moment,
+                )
+                if not consumed.consumed:
+                    raise PolicyViolation("Lifecycle legacy adoption authorization tuketilemedi")
+                ExecutionRunRepository(self.connection, self.realm.id).finish_run(
+                    plan.adopted_run_id,
+                    state="failed",
+                    terminal_at=moment,
+                )
+                adoption_result_digest = digest(
+                    {
+                        "schema": "zekam-client-runtime-legacy-adoption-result/v1",
+                        "work_item_id": str(work.id),
+                        "adopted_run_id": str(plan.adopted_run_id),
+                        "replacement_run_id": str(run.id),
+                        "state": "failed",
+                        "plan_digest": plan.plan_digest,
+                    }
+                )
+                adoption_receipt = adoption_host.record_success(
+                    adoption_claim,
+                    result_digest=adoption_result_digest,
+                    adapter_evidence_digest=digest(
+                        {
+                            "adopted_run_id": str(plan.adopted_run_id),
+                            "replacement_run_id": str(run.id),
+                            "work_record_digest": plan.work_record_digest,
+                        }
+                    ),
+                    now=moment,
+                )
+                checkpoint = Checkpoint(
+                    checkpoint_id=f"legacy-adoption-{adoption_job.id}",
+                    project_id=str(plan.project_id),
+                    work_item_id=str(work.id),
+                    plan_revision_id=str(task_plan.id),
+                    source_revision=plan.source_revision,
+                    plan_steps=task_plan.execution_order,
+                    completed_steps=(_ADOPTION_STEP_ID,),
+                    pending_steps=task_plan.execution_order[1:],
+                    step_results=((_ADOPTION_STEP_ID, adoption_result_digest),),
+                    context_manifest_digest=_planned_manifest(plan).manifest_digest,
+                    journal_head_digest=digest(
+                        {
+                            "adoption_claim_id": str(adoption_claim.id),
+                            "adoption_receipt_id": str(adoption_receipt.id),
+                        }
+                    ),
+                    next_safe_action=_BOOTSTRAP_STEP_ID,
+                    created_at=moment,
+                )
+                ContextContinuityRepository(
+                    self.connection,
+                    self.realm.id,
+                    plan.project_id,
+                    work.id,
+                ).store_checkpoint(
+                    checkpoint,
+                    task_plan_id=task_plan.id,
+                    job_id=adoption_job.id,
+                )
+                if not adoption_host.finish(
+                    adopted_work,
+                    outcome=AttemptOutcome.SUCCEEDED,
+                    result_digest=adoption_result_digest,
+                    now=moment,
+                ):
+                    raise PolicyViolation("Lifecycle legacy adoption job kapanmadi")
+                adoption_job_id = adoption_job.id
+                adoption_claim_id = adoption_claim.id
+                adoption_receipt_id = adoption_receipt.id
+            runs.activate_run(run.id, started_at=moment)
             bootstrap_effect_digest = digest(
                 {
                     "schema": "zekam-client-runtime-bootstrap-effect/v1",
@@ -488,7 +784,7 @@ class ClientRuntimeBootstrapService:
                     kind=JobKind.MUTATION,
                     idempotency_key=(
                         f"codex-lifecycle-bootstrap:{plan.entry_digest}:plan:{task_plan.id}"
-                        if plan.rebootstrap
+                        if plan.rebootstrap or plan.adopt_existing
                         else f"codex-lifecycle-bootstrap:{plan.entry_digest}"
                     ),
                     resources=parse_requests(write=(plan.bootstrap_resource,)),
@@ -514,6 +810,9 @@ class ClientRuntimeBootstrapService:
             verifier.id,
             bootstrap_assignment.id,
             job.id,
+            adoption_job_id,
+            adoption_claim_id,
+            adoption_receipt_id,
         )
 
 

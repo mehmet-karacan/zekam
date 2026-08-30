@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid5
 
-from zekam.application.client_runtime_bootstrap import _CLOSE_STEP_ID
+from zekam.application.client_runtime_bootstrap import _ADOPTION_STEP_ID, _CLOSE_STEP_ID
 from zekam.application.execution import ExecutionHost
 from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.projection_closure import (
@@ -270,9 +270,18 @@ class ProjectionCloseRuntimeService:
                 " join lateral (select result_digest from runtime.job_attempt attempt"
                 "   where attempt.realm_id=prior.realm_id and attempt.job_id=prior.id"
                 "   and attempt.outcome='succeeded' order by attempt.attempt_number desc limit 1)"
-                " attempt on true where prior.realm_id=%s and prior.run_id=%s"
+                " attempt on true where prior.realm_id=%s"
+                " and (prior.run_id=%s or (prior.run_id is null"
+                " and prior.work_item_id=%s and prior.plan_id=%s and prior.step_id=%s))"
                 " and prior.id<>%s and prior.state='completed' order by prior.step_id",
-                (self.realm_id, job.run_id, job.id),
+                (
+                    self.realm_id,
+                    job.run_id,
+                    job.work_item_id,
+                    job.plan_id,
+                    _ADOPTION_STEP_ID,
+                    job.id,
+                ),
             )
             results = tuple((str(row[0]), str(row[1])) for row in cursor.fetchall())
         if plan_row is None:

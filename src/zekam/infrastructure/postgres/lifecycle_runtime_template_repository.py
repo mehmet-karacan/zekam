@@ -168,6 +168,60 @@ class LifecycleRuntimeTemplateRepository:
         if len(counts) != 4 or counts[0] < 1 or any(counts[index] for index in (1, 2, 3)):
             raise PolicyViolation("Lifecycle explicit re-bootstrap prior work acik veya belirsiz")
 
+    def assert_legacy_adoption_admissible(
+        self, work_item_id: UUID, *, task_plan_id: UUID
+    ) -> UUID:
+        """Bind one lifecycle-free verified Work to its exact idle active run.
+
+        This is intentionally separate from re-bootstrap.  It accepts only a
+        Work with no lifecycle footprint, no live runtime ownership and one
+        idle active run bound to the current reviewed TaskPlan.
+        """
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select count(*),"
+                " count(*) filter(where job.step_id='client-lifecycle-bootstrap'),"
+                " count(*) filter(where job.state in"
+                " ('ready','running','blocked','recovery-required')),"
+                " count(*) filter(where lease.id is not null),"
+                " count(*) filter(where pending.claim_id is not null)"
+                " from runtime.job job left join runtime.lease lease"
+                " on lease.realm_id=job.realm_id and lease.job_id=job.id"
+                " left join runtime.claim_without_receipt pending"
+                " on pending.realm_id=job.realm_id and pending.job_id=job.id"
+                " where job.realm_id=%s and job.work_item_id=%s",
+                (self.realm_id, work_item_id),
+            )
+            job_row = cursor.fetchone()
+            cursor.execute(
+                "select count(*) from continuity.session_lifecycle_event"
+                " where realm_id=%s and work_item_id=%s",
+                (self.realm_id, work_item_id),
+            )
+            lifecycle_count = int(cursor.fetchone()[0])
+            cursor.execute(
+                "select run.id,"
+                " (select count(*) from runtime.job run_job"
+                "  where run_job.realm_id=run.realm_id and run_job.run_id=run.id)"
+                " from runtime.execution_run run where run.realm_id=%s"
+                " and run.work_item_id=%s and run.plan_id=%s and run.state='active'"
+                " order by run.created_at,run.id",
+                (self.realm_id, work_item_id, task_plan_id),
+            )
+            run_rows = cursor.fetchall()
+        counts = () if job_row is None else tuple(int(value or 0) for value in job_row)
+        if (
+            len(counts) != 5
+            or counts[1] != 0
+            or any(counts[index] for index in (2, 3, 4))
+            or lifecycle_count != 0
+            or len(run_rows) != 1
+            or int(run_rows[0][1]) != 0
+        ):
+            raise PolicyViolation("Lifecycle legacy adoption scope acik veya belirsiz")
+        return UUID(str(run_rows[0][0]))
+
     def bootstrap_context(self, run_id: UUID) -> tuple[UUID, UUID, str, UUID, str]:
         """Resolve the one completed parent bootstrap envelope for a child run."""
 

@@ -34,6 +34,7 @@ from zekam.domain.execution_environment import (
     detect_environment_drift,
     reprobe_snapshot,
 )
+from zekam.domain.execution_run import ExecutionRun
 from zekam.domain.model_routing import (
     AgentRole,
     ExecutionTargetSnapshot,
@@ -44,7 +45,13 @@ from zekam.domain.model_routing import (
 from zekam.domain.project import SourceRevisionKind
 from zekam.domain.realm import Actor, ActorKind
 from zekam.domain.runtime import JobState
-from zekam.domain.work import AcceptanceCriterion, WorkState, WorkType
+from zekam.domain.work import (
+    AcceptanceCriterion,
+    EffectKind,
+    PlanStep,
+    WorkState,
+    WorkType,
+)
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_REVIEWED_VERSION,
     parse_codex_hook_input,
@@ -156,6 +163,165 @@ def test_bootstrap_is_atomic_exact_and_leaves_effect_for_worker(
             entry_digest=prepared.entry_digest,
             source_revision=prepared.source_revision,
         )
+
+
+def test_verified_legacy_runtime_requires_explicit_adoption(
+    realm_session: tuple[Any, Any], tmp_path: Any
+) -> None:
+    """Adopt a pre-bootstrap Work only when its existing runtime is terminal."""
+
+    realm, connection = realm_session
+    GovernanceService(connection, realm).ensure_default_policy()
+    actor = ActorRepository(connection, realm.id).add(
+        Actor.create(realm=realm, kind=ActorKind.HUMAN, slug="legacy-runtime-reviewer")
+    )
+    source = tmp_path / "legacy-runtime-source"
+    source.mkdir()
+    project = ProjectIntegrationService(connection, realm).register(
+        source_path=source, slug="legacy-runtime-bootstrap"
+    )
+    graph = WorkGraphService(connection, realm, actor_id=actor.id)
+    work = graph.create_item(
+        project_id=project.id,
+        type=WorkType.TASK,
+        title="Adopt terminal legacy runtime",
+        acceptance_criteria=(AcceptanceCriterion("legacy terminal evidence"),),
+    )
+    graph.set_intent(
+        work.id,
+        goal="Adopt terminal legacy runtime",
+        non_goals=("silent retry",),
+        outcomes=("governed close",),
+        constraints=("claim-before-effect",),
+    )
+    plan = graph.create_plan(
+        work.id,
+        source_revision="git:legacy-terminal-source",
+        policy_digest=digest("legacy-terminal-policy"),
+        steps=(PlanStep("legacy-step", "Legacy terminal step", EffectKind.NONE),),
+    )
+    graph.transition(work.id, WorkState.READY)
+    graph.transition(work.id, WorkState.ACTIVE)
+    run_moment = dt.datetime.now(dt.UTC)
+    run = ExecutionRun.create(
+        id=uuid4(),
+        realm_id=realm.id,
+        project_id=project.id,
+        work_item_id=work.id,
+        plan_id=plan.id,
+        client_id="codex",
+        session_id="legacy-terminal-session",
+        source_revision=plan.source_revision,
+        policy_digest=plan.policy_digest,
+        max_input_tokens=128,
+        max_output_tokens=64,
+        max_cost_micros=1,
+        deadline=run_moment + dt.timedelta(minutes=15),
+        created_at=run_moment,
+    )
+    runs = ExecutionRunRepository(connection, realm.id)
+    runs.create_run(run)
+    runs.activate_run(run.id, started_at=run_moment)
+    graph.update_details(
+        work.id,
+        acceptance_criteria=(AcceptanceCriterion("legacy terminal evidence", True),),
+        reason="legacy evidence verified",
+    )
+    graph.transition(work.id, WorkState.VERIFICATION)
+
+    service = ClientRuntimeBootstrapService(connection, realm)
+    with pytest.raises(PolicyViolation, match="exact Work state"):
+        service.prepare(
+            project_id=project.id,
+            work_item_id=work.id,
+            actor_id=actor.id,
+            client_id="codex",
+            session_id="legacy-terminal-session",
+            entry_digest=digest("legacy-terminal-pre-close"),
+            source_revision="git:legacy-terminal-source",
+            event_type="pre_close",
+            rebootstrap=True,
+        )
+    prepared = service.prepare(
+        project_id=project.id,
+        work_item_id=work.id,
+        actor_id=actor.id,
+        client_id="codex",
+        session_id="legacy-terminal-session",
+        entry_digest=digest("legacy-terminal-pre-close"),
+        source_revision="git:legacy-terminal-source",
+        event_type="pre_close",
+        adopt_existing=True,
+    )
+
+    assert prepared.rebootstrap is False
+    assert prepared.adopt_existing is True
+    assert prepared.adopted_run_id == run.id
+    assert prepared.event_type == "pre_close"
+
+    applied = service.apply(
+        prepared,
+        supplied_plan_digest=prepared.plan_digest,
+        current_entry_digest=prepared.entry_digest,
+        current_source_revision=prepared.source_revision,
+    )
+    assert applied.run_id != run.id
+    assert graph.items.get(work.id).state is WorkState.ACTIVE
+    assert JobRepository(connection, realm.id).get(applied.job_id).state is JobState.READY
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select id,state from runtime.execution_run where realm_id=%s"
+            " and work_item_id=%s order by created_at,id",
+            (realm.id, work.id),
+        )
+        run_rows = cursor.fetchall()
+    assert [row[1] for row in run_rows] == ["failed", "active"]
+    assert applied.adoption_job_id is not None
+    assert applied.adoption_claim_id is not None
+    assert applied.adoption_receipt_id is not None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select receipt.status,receipt.result_digest from runtime.effect_receipt receipt"
+            " where receipt.realm_id=%s and receipt.id=%s",
+            (realm.id, applied.adoption_receipt_id),
+        )
+        adoption_receipt = cursor.fetchone()
+    assert adoption_receipt is not None
+    assert adoption_receipt[0] == "completed"
+    assert str(adoption_receipt[1]).startswith("sha256:")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select job.work_item_id,job.plan_id,job.run_id,job.assignment_id,"
+            " assignment.role,attempt.outcome,claim.id,receipt.id,"
+            " auth.plan_id,auth.plan_digest,"
+            " job.payload->>'adopted_run_id',job.payload->>'plan_digest'"
+            " from runtime.job job"
+            " join agents.assignment assignment on assignment.realm_id=job.realm_id"
+            "  and assignment.id=job.assignment_id"
+            " join runtime.job_attempt attempt on attempt.realm_id=job.realm_id"
+            "  and attempt.job_id=job.id"
+            " join runtime.effect_claim claim on claim.realm_id=job.realm_id"
+            "  and claim.job_id=job.id and claim.attempt_id=attempt.id"
+            " join security.authorization auth on auth.realm_id=claim.realm_id"
+            "  and auth.id=claim.authorization_id"
+            " join runtime.effect_receipt receipt on receipt.realm_id=claim.realm_id"
+            "  and receipt.claim_id=claim.id"
+            " where job.realm_id=%s and job.id=%s",
+            (realm.id, applied.adoption_job_id),
+        )
+        adoption_chain = cursor.fetchone()
+    assert adoption_chain is not None
+    assert adoption_chain[0] == work.id
+    assert adoption_chain[1] == applied.task_plan_id
+    assert adoption_chain[2] is None  # control-plane step runs before replacement run activation
+    assert adoption_chain[3] is not None
+    assert adoption_chain[4:6] == ("builder", "succeeded")
+    assert adoption_chain[6] == applied.adoption_claim_id
+    assert adoption_chain[7] == applied.adoption_receipt_id
+    assert adoption_chain[8] == applied.task_plan_id
+    assert adoption_chain[9] == graph.snapshot(work.id).plan.plan_digest
+    assert adoption_chain[10] == str(run.id)
+    assert adoption_chain[11] == prepared.plan_digest
 
 
 def test_missing_runtime_template_rejects_before_parent_claim(

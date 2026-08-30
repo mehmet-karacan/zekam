@@ -203,6 +203,13 @@ def client_runtime_bootstrap_command(
             help="Terminal onceki bootstrap sonrasi ayni Work icin explicit yeni revision kurar",
         ),
     ] = False,
+    adopt_existing: Annotated[
+        bool,
+        typer.Option(
+            "--adopt-existing",
+            help="Lifecycle izi olmayan verified Work'u exact pre-close run'a alir",
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -228,6 +235,7 @@ def client_runtime_bootstrap_command(
                 event_type=entry.internal_event_type,
                 source_revision=source_revision,
                 rebootstrap=rebootstrap,
+                adopt_existing=adopt_existing,
             )
             document = plan.as_dict()
             if apply:
