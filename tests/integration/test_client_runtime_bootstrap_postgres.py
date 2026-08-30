@@ -312,16 +312,33 @@ def test_verified_legacy_runtime_requires_explicit_adoption(
         adoption_chain = cursor.fetchone()
     assert adoption_chain is not None
     assert adoption_chain[0] == work.id
-    assert adoption_chain[1] == applied.task_plan_id
+    assert adoption_chain[1] != applied.task_plan_id
     assert adoption_chain[2] is None  # control-plane step runs before replacement run activation
     assert adoption_chain[3] is not None
     assert adoption_chain[4:6] == ("builder", "succeeded")
     assert adoption_chain[6] == applied.adoption_claim_id
     assert adoption_chain[7] == applied.adoption_receipt_id
-    assert adoption_chain[8] == applied.task_plan_id
-    assert adoption_chain[9] == graph.snapshot(work.id).plan.plan_digest
+    assert adoption_chain[8] == adoption_chain[1]
+    adoption_plan = next(
+        item for item in graph.plans.history(work.id) if item.id == adoption_chain[1]
+    )
+    assert adoption_chain[9] == adoption_plan.plan_digest
     assert adoption_chain[10] == str(run.id)
     assert adoption_chain[11] == prepared.plan_digest
+    current_plan = graph.snapshot(work.id).plan
+    assert current_plan is not None
+    assert tuple(step.step_id for step in current_plan.steps) == (
+        "client-lifecycle-bootstrap",
+        "client-lifecycle-drain",
+        "projection-aware-close",
+    )
+    bootstrap_payload = JobRepository(connection, realm.id).get(applied.job_id).payload
+    assert bootstrap_payload["adoption_plan_id"] == str(adoption_chain[1])
+    assert bootstrap_payload["adoption_plan_digest"] == adoption_plan.plan_digest
+    assert bootstrap_payload["adoption_job_id"] == str(applied.adoption_job_id)
+    assert bootstrap_payload["adoption_claim_id"] == str(applied.adoption_claim_id)
+    assert bootstrap_payload["adoption_receipt_id"] == str(applied.adoption_receipt_id)
+    assert bootstrap_payload["adoption_result_digest"] == str(adoption_receipt[1])
 
 
 def test_missing_runtime_template_rejects_before_parent_claim(

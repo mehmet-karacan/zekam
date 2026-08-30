@@ -68,7 +68,9 @@ def test_prepare_accepts_pre_close_work_in_verification(
     )
     graph.transition(work.id, WorkState.READY)
     graph.transition(work.id, WorkState.ACTIVE)
-    now = dt.datetime.now(dt.UTC)
+    with connection.cursor() as cursor:
+        cursor.execute("select statement_timestamp()")
+        now = cursor.fetchone()[0]
     run = ExecutionRun.create(
         id=uuid4(),
         realm_id=realm.id,

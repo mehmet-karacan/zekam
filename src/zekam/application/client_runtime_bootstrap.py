@@ -36,7 +36,7 @@ from zekam.application.memory_hooks import memory_hook_bundle
 from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.work_graph import WorkGraphService
 from zekam.domain.agents import AgentAssignment, AssignmentRole, AssignmentStatus
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     Checkpoint,
@@ -414,28 +414,33 @@ class ClientRuntimeBootstrapService:
             )
             run_id = new_uuid7(now=moment)
             close_resource = f"work:{plan.project_id}:{work.id}:projection-close:{run_id}"
-            plan_steps = []
+            adoption_task_plan = None
             if plan.adopt_existing:
                 adoption_resource = plan.adoption_resource
                 if adoption_resource is None:
                     raise PolicyViolation("Lifecycle legacy adoption resource binding eksik")
-                plan_steps.append(
-                    PlanStep(
-                        step_id=_ADOPTION_STEP_ID,
-                        title="Bos legacy run'i receipt ile terminale al",
-                        effect=EffectKind.DATABASE_WRITE,
-                        logical_resources=(adoption_resource,),
-                        risk="high",
-                    )
+                adoption_task_plan = graph.create_plan(
+                    work.id,
+                    source_revision=plan.source_revision,
+                    policy_digest=plan.policy_digest,
+                    steps=(
+                        PlanStep(
+                            step_id=_ADOPTION_STEP_ID,
+                            title="Bos legacy run'i receipt ile terminale al",
+                            effect=EffectKind.DATABASE_WRITE,
+                            logical_resources=(adoption_resource,),
+                            risk="high",
+                        ),
+                    ),
+                    now=moment,
                 )
-            plan_steps.extend([
+            plan_steps = [
                 PlanStep(
                     step_id=_BOOTSTRAP_STEP_ID,
                     title="Claim sonrasinda lifecycle child isini materialize et",
                     effect=EffectKind.DATABASE_WRITE,
                     logical_resources=(plan.bootstrap_resource,),
                     risk="high",
-                    depends_on=((_ADOPTION_STEP_ID,) if plan.adopt_existing else ()),
                 ),
                 PlanStep(
                     step_id=_LIFECYCLE_STEP_ID,
@@ -445,7 +450,7 @@ class ClientRuntimeBootstrapService:
                     risk="high",
                     depends_on=(_BOOTSTRAP_STEP_ID,),
                 ),
-            ])
+            ]
             if plan.event_type == "pre_close":
                 plan_steps.append(
                     PlanStep(
@@ -495,19 +500,31 @@ class ClientRuntimeBootstrapService:
                 agent_ref="client-runtime-coordinator",
                 parent=None,
                 now=moment,
-                step_id=(_ADOPTION_STEP_ID if plan.adopt_existing else _BOOTSTRAP_STEP_ID),
+                step_id=_BOOTSTRAP_STEP_ID,
             )
+            adoption_coordinator = None
             adoption_assignment = None
             if plan.adopt_existing:
                 adoption_resource = plan.adoption_resource
                 if adoption_resource is None:
                     raise PolicyViolation("Lifecycle legacy adoption resource binding eksik")
+                if adoption_task_plan is None:
+                    raise PolicyViolation("Lifecycle legacy adoption TaskPlan eksik")
+                adoption_coordinator = _assignment(
+                    plan=plan,
+                    task_plan_id=adoption_task_plan.id,
+                    role=AssignmentRole.COORDINATOR,
+                    agent_ref="client-runtime-legacy-adoption-coordinator",
+                    parent=None,
+                    now=moment,
+                    step_id=_ADOPTION_STEP_ID,
+                )
                 adoption_assignment = _assignment(
                     plan=plan,
-                    task_plan_id=task_plan.id,
+                    task_plan_id=adoption_task_plan.id,
                     role=AssignmentRole.BUILDER,
                     agent_ref="client-runtime-legacy-adoption-worker",
-                    parent=coordinator.id,
+                    parent=adoption_coordinator.id,
                     now=moment,
                     step_id=_ADOPTION_STEP_ID,
                     resource=adoption_resource,
@@ -580,8 +597,8 @@ class ClientRuntimeBootstrapService:
                 builder,
                 verifier,
             ]
-            if adoption_assignment is not None:
-                plan_assignments.append(adoption_assignment)
+            if adoption_coordinator is not None and adoption_assignment is not None:
+                plan_assignments.extend((adoption_coordinator, adoption_assignment))
             if close_builder is not None and close_verifier is not None:
                 plan_assignments.extend((close_builder, close_verifier))
             for assignment in plan_assignments:
@@ -596,14 +613,15 @@ class ClientRuntimeBootstrapService:
                     or adoption_effect_digest is None
                     or plan.adopted_run_id is None
                     or adoption_assignment is None
+                    or adoption_task_plan is None
                 ):
                     raise PolicyViolation("Lifecycle legacy adoption effect binding eksik")
                 adoption_authorization = Authorization.issue(
                     realm_id=self.realm.id,
                     actor_id=plan.actor_id,
                     work_item_id=work.id,
-                    plan_id=task_plan.id,
-                    plan_digest=task_plan.plan_digest,
+                    plan_id=adoption_task_plan.id,
+                    plan_digest=adoption_task_plan.plan_digest,
                     effect_digest=adoption_effect_digest,
                     scope=AuthorizationScope(
                         allowed_resources=(adoption_resource,),
@@ -632,7 +650,7 @@ class ClientRuntimeBootstrapService:
                         required_capabilities=(adoption_capability,),
                         max_attempts=1,
                         work_item_id=work.id,
-                        plan_id=task_plan.id,
+                        plan_id=adoption_task_plan.id,
                         step_id=_ADOPTION_STEP_ID,
                         assignment_id=adoption_assignment.id,
                         payload={
@@ -701,11 +719,11 @@ class ClientRuntimeBootstrapService:
                     checkpoint_id=f"legacy-adoption-{adoption_job.id}",
                     project_id=str(plan.project_id),
                     work_item_id=str(work.id),
-                    plan_revision_id=str(task_plan.id),
+                    plan_revision_id=str(adoption_task_plan.id),
                     source_revision=plan.source_revision,
-                    plan_steps=task_plan.execution_order,
+                    plan_steps=adoption_task_plan.execution_order,
                     completed_steps=(_ADOPTION_STEP_ID,),
-                    pending_steps=task_plan.execution_order[1:],
+                    pending_steps=(),
                     step_results=((_ADOPTION_STEP_ID, adoption_result_digest),),
                     context_manifest_digest=_planned_manifest(plan).manifest_digest,
                     journal_head_digest=digest(
@@ -724,7 +742,7 @@ class ClientRuntimeBootstrapService:
                     work.id,
                 ).store_checkpoint(
                     checkpoint,
-                    task_plan_id=task_plan.id,
+                    task_plan_id=adoption_task_plan.id,
                     job_id=adoption_job.id,
                 )
                 if not adoption_host.finish(
@@ -734,6 +752,7 @@ class ClientRuntimeBootstrapService:
                     now=moment,
                 ):
                     raise PolicyViolation("Lifecycle legacy adoption job kapanmadi")
+                assignments.complete_terminal_plan(adoption_task_plan.id, now=moment)
                 adoption_job_id = adoption_job.id
                 adoption_claim_id = adoption_claim.id
                 adoption_receipt_id = adoption_receipt.id
@@ -775,6 +794,24 @@ class ClientRuntimeBootstrapService:
                 "context_created_at": plan.prepared_at.isoformat(),
                 "context_manifest_digest": _planned_manifest(plan).manifest_digest,
             }
+            if plan.adopt_existing:
+                if (
+                    adoption_task_plan is None
+                    or adoption_job_id is None
+                    or adoption_claim_id is None
+                    or adoption_receipt_id is None
+                ):
+                    raise PolicyViolation("Lifecycle legacy adoption terminal evidence eksik")
+                bootstrap_payload.update(
+                    {
+                        "adoption_plan_id": str(adoption_task_plan.id),
+                        "adoption_plan_digest": adoption_task_plan.plan_digest,
+                        "adoption_job_id": str(adoption_job_id),
+                        "adoption_claim_id": str(adoption_claim_id),
+                        "adoption_receipt_id": str(adoption_receipt_id),
+                        "adoption_result_digest": adoption_result_digest,
+                    }
+                )
             if close_builder is not None:
                 bootstrap_payload["close_assignment_id"] = str(close_builder.id)
             job, created = jobs.enqueue(
@@ -851,7 +888,20 @@ class ClaimedLifecycleBootstrapService:
             "context_created_at",
             "context_manifest_digest",
         }
-        expected_key_sets = {frozenset(base_keys), frozenset(base_keys | {"close_assignment_id"})}
+        adoption_keys = {
+            "adoption_plan_id",
+            "adoption_plan_digest",
+            "adoption_job_id",
+            "adoption_claim_id",
+            "adoption_receipt_id",
+            "adoption_result_digest",
+        }
+        expected_key_sets = {
+            frozenset(base_keys),
+            frozenset(base_keys | {"close_assignment_id"}),
+            frozenset(base_keys | adoption_keys),
+            frozenset(base_keys | {"close_assignment_id"} | adoption_keys),
+        }
         if (
             frozenset(payload) not in expected_key_sets
             or payload.get("schema") != "zekam-codex-lifecycle-bootstrap-job/v1"
@@ -886,6 +936,16 @@ class ClaimedLifecycleBootstrapService:
                 if payload.get("close_assignment_id") is None
                 else UUID(str(payload["close_assignment_id"]))
             )
+            adoption_ids = (
+                None
+                if not adoption_keys.issubset(payload)
+                else (
+                    UUID(str(payload["adoption_plan_id"])),
+                    UUID(str(payload["adoption_job_id"])),
+                    UUID(str(payload["adoption_claim_id"])),
+                    UUID(str(payload["adoption_receipt_id"])),
+                )
+            )
         except (TypeError, ValueError) as exc:
             raise PolicyViolation("Lifecycle bootstrap payload UUID drift") from exc
         authorization = authorizations.get(authorization_id)
@@ -898,6 +958,16 @@ class ClaimedLifecycleBootstrapService:
             != tuple(str(request.resource) for request in job.resources)
         ):
             raise PolicyViolation("Lifecycle bootstrap exact authorization drift")
+        if adoption_ids is not None:
+            self._assert_adoption_evidence(
+                job=job,
+                adoption_plan_id=adoption_ids[0],
+                adoption_plan_digest=str(payload["adoption_plan_digest"]),
+                adoption_job_id=adoption_ids[1],
+                adoption_claim_id=adoption_ids[2],
+                adoption_receipt_id=adoption_ids[3],
+                adoption_result_digest=str(payload["adoption_result_digest"]),
+            )
         # Defensive revalidation immediately before claim-before-effect.  The
         # worker already checked this before queue claim; this closes direct
         # service callers and rejects any intervening template drift.
@@ -1002,6 +1072,52 @@ class ClaimedLifecycleBootstrapService:
             ):
                 raise PolicyViolation("Lifecycle bootstrap parent terminal finish reddedildi")
         return materialized.result_digest
+
+    def _assert_adoption_evidence(
+        self,
+        *,
+        job: Job,
+        adoption_plan_id: UUID,
+        adoption_plan_digest: str,
+        adoption_job_id: UUID,
+        adoption_claim_id: UUID,
+        adoption_receipt_id: UUID,
+        adoption_result_digest: str,
+    ) -> None:
+        """Require the terminal pre-run adoption chain before bootstrap claim."""
+
+        parse_digest(adoption_plan_digest)
+        parse_digest(adoption_result_digest)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select adoption.work_item_id,adoption.project_id,adoption.plan_id,"
+                " adoption.state,adoption.step_id,plan.plan_digest,claim.id,receipt.id,"
+                " receipt.status,receipt.result_digest"
+                " from runtime.job adoption join work.task_plan plan"
+                " on plan.realm_id=adoption.realm_id and plan.id=adoption.plan_id"
+                " join runtime.effect_claim claim on claim.realm_id=adoption.realm_id"
+                " and claim.job_id=adoption.id"
+                " join runtime.effect_receipt receipt on receipt.realm_id=claim.realm_id"
+                " and receipt.claim_id=claim.id where adoption.realm_id=%s"
+                " and adoption.id=%s",
+                (self.realm_id, adoption_job_id),
+            )
+            rows = cursor.fetchall()
+        if (
+            len(rows) != 1
+            or job.work_item_id is None
+            or UUID(str(rows[0][0])) != job.work_item_id
+            or UUID(str(rows[0][1])) != job.project_id
+            or UUID(str(rows[0][2])) != adoption_plan_id
+            or str(rows[0][3]) != "completed"
+            or str(rows[0][4]) != _ADOPTION_STEP_ID
+            or str(rows[0][5]) != adoption_plan_digest
+            or UUID(str(rows[0][6])) != adoption_claim_id
+            or UUID(str(rows[0][7])) != adoption_receipt_id
+            or str(rows[0][8]) != "completed"
+            or str(rows[0][9]) != adoption_result_digest
+        ):
+            raise PolicyViolation("Lifecycle bootstrap adoption terminal evidence drift")
 
     def bind_child_envelope(
         self,
