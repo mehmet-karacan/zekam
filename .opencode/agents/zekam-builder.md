@@ -4,7 +4,7 @@ mode: subagent
 permission:
   edit: allow
   bash:
-    "*": ask
+    "*": allow
     "git -C * status*": allow
     "git -C * log*": allow
     "git -C * show*": allow

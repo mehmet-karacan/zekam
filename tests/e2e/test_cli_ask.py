@@ -175,6 +175,28 @@ def test_ask_arastirma_istegini_cozer(
     assert payload["clarifications"] == []
 
 
+def test_ask_factual_question_emits_typed_rag_fallback_gate(
+    cli_home: Path, realm_flags: list[str], registered_project: str
+) -> None:
+    result = _run(
+        cli_home,
+        realm_flags,
+        "ask",
+        "gpu projesindeki en yuksek satira sahip class hangisidir?",
+        "--json",
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["resolution"]["request_class"] == "research"
+    assert payload["may_start_work"] is False
+    retrieval = payload["retrieval"]
+    assert retrieval["state"] == "unavailable"
+    assert retrieval["fallback_allowed"] is True
+    assert retrieval["fallback_kind"] == "bounded-source-researcher"
+    assert retrieval["grants_authority"] is False
+    assert str(retrieval["retrieval_digest"]).startswith("sha256:")
+
+
 def test_ask_belirsizlikte_mutation_baslatmaz(
     cli_home: Path, realm_flags: list[str], registered_project: str
 ) -> None:

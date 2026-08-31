@@ -10,7 +10,7 @@
     "*": "allow",
     "edit": "allow",
     "bash": {
-      "*": "ask",
+      "*": "deny",
       "zekam doctor*": "allow",
       "zekam ask *": "allow",
       "zekam project list*": "allow",

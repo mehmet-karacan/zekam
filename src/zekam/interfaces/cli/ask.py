@@ -25,6 +25,7 @@ from zekam.application.opencode_benchmark_campaign import (
     prepare_campaign_manifest,
 )
 from zekam.application.opencode_remote_benchmark import EVALUATOR_PROVENANCE_DIGEST
+from zekam.application.project_rag_query import query_project_knowledge
 from zekam.application.realm_context import RealmContext
 from zekam.application.research_report_projection import (
     materialize_research_report,
@@ -44,7 +45,10 @@ from zekam.domain.research import (
     SourceKind,
     SourcePolicy,
 )
-from zekam.infrastructure.postgres.project_repository import ProjectRepository
+from zekam.infrastructure.postgres.project_repository import (
+    IntegrationStateRepository,
+    ProjectRepository,
+)
 from zekam.infrastructure.postgres.research_repository import ResearchRepository
 from zekam.interfaces.cli.session import (
     EXIT_AMBIGUOUS,
@@ -192,6 +196,7 @@ def ask_command(
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Dogal dil istegini cozer. Salt okunur; hicbir kaydi degistirmez."""
+    retrieval: dict[str, object] | None = None
     try:
         local_outcome = IntakeService().resolve(
             text,
@@ -203,6 +208,28 @@ def ask_command(
         else:
             with RealmSession(home, realm) as realm_context:
                 outcome = _intake(realm_context, text)
+                resolution = outcome.resolution
+                if (
+                    resolution.request_class is RequestClass.RESEARCH
+                    and resolution.project_ref is not None
+                ):
+                    projects = ProjectRepository(
+                        realm_context.connection, realm_context.realm_id
+                    )
+                    project = projects.find_by_slug(resolution.project_ref)
+                    if project is not None:
+                        stage, _revision_id, detail = IntegrationStateRepository(
+                            realm_context.connection, realm_context.realm_id
+                        ).get(project.id)
+                        retrieval = query_project_knowledge(
+                            connection=realm_context.connection,
+                            realm_id=realm_context.realm_id,
+                            project_id=project.id,
+                            project_ref=project.slug,
+                            query=text,
+                            integration_stage=stage,
+                            integration_detail=detail,
+                        )
     except ZekamError as exc:
         raise fail_from(exc) from exc
 
@@ -212,6 +239,8 @@ def ask_command(
         else None
     )
     document = outcome.as_dict()
+    if retrieval is not None:
+        document["retrieval"] = retrieval
     if benchmark_prepare is not None:
         document["benchmark_prepare"] = benchmark_prepare
     if as_json:
@@ -220,7 +249,7 @@ def ask_command(
         _render_intake(outcome)
         if benchmark_prepare is not None:
             console.print_json(json.dumps(benchmark_prepare, ensure_ascii=False))
-    if not outcome.may_start_work or (
+    if (not outcome.may_start_work and retrieval is None) or (
         benchmark_prepare is not None
         and benchmark_prepare["status"] != "ready-for-explicit-authorization"
     ):

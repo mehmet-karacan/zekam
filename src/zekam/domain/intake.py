@@ -145,6 +145,11 @@ _ANAPHORA = (
     "it",
 )
 
+_FACTUAL_QUESTION = re.compile(
+    r"(?:\?|(?:^|\s)(?:hangi|hangisi|nedir|ne|kim|nerede|nasil|neden|kac|"
+    r"what|which|who|where|how|why)(?:\s|$))"
+)
+
 _WORK_CODE = re.compile(r"\b([A-Z][A-Z0-9]{1,15}(?:-[A-Z0-9]{1,15}){1,4})\b")
 _HASH_NUMBER = re.compile(r"#(\d{1,9})\b")
 _TR_NUMBER = re.compile(r"\b(\d{1,9})\s*(?:numarali|numarali|nolu|no'lu)\b", re.IGNORECASE)
@@ -319,7 +324,11 @@ class IntakeResolution:
     def may_start_work(self) -> bool:
         """Netlestirme gerekmiyorsa siradaki planlama adimi baslatilabilir."""
 
-        return not self.ambiguities and self.request_class is not RequestClass.AMBIGUOUS
+        return (
+            not self.ambiguities
+            and self.request_class is not RequestClass.AMBIGUOUS
+            and "factual-query" not in self.matched_cues
+        )
 
     def body(self) -> dict[str, Any]:
         return {
@@ -366,6 +375,10 @@ def classify(request: IntakeRequest) -> tuple[RequestClass, tuple[str, ...], tup
     normalized = request.normalized
     hits = _match_cues(normalized)
     if not hits:
+        if _FACTUAL_QUESTION.search(normalized):
+            # Bilgi sorusu mutation niyeti degildir; mevcut read-only research
+            # retrieval yoluna girer ve authority uretmez.
+            return RequestClass.RESEARCH, ("factual-query",), ()
         return (
             RequestClass.AMBIGUOUS,
             (),

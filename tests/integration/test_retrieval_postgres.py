@@ -122,6 +122,7 @@ def indexed(realm_session: tuple[Any, Any], tmp_path: Path) -> dict[str, Any]:
     return {
         "realm": realm,
         "connection": connection,
+        "project": project,
         "retrieval": retrieval,
         "chunks": chunks,
         "mapping": mapping,
@@ -219,6 +220,18 @@ def test_dense_arama_profil_kapsaminda_calisir(indexed: dict[str, Any]) -> None:
     assert hits, "dense arama sonuc dondurmeli"
     assert all(hit.raw_score >= 0 for hit in hits), "cosine mesafesi negatif olamaz"
     assert [hit.rank for hit in hits] == list(range(1, len(hits) + 1))
+
+
+def test_project_scoped_fts_and_dense_search_use_only_bound_project(
+    indexed: dict[str, Any],
+) -> None:
+    repository = RetrievalRepository(
+        indexed["connection"], indexed["realm"].id, project_id=indexed["project"].id
+    )
+    assert repository.lexical("recall", limit=10)
+    dense = repository.dense(_vector(1), indexed["profile_id"], limit=5)
+    assert dense
+    assert all(hit.channel is RetrievalChannel.DENSE for hit in dense)
 
 
 def test_hibrit_arama_exact_kimligi_one_alir(indexed: dict[str, Any]) -> None:

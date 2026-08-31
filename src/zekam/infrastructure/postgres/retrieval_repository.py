@@ -50,6 +50,7 @@ class RetrievalRepository:
 
     connection: Any
     realm_id: UUID
+    project_id: UUID | None = None
 
     # -- profiller ------------------------------------------------------------
 
@@ -231,11 +232,13 @@ class RetrievalRepository:
         if not identifiers:
             return ()
         with self.connection.cursor() as cursor:
+            scope_sql, scope_params = self._project_scope("c")
             cursor.execute(
-                "select chunk_ref from knowledge.chunk"
-                " where realm_id = %s and body like any (%s)"
-                " order by chunk_ref limit %s",
-                (self.realm_id, [f"%{item}%" for item in identifiers], limit),
+                "select c.chunk_ref from knowledge.chunk c"
+                " where c.realm_id = %s and c.body like any (%s)"
+                + scope_sql
+                + " order by c.chunk_ref limit %s",
+                (self.realm_id, [f"%{item}%" for item in identifiers], *scope_params, limit),
             )
             rows = cursor.fetchall()
         return tuple(
@@ -252,12 +255,15 @@ class RetrievalRepository:
         """PostgreSQL FTS; teknik kimligi bozmamak icin 'simple' sozlugu."""
 
         with self.connection.cursor() as cursor:
+            scope_sql, scope_params = self._project_scope("c")
             cursor.execute(
-                "select chunk_ref, ts_rank(search_vector, plainto_tsquery('simple', %s)) as score"
-                " from knowledge.chunk"
-                " where realm_id = %s and search_vector @@ plainto_tsquery('simple', %s)"
-                " order by score desc, chunk_ref limit %s",
-                (query, self.realm_id, query, limit),
+                "select c.chunk_ref, ts_rank(c.search_vector, plainto_tsquery('simple', %s))"
+                " as score from knowledge.chunk c"
+                " where c.realm_id = %s"
+                " and c.search_vector @@ plainto_tsquery('simple', %s)"
+                + scope_sql
+                + " order by score desc, c.chunk_ref limit %s",
+                (query, self.realm_id, query, *scope_params, limit),
             )
             rows = cursor.fetchall()
         return tuple(
@@ -277,13 +283,44 @@ class RetrievalRepository:
 
         literal = "[" + ",".join(repr(float(value)) for value in vector) + "]"
         with self.connection.cursor() as cursor:
+            if self.project_id is not None:
+                # HNSW post-filtering can return zero rows when the global nearest
+                # neighbours belong to another project. Materialize the exact
+                # project corpus first, then rank it; project isolation and recall
+                # are both deterministic.
+                cursor.execute(
+                    "with project_chunks as materialized ("
+                    " select c.chunk_ref,e.embedding from knowledge.chunk_embedding e"
+                    " join knowledge.chunk c on c.realm_id=e.realm_id and c.id=e.chunk_id"
+                    " join knowledge.normalized_document d on d.realm_id=c.realm_id"
+                    "  and d.id=c.document_id"
+                    " join knowledge.source_version v on v.realm_id=d.realm_id"
+                    "  and v.id=d.version_id and v.state='active'"
+                    " join knowledge.source s on s.realm_id=v.realm_id and s.id=v.source_id"
+                    " where e.realm_id=%s and e.profile_id=%s and s.project_id=%s)"
+                    " select chunk_ref,embedding <=> %s::vector as distance"
+                    " from project_chunks order by distance asc,chunk_ref limit %s",
+                    (self.realm_id, profile_id, self.project_id, literal, limit),
+                )
+                rows = cursor.fetchall()
+                return tuple(
+                    ScoredHit(
+                        chunk_id=str(row[0]),
+                        channel=RetrievalChannel.DENSE,
+                        rank=index,
+                        raw_score=float(row[1]),
+                    )
+                    for index, row in enumerate(rows, start=1)
+                )
+            scope_sql, scope_params = self._project_scope("c")
             cursor.execute(
                 "select c.chunk_ref, e.embedding <=> %s::vector as distance"
                 " from knowledge.chunk_embedding e"
                 " join knowledge.chunk c on c.realm_id = e.realm_id and c.id = e.chunk_id"
                 " where e.realm_id = %s and e.profile_id = %s"
-                " order by distance asc, c.chunk_ref limit %s",
-                (literal, self.realm_id, profile_id, limit),
+                + scope_sql
+                + " order by distance asc, c.chunk_ref limit %s",
+                (literal, self.realm_id, profile_id, *scope_params, limit),
             )
             rows = cursor.fetchall()
         return tuple(
@@ -302,13 +339,15 @@ class RetrievalRepository:
         if not chunk_refs:
             return {}
         with self.connection.cursor() as cursor:
+            scope_sql, scope_params = self._project_scope("c")
             cursor.execute(
                 "select c.chunk_ref, c.document_id, c.body, c.locator, c.content_digest,"
                 "  p.chunk_ref"
                 " from knowledge.chunk c"
                 " left join knowledge.chunk p on p.realm_id = c.realm_id and p.id = c.parent_id"
-                " where c.realm_id = %s and c.chunk_ref = any (%s)",
-                (self.realm_id, list(chunk_refs)),
+                " where c.realm_id = %s and c.chunk_ref = any (%s)"
+                + scope_sql,
+                (self.realm_id, list(chunk_refs), *scope_params),
             )
             rows = cursor.fetchall()
         return {
@@ -322,6 +361,59 @@ class RetrievalRepository:
             )
             for row in rows
         }
+
+    def active_project_embedding_profile(self) -> dict[str, Any] | None:
+        """Exact projenin aktif repository index profilini salt okunur yukler."""
+
+        if self.project_id is None:
+            raise ValidationFailed("project embedding profili exact project_id ister")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "select dip.embedding_profile_id,ep.model_ref,ep.dimension,ep.query_prefix,"
+                " ep.profile_digest,v.revision,v.content_digest,d.id"
+                " from knowledge.source s"
+                " join knowledge.source_version v on v.realm_id=s.realm_id"
+                "  and v.source_id=s.id and v.state='active'"
+                " join knowledge.normalized_document d on d.realm_id=v.realm_id"
+                "  and d.version_id=v.id"
+                " join knowledge.document_index_profile dip on dip.realm_id=d.realm_id"
+                "  and dip.document_id=d.id and dip.embedding_state='ready'"
+                " join knowledge.embedding_profile ep on ep.realm_id=dip.realm_id"
+                "  and ep.id=dip.embedding_profile_id"
+                " where s.realm_id=%s and s.project_id=%s and s.source_format='repository'"
+                " order by v.created_at desc,d.created_at desc limit 1",
+                (self.realm_id, self.project_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "profile_id": UUID(str(row[0])),
+            "model_ref": str(row[1]),
+            "dimension": int(row[2]),
+            "query_prefix": str(row[3]),
+            "profile_digest": str(row[4]),
+            "source_revision": int(row[5]),
+            "source_content_digest": str(row[6]),
+            "document_id": str(row[7]),
+        }
+
+    def _project_scope(self, chunk_alias: str) -> tuple[str, tuple[UUID, ...]]:
+        if self.project_id is None:
+            return "", ()
+        return (
+            " and exists (select 1 from knowledge.normalized_document scope_document"
+            " join knowledge.source_version scope_version"
+            " on scope_version.realm_id=scope_document.realm_id"
+            " and scope_version.id=scope_document.version_id"
+            " join knowledge.source scope_source"
+            " on scope_source.realm_id=scope_version.realm_id"
+            " and scope_source.id=scope_version.source_id"
+            f" where scope_document.realm_id={chunk_alias}.realm_id"
+            f" and scope_document.id={chunk_alias}.document_id"
+            " and scope_version.state='active' and scope_source.project_id=%s)",
+            (self.project_id,),
+        )
 
     @staticmethod
     def _resolve(cursor: Any, table: str, column: str, value: str) -> UUID:

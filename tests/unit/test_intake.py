@@ -61,6 +61,17 @@ def test_niyet_ipucu_yoksa_tahmin_edilmez() -> None:
     assert resolution.may_start_work is False
 
 
+def test_factual_project_question_routes_to_read_only_research() -> None:
+    resolution = resolve_intake(
+        _request("gpu projesindeki en yuksek satira sahip class hangisidir?"),
+        candidates=(_candidate("gpu"),),
+    )
+    assert resolution.request_class is RequestClass.RESEARCH
+    assert resolution.matched_cues == ("factual-query",)
+    assert resolution.may_start_work is False
+    assert resolution.grants_authority is False
+
+
 def test_cakisan_niyet_ipuclari_secim_ister() -> None:
     resolution = resolve_intake(
         _request("gpu projesini arastir ve duzelt"), candidates=(_candidate("gpu"),)

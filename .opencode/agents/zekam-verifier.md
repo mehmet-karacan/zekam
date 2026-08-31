@@ -4,7 +4,7 @@ mode: subagent
 permission:
   edit: deny
   bash:
-    "*": ask
+    "*": allow
     "zekam ask *": allow
     "zekam db status": allow
     "zekam doctor": allow

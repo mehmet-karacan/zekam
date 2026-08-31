@@ -54,7 +54,9 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     assert "webfetch: allow" in coordinator
     assert '"*": allow' in coordinator
-    assert "edit: allow" in coordinator
+    assert "edit: deny" in coordinator
+    assert "read: deny" in coordinator
+    assert 'bash:\n    "*": deny' in coordinator
     assert '"C:/innova/projeler/**": allow' in coordinator
     assert '"zekam-builder": allow' in coordinator
     assert "tekrar onay istemeden" in coordinator
@@ -71,6 +73,9 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Zekam source rootuna memo, rapor" in researcher
     assert "Zekam source rootuna memo, rapor" in verifier
     assert "Dispatch protokolu" in coordinator
+    assert "RAG-first bilgi protokolu" in coordinator
+    assert "retrieval_digest" in coordinator
+    assert "recursive shell ile tarayamaz" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
     assert '"zekam-router": allow' in coordinator
     assert '"zekam-implementer-*": allow' in coordinator
@@ -115,13 +120,18 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "continuity checkpoint kaydedildi" not in plugin_body
     assert '"zekam doctor *": allow' in verifier
     assert '"zekam work list *": allow' in verifier
-    assert '"*": ask' in verifier
+    assert '"*": allow' in verifier
     assert '"C:/innova/projeler/**": allow' in verifier
     assert '"zekam project source-root *": allow' in verifier
     assert '"C:/innova/projeler/**": allow' in researcher
     assert '"zekam project source-root *": allow' in researcher
     assert '"git -C * log*": allow' in researcher
     assert "kopya, mirror, clone" in researcher
+    assert "bounded source fallback" in researcher
+    assert all(
+        '"*": ask' not in path.read_text(encoding="utf-8")
+        for path in agents.glob("*.md")
+    )
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
     assert repeat.agents_to_update == ()
@@ -217,7 +227,7 @@ def test_repository_policy_allows_tools_but_denies_commit_and_push() -> None:
     assert permission["edit"] == "allow"
     assert permission["external_directory"]["*"] == "deny"
     assert permission["external_directory"]["C:/innova/projeler/**"] == "allow"
-    assert permission["bash"]["*"] == "ask"
+    assert permission["bash"]["*"] == "deny"
     assert permission["bash"]["*git commit*"] == "deny"
     assert permission["bash"]["*git push*"] == "deny"
     assert permission["bash"]["*git clone*"] == "deny"
