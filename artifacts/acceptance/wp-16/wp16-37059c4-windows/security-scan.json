@@ -1,0 +1,19 @@
+{
+  "schema": "zekam-security-scan/v1",
+  "status": "passed",
+  "secret_values_recorded": false,
+  "legacy_postgresql_accessed": false,
+  "git_security_findings": 0,
+  "pip_check": "no-broken-requirements",
+  "pip_audit_local": "no-known-vulnerabilities",
+  "windows_native_controls": [
+    "ACL rejection including Everyone",
+    "reparse-point and hardlink rejection",
+    "msvcrt cross-process locking",
+    "atomic replace",
+    "unsafe SQLite WAL rejection and DELETE fallback"
+  ],
+  "validator_errors": 0,
+  "validator_warnings": 0,
+  "git_security_report_sha256": "4c38928611bcd66069898235b9ec47765bf04287df41741c4802b8769801cadd"
+}

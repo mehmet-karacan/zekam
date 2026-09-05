@@ -178,6 +178,20 @@ projesinden yapılmasını açıkça istemiştir.
 - Bu source binding Akıllı Kasa'nın kendi PostgreSQL veya runtime verisine erişim
   yetkisi vermez; yalnız izinli repository dosyaları okunur.
 
+### K-015 — Windows kabulü ayrı kanıtla yeniden açılmıştır
+
+Kullanıcı 5 Eylül 2026 tarihinde Windows kabul ve doğrulama aşamasının doğrudan
+`C:\Users\mkaracan\zekam` çalışma ağacında sürdürülmesini istemiştir.
+
+- Windows sonuçları Mac bundle'larına eklenmez veya Mac sonucu olarak etiketlenmez.
+- Akıllı Kasa Windows corpus'u yalnız K-014'teki salt-okunur, izinli altı dosyadır.
+- CPython SQLite `3.50.4`, upstream WAL-reset düzeltmesini taşımadığı için Windows'ta
+  `DELETE` journal ve tek-yazıcı koordinasyonu zorunludur; güvenli WAL varsayılmaz.
+- Canlı kurumsal provider çağrıları exact OpenCode kimliği, explicit disclosure,
+  process-isolated transport ve secret-free kanıtla sınırlıdır.
+- Windows'a özgü olmayan veya çalıştırılamayan Mac testleri geçilmiş sayılmaz;
+  collection ve reviewed-client pin farkları açık release blocker olarak kalır.
+
 ---
 
 ## 3. Araştırma ve baseline bilgisi
@@ -1859,6 +1873,16 @@ yalnız macOS uygulamasını açar; Windows x64 hard gate ve büyük-corpus stre
 ölçümleri `deferred` durumundadır. Global WP-01 cross-platform exit gate'i açık
 kalmaya devam eder.
 
+**Windows ölçüm durumu (5 Eylül 2026):** `partially-accepted-scale-blocked`.
+CPython SQLite `3.50.4` için WAL güvenliği kanıtlanamadığından operational,
+lexical ve knowledge yolları `DELETE` journal + gerçek single-writer file lock ile
+çalıştırıldı; DB header `1/1` ve WAL sidecar yokluğu doğrulandı. Operational 110 bin
+event ile, DuckDB 100 bin row ile tüm Windows hard gate'lerini geçti. sqlite-vec
+50 bin kayıtta p95 `212.1157 ms` ve tüm kalite/restart/rebuild/corruption kapılarını
+geçti. 250 bin kayıtta aynı bütünlük kapıları geçti ancak p95 `973.5371 ms` ile
+`250 ms` hedefini aşarak scale exit gate'ini açık bıraktı. Önceki WAL tabanlı Windows
+ölçümleri geçersizdir ve kabul kanıtı olarak kullanılmaz.
+
 **Exit gate:**
 
 - hard gate geçmeyen aday dependency değildir,
@@ -1878,7 +1902,7 @@ kalmaya devam eder.
 - [x] Bootstrap receipt.
 - [x] Legacy PG config detection without connection.
 - [x] macOS permissions ve path tests.
-- [ ] Windows permissions, reparse ve path tests (deferred).
+- [x] Windows permissions, reparse ve path tests.
 - [x] Backup/snapshot başlangıç sözleşmesi.
 
 **Mac-first kabul:** Fresh init, ikinci init, fault injection, receipt drift,
@@ -1962,7 +1986,7 @@ fixture ile ayrıca çalıştırılacaktır.
 **İşler:**
 
 - [x] Local BGE discovery/config/profile/probe.
-- [x] OpenCode remote exact identity/config/probe (contract accepted; Windows live E2E deferred).
+- [x] OpenCode remote exact identity/config/probe ve Windows live E2E.
 - [x] Document/query embedding batch.
 - [x] Dimension/non-finite/profile drift controls.
 - [x] Data classification/outbound gate.
@@ -1985,8 +2009,27 @@ composition yolunda doğrulandı. Missing/timeout/partial/NaN/dimension/model/pr
 drift durumları CAS veya DB mutation'ından önce fail-closed; provider yokluğunda
 exact+lexical arama `lexical-only-degraded` çalışıyor. Bağımsız verifier PASS verdi.
 Kanıt: `artifacts/acceptance/wp-06/wp06-d95cdac-macos/manifest.json`.
-Windows/OpenCode canlı uzak-provider E2E K-013 uyarınca açık ve nihai kabulü
-engellemeye devam eder. Bu kabul WP-07 hibrit RAG kapısını kapatmaz.
+Bu Mac bundle'ı K-013 kapsamındaki tarihsel Windows-deferred durumunu korur;
+sonraki ayrı Windows sonucu aşağıdadır.
+
+**Windows kabul durumu (5 Eylül 2026):** `windows-opencode-bge-m3-accepted`.
+OpenCode `1.18.27` config'i exact `litellm` provider ve 12 model kimliğiyle
+secret-safe okundu; Windows production embedding seçimi `openai/BAAI/bge-m3`
+olarak sınırlandı. Gerçek uzak çağrıda BGE-M3 1024 boyut, `0.509570186307466`
+semantic margin, repeat cosine `0.9999993678186736` ve batch cosine `1.0`
+üretti. Hızlandırıcı kaynaklı küçük numeric jitter için repeat ve batch mutlak
+toleransı `5e-4`, iki cosine alt sınırı `0.99999` olarak birlikte uygulanır;
+bounded jitter kabul, maddi drift ret testleri geçer. Qwen3 ve e5-mistral
+production seçimi değildir ve karantinada kalır; Windows/OpenCode BGE-M3 kabulünü
+engellemez. Production remote adapter exact classification-bound authorization,
+claim-before-effect, terminal receipt ve ledger readback zorunluluğuyla shipped
+`EmbeddingProvider` portuna bağlıdır; internal corpus için explicit disclosure
+zorunludur. Final birleşik canlı E2E iki gerçek provider çağrısını iki durable claim
+ve iki terminal receipt ile SQLite `DELETE` ledger'a yazdı; integrity `ok`, recovery
+sayısı `0` ve restart readback exact geçti. Secret değeri kanıta yazılmadı. Dış
+kanıt JSON SHA-256: `295d0199e28e8476e2d16e22a66081f392bdf3486600cf708f99fb432b763746`;
+ledger SHA-256: `2bea29189f4911836e58279c77404067a890c8ac53606a43ab5836588f379ce9`.
+Windows kanıtı WP-16 Windows bundle'ındadır.
 
 ### WP-07 — Çalışan hibrit RAG dikey dilimi
 
@@ -2025,8 +2068,15 @@ supersede, restart ve scratch rebuild adversarial olarak doğrulandı. Sorgular 
 generation digest'ine pinlenir; stale ve current citation kimlikleri karışmaz.
 Bağımsız verifier PASS verdi. Kanıt:
 `artifacts/acceptance/wp-07/wp07-d95cdac-macos/manifest.json`.
-Windows/OpenCode canlı uzak embedding RAG E2E K-013 uyarınca deferred durumdadır;
-WP-08 ve sonraki iş paketleri tamamlanmış sayılmaz.
+Bu Mac bundle'ı K-013 kapsamındaki tarihsel Windows-deferred durumunu korur;
+sonraki ayrı Windows sonucu aşağıdadır.
+
+**Windows kabul durumu (5 Eylül 2026):** `windows-accepted`.
+Akıllı Kasa'nın K-014 ile sınırlı aynı altı salt-okunur dosyası gerçek uzak BGE-M3
+ile yeniden indekslendi. 100-case kapıda exact top-1/citation `1.00`, Recall@10
+`0.8571`, MRR `0.8107`, nDCG@10 `0.8223`; leakage, unsupported factual answer ve
+silent freshness mismatch `0` oldu. Restart ve scratch re-index aynı generation
+digest'ini üretti; kaynak HEAD/status digest'i önce ve sonra değişmedi.
 
 ### WP-08 — Lifecycle hooks, continuity ve Markdown ikinci beyin
 
@@ -2051,6 +2101,11 @@ yarım işlem ve duplicate delivery testleriyle doğrulandı. Bağımsız Mac ve
 `PASS_WP08_MAC` verdi. OpenCode'un Windows/Bun canlı adapter yolu K-013 kapsamında
 deferred olduğu için birleşik adapter checkbox'ı ve global cross-client kapısı açık
 kalır. Kanıt: `artifacts/acceptance/wp-08/wp08-d95cdac-macos/`.
+
+**Windows OpenCode kabulü (5 Eylül 2026):** Bun `1.4.1` ve OpenCode `1.18.27`
+üzerinde gerçek plugin yükleme, provider-free lifecycle, iki süreçli Windows kilidi,
+content-free spool ve stale/dead-owner recovery 12/12 geçmiştir. Birleşik checkbox,
+kurulu olmayan Claude ve reviewed Codex pin farkı nedeniyle açık kalır.
 
 **Exit gate:**
 
@@ -2095,7 +2150,7 @@ verifier `PASS_WP09_MAC` verdi. Kanıt:
 **İşler:**
 
 - [x] Exact model identity schema.
-- [ ] OpenCode secretsiz discovery snapshot.
+- [x] OpenCode secretsiz discovery snapshot.
 - [x] New/removed/changed/ambiguous reconcile.
 - [x] Device/client availability.
 - [x] Model revision fingerprint.
@@ -2106,10 +2161,16 @@ verifier `PASS_WP09_MAC` verdi. Kanıt:
 **Mac kabul durumu (5 Eylül 2026):** `macos-accepted/windows-deferred`.
 Exact provider/access/model/revision kimliği, local registry reconciliation, health,
 availability, quarantine/cooldown ve secretsiz profil raporları deterministic SQLite
-state üzerinde doğrulandı; prefix veya benzer adlar merge edilmedi. Canlı OpenCode
-discovery snapshot'ı Windows/Bun aşamasına K-013 ile ertelendi ve tahminî fixture
-canlı discovery kanıtı sayılmadı. Kanıt:
+state üzerinde doğrulandı; prefix veya benzer adlar merge edilmedi. Bu Mac bundle'ında
+canlı OpenCode discovery K-013 ile ertelenmişti ve tahminî fixture canlı discovery
+kanıtı sayılmadı. Kanıt:
 `artifacts/acceptance/wp-10/wp10-d95cdac-macos/`.
+
+**Windows kabul durumu (5 Eylül 2026):** `windows-accepted`.
+Native OpenCode binary'si exact artifact digest ile iki kez doğrulanıp izole,
+secret allowlist'siz ortamda `models --pure` çalıştırıldı. 12 exact kimlik bulundu;
+üç embedding erişim kimliği provider prefix'i korunarak doğrulandı. Snapshot secret
+içermez ve routing authority vermez; Windows kanıtı WP-16 bundle'ındadır.
 
 **Exit gate:**
 
@@ -2279,8 +2340,8 @@ bulmadı. Kanıt: `artifacts/acceptance/wp-15/wp15-d95cdac-macos/`.
 **İşler:**
 
 - [x] macOS ARM64 acceptance.
-- [ ] Windows x64 acceptance.
-- [ ] Python supported version matrix.
+- [x] Windows x64 acceptance (kullanıcı-sınırlı OpenCode/BGE-M3 kapsamı).
+- [x] Python supported version matrix (Windows kritik matris).
 - [x] process kill/fault injection campaign.
 - [x] disk full/read-only/corrupt file.
 - [x] network unavailable/provider timeout.
@@ -2290,13 +2351,13 @@ bulmadı. Kanıt: `artifacts/acceptance/wp-15/wp15-d95cdac-macos/`.
 - [x] security/privacy/secret scan.
 - [x] evidence bundle/SBOM/checksum/release report.
 
-**Mac kabul durumu (5 Eylül 2026):** `macos-accepted/windows-deferred`.
+**Tarihsel Mac kabul durumu (5 Eylül 2026):** `macos-accepted/windows-deferred`.
 macOS ARM64 üzerinde fault/process-kill, disk/read-only/corruption, provider/network,
 lease/lock/PID/concurrent writer, backup/restore/rebuild ve bounded soak/resource
 senaryoları çalıştırıldı; secret/privacy/package auditleri fail-closed geçti. Fresh
-wheel ve sdist exact source manifestiyle bağımsız smoke testten geçirilmiştir. Windows
-x64, supported-Python matrisi, büyük corpus ve yüksek-yük stres ölçümleri K-013 ile
-deferred olduğundan WP-16 global exit gate'i ve görev `COMPLETED` durumu açık kalır.
+wheel ve sdist exact source manifestiyle bağımsız smoke testten geçirilmiştir. Bu
+bundle üretildiği anda Windows x64 ve supported-Python matrisi K-013 ile deferred idi;
+sonraki kullanıcı-sınırlı Windows kapanışı 33.7 altında ayrıca kayıtlıdır.
 Kanıt: `artifacts/acceptance/wp-16/wp16-d95cdac-macos/`.
 
 **Exit gate:**
@@ -2719,7 +2780,7 @@ Görev yalnız aşağıdakilerin tamamı sağlandığında `COMPLETED` olur.
 - [x] Global/proje knowledge hierarchy kurulmuş.
 - [x] Source manifests ve owner scopes eksiksiz.
 - [x] Mac local BGE gerçek embedding kanıtlandı.
-- [ ] Windows/OpenCode remote embedding kanıtlandı.
+- [x] Windows/OpenCode remote embedding durable runtime E2E kanıtlandı.
 - [x] Profile/dimension/preprocessing isolation var.
 - [x] Exact + lexical + dense + RRF çalışıyor.
 - [x] Citation/no-answer eşikleri geçiyor.
@@ -2737,7 +2798,7 @@ Görev yalnız aşağıdakilerin tamamı sağlandığında `COMPLETED` olur.
 
 ### 33.5 Model laboratuvarı
 
-- [ ] OpenCode model discovery exact ve secret-safe.
+- [x] OpenCode model discovery exact ve secret-safe.
 - [x] Local model registry fresh reconciliation yapıyor.
 - [x] New/removed/revision drift görünür.
 - [x] Adversarial benchmark suites çalışıyor.
@@ -2758,14 +2819,33 @@ Görev yalnız aşağıdakilerin tamamı sağlandığında `COMPLETED` olur.
 ### 33.7 Kalite ve release
 
 - [x] Negative/fault/property/concurrency/security testleri geçiyor.
-- [ ] macOS ARM64 ve Windows x64 acceptance geçiyor.
+- [x] macOS ARM64 ve kullanıcı-sınırlı Windows x64 acceptance geçiyor.
 - [x] Critical/high security finding yok.
-- [ ] Full evidence bundle ve independent verifier var.
+- [x] Full evidence bundle ve independent verifier var.
 - [x] Global DoD yeni mimariye göre güncellendi.
 - [x] Package manifest/SBOM/checksum/runbooks güncel.
 - [x] `AKTIF_GOREV.md` final durum ve evidence refs ile güncel.
 - [x] Repo temiz veya kullanıcı değişiklikleri açıkça belgeli.
 - [x] Kullanıcı açıkça istemedikçe push yapılmadı.
+
+**Windows doğrulama sonucu (5 Eylül 2026):** `accepted-with-user-scoped-waivers`.
+Python 3.12/3.13/3.14 kritik matrisinin ilk tam turu sürüm başına `360 passed,
+4 POSIX-only skipped` oldu. Son güvenlik değişikliklerinden sonra Python 3.14 geniş
+Windows paketi `466 passed, 10 platform/privilege-only skipped`; Python 3.12 ve
+3.13 değişen kapsamı ayrı ayrı `119 passed, 6 privilege-only skipped` geçti.
+Wheel artifact-only smoke 12/12, sdist build + smoke 13/13 geçti; dependency audit
+bilinen zafiyet bulmadı. Kullanıcı 5 Eylül 2026'da Windows/OpenCode-only kabul
+kapsamını açıkça belirledi: macOS/POSIX-only testler ile gerçek Claude/Codex
+lifecycle testleri Windows kapısı değildir; 250 bin kayıt p95 hedefi bu kabul için
+waive edilmiştir. Bu istisnalar başarısız testleri başarılı diye yeniden etiketlemez
+ve cross-platform full-suite pass iddiası vermez. Seçilen BGE-M3'ün canlı provider
+çağrısı durable runtime executor ile birleşik E2E'de geçti; SQLite ledger restart
+sonrası exact okundu. Bağımsız verifier'ın ilk geniş-kapsamlı düzeltme turu
+`PASS_WITH_BLOCKERS` vermişti. Kullanıcı scope kararı, son birleşik E2E ve current-5
+paket doğrulamasından sonra bağımsız verifier nihai kullanıcı-sınırlı
+Windows/OpenCode/BGE-M3 kapsamına `PASS` verdi. Bu karar cross-platform full-suite
+kabulü değildir. Bu kayıt oluşturulurken hiçbir commit veya push yapılmamıştı. Kanıt:
+`artifacts/acceptance/wp-16/wp16-37059c4-windows/`.
 
 ---
 

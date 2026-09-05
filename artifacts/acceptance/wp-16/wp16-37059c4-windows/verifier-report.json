@@ -1,0 +1,93 @@
+{
+  "schema": "zekam-independent-verifier-report/v1",
+  "verifier_identity": "windows_acceptance_verifier",
+  "overall_classification": "PASS",
+  "acceptance_scope": "user-scoped-windows-opencode-bge-m3",
+  "cross_platform_full_suite_acceptance": "NOT_CLAIMED",
+  "repository_mutated_by_verifier": false,
+  "commit_performed": false,
+  "push_performed": false,
+  "superseded_preliminary_result": {
+    "classification": "PASS_WITH_BLOCKERS",
+    "reason": "The preliminary review used the earlier global/cross-platform release scope. The user subsequently excluded macOS/POSIX and real Claude/Codex lifecycle gates and explicitly waived the 250k p95 gate for this Windows/OpenCode acceptance."
+  },
+  "verified_findings": [
+    {
+      "id": "opencode-bge-m3-jitter-policy",
+      "status": "passed",
+      "detail": "Remote repeat stability requires maximum absolute delta <= 5e-4 and cosine >= 0.99999. Positive and negative policy tests passed; the final focused verifier run passed 30 tests."
+    },
+    {
+      "id": "live-bge-m3-semantic-contract",
+      "status": "passed",
+      "detail": "The selected openai/BAAI/bge-m3 model returned dimension 1024 with semantic margin 0.509570186307466, repeat delta 0.00015527625986305749, repeat cosine 0.9999993678186736, batch delta 0.0 and batch cosine approximately 1.0."
+    },
+    {
+      "id": "durable-provider-ledger",
+      "status": "passed",
+      "detail": "SQLite used DELETE journaling with header 1/1, integrity ok, append-only triggers and restart readback. Two provider calls produced two bound claims and two completed terminal receipts, with zero recoveries and zero unbound records."
+    },
+    {
+      "id": "windows-file-and-sqlite-safety",
+      "status": "passed",
+      "detail": "Windows-native ACL/link checks, journal/outbox contention, safe SQLite fallback and single-writer behavior passed the scoped validation."
+    },
+    {
+      "id": "secret-safety",
+      "status": "passed",
+      "detail": "No API key, bearer value, URL credential or JWT trace was found in the durable evidence. The harness resolves the credential from the environment and clears it in a finally block."
+    },
+    {
+      "id": "package-archives",
+      "status": "passed",
+      "detail": "After the final authority synchronization, current-6 wheel and sdist passed supplied Python 3.14 smoke evidence. Independent archive, manifest-binding and source-equivalence verification is recorded by the same verifier."
+    }
+  ],
+  "tests": {
+    "selected_windows_opencode_regression": {"passed": 74, "skipped_platform_specific": 6},
+    "final_verifier_focus": {"passed": 30, "failed": 0},
+    "opencode_adapter_python_312": {"passed": 12, "failed": 0},
+    "opencode_adapter_python_313": {"passed": 12, "failed": 0},
+    "opencode_adapter_python_314": {"passed": 12, "failed": 0},
+    "wheel_smoke_python_314": {"passed": 12, "total": 12},
+    "sdist_smoke_python_314": {"passed": 13, "total": 13}
+  },
+  "current_6_independent_package_reverification": {
+    "status": "PASS",
+    "manifest_digest": "sha256:ec7fb0523e6e34aa4f344aa76dfffb331d9e2890e856e2052894ff62b6e5dbaf",
+    "smoke_result_and_run_digests_recomputed": true,
+    "wheel_record_complete": true,
+    "unsafe_or_duplicate_archive_members": 0,
+    "critical_sources_match_worktree": true
+  },
+  "live_durable_evidence": {
+    "model": "openai/BAAI/bge-m3",
+    "json_path": "C:/Users/mkaracan/zekam-windows-acceptance/opencode-durable-bge-m3-final-2.json",
+    "json_sha256": "295d0199e28e8476e2d16e22a66081f392bdf3486600cf708f99fb432b763746",
+    "sqlite_path": "C:/Users/mkaracan/zekam-windows-acceptance/opencode-durable-bge-m3-final-2.sqlite",
+    "sqlite_sha256": "2bea29189f4911836e58279c77404067a890c8ac53606a43ab5836588f379ce9"
+  },
+  "packages": {
+    "wheel_path": "C:/Users/mkaracan/zekam-windows-acceptance/dist-wp16-current-6/zekam-0.1.0-py3-none-any.whl",
+    "wheel_sha256": "485e1cbcdbf5b1513a91771947c5a129b7974a59a533d7119d94b9dd8b452eec",
+    "wheel_smoke_result_file_sha256": "1e34cc0a5903831b86228de46321a40eb3bab564396d3ccb3065f0ece2335f6e",
+    "sdist_path": "C:/Users/mkaracan/zekam-windows-acceptance/dist-wp16-current-6/zekam-0.1.0.tar.gz",
+    "sdist_sha256": "fb0d3b0b753390ed2e35316bda5557259e04cc0b30198be34eb6b2a188bb247a",
+    "sdist_smoke_result_file_sha256": "b9b1d63395af1e057229f8ab58e521f267f94b6326031dbecf90d38dfdc60f68",
+    "package_manifest_sha256": "ec7fb0523e6e34aa4f344aa76dfffb331d9e2890e856e2052894ff62b6e5dbaf"
+  },
+  "explicit_waivers_and_exclusions": [
+    "The 250,000-record retrieval p95 target is waived for this acceptance.",
+    "macOS/POSIX-only tests are excluded and are not relabeled as passes.",
+    "Real Claude and Codex lifecycle tests are outside the OpenCode-only scope and are not relabeled as passes.",
+    "Qwen3 and e5-mistral remain quarantined; this acceptance applies only to the selected BGE-M3 model."
+  ],
+  "akilli_kasa": {
+    "head": "d25643db2b0e6f86bf17ae158ef062b646e13ba0",
+    "tree": "5340acb6f1aee9aa3555d459e834422dfddc3fd7",
+    "status_clean": true,
+    "status_output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "prior_verifier_status_binding_sha256": "e5b53c575e5af07e8600dab707d9700ea119b90057d813f8780f12256c95b75e",
+    "changed": false
+  }
+}

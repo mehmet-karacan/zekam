@@ -1,0 +1,13 @@
+{
+  "schema": "zekam-recovery-results/v1",
+  "status": "passed-for-executed-scopes",
+  "checks": [
+    {"id":"sqlite-operational-110k","status":"passed","journal":"DELETE","single_writer":true,"evidence_sha256":"44f7bd566b1cf699f18f2893377505422569a1e12c30a476ba1147e45ebcf86f"},
+    {"id":"knowledge-50k-restart-rebuild-corruption","status":"passed","journal":"DELETE","header_before_after":"1/1","evidence_sha256":"d479279d974e381abbebdd31c01f9487ebb85af2cf4299c3a6f0959afe8b8f11"},
+    {"id":"knowledge-250k-restart-rebuild-corruption","status":"passed","journal":"DELETE","header_before_after":"1/1","evidence_sha256":"dfbd6c814be8689434e46d143f90ea7ba9540a7820be8b193cab92c22cd0657a"},
+    {"id":"windows-journal-outbox-negative-cases","status":"passed","coverage":["private publisher/effect","hardlink","junction","Everyone ACL","concurrent lock"]},
+    {"id":"opencode-bun-restart-lifecycle","status":"passed","passed":12,"total":12}
+    ,{"id":"opencode-bge-m3-live-durable-ledger","status":"passed","provider_calls":2,"claims":2,"receipts":2,"recoveries":0,"journal":"DELETE","integrity":"ok","restart_readback":true,"database_sha256":"2bea29189f4911836e58279c77404067a890c8ac53606a43ab5836588f379ce9"}
+  ],
+  "scope_limits": ["four POSIX/SIGKILL cases skipped on Windows","six file-symlink cases skipped because the account lacks symlink privilege"]
+}

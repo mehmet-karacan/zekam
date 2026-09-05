@@ -1,0 +1,8 @@
+{
+  "schema": "zekam-test-summary/v1",
+  "status": "excluded-from-windows-opencode-release-scope",
+  "collected": 6003,
+  "collection_errors": 15,
+  "cause": "macOS/POSIX-only modules import pwd/fcntl and legacy fixtures use /Users paths or POSIX APIs; real Codex/Claude lifecycle is outside the selected OpenCode-only scope",
+  "claim": "No full cross-platform suite pass is claimed. Windows acceptance is bound to the tested OpenCode/local-first scopes and explicit user exclusions."
+}

@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from benchmarks.suites.wp01_platform import current_acceptance_platform
+
 SCHEMA = "zekam-wp01-duckdb-analytics-bakeoff/v1"
 
 
@@ -238,7 +240,7 @@ def run(*, root: Path, row_count: int) -> dict[str, Any]:
         database.unlink()
         rebuild_seconds = _import_projection(database, raw)
         rebuilt_digest = _projection_digest(database)
-    mac = sys.platform == "darwin" and platform.machine().lower() == "arm64"
+    current_platform = current_acceptance_platform()
     result: dict[str, Any] = {
         "schema": SCHEMA,
         "candidate": "duckdb",
@@ -266,15 +268,15 @@ def run(*, root: Path, row_count: int) -> dict[str, Any]:
         "operational_mutation_supported": False,
         "hard_gates": {
             "corruption_detection": corruption["passed"],
-            "macos_arm64": mac,
+            "macos_arm64": current_platform == "macos-arm64",
             "no_server_or_docker": True,
             "offline_runtime": network["count"] == 0,
             "raw_artifact_authority": True,
             "rebuild_parity": first_digest == rebuilt_digest,
             "single_writer_enforced": writer_exclusion["passed"],
-            "windows_x64": False,
+            "windows_x64": current_platform == "windows-x64",
         },
-        "selection_status": "blocked-pending-windows-x64",
+        "selection_status": "local-platform-measured-pending-cross-platform-merge",
     }
     result["artifact_digest"] = _canonical_digest(result)
     return result

@@ -1,4 +1,4 @@
-"""Dormant Mac-local SQLite model discovery and routing eligibility registry."""
+"""Cross-platform local client discovery and routing eligibility registry."""
 
 # ruff: noqa: E501 -- literal SQLite DDL remains directly reviewable.
 
@@ -9,7 +9,6 @@ import hashlib
 import os
 import re
 import sqlite3
-import stat
 import subprocess
 from collections import defaultdict
 from contextlib import closing
@@ -19,9 +18,16 @@ from typing import final
 
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.infrastructure.local_file_security import (
+    owned_regular,
+    private_directory,
+    private_regular,
+    restrict_private_tree,
+)
 
 MAX_MODELS = 4096
 MAX_OUTPUT = 1_048_576
+MAX_CLIENT_ARTIFACT_BYTES = 512 * 1024 * 1024
 SCHEMA_DIGEST = "sha256:b217ea3533458258e75c708360dc34d7e36620c95910a757212c7691ce00852f"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$")
@@ -298,6 +304,7 @@ def discover_installed_client(
     private_root: Path,
     expected_artifact_digest: str,
     now: dt.datetime,
+    config_root: Path | None = None,
 ) -> LocalDiscoverySnapshot:
     """Read local CLI inventory only; never refresh or invoke a model."""
     if client_id not in {"opencode", "codex"}:
@@ -306,19 +313,16 @@ def discover_installed_client(
     for path, label in ((executable, "executable"), (private_root, "private root")):
         if not path.is_absolute() or path.is_symlink():
             raise ValidationFailed(f"Local discovery {label} path invalid")
-    info = executable.stat()
-    root = private_root.stat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.geteuid()
-        or info.st_nlink != 1
-        or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-        or not stat.S_ISDIR(root.st_mode)
-        or root.st_uid != os.geteuid()
-        or root.st_mode & (stat.S_IRWXG | stat.S_IRWXO)
+    if config_root is not None and (
+        not config_root.is_absolute()
+        or config_root.is_symlink()
+        or not private_directory(config_root)
     ):
+        raise PolicyViolation("Local discovery config root identity invalid")
+    info = executable.stat()
+    if not owned_regular(executable) or not private_directory(private_root):
         raise PolicyViolation("Local discovery path identity invalid")
-    if info.st_size <= 0 or info.st_size > 100 * 1024 * 1024:
+    if info.st_size <= 0 or info.st_size > MAX_CLIENT_ARTIFACT_BYTES:
         raise PolicyViolation("Local discovery artifact size invalid")
     artifact_hash = hashlib.sha256()
     with executable.open("rb") as stream:
@@ -329,12 +333,34 @@ def discover_installed_client(
         raise PolicyViolation("Local discovery artifact digest drift")
     environment = {
         "HOME": str(private_root),
-        "XDG_CONFIG_HOME": str(private_root / "config"),
+        "XDG_CONFIG_HOME": str(config_root or (private_root / "config")),
         "XDG_CACHE_HOME": str(private_root / "cache"),
         "XDG_DATA_HOME": str(private_root / "data"),
         "NO_COLOR": "1",
         "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     }
+    if os.name == "nt":
+        system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
+        environment.update(
+            {
+                "USERPROFILE": str(private_root),
+                "APPDATA": str(private_root / "AppData" / "Roaming"),
+                "LOCALAPPDATA": str(private_root / "AppData" / "Local"),
+                "TEMP": str(private_root / "Temp"),
+                "TMP": str(private_root / "Temp"),
+                "SYSTEMROOT": system_root,
+                "WINDIR": system_root,
+                "COMSPEC": os.environ.get("COMSPEC", str(Path(system_root) / "System32/cmd.exe")),
+                "PATHEXT": os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+                "PATH": os.pathsep.join(
+                    (
+                        str(executable.parent),
+                        str(Path(system_root) / "System32"),
+                        system_root,
+                    )
+                ),
+            }
+        )
     command = [str(executable), "--version"]
     version_run = subprocess.run(
         command, env=environment, capture_output=True, check=False, timeout=10
@@ -364,6 +390,19 @@ def discover_installed_client(
         ):
             raise PolicyViolation("OpenCode local model discovery failed")
         models = parse_opencode_models(model_run.stdout, revision=version)
+    after = executable.stat()
+    after_hash = hashlib.sha256()
+    with executable.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            after_hash.update(chunk)
+    if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    ) or "sha256:" + after_hash.hexdigest() != artifact_digest:
+        raise PolicyViolation("Local discovery artifact changed during observation")
     return LocalDiscoverySnapshot(
         device_id,
         client_id,
@@ -384,22 +423,18 @@ class SQLiteLocalModelRegistry:
         self.path = path
 
     def bootstrap(self) -> None:
+        created = not self.path.parent.exists()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        parent = self.path.parent.stat()
-        if parent.st_uid != os.geteuid() or parent.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        if created:
+            restrict_private_tree(self.path.parent)
+        if not private_directory(self.path.parent):
             raise PolicyViolation("Local model registry private parent required")
         with closing(sqlite3.connect(self.path)) as db:
             db.executescript(_SCHEMA)
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        info = self.path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
+        if not private_regular(self.path):
             raise PolicyViolation("Local model registry identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row

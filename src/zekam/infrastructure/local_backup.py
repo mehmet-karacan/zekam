@@ -19,6 +19,12 @@ from zekam.infrastructure.local_core_services import (
     LocalCoreServices,
     validate_local_sqlite_store,
 )
+from zekam.infrastructure.local_file_security import (
+    owned_regular,
+    private_directory,
+    private_regular,
+    restrict_private_tree,
+)
 
 BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
 MAX_FILES = 100_000
@@ -124,14 +130,19 @@ def _safe_relative(value: object) -> str:
 
 def _regular(path: Path) -> os.stat_result:
     info = path.lstat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.geteuid()
-        or info.st_nlink != 1
-        or stat.S_IMODE(info.st_mode) & 0o022
-    ):
+    if not owned_regular(path):
         raise PolicyViolation("Backup source must be private owned regular file")
     return info
+
+
+def _portable_file_mode(info: os.stat_result) -> int:
+    if os.name != "nt":
+        return stat.S_IMODE(info.st_mode)
+    readonly = bool(
+        int(getattr(info, "st_file_attributes", 0))
+        & int(getattr(stat, "FILE_ATTRIBUTE_READONLY", 0))
+    )
+    return 0o400 if readonly else 0o600
 
 
 def _destination(path: Path) -> Path:
@@ -141,7 +152,9 @@ def _destination(path: Path) -> Path:
 
 
 def _sync_file(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         os.fsync(descriptor)
     finally:
@@ -149,7 +162,12 @@ def _sync_file(path: Path) -> None:
 
 
 def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    if os.name == "nt":
+        return
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
     try:
         os.fsync(descriptor)
     finally:
@@ -247,14 +265,10 @@ def _directories(
     result: list[dict[str, object]] = []
     for relative in sorted(names):
         path = home / relative
-        info = path.lstat()
-        if (
-            not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or stat.S_IMODE(info.st_mode) & 0o022
-        ):
+        if not private_directory(path):
             raise PolicyViolation("Backup source directory must be private and owned")
-        result.append({"path": relative, "mode": stat.S_IMODE(info.st_mode)})
+        mode = 0o700 if os.name == "nt" else stat.S_IMODE(path.lstat().st_mode)
+        result.append({"path": relative, "mode": mode})
     return tuple(result)
 
 
@@ -265,7 +279,7 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
         raise PolicyViolation("Local core stores are not ready for backup")
     destination = _destination(destination)
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
-    os.chmod(staging, 0o700)
+    restrict_private_tree(staging)
     entries: list[dict[str, object]] = []
     total = 0
     try:
@@ -285,7 +299,7 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
             os.chmod(path, mode)
         for relative, source, kind in sources:
             info = _regular(source)
-            mode = stat.S_IMODE(info.st_mode)
+            mode = _portable_file_mode(info)
             target = staging / relative
             if kind == "sqlite":
                 _snapshot_database(source, target, mode)
@@ -361,12 +375,11 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
 
     if not bundle.is_absolute() or bundle.is_symlink() or not bundle.is_dir():
         raise ValidationFailed("Backup bundle path invalid")
-    bundle_info = bundle.lstat()
-    if bundle_info.st_uid != os.geteuid() or stat.S_IMODE(bundle_info.st_mode) != 0o700:
+    if not private_directory(bundle):
         raise PolicyViolation("Backup bundle root identity invalid")
     manifest_path = bundle / "MANIFEST.json"
-    manifest_info = _regular(manifest_path)
-    if stat.S_IMODE(manifest_info.st_mode) != 0o400:
+    _regular(manifest_path)
+    if not private_regular(manifest_path, 0o400):
         raise PolicyViolation("Backup manifest mode invalid")
     document = _strict_document(manifest_path.read_bytes())
     keys = {
@@ -395,11 +408,9 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         relative = _safe_relative(entry["path"])
         if type(entry["mode"]) is not int or entry["mode"] & 0o022:
             raise ValidationFailed("Backup directory mode invalid")
-        info = (bundle / relative).lstat()
-        if (
-            not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or stat.S_IMODE(info.st_mode) != entry["mode"]
+        directory = bundle / relative
+        if not private_directory(directory) or (
+            os.name != "nt" and stat.S_IMODE(directory.lstat().st_mode) != entry["mode"]
         ):
             raise PolicyViolation("Backup directory drift")
         directory_names.append(relative)
@@ -439,7 +450,7 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
             raise PolicyViolation("Backup path/kind contract drift")
         info = _regular(path)
         if (
-            stat.S_IMODE(info.st_mode) != entry["mode"]
+            _portable_file_mode(info) != entry["mode"]
             or info.st_size != entry["size_bytes"]
             or _sha256(path) != entry["sha256"]
         ):
@@ -486,7 +497,7 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
     document = verify_bundle(bundle)
     target = _destination(target)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=target.parent))
-    os.chmod(staging, 0o700)
+    restrict_private_tree(staging)
     try:
         for entry in document["directories"]:
             directory = staging / _safe_relative(entry["path"])
@@ -540,7 +551,7 @@ def create_manifest_for_restored(home: Path) -> dict[str, Any]:
             {
                 "path": relative,
                 "kind": kind,
-                "mode": stat.S_IMODE(info.st_mode),
+                "mode": _portable_file_mode(info),
                 "size_bytes": info.st_size,
                 "sha256": _sha256(source),
             }

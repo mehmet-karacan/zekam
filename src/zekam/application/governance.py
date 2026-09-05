@@ -99,13 +99,7 @@ class EffectRequest:
     @property
     def effect_digest(self) -> str:
         """Yetkiye baglanacak exact etki digest'i."""
-        return digest(
-            [
-                {"effect": item.value, "resources": sorted(self.resources)}
-                for item in sorted(self.effects, key=lambda entry: entry.value)
-                if item is not EffectKind.NONE
-            ]
-        )
+        return digest(self.body())
 
 
 @dataclass(frozen=True, slots=True)

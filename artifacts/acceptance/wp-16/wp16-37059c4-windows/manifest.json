@@ -1,0 +1,32 @@
+{
+  "schema": "zekam-evidence-manifest/v1",
+  "bundle_id": "wp16-37059c4-windows",
+  "work_package": "WP-16",
+  "baseline_head": "37059c4f0c93c5be9229ff17da6189d6bfbba16f",
+  "status": "accepted-with-user-scoped-waivers",
+  "builder_identity": "root",
+  "verifier_identity": "windows_acceptance_verifier",
+  "verifier_classification": "PASS",
+  "acceptance_scope": "user-scoped-windows-opencode-bge-m3",
+  "cross_platform_full_suite_acceptance": "NOT_CLAIMED",
+  "legacy_postgresql_data_accessed": false,
+  "docker_required": false,
+  "secret_values_recorded": false,
+  "commit_performed": false,
+  "push_performed": false,
+  "files": [
+    {"path":"changed-files.json","sha256":"bb9136cd42434ea19a9a891803b3e19f6dcd22d422e24e76dd9fa61d26e2ba7e"},
+    {"path":"commands.jsonl","sha256":"292221b88cff2212cb9bfa0d838f12d1c369090a6ae6a9ab00270d4b88cfef97"},
+    {"path":"environment.json","sha256":"7759aa259aa7da14b54703e5b60d3f2fd36ff467c9a7454cf5804dfd76aa2186"},
+    {"path":"metrics/package.json","sha256":"a3b9125bab2450d3f02d8ea6ffa205c284958f73f71aad6d258ace08746bf889"},
+    {"path":"metrics/providers-rag.json","sha256":"2908ce77f7c565a8e108878433d3289cd328d23b9a83e368771cbd37e417f7b9"},
+    {"path":"metrics/wp01-scale.json","sha256":"37eb9597485065f6be378c2a15a65336aeeccd2aa76ad9006f680b37f7382eb2"},
+    {"path":"recovery-results.json","sha256":"52b2f6e608426671e9129dfff4184f3ef4904b525aeebb808c0d43e9c1904df4"},
+    {"path":"security-scan.json","sha256":"acce99e0bc1f6041269b6d20e5696417db64fe1f978583bfd70890cc41baa317"},
+    {"path":"source-digests.json","sha256":"49f55b8b4d67699337e1977eebd576f1ac07423d01188edb9496835a1e798a30"},
+    {"path":"summary.md","sha256":"b89964420117df02380499297970fa902c85d4bf942a8a96992cae7ce2c3b218"},
+    {"path":"test-results/full-suite.json","sha256":"9241233bcd46ae870d08aef948cf723ed4f306eec6d7741f605667c9c3c1be23"},
+    {"path":"test-results/python-matrix.json","sha256":"414e6069900c53c70603bf0d53660fdfea2717205eb6b0a13a5553560f0fc6bb"},
+    {"path":"verifier-report.json","sha256":"0e333e048c55d561f10144196e398a2e82e0590307828e43dc28be977caf70b2"}
+  ]
+}

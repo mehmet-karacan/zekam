@@ -7,10 +7,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-import os
 import re
 import sqlite3
-import stat
 import statistics
 import unicodedata
 from collections.abc import Mapping
@@ -36,6 +34,11 @@ from zekam.domain.optimization import (
     ProgressState,
     ValidatorAssetManifest,
     evaluate_progress,
+)
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_tree,
 )
 from zekam.infrastructure.sqlite.local_learning import (
     SCHEMA_DIGEST as LEARNING_SCHEMA_DIGEST,
@@ -301,13 +304,7 @@ with closing(sqlite3.connect(":memory:")) as _schema_db:
 def _source(path: Path, expected: str) -> sqlite3.Connection:
     if not path.is_absolute() or path.is_symlink():
         raise ValidationFailed("Local improvement source path invalid")
-    info = path.lstat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.geteuid()
-        or info.st_nlink != 1
-        or stat.S_IMODE(info.st_mode) != 0o600
-    ):
+    if not private_regular(path):
         raise PolicyViolation("Local improvement source identity invalid")
     db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
     db.row_factory = sqlite3.Row
@@ -654,22 +651,18 @@ class SQLiteLocalImprovementStore:
         self.benchmark_path = benchmark_path
 
     def bootstrap(self) -> None:
+        created = not self.path.parent.exists()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        info = self.path.parent.stat()
-        if info.st_uid != os.geteuid() or info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        if created:
+            restrict_private_tree(self.path.parent)
+        if not private_directory(self.path.parent):
             raise PolicyViolation("Local improvement private parent required")
         with closing(sqlite3.connect(self.path)) as db:
             db.executescript(_SCHEMA)
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        info = self.path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
+        if not private_regular(self.path):
             raise PolicyViolation("Local improvement database identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row

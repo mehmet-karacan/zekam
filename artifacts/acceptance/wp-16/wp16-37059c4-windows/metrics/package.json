@@ -1,0 +1,17 @@
+{
+  "schema": "zekam-package-metrics/v1",
+  "status": "passed",
+  "package_manifest_sha256": "ec7fb0523e6e34aa4f344aa76dfffb331d9e2890e856e2052894ff62b6e5dbaf",
+  "wheel": {
+    "path":"C:/Users/mkaracan/zekam-windows-acceptance/dist-wp16-current-6/zekam-0.1.0-py3-none-any.whl",
+    "sha256":"485e1cbcdbf5b1513a91771947c5a129b7974a59a533d7119d94b9dd8b452eec",
+    "passed":12,"total":12,"run_sha256":"52b6d2a9d7fce8f838646af90ce2dccd9b3f08576e16b967a443b7e706fa7d14",
+    "result_file_sha256":"1e34cc0a5903831b86228de46321a40eb3bab564396d3ccb3065f0ece2335f6e"
+  },
+  "sdist": {
+    "path":"C:/Users/mkaracan/zekam-windows-acceptance/dist-wp16-current-6/zekam-0.1.0.tar.gz",
+    "sha256":"fb0d3b0b753390ed2e35316bda5557259e04cc0b30198be34eb6b2a188bb247a",
+    "passed":13,"total":13,"run_sha256":"0af6f61428e49af7847115a356ba9e8156cfd2538c2bb07fd6b1f476935a2e3a",
+    "result_file_sha256":"b9b1d63395af1e057229f8ab58e521f267f94b6326031dbecf90d38dfdc60f68"
+  }
+}

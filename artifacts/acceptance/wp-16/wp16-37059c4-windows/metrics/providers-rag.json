@@ -1,0 +1,17 @@
+{
+  "schema": "zekam-metrics/v1",
+  "status": "windows-opencode-bge-m3-accepted",
+  "probe_manifest_sha256": "307ec0e344c07feff390f553393e8975b38559328555546bd4539bccedc653ec",
+  "models": [
+    {"name":"BGE-M3","dimensions":1024,"duplicate_delta":0.00015527625986305749,"repeat_cosine":0.9999993678186736,"batch_cosine":1.0,"semantic_margin":0.509570186307466,"status":"selected-and-qualified","evidence_sha256":"0caeef7b7f2b0db955e254d56f5d9ca87e243596d7ac9e4629bb7c5aab4c6c70"},
+    {"name":"Qwen3","dimensions":1024,"latest_duplicate_delta":0.00162905082107,"status":"quarantined-intermittent-nondeterminism"},
+    {"name":"e5-mistral","dimensions":4096,"observed_duplicate_delta":0.000182300806046,"status":"quarantined-intermittent-nondeterminism"}
+  ],
+  "akilli_kasa_rag": {
+    "cases":100,"answerable":70,"top1":1.0,"citation_accuracy":1.0,"recall_at_10":0.8571,
+    "mrr":0.8107,"ndcg":0.8223,"leakage":0.0,"unsupported":0.0,"freshness_failures":0,
+    "profile_sha256":"79aeab8477361ebe2c3ca9205e1d41f76d15d26230981204a3d1d60a19effef0"
+  },
+  "durable_live_e2e":{"status":"passed","provider_calls":2,"claims":2,"receipts":2,"recoveries":0,"journal":"DELETE","integrity":"ok","restart_readback":true,"secret_value_recorded":false,"result_file_sha256":"295d0199e28e8476e2d16e22a66081f392bdf3486600cf708f99fb432b763746","database_sha256":"2bea29189f4911836e58279c77404067a890c8ac53606a43ab5836588f379ce9"},
+  "scope_note":"BGE-M3 is the selected Windows production embedding model. Qwen3 and e5-mistral remain quarantined and do not gate the selected model."
+}

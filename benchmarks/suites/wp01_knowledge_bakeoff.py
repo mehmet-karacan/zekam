@@ -30,6 +30,8 @@ from benchmarks.suites.wp01_knowledge_corpus import (
     load_corpus,
     rrf_paths,
 )
+from benchmarks.suites.wp01_platform import current_acceptance_platform
+from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 
 SCHEMA = "zekam-wp01-knowledge-bakeoff/v1"
 NO_ANSWER_THRESHOLD = 0.50
@@ -277,17 +279,48 @@ class SQLiteVecAdapter:
         self._module: Any = importlib.import_module("sqlite_vec")
         self.version = importlib.metadata.version("sqlite-vec")
         root.mkdir(parents=True, exist_ok=True)
+        self._lock_descriptor = os.open(
+            root / "knowledge.writer.lock",
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        if os.fstat(self._lock_descriptor).st_size == 0:
+            os.write(self._lock_descriptor, b"0")
+            os.fsync(self._lock_descriptor)
+        try:
+            if os.name == "nt":
+                msvcrt = importlib.import_module("msvcrt")
+                os.lseek(self._lock_descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(self._lock_descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl = importlib.import_module("fcntl")
+                fcntl.flock(self._lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(self._lock_descriptor)
+            self._lock_descriptor = -1
+            raise RuntimeError("sqlite-vec benchmark single writer already active") from None
         self._path = root / "knowledge.sqlite3"
         self._connection = sqlite3.connect(self._path)
         self._connection.execute("pragma foreign_keys = on")
         self._connection.execute("pragma busy_timeout = 2500")
+        self.journal_mode = (
+            "wal"
+            if assess_sqlite_wal_safety(sqlite3.sqlite_version).safe_for_multi_connection_wal
+            else "delete"
+        )
+        actual_mode = str(
+            self._connection.execute(f"pragma journal_mode = {self.journal_mode}").fetchone()[0]
+        ).casefold()
+        if actual_mode != self.journal_mode:
+            self.close()
+            raise RuntimeError("sqlite-vec benchmark journal policy uygulanamadi")
+        self.writer_coordination = "single-writer-file-lock"
         self._connection.enable_load_extension(True)
         self._module.load(self._connection)
         self._connection.enable_load_extension(False)
         if create:
             self._connection.executescript(
                 f"""
-                pragma journal_mode = wal;
                 pragma synchronous = full;
                 create table chunks (
                     id text primary key,
@@ -386,6 +419,16 @@ class SQLiteVecAdapter:
 
     def close(self) -> None:
         self._connection.close()
+        if self._lock_descriptor >= 0:
+            if os.name == "nt":
+                msvcrt = importlib.import_module("msvcrt")
+                os.lseek(self._lock_descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(self._lock_descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl = importlib.import_module("fcntl")
+                fcntl.flock(self._lock_descriptor, fcntl.LOCK_UN)
+            os.close(self._lock_descriptor)
+            self._lock_descriptor = -1
 
 
 def _adapter(candidate: str, root: Path, *, create: bool) -> Adapter:
@@ -641,6 +684,7 @@ def run_bakeoff(
         "platform": sys.platform,
         "python": platform.python_version(),
     }
+    current_platform = current_acceptance_platform()
     metrics = evaluation["metrics"]
     cross_project_case = next(
         case for case in evaluation["cases"] if case["case_id"] == "cross-project-leakage"
@@ -666,6 +710,17 @@ def run_bakeoff(
         "rebuild_seconds": rebuild_seconds,
         "disk_bytes": _tree_size(generation_one),
         "network_attempts": network_attempts["count"],
+        "sqlite_runtime": (
+            {
+                "journal_mode": getattr(adapter, "journal_mode", None),
+                "writer_coordination": getattr(adapter, "writer_coordination", None),
+                "wal_reset_safe": assess_sqlite_wal_safety(
+                    sqlite3.sqlite_version
+                ).safe_for_multi_connection_wal,
+            }
+            if candidate == "sqlite-vec"
+            else None
+        ),
         "quality": evaluation,
         "restart_parity": restart_parity,
         "rebuild_parity": rebuild_parity,
@@ -680,12 +735,20 @@ def run_bakeoff(
             "corruption_detection": corruption_detected is True if rebuild else None,
             "cross_project_filter_before_limit": leakage_prevented,
             "hidden_network_calls": network_attempts["count"] == 0,
-            "macos_arm64": sys.platform == "darwin" and platform.machine().lower() == "arm64",
+            "macos_arm64": current_platform == "macos-arm64",
             "persistent_restart": restart_parity,
             "rebuild_from_manifest": rebuild_parity,
-            "windows_x64": False,
+            "windows_x64": current_platform == "windows-x64",
+            "safe_sqlite_journal_policy": (
+                candidate != "sqlite-vec"
+                or getattr(adapter, "journal_mode", None) == "wal"
+                or (
+                    getattr(adapter, "journal_mode", None) == "delete"
+                    and getattr(adapter, "writer_coordination", None) == "single-writer-file-lock"
+                )
+            ),
         },
-        "selection_status": "blocked-pending-windows-x64-and-complete-scale-matrix",
+        "selection_status": "local-platform-measured-pending-cross-platform-merge",
     }
     result["artifact_digest"] = canonical_digest(result)
     return result

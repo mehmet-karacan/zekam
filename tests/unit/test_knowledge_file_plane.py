@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -44,6 +45,20 @@ NOTE_A = "018f0000-0000-7000-8000-00000000000a"
 NOTE_B = "018f0000-0000-7000-8000-00000000000b"
 RELATION_ID = "018f0000-0000-7000-8000-00000000000c"
 REALM_ID = "018f0000-0000-7000-8000-00000000000d"
+
+
+def _directory_link(link: Path, target: Path) -> None:
+    if os.name != "nt":
+        link.symlink_to(target, target_is_directory=True)
+        return
+    command = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "cmd.exe"
+    created = subprocess.run(
+        [str(command), "/d", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    assert created.returncode == 0, created.stderr
 
 
 def _file_store(tmp_path: Path) -> KnowledgeFileStore:
@@ -510,7 +525,7 @@ def test_audit_detects_half_transaction_orphans_corruption_and_public_pii(
     store.put_artifact(orphan_plan, orphan_payload)
     outside = tmp_path / "audit-outside"
     outside.mkdir()
-    (store.home / "global" / "linked").symlink_to(outside, target_is_directory=True)
+    _directory_link(store.home / "global" / "linked", outside)
     deep_cas = store.home / "artifacts" / "sha256" / "bad" / "deep" / "object"
     deep_cas.parent.mkdir(parents=True)
     deep_cas.write_bytes(b"deep-orphan")
@@ -600,7 +615,7 @@ def test_symlink_parent_and_binary_or_empty_note_are_rejected(tmp_path: Path) ->
     outside = tmp_path / "outside"
     outside.mkdir()
     link = store.home / "projeler" / "linked"
-    link.symlink_to(outside, target_is_directory=True)
+    _directory_link(link, outside)
     manifest = KnowledgeNoteManifest(
         owner_scope=f"project:{PROJECT_ID}",
         note_kind="note",

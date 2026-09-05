@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
-import platform
 import re
 import shutil
 import socket
 import sqlite3
 import statistics
-import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -21,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.suites.wp01_knowledge_corpus import canonical_digest, exact_rank, load_corpus
+from benchmarks.suites.wp01_platform import current_acceptance_platform
+from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 
 SCHEMA = "zekam-wp01-sqlite-fts5-lexical-bakeoff/v1"
 _TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -65,6 +66,43 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _single_writer(path: Path) -> Iterator[None]:
+    lock_path = Path(str(path) + ".writer.lock")
+    descriptor = os.open(
+        lock_path,
+        os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    acquired = False
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"0")
+            os.fsync(descriptor)
+        try:
+            if os.name == "nt":
+                msvcrt = importlib.import_module("msvcrt")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl = importlib.import_module("fcntl")
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeError("SQLite lexical single writer already active") from None
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            if os.name == "nt":
+                msvcrt = importlib.import_module("msvcrt")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl = importlib.import_module("fcntl")
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 def _records(chunks: list[dict[str, Any]], target_count: int) -> Iterator[tuple[Any, ...]]:
     for index in range(target_count):
         chunk = chunks[index % len(chunks)]
@@ -78,13 +116,27 @@ def _records(chunks: list[dict[str, Any]], target_count: int) -> Iterator[tuple[
         )
 
 
+def _journal_mode() -> str:
+    return (
+        "wal"
+        if assess_sqlite_wal_safety(sqlite3.sqlite_version).safe_for_multi_connection_wal
+        else "delete"
+    )
+
+
 def _build(path: Path, chunks: list[dict[str, Any]], target_count: int) -> float:
-    connection = _connect(path)
-    started = time.perf_counter()
-    try:
-        connection.executescript(
-            """
-            pragma journal_mode = wal;
+    with _single_writer(path):
+        connection = _connect(path)
+        started = time.perf_counter()
+        try:
+            selected_mode = _journal_mode()
+            actual_mode = str(
+                connection.execute(f"pragma journal_mode = {selected_mode}").fetchone()[0]
+            ).casefold()
+            if actual_mode != selected_mode:
+                raise RuntimeError("SQLite lexical journal policy uygulanamadi")
+            connection.executescript(
+                """
             pragma synchronous = full;
             create table document (
                 rowid integer primary key,
@@ -103,21 +155,22 @@ def _build(path: Path, chunks: list[dict[str, Any]], target_count: int) -> float
                 tokenize='unicode61 remove_diacritics 2'
             );
             """
-        )
-        batch: list[tuple[Any, ...]] = []
-        for row in _records(chunks, target_count):
-            batch.append(row)
-            if len(batch) == 1_000:
+            )
+            batch: list[tuple[Any, ...]] = []
+            for row in _records(chunks, target_count):
+                batch.append(row)
+                if len(batch) == 1_000:
+                    _insert_batch(connection, batch)
+                    batch = []
+            if batch:
                 _insert_batch(connection, batch)
-                batch = []
-        if batch:
-            _insert_batch(connection, batch)
-        connection.execute("insert into lexical(lexical) values ('optimize')")
-        connection.commit()
-        connection.execute("pragma wal_checkpoint(truncate)").fetchall()
-    finally:
-        connection.close()
-    return time.perf_counter() - started
+            connection.execute("insert into lexical(lexical) values ('optimize')")
+            connection.commit()
+            if selected_mode == "wal":
+                connection.execute("pragma wal_checkpoint(truncate)").fetchall()
+        finally:
+            connection.close()
+        return time.perf_counter() - started
 
 
 def _insert_batch(connection: sqlite3.Connection, rows: list[tuple[Any, ...]]) -> None:
@@ -290,6 +343,7 @@ def run(*, corpus_path: Path, root: Path, target_count: int, rebuild: bool) -> d
                 os.fsync(handle.fileno())
             corruption_detected = _digest_database(corrupt) != expected
     cross = next(case for case in evaluation["cases"] if case["case_id"] == "cross-project-leakage")
+    current_platform = current_acceptance_platform()
     result: dict[str, Any] = {
         "schema": SCHEMA,
         "candidate": "sqlite-fts5",
@@ -307,19 +361,32 @@ def run(*, corpus_path: Path, root: Path, target_count: int, rebuild: bool) -> d
         "rebuild_parity": rebuild_parity,
         "corruption_detected": corruption_detected,
         "network_attempts": network["count"],
+        "sqlite_runtime": {
+            "journal_mode": _journal_mode(),
+            "writer_coordination": "single-writer-file-lock",
+            "wal_reset_safe": assess_sqlite_wal_safety(
+                sqlite3.sqlite_version
+            ).safe_for_multi_connection_wal,
+        },
         "hard_gates": {
             "corruption_detection": corruption_detected is True if rebuild else None,
             "cross_project_filter_before_limit": (
                 "security-fixture/cross-project-decoy.txt" not in cross["lexical_paths"]
             ),
-            "macos_arm64": sys.platform == "darwin" and platform.machine().lower() == "arm64",
+            "macos_arm64": current_platform == "macos-arm64",
             "no_server_or_docker": True,
             "offline_runtime": network["count"] == 0,
             "persistent_restart": restart_parity,
             "rebuild_from_manifest": rebuild_parity,
-            "windows_x64": False,
+            "windows_x64": current_platform == "windows-x64",
+            "safe_sqlite_journal_policy": not (
+                _journal_mode() == "wal"
+                and not assess_sqlite_wal_safety(
+                    sqlite3.sqlite_version
+                ).safe_for_multi_connection_wal
+            ),
         },
-        "selection_status": "blocked-pending-windows-x64",
+        "selection_status": "local-platform-measured-pending-cross-platform-merge",
     }
     result["artifact_digest"] = canonical_digest(result)
     return result

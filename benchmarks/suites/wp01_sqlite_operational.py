@@ -14,6 +14,7 @@ import platform
 import queue
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ from typing import Any
 
 from benchmarks.suites.wp01_operational_fixture import SCHEMA as _SCHEMA
 from benchmarks.suites.wp01_operational_fixture import WorkloadSize
+from benchmarks.suites.wp01_platform import current_acceptance_platform
 from zekam.application.technology_bakeoff import (
     assess_sqlite_wal_safety,
     canonical_json_digest,
@@ -87,9 +89,12 @@ def _connect(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     return connection
 
 
-def _bootstrap(path: Path) -> dict[str, Any]:
+def _bootstrap(path: Path, *, wal_safe: bool) -> dict[str, Any]:
     with _connect(path) as connection:
-        journal_mode = str(connection.execute("pragma journal_mode = wal").fetchone()[0])
+        requested_journal = "wal" if wal_safe else "delete"
+        journal_mode = str(
+            connection.execute(f"pragma journal_mode = {requested_journal}").fetchone()[0]
+        )
         connection.execute("pragma synchronous = full")
         connection.executescript(_SCHEMA)
         connection.execute("insert into system_meta(key, value) values ('schema_version', '1')")
@@ -97,8 +102,12 @@ def _bootstrap(path: Path) -> dict[str, Any]:
         foreign_keys = int(connection.execute("pragma foreign_keys").fetchone()[0])
         synchronous = int(connection.execute("pragma synchronous").fetchone()[0])
     return {
+        "concurrency_profile": (
+            "multi-connection-wal" if wal_safe else "single-writer-rollback-journal"
+        ),
         "foreign_keys": foreign_keys,
         "journal_mode": journal_mode,
+        "single_writer_coordinator": not wal_safe,
         "synchronous": synchronous,
     }
 
@@ -416,6 +425,22 @@ def _disk_full_probe(root: Path) -> ProbeResult:
 def _read_only_directory_probe(root: Path) -> ProbeResult:
     directory = root / "read-only"
     directory.mkdir()
+    if os.name == "nt":
+        database = directory / "forbidden.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("create table payload(value integer)")
+            connection.commit()
+        os.chmod(database, stat.S_IREAD)
+        rejected = False
+        try:
+            with sqlite3.connect(database) as connection:
+                connection.execute("insert into payload(value) values (1)")
+                connection.commit()
+        except sqlite3.OperationalError:
+            rejected = True
+        finally:
+            os.chmod(database, stat.S_IREAD | stat.S_IWRITE)
+        return ProbeResult(rejected, "windows-read-only-file-write-rejected")
     directory.chmod(0o500)
     rejected = False
     try:
@@ -430,6 +455,61 @@ def _read_only_directory_probe(root: Path) -> ProbeResult:
     finally:
         directory.chmod(0o700)
     return ProbeResult(rejected, "read-only-directory-write-rejected")
+
+
+def _child_windows_lock(path: Path) -> int:
+    if os.name != "nt":
+        return 4
+    import msvcrt
+
+    with path.open("r+b", buffering=0) as handle:
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return 0
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    return 3
+
+
+def _windows_file_lock_probe(root: Path) -> ProbeResult:
+    if os.name != "nt":
+        return ProbeResult(True, "not-applicable-non-windows")
+    import msvcrt
+
+    path = root / "windows-file-lock.bin"
+    with path.open("w+b", buffering=0) as handle:
+        handle.write(b"0")
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        try:
+            child = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.suites.wp01_sqlite_operational",
+                    "--child-windows-lock",
+                    str(path),
+                ],
+                cwd=Path(__file__).resolve().parents[2],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    return ProbeResult(child.returncode == 0, f"child-exit-{child.returncode}")
+
+
+def _atomic_replace_probe(root: Path) -> ProbeResult:
+    target = root / "atomic-target.json"
+    staging = root / "atomic-staging.json"
+    target.write_text('{"generation":1}\n', encoding="ascii")
+    staging.write_text('{"generation":2}\n', encoding="ascii")
+    os.replace(staging, target)
+    passed = target.read_text(encoding="ascii") == '{"generation":2}\n' and not staging.exists()
+    return ProbeResult(passed, "replace-published-complete-generation")
 
 
 def _schema_fingerprint(path: Path) -> str:
@@ -531,7 +611,7 @@ def run_sqlite_operational_bakeoff(
     started_at = datetime.now(UTC).isoformat()
     wal_safety = assess_sqlite_wal_safety(sqlite3.sqlite_version)
     with _deny_network() as network_attempts:
-        runtime = _bootstrap(database)
+        runtime = _bootstrap(database, wal_safe=wal_safety.safe_for_multi_connection_wal)
         durations = _insert_primary_workload(database, size)
         constraints = _constraint_probes(database)
         producers = _serialized_producers(
@@ -544,14 +624,21 @@ def run_sqlite_operational_bakeoff(
         snapshot_kill = _kill_snapshot_process(database, root)
         disk_full = _disk_full_probe(root)
         read_only = _read_only_directory_probe(root)
+        windows_file_lock = _windows_file_lock_probe(root)
+        atomic_replace = _atomic_replace_probe(root)
         schema_drift = _schema_drift_probe(database, root)
         corruption = _corruption_probe(database, root)
         backup = _backup_restore_probe(database, root)
         counts = _row_counts(database)
     machine = platform.machine().lower()
-    mac_execution = sys.platform == "darwin" and machine == "arm64"
+    current_platform = current_acceptance_platform()
+    runtime_profile_safe = (
+        runtime["journal_mode"] == "wal"
+        if wal_safety.safe_for_multi_connection_wal
+        else runtime["journal_mode"] != "wal" and runtime["single_writer_coordinator"] is True
+    )
     local_probes_pass = (
-        wal_safety.safe_for_multi_connection_wal
+        runtime_profile_safe
         and all(probe.passed for probe in constraints.values())
         and producers["inserted"] == size.producer_rows
         and not producers["errors"]
@@ -561,6 +648,8 @@ def run_sqlite_operational_bakeoff(
         and snapshot_kill.passed
         and disk_full.passed
         and read_only.passed
+        and windows_file_lock.passed
+        and atomic_replace.passed
         and schema_drift.passed
         and corruption.passed
         and backup["passed"]
@@ -585,6 +674,7 @@ def run_sqlite_operational_bakeoff(
         "row_counts": counts,
         "probes": {
             "backup_restore": backup,
+            "atomic_replace": asdict(atomic_replace),
             "constraints": {name: asdict(result) for name, result in constraints.items()},
             "corruption": asdict(corruption),
             "disk_full": asdict(disk_full),
@@ -594,21 +684,22 @@ def run_sqlite_operational_bakeoff(
             "serialized_producers": producers,
             "snapshot_process_kill": asdict(snapshot_kill),
             "uncommitted_process_kill": asdict(crash),
+            "windows_file_lock": asdict(windows_file_lock),
         },
-        "executed_platforms": ["macos-arm64"] if mac_execution else [],
+        "executed_platforms": [current_platform] if current_platform is not None else [],
         "hard_gates": {
             "crash_integrity": crash.passed,
-            "macos_arm64": mac_execution and local_probes_pass,
+            "macos_arm64": current_platform == "macos-arm64" and local_probes_pass,
             "no_server_or_docker": True,
             "offline_runtime": network_attempts["count"] == 0,
             "persistent_local_state": backup["passed"],
             "rebuild_or_restore": backup["passed"],
-            "reproducible_install": mac_execution,
-            "windows_x64": False,
+            "reproducible_install": current_platform is not None,
+            "windows_x64": current_platform == "windows-x64" and local_probes_pass,
         },
         "measured": True,
-        "local_pass": local_probes_pass and mac_execution,
-        "selection_status": "blocked-pending-windows-x64-and-other-candidates",
+        "local_pass": local_probes_pass and current_platform is not None,
+        "selection_status": "local-platform-measured-pending-cross-platform-merge",
     }
     evidence["artifact_digest"] = canonical_json_digest(evidence)
     return evidence
@@ -635,6 +726,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--event-rows", type=int, default=100_000)
     parser.add_argument("--producer-rows", type=int, default=10_000)
     parser.add_argument("--child-uncommitted", nargs=2, metavar=("DATABASE", "READY"))
+    parser.add_argument("--child-windows-lock", type=Path)
     parser.add_argument(
         "--child-backup",
         nargs=3,
@@ -648,6 +740,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.child_uncommitted is not None:
         database, ready = args.child_uncommitted
         return _child_uncommitted(Path(database), Path(ready))
+    if args.child_windows_lock is not None:
+        return _child_windows_lock(args.child_windows_lock)
     if args.child_backup is not None:
         source, target, ready = args.child_backup
         return _child_backup(Path(source), Path(target), Path(ready))

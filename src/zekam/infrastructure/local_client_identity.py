@@ -26,6 +26,8 @@ from zekam.domain.errors import ConfigurationError, ValidationFailed
 
 MAX_NATIVE_BYTES = 512 * 1024 * 1024
 MAX_PACKAGE_BYTES = 16384
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 
 def _reject(reason: str) -> ConfigurationError:
@@ -68,7 +70,7 @@ def _native_identity(path: Path) -> tuple[tuple[int, ...], str]:
     before = _path(path)
     if not 32 <= before[-3] <= MAX_NATIVE_BYTES or not before[-4] & 0o111:
         raise _reject("native executable mode or size bound failed")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as source:
+    with os.fdopen(os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK), "rb") as source:
         opened = os.fstat(source.fileno())
         if (opened.st_dev, opened.st_ino) != before[-6:-4]:
             raise _reject("native source changed before capture")
@@ -110,7 +112,7 @@ def _package(path: Path, expected_version: str) -> tuple[tuple[int, ...], bytes]
     before = _path(path)
     if not 1 <= before[-3] <= MAX_PACKAGE_BYTES:
         raise _reject("package metadata byte bound failed")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+    with os.fdopen(os.open(path, os.O_RDONLY | _O_NOFOLLOW | _O_NONBLOCK), "rb") as stream:
         opened = os.fstat(stream.fileno())
         if (opened.st_dev, opened.st_ino) != before[-6:-4]:
             raise _reject("package source changed")

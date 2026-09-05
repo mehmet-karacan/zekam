@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import sqlite3
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -30,6 +32,20 @@ pytestmark = pytest.mark.security
 
 PROJECT_ID = "018f0000-0000-7000-8000-000000000001"
 REALM_ID = "018f0000-0000-7000-8000-000000000002"
+
+
+def _directory_link(link: Path, target: Path) -> None:
+    if os.name != "nt":
+        link.symlink_to(target, target_is_directory=True)
+        return
+    command = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "cmd.exe"
+    created = subprocess.run(
+        [str(command), "/d", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    assert created.returncode == 0, created.stderr
 
 
 @pytest.mark.parametrize(
@@ -151,7 +167,7 @@ def test_existing_symlink_leaf_and_parent_never_escape_home(tmp_path: Path) -> N
     outside.mkdir()
     payload = b"# no escape\n"
     parent_link = home / "projeler" / "akilli-kasa" / "notlar" / "user"
-    parent_link.symlink_to(outside, target_is_directory=True)
+    _directory_link(parent_link, outside)
     manifest = KnowledgeNoteManifest(
         owner_scope=f"project:{PROJECT_ID}",
         note_kind="note",
@@ -195,7 +211,7 @@ def test_parent_swap_after_handle_open_cannot_write_outside_home(
         if not called:
             called = True
             user_root.rename(displaced)
-            user_root.symlink_to(outside, target_is_directory=True)
+            _directory_link(user_root, outside)
         return "a" * 24
 
     monkeypatch.setattr(secrets, "token_hex", swap_parent)
@@ -203,7 +219,10 @@ def test_parent_swap_after_handle_open_cannot_write_outside_home(
         store.create_note(manifest, payload)
 
     assert not (outside / "a.md").exists()
-    assert (displaced / "a.md").read_bytes() == payload
+    if os.name == "nt":
+        assert not (displaced / "a.md").exists()
+    else:
+        assert (displaced / "a.md").read_bytes() == payload
 
 
 def test_audit_reports_replaced_note_and_cas_roots(tmp_path: Path) -> None:
@@ -215,12 +234,12 @@ def test_audit_reports_replaced_note_and_cas_roots(tmp_path: Path) -> None:
 
     global_root = home / "global"
     global_root.rename(home / "global-displaced")
-    global_root.symlink_to(outside, target_is_directory=True)
+    _directory_link(global_root, outside)
 
     cas_root = home / "artifacts" / "sha256"
     cas_root.mkdir(parents=True, exist_ok=True)
     cas_root.rename(home / "artifacts" / "sha256-displaced")
-    cas_root.symlink_to(outside, target_is_directory=True)
+    _directory_link(cas_root, outside)
 
     issues = store.audit(notes=(), artifacts=())
 
