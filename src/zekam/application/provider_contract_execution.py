@@ -244,6 +244,16 @@ class ProviderCallPlan:
     endpoint_binding_digest: str | None
     endpoint_path_hint: str
     fixture_identity_digest: str | None = None
+    data_classifications: tuple[DataClassification, ...] = (DataClassification.PUBLIC,)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.data_classifications, tuple)
+            or not self.data_classifications
+            or len(set(self.data_classifications)) != len(self.data_classifications)
+            or any(not isinstance(item, DataClassification) for item in self.data_classifications)
+        ):
+            raise ValidationFailed("Provider call classification seti exact olmali")
 
     @property
     def target(self) -> str:
@@ -264,6 +274,7 @@ class ProviderCallPlan:
                 "fixture_identity_digest": self.fixture_identity_digest,
                 "endpoint_binding_digest": self.endpoint_binding_digest,
                 "target": self.target,
+                "data_classifications": [item.value for item in self.data_classifications],
             }
         )
 
@@ -293,7 +304,7 @@ class ProviderCallPlan:
             "resources": [self.target, self.call_resource],
             "provider_refs": [self.provider_ref],
             "operations": [self.operation],
-            "data_classifications": [DataClassification.PUBLIC.value],
+            "data_classifications": [item.value for item in self.data_classifications],
             "max_uses": 1,
             "grants_authority": False,
             "runtime_bound": self.runtime_bound,
@@ -307,7 +318,7 @@ class ProviderCallPlan:
             action=self.effect_action,
             effects=(EffectKind.PROVIDER_CALL,),
             resources=(self.target, self.call_resource),
-            data_classifications=(DataClassification.PUBLIC,),
+            data_classifications=self.data_classifications,
             provider_refs=(self.provider_ref,),
             reversible=False,
             touches_external_system=True,
@@ -329,6 +340,7 @@ class ProviderCallPlan:
             "payload_digest": self.payload_digest,
             "endpoint_binding_digest": self.endpoint_binding_digest,
             "endpoint_path_hint": self.endpoint_path_hint,
+            "data_classifications": [item.value for item in self.data_classifications],
             "target": self.target,
             "call_resource": self.call_resource,
             "effect_digest": (self.effect_request.effect_digest if self.runtime_bound else None),

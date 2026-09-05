@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib
 import multiprocessing
+import os
 import sqlite3
 from pathlib import Path
 
@@ -147,6 +148,8 @@ def test_rebuild_delete_restart_has_exact_aggregate_and_authority_free_reports(
     assert first.fresh
     database = store.generations / current["database_file"]
     with sqlite3.connect(":memory:"):
+        if os.name == "nt":
+            database.chmod(0o600)
         database.unlink()
     rebuilt = LocalAnalyticsStore(store.root).rebuild(now=NOW + dt.timedelta(minutes=1))
     assert rebuilt == first
@@ -253,7 +256,10 @@ def test_cross_segment_duplicate_and_orphan_source_are_quarantined(tmp_path: Pat
 
     other = _store(tmp_path / "other")
     other.append_segment("orphan", (event,))
-    (other.manifests / "orphan.json").unlink()
+    orphan_manifest = other.manifests / "orphan.json"
+    if os.name == "nt":
+        orphan_manifest.chmod(0o600)
+    orphan_manifest.unlink()
     with pytest.raises(PolicyViolation, match="census"):
         other.rebuild(now=NOW)
     assert len(tuple(other.quarantine.iterdir())) == 1
@@ -674,15 +680,16 @@ def test_stored_scalar_and_event_type_boundaries_fail_closed(operation: object, 
 
 
 def test_private_directory_and_quarantine_identity_boundaries(tmp_path: Path) -> None:
-    public = (tmp_path / "public").resolve()
-    public.mkdir(mode=0o755)
-    with pytest.raises(PolicyViolation, match="private root"):
-        LocalAnalyticsStore(public).bootstrap()
+    if os.name != "nt":
+        public = (tmp_path / "public").resolve()
+        public.mkdir(mode=0o755)
+        with pytest.raises(PolicyViolation, match="private directory"):
+            LocalAnalyticsStore(public).bootstrap()
 
-    store = _store(tmp_path / "directory")
-    store.raw.chmod(0o755)
-    with pytest.raises(PolicyViolation, match="private directory"):
-        store.bootstrap()
+        store = _store(tmp_path / "directory")
+        store.raw.chmod(0o755)
+        with pytest.raises(PolicyViolation, match="private directory"):
+            store.bootstrap()
 
     store = _store(tmp_path / "quarantine")
     (store.raw / "directory").mkdir()
@@ -696,6 +703,17 @@ def test_private_directory_and_quarantine_identity_boundaries(tmp_path: Path) ->
     target.write_bytes(b"collision")
     with pytest.raises(ConcurrencyConflict, match="quarantine collision"):
         store._quarantine_sources()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows read-only attribute contract")
+def test_windows_writer_lock_read_only_drift_fails_closed(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.lock.chmod(0o400)
+    try:
+        with pytest.raises(PolicyViolation, match="file identity"):
+            store.rebuild(now=NOW)
+    finally:
+        store.lock.chmod(0o600)
 
 
 def test_append_and_rebuild_input_boundaries(

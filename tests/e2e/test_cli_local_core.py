@@ -47,9 +47,13 @@ def test_real_setup_is_digest_bound_replayable_and_does_not_need_docker(tmp_path
     tool_bin.mkdir()
     git = shutil.which("git")
     assert git is not None
-    (tool_bin / "git").symlink_to(Path(git).resolve())
+    if os.name == "nt":
+        isolated_path = str(Path(git).resolve().parent)
+    else:
+        (tool_bin / "git").symlink_to(Path(git).resolve())
+        isolated_path = str(tool_bin)
     environment = os.environ.copy()
-    environment["PATH"] = str(tool_bin)
+    environment["PATH"] = isolated_path
     assert shutil.which("docker", path=environment["PATH"]) is None
     prefix = (sys.executable, "-m", "zekam.interfaces.cli.main", "setup")
 
@@ -177,7 +181,18 @@ def test_doctor_local_store_check_is_read_only_and_fails_closed_on_corrupt_bytes
 def test_doctor_fails_closed_on_analytics_semantic_drift(tmp_path: Path) -> None:
     home = tmp_path / "home"
     assert _run("init", "--home", str(home)).exit_code == 0
-    (home / "analytics" / ".writer.lock").chmod(0o644)
+    lock = home / "analytics" / ".writer.lock"
+    if os.name == "nt":
+        icacls = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "icacls.exe"
+        weakened = subprocess.run(
+            [str(icacls), str(lock), "/grant", "*S-1-1-0:W", "/Q"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        assert weakened.returncode == 0, weakened.stderr
+    else:
+        lock.chmod(0o644)
 
     blocked = _run("doctor", "--home", str(home), "--json")
     assert blocked.exit_code == 2

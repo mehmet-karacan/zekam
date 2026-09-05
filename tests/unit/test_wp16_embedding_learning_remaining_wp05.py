@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import os
 import sqlite3
 import struct
 import subprocess
@@ -30,11 +31,25 @@ from zekam.domain.learning import SkillEvaluation, SkillFixture
 from zekam.domain.model_inventory import HealthState, InventorySnapshot, Modality
 from zekam.domain.security import SecretBackend, SecretRef
 from zekam.infrastructure.knowledge import document_parsers as parsers
+from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite import local_learning as learning
 from zekam.infrastructure.sqlite import local_model_registry as registry
 
 NOW = dt.datetime(2026, 9, 4, 12, tzinfo=dt.UTC)
 MODEL = "openai/BAAI/bge-m3"
+
+
+def _make_shared(path: Path) -> None:
+    if os.name != "nt":
+        path.chmod(0o777 if path.is_dir() else 0o644)
+        return
+    icacls = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32/icacls.exe"
+    completed = subprocess.run(
+        [str(icacls), str(path), "/grant", "*S-1-1-0:R", "/Q"],
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0
 
 
 def _config(**provider_changes: object) -> dict[str, object]:
@@ -598,7 +613,11 @@ def test_registry_remaining_discovery_path_size_model_failure_and_codex(
         now=NOW,
     )
     assert observed.listing_supported and observed.models[0].exact_id == "openai/gpt-5"
-    executable.chmod(0o722)
+    if os.name == "nt":
+        monkeypatch.undo()
+        _make_shared(executable)
+    else:
+        executable.chmod(0o722)
     with pytest.raises(PolicyViolation, match="identity"):
         registry.discover_installed_client(
             executable,
@@ -704,17 +723,20 @@ def test_learning_remaining_precondition_and_identity_matrix(tmp_path: Path) -> 
 def test_learning_private_parent_and_store_file_identity(tmp_path: Path) -> None:
     parent = tmp_path / "shared"
     parent.mkdir(mode=0o777)
-    parent.chmod(0o777)
+    _make_shared(parent)
     store = learning.SQLiteLocalLearning(
         (parent / "learning.db").resolve(),
         operational_path=(tmp_path / "operational.db").resolve(),
     )
     with pytest.raises(PolicyViolation, match="private parent"):
         store.bootstrap()
-    parent.chmod(0o700)
+    if os.name == "nt":
+        restrict_private_tree(parent)
+    else:
+        parent.chmod(0o700)
     sqlite3.connect(store.operational_path).close()
     store.bootstrap()
-    store.path.chmod(0o644)
+    _make_shared(store.path)
     with pytest.raises(PolicyViolation, match="identity"):
         store.audit()
 
@@ -722,7 +744,7 @@ def test_learning_private_parent_and_store_file_identity(tmp_path: Path) -> None
 def test_learning_operational_and_missing_skill_evidence_guards(tmp_path: Path) -> None:
     operational = (tmp_path / "operational.db").resolve()
     sqlite3.connect(operational).close()
-    operational.chmod(0o644)
+    _make_shared(operational)
     store = learning.SQLiteLocalLearning(
         (tmp_path / "learning.db").resolve(), operational_path=operational
     )

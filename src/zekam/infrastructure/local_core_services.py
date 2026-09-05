@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import stat
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from zekam.application.composition import ApplicationContext
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
+from zekam.infrastructure.local_file_security import private_directory, private_regular
 from zekam.infrastructure.sqlite.local_continuity_source_authority import (
     DDL_DIGEST as SOURCE_DDL_DIGEST,
 )
@@ -111,12 +112,7 @@ def validate_local_sqlite_store(name: str, path: Path) -> dict[str, object]:
     """Reopen and verify one exact local schema, metadata row, FK graph and bytes."""
 
     info = path.lstat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.geteuid()
-        or info.st_nlink != 1
-        or stat.S_IMODE(info.st_mode) != 0o600
-    ):
+    if not private_regular(path):
         raise ConfigurationError(f"Local {name} database identity invalid")
     if name == "operational":
         current = operational_status(path)
@@ -293,7 +289,7 @@ class LocalCoreServices:
                 }
                 continue
             try:
-                with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as db:
+                with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
                     tables = int(
                         db.execute(
                             "select count(*) from sqlite_master "
@@ -377,24 +373,11 @@ class LocalCoreServices:
         try:
             existing_paths = tuple(path for path in required_paths if path.exists())
             missing_paths = tuple(path for path in required_paths if not path.exists())
-            path_drift = any(
-                path.is_symlink()
-                or not stat.S_ISDIR(path.lstat().st_mode)
-                or path.lstat().st_uid != os.geteuid()
-                or stat.S_IMODE(path.lstat().st_mode) != 0o700
-                for path in existing_paths
-            )
+            path_drift = any(not private_directory(path) for path in existing_paths)
             lock_exists = self.analytics.lock.exists() or self.analytics.lock.is_symlink()
             lock_drift = False
             if lock_exists:
-                info = self.analytics.lock.lstat()
-                lock_drift = (
-                    self.analytics.lock.is_symlink()
-                    or not stat.S_ISREG(info.st_mode)
-                    or info.st_uid != os.geteuid()
-                    or info.st_nlink != 1
-                    or stat.S_IMODE(info.st_mode) != 0o600
-                )
+                lock_drift = not private_regular(self.analytics.lock)
             structural_ready = (
                 not missing_paths and lock_exists and not path_drift and not lock_drift
             )

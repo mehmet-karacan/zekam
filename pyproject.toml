@@ -77,7 +77,6 @@ exclude = [
     "/src/zekam/application/measured_loop_worker.py",
     "/src/zekam/application/project_integration.py",
     "/src/zekam/application/projection_close_runtime.py",
-    "/src/zekam/application/provider_contract_runner.py",
     "/src/zekam/application/recovery_reconciliation.py",
     "/src/zekam/application/resume_apply_service.py",
     "/src/zekam/application/run_reconciliation.py",

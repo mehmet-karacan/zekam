@@ -7,12 +7,14 @@ chunk, lexical row and real vector has been committed in one transaction.
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import os
 import re
 import sqlite3
 import stat
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
@@ -27,10 +29,17 @@ from zekam.application.knowledge_index import (
     KnowledgeIndexRecord,
 )
 from zekam.application.retrieval_service import ChunkView
+from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
-from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    ConcurrencyConflict,
+    ConfigurationError,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.domain.knowledge import Locator
 from zekam.domain.retrieval import RetrievalChannel, ScoredHit
+from zekam.infrastructure.local_file_security import private_regular, restrict_private_file
 
 SCHEMA_VERSION = 2
 VECTOR_DIMENSION = KNOWLEDGE_VECTOR_DIMENSION
@@ -127,6 +136,11 @@ class SQLiteKnowledgeIndex:
             raise ConfigurationError("Knowledge index path absolute file olmali")
         self.path = path
         self._read_only = read_only
+        self._journal_mode = (
+            "wal"
+            if assess_sqlite_wal_safety(sqlite3.sqlite_version).safe_for_multi_connection_wal
+            else "delete"
+        )
         self._source_identity_at_open: _SourceIdentity | None = None
         if read_only:
             self._source_identity_at_open = self._source_file_identity()
@@ -155,8 +169,18 @@ class SQLiteKnowledgeIndex:
                 sqlite_vec.load(connection)
             finally:
                 connection.enable_load_extension(False)
-            if create:
-                self._create_schema()
+            if not read_only:
+                with self._single_writer():
+                    actual_mode = str(
+                        connection.execute(f"pragma journal_mode={self._journal_mode}").fetchone()[
+                            0
+                        ]
+                    ).casefold()
+                    if actual_mode != self._journal_mode:
+                        raise ConfigurationError("Knowledge index journal policy uygulanamadi")
+                    connection.execute("pragma synchronous=full")
+                    if create:
+                        self._create_schema()
             self._validate_schema()
             if not read_only:
                 os.chmod(path, 0o600)
@@ -178,6 +202,58 @@ class SQLiteKnowledgeIndex:
     def _require_writable(self) -> None:
         if self._read_only:
             raise PolicyViolation("Knowledge read-only index cannot mutate or perform maintenance")
+
+    @contextmanager
+    def _single_writer(self) -> Iterator[None]:
+        self._require_writable()
+        lock_path = Path(str(self.path) + ".writer.lock")
+        if lock_path.is_symlink():
+            raise ConfigurationError("Knowledge writer lock symlink olamaz")
+        descriptor = os.open(
+            lock_path,
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        acquired = False
+        try:
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"0")
+                os.fsync(descriptor)
+            restrict_private_file(lock_path)
+            identity = lock_path.lstat()
+            opened = os.fstat(descriptor)
+            if not private_regular(lock_path) or (identity.st_dev, identity.st_ino) != (
+                opened.st_dev,
+                opened.st_ino,
+            ):
+                raise ConfigurationError("Knowledge writer lock identity/ACL drift")
+            deadline = time.monotonic() + 5.0
+            while True:
+                try:
+                    if os.name == "nt":
+                        msvcrt = importlib.import_module("msvcrt")
+                        os.lseek(descriptor, 0, os.SEEK_SET)
+                        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl = importlib.import_module("fcntl")
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        raise ConcurrencyConflict("Knowledge index writer already active") from exc
+                    time.sleep(0.01)
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                if os.name == "nt":
+                    msvcrt = importlib.import_module("msvcrt")
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl = importlib.import_module("fcntl")
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     def _source_file_identity(self) -> _SourceIdentity:
         """Metadata identity plus WAL/journal admission; never follows symlink ancestors."""
@@ -246,8 +322,6 @@ class SQLiteKnowledgeIndex:
         self._require_writable()
         self._connection.executescript(
             f"""
-            pragma journal_mode=wal;
-            pragma synchronous=full;
             create table if not exists metadata (
                 singleton integer primary key check(singleton=1),
                 schema_version integer not null,
@@ -417,6 +491,30 @@ class SQLiteKnowledgeIndex:
         )
 
     def build_generation(
+        self,
+        records: tuple[KnowledgeIndexRecord, ...],
+        *,
+        project_id: str,
+        source_revision: str,
+        tree_digest: str,
+        source_manifest_digest: str,
+        embedding_profile_digest: str,
+        provider_profile_digest: str,
+        created_at: str,
+    ) -> KnowledgeGeneration:
+        with self._single_writer():
+            return self._build_generation_locked(
+                records,
+                project_id=project_id,
+                source_revision=source_revision,
+                tree_digest=tree_digest,
+                source_manifest_digest=source_manifest_digest,
+                embedding_profile_digest=embedding_profile_digest,
+                provider_profile_digest=provider_profile_digest,
+                created_at=created_at,
+            )
+
+    def _build_generation_locked(
         self,
         records: tuple[KnowledgeIndexRecord, ...],
         *,

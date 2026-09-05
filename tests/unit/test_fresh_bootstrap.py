@@ -65,6 +65,37 @@ def _plan(tmp_path: Path) -> FreshBootstrapPlan:
     )
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows long-path acceptance")
+def test_windows_long_non_ascii_home_bootstraps_and_restarts(tmp_path: Path) -> None:
+    parent = tmp_path
+    for index in range(3):
+        parent /= f"uzun-dizin-{index}-" + "x" * 56
+    parent.mkdir(parents=True)
+    core = tmp_path / "core"
+    core.mkdir()
+    home = parent / "zekam-ödeme-home"
+
+    plan = plan_fresh_bootstrap(
+        home=home,
+        core_root=core,
+        authority_digest=AUTHORITY_DIGEST,
+    )
+    receipt = apply_fresh_bootstrap(plan)
+    replay_plan = plan_fresh_bootstrap(
+        home=home,
+        core_root=core,
+        authority_digest=AUTHORITY_DIGEST,
+    )
+    replay = apply_fresh_bootstrap(replay_plan)
+
+    assert len(str(home)) > 260
+    assert receipt["status"] == "completed"
+    assert replay_plan.action == "already-initialized"
+    assert replay["receipt_digest"] == receipt["receipt_digest"]
+    status = sqlite_status(home / OPERATIONAL_RELATIVE_PATH)
+    assert status.schema_ok and status.integrity_ok
+
+
 def test_plan_is_read_only_and_exact(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
 
@@ -187,7 +218,17 @@ def test_symlink_parent_cannot_publish_home_inside_core(tmp_path: Path) -> None:
     core = tmp_path / "core"
     core.mkdir()
     alias = tmp_path / "alias"
-    alias.symlink_to(core, target_is_directory=True)
+    if os.name == "nt":
+        command = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "cmd.exe"
+        created = subprocess.run(
+            [str(command), "/d", "/c", "mklink", "/J", str(alias), str(core)],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        assert created.returncode == 0, created.stderr
+    else:
+        alias.symlink_to(core, target_is_directory=True)
 
     with pytest.raises(ConfigurationError, match="core source agacinin icinde"):
         plan_fresh_bootstrap(

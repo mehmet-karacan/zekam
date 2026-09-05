@@ -2,7 +2,7 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:eab0182081050e212def4ac2639d9c13db8b0e76bcb01b0fa0fae810aea3bd5f
+authority_digest: sha256:ebd9ca00a5cc500a650984e3cdc7be22186b85b5a283d86a6f9d863237530629
 task_id: ZEKAM-LOCAL-INTELLIGENCE-PLANE-001
 status: APPROVED_ACTIVE_TASK
 title: Zekam Yerel-İlk Polyglot Veri, Çalışan RAG, Model Laboratuvarı ve Ölçümlü Öz-İyileştirme

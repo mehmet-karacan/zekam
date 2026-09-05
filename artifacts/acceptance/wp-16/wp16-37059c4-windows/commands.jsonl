@@ -1,0 +1,21 @@
+{"id":"baseline","result":"passed","detail":"HEAD and origin/main both 37059c4f0c93c5be9229ff17da6189d6bfbba16f; initial worktree clean"}
+{"id":"python-critical-3.12","result":"passed","detail":"360 passed, 4 skipped; later changed security scope 119 passed, 6 skipped"}
+{"id":"python-critical-3.13","result":"passed","detail":"360 passed, 4 skipped; later changed security scope 119 passed, 6 skipped"}
+{"id":"python-critical-3.14-final","result":"passed","detail":"466 passed, 10 skipped in 153.07s"}
+{"id":"pytest-cross-platform-collect","result":"excluded-by-user-scope","detail":"6003 collected; 15 macOS/POSIX-only import errors are outside Windows/OpenCode release scope"}
+{"id":"ruff-check","result":"passed","detail":"ruff check ."}
+{"id":"ruff-format-check","result":"passed","detail":"818 files already formatted"}
+{"id":"mypy-changed-core","result":"passed","detail":"strict mypy passed for seven changed core/test files"}
+{"id":"dependency-audit","result":"passed","detail":"pip check clean; pip-audit --local found no known vulnerabilities"}
+{"id":"package-validator","result":"passed","detail":"scripts/paket_dogrula.py completed without errors or warnings before evidence-bundle creation"}
+{"id":"authority-final-sync","result":"passed","detail":"AKTIF_GOREV authority synchronized to the independent user-scoped PASS; projection, validation result and package manifest regenerated"}
+{"id":"windows-opencode-final-regression","result":"passed","detail":"74 passed, 6 unprivileged Windows symlink/reparse skips"}
+{"id":"wheel-smoke","result":"passed","detail":"final current-6 artifact-only Windows Python 3.14 smoke 12/12"}
+{"id":"sdist-smoke","result":"passed","detail":"final current-6 build and Windows Python 3.14 smoke 13/13"}
+{"id":"knowledge-50000","result":"passed","detail":"safe DELETE journal plus single-writer file lock; p95 212.1157 ms"}
+{"id":"knowledge-250000","result":"user-waived","detail":"integrity and quality gates passed; user explicitly waived p95 973.5371 ms versus 250 ms target for this Windows acceptance"}
+{"id":"opencode-lifecycle","result":"passed","detail":"real OpenCode/Bun lifecycle 12/12"}
+{"id":"provider-live-probes","result":"partial","detail":"BGE-M3 consistently qualified; Qwen3 and e5-mistral quarantined after intermittent duplicate-vector drift"}
+{"id":"akilli-kasa-rag","result":"passed-with-scope-note","detail":"100 read-only cases; top1 and citation 1.0; Recall@10 0.8571; direct isolated live transport, not combined durable-ledger E2E"}
+{"id":"opencode-bge-m3-durable-live-e2e","result":"passed","detail":"2 real calls, 2 durable claims, 2 terminal receipts, DELETE journal, integrity ok, zero recovery, exact restart readback; secret absent"}
+{"id":"windows-scope-decision","result":"accepted","detail":"user selected Windows/OpenCode-only scope and excluded macOS/POSIX-only plus real Claude/Codex lifecycle tests"}

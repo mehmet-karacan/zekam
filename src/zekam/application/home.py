@@ -201,6 +201,7 @@ class HomeLayout:
 
     def ensure(self) -> HomeLayout:
         """Eksik dizinleri ve layout.json dosyasini olusturur (idempotent)."""
+        created = not self.root.exists()
         if self.root.exists() and self.layout_file.exists():
             layout_issues = list(self._verify_layout_file())
             if layout_issues:
@@ -214,6 +215,10 @@ class HomeLayout:
             if entry.relative in RESTRICTED_ENTRIES:
                 _restrict(target)
         self._write_layout_file()
+        if created and os.name == "nt":
+            from zekam.infrastructure.local_file_security import restrict_private_tree
+
+            restrict_private_tree(self.root)
         return self
 
     def ensure_project(self, project_id: str) -> Path:

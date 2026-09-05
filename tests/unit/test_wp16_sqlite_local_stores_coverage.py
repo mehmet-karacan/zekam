@@ -186,6 +186,8 @@ def test_benchmark_safe_time_and_constructor_path_guards(tmp_path: Path) -> None
             benchmark._instant(value)  # type: ignore[arg-type]
     with pytest.raises(ValidationFailed, match="paths"):
         benchmark.SQLiteLocalBenchmarkLab(Path("relative.db"), tmp_path.resolve())
+    if os.name == "nt":
+        pytest.skip("unprivileged Windows file symlink creation is unavailable")
     root = _private(tmp_path / "private")
     database = root / "lab.db"
     database.touch()
@@ -386,6 +388,8 @@ def test_runtime_validators_config_replay_and_rollback(tmp_path: Path) -> None:
 def test_store_path_guards_reject_relative_symlink_and_shared_database(tmp_path: Path) -> None:
     with pytest.raises(ValidationFailed):
         registry.SQLiteLocalModelRegistry(Path("relative.db"))
+    if os.name == "nt":
+        pytest.skip("unprivileged Windows file symlink creation is unavailable")
     target = tmp_path / "target.db"
     target.touch()
     link = tmp_path / "link.db"

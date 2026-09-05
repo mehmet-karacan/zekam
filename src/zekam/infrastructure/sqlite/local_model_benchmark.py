@@ -14,7 +14,6 @@ import math
 import os
 import re
 import sqlite3
-import stat
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +41,11 @@ from zekam.domain.model_benchmark import (
     VerifierVerdict,
     benchmark_effect_digest,
     benchmark_verifier_effect_digest,
+)
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_tree,
 )
 
 MAX_ARTIFACT_BYTES = 1_048_576
@@ -310,22 +314,18 @@ class SQLiteLocalBenchmarkLab:
 
     def bootstrap(self) -> None:
         for parent in (self.path.parent, self.artifact_root):
+            created = not parent.exists()
             parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            info = parent.stat()
-            if info.st_uid != os.geteuid() or info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            if created:
+                restrict_private_tree(parent)
+            if not private_directory(parent):
                 raise PolicyViolation("Local benchmark private directory required")
         with closing(sqlite3.connect(self.path)) as db:
             db.executescript(_SCHEMA)
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        info = self.path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
+        if not private_regular(self.path):
             raise PolicyViolation("Local benchmark database identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row
@@ -947,18 +947,13 @@ class SQLiteLocalBenchmarkLab:
         value = digest_of_bytes(payload)
         target = self.artifact_root / value.removeprefix("sha256:")
         if target.exists():
-            info = target.lstat()
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or info.st_nlink != 1
-                or stat.S_IMODE(info.st_mode) != 0o600
-                or target.read_bytes() != payload
-            ):
+            if not private_regular(target) or target.read_bytes() != payload:
                 raise ConcurrencyConflict("Local benchmark artifact overwrite drift")
         else:
             descriptor = os.open(
-                target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+                target,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
             )
             try:
                 view = memoryview(payload)
@@ -967,11 +962,15 @@ class SQLiteLocalBenchmarkLab:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-            directory = os.open(self.artifact_root, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            if os.name != "nt":
+                directory = os.open(
+                    self.artifact_root,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
         body = {
             "schema": "zekam-benchmark-artifact/v1",
             "artifact_digest": value,

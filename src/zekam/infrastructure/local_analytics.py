@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
-import fcntl
 import importlib
 import json
 import math
 import os
 import re
-import stat
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -18,6 +16,11 @@ from typing import Any, final
 
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
+from zekam.infrastructure.local_file_security import (
+    private_directory as _path_private_directory,
+)
+from zekam.infrastructure.local_file_security import private_regular as _path_private_regular
+from zekam.infrastructure.local_file_security import restrict_private_tree
 
 MAX_SEGMENT_BYTES = 2_097_152
 MAX_EVENTS = 4096
@@ -411,21 +414,22 @@ def _metric_summaries(connection: Any) -> dict[str, list[dict[str, object]]]:
 
 
 def _private_regular(path: Path, mode: int) -> None:
-    try:
-        info = path.lstat()
-    except OSError as exc:
-        raise PolicyViolation("Local analytics file unavailable") from exc
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.geteuid()
-        or info.st_nlink != 1
-        or stat.S_IMODE(info.st_mode) != mode
-    ):
+    if not _path_private_regular(path, mode):
         raise PolicyViolation("Local analytics file identity invalid")
 
 
+def _private_directory(path: Path, mode: int) -> None:
+    if not _path_private_directory(path, mode):
+        raise PolicyViolation("Local analytics private directory required")
+
+
 def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    if os.name == "nt":
+        return
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
     try:
         os.fsync(descriptor)
     finally:
@@ -436,7 +440,7 @@ def _atomic_bytes(path: Path, payload: bytes, *, mode: int) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     descriptor = os.open(
         temporary,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
         mode,
     )
     try:
@@ -444,12 +448,32 @@ def _atomic_bytes(path: Path, payload: bytes, *, mode: int) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary, mode)
-        os.replace(temporary, path)
+        _replace_file(temporary, path, mode=mode)
         _sync_directory(path.parent)
     finally:
         with suppress(FileNotFoundError):
+            if os.name == "nt":
+                os.chmod(temporary, 0o600)
             temporary.unlink()
+
+
+def _replace_file(temporary: Path, target: Path, *, mode: int) -> None:
+    """Publish a file without leaving Windows read-only attributes on replacements."""
+    if os.name != "nt":
+        os.chmod(temporary, mode)
+        os.replace(temporary, target)
+        return
+    target_existed = target.exists()
+    if target_existed:
+        _private_regular(target, mode)
+        os.chmod(target, 0o600)
+    try:
+        os.replace(temporary, target)
+    except BaseException:
+        if target_existed and target.exists():
+            os.chmod(target, mode)
+        raise
+    os.chmod(target, mode)
 
 
 @dataclass(frozen=True, slots=True)
@@ -584,9 +608,11 @@ class LocalAnalyticsStore:
         self.lock = root / ".writer.lock"
 
     def bootstrap(self) -> None:
+        created = not self.root.exists()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if self.root.stat().st_uid != os.geteuid() or self.root.stat().st_mode & 0o077:
-            raise PolicyViolation("Local analytics private root required")
+        if created:
+            restrict_private_tree(self.root)
+        _private_directory(self.root, 0o700)
         for path in (
             self.raw,
             self.manifests,
@@ -596,24 +622,53 @@ class LocalAnalyticsStore:
             self.receipts,
         ):
             path.mkdir(exist_ok=True, mode=0o700)
-            if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o700:
-                raise PolicyViolation("Local analytics private directory required")
-        descriptor = os.open(self.lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            _private_directory(path, 0o700)
+        descriptor = os.open(
+            self.lock,
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"0")
+            os.fsync(descriptor)
         os.close(descriptor)
         os.chmod(self.lock, 0o600)
+        _private_regular(self.lock, 0o600)
 
     @contextmanager
     def _writer(self) -> Iterator[None]:
         _private_regular(self.lock, 0o600)
-        descriptor = os.open(self.lock, os.O_RDWR | os.O_NOFOLLOW)
+        descriptor = os.open(self.lock, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+        acquired = False
         try:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                raise ConcurrencyConflict("Local analytics writer already active") from exc
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    raise ConcurrencyConflict("Local analytics writer already active") from exc
+            else:
+                fcntl: Any = importlib.import_module("fcntl")
+
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise ConcurrencyConflict("Local analytics writer already active") from exc
+            acquired = True
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            if acquired:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl = importlib.import_module("fcntl")
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
     @staticmethod
@@ -1059,8 +1114,7 @@ class LocalAnalyticsStore:
             if fail_before_publish:
                 temporary.unlink(missing_ok=True)
                 raise RuntimeError("injected analytics pre-publish failure")
-            os.chmod(temporary, 0o400)
-            os.replace(temporary, target)
+            _replace_file(temporary, target, mode=0o400)
             _sync_directory(self.generations)
             self._immutable_artifact(
                 self.reports / morning_report_file, canonical_json(morning).encode()

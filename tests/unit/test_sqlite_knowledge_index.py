@@ -15,6 +15,7 @@ import pytest
 import sqlite_vec
 
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator
@@ -109,6 +110,23 @@ def test_generation_exact_lexical_dense_citation_and_restart(tmp_path: Path) -> 
     with SQLiteKnowledgeIndex(path) as restarted:
         assert restarted.generation("akilli-kasa").generation_digest == generation
         assert restarted.dense("akilli-kasa", _vector(1), limit=1)[0].chunk_id == ("chunk-decimal")
+
+
+def test_journal_mode_follows_runtime_wal_safety_and_uses_writer_lock(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    expected = (
+        "wal"
+        if assess_sqlite_wal_safety(sqlite3.sqlite_version).safe_for_multi_connection_wal
+        else "delete"
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        assert index._connection.execute("pragma journal_mode").fetchone()[0] == expected
+        _build(index, (_record("policy-proof"),))
+    lock = Path(str(path) + ".writer.lock")
+    assert lock.read_bytes() == b"0"
+    if expected == "delete":
+        assert path.read_bytes()[18:20] == b"\x01\x01"
+        assert not Path(str(path) + "-wal").exists()
 
 
 def test_scope_filter_applies_before_limit_and_missing_project_has_no_generation(
@@ -333,7 +351,10 @@ def _offline_index(path: Path) -> None:
 def test_read_only_queries_keep_files_bytes_permissions_and_sidecars_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "knowledge ?#unicode-ü.sqlite3"
+    filename = (
+        "knowledge #unicode-ü.sqlite3" if os.name == "nt" else "knowledge ?#unicode-ü.sqlite3"
+    )
+    path = tmp_path / filename
     with SQLiteKnowledgeIndex(path, create=True) as writer:
         first = _build(writer, (_record("old-id"),))
         second = _build(
@@ -417,6 +438,8 @@ def test_read_only_missing_path_or_create_conflict_creates_nothing(tmp_path: Pat
 def test_read_only_nonregular_or_symlink_paths_never_touch_target(
     tmp_path: Path, kind: str
 ) -> None:
+    if os.name == "nt" and kind != "directory":
+        pytest.skip("Unprivileged Windows file symlink; junction coverage is separate")
     real = tmp_path / "real" / "nested" / "index.db"
     _offline_index(real)
     if kind == "directory":
@@ -470,6 +493,7 @@ def test_read_only_rejects_uncheckpointed_wal_instead_of_silently_reading_old_ge
     path = tmp_path / "index.db"
     _offline_index(path)
     with SQLiteKnowledgeIndex(path) as writer:
+        writer._connection.execute("pragma journal_mode=wal")
         current = _build(
             writer,
             (_record("new-id", revision="rev-2", text="ONLY_IN_WAL"),),
@@ -490,6 +514,8 @@ def test_read_only_rejects_uncheckpointed_wal_instead_of_silently_reading_old_ge
 def test_read_only_rejects_unsafe_sidecars_without_touching_them(
     tmp_path: Path, suffix: str, kind: str
 ) -> None:
+    if os.name == "nt" and kind == "symlink":
+        pytest.skip("Unprivileged Windows file symlink; reparse coverage is separate")
     path = tmp_path / "index.db"
     _offline_index(path)
     sidecar = Path(str(path) + suffix)
@@ -561,6 +587,7 @@ def test_read_only_rejects_wal_writer_started_after_reader_opened(tmp_path: Path
     path = tmp_path / "index.db"
     _offline_index(path)
     with SQLiteKnowledgeIndex(path, read_only=True) as reader, SQLiteKnowledgeIndex(path) as writer:
+        writer._connection.execute("pragma journal_mode=wal")
         _build(
             writer,
             (_record("new-id", revision="rev-2"),),

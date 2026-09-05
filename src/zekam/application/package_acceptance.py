@@ -36,7 +36,6 @@ ARCHIVE_ONLY_WHEEL_PATHS = frozenset(
         "application/measured_loop_worker.py",
         "application/project_integration.py",
         "application/projection_close_runtime.py",
-        "application/provider_contract_runner.py",
         "application/recovery_reconciliation.py",
         "application/resume_apply_service.py",
         "application/run_reconciliation.py",

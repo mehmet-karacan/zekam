@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
-from zekam.application.execution import ExecutionHost
 from zekam.application.model_gateway import ModelGateway
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
@@ -30,10 +29,30 @@ from zekam.domain.runtime import ClaimedWork, EffectClaim, EffectReceipt, Failur
 from zekam.domain.security import (
     Authorization,
     AuthorizationScope,
-    DataClassification,
     SecretRef,
 )
 from zekam.domain.tool_registry import ModelToolPayloadBinding
+
+
+class ProviderEffectLedger(Protocol):
+    def claims_for_job(self, job_id: UUID) -> tuple[EffectClaim, ...]: ...
+
+    def receipt_for_claim(self, claim_id: UUID) -> EffectReceipt | None: ...
+
+
+class ProviderJobRecoveryStore(Protocol):
+    def mark_recovery_required(self, job_id: UUID, reason: str) -> None: ...
+
+
+class ProviderExecutionHost(Protocol):
+    ledger: ProviderEffectLedger
+    jobs: ProviderJobRecoveryStore
+
+    def claim_effect(self, work: ClaimedWork, **kwargs: Any) -> EffectClaim: ...
+
+    def record_success(self, claim: EffectClaim, **kwargs: Any) -> EffectReceipt: ...
+
+    def record_failure(self, claim: EffectClaim, **kwargs: Any) -> EffectReceipt: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +93,7 @@ def verify_exact_provider_authorization(
             allowed_effects=("provider-call",),
             provider_refs=(plan.provider_ref,),
             secret_ref_ids=(secret_ref.id,),
-            data_classifications=(DataClassification.PUBLIC,),
+            data_classifications=plan.data_classifications,
         ).body()
     ):
         raise PolicyViolation("Provider contract authorization scope exact degil")
@@ -82,7 +101,7 @@ def verify_exact_provider_authorization(
 
 @dataclass(slots=True)
 class RuntimeProviderContractRunner:
-    host: ExecutionHost
+    host: ProviderExecutionHost
     work: ClaimedWork
     client: Any
     gateway: ModelGateway | None = None

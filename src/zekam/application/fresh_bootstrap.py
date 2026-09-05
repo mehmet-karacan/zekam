@@ -24,6 +24,7 @@ from zekam.application.home import HomeLayout, assert_separated_from_core
 from zekam.application.operational_store import OperationalSchemaPort
 from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import ConfigurationError, ValidationFailed
+from zekam.infrastructure.local_file_security import restrict_private_tree
 
 BOOTSTRAP_SCHEMA = "zekam-fresh-bootstrap/v1"
 BOOTSTRAP_RECEIPT_SCHEMA = "zekam-bootstrap-receipt/v1"
@@ -420,7 +421,8 @@ def _recover_stale_stages(plan: FreshBootstrapPlan) -> tuple[str, ...]:
             parse_digest(str(document["plan_digest"]))
         except (TypeError, ValueError, ValidationFailed):
             continue
-        if os.name != "nt" and candidate.stat().st_uid != os.getuid():
+        getuid = getattr(os, "getuid", None)
+        if os.name != "nt" and (getuid is None or candidate.stat().st_uid != getuid()):
             continue
         quarantine = parent / f".{plan.home.name}.bootstrap-recovery"
         quarantine.mkdir(mode=0o700, exist_ok=True)
@@ -447,7 +449,8 @@ def _lock_is_stale(lock_path: Path, plan: FreshBootstrapPlan) -> bool:
     if not isinstance(plan_digest, str):
         raise ConfigurationError("Bootstrap lock plan digest tipi gecersiz")
     parse_digest(plan_digest)
-    if os.name != "nt" and lock_path.stat().st_uid != os.getuid():
+    getuid = getattr(os, "getuid", None)
+    if os.name != "nt" and (getuid is None or lock_path.stat().st_uid != getuid()):
         raise ConfigurationError("Bootstrap lock owner uyusmuyor")
     pid = document["pid"]
     if pid == os.getpid():
@@ -599,6 +602,10 @@ def apply_fresh_bootstrap(
             _receipt(stage, staged_plan, schema=schema),
         )
         (stage / ".bootstrap-stage.json").unlink()
+        try:
+            restrict_private_tree(stage)
+        except OSError as exc:
+            raise ConfigurationError("Fresh bootstrap private path policy failed") from exc
         if fault_at == "before-publish":
             raise OSError("injected-before-publish")
         _fsync_tree(stage)

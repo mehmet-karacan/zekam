@@ -6,6 +6,8 @@ import hashlib
 import os
 import secrets
 import stat
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -31,6 +33,11 @@ from zekam.domain.errors import (
     PolicyViolation,
     ValidationFailed,
 )
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_file,
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -43,6 +50,17 @@ _AUDIT_NOTE_ROOTS = ("global", "projeler", "inbox", "archive")
 _AUDIT_LIMIT = 10_000
 
 
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return path.is_symlink() or bool(
+        int(getattr(info, "st_file_attributes", 0))
+        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
+
+
 class KnowledgeFileStore:
     """Store source Markdown and sole-copy CAS bytes; DB rows remain manifests only."""
 
@@ -52,6 +70,7 @@ class KnowledgeFileStore:
         self.home = home.resolve()
         identity = self.home.stat(follow_symlinks=False)
         self._home_identity = (identity.st_dev, identity.st_ino)
+        self._archive_lock = threading.Lock()
 
     def _open_home(self) -> int:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -88,6 +107,18 @@ class KnowledgeFileStore:
             os.close(descriptor)
 
     def _read_optional(self, relative: str, *, max_bytes: int) -> bytes | None:
+        if os.name == "nt":
+            path, _ = self._windows_leaf(relative, create_parent=False)
+            if path is None:
+                return None
+            if not private_regular(path):
+                raise LayoutError("Knowledge leaf private regular file olmali")
+            if path.stat().st_size > max_bytes:
+                raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
+            payload = path.read_bytes()
+            if len(payload) > max_bytes:
+                raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
+            return payload
         # A substituted FIFO must reach the regular-file check instead of waiting
         # indefinitely for a writer. Regular-file read semantics are unchanged.
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -122,6 +153,21 @@ class KnowledgeFileStore:
             return None
 
     def _unlink(self, relative: str) -> None:
+        if os.name == "nt":
+            for attempt in range(8):
+                path, _ = self._windows_leaf(relative, create_parent=False)
+                if path is None:
+                    return
+                try:
+                    path.unlink()
+                    return
+                except FileNotFoundError:
+                    return
+                except PermissionError:
+                    if attempt == 7:
+                        raise
+                    time.sleep(min(0.005 * (2**attempt), 0.05))
+            return
         with self._parent_handle(relative, create=False) as (parent, name, _):
             try:
                 os.unlink(name, dir_fd=parent)
@@ -130,6 +176,8 @@ class KnowledgeFileStore:
             os.fsync(parent)
 
     def _atomic_write(self, relative: str, payload: bytes, *, replace_existing: bool) -> Path:
+        if os.name == "nt":
+            return self._atomic_write_windows(relative, payload, replace_existing=replace_existing)
         with self._parent_handle(relative, create=True) as (parent, name, portable):
             stage = f".{name}.stage-{secrets.token_hex(12)}"
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -167,6 +215,91 @@ class KnowledgeFileStore:
                 with suppress(FileNotFoundError):
                     os.unlink(stage, dir_fd=parent)
             return self.home / portable
+
+    def _windows_leaf(
+        self, relative: str, *, create_parent: bool
+    ) -> tuple[Path | None, tuple[int, int]]:
+        portable = validate_portable_relative(relative)
+        parts = PurePosixPath(portable).parts
+        if not private_directory(self.home):
+            raise LayoutError("Knowledge home reparse veya ACL drift")
+        home_identity = self.home.lstat()
+        if (home_identity.st_dev, home_identity.st_ino) != self._home_identity:
+            raise LayoutError("Knowledge home identity drift")
+        parent = self.home
+        for part in parts[:-1]:
+            parent /= part
+            if not parent.exists():
+                if not create_parent:
+                    return None, (0, 0)
+                with suppress(FileExistsError):
+                    parent.mkdir()
+            if not private_directory(parent):
+                raise LayoutError("Knowledge parent symlink/reparse veya ACL drift")
+        identity = parent.lstat()
+        target = parent / parts[-1]
+        if target.exists() or target.is_symlink():
+            info = target.lstat()
+            reparse = bool(
+                int(getattr(info, "st_file_attributes", 0))
+                & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+            )
+            if not stat.S_ISREG(info.st_mode) or target.is_symlink() or reparse:
+                raise LayoutError("Knowledge leaf symlink/reparse veya regular-file disi")
+        elif not create_parent:
+            return None, (identity.st_dev, identity.st_ino)
+        return target, (identity.st_dev, identity.st_ino)
+
+    def _atomic_write_windows(
+        self, relative: str, payload: bytes, *, replace_existing: bool
+    ) -> Path:
+        target, parent_identity = self._windows_leaf(relative, create_parent=True)
+        assert target is not None
+        stage = target.with_name(f".{target.name}.stage-{secrets.token_hex(12)}")
+        current_parent = target.parent.lstat()
+        if (
+            current_parent.st_dev,
+            current_parent.st_ino,
+        ) != parent_identity or not private_directory(target.parent):
+            raise LayoutError("Knowledge parent identity drift")
+        descriptor = os.open(
+            stage,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+            0o600,
+        )
+        try:
+            view = memoryview(payload)
+            written = 0
+            while written < len(view):
+                count = os.write(descriptor, view[written:])
+                if count <= 0:
+                    raise OSError("Knowledge stage short write")
+                written += count
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = -1
+            restrict_private_file(stage)
+            current_parent = target.parent.lstat()
+            if (
+                current_parent.st_dev,
+                current_parent.st_ino,
+            ) != parent_identity or not private_directory(target.parent):
+                raise LayoutError("Knowledge parent identity drift")
+            if replace_existing:
+                os.replace(stage, target)
+            else:
+                try:
+                    os.link(stage, target, follow_symlinks=False)
+                except FileExistsError as exc:
+                    raise ConcurrencyConflict("Knowledge target zaten var") from exc
+                stage.unlink()
+            if self._read_optional(relative, max_bytes=max(1, len(payload))) != payload:
+                raise LayoutError("Knowledge publish path identity drift")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            stage.unlink(missing_ok=True)
+        return target
 
     def put_artifact(self, plan: ArtifactPutPlan, payload: bytes) -> Path:
         actual = ArtifactPutPlan.create(
@@ -245,6 +378,10 @@ class KnowledgeFileStore:
             return self.home / manifest.portable_ref
 
     def archive_note(self, manifest: KnowledgeNoteManifest) -> str:
+        with self._archive_lock:
+            return self._archive_note_locked(manifest)
+
+    def _archive_note_locked(self, manifest: KnowledgeNoteManifest) -> str:
         if manifest.state not in {"inbox", "active"}:
             raise PolicyViolation("Yalniz inbox/active note archive edilebilir")
         source_name = PurePosixPath(manifest.portable_ref).name
@@ -341,7 +478,7 @@ class KnowledgeFileStore:
         observed = 0
         for root_name in _AUDIT_NOTE_ROOTS:
             root = self.home / root_name
-            if root.is_symlink():
+            if _is_link_or_reparse(root):
                 issues.add(KnowledgeFileIssue("unsafe-note-root", root_name))
                 continue
             if not root.is_dir():
@@ -350,7 +487,7 @@ class KnowledgeFileStore:
                 parent = Path(directory)
                 for name in tuple(directory_names):
                     target = parent / name
-                    if target.is_symlink():
+                    if _is_link_or_reparse(target):
                         relative = target.relative_to(self.home).as_posix()
                         issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
                         directory_names.remove(name)
@@ -363,7 +500,7 @@ class KnowledgeFileStore:
                         break
                     target = parent / name
                     relative = target.relative_to(self.home).as_posix()
-                    if target.is_symlink():
+                    if _is_link_or_reparse(target):
                         issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
                     elif relative not in expected_notes:
                         issues.add(KnowledgeFileIssue("unmanifested-note", relative))
@@ -398,13 +535,13 @@ class KnowledgeFileStore:
                     issues.add(KnowledgeFileIssue("public-cas-unsafe", relative))
 
         cas_root = self.home / "artifacts" / "sha256"
-        if cas_root.is_symlink():
+        if _is_link_or_reparse(cas_root):
             issues.add(KnowledgeFileIssue("unsafe-cas-root", "artifacts/sha256"))
         elif cas_root.is_dir():
             for target in cas_root.rglob("*"):
                 relative = target.relative_to(self.home).as_posix()
                 depth = len(target.relative_to(cas_root).parts)
-                if target.is_symlink() or (target.is_dir() and depth != 1):
+                if _is_link_or_reparse(target) or (target.is_dir() and depth != 1):
                     issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
                 elif target.is_file() and relative not in expected_artifacts:
                     issues.add(KnowledgeFileIssue("orphan-cas-object", relative))

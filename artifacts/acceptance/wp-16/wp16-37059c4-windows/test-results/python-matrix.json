@@ -1,0 +1,15 @@
+{
+  "schema": "zekam-test-summary/v1",
+  "status": "passed-for-selected-critical-scope",
+  "runs": [
+    {"python":"3.12.10","passed":360,"skipped":4,"phase":"critical-matrix"},
+    {"python":"3.13.15","passed":360,"skipped":4,"phase":"critical-matrix"},
+    {"python":"3.14.6","passed":466,"skipped":10,"duration_seconds":153.07,"phase":"final-expanded-critical"},
+    {"python":"3.12.10","passed":119,"skipped":6,"phase":"changed-security"},
+    {"python":"3.13.15","passed":119,"skipped":6,"phase":"changed-security"}
+  ],
+  "targeted_provider_journal_knowledge": {"passed":101,"skipped":6},
+  "format_check_files": 816,
+  "ruff_check": "passed",
+  "mypy_strict_changed_scope": "passed"
+}

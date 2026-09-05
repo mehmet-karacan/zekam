@@ -1,0 +1,16 @@
+{
+  "schema": "zekam-source-digests/v1",
+  "scope": "45 product changes before this evidence bundle",
+  "canonical_format": "path<TAB>lowercase-sha256 joined with LF",
+  "aggregate_sha256": "sha256:1036bd1049327a376a975f0d472d32359f0b347bad75e66048dc624a108bcc9b",
+  "authority_sha256": "sha256:ebd9ca00a5cc500a650984e3cdc7be22186b85b5a283d86a6f9d863237530629",
+  "active_task_projection_sha256": "sha256:752eb1e732af3127d7d14dca2d3bf9fad8285069cfeaaa2c93d2facd861070b4",
+  "validation_result_sha256": "sha256:5c754380c80a9e2ba1e4396a856ab7eb558368f95d54d15a689ef8b58aad0b9e",
+  "package_release_manifest_sha256": "sha256:448c62d09b751912a13e4a2e33968cccaa07c87b4b9643748e876cd71187a439",
+  "provider_adapter_sha256": "sha256:176ef44d88f44ee8b4a1c84d71e14839092ad9507c6fdc3b23b615f7bf6845c1",
+  "provider_runner_sha256": "sha256:a37d1ed2128e640aa632d2051b7b157192429c64385f8b854f538ec30255c88c",
+  "knowledge_index_sha256": "sha256:c477b315549315474597d20260e4357bad66dd71b4e876c915a672f3ffc33cb8",
+  "local_file_security_sha256": "sha256:a5cfb7766d62beb29bf015e87499d86f28ac0f51f335c8e56318c82bcbe2c21e",
+  "windows_journal_tests_sha256": "sha256:a0d0c74d8331d1e2c3476a558d634fd0261b7b853dfe650cf844ce93581ca5e2",
+  "durable_live_harness_sha256": "sha256:aee56c845efedecbdcecfaac97eae1469438e2986f79e4aa8708b342548ce36b"
+}

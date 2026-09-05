@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 import sqlite3
-import stat
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
@@ -25,6 +23,11 @@ from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.learning import MINIMUM_SKILL_TRIALS, FailureOccurrence, SkillEvaluation
 from zekam.domain.memory import MemoryCandidate
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_tree,
+)
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 
 SCHEMA_VERSION = 1
@@ -354,13 +357,7 @@ class SQLiteLocalLearning:
         self.operational_path = operational_path
 
     def _operational(self) -> sqlite3.Connection:
-        info = self.operational_path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
+        if not private_regular(self.operational_path):
             raise PolicyViolation("WP-09 operational evidence identity required")
         observed = operational_status(self.operational_path)
         if (
@@ -480,9 +477,11 @@ class SQLiteLocalLearning:
         }
 
     def bootstrap(self) -> None:
+        created = not self.path.parent.exists()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        parent = self.path.parent.stat()
-        if parent.st_uid != os.geteuid() or parent.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        if created:
+            restrict_private_tree(self.path.parent)
+        if not private_directory(self.path.parent):
             raise PolicyViolation("WP-09 private parent directory required")
         with closing(sqlite3.connect(self.path)) as db:
             db.executescript(_SCHEMA)
@@ -494,13 +493,7 @@ class SQLiteLocalLearning:
         self.path.chmod(0o600)
 
     def _file_ok(self) -> None:
-        info = self.path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.geteuid()
-            or info.st_nlink != 1
-            or stat.S_IMODE(info.st_mode) != 0o600
-        ):
+        if not private_regular(self.path):
             raise PolicyViolation("WP-09 private SQLite identity required")
 
     def _connect(self) -> sqlite3.Connection:
