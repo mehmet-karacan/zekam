@@ -201,8 +201,12 @@ def test_codex_child_bind_failure_is_terminalized_without_silent_retry(
 
     monkeypatch.setattr("zekam.application.worker.ExecutionHost", lambda *args, **kwargs: host)
     monkeypatch.setattr(
-        "zekam.infrastructure.postgres.client_lifecycle_repository.ClientLifecycleRepository",
-        lambda *args, **kwargs: repository,
+        "zekam.application.worker.legacy_repository",
+        lambda kind, *args, **kwargs: (
+            repository
+            if kind == "client_lifecycle"
+            else pytest.fail(f"unexpected repository kind: {kind}")
+        ),
     )
     monkeypatch.setattr(
         "zekam.application.client_lifecycle_spool.ClientLifecycleSpool",

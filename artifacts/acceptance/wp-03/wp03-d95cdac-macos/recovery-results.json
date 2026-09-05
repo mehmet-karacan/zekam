@@ -1,0 +1,16 @@
+{
+  "cases": {
+    "backup_logical_parity": "passed",
+    "concurrent_alias_and_external_number_collision": "rejected",
+    "digest_drift": "rejected-without-mutation",
+    "legacy_schema": "rejected-before-mutation",
+    "nested_unit_of_work": "rejected",
+    "process_kill_before_commit": "rolled-back-on-restart",
+    "restart_reuse": "passed",
+    "rollback_default": "passed",
+    "schema_fingerprint_drift": "rejected",
+    "unknown_payload_fields_and_types": "rejected"
+  },
+  "schema": "zekam-wp03-recovery-evidence/v1",
+  "status": "passed"
+}

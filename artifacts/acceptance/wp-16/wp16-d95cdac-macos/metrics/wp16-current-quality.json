@@ -1,0 +1,44 @@
+{
+  "schema": "zekam-wp16-current-quality/v1",
+  "status": "passed-macos-only",
+  "full_suite": {
+    "tests": 6973,
+    "passed": 6957,
+    "skipped": 16,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 1612.8,
+    "junit_sha256": "d8d3a8e0cc98a2c9c2ebcf9a54a9dce5c9d40eab6f6bd947c781066dea0ad40d"
+  },
+  "coverage": {
+    "overall_branch_percent": 85.13808861514008,
+    "overall_threshold_percent": 85.0,
+    "critical_threshold_percent": 90.0,
+    "critical_branch_percent": {
+      "src/zekam/infrastructure/sqlite/local_evidence_routing.py": 90.22556390977444,
+      "src/zekam/infrastructure/local_analytics.py": 92.7710843373494,
+      "src/zekam/domain/model_routing.py": 90.09009009009009
+    },
+    "report_sha256": "67122e2390cad1dc96a00d8b04d4bf4596b3fe8a9d6b7c63b9245e9d2b89ede6"
+  },
+  "mutation": {
+    "mutants": 100,
+    "killed": 97,
+    "survived": 3,
+    "invalid": 0,
+    "score": 0.97,
+    "threshold": 0.75,
+    "production_hashes_unchanged": true,
+    "report_sha256": "49eab0dfc67b449e2798a77b535788450871cd51598dddc15df34308324f1168"
+  },
+  "critical_supplement": {
+    "passed": 12,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_sha256": "18d5e91ac807cf499d8bcee519f2facbfaa4dc46d5308261385f15d54fca25cf",
+    "test_source_sha256": "e55e04cca3026f22267e18f86d904c6f0f9c7f4f371b6157108c71154da36cf0"
+  },
+  "windows": "deferred-k013",
+  "global_complete": false
+}

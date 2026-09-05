@@ -1,0 +1,14 @@
+{
+  "schema": "zekam-wp07-security-scan/v1",
+  "package_validation": "passed",
+  "package_errors": 0,
+  "package_warnings": 0,
+  "git_security_findings": 0,
+  "application_concrete_database_import_violations": 0,
+  "postgresql_connections": 0,
+  "remote_provider_calls": 0,
+  "source_repository_writes": 0,
+  "cross_project_leakage": 0,
+  "fabricated_citations": 0,
+  "status": "passed"
+}

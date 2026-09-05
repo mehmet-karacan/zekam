@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
 from zekam.application.diagnostic_trace import RuntimeTraceSink
@@ -27,14 +27,59 @@ from zekam.domain.model_invocation import (
     ModelRequestManifest,
     _issue_gateway_permit,
 )
+from zekam.domain.runtime import ClaimedWork
 from zekam.domain.security import Authorization
 from zekam.domain.tool_registry import ModelToolPayloadBinding
-from zekam.infrastructure.postgres.model_invocation_repository import (
-    ModelInvocationRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 T = TypeVar("T")
+
+
+class ModelInvocationStore(Protocol):
+    def envelope_bindings(self, envelope_id: UUID) -> dict[str, Any]: ...
+
+    def mode(self) -> GatewayMode: ...
+
+    def store_manifest(self, item: ModelRequestManifest) -> tuple[UUID, bool]: ...
+
+    def record_audit(
+        self,
+        *,
+        source_label: str,
+        disposition: str,
+        call_digest: str,
+        payload_digest: str,
+        missing_bindings: tuple[str, ...] = (),
+        manifest_id: UUID | None = None,
+    ) -> UUID: ...
+
+    def assert_current_envelope(self, item: ModelRequestManifest) -> None: ...
+
+    def assert_current_context_fragment_set(self, item: ModelRequestManifest) -> None: ...
+
+    def assert_current_tool_set(self, item: ModelRequestManifest) -> None: ...
+
+    def assert_current_catalog(self, item: ModelRequestManifest) -> None: ...
+
+    def record_attempt(
+        self,
+        *,
+        manifest_id: UUID,
+        effect_claim_id: UUID,
+        authorization_id: UUID,
+        state: str = "sent",
+        loop_attempt_id: UUID | None = None,
+    ) -> UUID: ...
+
+    def record_result(
+        self,
+        *,
+        manifest_id: UUID,
+        attempt_id: UUID,
+        effect_receipt_id: UUID | None,
+        state: str,
+        response_digest: str | None = None,
+        failure_digest: str | None = None,
+    ) -> UUID: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +114,7 @@ class ModelGatewayBindings:
 
 @dataclass(slots=True)
 class ModelGateway:
-    repository: ModelInvocationRepository
+    repository: ModelInvocationStore
     source_label: GatewaySourceLabel
     bindings: ModelGatewayBindings = ModelGatewayBindings()
     environment_guard: EnvironmentEffectGuard | None = None
@@ -78,7 +123,7 @@ class ModelGateway:
     @classmethod
     def from_execution_envelope(
         cls,
-        repository: ModelInvocationRepository,
+        repository: ModelInvocationStore,
         source_label: GatewaySourceLabel,
         envelope_id: UUID,
         *,

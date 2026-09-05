@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-RESULT_PATH = ROOT / "VALIDATION_RESULT.json"
+RESULT_PATH = Path(os.environ.get("ZEKAM_VALIDATION_RESULT_PATH", ROOT / "VALIDATION_RESULT.json"))
 PHASE_BASELINE_PATH = ROOT / "kalite" / "PHASE_PROJECTION_BASELINE.json"
 
 REQUIRED_FILES = [
@@ -86,6 +87,7 @@ IDENTITY_EXCLUDED_PARTS = frozenset(
         ".zekam",
         "__pycache__",
         "yerel-referanslar",
+        "legacy-preserved",
     }
 )
 IDENTITY_EXCLUDED_FILES = frozenset(
@@ -288,6 +290,23 @@ def main() -> int:
             errors.append("Tek builder invariant'i eksik.")
     except Exception as exc:
         errors.append(f"PROJE_MANIFESTI.yaml okunamadi: {exc}")
+
+    try:
+        from zekam.application.active_task_contract import ActiveTaskContract
+
+        active_task = ActiveTaskContract.load(ROOT / "AKTIF_GOREV.md")
+        active_task.verify_projection(ROOT / "AKTIF_GOREV.yaml")
+        checks["active_task_authority"] = {
+            "task_id": active_task.task_id,
+            "authority_ref": "AKTIF_GOREV.md",
+            "authority_digest": active_task.source_digest,
+            "yaml_generated_projection": True,
+            "grants_authority": False,
+            "legacy_postgresql_data_import": active_task.legacy_postgresql_data_import,
+            "postgresql_runtime_dependency": active_task.postgresql_runtime_dependency,
+        }
+    except Exception as exc:
+        errors.append(f"Aktif gorev authority/projection gecersiz: {exc}")
 
     try:
         inventory = load_yaml(ROOT / "modeller/KANONIK_MODEL_ENVANTERI.yaml")

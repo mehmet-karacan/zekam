@@ -1,0 +1,7 @@
+{"command":"ruff check <wp07 files>","exit_code":0,"secret_safe":true}
+{"command":"mypy <wp07 source and tests>","exit_code":0,"secret_safe":true}
+{"command":"pytest <wp07 focused tests>","exit_code":0,"passed":273,"secret_safe":true}
+{"command":"pytest real bounded Akilli Kasa BGE RAG E2E","exit_code":0,"passed":1,"golden_cases":100,"remote_provider_calls":0,"secret_safe":true}
+{"command":"pytest full suite","exit_code":1,"passed":2726,"skipped":714,"known_environment_failures":5,"wp07_regressions":0,"secret_safe":true}
+{"command":"uv lock --check","exit_code":0,"secret_safe":true}
+{"command":"scripts/paket_dogrula.py with isolated result path","exit_code":0,"errors":0,"warnings":0,"secret_safe":true}

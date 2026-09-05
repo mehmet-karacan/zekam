@@ -38,7 +38,8 @@ def test_init_creates_home_layout(home_root: Path) -> None:
     for entry in HOME_ENTRIES:
         assert (home_root / entry.relative).is_dir(), entry.relative
     assert (home_root / LAYOUT_FILE).is_file()
-    assert "backend: postgresql" in (home_root / USER_CONFIG_FILE).read_text(encoding="utf-8")
+    assert "backend: sqlite" in (home_root / USER_CONFIG_FILE).read_text(encoding="utf-8")
+    assert (home_root / "state" / "operational.db").is_file()
 
 
 def test_init_dry_run_creates_nothing(home_root: Path) -> None:
@@ -62,22 +63,22 @@ def test_init_sqlite_bootstraps_and_doctor_reports_exact_profile(home_root: Path
     assert initialized.exit_code == 0, initialized.stdout
     config = (home_root / USER_CONFIG_FILE).read_text(encoding="utf-8")
     assert "backend: sqlite" in config
-    assert (home_root / "global" / "runtime" / "zekam.sqlite3").is_file()
+    assert (home_root / "state" / "operational.db").is_file()
 
     result = runner.invoke(app, ["doctor", "--home", str(home_root), "--json", "-c", "sqlite"])
     document = json.loads(result.stdout)
     checks = {item["check_id"]: item for item in document["results"]}
     assert checks["sqlite.persistence"]["status"] == "passed"
     assert checks["sqlite.capabilities"]["evidence"]["fallback"] is False
-    assert document["overall"] == "degraded"
+    assert document["overall"] == "healthy"
 
     migration = runner.invoke(app, ["db", "status", "--home", str(home_root), "--json"])
     assert migration.exit_code == 0, migration.stdout
     migration_document = json.loads(migration.stdout)
     assert migration_document == {
         "backend": "sqlite",
-        "head": 1,
-        "expected_head": 1,
+        "head": 3,
+        "expected_head": 3,
         "integrity_ok": True,
         "schema_ok": True,
         "drift": [],
@@ -90,8 +91,8 @@ def test_init_rejects_persistence_switch_without_mutation(home_root: Path) -> No
     before = (home_root / USER_CONFIG_FILE).read_bytes()
 
     switched = runner.invoke(app, ["init", "--home", str(home_root), "--persistence", "postgresql"])
-    assert switched.exit_code == 70
-    assert "sessiz motor degisimi yasak" in switched.stderr
+    assert switched.exit_code == 2
+    assert "Invalid value" in switched.stderr
     assert (home_root / USER_CONFIG_FILE).read_bytes() == before
 
 

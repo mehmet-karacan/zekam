@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: long-context-grader
+version: 1
+family: long-context
+evaluation_class: technical
+dimensions:
+- correctness
+- evidence-citation
+- reliability
+hidden_key_model_visible: false

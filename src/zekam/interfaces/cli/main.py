@@ -14,70 +14,46 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-import click
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from zekam import __version__
-from zekam.application.client_hook_bootstrap import (
-    apply_client_hook_bootstrap,
-    plan_client_hook_bootstrap,
-)
-from zekam.application.client_instruction_bootstrap import (
-    apply_client_instruction_bootstrap,
-    plan_client_instruction_bootstrap,
-)
+from zekam.application.active_task_contract import ActiveTaskContract
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
 from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
-from zekam.application.doctor_repair import DoctorRepairPlan, build_doctor_repair_plan
-from zekam.application.doctor_repair_runtime import apply_doctor_repair_with_runtime
+from zekam.application.fresh_bootstrap import apply_fresh_bootstrap, plan_fresh_bootstrap
 from zekam.application.home import resolve_home
 from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
 )
-from zekam.application.opencode_agent_bootstrap import (
-    apply_opencode_agent_bootstrap,
-    plan_opencode_agent_bootstrap,
-)
-from zekam.application.persistence_setup import (
-    apply_persistence_setup,
-    plan_persistence_setup,
-)
-from zekam.application.project_integration import ProjectIntegrationService
-from zekam.application.realm_context import RealmContext
-from zekam.application.setup import build_setup_plan
-from zekam.domain.errors import NotFound, PolicyViolation, ZekamError
+from zekam.application.setup import build_setup_plan, setup_plan_digest, setup_plan_payload
+from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
-from zekam.domain.realm import DEFAULT_REALM_SLUG, ActorKind, LifecycleStatus
-from zekam.infrastructure.postgres.connection import connect
-from zekam.infrastructure.postgres.core_repository import ActorRepository
-from zekam.interfaces.cli import ask as ask_commands
+from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.infrastructure.local_core_services import LocalCoreServices
+from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
 from zekam.interfaces.cli import backup as backup_commands
 from zekam.interfaces.cli import client as client_commands
-from zekam.interfaces.cli import close as close_commands
 from zekam.interfaces.cli import configuration as configuration_commands
+from zekam.interfaces.cli import continuity as continuity_commands
 from zekam.interfaces.cli import db as db_commands
-from zekam.interfaces.cli import governance as governance_commands
 from zekam.interfaces.cli import jira as jira_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
-from zekam.interfaces.cli import loop as loop_commands
-from zekam.interfaces.cli import memory as memory_commands
+from zekam.interfaces.cli import local_core as local_core_commands
+from zekam.interfaces.cli import local_runtime as local_runtime_commands
 from zekam.interfaces.cli import model as model_commands
-from zekam.interfaces.cli import opencode as opencode_commands
-from zekam.interfaces.cli import oracle as oracle_commands
 from zekam.interfaces.cli import project as project_commands
 from zekam.interfaces.cli import protocol as protocol_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import surface as surface_commands
-from zekam.interfaces.cli import trace as trace_commands
 from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
-from zekam.interfaces.cli.session import REALM_HELP, RealmSession
+from zekam.interfaces.cli.session import REALM_HELP
 
 #: Toplam duruma karsilik gelen kararli cikis kodlari.
 EXIT_CODES: dict[OverallStatus, int] = {
@@ -100,36 +76,28 @@ app = typer.Typer(
 )
 console = Console()
 error_console = Console(stderr=True)
+_OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
 
 app.add_typer(db_commands.app)
 app.add_typer(project_commands.app)
 app.add_typer(protocol_commands.app)
 app.add_typer(work_commands.app)
-app.add_typer(governance_commands.policy_app)
-app.add_typer(governance_commands.secret_app)
-app.add_typer(governance_commands.auth_app)
 app.add_typer(model_commands.app)
-app.add_typer(oracle_commands.app)
-app.add_typer(opencode_commands.app)
 app.add_typer(backup_commands.app)
 app.add_typer(client_commands.app)
-app.add_typer(close_commands.app)
-app.add_typer(configuration_commands.config_app)
-app.add_typer(configuration_commands.permission_app)
-app.add_typer(ask_commands.app)
-app.command("ask")(ask_commands.ask_command)
 app.add_typer(sandbox_commands.sandbox_app)
 app.add_typer(sandbox_commands.git_app)
 app.add_typer(knowledge_commands.app)
-app.add_typer(loop_commands.app)
-app.add_typer(memory_commands.app)
+app.add_typer(local_runtime_commands.app)
+app.add_typer(local_core_commands.app)
+app.add_typer(continuity_commands.app)
+app.add_typer(configuration_commands.config_app)
+app.add_typer(configuration_commands.permission_app)
 app.add_typer(jira_commands.app)
-app.add_typer(scheduler_commands.scheduler_app)
-app.add_typer(scheduler_commands.report_app)
 app.add_typer(surface_commands.app)
-app.add_typer(trace_commands.app)
 app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
+app.add_typer(scheduler_commands.app)
 
 
 def _version_callback(value: bool) -> None:
@@ -202,85 +170,28 @@ def doctor(
         context = build_context(home=home)
         service = build_doctor(context)
         report = service.run(categories=category or None)
-        selected_plan: DoctorRepairPlan | None = None
+        local_services: LocalCoreServices | None = None
+        selected_plan: dict[str, object] | None = None
         applied_result: dict[str, object] | None = None
         if prepare and (apply or plan_digest is not None):
             raise PolicyViolation("--hazirla, --uygula veya --plan-digest ile birlikte kullanilmaz")
         if repair_plan or apply or prepare:
-            if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
-                with connect(context.settings.database) as connection:
-                    selected_plan = build_doctor_repair_plan(
-                        core_path=context.core_path,
-                        connection=connection,
-                        migrations_directory=context.core_path / "migrations",
-                    )
-            else:
-                selected_plan = build_doctor_repair_plan(core_path=context.core_path)
+            local_services = LocalCoreServices.from_context(context)
+            selected_plan = local_services.repair_plan()
         automatic_results: list[dict[str, object]] = []
         if prepare:
-            if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
-                raise PolicyViolation("Doctor hazirlama PostgreSQL Work Graph ister")
-            for _ in range(64):
-                with connect(context.settings.database) as connection:
-                    selected_plan = build_doctor_repair_plan(
-                        core_path=context.core_path,
-                        connection=connection,
-                        migrations_directory=context.core_path / "migrations",
-                    )
-                if selected_plan.next_step is None:
-                    break
-                if selected_plan.next_step == "git-fast-forward":
-                    raise PolicyViolation(
-                        "--hazirla Git mutation yapmaz; once temiz ff-only pull/merge gerekir"
-                    )
-                if selected_plan.blocked_reasons:
-                    raise PolicyViolation(
-                        "Doctor hazirlama bloke: " + ",".join(selected_plan.blocked_reasons)
-                    )
-                with RealmSession(home, realm) as realm_context:
-                    exact_project_id = _doctor_project_id(
-                        realm_context,
-                        context,
-                        requested=project_id,
-                    )
-                    exact_actor_id = _doctor_actor_id(realm_context, requested=actor_id)
-                    runtime_result = apply_doctor_repair_with_runtime(
-                        realm_context,
-                        context,
-                        repair_plan=selected_plan,
-                        plan_digest=selected_plan.plan_digest,
-                        actor_id=exact_actor_id,
-                        project_id=exact_project_id,
-                    )
-                    automatic_results.append(runtime_result.as_dict())
-            else:
-                raise PolicyViolation("Doctor hazirlama 64 adim sinirinda tamamlanamadi")
-            report = build_doctor(context).run(categories=category or None)
+            assert selected_plan is not None and local_services is not None
+            if selected_plan["action"] is not None:
+                automatic_results.append(
+                    local_services.apply_repair(str(selected_plan["plan_digest"]))
+                )
+                report = service.run(categories=category or None)
         elif apply:
+            assert local_services is not None
             if plan_digest is None:
                 raise PolicyViolation("--uygula exact --plan-digest ister")
-            if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
-                raise PolicyViolation("Doctor repair runtime PostgreSQL Work Graph ister")
-            assert selected_plan is not None
-            if selected_plan.plan_digest != plan_digest:
-                raise PolicyViolation("Doctor repair plan digest stale veya exact degil")
-            with RealmSession(home, realm) as realm_context:
-                exact_project_id = _doctor_project_id(
-                    realm_context,
-                    context,
-                    requested=project_id,
-                )
-                exact_actor_id = _doctor_actor_id(realm_context, requested=actor_id)
-                runtime_result = apply_doctor_repair_with_runtime(
-                    realm_context,
-                    context,
-                    repair_plan=selected_plan,
-                    plan_digest=plan_digest,
-                    actor_id=exact_actor_id,
-                    project_id=exact_project_id,
-                )
-                applied_result = runtime_result.as_dict()
-            report = build_doctor(context).run(categories=category or None)
+            applied_result = local_services.apply_repair(plan_digest)
+            report = service.run(categories=category or None)
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
@@ -288,7 +199,7 @@ def doctor(
     if output_json:
         document = report.as_dict()
         if selected_plan is not None:
-            document["doctor_repair_plan"] = selected_plan.as_dict()
+            document["doctor_repair_plan"] = selected_plan
         if applied_result is not None:
             document["doctor_repair_result"] = applied_result
         if automatic_results:
@@ -322,24 +233,21 @@ def init(
         typer.Option(
             "--persistence",
             "--veritabani",
-            help="Ilk kurulum persistence motoru: postgresql veya sqlite",
+            help="Fresh bootstrap motoru: sqlite",
         ),
     ] = None,
 ) -> None:
-    """ZEKAM_HOME ve tek seferlik persistence secimini idempotent olarak kurar."""
+    """ZEKAM_HOME v2'yi sifir verili ve atomik olarak kurar."""
+    del persistence  # Kept as a backwards-compatible, SQLite-only CLI option.
     try:
         resolved_home = resolve_home(home)
-        persistence = _interactive_persistence_choice(resolved_home, persistence)
-        persistence_plan = plan_persistence_setup(home=resolved_home, requested=persistence)
         context = build_context(home=home)
-        if not dry_run:
-            Path.home().mkdir(parents=True, exist_ok=True)
-        opencode_plan = plan_opencode_agent_bootstrap(
-            executable=_opencode_executable(context), user_home=Path.home()
-        )
-        client_instruction_plan = plan_client_instruction_bootstrap(user_home=Path.home())
-        client_hook_plan = plan_client_hook_bootstrap(
-            user_home=Path.home(), python_executable=Path(sys.executable)
+        authority = ActiveTaskContract.load(context.core_path / "AKTIF_GOREV.md")
+        bootstrap_plan = plan_fresh_bootstrap(
+            home=resolved_home,
+            core_root=context.core_path,
+            authority_digest=authority.source_digest,
+            schema=_OPERATIONAL_SCHEMA,
         )
         if dry_run:
             table = Table(title=f"{PRODUCT.data_root_env} plani: {context.home}")
@@ -356,48 +264,18 @@ def init(
             table.add_row(
                 USER_CONFIG_FILE,
                 "user-data",
-                (
-                    f"persistence={persistence_plan.backend.value}; "
-                    + ("mevcut" if persistence_plan.config_exists else "olusturulacak")
-                ),
+                f"persistence=sqlite; action={bootstrap_plan.action}",
             )
-            if opencode_plan.available:
-                table.add_row(
-                    ".config/opencode/agents",
-                    "user-config",
-                    (
-                        f"{len(opencode_plan.agents_to_create)} agent olusturulacak; "
-                        f"default={opencode_plan.config_document['default_agent']}"
-                    ),
-                )
-                table.add_row(
-                    ".config/opencode/plugins/zekam-lifecycle.js",
-                    "user-config",
-                    ("olusturulacak" if opencode_plan.lifecycle_plugin_to_create else "mevcut"),
-                )
-            for instruction in client_instruction_plan.files:
-                table.add_row(
-                    str(instruction.path.relative_to(Path.home())),
-                    "user-config",
-                    instruction.action,
-                )
-            for hook_file in client_hook_plan.files:
-                table.add_row(
-                    str(hook_file.path.relative_to(Path.home())),
-                    "user-config",
-                    hook_file.action,
-                )
+            table.add_row("state/operational.db", "runtime", "schema-v1")
+            table.add_row("bootstrap receipt", "artifact", bootstrap_plan.plan_digest)
             console.print(table)
             raise typer.Exit(0)
-        context.layout.ensure()
-        apply_persistence_setup(persistence_plan)
-        apply_opencode_agent_bootstrap(opencode_plan)
-        apply_client_instruction_bootstrap(client_instruction_plan)
-        apply_client_hook_bootstrap(client_hook_plan)
+        receipt = apply_fresh_bootstrap(bootstrap_plan, schema=_OPERATIONAL_SCHEMA)
+        LocalCoreServices.from_context(build_context(home=context.home)).bootstrap_extensions()
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
-    console.print(f"[green]Hazir:[/green] {context.home}")
+    console.print(f"[green]Hazir:[/green] {context.home} receipt={receipt['receipt_digest']}")
 
 
 @app.command()
@@ -406,21 +284,28 @@ def setup(
         bool,
         typer.Option(
             "--uygula",
-            help="Git TLS, migration ve runtime ilk kurulum adimlarini gercekten uygular",
+            help="Digest-bound SQLite/local-core kurulum adimlarini gercekten uygular",
         ),
     ] = False,
     output_json: Annotated[bool, typer.Option("--json", help="Sanitize plan JSON yazar")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+    plan_digest: Annotated[
+        str | None,
+        typer.Option("--plan-digest", help="Uygulanacak exact setup plan digest'i"),
+    ] = None,
 ) -> None:
     """Yeni makine kurulumunu planlar; varsayilan davranis salt okunur dry-run'dir."""
 
-    plan = build_setup_plan()
+    plan = build_setup_plan(home=resolve_home(home))
+    exact_plan_digest = setup_plan_digest(plan)
     if output_json and not apply:
+        plan_document = setup_plan_payload(plan)
         console.print_json(
             json.dumps(
                 {
-                    "schema": "zekam-setup-plan/v1",
+                    **plan_document,
                     "apply": apply,
-                    "steps": [step.as_dict() for step in plan],
+                    "plan_digest": exact_plan_digest,
                 },
                 ensure_ascii=False,
             )
@@ -433,8 +318,15 @@ def setup(
         for step in plan:
             table.add_row(step.step_id, step.description)
         console.print(table)
-        console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
+        console.print(f"Plan digest: {exact_plan_digest}")
+        console.print(
+            "[yellow]Dry-run. Uygulamak icin --uygula ve exact --plan-digest verin.[/yellow]"
+        )
         return
+
+    if plan_digest != exact_plan_digest:
+        error_console.print("[red]Hata:[/red] setup exact --plan-digest ister")
+        raise typer.Exit(EXIT_USAGE_ERROR)
 
     cli_prefix = (sys.executable, "-m", "zekam.interfaces.cli.main")
     receipts: list[dict[str, object]] = []
@@ -454,6 +346,7 @@ def setup(
                         {
                             "schema": "zekam-setup-result/v1",
                             "status": "failed",
+                            "plan_digest": exact_plan_digest,
                             "receipts": receipts,
                         }
                     )
@@ -469,6 +362,7 @@ def setup(
                 {
                     "schema": "zekam-setup-result/v1",
                     "status": "completed",
+                    "plan_digest": exact_plan_digest,
                     "receipts": receipts,
                 }
             )
@@ -483,70 +377,6 @@ def _opencode_executable(context: ApplicationContext) -> Path | None:
             return client.executable
     discovered = shutil.which("opencode")
     return Path(discovered).resolve() if discovered else None
-
-
-def _interactive_persistence_choice(
-    home: Path, requested: PersistenceBackend | None
-) -> PersistenceBackend | None:
-    """Ilk interaktif kurulumda secimi bir kez sorar; otomasyonda PG varsayilani korunur."""
-    if requested is not None:
-        return requested
-    if (home / USER_CONFIG_FILE).exists():
-        existing = plan_persistence_setup(home=home, requested=None)
-        if not existing.legacy_config:
-            return None
-    if not sys.stdin.isatty():
-        return None
-    raw = typer.prompt(
-        "Persistence motoru",
-        default=PersistenceBackend.POSTGRESQL.value,
-        type=click.Choice([item.value for item in PersistenceBackend], case_sensitive=False),
-    )
-    return PersistenceBackend(str(raw).lower())
-
-
-def _doctor_project_id(
-    realm_context: RealmContext,
-    context: ApplicationContext,
-    *,
-    requested: UUID | None,
-) -> UUID:
-    integration = ProjectIntegrationService(realm_context.connection, realm_context.realm)
-    if requested is not None:
-        integration.projects.get(requested)
-        if integration.resolve_source_root(requested).resolve() != context.core_path.resolve():
-            raise PolicyViolation("--project-id exact Zekam source rootuna bagli degil")
-        return requested
-    candidates: list[UUID] = []
-    for project in integration.projects.list_all():
-        try:
-            root = integration.resolve_source_root(project.id)
-        except (NotFound, PolicyViolation):
-            continue
-        if root.resolve() == context.core_path.resolve():
-            candidates.append(project.id)
-    if len(candidates) != 1:
-        raise PolicyViolation(
-            "Doctor repair exact tek Zekam source project ister; --project-id verin"
-        )
-    return candidates[0]
-
-
-def _doctor_actor_id(realm_context: RealmContext, *, requested: UUID | None) -> UUID:
-    actors = ActorRepository(realm_context.connection, realm_context.realm_id)
-    if requested is not None:
-        actor = actors.get(requested)
-        if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
-            raise PolicyViolation("--actor-id aktif human actor olmali")
-        return actor.id
-    candidates = tuple(
-        actor
-        for actor in actors.list_all()
-        if actor.kind is ActorKind.HUMAN and actor.status is LifecycleStatus.ACTIVE
-    )
-    if len(candidates) != 1:
-        raise PolicyViolation("Doctor repair exact tek aktif human actor ister; --actor-id verin")
-    return candidates[0].id
 
 
 _SEVERITY_STYLES: dict[Severity, str] = {
@@ -588,32 +418,25 @@ def _render_report(report: DoctorReport) -> None:
     console.print(f"Toplam durum: [{style}]{report.overall.value}[/{style}]")
 
 
-def _render_doctor_repair_plan(plan: DoctorRepairPlan) -> None:
-    document = plan.as_dict()
+def _render_doctor_repair_plan(document: dict[str, object]) -> None:
     table = Table(title="Doctor repair plani (yetki degildir)")
     table.add_column("Alan")
     table.add_column("Deger")
-    table.add_row("Plan digest", plan.plan_digest)
-    table.add_row("Siradaki adim", str(document["next_step"] or "yok"))
+    table.add_row("Plan digest", str(document["plan_digest"]))
+    table.add_row("Siradaki adim", str(document["action"] or "yok"))
+    blocked = document["blocked_reasons"]
+    assert isinstance(blocked, list)
+    table.add_row("Bloke", ", ".join(str(item) for item in blocked) or "hayir")
     table.add_row(
-        "Bloke",
-        ", ".join(str(item) for item in document["blocked_reasons"]) or "hayir",
+        "Uygulanabilir",
+        "evet" if document["action"] is not None and not document["blocked_reasons"] else "hayir",
     )
-    table.add_row("Uygulanabilir", "evet" if document["applicable"] else "hayir")
     console.print()
     console.print(table)
-    if document["next_step"] is not None:
-        if document["next_step"] in {
-            "postgres-migration-upgrade",
-            "postgres-routine-repair",
-        }:
-            console.print(
-                "Tum yerel DB hazirlama adimlarini bounded uygulamak icin: "
-                f"`{PRODUCT.cli} doctor --hazirla`"
-            )
+    if document["action"] is not None:
         console.print(
             "Uygulamak icin exact plan digest ile tekrar calistirin: "
-            f"`{PRODUCT.cli} doctor --uygula --plan-digest {plan.plan_digest}`"
+            f"`{PRODUCT.cli} doctor --uygula --plan-digest {document['plan_digest']}`"
         )
 
 

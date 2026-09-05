@@ -838,71 +838,141 @@ class ClientLifecycleSpool:
         _timestamp(at, label="occurred_at")
         self._ensure_write_directories()
         with _exclusive_lock(self.lock_path):
-            queue_sequence, queue_previous = self._load_queue_tail(recover=True)
-            previous = self._load_session_tail(
-                client_id=str(safe["client_id"]), session_id=str(safe["session_id"])
+            return self._stage_locked(safe, delivery_id, at)[0]
+
+    @contextmanager
+    def stage_frozen(
+        self,
+        observation: Mapping[str, Any],
+        *,
+        delivery_id: str,
+        occurred_at: dt.datetime,
+        deadline: Any,
+    ) -> Iterator[tuple[LifecycleSpoolEntry, bool, tuple[LifecycleSpoolEntry, ...]]]:
+        """Stage once and retain the producer lock through a bounded decision."""
+        parse_digest(delivery_id)
+        safe = _validate_observation(observation)
+        _timestamp(occurred_at, label="occurred_at")
+        if not callable(getattr(deadline, "remaining_seconds", None)):
+            raise ValidationFailed("Lifecycle exact deadline required")
+        self._ensure_write_directories()
+        with _exclusive_lock(self.lock_path, deadline=deadline):
+            entry, created = self._stage_locked(safe, delivery_id, occurred_at)
+            entries = self.read_session_entries(
+                client_id=entry.client_id, session_id=entry.session_id
             )
-            existing = self._entry_for_delivery(delivery_id)
-            if existing is not None:
-                if existing.observation_digest != digest(safe) or existing.observation != safe:
-                    raise PolicyViolation("Lifecycle delivery replay payload drift")
-                return existing
-            draft = LifecycleSpoolEntry(
-                entry_digest="",
-                delivery_id=delivery_id,
-                client_id=safe["client_id"],
-                client_kind=safe["client_kind"],
-                client_version=safe["client_version"],
-                session_id=safe["session_id"],
-                sequence=1 if previous is None else previous.sequence + 1,
-                previous_entry_digest=None if previous is None else previous.entry_digest,
-                external_event_type=safe["external_event_type"],
-                internal_event_type=safe["internal_event_type"],
-                observation_digest=digest(safe),
-                observation=safe,
-                occurred_at=at,
-            )
-            entry = replace(draft, entry_digest=digest(draft.body()))
-            entry.assert_integrity()
-            next_queue_sequence = queue_sequence + 1
-            _write_atomic_json(
-                self.queue_state_path,
-                self._queue_state_document(
-                    entry,
-                    queue_sequence=next_queue_sequence,
-                    previous_queue_entry_digest=queue_previous,
-                    state="pending",
-                ),
-            )
-            pending = self._checkpoint_document(entry, state="pending")
-            _write_atomic_json(self._session_path(entry.client_id, entry.session_id), pending)
-            _write_immutable_json(self._entry_path(entry.entry_digest), entry.as_dict())
-            _write_immutable_json(
-                self._delivery_path(entry.delivery_id),
-                self._delivery_document(entry, queue_sequence=next_queue_sequence),
-            )
-            _write_immutable_json(
-                self._queue_path(next_queue_sequence),
-                self._queue_ref_document(
-                    entry,
-                    queue_sequence=next_queue_sequence,
-                    previous_queue_entry_digest=queue_previous,
-                ),
-            )
-            _write_atomic_json(
-                self._session_path(entry.client_id, entry.session_id),
-                self._checkpoint_document(entry, state="committed"),
-            )
-            _write_atomic_json(
-                self.queue_state_path,
-                self._queue_state_document(
-                    entry,
-                    queue_sequence=next_queue_sequence,
-                    previous_queue_entry_digest=queue_previous,
-                    state="committed",
-                ),
-            )
-            return entry
+            yield entry, created, entries
+            deadline.remaining_seconds()
+            if entries != self.read_session_entries(
+                client_id=entry.client_id, session_id=entry.session_id
+            ):
+                raise ConcurrencyConflict("Lifecycle held spool changed")
+
+    def _stage_locked(
+        self, safe: dict[str, Any], delivery_id: str, occurred_at: dt.datetime
+    ) -> tuple[LifecycleSpoolEntry, bool]:
+        queue_sequence, queue_previous = self._load_queue_tail(recover=True)
+        previous = self._load_session_tail(
+            client_id=str(safe["client_id"]), session_id=str(safe["session_id"])
+        )
+        existing = self._entry_for_delivery(delivery_id)
+        if existing is not None:
+            if existing.observation_digest != digest(safe) or existing.observation != safe:
+                raise PolicyViolation("Lifecycle delivery replay payload drift")
+            return existing, False
+        draft = LifecycleSpoolEntry(
+            entry_digest="",
+            delivery_id=delivery_id,
+            client_id=safe["client_id"],
+            client_kind=safe["client_kind"],
+            client_version=safe["client_version"],
+            session_id=safe["session_id"],
+            sequence=1 if previous is None else previous.sequence + 1,
+            previous_entry_digest=None if previous is None else previous.entry_digest,
+            external_event_type=safe["external_event_type"],
+            internal_event_type=safe["internal_event_type"],
+            observation_digest=digest(safe),
+            observation=safe,
+            occurred_at=occurred_at,
+        )
+        entry = replace(draft, entry_digest=digest(draft.body()))
+        entry.assert_integrity()
+        next_sequence = queue_sequence + 1
+        _write_atomic_json(
+            self.queue_state_path,
+            self._queue_state_document(
+                entry,
+                queue_sequence=next_sequence,
+                previous_queue_entry_digest=queue_previous,
+                state="pending",
+            ),
+        )
+        _write_atomic_json(
+            self._session_path(entry.client_id, entry.session_id),
+            self._checkpoint_document(entry, state="pending"),
+        )
+        _write_immutable_json(self._entry_path(entry.entry_digest), entry.as_dict())
+        _write_immutable_json(
+            self._delivery_path(entry.delivery_id),
+            self._delivery_document(entry, queue_sequence=next_sequence),
+        )
+        _write_immutable_json(
+            self._queue_path(next_sequence),
+            self._queue_ref_document(
+                entry, queue_sequence=next_sequence, previous_queue_entry_digest=queue_previous
+            ),
+        )
+        _write_atomic_json(
+            self._session_path(entry.client_id, entry.session_id),
+            self._checkpoint_document(entry, state="committed"),
+        )
+        _write_atomic_json(
+            self.queue_state_path,
+            self._queue_state_document(
+                entry,
+                queue_sequence=next_sequence,
+                previous_queue_entry_digest=queue_previous,
+                state="committed",
+            ),
+        )
+        return entry, True
+
+    @contextmanager
+    def frozen_session_entries(
+        self, *, client_id: str, session_id: str
+    ) -> Iterator[tuple[LifecycleSpoolEntry, ...]]:
+        """Hold the actual producer lock across local DB checkpoint admission.
+
+        No recovery, acknowledgement or cursor mutation is performed by this
+        barrier. An interrupted spool write is an explicit recovery condition.
+        """
+        _safe_text(client_id, label="client_id")
+        _safe_text(session_id, label="session_id")
+        if client_id != self.root.name:
+            raise PolicyViolation("Lifecycle spool client binding mismatch")
+        with _exclusive_lock(self.lock_path):
+            yield self.read_session_entries(client_id=client_id, session_id=session_id)
+
+    def read_session_entries(
+        self, *, client_id: str, session_id: str
+    ) -> tuple[LifecycleSpoolEntry, ...]:
+        """Read-only diagnostic snapshot; concurrent changes require a retry."""
+        if client_id != self.root.name:
+            raise PolicyViolation("Lifecycle spool client binding mismatch")
+        before = self._load_queue_tail(recover=False)
+        tail = self._load_session_tail(client_id=client_id, session_id=session_id)
+        entries = tuple(
+            item
+            for item in self._verified_entries()
+            if item.client_id == client_id and item.session_id == session_id
+        )
+        if before != self._load_queue_tail(recover=False):
+            raise ConcurrencyConflict("Lifecycle diagnostic snapshot changed; retry required")
+        if (tail is None) != (not entries) or (
+            tail is not None and tail.entry_digest != entries[-1].entry_digest
+        ):
+            raise PolicyViolation("Lifecycle spool session cursor parity mismatch")
+        return entries
 
     def client_instance_id(self) -> str:
         """Return one persistent, path-free Codex instance identity for canonical ingest."""
@@ -2859,18 +2929,14 @@ def _assert_safe_parent_chain(path: Path) -> None:
         raise ValidationFailed("Lifecycle spool anchor okunamadi") from exc
     if _is_reparse_or_symlink(anchor_info) or not stat.S_ISDIR(anchor_info.st_mode):
         raise PolicyViolation("Lifecycle spool anchor reparse/symlink olamaz")
-    missing = False
     for part in absolute.parts[1:-1]:
         current /= part
         try:
             info = os.lstat(current)
         except FileNotFoundError:
-            missing = True
             continue
         except OSError as exc:
             raise ValidationFailed("Lifecycle spool parent okunamadi") from exc
-        if missing:
-            raise PolicyViolation("Lifecycle spool parent chain race algilandi")
         if _is_reparse_or_symlink(info) or not stat.S_ISDIR(info.st_mode):
             raise PolicyViolation("Lifecycle spool parent reparse/symlink olamaz")
 
@@ -3101,7 +3167,7 @@ def _write_atomic_json(path: Path, document: Mapping[str, Any]) -> None:
 
 
 @contextmanager
-def _exclusive_lock(path: Path) -> Iterator[None]:
+def _exclusive_lock(path: Path, *, deadline: Any | None = None) -> Iterator[None]:
     _ensure_safe_directory(path.parent)
     _safe_regular_file_exists(path, max_bytes=MAX_LOCK_BYTES)
     flags = os.O_RDWR | os.O_CREAT | _OPEN_BINARY | _OPEN_NOFOLLOW
@@ -3122,12 +3188,17 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
         acquired = False
         try:
             for _ in range(LOCK_RETRY_ATTEMPTS):
+                if deadline is not None:
+                    deadline.remaining_seconds()
                 stream.seek(0)
                 try:
                     if os.name == "nt":
                         import msvcrt
 
-                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                        msvcrt_members = vars(msvcrt)
+                        locking = msvcrt_members["locking"]
+                        lock_nonblocking = int(msvcrt_members["LK_NBLCK"])
+                        locking(stream.fileno(), lock_nonblocking, 1)
                     else:
                         import fcntl
 
@@ -3137,7 +3208,10 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
                         lock_nb = int(fcntl_members["LOCK_NB"])
                         flock(stream.fileno(), lock_ex | lock_nb)
                 except OSError:
-                    time.sleep(LOCK_RETRY_INTERVAL_SECONDS)
+                    delay = LOCK_RETRY_INTERVAL_SECONDS
+                    if deadline is not None:
+                        delay = min(delay, deadline.remaining_seconds())
+                    time.sleep(delay)
                     continue
                 acquired = True
                 break
@@ -3150,7 +3224,10 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
                 if os.name == "nt":
                     import msvcrt
 
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    msvcrt_members = vars(msvcrt)
+                    locking = msvcrt_members["locking"]
+                    lock_unlock = int(msvcrt_members["LK_UNLCK"])
+                    locking(stream.fileno(), lock_unlock, 1)
                 else:
                     import fcntl
 

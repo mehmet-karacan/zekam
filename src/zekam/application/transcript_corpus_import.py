@@ -48,7 +48,10 @@ class ContentAddressedStore(Protocol):
 class StoredObject(Protocol):
     """CAS put sonucunun gereken tek alani."""
 
-    digest: str
+    @property
+    def digest(self) -> str:
+        """Immutable content digest exposed by any compatible CAS result."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

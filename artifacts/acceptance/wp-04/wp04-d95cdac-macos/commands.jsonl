@@ -1,0 +1,12 @@
+{"command":"ruff check WP-04 sources/tests plus lifecycle spool hardening","result":"passed"}
+{"command":"mypy local runtime contract/service/SQLite adapter/CLI/effects","result":"passed"}
+{"command":"pytest WP-04 focused unit/process/service/real CLI E2E/mutation admission","passed":128,"failed":0}
+{"command":"independent verifier focused and exact adversarial repro","passed":78,"failed":0,"verdict":"passed"}
+{"command":"independent real CLI worker/outbox fsync SIGKILL restart","passed":2,"failed":0,"external_call_count":1}
+{"command":"pytest active-task authority plus PostgreSQL sentinel/application DB import security","passed":71,"failed":0}
+{"command":"lifecycle spool concurrent identical delivery repeated","passed":10,"failed":0}
+{"command":"package validator with isolated result path","result":"passed","warnings":0,"errors":0}
+{"command":"full pytest suite","passed":2624,"skipped":712,"failed":5,"task_regressions":0}
+{"command":"git diff --check","result":"passed"}
+{"command":"pytest -q --junitxml=final-current-source-full-suite-r3.xml","exit_code":0,"result":"6957 passed, 16 skipped, 0 failures, 0 errors"}
+{"command":"independent current-source WP-03/WP-04 acceptance and branch coverage","exit_code":0,"result":"448 passed; local_runtime branch coverage 90.38%; P0=0; P1=0"}

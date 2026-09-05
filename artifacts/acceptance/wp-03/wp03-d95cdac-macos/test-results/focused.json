@@ -1,0 +1,15 @@
+{
+  "failed": 0,
+  "passed": 100,
+  "schema": "zekam-test-result/v1",
+  "scope": [
+    "operational-store",
+    "fresh-bootstrap",
+    "sqlite-operational-cli-e2e",
+    "unit-of-work-and-recovery",
+    "application-db-import-boundary",
+    "legacy-provider-fail-closed",
+    "routing-and-runtime-regressions"
+  ],
+  "status": "passed"
+}

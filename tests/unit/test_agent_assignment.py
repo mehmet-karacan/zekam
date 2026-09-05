@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -13,21 +15,20 @@ pytestmark = pytest.mark.unit
 D = "sha256:" + "a" * 64
 
 
-def _assignment(**changes):  # type: ignore[no-untyped-def]
-    values = {
-        "id": uuid4(),
-        "realm_id": uuid4(),
-        "project_id": uuid4(),
-        "work_item_id": uuid4(),
-        "role": AssignmentRole.COORDINATOR,
-        "agent_ref": "coordinator",
-        "instruction_digest": D,
-        "context_manifest_digest": D,
-        "assignment_digest": D,
-        "created_at": dt.datetime.now(dt.UTC),
-    }
-    values.update(changes)
-    return AgentAssignment(**values)
+def _assignment(**changes: Any) -> AgentAssignment:
+    base = AgentAssignment(
+        id=uuid4(),
+        realm_id=uuid4(),
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        role=AssignmentRole.COORDINATOR,
+        agent_ref="coordinator",
+        instruction_digest=D,
+        context_manifest_digest=D,
+        assignment_digest=D,
+        created_at=dt.datetime.now(dt.UTC),
+    )
+    return replace(base, **changes)
 
 
 def test_coordinator_is_not_a_child() -> None:

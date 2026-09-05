@@ -1,0 +1,28 @@
+{
+  "contracts": [
+    "src/zekam/application/local_runtime.py",
+    "src/zekam/application/local_runtime_service.py"
+  ],
+  "infrastructure": [
+    "src/zekam/infrastructure/local_runtime_effects.py",
+    "src/zekam/infrastructure/process_identity.py",
+    "src/zekam/infrastructure/sqlite/local_runtime.py",
+    "src/zekam/infrastructure/sqlite/operational_schema.py"
+  ],
+  "production_composition": [
+    "src/zekam/interfaces/cli/local_runtime.py",
+    "src/zekam/interfaces/cli/main.py",
+    "src/zekam/application/mutation_admission.py"
+  ],
+  "regression_hardening": [
+    "src/zekam/application/client_lifecycle_spool.py"
+  ],
+  "schema": "zekam-changed-files/v1",
+  "tests": [
+    "tests/e2e/test_cli_sqlite_operational.py",
+    "tests/unit/test_cli_mutation_admission.py",
+    "tests/unit/test_local_runtime.py",
+    "tests/unit/test_local_runtime_service.py",
+    "tests/unit/test_process_identity.py"
+  ]
+}

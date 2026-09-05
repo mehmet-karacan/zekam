@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
-from zekam.infrastructure.sqlite.repository import SCHEMA_DIGEST, SCHEMA_VERSION, status
+from zekam.infrastructure.sqlite.operational_schema import SCHEMA_DIGEST, SCHEMA_VERSION, status
+
+if TYPE_CHECKING:
+    from zekam.application.composition import ApplicationContext
 
 CATEGORY = "sqlite"
 
@@ -80,6 +85,92 @@ class PersistenceCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class LocalCoreStoresCheck:
+    """Validate every composed local store through its semantic contract."""
+
+    context: ApplicationContext
+    check_id: str = "sqlite.local-core-stores"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        from zekam.infrastructure.local_core_services import LocalCoreServices
+
+        snapshot = LocalCoreServices.from_context(self.context).status(semantic_analytics=True)
+        databases = snapshot.get("databases")
+        analytics = snapshot.get("analytics")
+        if not isinstance(databases, Mapping) or not isinstance(analytics, Mapping):
+            raise ValueError("Local core status exact store census missing")
+        if snapshot.get("all_ready") is True:
+            return CheckResult(
+                self.check_id,
+                self.category,
+                CheckStatus.PASSED,
+                "Tum composed local store semantic fingerprintleri dogrulandi",
+                evidence=snapshot,
+            )
+
+        missing = sorted(
+            str(name)
+            for name, item in databases.items()
+            if isinstance(item, Mapping)
+            and item.get("required") is True
+            and item.get("exists") is False
+        )
+        invalid = sorted(
+            str(name)
+            for name, item in databases.items()
+            if isinstance(item, Mapping)
+            and item.get("exists") is True
+            and (item.get("integrity") is not True or item.get("schema_ok") is not True)
+        )
+        findings: list[Finding] = []
+        if missing:
+            findings.append(
+                Finding(
+                    code="sqlite.local-store-missing",
+                    severity=Severity.CRITICAL,
+                    title="Zorunlu yerel store eksik",
+                    detail=", ".join(missing),
+                    next_action="`zekam doctor --repair-plan --json` ile exact onarim plani alin",
+                )
+            )
+        if invalid:
+            findings.append(
+                Finding(
+                    code="sqlite.local-store-semantic-drift",
+                    severity=Severity.CRITICAL,
+                    title="Yerel store semantic fingerprint gecersiz",
+                    detail=", ".join(invalid),
+                    next_action="Store'u yedekleyin ve explicit recovery plani hazirlayin",
+                    authority_required=True,
+                )
+            )
+        if analytics.get("ready") is not True:
+            findings.append(
+                Finding(
+                    code="sqlite.local-analytics-semantic-drift",
+                    severity=Severity.CRITICAL,
+                    title="Yerel analytics store gecersiz",
+                    detail=str(analytics.get("state", "unknown")),
+                    next_action=(
+                        "Analytics kaynagini koruyup bounded rebuild/recovery plani hazirlayin"
+                    ),
+                    authority_required=analytics.get("repairable") is not True,
+                )
+            )
+        if not findings:
+            raise ValueError("Local core unhealthy status has no exact cause")
+        return CheckResult(
+            self.check_id,
+            self.category,
+            CheckStatus.FAILED,
+            "Composed local store butunluk kapisi gecmedi",
+            findings=tuple(findings),
+            evidence=snapshot,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilityCheck:
     check_id: str = "sqlite.capabilities"
     category: str = CATEGORY
@@ -88,29 +179,19 @@ class CapabilityCheck:
         return CheckResult(
             self.check_id,
             self.category,
-            CheckStatus.DEGRADED,
-            "SQLite minimum profil; dagitik runtime yetenekleri PostgreSQL gerektirir",
-            findings=(
-                Finding(
-                    code="sqlite.minimum-profile",
-                    severity=Severity.WARNING,
-                    title="SQLite capability siniri",
-                    detail=(
-                        "project add/list, work create/list ve knowledge JSON-vector cosine "
-                        "desteklenir; durable queue, "
-                        "RLS, governance, scheduler ve native memory desteklenmez"
-                    ),
-                    next_action="Bu yetenekler gerekiyorsa yeni ZEKAM_HOME ile PostgreSQL secin",
-                ),
-            ),
+            CheckStatus.PASSED,
+            "Yerel SQLite authority ve dayanıklı runtime hazır",
             evidence={
                 "supported": [
                     "project:add/list",
                     "work:create/list",
                     "knowledge:vector-index/search",
                     "json-vector-cosine",
+                    "durable-runtime",
+                    "continuity-v1-v4",
+                    "learning-model-benchmark-routing-analytics-improvement",
                 ],
-                "unsupported": ["queue", "rls", "governance", "scheduler", "native-memory"],
+                "unsupported": ["remote-provider-execution", "distributed-scheduler"],
                 "fallback": False,
             },
         )

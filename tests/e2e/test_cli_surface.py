@@ -47,5 +47,5 @@ def test_sozlesme_ciktisi_mutasyon_bilgisini_tasir() -> None:
 def test_yardim_metni_butun_gruplari_gosterir() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for group in ("project", "work", "knowledge", "scheduler", "report", "surface"):
+    for group in ("project", "work", "knowledge", "local-core", "local-runtime", "surface"):
         assert group in result.stdout

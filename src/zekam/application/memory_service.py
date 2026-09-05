@@ -1,6 +1,6 @@
 """Native MemoryEngine, hibrit bellek aramasi, hijyen ve Mem0 adapteri.
 
-Native PostgreSQL motoru kanoniktir. Mem0 opsiyonel bir adapterdir ve **otorite
+Native yerel motor kanoniktir. Mem0 opsiyonel bir adapterdir ve **otorite
 degildir**: harici kayit farkli oldugunda native kayit gecerlidir, fark drift
 olarak gorunur kalir.
 """

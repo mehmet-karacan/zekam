@@ -1,0 +1,14 @@
+{
+  "architecture": "arm64",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "branch": "main",
+  "cpython": "3.12.14",
+  "git_ahead": 0,
+  "git_behind": 0,
+  "macos_build": "25G83",
+  "macos_version": "26.6.2",
+  "schema": "zekam-acceptance-environment/v1",
+  "sqlite": "3.53.4",
+  "task_authority_digest": "sha256:ebc993d36a07a79ce2f07afab0a15f8b513b1a4402bb74b2a15014945a762bad",
+  "upstream": "origin/main"
+}

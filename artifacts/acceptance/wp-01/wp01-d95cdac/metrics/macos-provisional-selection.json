@@ -1,0 +1,20 @@
+{
+  "analytics": "duckdb",
+  "evidence_digests": [
+    "sha256:3085caceb441b7cae02c52139974891826c8f112fb6f13f07dab3256f46d350d",
+    "sha256:25d7787870dbc09753d4244ecbf7217621a6f4cd77f36c712418544ed4200b75",
+    "sha256:e94653c353ba68878e301378356da6ec6eda37caf2e2cb5b86961a08f6a008b2",
+    "sha256:a5d45a1bb219635b0e373af68b224d14169cabd9786f2743013cc22a6cf87b24",
+    "sha256:7819981007dacff5a11b43e79f905412734add8da139c3aca6856cbaab812a42",
+    "sha256:d4e8038c9885fdb7eaeb437e5cce5da4a93d439174c88d28e3675872583c7978"
+  ],
+  "knowledge": "sqlite-fts5+sqlite-vec",
+  "operational": "cpython-sqlite",
+  "rationale": {
+    "analytics": "Immutable raw artifacts remain authority and deterministic rebuild parity passed.",
+    "knowledge": "Single SQLite recovery boundary, minimal production dependency surface, exact/lexical/vector generation rebuild, and measured Mac quality gates passed; latency remains an explicit scale risk.",
+    "operational": "Bundled SQLite 3.53.4 passed WAL safety, durability and recovery gates with fewer dependencies than pyturso."
+  },
+  "status": "macos-accepted-windows-deferred",
+  "windows_x64_deferred": true
+}

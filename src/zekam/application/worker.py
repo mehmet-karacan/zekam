@@ -18,11 +18,12 @@ from typing import Any
 from uuid import UUID
 
 from zekam.application.execution import ExecutionHost
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.release import BackpressureDecision, CancellationRequest
-from zekam.domain.runtime import AttemptOutcome, FailureCategory
+from zekam.domain.runtime import AttemptOutcome, ClaimedWork, FailureCategory
 from zekam.domain.scheduler import (
     JobDefinition,
     MisfirePolicy,
@@ -33,7 +34,6 @@ from zekam.domain.scheduler import (
     plan_trigger,
     required_job_definitions,
 )
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 #: Bir is birimini isleyen fonksiyon. Basari durumunda result digest doner.
 Handler = Callable[[ClaimedWork], str]
@@ -599,13 +599,10 @@ def run_codex_lifecycle_once(
     )
     from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
     from zekam.domain.runtime import JobState
-    from zekam.infrastructure.postgres.client_lifecycle_repository import (
-        ClientLifecycleRepository,
-    )
 
     if settings.capabilities != ("client.lifecycle.codex-drain",):
         raise PolicyViolation("Codex lifecycle worker exact tek capability ister")
-    repository = ClientLifecycleRepository(connection, realm_id)
+    repository = legacy_repository("client_lifecycle", connection, realm_id)
     spool = ClientLifecycleSpool(home, client_id="codex")
     pending = spool.pending(limit=1)
     if pending and repository.committed_admission_exists(pending[0].entry_digest):
@@ -699,9 +696,6 @@ def run_codex_lifecycle_bootstrap_once(
         ClaimedLifecycleBootstrapService,
     )
     from zekam.domain.runtime import JobState
-    from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
-        LifecycleRuntimeTemplateRepository,
-    )
 
     if settings.capabilities != ("client.lifecycle.codex-bootstrap",):
         raise PolicyViolation("Codex lifecycle bootstrap worker exact tek capability ister")
@@ -710,7 +704,7 @@ def run_codex_lifecycle_bootstrap_once(
     if not pending:
         return None
     entry = pending[0]
-    repository = LifecycleRuntimeTemplateRepository(connection, realm_id)
+    repository = legacy_repository("lifecycle_runtime_template", connection, realm_id)
     job_id = repository.next_bootstrap_job_id()
     if job_id is None:
         return None

@@ -1,0 +1,13 @@
+{
+  "application_postgresql_imports": 0,
+  "application_sqlite_imports": 0,
+  "docker_calls": 0,
+  "legacy_data_import_export_etl": 0,
+  "package_validator_errors": 0,
+  "package_validator_warnings": 0,
+  "postgresql_connections": 0,
+  "provider_unconfigured_state": "fail-closed",
+  "provider_runtime_engine_switch": "rejected",
+  "schema": "zekam-wp03-security-result/v1",
+  "verdict": "passed"
+}

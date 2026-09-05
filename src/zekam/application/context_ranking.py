@@ -41,6 +41,7 @@ class ContextRankingRequest:
     compatible_source_revisions: tuple[str, ...]
     task_terms: tuple[str, ...]
     tokenizer_profile_digest: str
+    additional_scope_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.role.strip():
@@ -53,9 +54,20 @@ class ContextRankingRequest:
         )
         if any(len(set(values)) != len(values) for values in collections):
             raise ValidationFailed("Context ranking request degerleri tekil olmali")
+        # This is explicit context selection, never an authorization or rank boost.
+        # Broader scopes need a separately reviewed contract, not caller supplied names.
+        if not isinstance(self.additional_scope_refs, tuple) or self.additional_scope_refs not in (
+            (),
+            ("global-user",),
+        ):
+            raise ValidationFailed("Context additional scope permits only exact global-user opt-in")
+        if self.additional_scope_refs and (
+            not isinstance(self.realm_scope_ref, str) or not self.realm_scope_ref.strip()
+        ):
+            raise ValidationFailed("Context global-user opt-in requires an exact realm scope")
 
     def body(self) -> dict[str, Any]:
-        return {
+        body = {
             "role": self.role,
             "target_identity_refs": sorted(self.target_identity_refs),
             "step_scope_ref": self.step_scope_ref,
@@ -67,6 +79,10 @@ class ContextRankingRequest:
             "task_terms": sorted(self.task_terms),
             "tokenizer_profile_digest": self.tokenizer_profile_digest,
         }
+        # Existing requests retain their exact serialized body and snapshot digest.
+        if self.additional_scope_refs:
+            body["additional_scope_refs"] = list(self.additional_scope_refs)
+        return body
 
 
 @dataclass(frozen=True, slots=True)

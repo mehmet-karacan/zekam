@@ -1,0 +1,19 @@
+{
+  "schema": "zekam-full-suite-result/v1",
+  "tests": 6973,
+  "passed": 6957,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 16,
+  "warnings": 3,
+  "time_seconds": 1413.15,
+  "junit_path": "/Users/mkaracan/zekam-wp08-v3-evidence.16wYdB/final-current-source-full-suite-r3.xml",
+  "junit_sha256": "d0c3305ea3de090d831443a50d0ab0cfbea1c99ec135201e1b500c6e6cb801fe",
+  "verdict": "passed",
+  "supersedes_environment_drift_run": {
+    "passed": 2544,
+    "failed": 5,
+    "skipped": 712,
+    "task_regressions": 0
+  }
+}

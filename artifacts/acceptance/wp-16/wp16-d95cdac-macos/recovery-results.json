@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "scenarios": [
+    "process kill",
+    "disk/read-only/corruption",
+    "network/provider timeout",
+    "lock/PID/concurrent writers",
+    "backup/restore/rebuild",
+    "bounded soak"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

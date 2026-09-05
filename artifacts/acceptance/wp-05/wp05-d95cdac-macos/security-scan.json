@@ -1,0 +1,19 @@
+{
+  "application_db_import_boundary": "passed",
+  "legacy_postgresql_access": "not-performed",
+  "package_validator_errors": 0,
+  "package_validator_findings": 0,
+  "package_validator_status": "passed",
+  "public_filter_cases": [
+    "email",
+    "phone",
+    "absolute-local-path",
+    "credential-assignment",
+    "bearer-token",
+    "database-url",
+    "tckn",
+    "turkish-iban",
+    "luhn-card"
+  ],
+  "symlink_escape_writes": 0
+}

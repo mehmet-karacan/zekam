@@ -1,4 +1,7 @@
-"""Provider-free installed Claude contract and real hook subprocess harness."""
+"""Historical Windows Claude probe and platform-independent direct Zekam hooks.
+
+Direct CLI delivery below does not claim Claude emitted or installed these hooks.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +23,10 @@ from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
 pytestmark = pytest.mark.e2e
 
 
-def test_installed_claude_contract_and_isolated_hook_delivery(tmp_path: Path) -> None:
+@pytest.mark.skipif(
+    os.name != "nt", reason="Historical Windows Claude 2.1.224 runtime/settings probe"
+)
+def test_historical_windows_claude_version_and_isolated_settings(tmp_path: Path) -> None:
     executable = shutil.which("claude")
     if executable is None:
         pytest.skip("Claude Code kurulu degil")
@@ -61,6 +67,11 @@ def test_installed_claude_contract_and_isolated_hook_delivery(tmp_path: Path) ->
     assert isolated_probe.returncode == 0
     assert isolated_probe.stdout.strip() == "2.1.224 (Claude Code)"
 
+
+def test_direct_zekam_cli_hook_delivery_preserves_isolated_spool_and_privacy(
+    tmp_path: Path,
+) -> None:
+    """Deliver five explicit fixtures to Zekam, without invoking the Claude binary."""
     zekam_home = tmp_path / "zekam-home"
     environment = dict(os.environ)
     environment["ZEKAM_HOME"] = str(zekam_home)

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 
 from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.context_materializer import materialize_recipe_fragments
 from zekam.application.context_ranking import (
+    ContextCandidateSet,
     ContextCandidateSetIssuer,
     ContextRankingRequest,
     ContextRankingSnapshot,
@@ -321,7 +323,12 @@ def test_production_context_service_role_recipe_zorlar() -> None:
     )
 
     class FakeTransactionalRepository:
-        def compile_current(self, current, sealed, **kwargs):
+        def compile_current(
+            self,
+            current: ContextRankingSnapshot,
+            sealed: ContextCandidateSet,
+            **kwargs: Any,
+        ) -> RecipeContextPacket:
             assert current is snapshot and sealed is candidate_set
             return ContextRecipeRegistry().compile(
                 kwargs["role"],
@@ -339,7 +346,7 @@ def test_production_context_service_role_recipe_zorlar() -> None:
         minimum_authority=AuthorityLevel.OBSERVED,
         now=NOW,
         ranking_snapshot=snapshot,
-        repository=FakeTransactionalRepository(),  # type: ignore[arg-type]
+        repository=cast(Any, FakeTransactionalRepository()),
     )
     assert packet.role is ContextRecipeRole.COORDINATOR
     assert "source-slice" in packet.recipe_excluded

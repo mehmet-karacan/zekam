@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import sys
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -38,7 +38,7 @@ class RouteGuard:
 
     def require_current(
         self,
-        decision_id,  # type: ignore[no-untyped-def]
+        decision_id: UUID,
         *,
         target_model_ref: str,
         target_client_id: str,
@@ -174,7 +174,8 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
         assert lifecycle.as_dict()["transcript_included"] is False
         assignment_id = uuid4()
         parent_assignment_id = uuid4()
-        assignment_body = {
+        instruction_digest = digest(instructions.next_safe_actions)
+        assignment_body: dict[str, object] = {
             "id": str(assignment_id),
             "realm_id": str(realm_id),
             "project_id": str(project_id),
@@ -185,7 +186,7 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             "role": "builder",
             "agent_ref": "cross-client-builder",
             "risk": "medium",
-            "instruction_digest": digest(instructions.next_safe_actions),
+            "instruction_digest": instruction_digest,
             "context_manifest_digest": checkpoint.context_manifest_digest,
             "read_resources": [],
             "write_resources": [],
@@ -197,7 +198,7 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             work_item_id=work_item_id,
             role=AssignmentRole.BUILDER,
             agent_ref="cross-client-builder",
-            instruction_digest=assignment_body["instruction_digest"],
+            instruction_digest=instruction_digest,
             context_manifest_digest=checkpoint.context_manifest_digest,
             assignment_digest=digest(assignment_body),
             parent_assignment_id=parent_assignment_id,

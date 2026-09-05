@@ -86,7 +86,10 @@ def test_result_digest_changes_with_status() -> None:
 
 @pytest.mark.parametrize("field", ["token_count", "cost_micros", "latency_ms"])
 def test_result_digest_binds_measurements(field: str) -> None:
-    assert _envelope(**{field: 1}).result_digest != _envelope(**{field: 2}).result_digest
+    assert (
+        _envelope(**{field: 1}).result_digest  # type: ignore[arg-type]
+        != _envelope(**{field: 2}).result_digest  # type: ignore[arg-type]
+    )
 
 
 def test_result_digest_binds_produced_at() -> None:

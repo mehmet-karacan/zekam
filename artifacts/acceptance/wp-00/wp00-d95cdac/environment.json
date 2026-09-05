@@ -1,0 +1,15 @@
+{
+  "schema": "zekam-acceptance-environment/v1",
+  "captured_at": "2026-09-02T08:42:25Z",
+  "platform": "macos-26.6.2-arm64",
+  "python": "3.12.14",
+  "python_sqlite": "3.53.4",
+  "branch": "main",
+  "head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "upstream": "origin/main",
+  "ahead": 0,
+  "behind": 0,
+  "legacy_postgresql_connection_attempts": 0,
+  "provider_calls": 0,
+  "push_performed": false
+}

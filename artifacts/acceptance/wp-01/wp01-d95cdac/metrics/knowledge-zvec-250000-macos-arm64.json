@@ -1,0 +1,380 @@
+{
+  "artifact_digest": "sha256:a6114d4d09838def4a39843ae992ede746e9158693884842fe420419b575a6bd",
+  "build_seconds": 12.095340624975506,
+  "candidate": "zvec",
+  "candidate_version": "0.7.0",
+  "corpus_digest": "sha256:010b5150b49003277225f0912ae6876b03782d7d07ed4229636d48dad8a209a8",
+  "corruption_detected": null,
+  "dimension": 1024,
+  "disk_bytes": 1081322293,
+  "distance_metric": "cosine",
+  "environment": {
+    "machine": "arm64",
+    "platform": "darwin",
+    "python": "3.12.14"
+  },
+  "generation_activation": {
+    "active": "generation-0001",
+    "manifest_digest": "sha256:da929e7cd518ee0c12e3d927918db4500a4a82414f248487bde6b8700ba1b8b1",
+    "partial_generation_queryable": false
+  },
+  "hard_gates": {
+    "citation_binding": true,
+    "corruption_detection": null,
+    "cross_project_filter_before_limit": true,
+    "hidden_network_calls": true,
+    "macos_arm64": true,
+    "persistent_restart": true,
+    "rebuild_from_manifest": null,
+    "windows_x64": false
+  },
+  "indexed_count": 250001,
+  "network_attempts": 0,
+  "quality": {
+    "cases": [
+      {
+        "abstained": false,
+        "case_id": "tr-natural-recovery",
+        "citation_valid": true,
+        "dense_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md"
+        ],
+        "exact_paths": [],
+        "expected_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md"
+        ],
+        "fusion_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "lexical_paths": [
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "query_class": "turkish-natural-language",
+        "top_similarity": 0.6427477598190308
+      },
+      {
+        "abstained": false,
+        "case_id": "en-technical-compaction",
+        "citation_valid": true,
+        "dense_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "exact_paths": [],
+        "expected_paths": [
+          "docs/adr/ADR-0001-second-lifecycle-harness.md",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "fusion_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "docs/adr/ADR-0001-second-lifecycle-harness.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "lexical_paths": [
+          "docs/adr/ADR-0001-second-lifecycle-harness.md",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "query_class": "english-technical-documentation",
+        "top_similarity": 0.6400537490844727
+      },
+      {
+        "abstained": false,
+        "case_id": "plsql-object",
+        "citation_valid": true,
+        "dense_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "exact_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "expected_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "fusion_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "lexical_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "query_class": "oracle-plsql-object-name",
+        "top_similarity": 0.6524903774261475
+      },
+      {
+        "abstained": false,
+        "case_id": "path-and-function",
+        "citation_valid": true,
+        "dense_paths": [
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py",
+          "src/zekam/application/jira_issue_routing.py"
+        ],
+        "exact_paths": [
+          "src/zekam/application/jira_issue_routing.py"
+        ],
+        "expected_paths": [
+          "src/zekam/application/jira_issue_routing.py"
+        ],
+        "fusion_paths": [
+          "src/zekam/application/jira_issue_routing.py"
+        ],
+        "lexical_paths": [
+          "src/zekam/application/jira_issue_routing.py"
+        ],
+        "query_class": "file-path-class-function-identifier",
+        "top_similarity": 0.6847139000892639
+      },
+      {
+        "abstained": false,
+        "case_id": "jira-id",
+        "citation_valid": true,
+        "dense_paths": [
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py",
+          "src/zekam/application/oracle_metadata_index.py"
+        ],
+        "exact_paths": [
+          "docs/SISTEM_UCTAN_UCA_KABUL_DURUMU.md"
+        ],
+        "expected_paths": [
+          "docs/SISTEM_UCTAN_UCA_KABUL_DURUMU.md"
+        ],
+        "fusion_paths": [
+          "src/zekam/application/oracle_metadata_index.py",
+          "docs/SISTEM_UCTAN_UCA_KABUL_DURUMU.md"
+        ],
+        "lexical_paths": [
+          "docs/SISTEM_UCTAN_UCA_KABUL_DURUMU.md"
+        ],
+        "query_class": "jira-demand-defect-id",
+        "top_similarity": 0.40150511264801025
+      },
+      {
+        "abstained": false,
+        "case_id": "typo-compaction",
+        "citation_valid": true,
+        "dense_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "exact_paths": [],
+        "expected_paths": [
+          "docs/adr/ADR-0001-second-lifecycle-harness.md",
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "fusion_paths": [
+          "migrations/0046_compaction_checkpoint_compiler.sql"
+        ],
+        "lexical_paths": [],
+        "query_class": "typo-fuzzy-query",
+        "top_similarity": 0.5716290473937988
+      },
+      {
+        "abstained": false,
+        "case_id": "semantic-effect-proof",
+        "citation_valid": true,
+        "dense_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md"
+        ],
+        "exact_paths": [],
+        "expected_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md"
+        ],
+        "fusion_paths": [
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "lexical_paths": [
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/MEASURED_LOOP_RUNBOOK.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md"
+        ],
+        "query_class": "semantic-different-words",
+        "top_similarity": 0.5274854898452759
+      },
+      {
+        "abstained": false,
+        "case_id": "exact-semantic-conflict",
+        "citation_valid": true,
+        "dense_paths": [
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py"
+        ],
+        "exact_paths": [
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md",
+          "src/zekam/domain/intake.py"
+        ],
+        "expected_paths": [
+          "src/zekam/domain/intake.py",
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md"
+        ],
+        "fusion_paths": [
+          "src/zekam/domain/intake.py",
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md"
+        ],
+        "lexical_paths": [
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md",
+          "src/zekam/domain/intake.py"
+        ],
+        "query_class": "exact-keyword-semantic-conflict",
+        "top_similarity": 0.5355823040008545
+      },
+      {
+        "abstained": true,
+        "case_id": "no-answer",
+        "citation_valid": true,
+        "dense_paths": [
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/GELISTIRME_KURULUMU.md"
+        ],
+        "exact_paths": [],
+        "expected_paths": [],
+        "fusion_paths": [
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md",
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md"
+        ],
+        "lexical_paths": [
+          "docs/GELISTIRME_KURULUMU.md",
+          "docs/CONTEXT_COMPILER_VE_CONTINUITY.md",
+          "docs/DOGAL_DIL_VE_ARASTIRMA.md"
+        ],
+        "query_class": "no-answer",
+        "top_similarity": 0.48714208602905273
+      },
+      {
+        "abstained": true,
+        "case_id": "cross-project-leakage",
+        "citation_valid": true,
+        "dense_paths": [
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py",
+          "src/zekam/domain/intake.py"
+        ],
+        "exact_paths": [],
+        "expected_paths": [],
+        "fusion_paths": [
+          "src/zekam/domain/intake.py"
+        ],
+        "lexical_paths": [],
+        "query_class": "cross-project-leakage-attempt",
+        "top_similarity": 0.4515455961227417
+      }
+    ],
+    "metrics": {
+      "citation_precision": 1.0,
+      "dense_recall_at_1": 0.875,
+      "dense_recall_at_10": 0.875,
+      "dense_recall_at_5": 0.875,
+      "exact_top_1": 1.0,
+      "fusion_recall_at_1": 0.875,
+      "fusion_recall_at_10": 1.0,
+      "fusion_recall_at_5": 1.0,
+      "lexical_recall_at_1": 0.625,
+      "mrr": 0.9375,
+      "ndcg_at_10": 0.9538662191964322,
+      "no_answer_precision": 1.0,
+      "no_answer_recall": 1.0,
+      "query_p50_ms": 44.56908302381635,
+      "query_p95_ms": 3229.428499995265
+    }
+  },
+  "rebuild_parity": null,
+  "rebuild_seconds": null,
+  "restart_parity": true,
+  "scale_profile": "cyclic-repetition-of-real-bge-embedded-zekam-chunks",
+  "schema": "zekam-wp01-knowledge-bakeoff/v1",
+  "selection_status": "blocked-pending-windows-x64-and-complete-scale-matrix",
+  "target_count": 250000,
+  "unique_real_chunk_count": 132,
+  "update_seconds": 0.08316075004404411
+}

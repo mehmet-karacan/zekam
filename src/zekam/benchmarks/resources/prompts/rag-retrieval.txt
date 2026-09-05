@@ -1,0 +1,1 @@
+Evaluate the rag-retrieval fixture. Return only the required structured result.

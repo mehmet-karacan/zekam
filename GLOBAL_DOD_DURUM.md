@@ -1,28 +1,26 @@
 # Zekam Global DoD durum raporu
 
-Bu rapor `scripts/surum_hazirligi.py` tarafindan uretilir ve iddia degil
-**olcum** tasir. Bir kriter yalnizca `kalite/GLOBAL_DOD.yaml` icinde
-`passed` isaretliyse kapali sayilir.
+Bu rapor 5 Eylül 2026 tarihinde `AKTIF_GOREV.md` K-001, K-002 ve Bölüm 31.4
+uyarınca yeni local-first mimari için yeniden başlatılmıştır. Önceki PostgreSQL
+kanıtlarından gelen `passed` durumları taşınmamıştır.
 
-## Ozet
+## Özet
 
-| Alan | Deger |
-|---|---|
-| Kriter sayisi | 83 |
-| Passed | 82 |
-| Pending | 1 |
+| Alan | Değer |
+|---|---:|
+| Kriter sayısı | 83 |
+| Passed | 0 |
+| Pending | 83 |
 | Failed | 0 |
 | Blocked | 0 |
-| Tamamlanma orani | 98.8% |
-| Migration sayisi | 21 |
-| SBOM girdi sayisi | 72 |
-| Kapisi gecen faz sayisi | 18 |
+| Global tamamlanma | Hayır |
 
-## Kapanmamis kriterler
+Mac kabul kanıtları `AKTIF_GOREV.md` içindeki WP ve Bölüm 33 durumlarına ayrı ayrı
+bağlanır. Windows x64, uzak OpenCode provider yolları, supported-Python matrisi ve
+tam çapraz-platform evidence bundle K-013 kapsamında açık olduğu için bu rapor
+`tamamlandı` sonucu üretemez.
 
-Toplam 1 kriter halen acik.
-
-
-### D. Model envanteri, benchmark ve routing
-
-- `ZEKAM-DOD-025` (pending): OpenCode yapılandırmasındaki AIHub model hedeflerinin tamamı exact health kampanyasında değerlendirilir; health-passed hedefler en az beş tekrarlı modalite benchmarkına ve bağımsız provider-neutral doğrulamaya girer. Yalnız qualified sonuçlar agent/model routing için aktif olur; kullanıcı kapsamı dışında bırakılan ses hedefi çağrılmaz.
+Legacy PostgreSQL'e özgü kriterler uygulanacak iş olarak değil,
+`removed-by-new-architecture` sınıfında tutulur; yerel halefleri yeni evidence ile
+yeniden değerlendirilir. Ayrıntılı kriter listesi ve mevcut `pending` durumları
+`GLOBAL_DEFINITION_OF_DONE.md` ile `kalite/GLOBAL_DOD.yaml` içindedir.

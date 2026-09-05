@@ -22,7 +22,7 @@ from zekam.domain.errors import ConfigurationError, LayoutError
 from zekam.domain.identity import PRODUCT
 from zekam.domain.ownership import OwnershipClass
 
-LAYOUT_SCHEMA = "zekam-home-layout/v1"
+LAYOUT_SCHEMA = "zekam-home-layout/v2"
 LAYOUT_FILE = "layout.json"
 
 
@@ -38,17 +38,65 @@ class HomeEntry:
 #: Kanonik ZEKAM_HOME dizin sozlesmesi.
 HOME_ENTRIES: tuple[HomeEntry, ...] = (
     HomeEntry("global", OwnershipClass.USER_DATA, "Proje bagimsiz kullanici verisi"),
-    HomeEntry("global/modeller", OwnershipClass.USER_DATA, "Model envanteri projeksiyonlari"),
+    HomeEntry("global/arastirmalar", OwnershipClass.USER_DATA, "Global arastirmalar"),
+    HomeEntry("global/fikirler", OwnershipClass.USER_DATA, "Global fikirler"),
+    HomeEntry("global/kararlar", OwnershipClass.USER_DATA, "Global kararlar"),
+    HomeEntry("global/referanslar", OwnershipClass.USER_DATA, "Global referanslar"),
+    HomeEntry("global/gunlukler", OwnershipClass.USER_DATA, "Global gunlukler"),
+    HomeEntry("global/kavramlar", OwnershipClass.USER_DATA, "Global kavramlar"),
+    HomeEntry("global/baglantilar", OwnershipClass.USER_DATA, "Global baglantilar"),
     HomeEntry("global/politikalar", OwnershipClass.USER_DATA, "Kullanici politika kayitlari"),
     HomeEntry("global/bellek", OwnershipClass.USER_DATA, "Global bellek projeksiyonu"),
     HomeEntry("global/raporlar", OwnershipClass.ARTIFACT, "Gunluk ve sistem raporlari"),
-    HomeEntry("global/artifacts", OwnershipClass.ARTIFACT, "Proje bagimsiz artifact deposu"),
-    HomeEntry("global/runtime", OwnershipClass.RUNTIME, "Global runtime durumu"),
     HomeEntry("projeler", OwnershipClass.USER_DATA, "Kayitli proje kokleri"),
+    HomeEntry("state", OwnershipClass.RUNTIME, "Operational state authority"),
+    HomeEntry("state/snapshots", OwnershipClass.ARTIFACT, "Operational snapshots"),
+    HomeEntry("state/backups", OwnershipClass.ARTIFACT, "Operational backups"),
+    HomeEntry("state/manifests", OwnershipClass.DERIVED, "State manifests"),
+    HomeEntry("modeller", OwnershipClass.USER_DATA, "Model laboratuvari"),
+    HomeEntry("modeller/registry", OwnershipClass.RUNTIME, "Model registry"),
+    HomeEntry("modeller/discovery", OwnershipClass.ARTIFACT, "Discovery snapshots"),
+    HomeEntry("modeller/providers", OwnershipClass.USER_DATA, "Provider profilleri"),
+    HomeEntry("modeller/profiller", OwnershipClass.USER_DATA, "Model profilleri"),
+    HomeEntry("modeller/observations", OwnershipClass.ARTIFACT, "Model observations"),
+    HomeEntry("modeller/routing", OwnershipClass.DERIVED, "Routing projeksiyonlari"),
+    HomeEntry("modeller/raporlar", OwnershipClass.ARTIFACT, "Model raporlari"),
+    HomeEntry("benchmarklar", OwnershipClass.ARTIFACT, "Benchmark authority root"),
+    HomeEntry("benchmarklar/planlar", OwnershipClass.USER_DATA, "Benchmark planlari"),
+    HomeEntry("benchmarklar/kosular", OwnershipClass.ARTIFACT, "Benchmark kosulari"),
+    HomeEntry("benchmarklar/artifacts", OwnershipClass.ARTIFACT, "Benchmark artifacts"),
+    HomeEntry("benchmarklar/baselines", OwnershipClass.USER_DATA, "Benchmark baselines"),
+    HomeEntry("benchmarklar/raporlar", OwnershipClass.ARTIFACT, "Benchmark raporlari"),
+    HomeEntry("benchmarklar/quarantine", OwnershipClass.ARTIFACT, "Benchmark quarantine"),
+    HomeEntry("knowledge-index", OwnershipClass.DERIVED, "Rebuildable knowledge index"),
+    HomeEntry("knowledge-index/exact", OwnershipClass.DERIVED, "Exact index"),
+    HomeEntry("knowledge-index/lexical", OwnershipClass.DERIVED, "Lexical index"),
+    HomeEntry("knowledge-index/vector", OwnershipClass.DERIVED, "Vector index"),
+    HomeEntry("knowledge-index/manifests", OwnershipClass.DERIVED, "Index manifests"),
+    HomeEntry("knowledge-index/snapshots", OwnershipClass.DERIVED, "Index snapshots"),
+    HomeEntry("knowledge-index/quarantine", OwnershipClass.DERIVED, "Index quarantine"),
+    HomeEntry("analytics", OwnershipClass.DERIVED, "Rebuildable analytics"),
+    HomeEntry("analytics/imports", OwnershipClass.ARTIFACT, "Analytics imports"),
+    HomeEntry("analytics/exports", OwnershipClass.ARTIFACT, "Analytics exports"),
+    HomeEntry("analytics/manifests", OwnershipClass.DERIVED, "Analytics manifests"),
+    HomeEntry("telemetry", OwnershipClass.ARTIFACT, "Telemetry authority"),
+    HomeEntry("telemetry/events", OwnershipClass.ARTIFACT, "Atomic event segments"),
+    HomeEntry("telemetry/manifests", OwnershipClass.DERIVED, "Telemetry manifests"),
+    HomeEntry("telemetry/quarantine", OwnershipClass.ARTIFACT, "Telemetry quarantine"),
+    HomeEntry("artifacts", OwnershipClass.ARTIFACT, "Content addressed artifacts"),
+    HomeEntry("artifacts/sha256", OwnershipClass.ARTIFACT, "SHA-256 object namespace"),
+    HomeEntry("runtime", OwnershipClass.RUNTIME, "Runtime root"),
+    HomeEntry("runtime/locks", OwnershipClass.RUNTIME, "Locks"),
+    HomeEntry("runtime/leases", OwnershipClass.RUNTIME, "Leases"),
+    HomeEntry("runtime/outbox", OwnershipClass.RUNTIME, "Outbox"),
+    HomeEntry("runtime/spool", OwnershipClass.RUNTIME, "Spool"),
+    HomeEntry("runtime/health", OwnershipClass.RUNTIME, "Health snapshots"),
+    HomeEntry("runtime/tmp", OwnershipClass.RUNTIME, "Bounded temporary files"),
+    HomeEntry("runtime/recovery", OwnershipClass.RUNTIME, "Recovery records"),
     HomeEntry("gelen-belgeler", OwnershipClass.ARTIFACT, "Izlenen gelen belge klasoru"),
-    HomeEntry("worktrees", OwnershipClass.LOCAL, "Legacy reserved; project mutation icin yasak"),
+    HomeEntry("inbox", OwnershipClass.ARTIFACT, "Gelen isler"),
+    HomeEntry("archive", OwnershipClass.ARTIFACT, "Arsiv"),
     HomeEntry("sandboxlar", OwnershipClass.LOCAL, "Yalitilmis calisma alanlari"),
-    HomeEntry("kilitler", OwnershipClass.RUNTIME, "Yerel kilit ve lease izleri"),
     HomeEntry("secrets", OwnershipClass.SECRET, "Yerel secret referans deposu"),
     HomeEntry("yerel", OwnershipClass.LOCAL, "Makineye ozel gecici veri"),
 )
@@ -56,17 +104,17 @@ HOME_ENTRIES: tuple[HomeEntry, ...] = (
 #: Proje basina olusturulan alt dizinler.
 PROJECT_ENTRIES: tuple[HomeEntry, ...] = (
     HomeEntry("baglantilar", OwnershipClass.USER_DATA, "Source binding kayitlari"),
-    HomeEntry("talepler", OwnershipClass.USER_DATA, "Talep projeksiyonlari"),
-    HomeEntry("defectler", OwnershipClass.USER_DATA, "Defect projeksiyonlari"),
-    HomeEntry("isler", OwnershipClass.USER_DATA, "Work Item projeksiyonlari"),
+    HomeEntry("raporlar", OwnershipClass.ARTIFACT, "Proje raporlari"),
     HomeEntry("arastirmalar", OwnershipClass.USER_DATA, "Arastirma kayitlari"),
+    HomeEntry("fikirler", OwnershipClass.USER_DATA, "Fikir kayitlari"),
     HomeEntry("kararlar", OwnershipClass.USER_DATA, "Karar kayitlari"),
     HomeEntry("planlar", OwnershipClass.USER_DATA, "Plan kayitlari"),
-    HomeEntry("bilgi", OwnershipClass.DERIVED, "Bilgi duzlemi projeksiyonlari"),
+    HomeEntry("gorevler", OwnershipClass.USER_DATA, "Gorev kayitlari"),
+    HomeEntry("referanslar", OwnershipClass.USER_DATA, "Referans kayitlari"),
+    HomeEntry("notlar", OwnershipClass.USER_DATA, "Proje notlari"),
     HomeEntry("bellek", OwnershipClass.USER_DATA, "Proje bellegi projeksiyonu"),
     HomeEntry("artifacts", OwnershipClass.ARTIFACT, "Proje artifact deposu"),
     HomeEntry("runtime", OwnershipClass.RUNTIME, "Proje runtime durumu"),
-    HomeEntry("raporlar", OwnershipClass.ARTIFACT, "Proje raporlari"),
 )
 
 #: Yalnizca sahibi tarafindan okunabilmesi gereken dizinler.
@@ -103,8 +151,10 @@ def _is_within(child: Path, parent: Path) -> bool:
 
 def assert_separated_from_core(home: Path, core_root: Path) -> None:
     """Core source ile kullanici verisinin fiziksel ayrimini dogrular."""
-    home_resolved = home.resolve() if home.exists() else home
-    core_resolved = core_root.resolve() if core_root.exists() else core_root
+    # ``strict=False`` mevcut parent symlink'lerini de cozer. Yalnizca leaf'in
+    # varligini kontrol etmek ``alias -> core/hidden-home`` gecisine izin verir.
+    home_resolved = home.resolve(strict=False)
+    core_resolved = core_root.resolve(strict=False)
     if home_resolved == core_resolved:
         raise ConfigurationError("ZEKAM_HOME core source kokuyle ayni olamaz")
     if _is_within(home_resolved, core_resolved):
@@ -151,6 +201,12 @@ class HomeLayout:
 
     def ensure(self) -> HomeLayout:
         """Eksik dizinleri ve layout.json dosyasini olusturur (idempotent)."""
+        if self.root.exists() and self.layout_file.exists():
+            layout_issues = list(self._verify_layout_file())
+            if layout_issues:
+                raise LayoutError("Mevcut layout schema sessizce overwrite edilemez")
+        elif self.root.exists() and any(self.root.iterdir()):
+            raise LayoutError("Layout authority olmayan dolu ZEKAM_HOME bootstrap edilemez")
         self.root.mkdir(parents=True, exist_ok=True)
         for entry in HOME_ENTRIES:
             target = self.path(entry.relative)

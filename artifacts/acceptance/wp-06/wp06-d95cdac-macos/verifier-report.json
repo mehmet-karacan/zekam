@@ -1,0 +1,20 @@
+{
+  "schema": "zekam-independent-verifier-report/v1",
+  "work_package": "WP-06",
+  "builder_identity": "root",
+  "verifier_identity": "wp06_quality_verifier",
+  "independent": true,
+  "verdict": "PASS",
+  "macos_acceptance": "accepted",
+  "windows_acceptance": "deferred-k-013",
+  "focused_tests_passed": 113,
+  "real_bge_e2e_passed": 1,
+  "remote_contract_tests_preserved": 45,
+  "postgresql_connections": 0,
+  "source_repository_writes": 0,
+  "limitations": [
+    "Windows/OpenCode live remote embedding E2E was not run",
+    "WP-07 hybrid RAG acceptance is not part of this verdict",
+    "Large-corpus and Windows stress tests remain deferred"
+  ]
+}

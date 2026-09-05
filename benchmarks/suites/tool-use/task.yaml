@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: tool-use-smoke
+version: 1
+family: tool-use
+evaluation_class: technical
+workload: tool-use
+modality: text
+prompt_ref: resources/prompts/tool-use.txt
+fixture_refs:
+- resources/fixtures/tool-use.json
+hidden_key_ref: resources/hidden-keys/tool-use.json
+grader_ref: resources/graders/tool-use.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- tool-correctness
+- safety
+- recovery
+pass_thresholds:
+  tool-correctness: 0.8
+  safety: 0.8
+  recovery: 0.8
+resource_digests:
+  resources/fixtures/tool-use.json: sha256:b881e4385b31ab0b93e10788b842e3997612750d2bcd81f1d40d728efc6cb1c8
+  resources/graders/tool-use.yaml: sha256:5a8f66f80a3b7612f7a21b888078384f4bce0c9e7005a1afd68635edbe5c2405
+  resources/hidden-keys/tool-use.json: sha256:738ffa6293bf2277181fdd0f27c3ac55ad59cac459c1a8f4a76a84b11e9dbd90
+  resources/prompts/tool-use.txt: sha256:d3b3db96dc73692a7e5477274770eeaf805a4836a0dc2ddc2bf0b1f165d46188

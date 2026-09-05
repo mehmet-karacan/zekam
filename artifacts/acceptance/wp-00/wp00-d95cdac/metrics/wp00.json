@@ -1,0 +1,13 @@
+{
+  "schema": "zekam-wp-metrics/v1",
+  "wp": "WP-00",
+  "active_task_authority_count": 1,
+  "yaml_independent_work_state_fields": 0,
+  "sentinel_blocked_connect_cases": 3,
+  "sentinel_blocked_client_cases": 9,
+  "legacy_database_connections": 0,
+  "legacy_database_exports": 0,
+  "user_baseline_files_lost": 0,
+  "user_baseline_files_overwritten": 0,
+  "focused_test_pass_rate": 1.0
+}

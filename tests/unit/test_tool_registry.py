@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -28,7 +30,13 @@ from zekam.domain.tool_registry import (
 pytestmark = pytest.mark.unit
 
 
-def bundle():  # type: ignore[no-untyped-def]
+def bundle() -> tuple[
+    dt.datetime,
+    CompiledToolSet,
+    ToolSpecRevision,
+    ToolRuntimeRevision,
+    ToolDispatchBinding,
+]:
     realm_id = uuid4()
     now = dt.datetime.now(dt.UTC)
     spec = ToolSpecRevision.create(
@@ -81,20 +89,30 @@ def bundle():  # type: ignore[no-untyped-def]
 
 
 class Store:
-    def __init__(self, values):  # type: ignore[no-untyped-def]
+    def __init__(
+        self, values: tuple[CompiledToolSet, ToolSpecRevision, ToolRuntimeRevision]
+    ) -> None:
         self.values = values
         self.gates: list[str] = []
         self.loop_bindings: list[tuple[object, object]] = []
 
     @contextmanager
-    def locked_dispatch_bundle(self, *_):  # type: ignore[no-untyped-def]
+    def locked_dispatch_bundle(
+        self, *_: object
+    ) -> Iterator[tuple[CompiledToolSet, ToolSpecRevision, ToolRuntimeRevision]]:
         yield self.values
 
-    def record_dispatch_gate(self, _binding, *, disposition, checked_at):  # type: ignore[no-untyped-def]
+    def record_dispatch_gate(
+        self,
+        _binding: ToolDispatchBinding,
+        *,
+        disposition: str,
+        checked_at: dt.datetime,
+    ) -> None:
         assert checked_at.tzinfo is not None
         self.gates.append(disposition)
 
-    def bind_loop_dispatch(self, attempt_id, dispatch_id):  # type: ignore[no-untyped-def]
+    def bind_loop_dispatch(self, attempt_id: UUID, dispatch_id: UUID) -> None:
         self.loop_bindings.append((attempt_id, dispatch_id))
 
 
@@ -103,11 +121,11 @@ class Adapter:
         self.calls = 0
         self._runtime_binding = runtime_binding
 
-    def runtime_binding(self):  # type: ignore[no-untyped-def]
+    def runtime_binding(self) -> tuple[str, int, str]:
         assert self._runtime_binding is not None
         return self._runtime_binding
 
-    def execute(self, binding, *, permit):  # type: ignore[no-untyped-def]
+    def execute(self, binding: ToolDispatchBinding, *, permit: Any) -> str:
         permit.assert_for(binding)
         self.calls += 1
         return "ok"
@@ -117,7 +135,7 @@ class TraceSink:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
 
-    def record(self, **values):  # type: ignore[no-untyped-def]
+    def record(self, **values: Any) -> TraceWriteResult:
         self.events.append(values)
         return TraceWriteResult("recorded", uuid4(), uuid4(), digest(values["event_type"].value))
 
@@ -127,7 +145,7 @@ def test_exact_spec_runtime_binding_dispatches_with_unforgeable_permit() -> None
     store = Store((compiled, spec, runtime))
     adapter = Adapter((binding.tool_id, binding.revision, binding.runtime_digest))
     trace = TraceSink()
-    assert ToolDispatchService(store, trace).dispatch(binding, adapter, now=now) == "ok"  # type: ignore[arg-type]
+    assert ToolDispatchService(store, trace).dispatch(binding, adapter, now=now) == "ok"
     assert store.gates == ["passed"]
     assert adapter.calls == 1
     assert [item["event_type"] for item in trace.events] == [
@@ -142,9 +160,7 @@ def test_tool_loop_binding_is_persisted_before_gate_and_effect() -> None:
     adapter = Adapter((binding.tool_id, binding.revision, binding.runtime_digest))
     attempt_id = uuid4()
     assert (
-        ToolDispatchService(store).dispatch(  # type: ignore[arg-type]
-            binding, adapter, now=now, loop_attempt_id=attempt_id
-        )
+        ToolDispatchService(store).dispatch(binding, adapter, now=now, loop_attempt_id=attempt_id)
         == "ok"
     )
     assert store.loop_bindings == [(attempt_id, binding.effect_claim_id)]
@@ -165,7 +181,7 @@ def test_model_visible_spec_or_executable_runtime_drift_fails_before_effect(drif
     store = Store((compiled, spec, runtime))
     adapter = Adapter((binding.tool_id, binding.revision, binding.runtime_digest))
     with pytest.raises(PolicyViolation):
-        ToolDispatchService(store).dispatch(binding, adapter, now=now)  # type: ignore[arg-type]
+        ToolDispatchService(store).dispatch(binding, adapter, now=now)
     assert store.gates == []
     assert adapter.calls == 0
 
@@ -183,7 +199,7 @@ def test_hidden_tool_is_not_model_visible_but_remains_exact_dispatchable() -> No
     hidden_binding = replace(binding, tool_set_digest=hidden.tool_set_digest)
     assert hidden.model_visible_entries() == ()
     assert (
-        ToolDispatchService(Store((hidden, spec, runtime))).dispatch(  # type: ignore[arg-type]
+        ToolDispatchService(Store((hidden, spec, runtime))).dispatch(
             hidden_binding,
             Adapter(
                 (hidden_binding.tool_id, hidden_binding.revision, hidden_binding.runtime_digest)
@@ -197,7 +213,7 @@ def test_hidden_tool_is_not_model_visible_but_remains_exact_dispatchable() -> No
 def test_expired_runtime_and_digest_tamper_fail_closed() -> None:
     now, compiled, spec, runtime, binding = bundle()
     with pytest.raises(PolicyViolation, match="stale"):
-        ToolDispatchService(Store((compiled, spec, runtime))).dispatch(  # type: ignore[arg-type]
+        ToolDispatchService(Store((compiled, spec, runtime))).dispatch(
             binding,
             Adapter((binding.tool_id, binding.revision, binding.runtime_digest)),
             now=now + dt.timedelta(minutes=11),
@@ -211,7 +227,7 @@ def test_adapter_runtime_descriptor_mismatch_fails_before_gate_and_effect() -> N
     store = Store((compiled, spec, runtime))
     adapter = Adapter((binding.tool_id, binding.revision + 1, digest("runtime-v2")))
     with pytest.raises(PolicyViolation, match="adapter runtime revision mismatch"):
-        ToolDispatchService(store).dispatch(binding, adapter, now=now)  # type: ignore[arg-type]
+        ToolDispatchService(store).dispatch(binding, adapter, now=now)
     assert store.gates == []
     assert adapter.calls == 0
 
@@ -299,7 +315,7 @@ def test_deferred_search_returns_exact_metadata_and_profile_changes_digest() -> 
         def deferred_catalog(self, **_):  # type: ignore[no-untyped-def]
             return deferred, ((spec, runtime),)
 
-    matches = DeferredToolSearchService(DeferredStore()).search(  # type: ignore[arg-type]
+    matches = DeferredToolSearchService(DeferredStore()).search(
         tool_set_digest=deferred.tool_set_digest,
         role=deferred.role,
         permission_profile_digest=deferred.permission_profile_digest,
@@ -311,7 +327,7 @@ def test_deferred_search_returns_exact_metadata_and_profile_changes_digest() -> 
     assert matches[0].description == "Exact Jira issue search"
     assert matches[0].permission_capabilities == ("jira.read",)
     with pytest.raises(PolicyViolation, match="query/limit/time"):
-        DeferredToolSearchService(DeferredStore()).search(  # type: ignore[arg-type]
+        DeferredToolSearchService(DeferredStore()).search(
             tool_set_digest=deferred.tool_set_digest,
             role=deferred.role,
             permission_profile_digest=deferred.permission_profile_digest,
@@ -414,7 +430,7 @@ def test_nonparallel_tool_is_isolated_from_parallel_dispatch_wave() -> None:
             }
             yield tuple(by_tool[item.tool_id] for item in requested)
 
-    planner = ToolDispatchWavePlanner(WaveStore())  # type: ignore[arg-type]
+    planner = ToolDispatchWavePlanner(WaveStore())
     plan = planner.plan(bindings, max_parallelism=3, now=now)
     replay = planner.plan(tuple(reversed(bindings)), max_parallelism=3, now=now)
     assert tuple(tuple(item.tool_id for item in wave.bindings) for wave in plan.waves) == (

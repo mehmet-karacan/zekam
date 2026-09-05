@@ -1,0 +1,412 @@
+"""Symlink-safe, atomic filesystem adapter for knowledge projections and CAS."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import secrets
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+
+import yaml
+
+from zekam.application.knowledge_file_plane import (
+    PROJECT_PROJECTION_SCHEMA,
+    ArtifactPutPlan,
+    KnowledgeClassification,
+    KnowledgeNoteManifest,
+    ProjectProjection,
+    assert_public_safe_projection,
+    note_content_digest,
+    validate_generated_note,
+    validate_portable_relative,
+)
+from zekam.application.operational_store import ArtifactRefRecord, KnowledgeNoteRecord
+from zekam.domain.errors import (
+    ConcurrencyConflict,
+    LayoutError,
+    PolicyViolation,
+    ValidationFailed,
+)
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class KnowledgeFileIssue:
+    kind: str
+    portable_ref: str
+
+
+_AUDIT_NOTE_ROOTS = ("global", "projeler", "inbox", "archive")
+_AUDIT_LIMIT = 10_000
+
+
+class KnowledgeFileStore:
+    """Store source Markdown and sole-copy CAS bytes; DB rows remain manifests only."""
+
+    def __init__(self, home: Path) -> None:
+        if not home.is_absolute() or not home.is_dir() or home.is_symlink():
+            raise LayoutError("Knowledge home absolute mevcut regular directory olmali")
+        self.home = home.resolve()
+        identity = self.home.stat(follow_symlinks=False)
+        self._home_identity = (identity.st_dev, identity.st_ino)
+
+    def _open_home(self) -> int:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(self.home, flags)
+        identity = os.fstat(descriptor)
+        if (identity.st_dev, identity.st_ino) != self._home_identity:
+            os.close(descriptor)
+            raise LayoutError("Knowledge home identity drift")
+        return descriptor
+
+    @contextmanager
+    def _parent_handle(self, relative: str, *, create: bool) -> Iterator[tuple[int, str, str]]:
+        portable = validate_portable_relative(relative)
+        parts = PurePosixPath(portable).parts
+        descriptor = self._open_home()
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            for part in parts[:-1]:
+                if create:
+                    with suppress(FileExistsError):
+                        os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                try:
+                    child = os.open(part, flags, dir_fd=descriptor)
+                except FileNotFoundError:
+                    raise
+                except OSError as exc:
+                    raise LayoutError(
+                        "Knowledge parent symlink veya race-safe directory disi"
+                    ) from exc
+                os.close(descriptor)
+                descriptor = child
+            yield descriptor, parts[-1], portable
+        finally:
+            os.close(descriptor)
+
+    def _read_optional(self, relative: str, *, max_bytes: int) -> bytes | None:
+        # A substituted FIFO must reach the regular-file check instead of waiting
+        # indefinitely for a writer. Regular-file read semantics are unchanged.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:
+            with self._parent_handle(relative, create=False) as (parent, name, _):
+                try:
+                    descriptor = os.open(name, flags, dir_fd=parent)
+                except FileNotFoundError:
+                    return None
+                except OSError as exc:
+                    raise LayoutError("Knowledge leaf symlink/regular-file disi") from exc
+                try:
+                    metadata = os.fstat(descriptor)
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise LayoutError("Knowledge leaf regular file olmali")
+                    if metadata.st_size > max_bytes:
+                        raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
+                    chunks: list[bytes] = []
+                    total = 0
+                    while True:
+                        chunk = os.read(descriptor, min(1024 * 1024, max_bytes + 1 - total))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
+                    return b"".join(chunks)
+                finally:
+                    os.close(descriptor)
+        except FileNotFoundError:
+            return None
+
+    def _unlink(self, relative: str) -> None:
+        with self._parent_handle(relative, create=False) as (parent, name, _):
+            try:
+                os.unlink(name, dir_fd=parent)
+            except FileNotFoundError:
+                return
+            os.fsync(parent)
+
+    def _atomic_write(self, relative: str, payload: bytes, *, replace_existing: bool) -> Path:
+        with self._parent_handle(relative, create=True) as (parent, name, portable):
+            stage = f".{name}.stage-{secrets.token_hex(12)}"
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(stage, flags, 0o600, dir_fd=parent)
+            try:
+                view = memoryview(payload)
+                written = 0
+                while written < len(view):
+                    count = os.write(descriptor, view[written:])
+                    if count <= 0:
+                        raise OSError("Knowledge stage short write")
+                    written += count
+                os.fsync(descriptor)
+                os.close(descriptor)
+                descriptor = -1
+                if not replace_existing:
+                    try:
+                        os.link(
+                            stage,
+                            name,
+                            src_dir_fd=parent,
+                            dst_dir_fd=parent,
+                            follow_symlinks=False,
+                        )
+                    except FileExistsError as exc:
+                        raise ConcurrencyConflict("Knowledge target zaten var") from exc
+                else:
+                    os.replace(stage, name, src_dir_fd=parent, dst_dir_fd=parent)
+                os.fsync(parent)
+                if self._read_optional(portable, max_bytes=max(1, len(payload))) != payload:
+                    raise LayoutError("Knowledge publish path identity drift")
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                with suppress(FileNotFoundError):
+                    os.unlink(stage, dir_fd=parent)
+            return self.home / portable
+
+    def put_artifact(self, plan: ArtifactPutPlan, payload: bytes) -> Path:
+        actual = ArtifactPutPlan.create(
+            payload,
+            media_type=plan.media_type,
+            classification=plan.classification,
+        )
+        if actual != plan:
+            raise ConcurrencyConflict("Artifact put plan payload drift")
+        existing = self._read_optional(plan.relative_path, max_bytes=64 * 1024 * 1024)
+        if existing is not None:
+            if hashlib.sha256(existing).hexdigest() != plan.digest.removeprefix("sha256:"):
+                raise ConcurrencyConflict("CAS target digest drift")
+            return self.home / plan.relative_path
+        try:
+            return self._atomic_write(plan.relative_path, payload, replace_existing=False)
+        except ConcurrencyConflict:
+            existing = self._read_optional(plan.relative_path, max_bytes=64 * 1024 * 1024)
+            if existing is None or hashlib.sha256(existing).hexdigest() != (
+                plan.digest.removeprefix("sha256:")
+            ):
+                raise
+            return self.home / plan.relative_path
+
+    def publish_project_projection(self, projection: ProjectProjection) -> Path:
+        payload = projection.render()
+        assert_public_safe_projection(
+            payload, relative_path=f"projeler/{projection.slug}/PROJECT.yaml"
+        )
+        relative = f"projeler/{projection.slug}/PROJECT.yaml"
+        existing_payload = self._read_optional(relative, max_bytes=2 * 1024 * 1024)
+        replace_existing = False
+        if existing_payload is not None:
+            try:
+                existing = yaml.safe_load(existing_payload.decode("utf-8"))
+            except (UnicodeDecodeError, yaml.YAMLError) as exc:
+                raise PolicyViolation("Mevcut PROJECT.yaml user/bozuk; overwrite edilemez") from exc
+            if (
+                not isinstance(existing, dict)
+                or existing.get("schema") != PROJECT_PROJECTION_SCHEMA
+                or existing.get("project_id") != projection.project_id
+            ):
+                raise PolicyViolation("Mevcut PROJECT.yaml authority binding drift")
+            if existing_payload == payload:
+                return self.home / relative
+            replace_existing = True
+        return self._atomic_write(relative, payload, replace_existing=replace_existing)
+
+    def create_note(self, manifest: KnowledgeNoteManifest, payload: bytes) -> Path:
+        if manifest.classification is KnowledgeClassification.SECRET:
+            raise PolicyViolation("Secret note normal file plane yerine secret backend ister")
+        if note_content_digest(payload) != manifest.content_digest:
+            raise ConcurrencyConflict("Knowledge note content digest drift")
+        if manifest.classification is KnowledgeClassification.PUBLIC:
+            assert_public_safe_projection(payload, relative_path=manifest.portable_ref)
+        if manifest.authorship == "generated":
+            metadata = validate_generated_note(payload)
+            if (
+                metadata["owner_scope"] != manifest.owner_scope
+                or metadata["project_slug"] != manifest.project_slug
+                or metadata["note_kind"] != manifest.note_kind
+                or metadata["classification"] != manifest.classification.value
+            ):
+                raise ConcurrencyConflict("Generated note manifest metadata drift")
+        existing = self._read_optional(manifest.portable_ref, max_bytes=2 * 1024 * 1024)
+        if existing is not None:
+            if existing == payload:
+                return self.home / manifest.portable_ref
+            raise PolicyViolation("Knowledge note overwrite yasak; correction/revision gerekli")
+        try:
+            return self._atomic_write(manifest.portable_ref, payload, replace_existing=False)
+        except ConcurrencyConflict:
+            existing = self._read_optional(manifest.portable_ref, max_bytes=2 * 1024 * 1024)
+            if existing != payload:
+                raise
+            return self.home / manifest.portable_ref
+
+    def archive_note(self, manifest: KnowledgeNoteManifest) -> str:
+        if manifest.state not in {"inbox", "active"}:
+            raise PolicyViolation("Yalniz inbox/active note archive edilebilir")
+        source_name = PurePosixPath(manifest.portable_ref).name
+        scope_parts = manifest.owner_scope.replace(":", "/")
+        target_ref = f"archive/{scope_parts}/{manifest.content_digest[7:]}-{source_name}"
+        target_payload = self._read_optional(target_ref, max_bytes=2 * 1024 * 1024)
+        if target_payload is not None:
+            if note_content_digest(target_payload) != manifest.content_digest:
+                raise ConcurrencyConflict("Archive target content digest drift")
+            source_payload = self._read_optional(manifest.portable_ref, max_bytes=2 * 1024 * 1024)
+            if source_payload is not None:
+                if note_content_digest(source_payload) != manifest.content_digest:
+                    raise ConcurrencyConflict("Archive duplicate source content digest drift")
+                self._unlink(manifest.portable_ref)
+            return target_ref
+        payload = self._read_optional(manifest.portable_ref, max_bytes=2 * 1024 * 1024)
+        if payload is None:
+            target_payload = self._read_optional(target_ref, max_bytes=2 * 1024 * 1024)
+            if target_payload is not None and note_content_digest(target_payload) == (
+                manifest.content_digest
+            ):
+                return target_ref
+            raise LayoutError("Archive source regular note olmali")
+        if note_content_digest(payload) != manifest.content_digest:
+            raise ConcurrencyConflict("Archive source content digest drift")
+        try:
+            self._atomic_write(target_ref, payload, replace_existing=False)
+        except ConcurrencyConflict:
+            target_payload = self._read_optional(target_ref, max_bytes=2 * 1024 * 1024)
+            if target_payload is None or note_content_digest(target_payload) != (
+                manifest.content_digest
+            ):
+                raise
+        self._unlink(manifest.portable_ref)
+        return target_ref
+
+    def audit(
+        self,
+        *,
+        notes: tuple[KnowledgeNoteRecord, ...],
+        artifacts: tuple[ArtifactRefRecord, ...],
+    ) -> tuple[KnowledgeFileIssue, ...]:
+        """Report ambiguous, missing, corrupt or privacy-unsafe file-plane state."""
+
+        issues: set[KnowledgeFileIssue] = set()
+        expected_notes: set[str] = set()
+        for note in notes:
+            if not note.materialized:
+                issues.add(KnowledgeFileIssue("pending-note-materialization", note.portable_ref))
+            try:
+                manifest = KnowledgeNoteManifest(
+                    owner_scope=note.owner_scope,
+                    note_kind=note.note_kind,
+                    authorship=note.authorship,
+                    classification=KnowledgeClassification(note.classification),
+                    portable_ref=note.portable_ref,
+                    content_digest=note.content_digest,
+                    project_slug=note.project_slug,
+                    state=note.state,
+                )
+                relative = (
+                    validate_portable_relative(note.archived_ref, "Knowledge archive ref")
+                    if note.state == "archived"
+                    else manifest.portable_ref
+                )
+                if note.state == "archived" and not relative.startswith("archive/"):
+                    raise PolicyViolation("Archived note archive root disinda")
+            except (TypeError, ValueError, ValidationFailed, PolicyViolation):
+                issues.add(KnowledgeFileIssue("invalid-note-manifest", note.portable_ref))
+                continue
+            if relative in expected_notes:
+                issues.add(KnowledgeFileIssue("duplicate-note-ref", relative))
+                continue
+            expected_notes.add(relative)
+            try:
+                payload = self._read_optional(relative, max_bytes=2 * 1024 * 1024)
+                if payload is None:
+                    issues.add(KnowledgeFileIssue("missing-note", relative))
+                    continue
+                actual_digest = note_content_digest(payload)
+            except (OSError, ValidationFailed, LayoutError):
+                issues.add(KnowledgeFileIssue("unreadable-note", relative))
+                continue
+            if actual_digest != note.content_digest:
+                issues.add(KnowledgeFileIssue("corrupt-note", relative))
+            if manifest.classification is KnowledgeClassification.SECRET:
+                issues.add(KnowledgeFileIssue("secret-in-normal-file-plane", relative))
+            elif manifest.classification is KnowledgeClassification.PUBLIC:
+                try:
+                    assert_public_safe_projection(payload, relative_path=relative)
+                except (PolicyViolation, ValidationFailed):
+                    issues.add(KnowledgeFileIssue("public-projection-unsafe", relative))
+
+        observed = 0
+        for root_name in _AUDIT_NOTE_ROOTS:
+            root = self.home / root_name
+            if root.is_symlink():
+                issues.add(KnowledgeFileIssue("unsafe-note-root", root_name))
+                continue
+            if not root.is_dir():
+                continue
+            for directory, directory_names, file_names in os.walk(root, followlinks=False):
+                parent = Path(directory)
+                for name in tuple(directory_names):
+                    target = parent / name
+                    if target.is_symlink():
+                        relative = target.relative_to(self.home).as_posix()
+                        issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
+                        directory_names.remove(name)
+                for name in file_names:
+                    if not name.lower().endswith(".md"):
+                        continue
+                    observed += 1
+                    if observed > _AUDIT_LIMIT:
+                        issues.add(KnowledgeFileIssue("audit-limit-exceeded", root_name))
+                        break
+                    target = parent / name
+                    relative = target.relative_to(self.home).as_posix()
+                    if target.is_symlink():
+                        issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
+                    elif relative not in expected_notes:
+                        issues.add(KnowledgeFileIssue("unmanifested-note", relative))
+
+        expected_artifacts: set[str] = set()
+        for artifact in artifacts:
+            hexadecimal = artifact.digest.removeprefix("sha256:")
+            relative = f"artifacts/sha256/{hexadecimal[:2]}/{hexadecimal}"
+            if relative in expected_artifacts:
+                issues.add(KnowledgeFileIssue("duplicate-artifact-ref", relative))
+                continue
+            expected_artifacts.add(relative)
+            if artifact.classification == KnowledgeClassification.SECRET.value:
+                issues.add(KnowledgeFileIssue("secret-in-normal-cas", relative))
+            try:
+                payload = self._read_optional(relative, max_bytes=64 * 1024 * 1024)
+                if payload is None:
+                    issues.add(KnowledgeFileIssue("missing-cas-object", relative))
+                    continue
+            except (OSError, LayoutError):
+                issues.add(KnowledgeFileIssue("unreadable-cas-object", relative))
+                continue
+            if (
+                len(payload) != artifact.size_bytes
+                or hashlib.sha256(payload).hexdigest() != hexadecimal
+            ):
+                issues.add(KnowledgeFileIssue("corrupt-cas-object", relative))
+            if artifact.classification == KnowledgeClassification.PUBLIC.value:
+                try:
+                    assert_public_safe_projection(payload, relative_path=relative)
+                except (PolicyViolation, ValidationFailed):
+                    issues.add(KnowledgeFileIssue("public-cas-unsafe", relative))
+
+        cas_root = self.home / "artifacts" / "sha256"
+        if cas_root.is_symlink():
+            issues.add(KnowledgeFileIssue("unsafe-cas-root", "artifacts/sha256"))
+        elif cas_root.is_dir():
+            for target in cas_root.rglob("*"):
+                relative = target.relative_to(self.home).as_posix()
+                depth = len(target.relative_to(cas_root).parts)
+                if target.is_symlink() or (target.is_dir() and depth != 1):
+                    issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
+                elif target.is_file() and relative not in expected_artifacts:
+                    issues.add(KnowledgeFileIssue("orphan-cas-object", relative))
+
+        return tuple(sorted(issues))

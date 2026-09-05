@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: code-review-smoke
+version: 1
+family: code-review
+evaluation_class: technical
+workload: code-review
+modality: text
+prompt_ref: resources/prompts/code-review.txt
+fixture_refs:
+- resources/fixtures/code-review.json
+hidden_key_ref: resources/hidden-keys/code-review.json
+grader_ref: resources/graders/code-review.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- evidence-citation
+- safety
+pass_thresholds:
+  correctness: 0.8
+  evidence-citation: 0.8
+  safety: 0.8
+resource_digests:
+  resources/fixtures/code-review.json: sha256:2ae26b239dbfcd532a3dc4027b0d32f0529d1a7a1696f15db324c9fee60c1e99
+  resources/graders/code-review.yaml: sha256:4790890befecde689091728e16f308eda5f69df43d321959de525cc73559b002
+  resources/hidden-keys/code-review.json: sha256:0547885ef8f9429cf58e86745e3fb241bde2e1424fc2fdbe0fae71ae36adf7bc
+  resources/prompts/code-review.txt: sha256:85e78e1d58a8295243be05f5041d9f3479cb97a40e950c45becb86e7585facec

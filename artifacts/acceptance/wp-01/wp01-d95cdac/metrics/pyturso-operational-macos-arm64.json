@@ -1,0 +1,93 @@
+{
+  "artifact_digest": "sha256:9cc893ad5e0e23ddde3cd04e7f2a702b7c493670251676eb0b4ae8bf40ae72ff",
+  "candidate": "pyturso",
+  "candidate_version": "0.7.2",
+  "durations": {
+    "event_insert_seconds": 0.6795002919971012,
+    "project_insert_seconds": 0.04669312504120171,
+    "work_insert_seconds": 0.08086370903765783
+  },
+  "environment": {
+    "machine": "arm64",
+    "platform": "darwin",
+    "python": "3.12.14",
+    "runtime_sqlite": "3.50.4"
+  },
+  "hard_gates": {
+    "backup_restore": true,
+    "crash_integrity": true,
+    "macos_arm64": true,
+    "no_server_or_docker": true,
+    "offline_runtime": true,
+    "safe_concurrency_profile": true,
+    "schema_and_corruption_detection": true,
+    "windows_wheel_published": false,
+    "windows_x64": false
+  },
+  "journal_mode": "wal",
+  "probes": {
+    "backup_restore": {
+      "duration_seconds": 0.49764883395982906,
+      "passed": true,
+      "restored_digest": "sha256:6dcbc9cd34c1df4a517468b80914e629a2f7bbe1656736a92a76c1e8139f6903",
+      "source_digest": "sha256:6dcbc9cd34c1df4a517468b80914e629a2f7bbe1656736a92a76c1e8139f6903"
+    },
+    "constraints": {
+      "check": {
+        "detail": "IntegrityError",
+        "passed": true
+      },
+      "foreign_key": {
+        "detail": "IntegrityError",
+        "passed": true
+      },
+      "idempotent_replay": {
+        "detail": "same-payload-single-row",
+        "passed": true
+      },
+      "payload_drift": {
+        "detail": "drift-detectable-before-mutation",
+        "passed": true
+      },
+      "unique": {
+        "detail": "IntegrityError",
+        "passed": true
+      }
+    },
+    "corruption": {
+      "detail": "truncation-detected",
+      "passed": true
+    },
+    "network_attempts": 0,
+    "read_only": {
+      "detail": "read-only-directory-rejected",
+      "passed": true
+    },
+    "schema_drift": {
+      "detail": "unexpected-trigger-detected",
+      "passed": true
+    },
+    "serialized_producers": {
+      "duration_seconds": 0.34573841601377353,
+      "inserted": 10000,
+      "producer_count": 4,
+      "read_monotonic": true,
+      "read_observations": 76,
+      "reader_errors": []
+    },
+    "uncommitted_process_kill": {
+      "detail": "uncommitted-row-absent-integrity-ok",
+      "passed": true
+    }
+  },
+  "required_concurrency_profile": "single-writer-coordinator",
+  "schema": "zekam-wp01-pyturso-operational-bakeoff/v1",
+  "selection_status": "blocked-pending-windows-source-build-evidence",
+  "wal_reset_safe": false,
+  "workload": {
+    "event_rows": 100000,
+    "producer_rows": 10000,
+    "project_rows": 10000,
+    "work_rows": 10000
+  }
+}

@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: structured-output-grader
+version: 1
+family: structured-output
+evaluation_class: technical
+dimensions:
+- correctness
+- structured-format
+- reliability
+hidden_key_model_visible: false

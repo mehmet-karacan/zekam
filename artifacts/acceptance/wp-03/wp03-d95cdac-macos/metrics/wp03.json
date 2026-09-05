@@ -1,0 +1,14 @@
+{
+  "schema": "zekam-wp03-metrics/v1",
+  "status": "macos-accepted/windows-deferred",
+  "focused_passed": 100,
+  "focused_failed": 0,
+  "current_full_suite_passed": 6957,
+  "current_full_suite_failed": 0,
+  "current_full_suite_errors": 0,
+  "current_full_suite_skipped": 16,
+  "application_concrete_database_import_findings": 0,
+  "legacy_postgresql_access_count": 0,
+  "backup_restore_parity": true,
+  "schema_drift_fail_closed": true
+}

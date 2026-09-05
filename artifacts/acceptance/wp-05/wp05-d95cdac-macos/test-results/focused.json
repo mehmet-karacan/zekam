@@ -1,0 +1,12 @@
+{
+  "assertions": [
+    "owner/project/realm/authorship paths are exact",
+    "public data filtering rejects common PII and credential forms",
+    "filesystem publication cannot follow existing or swapped symlinks",
+    "pending note, archive and CAS operations recover after restart",
+    "raw SQLite cannot bypass owner, realm, relation or artifact constraints"
+  ],
+  "failed": 0,
+  "passed": 104,
+  "status": "passed"
+}

@@ -1,4 +1,4 @@
-"""Evidence-based embedding selection with an explicit local fallback."""
+"""Evidence-based embedding selection with an explicit local provider route."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from zekam.domain.errors import ValidationFailed
 
 class EmbeddingRouteKind(enum.StrEnum):
     QUALIFIED_REMOTE = "qualified-remote"
-    LOCAL_FALLBACK = "local-deterministic-fallback"
+    LOCAL_PROVIDER = "local-provider"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,10 +83,10 @@ def select_embedding_route(
     local_dimension: int,
     remote_source_allowed: bool,
 ) -> EmbeddingRouteDecision:
-    """Prefer fresh qualified evidence; otherwise use the labelled local fallback."""
+    """Prefer authorized remote evidence; otherwise select the local provider route."""
 
     if not local_model_ref.strip() or local_dimension < 1:
-        raise ValidationFailed("Yerel embedding fallback profili gecersiz")
+        raise ValidationFailed("Yerel embedding provider profili gecersiz")
     eligible = tuple(candidate for candidate in candidates if candidate.eligible)
     if eligible and remote_source_allowed:
         selected = sorted(
@@ -110,7 +110,7 @@ def select_embedding_route(
     if not remote_source_allowed:
         reasons.append("remote-project-source-not-authorized")
     return EmbeddingRouteDecision(
-        kind=EmbeddingRouteKind.LOCAL_FALLBACK,
+        kind=EmbeddingRouteKind.LOCAL_PROVIDER,
         model_ref=local_model_ref,
         dimension=local_dimension,
         reasons=tuple(reasons),

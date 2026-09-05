@@ -1,4 +1,7 @@
-"""Kurulu Claude Code, Codex ve OpenCode binary'lerini provider-free dogrula."""
+"""Historical Windows native pins/version probes and content-free adapter contracts.
+
+The separate mandatory Mac artifact inventory is not runtime or lifecycle proof.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +25,13 @@ from zekam.infrastructure.clients.adapters import (
     opencode_adapter,
 )
 
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        os.name != "nt",
+        reason="Historical Windows native pins; Mac native artifact inventory is a separate gate",
+    ),
+]
 
 _VERSION = re.compile(r"(?<![0-9])([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])")
 _SESSION_ID = "0198f2ad-3d10-7a11-b515-4c5c1733f7c1"
@@ -138,7 +147,7 @@ def _provider_free_environment(tmp_path: Path) -> dict[str, str]:
         ),
     ),
 )
-def test_real_installed_client_binary_and_content_free_adapter_contract(
+def test_historical_windows_binary_and_content_free_adapter_contract(
     tmp_path: Path,
     command: str,
     environment_key: str,

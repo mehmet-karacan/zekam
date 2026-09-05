@@ -1,0 +1,5 @@
+{"command": "python -m pytest -q --junitxml=<redacted-evidence-path>", "exit_code": 0, "schema": "zekam-evidence-command/v1", "secret_safe": true}
+{"command":"coverage run -m pytest -q --junitxml=final-current-source-coverage-r4.xml","exit_code":0,"result":"6957 passed, 16 skipped, 0 failures, 0 errors","schema":"zekam-evidence-command/v1","secret_safe":true}
+{"command":"critical_mutation_gate.py --output wp16-critical-mutation-gate-r4.json","exit_code":0,"result":"97/100 killed; score 0.97; threshold 0.75","schema":"zekam-evidence-command/v1","secret_safe":true}
+{"command":"coverage append critical evidence-routing corruption/replay supplement","exit_code":0,"result":"12 passed; overall branch 85.14%; critical branches >=90%","schema":"zekam-evidence-command/v1","secret_safe":true}
+{"command":"pytest current evidence-routing supplement after handoff format normalization","exit_code":0,"result":"12 passed; R11 supersedes R10","schema":"zekam-evidence-command/v1","secret_safe":true}

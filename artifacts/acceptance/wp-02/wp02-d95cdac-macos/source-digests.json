@@ -1,0 +1,17 @@
+{
+  "AKTIF_GOREV.md": "sha256:ebc993d36a07a79ce2f07afab0a15f8b513b1a4402bb74b2a15014945a762bad",
+  "AKTIF_GOREV.yaml": "sha256:4d8065518aa307d8f8319399aff6a6ffb28024118bae61688022ca4eb029de27",
+  "config/zekam.default.yaml": "sha256:9b8f698b353ebdd9f563951d6cd57fa5cb54a769ee5c2174b3baeb21ae68cb00",
+  "pyproject.toml": "sha256:385c19e5405688a5fb94ebcae659041d86ad32de237f7d5ca0d819815cf8e5ed",
+  "src/zekam/PACKAGE_RELEASE_MANIFEST.json": "sha256:6aaf65a61594e73830eba88c30a66ab2a4587cbca28f3172779d80b4b62642f0",
+  "src/zekam/application/config.py": "sha256:3b22267de9316ae978a3fb9eccf7d885eec142c71b8ce21be12360d7d234789a",
+  "src/zekam/application/fresh_bootstrap.py": "sha256:e78cecb535d0e1480dbbde624f8be27a3b32aad66b5853151295183e74486049",
+  "src/zekam/application/home.py": "sha256:9906376b854268ab2f26a10e7247248d339ca32087050939803695cb381dac4c",
+  "src/zekam/application/measured_loop_runtime.py": "sha256:d8ddfa9f7336e06d989d06a5418ddbfef5e1089e9551e0ae14c5b1b2a0fefa5f",
+  "src/zekam/application/persistence_setup.py": "sha256:354991ad9259acf354faf513c0a1777f5601dbade3e8e0b8fccc260e807db9a4",
+  "src/zekam/infrastructure/sqlite/repository.py": "sha256:d8a49a72268cecc23647b65a7572cadbb38f5019401e39b037f694233ec715e5",
+  "src/zekam/interfaces/cli/backup.py": "sha256:7dc8f9df516135b1fbca1a9eaa96704831090ae550acbe06829d2c94a64fc3a2",
+  "src/zekam/interfaces/cli/main.py": "sha256:ae51c83bfb7906d6f20785f8fdcea38cd66dd48bf8c4f4efba10d020461aed30",
+  "tests/unit/test_fresh_bootstrap.py": "sha256:188e6f072a7d51a19e46115031c16707edaf175996275ec1f602369325ca60af",
+  "uv.lock": "sha256:38267c293f19570040929e339cd20e31b0cf710d548804f0efa7e0e0b4d853f5"
+}

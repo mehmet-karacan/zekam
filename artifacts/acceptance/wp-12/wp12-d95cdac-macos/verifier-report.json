@@ -1,0 +1,10 @@
+{
+  "global_complete": false,
+  "p0": 0,
+  "p1": 0,
+  "schema": "zekam-evidence-verifier/v1",
+  "source": "/Users/mkaracan/zekam-wp11-15-independent.jzQMmK/final-independent-verdict.json",
+  "source_sha256": "5878efe084ce28f53e82ae3e2ecbe96cd2e8b14c9287845b5aa9fb4f9f497638",
+  "verdict": "PASS",
+  "work_package": "WP-12"
+}

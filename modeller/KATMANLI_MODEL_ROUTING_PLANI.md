@@ -77,8 +77,8 @@ cagrisi baslatmaz.
 - general → workload/technology → project intersection ve top-K,
 - dort rolun bagimsizliklari, kanit yokken fail-closed ve explicit fallback,
 - HEAD/dependency/framework/rules/suite/health/policy drift stale nedenleri,
-- PostgreSQL up/down/reapply, append-only, RLS, cross-realm ve digest-forgery,
-- temp-PostgreSQL CLI success/fallback/no-candidate/drift/replay,
+- local SQLite bootstrap/reopen/rebuild, append-only ve digest-forgery,
+- disposable-home CLI success/fallback/no-candidate/drift/replay,
 - exact authorization/claim/receipt/checkpoint ve secret-free evidence,
 - Ruff, strict mypy, paket validator ve full pytest.
 

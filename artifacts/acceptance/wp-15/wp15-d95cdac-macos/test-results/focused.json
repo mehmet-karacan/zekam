@@ -1,0 +1,9 @@
+{
+  "failed": 0,
+  "passed": 68,
+  "schema": "zekam-focused-test-result/v1",
+  "source_evidence": "/Users/mkaracan/zekam-wp11-15-independent.jzQMmK/post-verdict-independent-review.json",
+  "source_evidence_sha256": "f036ce0c14b63c1c51a1a671d7faec26ab23e36243accead9def1def0377da87",
+  "verdict": "PASS",
+  "work_package": "WP-15"
+}

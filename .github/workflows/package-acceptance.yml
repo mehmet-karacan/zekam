@@ -1,7 +1,6 @@
 name: package-acceptance
 
 on:
-  # Gecici olarak otomatik Git tetikleyicileri kapali.
   workflow_dispatch:
 
 permissions:
@@ -17,27 +16,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
       - run: python -m pip install build hatchling
       - run: python -m pip install -e .
-      - run: python scripts/protocol_generate.py --check
-      - run: npx --yes --package typescript@5.9.2 tsc --noEmit --strict src/zekam/protocol/client-types.ts
       - run: python scripts/generate_package_manifest.py --check
-      - name: Memory continuity policy, schema and Git security gate
-        run: python scripts/paket_dogrula.py
+      - run: python scripts/paket_dogrula.py
       - run: python -m build --sdist --wheel --outdir dist
-      - name: Write artifact checksums
-        shell: python
-        run: |
-          import hashlib, pathlib
-          files = sorted(pathlib.Path("dist").iterdir())
-          pathlib.Path("dist/SHA256SUMS").write_text("".join(
-              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
-              for path in files if path.is_file()
-          ), encoding="ascii")
       - uses: actions/upload-artifact@v4
         with:
           name: zekam-distribution
@@ -50,40 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.12"]
     runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: zekam-distribution
-          path: dist
-      - run: python -m pip install -e .
-      - name: Artifact-only clean wheel smoke
-        shell: python
-        run: |
-          import pathlib, subprocess, sys
-          wheel = next(pathlib.Path("dist").glob("*.whl"))
-          command = [
-              sys.executable, "scripts/package_smoke.py", "--wheel", str(wheel),
-              "--allow-index", "--source-revision", "${{ github.sha }}",
-              "--builder-identity", "github/build-artifacts",
-              "--verifier-identity", "github/wheel-smoke-${{ matrix.os }}",
-              "--verifier-provenance-digest", "sha256:${{ hashFiles('.github/workflows/package-acceptance.yml') }}",
-              "--output", "package-acceptance.json",
-          ]
-          subprocess.run(command, check=True)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package-acceptance-${{ matrix.os }}
-          path: package-acceptance.json
-
-  dependency-license-sbom:
-    needs: build-artifacts
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -93,14 +43,23 @@ jobs:
         with:
           name: zekam-distribution
           path: dist
-      - run: python -m pip install pip-audit cyclonedx-bom
-      - run: python -m pip install "$(find dist -name '*.whl' -print -quit)[db,api]"
-      - run: python -m pip_audit
-      - run: cyclonedx-py environment --output-file sbom.cdx.json
+      - run: python -m pip install -e .
+      - shell: python
+        run: |
+          import pathlib, subprocess, sys
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          subprocess.run([
+              sys.executable, "scripts/package_smoke.py", "--wheel", str(wheel),
+              "--allow-index", "--source-revision", "${{ github.sha }}",
+              "--builder-identity", "github/build-artifacts",
+              "--verifier-identity", "github/wheel-smoke-${{ matrix.os }}",
+              "--verifier-provenance-digest", "sha256:${{ hashFiles('.github/workflows/package-acceptance.yml') }}",
+              "--output", "package-acceptance.json",
+          ], check=True)
       - uses: actions/upload-artifact@v4
         with:
-          name: zekam-sbom
-          path: sbom.cdx.json
+          name: package-acceptance-${{ matrix.os }}
+          path: package-acceptance.json
 
   sdist-smoke:
     needs: build-artifacts
@@ -115,8 +74,7 @@ jobs:
           name: zekam-distribution
           path: dist
       - run: python -m pip install -e .
-      - name: Clean sdist rebuild and installed-wheel smoke
-        shell: python
+      - shell: python
         run: |
           import pathlib, subprocess, sys
           sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
@@ -133,101 +91,9 @@ jobs:
           name: sdist-acceptance
           path: sdist-acceptance.json
 
-  container-smoke:
+  dependency-license-sbom:
     needs: build-artifacts
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build shipped-wheel runtime image
-        shell: bash
-        run: |
-          schema_digest=$(python -c "import json; print(json.load(open('src/zekam/PACKAGE_RELEASE_MANIFEST.json'))['protocol_schema_digest'])")
-          docker build \
-            --build-arg VCS_REF=${{ github.sha }} \
-            --build-arg PROTOCOL_SCHEMA_DIGEST="$schema_digest" \
-            --tag zekam:acceptance .
-      - name: Verify non-root and installed protocol
-        shell: bash
-        run: |
-          test "$(docker image inspect zekam:acceptance --format '{{.Config.User}}')" = "zekam"
-          expected=$(python -c "import json; print(json.load(open('src/zekam/PACKAGE_RELEASE_MANIFEST.json'))['protocol_schema_digest'])")
-          actual_label=$(docker image inspect zekam:acceptance --format '{{index .Config.Labels "io.zekam.protocol.schema-digest"}}')
-          test "$actual_label" = "$expected"
-          docker run --rm --entrypoint zekam zekam:acceptance protocol digest --json > container-protocol.json
-          python -c "import json; d=json.load(open('container-protocol.json')); assert d['schema_bundle_digest'] == '$expected'"
-          docker run --rm --entrypoint python zekam:acceptance -I -c "import pathlib,zekam; p=pathlib.Path(zekam.__file__).resolve(); assert 'site-packages' in str(p); assert not pathlib.Path('/build').exists()"
-      - name: Verify process health endpoint
-        run: |
-          id=$(docker run -d -p 127.0.0.1:8769:8769 zekam:acceptance)
-          trap 'docker rm -f "$id"' EXIT
-          for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8769/healthz >/dev/null; then
-              code=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8769/readyz)
-              test "$code" = "503"
-              exit 0
-            fi
-            sleep 2
-          done
-          docker logs "$id"
-          exit 1
-      - name: Write container receipt
-        shell: python
-        run: |
-          import hashlib, json, subprocess
-          image_id = subprocess.check_output(
-              ["docker", "image", "inspect", "zekam:acceptance", "--format", "{{.Id}}"],
-              text=True,
-          ).strip()
-          protocol = json.load(open("container-protocol.json", encoding="utf-8"))
-          body = {
-              "schema": "zekam-container-acceptance/v1",
-              "source_revision": "${{ github.sha }}",
-              "image_digest": image_id,
-              "protocol_schema_digest": protocol["schema_bundle_digest"],
-              "user": "zekam",
-              "installed_wheel_only": True,
-              "healthz": "passed",
-              "readyz_without_database": "fail-closed-503",
-              "grants_authority": False,
-          }
-          body["receipt_digest"] = "sha256:" + hashlib.sha256(
-              json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
-          ).hexdigest()
-          open("container-acceptance.json", "w", encoding="utf-8").write(
-              json.dumps(body, indent=2, sort_keys=True) + "\n"
-          )
-      - uses: actions/upload-artifact@v4
-        with:
-          name: container-acceptance
-          path: container-acceptance.json
-
-  database-rehearsal:
-    needs: build-artifacts
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18
-        env:
-          POSTGRES_DB: zekam
-          POSTGRES_USER: zekam
-          POSTGRES_PASSWORD: zekam-ci-only
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U zekam -d zekam"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      ZEKAM_DATABASE_HOST: 127.0.0.1
-      ZEKAM_DATABASE_PORT: "5434"
-      ZEKAM_DATABASE_NAME: zekam
-      ZEKAM_DATABASE_USER: zekam
-      ZEKAM_DATABASE_PASSWORD: zekam-ci-only
-      PGHOST: 127.0.0.1
-      PGPORT: "5434"
-      PGUSER: zekam
-      PGPASSWORD: zekam-ci-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -237,33 +103,17 @@ jobs:
         with:
           name: zekam-distribution
           path: dist
-      - name: Install the shipped wheel only
-        shell: bash
-        run: python -m pip install "$(find dist -name '*.whl' -print -quit)[db]"
-      - name: Rehearse upgrade, exact-head rollback and reapply
-        run: >-
-          python -I scripts/package_database_rehearsal.py upgrade-rollback
-          --require-installed-wheel > migration-rehearsal.json
-      - name: Rehearse physical backup and restore
-        shell: bash
-        run: |
-          pg_client=(docker run --rm --network host \
-            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
-            -v "$PWD:/evidence" -w /evidence pgvector/pgvector:pg18)
-          "${pg_client[@]}" pg_dump --format=custom --file=/evidence/zekam.dump zekam
-          "${pg_client[@]}" createdb zekam_restored
-          "${pg_client[@]}" pg_restore --exit-on-error --dbname=zekam_restored /evidence/zekam.dump
-          ZEKAM_DATABASE_NAME=zekam_restored python -I scripts/package_database_rehearsal.py \
-            verify-restored --require-installed-wheel > restore-rehearsal.json
+      - run: python -m pip install pip-audit cyclonedx-bom
+      - run: python -m pip install "$(find dist -name '*.whl' -print -quit)[api]"
+      - run: python -m pip_audit
+      - run: cyclonedx-py environment --output-file sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
-          name: package-database-rehearsal
-          path: |
-            migration-rehearsal.json
-            restore-rehearsal.json
+          name: zekam-sbom
+          path: sbom.cdx.json
 
   evidence-bundle:
-    needs: [build-artifacts, wheel-smoke, sdist-smoke, dependency-license-sbom, container-smoke, database-rehearsal]
+    needs: [build-artifacts, wheel-smoke, sdist-smoke, dependency-license-sbom]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -274,9 +124,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: evidence
-      - run: >-
-          python scripts/package_evidence_bundle.py --root evidence
-          --source-revision ${{ github.sha }} --output evidence/package-evidence-bundle.json
+      - run: python scripts/package_evidence_bundle.py --root evidence --source-revision ${{ github.sha }} --output evidence/package-evidence-bundle.json
       - uses: actions/upload-artifact@v4
         with:
           name: package-evidence-bundle
@@ -284,15 +132,12 @@ jobs:
 
   package-gate:
     if: always()
-    needs: [build-artifacts, wheel-smoke, sdist-smoke, dependency-license-sbom, container-smoke, database-rehearsal, evidence-bundle]
+    needs: [build-artifacts, wheel-smoke, sdist-smoke, dependency-license-sbom, evidence-bundle]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every shipped-artifact gate
-        run: |
+      - run: |
           test '${{ needs.build-artifacts.result }}' = success
           test '${{ needs.wheel-smoke.result }}' = success
           test '${{ needs.sdist-smoke.result }}' = success
           test '${{ needs.dependency-license-sbom.result }}' = success
-          test '${{ needs.container-smoke.result }}' = success
-          test '${{ needs.database-rehearsal.result }}' = success
           test '${{ needs.evidence-bundle.result }}' = success

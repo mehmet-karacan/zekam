@@ -16,7 +16,6 @@ import argparse
 import datetime as dt
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -43,7 +42,15 @@ GATES: dict[str, list[str]] = {
     ],
     # Olu kod: yalniz yuksek guvenli bulgular kapi olur. Protokolun dayattigi
     # kullanilmayan parametreler alt cizgi onekiyle isaretlenir.
-    "olu-kod": ["python", "-m", "vulture", "src/zekam", "--min-confidence", "80"],
+    "olu-kod": [
+        "python",
+        "-m",
+        "vulture",
+        "src/zekam",
+        "vulture_whitelist.py",
+        "--min-confidence",
+        "80",
+    ],
 }
 
 #: Bu kapilar dis ag erisimi ister; cevrimdisi ortamda acikca atlanabilir.
@@ -117,7 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "environment": {
             "python": sys.version.split()[0],
             "platform": sys.platform,
-            "postgres_test_target": bool(os.environ.get("ZEKAM_TEST_DATABASE_HOST")),
+            "local_store_target": "disposable-sqlite",
         },
         "git": {
             "head": _git("rev-parse", "HEAD") or None,

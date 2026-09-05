@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: structured-output-smoke
+version: 1
+family: structured-output
+evaluation_class: technical
+workload: structured-output
+modality: text
+prompt_ref: resources/prompts/structured-output.txt
+fixture_refs:
+- resources/fixtures/structured-output.json
+hidden_key_ref: resources/hidden-keys/structured-output.json
+grader_ref: resources/graders/structured-output.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- structured-format
+- reliability
+pass_thresholds:
+  correctness: 0.8
+  structured-format: 0.8
+  reliability: 0.8
+resource_digests:
+  resources/fixtures/structured-output.json: sha256:c36b3c3df48411e92a087a0478f79de61b61e33f8e3af0e4b73195ff0341bf91
+  resources/graders/structured-output.yaml: sha256:e399306b69bc87b6579bd6c1de912763fac7bdd70f3cc245440eac9cb97f4fcf
+  resources/hidden-keys/structured-output.json: sha256:3997198497a4b9c592d5fa99a6b50adeaa4ac9bb0091e899a2e449917c7beed9
+  resources/prompts/structured-output.txt: sha256:90819d679704b0546301a15af2c75d89e2872e99a381d483803bcb160c9decf6

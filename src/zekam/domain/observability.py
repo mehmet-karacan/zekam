@@ -94,30 +94,9 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         "db upgrade", "Migration'lari uygular", mutating=True, requires_apply_flag=True
     ),
     CommandContract("project add", "Proje kaydeder", mutating=True, requires_apply_flag=True),
-    CommandContract(
-        "project remove",
-        "Projeyi arsivler",
-        mutating=True,
-        requires_apply_flag=True,
-        requires_authorization=True,
-    ),
-    CommandContract(
-        "project restore",
-        "Arsivlenmis projeyi geri getirir",
-        mutating=True,
-        requires_apply_flag=True,
-        requires_authorization=True,
-    ),
     CommandContract("project list", "Projeleri listeler", mutating=False),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),
-    CommandContract("ask", "Dogal dil istegini cozer", mutating=False),
-    CommandContract("research dag", "Kanonik rol DAG'ini gosterir", mutating=False),
-    CommandContract(
-        "research start", "Arastirma sorusu olusturur", mutating=True, requires_apply_flag=True
-    ),
-    CommandContract("model inventory", "Model envanterini gosterir veya aktarir", mutating=False),
-    CommandContract("model health", "Model saglik durumunu raporlar", mutating=False),
     CommandContract("knowledge scan", "Dizini salt okunur tarar", mutating=False),
     CommandContract(
         "knowledge ingest",
@@ -128,109 +107,11 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract("sandbox policy", "Sandbox politikasini gosterir", mutating=False),
     CommandContract("git commit-check", "Commit mesajini dogrular", mutating=False),
     CommandContract("git push-check", "Push kapisini degerlendirir", mutating=False),
-    CommandContract("scheduler list", "Zamanlanmis isleri listeler", mutating=False),
-    CommandContract(
-        "scheduler init",
-        "Zorunlu bakim islerini tanimlar",
-        mutating=True,
-        requires_apply_flag=True,
-    ),
-    CommandContract("report today", "Gunun raporunu okur", mutating=False),
-    CommandContract("report causal-chain", "Isin kanonik nedensellik zincirini okur", False),
-    CommandContract("report orphaned-state", "Gecikmis yapisal kanit bosluklarini okur", False),
-    CommandContract("trace start", "Encrypted diagnostic trace manifesti olusturur", True, True),
-    CommandContract("trace stop", "Diagnostic trace bundle'ini kapatir", True, True),
-    CommandContract("trace explain", "Trace metadata ve reduction digestlerini okur", False),
-    CommandContract("trace reduce", "Closed trace bundle'ini offline reduce eder", True, True),
-    CommandContract(
-        "trace purge-expired", "Expired encrypted trace payloadlarini siler", True, True
-    ),
     CommandContract("backup verify", "Yedek butunlugunu dogrular", mutating=False),
-    CommandContract("memory continuity-status", "Memory continuity durumunu okur", False),
-    CommandContract("memory contract-check", "Memory Contract kapilarini okur", False),
-    CommandContract("memory gap-report", "Continuity gap raporunu okur", False),
-    CommandContract("memory compiler-shadow-report", "Compiler shadow durumunu okur", False),
-    CommandContract("memory projection-freshness", "Projection freshness durumunu okur", False),
-    CommandContract("memory doctor", "On bes memory saglik boyutunu okur", False),
-    CommandContract("memory upgrade-detect", "Memory upgrade durumunu salt okunur belirler", False),
-    CommandContract("memory upgrade-plan", "Exact upgrade ve rollback planini uretir", False),
-    CommandContract("memory upgrade-verify", "Upgrade kanit ve verifier bagini dogrular", False),
-    CommandContract(
-        "memory hook-upgrade-plan", "Exact hook generation upgrade planini okur", False
-    ),
-    CommandContract(
-        "memory hook-upgrade-apply",
-        "Exact hook generation upgrade'ini claim ve receipt ile uygular",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory hydration-apply", "Hydration receipt uygular", True, True, True, (0, 4, 6, 64, 70)
-    ),
-    CommandContract(
-        "memory close-apply", "Close receipt uygular", True, True, True, (0, 4, 6, 64, 70)
-    ),
-    CommandContract(
-        "memory close-finalize",
-        "Close outbox terminal receipt yazar",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory gap-repair-apply",
-        "Evidence-bound continuity gap repair uygular",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory candidate-promote",
-        "Reviewed compiler candidate terfi ettirir",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory upgrade-apply-shadow",
-        "Additive shadow feature state uygular",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory upgrade-finalize",
-        "Verified shadow durumunu enforced yapar",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
-    CommandContract(
-        "memory upgrade-stamp",
-        "Final component success damgasini append eder",
-        True,
-        True,
-        True,
-        (0, 4, 6, 64, 70),
-    ),
     CommandContract("ui serve", "Salt okunur Neuro Observatory arayuzunu baslatir", mutating=False),
-    CommandContract("worker settings", "Worker sinirlarini gosterir", mutating=False),
-    CommandContract(
-        "worker tick",
-        "Tek worker dongusu calistirir",
-        mutating=True,
-        requires_apply_flag=True,
-    ),
-    CommandContract(
-        "worker run", "Worker dongusunu baslatir", mutating=True, requires_apply_flag=True
-    ),
+    CommandContract("local-core status", "Yerel servis butunlugunu okur", mutating=False),
+    CommandContract("local-runtime status", "Yerel runtime durumunu okur", mutating=False),
+    CommandContract("continuity inspect", "Yerel continuity durumunu okur", mutating=False),
 )
 
 

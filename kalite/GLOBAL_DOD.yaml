@@ -2,11 +2,16 @@ schema: zekam-global-definition-of-done/v1
 project: zekam
 criterion_count: 83
 completion_rule: all criteria terminal passed with evidence; no implicit waiver
+authority_status: reset-for-local-first-reclassification
+reclassification_authority: AKTIF_GOREV.md#314-global-dod-guncellemesi
+default_state_reason: legacy PostgreSQL evidence is not accepted for the new architecture
 criteria:
 - id: ZEKAM-DOD-001
   category: A. Kurulum ve çekirdek
   criterion: Temiz Linux, macOS ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -32,8 +37,11 @@ criteria:
     degildir.'
 - id: ZEKAM-DOD-002
   category: A. Kurulum ve çekirdek
-  criterion: '`zekam doctor` DB, pgvector, object storage, queue, clients, models ve policy durumunu doğrular.'
-  state: passed
+  criterion: '`zekam doctor` local operational/learning/model/benchmark/routing/analytics
+    store, knowledge index, queue, clients ve policy durumunu doğrular.'
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -47,8 +55,11 @@ criteria:
     scheduler ve komut yuzeyini dogruluyor. Kanonik kayit okunamazsa skipped doner; sahte passed uretmez.
 - id: ZEKAM-DOD-003
   category: A. Kurulum ve çekirdek
-  criterion: PostgreSQL 18 migration'ları temiz kurulum, upgrade ve rollback testlerinden geçer.
-  state: passed
+  criterion: Legacy server migration yolu active mimariden kaldırılmıştır; schema-v1 local bootstrap,
+    upgrade, drift ve recovery kapıları geçer.
+  state: pending
+  architecture_classification: removed-by-new-architecture
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -62,7 +73,9 @@ criteria:
 - id: ZEKAM-DOD-004
   category: A. Kurulum ve çekirdek
   criterion: Core kodu ile `ZEKAM_HOME` kullanıcı verisi fiziksel olarak ayrıdır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -76,7 +89,9 @@ criteria:
 - id: ZEKAM-DOD-005
   category: A. Kurulum ve çekirdek
   criterion: Proje source'ları kopyalanmadan logical binding ile yerinde okunabilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -90,7 +105,9 @@ criteria:
 - id: ZEKAM-DOD-006
   category: A. Kurulum ve çekirdek
   criterion: Backup/restore ve disaster-recovery tatbikatı kanıtlanmıştır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -104,7 +121,9 @@ criteria:
 - id: ZEKAM-DOD-007
   category: B. Proje, doğal dil ve Work Graph
   criterion: Birden fazla bağımsız proje kayıt, alias, rebind ve capability profile ile yönetilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -118,7 +137,9 @@ criteria:
 - id: ZEKAM-DOD-008
   category: B. Proje, doğal dil ve Work Graph
   criterion: '`gpu projesi` gibi alias''lar exact project''e deterministik çözülür.'
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -133,7 +154,9 @@ criteria:
 - id: ZEKAM-DOD-009
   category: B. Proje, doğal dil ve Work Graph
   criterion: Talep, defect, iş, task, subtask, decision ve research Work Item tipleri çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -147,7 +170,9 @@ criteria:
 - id: ZEKAM-DOD-010
   category: B. Proje, doğal dil ve Work Graph
   criterion: Work revision ve event geçmişi append-only ve optimistic concurrency korumalıdır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -162,7 +187,9 @@ criteria:
   category: B. Proje, doğal dil ve Work Graph
   criterion: '`bugun ne islerimiz var`, `123 defect nerede kaldi` ve `nerede kaldik` sorguları kanonik
     state''ten yanıtlanır.'
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -176,7 +203,9 @@ criteria:
 - id: ZEKAM-DOD-012
   category: B. Proje, doğal dil ve Work Graph
   criterion: Aynı iş idempotency key ile ikinci kez oluşturulmaz veya yürütülmez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -190,7 +219,9 @@ criteria:
 - id: ZEKAM-DOD-013
   category: C. Agent harness ve execution runtime
   criterion: Agentic her işte en az bir gerçek subagent enforcement seviyesinde zorunludur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -204,7 +235,9 @@ criteria:
 - id: ZEKAM-DOD-014
   category: C. Agent harness ve execution runtime
   criterion: Koordinatör subagent sayılmaz ve sabit global maksimum yoktur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -218,7 +251,9 @@ criteria:
 - id: ZEKAM-DOD-015
   category: C. Agent harness ve execution runtime
   criterion: DAG dependency ve resource conflict'e göre parallel/sequential route seçer.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -231,8 +266,10 @@ criteria:
   assessment_note: Paralellik yedi sinirin en kucugunden hesaplaniyor.
 - id: ZEKAM-DOD-016
   category: C. Agent harness ve execution runtime
-  criterion: PostgreSQL durable queue, lease, heartbeat, fencing ve logical lock çalışır.
-  state: passed
+  criterion: Local operational store durable queue, lease, heartbeat, fencing ve logical lock çalışır.
+  state: pending
+  architecture_classification: reimplemented-and-verified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -246,7 +283,9 @@ criteria:
 - id: ZEKAM-DOD-017
   category: C. Agent harness ve execution runtime
   criterion: Claim-before-effect ve terminal receipt-after-effect sözleşmesi uygulanır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -260,7 +299,9 @@ criteria:
 - id: ZEKAM-DOD-018
   category: C. Agent harness ve execution runtime
   criterion: Interrupted mutation `recovery-required` olur; sessiz retry yapılamaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -274,7 +315,9 @@ criteria:
 - id: ZEKAM-DOD-019
   category: C. Agent harness ve execution runtime
   criterion: Strict Agent Result Envelope ve coordinator fan-in çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -288,7 +331,9 @@ criteria:
 - id: ZEKAM-DOD-020
   category: C. Agent harness ve execution runtime
   criterion: Builder ve risk bazlı bağımsız verifier kimlikleri ayrıdır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -302,7 +347,9 @@ criteria:
 - id: ZEKAM-DOD-021
   category: C. Agent harness ve execution runtime
   criterion: Her meaningful step checkpoint ve continuity üretir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -316,7 +363,9 @@ criteria:
 - id: ZEKAM-DOD-022
   category: C. Agent harness ve execution runtime
   criterion: Entegre proje mutation'i yalniz bagli gercek source rootunda tek-writer kilidiyla yapilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -330,7 +379,9 @@ criteria:
 - id: ZEKAM-DOD-023
   category: D. Model envanteri, benchmark ve routing
   criterion: 20 Model ID bağımsız inventory record olarak import edilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -344,7 +395,9 @@ criteria:
 - id: ZEKAM-DOD-024
   category: D. Model envanteri, benchmark ve routing
   criterion: 19 teknik profil ile 20 kanonik kayıt farkı görünür provenance olarak korunur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -361,7 +414,9 @@ criteria:
     değerlendirilir; health-passed hedefler en az beş tekrarlı modalite benchmarkına ve bağımsız
     provider-neutral doğrulamaya girer. Yalnız qualified sonuçlar agent/model routing için aktif olur;
     kullanıcı kapsamı dışında bırakılan ses hedefi çağrılmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -404,7 +459,9 @@ criteria:
 - id: ZEKAM-DOD-026
   category: D. Model envanteri, benchmark ve routing
   criterion: En az beş tekrarlı genel benchmark ve proje özel benchmark uygulanır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -418,7 +475,9 @@ criteria:
 - id: ZEKAM-DOD-027
   category: D. Model envanteri, benchmark ve routing
   criterion: Quality, reliability, verifier pass, latency, token, cost ve human correction ölçülür.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -432,7 +491,9 @@ criteria:
 - id: ZEKAM-DOD-028
   category: D. Model envanteri, benchmark ve routing
   criterion: Model health, quarantine, cooldown ve stale evidence kuralları çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -446,7 +507,9 @@ criteria:
 - id: ZEKAM-DOD-029
   category: D. Model envanteri, benchmark ve routing
   criterion: Codex <%40, Claude <%30 fallback kuralı yalnız güvenilir quota observation ile çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -460,7 +523,9 @@ criteria:
 - id: ZEKAM-DOD-030
   category: D. Model envanteri, benchmark ve routing
   criterion: Bilinmeyen kota tahmin edilmez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -474,7 +539,9 @@ criteria:
 - id: ZEKAM-DOD-031
   category: D. Model envanteri, benchmark ve routing
   criterion: Model assignment açıklanabilir, digest-bound ve authority-free'dir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -488,7 +555,9 @@ criteria:
 - id: ZEKAM-DOD-032
   category: D. Model envanteri, benchmark ve routing
   criterion: Bounded model deliberation/fusion süre, tur, token ve kanıt bütçesine uyar.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -502,7 +571,9 @@ criteria:
 - id: ZEKAM-DOD-033
   category: E. Knowledge Plane
   criterion: BGE-M3 dense 1024 sürümlü ilk embedding profilidir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -515,8 +586,10 @@ criteria:
   assessment_note: BGE-M3 dense 1024 cosine ilk surumlu profil.
 - id: ZEKAM-DOD-034
   category: E. Knowledge Plane
-  criterion: PostgreSQL+pgvector, exact, FTS, alias/trigram, dense, RRF ve opsiyonel reranker çalışır.
-  state: passed
+  criterion: SQLite FTS5+sqlite-vec exact, lexical, dense, RRF ve opsiyonel reranker çalışır.
+  state: pending
+  architecture_classification: reimplemented-and-verified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -530,7 +603,9 @@ criteria:
 - id: ZEKAM-DOD-035
   category: E. Knowledge Plane
   criterion: DOCX heading/table, dijital/taranmış PDF, TXT/MD, PNG/JPEG/TIFF ve OCR ingestion çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -554,7 +629,9 @@ criteria:
   category: E. Knowledge Plane
   criterion: Orijinal artifact, normalized content, parser/chunker/embedding profile ve source revision
     korunur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -577,7 +654,9 @@ criteria:
 - id: ZEKAM-DOD-037
   category: E. Knowledge Plane
   criterion: Git URL, archive ve izinli directory taraması kod çalıştırmadan yapılır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -591,7 +670,9 @@ criteria:
 - id: ZEKAM-DOD-038
   category: E. Knowledge Plane
   criterion: AST/symbol chunking ve PL/SQL object ayrımı çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -605,7 +686,9 @@ criteria:
 - id: ZEKAM-DOD-039
   category: E. Knowledge Plane
   criterion: Oracle/PostgreSQL metadata retrieval satır verisini varsayılan olarak toplamaz.
-  state: passed
+  state: pending
+  architecture_classification: preserved-and-reverified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -619,7 +702,9 @@ criteria:
 - id: ZEKAM-DOD-040
   category: E. Knowledge Plane
   criterion: Incremental re-index ve atomik active-version değişimi çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -633,7 +718,9 @@ criteria:
 - id: ZEKAM-DOD-041
   category: E. Knowledge Plane
   criterion: PDF page, DOCX heading/block, OCR bbox, code path/symbol/line ve DB object citation üretilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -647,7 +734,9 @@ criteria:
 - id: ZEKAM-DOD-042
   category: E. Knowledge Plane
   criterion: Golden retrieval evaluation Recall/MRR/nDCG ve no-answer oranlarını ölçer.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -661,7 +750,9 @@ criteria:
 - id: ZEKAM-DOD-043
   category: E. Knowledge Plane
   criterion: Retrieval sonucu görev durumu veya yetki kaynağı olamaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -674,8 +765,10 @@ criteria:
   assessment_note: RetrievalAnswer grants_authority=False; alan zorluyor.
 - id: ZEKAM-DOD-044
   category: F. Bellek, öğrenme ve skills
-  criterion: Native PostgreSQL MemoryEngine üretim çekirdeği olarak çalışır.
-  state: passed
+  criterion: Local SQLite learning/memory store üretim çekirdeği olarak çalışır.
+  state: pending
+  architecture_classification: reimplemented-and-verified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -689,7 +782,9 @@ criteria:
 - id: ZEKAM-DOD-045
   category: F. Bellek, öğrenme ve skills
   criterion: Mem0 OSS adapter'ı opsiyonel ve aynı port arkasında çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -703,7 +798,9 @@ criteria:
 - id: ZEKAM-DOD-046
   category: F. Bellek, öğrenme ve skills
   criterion: Working, episodic, semantic, procedural, preference ve failure memory ayrıdır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -717,7 +814,9 @@ criteria:
 - id: ZEKAM-DOD-047
   category: F. Bellek, öğrenme ve skills
   criterion: User/project/work/run/agent scope isolation testleri geçer.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -731,7 +830,9 @@ criteria:
 - id: ZEKAM-DOD-048
   category: F. Bellek, öğrenme ve skills
   criterion: Exact+lexical+vector+entity+temporal memory retrieval açıklanabilirdir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -745,7 +846,9 @@ criteria:
 - id: ZEKAM-DOD-049
   category: F. Bellek, öğrenme ve skills
   criterion: Memory candidate bağımsız evidence ve verifier olmadan active olmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -759,7 +862,9 @@ criteria:
 - id: ZEKAM-DOD-050
   category: F. Bellek, öğrenme ve skills
   criterion: Duplicate, stale, conflict ve retention hygiene raporlanır; otomatik silme yapılmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -773,7 +878,9 @@ criteria:
 - id: ZEKAM-DOD-051
   category: F. Bellek, öğrenme ve skills
   criterion: Tekrarlı hatalar learning candidate olur; kanıt olmadan guideline/skill'e terfi etmez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -787,7 +894,9 @@ criteria:
 - id: ZEKAM-DOD-052
   category: F. Bellek, öğrenme ve skills
   criterion: Skill candidate, evaluation, approval, activate/deprecate/retire yaşam döngüsü çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -801,7 +910,9 @@ criteria:
 - id: ZEKAM-DOD-053
   category: F. Bellek, öğrenme ve skills
   criterion: Memory veya Mem0 Work Graph durumunu, policy'yi veya authority'yi sahiplenmez.
-  state: passed
+  state: pending
+  architecture_classification: preserved-and-reverified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -815,7 +926,9 @@ criteria:
 - id: ZEKAM-DOD-054
   category: G. Araştırma ve uygulama teslimi
   criterion: Doğal dil araştırma isteği Work+Intent+ResearchQuestion'a dönüşür.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -829,7 +942,9 @@ criteria:
 - id: ZEKAM-DOD-055
   category: G. Araştırma ve uygulama teslimi
   criterion: En az bir researcher subagent, critic/synthesizer ve risk bazlı citation verifier çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -843,7 +958,9 @@ criteria:
 - id: ZEKAM-DOD-056
   category: G. Araştırma ve uygulama teslimi
   criterion: Kaynak snapshot, claim, contradiction ve exact citation kanıtı tutulur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -857,7 +974,9 @@ criteria:
 - id: ZEKAM-DOD-057
   category: G. Araştırma ve uygulama teslimi
   criterion: Araştırma raporu Decision ve exact Plan'a ayrı review ile dönüşür.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -871,7 +990,9 @@ criteria:
 - id: ZEKAM-DOD-058
   category: G. Araştırma ve uygulama teslimi
   criterion: Implementation yalnız approved path/resource scope'ta worktree içinde yapılır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -885,7 +1006,9 @@ criteria:
 - id: ZEKAM-DOD-059
   category: G. Araştırma ve uygulama teslimi
   criterion: Testler Zekam tarafından bağımsız yeniden çalıştırılır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -899,7 +1022,9 @@ criteria:
 - id: ZEKAM-DOD-060
   category: G. Araştırma ve uygulama teslimi
   criterion: Patch, receipt ve rollback artifact'ı üretilir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -913,7 +1038,9 @@ criteria:
 - id: ZEKAM-DOD-061
   category: G. Araştırma ve uygulama teslimi
   criterion: Commit/push kullanıcı ve policy kurallarına uyar.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -927,7 +1054,9 @@ criteria:
 - id: ZEKAM-DOD-062
   category: H. Secret, policy ve güvenlik
   criterion: Secret Broker logical SecretRef çözer; plaintext model context'ine girmez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -941,7 +1070,9 @@ criteria:
 - id: ZEKAM-DOD-063
   category: H. Secret, policy ve güvenlik
   criterion: Prompt/log/vector/artifact/report/backup içinde secret sızıntı testleri geçer.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -955,7 +1086,9 @@ criteria:
 - id: ZEKAM-DOD-064
   category: H. Secret, policy ve güvenlik
   criterion: Network default-deny ve outbound disclosure/authorization uygulanır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -969,7 +1102,9 @@ criteria:
 - id: ZEKAM-DOD-065
   category: H. Secret, policy ve güvenlik
   criterion: Path traversal, symlink escape, archive bomb ve source-root escape fail-closed'dur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -983,7 +1118,9 @@ criteria:
 - id: ZEKAM-DOD-066
   category: H. Secret, policy ve güvenlik
   criterion: Untrusted document/repository talimatları asla sistem komutu sayılmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -997,7 +1134,9 @@ criteria:
 - id: ZEKAM-DOD-067
   category: H. Secret, policy ve güvenlik
   criterion: Güvenli read-only sorgular gereksiz onay istemez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1012,7 +1151,9 @@ criteria:
   category: H. Secret, policy ve güvenlik
   criterion: Network, secret, mutation, DB write, push ve destructive effect exact one-shot authorization
     gerektirir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1026,7 +1167,9 @@ criteria:
 - id: ZEKAM-DOD-069
   category: H. Secret, policy ve güvenlik
   criterion: Yetkilendirilmiş planın child step'leri drift yoksa anlamsız ikinci onay istemez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1040,7 +1183,9 @@ criteria:
 - id: ZEKAM-DOD-070
   category: I. Scheduler, rapor ve dashboard
   criterion: '`gelen-belgeler` watcher idempotent ingestion/research job üretir.'
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1054,7 +1199,9 @@ criteria:
 - id: ZEKAM-DOD-071
   category: I. Scheduler, rapor ve dashboard
   criterion: Gece model health, project scan, memory hygiene, recovery ve araştırma işleri çalışır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1069,7 +1216,9 @@ criteria:
 - id: ZEKAM-DOD-072
   category: I. Scheduler, rapor ve dashboard
   criterion: Sabah genel ve proje bazlı rapor oluşur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1083,7 +1232,9 @@ criteria:
 - id: ZEKAM-DOD-073
   category: I. Scheduler, rapor ve dashboard
   criterion: Rapor model, kaynak, agent, token, cost, quota, failure, contradiction ve next action içerir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1097,7 +1248,9 @@ criteria:
 - id: ZEKAM-DOD-074
   category: I. Scheduler, rapor ve dashboard
   criterion: Dashboard Work Graph, queue, model, retrieval, memory ve scheduler projection'larını gösterir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1111,7 +1264,9 @@ criteria:
 - id: ZEKAM-DOD-075
   category: I. Scheduler, rapor ve dashboard
   criterion: Dashboard veya OpenTelemetry kanonik state olmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1125,7 +1280,9 @@ criteria:
 - id: ZEKAM-DOD-076
   category: I. Scheduler, rapor ve dashboard
   criterion: Obsidian/sinaps benzeri graph görünümü güvenli derived projection olarak sağlanır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1138,9 +1295,11 @@ criteria:
   assessment_note: Graf derived; her dugum kanonik referans tasiyor.
 - id: ZEKAM-DOD-077
   category: J. Kalite, dokümantasyon ve release
-  criterion: Unit, integration, security, property, concurrency, PostgreSQL acceptance ve E2E testleri
-    geçer.
-  state: passed
+  criterion: Unit, integration, security, property, concurrency, local-store acceptance ve E2E testleri
+    desteklenen platformlarda geçer.
+  state: pending
+  architecture_classification: reimplemented-and-verified
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1155,7 +1314,9 @@ criteria:
 - id: ZEKAM-DOD-078
   category: J. Kalite, dokümantasyon ve release
   criterion: Lint, format, type check, dependency audit, migration drift ve dead-code kapıları geçer.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1173,7 +1334,9 @@ criteria:
 - id: ZEKAM-DOD-079
   category: J. Kalite, dokümantasyon ve release
   criterion: İnsan okunur Türkçe belgeler gerçek kodla çelişmez.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1187,7 +1350,9 @@ criteria:
 - id: ZEKAM-DOD-080
   category: J. Kalite, dokümantasyon ve release
   criterion: Commit mesajları Türkçe anlamlı ve ASCII-only'dir.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1201,7 +1366,9 @@ criteria:
 - id: ZEKAM-DOD-081
   category: J. Kalite, dokümantasyon ve release
   criterion: Kritik akışlarda placeholder, mock-only production path veya ölü kod yoktur.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1217,7 +1384,9 @@ criteria:
 - id: ZEKAM-DOD-082
   category: J. Kalite, dokümantasyon ve release
   criterion: Release manifesti, SBOM, checksum ve rollback talimatı vardır.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact
@@ -1232,7 +1401,9 @@ criteria:
 - id: ZEKAM-DOD-083
   category: J. Kalite, dokümantasyon ve release
   criterion: Zekam tekil kimlik testi package, CLI, environment, home, schema ve DB alias'i birakmaz.
-  state: passed
+  state: pending
+  architecture_classification: pending
+  reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
   required_evidence:
   - test-or-evaluation
   - canonical-record-or-artifact

@@ -1,0 +1,10 @@
+{
+  "branch": "main",
+  "head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "legacy_postgresql_data_accessed": false,
+  "machine": "arm64",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "python": "3.9.6",
+  "schema": "zekam-evidence-environment/v1",
+  "upstream_ahead_behind": "0\t0"
+}

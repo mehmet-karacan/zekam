@@ -16,11 +16,17 @@ if request["schema"] == "zekam-benchmark-tested-request/v1":
         "evidence_ok": True,
         "quality": 0.9,
         "reliability": 0.9,
+        "tool_correctness": 1.0,
+        "recovery": 1.0,
         "latency_ms": 4,
         "input_tokens": 8,
         "output_tokens": 3,
-        "actual_cost": 0,
-        "response": {"case": request["fixture"]["case_id"], "answer": "ok"},
+        "actual_cost": 0.0,
+        "response": {
+            "case": request["fixture"]["case_id"],
+            "model": request["model_id"],
+            "answer": "ok",
+        },
     }
 elif request["schema"] == "zekam-benchmark-verifier-request/v1":
     response = {

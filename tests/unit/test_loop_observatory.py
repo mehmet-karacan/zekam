@@ -7,7 +7,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from jsonschema import Draft202012Validator
 
 from zekam.application.loop_observatory import LoopObservatory
 from zekam.domain.errors import ValidationFailed

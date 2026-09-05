@@ -31,7 +31,9 @@ def test_schema_strictness_resolves_every_root_union_reference() -> None:
     }
     assert schema_root_is_strict(document)
 
-    document["$defs"]["union"]["anyOf"].append({"type": "object", "additionalProperties": True})
+    document["$defs"]["union"]["anyOf"].append(  # type: ignore[index]
+        {"type": "object", "additionalProperties": True}
+    )
     assert not schema_root_is_strict(document)
 
 

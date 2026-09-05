@@ -1,0 +1,21 @@
+{
+  "schema": "zekam-wp07-changed-files/v1",
+  "files": [
+    "pyproject.toml",
+    "uv.lock",
+    "src/zekam/application/knowledge_index.py",
+    "src/zekam/application/embedded_project_rag.py",
+    "src/zekam/application/project_knowledge_index.py",
+    "src/zekam/domain/retrieval.py",
+    "src/zekam/infrastructure/sqlite/knowledge_index.py",
+    "benchmarks/suites/wp07_akilli_kasa_golden.py",
+    "tests/unit/test_sqlite_knowledge_index.py",
+    "tests/unit/test_embedded_project_rag.py",
+    "tests/integration/test_akilli_kasa_embedded_rag.py",
+    "AKTIF_GOREV.md",
+    "AKTIF_GOREV.yaml"
+  ],
+  "user_changes_reset_or_cleaned": false,
+  "commit_created": false,
+  "push_performed": false
+}

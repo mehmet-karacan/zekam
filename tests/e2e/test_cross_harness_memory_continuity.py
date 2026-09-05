@@ -17,6 +17,7 @@ from zekam.application.continuity_projection import (
     build_hydration_recipe,
 )
 from zekam.application.memory_candidate_compiler import (
+    CompilerPreparation,
     CompilerSourceFragment,
     MemoryCandidateCompiler,
 )
@@ -126,7 +127,7 @@ def _prepare(
     *,
     output_id: UUID,
     prior_output: MemoryCompilerOutput | None = None,
-):
+) -> CompilerPreparation:
     known = frozenset(
         (reference.ref, reference.digest_value)
         for fragment in fragments

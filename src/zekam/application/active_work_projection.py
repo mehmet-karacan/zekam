@@ -91,7 +91,7 @@ class ActiveWorkProjection:
         return {
             "schema": PROJECTION_SCHEMA,
             "generator_version": GENERATOR_VERSION,
-            "source": "canonical-postgresql-work-graph",
+            "source": "canonical-local-work-graph",
             "project": {"id": str(self.project_id), "slug": self.project_slug},
             "work": {
                 "id": str(self.work_id),
@@ -177,7 +177,7 @@ class ActiveWorkProjection:
         next_action = self.projected_next_safe_action or "Yok; Work terminal completed durumunda."
         return (
             "# Zekam Aktif Görev Projeksiyonu\n\n"
-            "> Bu dosya kanonik PostgreSQL Work Graph'tan deterministik olarak üretilen, "
+            "> Bu dosya kanonik yerel Work Graph'tan deterministik olarak üretilen, "
             "salt okunur bir projeksiyondur. Yetki vermez.\n\n"
             "## Aktif iş\n\n"
             "| Alan | Değer |\n|---|---|\n"

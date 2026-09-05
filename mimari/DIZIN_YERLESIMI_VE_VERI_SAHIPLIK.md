@@ -5,84 +5,67 @@
 ```text
 zekam/
 ├── src/zekam/
-│   ├── domain/
-│   ├── application/
-│   ├── infrastructure/
-│   └── interfaces/
-├── migrations/
-├── schemas/
-├── config/
+│   ├── domain/          # saf sözleşmeler ve invariants
+│   ├── application/     # use-case, port ve orchestration
+│   ├── infrastructure/  # SQLite, filesystem, Git ve provider adapter'ları
+│   └── interfaces/      # CLI ve API
 ├── tests/
+├── config/
+├── schemas/
 ├── docs/
-├── scripts/
-├── compose/
-└── pyproject.toml
+└── mimari/
 ```
 
-Domain framework/ORM/provider SDK import etmez. Application port ve use-case'leri;
-infrastructure PostgreSQL, Git, provider, object storage ve client adapter'larını;
-interfaces CLI/API/MCP/UI composition'ını taşır.
+Source repository kod, schema, fixture ve insan tarafından yazılmış belgeleri taşır;
+runtime kullanıcı verisi taşımaz.
 
-## ZEKAM_HOME
+## Kullanıcı veri kökü
+
+`ZEKAM_HOME` source repository'den fiziksel olarak ayrıdır ve varsayılanı `~/.zekam`dır.
+Fresh bootstrap schema v1 ile atomik staging→publish yapar.
 
 ```text
-<ZEKAM_HOME>/
-├── layout.json
-├── global/
-│   ├── modeller/
-│   ├── politikalar/
-│   ├── bellek/
-│   ├── raporlar/
-│   ├── artifacts/
-│   └── runtime/
-├── projeler/
-│   └── <project-id>/
-│       ├── proje.json
-│       ├── baglantilar/
-│       ├── talepler/
-│       ├── defectler/
-│       ├── isler/
-│       ├── arastirmalar/
-│       ├── kararlar/
-│       ├── planlar/
-│       ├── bilgi/
-│       ├── bellek/
-│       ├── artifacts/
-│       ├── runtime/
-│       └── raporlar/
-├── gelen-belgeler/
-├── worktrees/
-├── sandboxlar/
-├── kilitler/
-├── secrets/
-└── yerel/
+ZEKAM_HOME/
+├── state/               # operational SQLite authority
+├── knowledge/           # rebuildable FTS5/sqlite-vec generations
+├── analytics/           # rebuildable DuckDB generations
+├── artifacts/           # immutable CAS ve benchmark/raw evidence
+├── knowledge-files/     # user-authored ve generated Markdown ayrımı
+├── runtime/             # spool, locks, checkpoints ve receipts
+├── backups/             # doğrulanmış local backup bundles
+└── config/              # secret içermeyen local profile/projection
 ```
 
-Üretimde kanonik kayıtlar PostgreSQL'dedir; bu dizin artifact, local cache, source binding,
-worktree ve portable projection alanıdır. Aynı identity iki fiziksel location'da authority
-olarak bulunamaz.
+Portable kayıtlarda absolute kullanıcı yolu bulunmaz. Project ID, logical source binding,
+repository-relative locator ve içerik digest'i kullanılır.
 
-## Sahiplik sınıfları
+## Sahiplik matrisi
 
-| Sınıf | Örnek | Backup | Git |
+| Veri | Authority | Projection | Recovery |
 |---|---|---|---|
-| core | code, migration, schema, default policy | source control | evet |
-| user-data | project/work/decision/approved memory | evet | hayır |
-| runtime | lease, queue, active checkpoint | kontrollü | hayır |
-| derived | FTS/vector/dashboard projection | yeniden üretilebilir | hayır |
-| artifact | original document, patch, report | policy'ye göre | hayır |
-| local | absolute locator, client cache | makine özel | hayır |
-| secret | key/password/token | secret-store politikası | asla |
+| Project/work/session/run | Operational SQLite | Markdown/UI | doğrulanmış backup restore |
+| Queue/claim/receipt/audit | Operational SQLite append-only | report/analytics | backup ve reconciliation |
+| Source/artifact bytes | exact source + CAS | parsed chunks | source/CAS doğrulaması |
+| Exact/lexical/vector index | source manifestten türetilir | query result | scratch rebuild |
+| Memory/failure/skill state | Operational SQLite + evidence refs | Markdown memory | backup/review |
+| Model registry/current health | Operational SQLite | local reports | rediscovery/reconcile |
+| Benchmark raw result | immutable artifact/CAS | DuckDB aggregate | artifacttan rebuild |
+| Telemetry raw event | immutable segment + manifest | DuckDB/report | segmentten rebuild |
+| DuckDB | derived | dashboard | tam rebuild |
 
-## Haricî source
+## External proje sınırı
 
-Source root Zekam'nin sahibi değildir. Zekam:
-- read-only keşfeder,
-- digest/revision bağlar,
-- content'i gerektiğinde yerinde okur,
-- change'i bagli gercek source rootunda tek-writer kilidiyla uygular,
-- kopya, mirror, audit-work klasoru veya detached worktree uretmez,
-- source root'u kendi home'una kopyalamaz.
+- Proje source'u registry'de exact logical binding ile yerinde tutulur; kopyalanmaz.
+- Salt-okunur görevler kaynak dosyalarını değiştirmez.
+- Mutation yalnız açık yetki, exact path scope ve tek-writer lock ile gerçek rootta yapılır.
+- Projenin kendi DB seçimi Zekam core DB seçimi değildir; proje verisi Zekam'a taşınmaz.
+- Akıllı Kasa acceptance fixture'ı read-only'dir; `.env`, credential, gerçek finansal veri,
+  binary, generated DB ve kullanıcıya özel içerik ingestion dışında kalır.
 
-Repository tarama artifact'i gerekiyorsa yalnız kullanıcı tarafından yüklenmiş archive veya
-approved immutable snapshot object storage'da tutulur; source-of-truth değildir.
+## Yasak çift authority örnekleri
+
+- Operational state'i Markdown veya vector sonuçlarından geri üretmek.
+- SQLite queue ile başka bir queue'yu aynı iş için eşzamanlı authority yapmak.
+- DuckDB'ye operational mutation yazmak.
+- Generated projection'ı user-authored notun üstüne yazmak.
+- Legacy server verisini bootstrap girdisi veya fallback yapmak.

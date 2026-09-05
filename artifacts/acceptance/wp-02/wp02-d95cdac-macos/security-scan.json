@@ -1,0 +1,12 @@
+{
+  "docker_calls": 0,
+  "network_calls": 0,
+  "postgresql_client_execution": 0,
+  "postgresql_connections": 0,
+  "postgresql_data_import_export_etl": 0,
+  "receipt_duplicate_keys_rejected": true,
+  "schema": "zekam-wp02-security-result/v1",
+  "secret_values_recorded": false,
+  "symlink_core_escape_rejected": true,
+  "verdict": "passed"
+}

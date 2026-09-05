@@ -1,6 +1,6 @@
 """Bounded, read-only projection of the measured loop execution plane.
 
-The PostgreSQL ledger remains canonical.  This module deliberately projects an
+The local operational ledger remains canonical.  This module deliberately projects an
 allow-listed set of identifiers, digests, numeric metrics, budget counters and
 terminal metadata; JSON bodies are never returned wholesale.
 """

@@ -1,0 +1,8 @@
+{"operation":"git-preflight","effect":"read-only","result":"passed","legacy_postgresql_access":false}
+{"operation":"remote-head-compare","effect":"read-only-network","result":"passed","head":"d95cdac2713df797e42afda020ab6e8e55188031"}
+{"operation":"package-validator","result":"passed","output":"repo-external-temporary-result","repository_output_overwritten":false}
+{"operation":"pytest-wp00-focused","result":"passed","passed":28,"failed":0}
+{"operation":"pytest-storage-bge-regression","result":"passed","passed":42,"failed":0}
+{"operation":"ruff-focused","result":"passed"}
+{"operation":"mypy-focused","result":"passed"}
+{"operation":"pytest-non-postgres-broad","result":"baseline-drift","passed":2372,"failed":8,"skipped":14,"deselected":725,"legacy_postgresql_access_failures":0}

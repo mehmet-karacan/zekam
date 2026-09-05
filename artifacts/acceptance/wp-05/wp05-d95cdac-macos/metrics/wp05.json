@@ -1,0 +1,10 @@
+{
+  "cross_project_leakage": 0,
+  "cross_realm_relation_leakage": 0,
+  "duplicate_note_identity_under_concurrency": 0,
+  "focused_pass_rate": 1.0,
+  "outside_home_writes_under_symlink_swap": 0,
+  "package_validation_errors": 0,
+  "public_sensitive_fixture_false_accepts": 0,
+  "restart_recovery_scenarios_passed": 3
+}

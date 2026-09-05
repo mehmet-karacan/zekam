@@ -1,71 +1,74 @@
-# Zekam Başlangıç ADR Kararları
+# Zekam Güncel ADR Kararları
+
+Bu özet `AKTIF_GOREV.md` içindeki bağlayıcı kararları tekrarlar; bağımsız authority
+değildir. Ayrıntılı ölçüm ve riskler `docs/adr/` altındaki karar kayıtlarındadır.
 
 ## ADR-001 — Modüler monolit
 
-**Karar:** Tek domain/application çekirdeği, ayrı process'ler.  
-**Neden:** Dağıtık transaction ve çift state karmaşasını erken aşamada önler.  
-**Review trigger:** Tek process sınırının ölçülmüş throughput/SLA'yı karşılamaması.
+**Karar:** Tek domain/application çekirdeği, ayrı ve bounded süreçler kullanılır.
+**Neden:** Dağıtık transaction ve çift authority oluşmasını önler.
 
-## ADR-002 — PostgreSQL 18 kanonik store
+## ADR-002 — Yerel operational authority
 
-**Karar:** Work, runtime ledger, model evidence, research, memory ve scheduler PostgreSQL'de.  
-**Neden:** Transaction, constraint, RLS, queue claim ve audit tek yerde.  
-**Review trigger:** Kanıtlanmış ölçek veya regülasyon zorunluluğu.
+**Karar:** Mac-first operational store CPython SQLite schema v1'dir. Queue, lease,
+claim, receipt, work, session, registry ve policy state burada tutulur.
+**Sınır:** Windows x64 kabulü K-013 kapsamında deferred durumdadır.
 
-## ADR-003 — pgvector aynı veri katmanında
+## ADR-003 — Yeniden üretilebilir knowledge index
 
-**Karar:** İlk vector store PostgreSQL+pgvector.  
-**Neden:** Source/revision/filter ile transactionally consistent metadata.  
-**Review trigger:** Golden eval ve operasyon ölçümleriyle yetersizlik.
+**Karar:** Exact ve lexical arama SQLite FTS5, dense arama sqlite-vec ile sürümlü
+generation içinde çalışır. Kaynak manifesti ve artifact bytes authority'dir; indeks
+silinip yeniden üretilebilir.
 
-## ADR-004 — Agent harness core özelliğidir
+## ADR-004 — Derived analytics
 
-**Karar:** DAG/queue/lease/fence/lock/claim/receipt/checkpoint/result/verifier ayrı framework'e
-bırakılmaz.  
-**Neden:** Model ve CLI geçici; durable execution sözleşmesi kalıcıdır.
+**Karar:** DuckDB yalnız immutable raw event/run artifact'larından yeniden kurulan
+analytics projection'dır; operational mutation veya authority taşımaz.
 
-## ADR-005 — Agentic iş minimum bir subagent
+## ADR-005 — Legacy veri kaynağı değildir
 
-**Karar:** Koordinatörden ayrı en az bir child. Sabit maksimum yok.  
-**Neden:** İş bölümü ve doğrulanabilir child sonucu sağlarken küçük işi gereksiz çoğaltmaz.
+**Karar:** Eski server veritabanına bağlantı, migration, dump, export/import, ETL,
+karşılaştırma veya yeni state üretmek için okuma yasaktır. Core Docker gerektirmez.
 
-## ADR-006 — Tek builder
+## ADR-006 — Agent harness core özelliğidir
 
-**Karar:** Aynı yazılabilir logical resource'a bir builder.  
-**Neden:** Çakışma, duplicate effect ve merge belirsizliğini önler.
+**Karar:** DAG, lease, fence, lock, claim, receipt, checkpoint, recovery ve bağımsız
+verifier sözleşmeleri provider veya istemciye bırakılmaz.
 
-## ADR-007 — Provider-neutral model gateway
+## ADR-007 — Agentic işte gerçek subagent
 
-**Karar:** Model ID, client, provider route, quota pool ve secret reference ayrıdır.  
-**Neden:** Alias/model/protokol aynı olmayabilir ve zamanla değişir.
+**Karar:** Koordinatörden ayrı en az bir child gerekir; aynı yazılabilir logical
+resource'a yalnız bir builder atanır.
 
-## ADR-008 — BGE-M3 1024 ilk embedding profili
+## ADR-008 — Provider-neutral model gateway
 
-**Karar:** Mevcut kurum içi BGE-M3 dense 1024 korunur; profile version/digest zorunludur.  
-**Neden:** İlk güvenilir baseline ve mevcut altyapı. Sparse/ColBERT ayrıca doğrulanır.
+**Karar:** Exact model ID, provider, client, device, revision, quota observation ve
+secret reference ayrı tutulur. Bilinmeyen bilgi tahmin edilmez.
 
-## ADR-009 — MemoryEngine portu
+## ADR-009 — Gerçek embedding profili
 
-**Karar:** Native PostgreSQL engine zorunlu, Mem0 OSS opsiyonel adapter.  
-**Neden:** Memory vendor lock-in ve ikinci authority oluşturmaz.
+**Karar:** Mac'te sürümlü BAAI/bge-m3 1024 profilinin gerçek çıktısı kullanılır.
+Feature hash semantic embedding sayılmaz; gerçek provider yoksa durum açıkça
+`lexical-only-degraded` olur. Windows/OpenCode provider yolu mimaride korunur.
 
-## ADR-010 — Exact authorization ve one-shot effect
+## ADR-010 — Yerel learning ve memory
 
-**Karar:** Read-only otomatik olabilir; yan etki exact plan, scope ve expiry ile yetkilendirilir.  
-**Neden:** Her child step'te gereksiz onay olmadan güvenlik.
+**Karar:** Memory, failure, lesson ve skill lifecycle yerel SQLite learning store'da
+candidate→review→active zinciriyle tutulur. Raw model/transcript çıktısı doğrudan
+authority olamaz; Mem0 zorunlu değildir.
 
-## ADR-011 — External source no-write
+## ADR-011 — Exact authorization ve one-shot effect
 
-**Karar:** Mutation registry'de bagli gercek source rootunda ve tek-writer kilidiyla yapilir;
-kopya, mirror veya detached worktree uretilmez.
-**Neden:** Projeleri korur ve rollback/verification sağlar.
+**Karar:** Read-only işlem otomatik olabilir. Yan etki exact plan/scope/expiry,
+claim-before-effect ve terminal receipt ister; receipt'siz claim sessiz retry edilmez.
 
-## ADR-012 — Commit Türkçe anlamlı ASCII
+## ADR-012 — External source koruması
 
-**Karar:** Başlık ve gövde Türkçe anlam taşır, yalnız ASCII kullanır.  
-**Neden:** Kurumsal okunabilirlik ve platform uyumu.
+**Karar:** Proje kaynağı logical binding ile yerinde okunur. Mutation yalnız açık yetki
+ve tek-writer kilidiyle exact source rootunda yapılır; kopya, mirror veya detached
+worktree üretilmez. Akıllı Kasa RAG fixture'ı salt okunurdur.
 
-## ADR-013 — Zekam tekil kanonik kimliktir
+## ADR-013 — Tekil kimlik ve release sınırı
 
-**Karar:** Package, CLI, environment, home, schema ve DB yüzeyinde yalnız Zekam kullanılır.
-**Neden:** Birden fazla ürün namespace'i ve sessiz fallback oluşmasını önler.
+**Karar:** Package, CLI, environment ve home yüzeyinde yalnız Zekam kimliği kullanılır.
+Commit mesajı Türkçe anlamlı ve ASCII-only'dir; push ayrı açık kullanıcı onayı ister.

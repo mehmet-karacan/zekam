@@ -1,7 +1,8 @@
 # Zekam Agent Talimatı
 
 1. İlk olarak `00_BASLA.md` dosyasını uygula.
-2. Kanonik nihai görev `NIHAI_UYGULAMA_PROMPTU.md` dosyasıdır.
+2. Yaşayan ve bağlayıcı görev authority'si `AKTIF_GOREV.md` dosyasıdır;
+   `AKTIF_GOREV.yaml` yalnız bunun salt-okunur üretilmiş projeksiyonudur.
 3. Devam ve recovery kuralları `DEVAM_PROTOKOLU.md` içindedir.
 4. Agentic işte en az bir gerçek subagent kullan; koordinatör sayılmaz.
 5. Kod mutation'ini bagli exact gercek project source rootunda yap; kopya, mirror, audit-work
@@ -23,6 +24,7 @@
     resolved `issue_key` ile OpenCode `jira` MCP aracını çağır. GPU sayısal taskları
     `SKYRSM-<sayı>`, SKY sayısal taskları `TLCSKY-<sayı>` olarak çözülür. Belirsizlikte key
     uydurma.
-17. Git pull/merge sonrasında doctor pending migration veya eksik routine bildirirse ve
-    kullanıcı local DB hazırlamayı yetkilendirdiyse `zekam doctor --hazirla --json` çalıştır.
-    Bu komut kayıtlı migration'ları bounded uygular; düz doctor salt okunur kalır.
+17. Git pull/merge sonrasında doctor yerel schema veya extension hazırlığı bildirirse ve
+    kullanıcı hazırlamayı yetkilendirdiyse `zekam doctor --hazirla --json` çalıştır.
+    Bu komut yalnız digest-bound yerel hazırlık planını bounded uygular; düz doctor salt
+    okunur kalır ve legacy PostgreSQL'e bağlanmaz.

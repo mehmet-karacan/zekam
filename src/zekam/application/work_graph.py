@@ -16,9 +16,10 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.realm import Realm
 from zekam.domain.work import (
@@ -35,15 +36,6 @@ from zekam.domain.work import (
     WorkRelation,
     WorkState,
     WorkType,
-)
-from zekam.infrastructure.postgres.core_repository import EventStore, RevisionStore
-from zekam.infrastructure.postgres.work_repository import (
-    DecisionRepository,
-    IntentRepository,
-    TaskPlanRepository,
-    WorkItemRepository,
-    WorkQueryRepository,
-    WorkRelationRepository,
 )
 
 
@@ -92,36 +84,36 @@ class WorkGraphService:
     # -- depolar ----------------------------------------------------------------
 
     @property
-    def items(self) -> WorkItemRepository:
-        return WorkItemRepository(self.connection, self.realm.id)
+    def items(self) -> Any:
+        return legacy_repository("work_item", self.connection, self.realm.id)
 
     @property
-    def relations(self) -> WorkRelationRepository:
-        return WorkRelationRepository(self.connection, self.realm.id)
+    def relations(self) -> Any:
+        return legacy_repository("work_relation", self.connection, self.realm.id)
 
     @property
-    def intents(self) -> IntentRepository:
-        return IntentRepository(self.connection, self.realm.id)
+    def intents(self) -> Any:
+        return legacy_repository("intent", self.connection, self.realm.id)
 
     @property
-    def decisions(self) -> DecisionRepository:
-        return DecisionRepository(self.connection, self.realm.id)
+    def decisions(self) -> Any:
+        return legacy_repository("decision", self.connection, self.realm.id)
 
     @property
-    def plans(self) -> TaskPlanRepository:
-        return TaskPlanRepository(self.connection, self.realm.id)
+    def plans(self) -> Any:
+        return legacy_repository("task_plan", self.connection, self.realm.id)
 
     @property
-    def queries(self) -> WorkQueryRepository:
-        return WorkQueryRepository(self.connection, self.realm.id)
+    def queries(self) -> Any:
+        return legacy_repository("work_query", self.connection, self.realm.id)
 
     @property
-    def revisions(self) -> RevisionStore:
-        return RevisionStore(self.connection, self.realm.id)
+    def revisions(self) -> Any:
+        return legacy_repository("revision", self.connection, self.realm.id)
 
     @property
-    def events(self) -> EventStore:
-        return EventStore(self.connection, self.realm.id)
+    def events(self) -> Any:
+        return legacy_repository("event", self.connection, self.realm.id)
 
     # -- Work Item ---------------------------------------------------------------
 
@@ -164,11 +156,11 @@ class WorkGraphService:
     ) -> WorkItem:
         """Durumu degistirir. Izinsiz gecis ve kanitsiz `completed` reddedilir."""
         moment = now or dt.datetime.now(dt.UTC)
-        current = self.items.get(work_item_id)
         if target is WorkState.COMPLETED:
             raise PolicyViolation(
                 "Direct completed gecisi kapali; ProjectionAwareClosureService gerekir"
             )
+        current = cast(WorkItem, self.items.get(work_item_id))
         if target is WorkState.ACTIVE:
             self._assert_actionable(current)
         updated = current.with_state(target, evidence=evidence, now=moment)
@@ -193,7 +185,7 @@ class WorkGraphService:
     ) -> WorkItem:
         """Baslik, ozet veya kabul kriterlerini gunceller."""
         moment = now or dt.datetime.now(dt.UTC)
-        current = self.items.get(work_item_id)
+        current = cast(WorkItem, self.items.get(work_item_id))
         updated = current.with_details(
             title=title, summary=summary, acceptance_criteria=acceptance_criteria, now=moment
         )
@@ -243,10 +235,10 @@ class WorkGraphService:
         source = self.items.get(source_id)
         target = self.items.get(target_id)
         relation = WorkRelation.create(source=source, target=target, kind=kind, now=now)
-        return self.relations.add(relation)
+        return cast(WorkRelation, self.relations.add(relation))
 
     def unrelate(self, relation_id: UUID) -> bool:
-        return self.relations.remove(relation_id)
+        return cast(bool, self.relations.remove(relation_id))
 
     # -- Intent / Decision / Plan --------------------------------------------------
 
@@ -360,7 +352,7 @@ class WorkGraphService:
         self, work_item_id: UUID, *, source_revision: str, policy_digest: str
     ) -> TaskPlan:
         """Planin uretildigi kosullardan sapmadigini dogrular."""
-        plan = self.plans.current(work_item_id)
+        plan = cast(TaskPlan | None, self.plans.current(work_item_id))
         if plan is None:
             raise NotFound("Is kaydinin plani yok")
         if plan.has_drifted_from(source_revision=source_revision, policy_digest=policy_digest):
@@ -400,22 +392,28 @@ class WorkGraphService:
 
     def verify_history(self, work_item_id: UUID) -> bool:
         """Tarihce zincirinin kopuk olmadigini bagimsiz dogrular."""
-        return self.revisions.verify_chain(entity_type=WORK_ENTITY_TYPE, entity_id=work_item_id)
+        return cast(
+            bool,
+            self.revisions.verify_chain(entity_type=WORK_ENTITY_TYPE, entity_id=work_item_id),
+        )
 
     def find_exact(self, *, project_id: UUID, external_number: str) -> WorkItem:
         """Talep/defect numarasini exact arar; benzerlik kullanmaz."""
         if not external_number.strip():
             raise ValidationFailed("Numara bos olamaz")
-        found = self.items.find_by_external_number(project_id, external_number.strip())
+        found = cast(
+            WorkItem | None,
+            self.items.find_by_external_number(project_id, external_number.strip()),
+        )
         if found is None:
             raise NotFound(f"{external_number} numarali kayit bulunamadi")
         return found
 
     def today(self, *, limit: int = 50) -> tuple[WorkItem, ...]:
-        return self.queries.today(limit=limit)
+        return cast(tuple[WorkItem, ...], self.queries.today(limit=limit))
 
     def next_actionable(self, project_id: UUID | None = None) -> WorkItem | None:
-        return self.queries.next_actionable(project_id)
+        return cast(WorkItem | None, self.queries.next_actionable(project_id))
 
     def where_did_we_stop(self, *, limit: int = 10) -> dict[str, Any]:
         """ "Nerede kaldik?" sorusunu kanonik kayitlardan yanitlar."""

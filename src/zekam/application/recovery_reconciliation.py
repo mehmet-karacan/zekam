@@ -10,11 +10,12 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import EffectRequest, GovernanceService
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.context_continuity import Checkpoint, EvidenceReference
 from zekam.domain.errors import AuthorizationRequired, NotFound, PolicyViolation, ValidationFailed
@@ -22,6 +23,7 @@ from zekam.domain.realm import Realm
 from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import (
     AttemptOutcome,
+    ClaimedWork,
     EffectClaim,
     FailureCategory,
     Job,
@@ -30,17 +32,10 @@ from zekam.domain.runtime import (
     ReceiptStatus,
     ReconciledCompletionRequest,
     ReconciledFailureRequest,
+    RecoveryFinalization,
 )
 from zekam.domain.security import Authorization
 from zekam.domain.work import EffectKind, TaskPlan
-from zekam.infrastructure.postgres.client_lifecycle_repository import (
-    ClientLifecycleRepository,
-)
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork, RecoveryFinalization
-from zekam.infrastructure.postgres.work_repository import TaskPlanRepository, WorkItemRepository
 
 RECOVERY_SCHEMA = "zekam-recovery-reconciliation/v1"
 RECOVERY_OPERATION = "reconcile-recovery"
@@ -536,11 +531,16 @@ class RecoveryReconciliationService:
         return GovernanceService(self.connection, self.realm)
 
     def validate(self, plan: RecoveryReconciliationPlan) -> TaskPlan:
-        item = WorkItemRepository(self.connection, self.realm.id).get(plan.work_item_id)
+        item = legacy_repository("work_item", self.connection, self.realm.id).get(plan.work_item_id)
         if item.project_id != plan.project_id:
             raise PolicyViolation("Recovery work/project kimligi eslesmiyor")
-        candidates = TaskPlanRepository(self.connection, self.realm.id).history(plan.work_item_id)
-        task_plan = next((item for item in candidates if item.id == plan.task_plan_id), None)
+        candidates = legacy_repository("task_plan", self.connection, self.realm.id).history(
+            plan.work_item_id
+        )
+        task_plan = cast(
+            TaskPlan | None,
+            next((item for item in candidates if item.id == plan.task_plan_id), None),
+        )
         if task_plan is None:
             raise NotFound("Recovery task plan bulunamadi")
         if (
@@ -681,7 +681,8 @@ class RecoveryReconciliationService:
             )
             if before_old_finalization is not None:
                 before_old_finalization(work, recovery_claim, moment)
-            checkpoint_record_id = ContextContinuityRepository(
+            checkpoint_record_id = legacy_repository(
+                "context_continuity",
                 self.connection,
                 self.realm.id,
                 plan.project_id,
@@ -732,7 +733,9 @@ class RecoveryReconciliationService:
                 )
                 old_job = host.jobs.get(plan.old_completion.job_id)
                 if old_job.run_id is not None:
-                    lifecycle_repository = ClientLifecycleRepository(self.connection, self.realm.id)
+                    lifecycle_repository = legacy_repository(
+                        "client_lifecycle", self.connection, self.realm.id
+                    )
                     recovered_execution = lifecycle_repository.reconciled_execution(
                         job_id=plan.old_completion.job_id,
                         attempt_id=plan.old_completion.attempt_id,

@@ -34,7 +34,7 @@ def create_health_app() -> Any:
     async def readyz() -> JSONResponse:
         try:
             context = build_context()
-            report = build_doctor(context).run(categories=("core", "postgres", "runtime"))
+            report = build_doctor(context).run(categories=("core", "sqlite", "runtime"))
             ready = report.overall.value == "healthy"
             checks = [
                 {"check_id": item.check_id, "status": item.status.value} for item in report.results

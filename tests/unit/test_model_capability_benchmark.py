@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -290,8 +291,14 @@ def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
                 for slot in prepared.slots
                 if slot.model_id == model_id and slot.task_digest == task.task_digest
             ]
-            assert sum(int(payload["max_tokens"]) for payload in payloads) == task.max_output_tokens
-            assert all("max_completion_tokens" not in payload for payload in payloads)
+            total_tokens = 0
+            for payload in payloads:
+                assert isinstance(payload, Mapping)
+                max_tokens = payload["max_tokens"]
+                assert isinstance(max_tokens, int) and not isinstance(max_tokens, bool)
+                total_tokens += max_tokens
+                assert "max_completion_tokens" not in payload
+            assert total_tokens == task.max_output_tokens
 
     model_id = eligible[0]
     task = prepared_plan.registry.tasks[0]
@@ -465,7 +472,7 @@ def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
         nonlocal marker_state
         del concrete
         assert prior_state == marker_state
-        next_state = {
+        next_state: dict[str, object] = {
             "facts": [" ".join(task.expected_markers)],
             "open_questions": [],
             "risks": [],

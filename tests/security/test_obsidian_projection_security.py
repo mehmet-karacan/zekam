@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 from dataclasses import replace
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -18,6 +19,7 @@ from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.markdown_projection import (
     ObsidianNoteKind,
     ObsidianProfile,
+    ObsidianProjectionBundle,
     ObsidianProjectionFile,
     ObsidianProjectionRecord,
     ProjectionRecord,
@@ -39,7 +41,7 @@ def _bundle(
     project_id: UUID = PROJECT_ID,
     realm_slug: str = "yerel",
     profile: ObsidianProfile = ObsidianProfile.PUBLIC_SAFE,
-):  # type: ignore[no-untyped-def]
+) -> ObsidianProjectionBundle:
     record = ProjectionRecord(
         "work",
         "00000000-0000-0000-0000-000000000001",
@@ -79,8 +81,8 @@ def test_projection_rejects_nonportable_paths(path: str) -> None:
 
 
 def test_verifier_rejects_unmanifested_file_without_moving_current(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     store.publish(store.stage(bundle))
@@ -105,7 +107,7 @@ def test_verifier_rejects_unmanifested_file_without_moving_current(
         )
 
 
-def test_missing_status_check_is_read_only(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_missing_status_check_is_read_only(tmp_path: Path) -> None:
     root = tmp_path / "does-not-exist"
     store = LocalObsidianProjectionStore(root)
     bundle = _bundle()
@@ -122,8 +124,8 @@ def test_missing_status_check_is_read_only(tmp_path) -> None:  # type: ignore[no
 
 
 def test_current_pointer_rejects_cross_project_binding(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     store.publish(store.stage(bundle))
@@ -194,7 +196,7 @@ def test_write_boundary_repeats_privacy_scan_before_authority_consumption() -> N
         validate_obsidian_projection_bundle(changed)
 
 
-def test_publish_rejects_forged_generation_path(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_publish_rejects_forged_generation_path(tmp_path: Path) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     staged = store.stage(bundle)
@@ -204,8 +206,8 @@ def test_publish_rejects_forged_generation_path(tmp_path) -> None:  # type: igno
 
 
 def test_publish_revalidates_staged_tree_before_current_swap(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     staged = store.stage(bundle)
@@ -219,8 +221,8 @@ def test_publish_revalidates_staged_tree_before_current_swap(
 
 
 def test_live_manifest_binding_rejects_coordinated_projection_forge(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle()
     store.publish(store.stage(bundle))
@@ -271,10 +273,10 @@ def test_live_manifest_binding_rejects_coordinated_projection_forge(
     ),
 )
 def test_verifier_rejects_generation_copied_across_realm_or_profile(
-    tmp_path,
+    tmp_path: Path,
     realm_slug: str,
     profile: ObsidianProfile,
-) -> None:  # type: ignore[no-untyped-def]
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     source = _bundle()
     store.publish(store.stage(source))
@@ -294,7 +296,7 @@ def test_verifier_rejects_generation_copied_across_realm_or_profile(
         )
 
 
-def test_store_rejects_real_symlink_realm_escape(tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_store_rejects_real_symlink_realm_escape(tmp_path: Path) -> None:
     root = tmp_path / "obsidian"
     outside = tmp_path / "outside"
     root.mkdir()

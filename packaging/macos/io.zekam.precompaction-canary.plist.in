@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.zekam.precompaction-canary.@ZEKAM_CANARY_NONCE@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ZEKAM_PYTHON@</string>
+    <string>-I</string>
+    <string>-m</string>
+    <string>zekam.infrastructure.macos_precompaction_supervisor</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ZEKAM_PRECOMPACT_CANARY_NONCE</key>
+    <string>@ZEKAM_CANARY_NONCE@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_LABEL</key>
+    <string>io.zekam.precompaction-canary.@ZEKAM_CANARY_NONCE@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_SOCKET</key>
+    <string>@ZEKAM_PRECOMPACTION_SOCKET@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_STATUS</key>
+    <string>@ZEKAM_CANARY_STATUS@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_HOME</key>
+    <string>@ZEKAM_CANARY_HOME@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_DATABASE</key>
+    <string>@ZEKAM_CANARY_DATABASE@</string>
+    <key>ZEKAM_PRECOMPACT_CANARY_SESSION_PLAN</key>
+    <string>@ZEKAM_CANARY_SESSION_PLAN@</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@ZEKAM_CANARY_STDOUT@</string>
+  <key>StandardErrorPath</key>
+  <string>@ZEKAM_CANARY_STDERR@</string>
+  <key>Sockets</key>
+  <dict>
+    <key>PreCompactionListener</key>
+    <dict>
+      <key>SockPathName</key>
+      <string>@ZEKAM_PRECOMPACTION_SOCKET@</string>
+      <key>SockType</key>
+      <string>stream</string>
+      <key>SockPathMode</key>
+      <integer>384</integer>
+    </dict>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ExitTimeOut</key>
+  <integer>5</integer>
+  <key>ThrottleInterval</key>
+  <integer>1</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+</dict>
+</plist>

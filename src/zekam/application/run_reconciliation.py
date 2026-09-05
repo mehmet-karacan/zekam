@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.execution import ExecutionHost
@@ -16,10 +16,13 @@ from zekam.domain.resources import parse_requests
 from zekam.domain.runtime import AttemptOutcome, Job, JobKind
 from zekam.domain.security import Authorization
 from zekam.domain.work import EffectKind
-from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
 
 RUN_RECONCILIATION_OPERATION = "reconcile-terminal-execution-run"
 RUN_RECONCILIATION_CONSUMER = "cli:worker-reconcile-terminal-run"
+
+
+class ExecutionRunStore(Protocol):
+    def finish_run(self, run_id: UUID, *, state: str, terminal_at: dt.datetime) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,7 @@ class TerminalRunReconciliationPlan:
 class TerminalRunReconciliationService:
     connection: Any
     realm: Realm
+    execution_runs: ExecutionRunStore | None = None
 
     @property
     def governance(self) -> GovernanceService:
@@ -314,9 +318,9 @@ class TerminalRunReconciliationService:
                     )
                     if cursor.rowcount != 1:
                         raise PolicyViolation("Run reconciliation stale close job drift")
-            ExecutionRunRepository(self.connection, self.realm.id).finish_run(
-                plan.run_id, state="failed", terminal_at=moment
-            )
+            if self.execution_runs is None:
+                raise PolicyViolation("Run reconciliation execution-run store ister")
+            self.execution_runs.finish_run(plan.run_id, state="failed", terminal_at=moment)
             result_digest = digest(
                 {
                     "run_id": str(plan.run_id),

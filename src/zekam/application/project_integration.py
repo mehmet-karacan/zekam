@@ -22,10 +22,11 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from zekam.application.capability_profile import CapabilityProfile, build_profile
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.source_discovery import DiscoveryPolicy, DiscoveryReport, discover
 from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import NotFound, PolicyViolation
@@ -42,12 +43,6 @@ from zekam.domain.project import (
 )
 from zekam.domain.realm import Realm
 from zekam.infrastructure.git import source_reader
-from zekam.infrastructure.postgres.project_repository import (
-    CapabilityProfileRepository,
-    IntegrationStateRepository,
-    ProjectRepository,
-    SourceBindingRepository,
-)
 
 
 def locator_digest_for(path: Path) -> str:
@@ -137,20 +132,20 @@ class ProjectIntegrationService:
     realm: Realm
 
     @property
-    def projects(self) -> ProjectRepository:
-        return ProjectRepository(self.connection, self.realm.id)
+    def projects(self) -> Any:
+        return legacy_repository("project", self.connection, self.realm.id)
 
     @property
-    def bindings(self) -> SourceBindingRepository:
-        return SourceBindingRepository(self.connection, self.realm.id)
+    def bindings(self) -> Any:
+        return legacy_repository("source_binding", self.connection, self.realm.id)
 
     @property
-    def profiles(self) -> CapabilityProfileRepository:
-        return CapabilityProfileRepository(self.connection, self.realm.id)
+    def profiles(self) -> Any:
+        return legacy_repository("project_capability_profile", self.connection, self.realm.id)
 
     @property
-    def states(self) -> IntegrationStateRepository:
-        return IntegrationStateRepository(self.connection, self.realm.id)
+    def states(self) -> Any:
+        return legacy_repository("integration_state", self.connection, self.realm.id)
 
     # -- kayit ------------------------------------------------------------------
 
@@ -223,7 +218,7 @@ class ProjectIntegrationService:
             binding.id, absolute_path=resolved, locator_digest=locator_digest_for(resolved)
         )
         self.states.set(project_id, stage=IntegrationStage.BOUND)
-        return self.bindings.get(binding.id)
+        return cast(SourceBinding, self.bindings.get(binding.id))
 
     # -- tarama -----------------------------------------------------------------
 

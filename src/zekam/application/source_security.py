@@ -159,6 +159,8 @@ def _worktree_paths(root: Path) -> tuple[str, ...]:
             continue
         value = raw.decode("utf-8", errors="strict")
         _portable_path(value)
+        if value == "legacy-preserved" or value.startswith("legacy-preserved/"):
+            continue
         paths.append(value)
     return tuple(sorted(set(paths)))
 

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from zekam.application.config import DatabaseSettings
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
 from zekam.application.memory_observability import MemoryDimensionStatus
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.infrastructure.postgres.connection import PSYCOPG_AVAILABLE, connect
-from zekam.infrastructure.postgres.core_repository import RealmRepository
-from zekam.infrastructure.postgres.memory_observability_repository import (
-    PostgresMemoryHealthReader,
-)
+
+PSYCOPG_AVAILABLE = False
+PostgresMemoryHealthReader: Any = None
+RealmRepository: Any = None
+connect: Any = None
 
 
 @dataclass(frozen=True, slots=True)

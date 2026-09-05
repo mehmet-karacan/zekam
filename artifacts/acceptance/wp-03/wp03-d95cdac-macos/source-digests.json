@@ -1,0 +1,9 @@
+{
+  "schema": "zekam-evidence-source-digests/v1",
+  "active_task_sha256": "eab0182081050e212def4ac2639d9c13db8b0e76bcb01b0fa0fae810aea3bd5f",
+  "package_release_manifest_sha256": "b91349d12b1e5c3a2cb8f68361df895395d3fcf81b73f78e32a0a34324e2ebd8",
+  "package_source_digest": "sha256:de5545ca0a5324bda16468b42b3c5494ced55b0af6f3d8cd1f966dadd8005208",
+  "focused_result_sha256": "423749313fedc6b6d56e314d676b041a3861cfad0511614923f32b279d74b734",
+  "current_full_suite_junit_sha256": "d0c3305ea3de090d831443a50d0ab0cfbea1c99ec135201e1b500c6e6cb801fe",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031"
+}

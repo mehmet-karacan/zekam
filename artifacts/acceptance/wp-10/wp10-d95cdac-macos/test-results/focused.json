@@ -1,0 +1,9 @@
+{
+  "failed": 0,
+  "passed": 0,
+  "schema": "zekam-focused-test-result/v1",
+  "source_evidence": "/Users/mkaracan/zekam-wp08-v3-evidence.16wYdB/wp10-mac-local-registry-builder-envelope.json",
+  "source_evidence_sha256": "8cf54ca7248b0364d97e7dfd5f44906ac37f33e4a25852a7a417e55696ca5cf4",
+  "verdict": "PASS_WP10_MAC",
+  "work_package": "WP-10"
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "zekam-wp-recovery-results/v1",
+  "external_effect_claims": 0,
+  "terminal_receipts_required": 0,
+  "claims_without_receipt": 0,
+  "recovery_required": 0,
+  "legacy_database_reconciliation_required": false,
+  "rollback": "Revert only WP-00 paths; preserve every path listed as pre_existing_user_changes."
+}

@@ -3,34 +3,102 @@
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.memory_service import PromotionGate
 from zekam.domain.canonical import digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation
 from zekam.domain.memory_promotion import (
+    LockedMemoryPromotion,
     MemoryPromotionPlan,
     MemoryPromotionReceipt,
     MemoryReviewDecision,
     candidate_snapshot_digest,
 )
-from zekam.infrastructure.postgres.memory_promotion_repository import (
-    MemoryPromotionRepository,
-)
-from zekam.infrastructure.postgres.security_repository import (
-    AuditRepository,
-    AuthorizationRepository,
-)
+from zekam.domain.security import Authorization
+
+
+class AuthorizationConsumeResult(Protocol):
+    consumed: bool
+    reason: str
+
+
+class MemoryPromotionStore(Protocol):
+    realm_id: UUID
+
+    def unit_of_work(self) -> AbstractContextManager[None]: ...
+
+    def snapshot(
+        self,
+        *,
+        candidate_id: str,
+        logical_memory_id: str,
+        expected_predecessor_storage_id: UUID | None,
+        lock: bool = False,
+    ) -> LockedMemoryPromotion: ...
+
+    def persist(
+        self,
+        locked: LockedMemoryPromotion,
+        plan: MemoryPromotionPlan,
+        *,
+        authorization_id: UUID,
+        now: dt.datetime,
+    ) -> MemoryPromotionReceipt: ...
+
+    def store_receipt(
+        self,
+        receipt: MemoryPromotionReceipt,
+        *,
+        candidate_id: UUID,
+        predecessor_id: UUID | None,
+        effect_digest: str,
+    ) -> None: ...
+
+    def assert_constraints(self) -> None: ...
+
+
+class MemoryPromotionAuthorizationStore(Protocol):
+    def get(self, authorization_id: UUID) -> Authorization: ...
+
+    def consume(
+        self,
+        authorization_id: UUID,
+        *,
+        effect_digest: str,
+        consumed_by: str,
+        now: dt.datetime | None = None,
+    ) -> AuthorizationConsumeResult: ...
+
+
+class MemoryPromotionAuditStore(Protocol):
+    def record(
+        self,
+        *,
+        action: str,
+        subject_type: str,
+        subject_id: str,
+        decision: str,
+        reason: str,
+        evidence: dict[str, Any] | None = None,
+        actor_id: UUID | None = None,
+        authorization_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        now: dt.datetime | None = None,
+    ) -> UUID: ...
+
 
 MEMORY_PROMOTION_CONSUMER = "memory-promotion/v2"
 
 
 @dataclass(frozen=True, slots=True)
 class MemoryPromotionService:
-    repository: MemoryPromotionRepository
-    authorizations: AuthorizationRepository
-    audit: AuditRepository
+    repository: MemoryPromotionStore
+    authorizations: MemoryPromotionAuthorizationStore
+    audit: MemoryPromotionAuditStore
     gate: PromotionGate = field(default_factory=PromotionGate)
 
     def prepare(
@@ -84,7 +152,7 @@ class MemoryPromotionService:
         now: dt.datetime | None = None,
     ) -> MemoryPromotionReceipt:
         moment = now or dt.datetime.now(dt.UTC)
-        with self.repository.connection.transaction():
+        with self.repository.unit_of_work():
             fresh = self.prepare(
                 candidate_id=plan.candidate_id,
                 logical_memory_id=plan.logical_memory_id,
@@ -148,6 +216,5 @@ class MemoryPromotionService:
                 predecessor_id=plan.predecessor_storage_id,
                 effect_digest=plan.effect_digest,
             )
-            with self.repository.connection.cursor() as cursor:
-                cursor.execute("set constraints all immediate")
+            self.repository.assert_constraints()
             return receipt

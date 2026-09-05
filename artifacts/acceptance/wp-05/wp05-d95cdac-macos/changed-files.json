@@ -1,0 +1,21 @@
+{
+  "authority": [
+    "AKTIF_GOREV.md",
+    "AKTIF_GOREV.yaml"
+  ],
+  "production": [
+    "src/zekam/application/home.py",
+    "src/zekam/application/knowledge_file_plane.py",
+    "src/zekam/application/knowledge_plane_service.py",
+    "src/zekam/application/operational_store.py",
+    "src/zekam/infrastructure/knowledge_files.py",
+    "src/zekam/infrastructure/sqlite/operational_schema.py",
+    "src/zekam/infrastructure/sqlite/operational_store.py"
+  ],
+  "tests": [
+    "tests/unit/test_home_layout.py",
+    "tests/unit/test_knowledge_file_plane.py",
+    "tests/unit/test_knowledge_plane_service.py",
+    "tests/security/test_knowledge_file_plane_security.py"
+  ]
+}

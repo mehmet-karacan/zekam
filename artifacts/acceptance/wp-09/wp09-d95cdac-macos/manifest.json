@@ -1,0 +1,56 @@
+{
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "builder_identity": "root",
+  "bundle_id": "wp09-d95cdac-macos",
+  "files": [
+    {
+      "path": "changed-files.json",
+      "sha256": "cc7d1cb9c97e2d611db8d56bdc2adc10dfb222a54f5581903cb6cb8338a75722"
+    },
+    {
+      "path": "commands.jsonl",
+      "sha256": "c83612b2823dcbebfcf4194fb8fb8412f4c7bbc27c606222604cc4c5943dede4"
+    },
+    {
+      "path": "environment.json",
+      "sha256": "2bdd887b27e21ec5c22488d9144a21dea0dea4ab48686118f383aacab59a8610"
+    },
+    {
+      "path": "metrics/wp09.json",
+      "sha256": "9feaa60adf0c7b02f198c847b4bc5278e93a4a6382fca63cecb16d8359683cc8"
+    },
+    {
+      "path": "recovery-results.json",
+      "sha256": "71a758d16b4f658d3db77c370c5ebaab46f8979188f63ad57c029f1404e7d544"
+    },
+    {
+      "path": "security-scan.json",
+      "sha256": "206e3f524eb43342af79cbd01b62ef5bf79cd2d72e17f774dd1eb5b5a172ef6c"
+    },
+    {
+      "path": "source-digests.json",
+      "sha256": "4a9b0c3918659ca628b10b2359d8015e6b022fa9deed21591d852b6b67b501c1"
+    },
+    {
+      "path": "summary.md",
+      "sha256": "129572601780c757a0d5531838ee01af1406fc184a209c5ea6fc77af1f32816c"
+    },
+    {
+      "path": "test-results/focused.json",
+      "sha256": "fd90bfcfaa9c49631524a2fb8b623e7ed315b04b4173c2bf374a7a03221ac5f5"
+    },
+    {
+      "path": "test-results/full-suite.json",
+      "sha256": "9ed6c8ca1bbf10aa2200e88448d9228df78bfeb04fde86414dcca3d73c98f9bb"
+    },
+    {
+      "path": "verifier-report.json",
+      "sha256": "a1cf87826f6134cc88065c0f5446e37956763a5b5bf90e3155ee99bf0d1a2a39"
+    }
+  ],
+  "push_performed": false,
+  "schema": "zekam-evidence-manifest/v1",
+  "status": "macos-accepted/windows-deferred",
+  "verifier_identity": "independent-subagent-evidence",
+  "work_package": "WP-09"
+}

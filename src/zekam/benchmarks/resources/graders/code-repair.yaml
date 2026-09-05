@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: code-repair-grader
+version: 1
+family: code-repair
+evaluation_class: technical
+dimensions:
+- correctness
+- recovery
+- safety
+hidden_key_model_visible: false

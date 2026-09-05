@@ -1,0 +1,21 @@
+{
+  "schema": "zekam-evidence-verifier/v1",
+  "work_package": "WP-04",
+  "verdict": "PASS_CURRENT_MAC_SOURCE",
+  "verifier_identity": "/root/wp15_legacy_reachability_builder",
+  "source": "/Users/mkaracan/zekam-wp03-wp04-verifier.Nt88VV/verifier-report.json",
+  "source_sha256": "e417893ba301555aea36523e2b346004bd223690c021588c98c514a07fa13b67",
+  "tests": 448,
+  "passed": 448,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "local_runtime_branch_coverage_percent": 90.38461538461539,
+  "process_kill_duplicate_effect_count": 0,
+  "p0": 0,
+  "p1": 0,
+  "p2": 2,
+  "provider_calls": 0,
+  "legacy_postgresql_access": false,
+  "global_complete": false
+}

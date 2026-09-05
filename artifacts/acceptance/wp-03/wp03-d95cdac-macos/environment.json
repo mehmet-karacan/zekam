@@ -1,0 +1,10 @@
+{
+  "architecture": "arm64",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "branch": "main",
+  "cpython": "3.12.14",
+  "platform_status": "macos-accepted/windows-deferred",
+  "schema": "zekam-acceptance-environment/v1",
+  "task_authority_digest": "sha256:6920ad3f8ed7ce3d4a9f86268edb4654e316470c50cbd18b7111d628b4f409bb",
+  "upstream": "origin/main"
+}

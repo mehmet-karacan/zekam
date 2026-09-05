@@ -1,0 +1,23 @@
+{
+  "cases": {
+    "acquire_registration_window": "passed-exactly-one-owner",
+    "authority_drift": "rejected-preserved-user-content",
+    "duplicate_json_receipt": "rejected-fail-closed",
+    "duplicate_yaml_legacy_backend": "rejected-fail-closed",
+    "fault_points": "no-partial-publish",
+    "fsync_failure_release_window": "passed-exactly-one-owner",
+    "normal_release_window": "passed-exactly-one-owner",
+    "process_kill": "lock-and-stage-quarantined-restart-completed",
+    "same_pid_orphan": "recovered",
+    "semantic_forged_receipt": "rejected-fail-closed",
+    "stale_stage": "quarantined-without-deletion",
+    "symlink_parent_core_escape": "rejected-no-publish"
+  },
+  "durability_order": [
+    "fsync-staged-files-and-directories",
+    "atomic-sibling-rename",
+    "fsync-parent-directory"
+  ],
+  "schema": "zekam-wp02-recovery-evidence/v1",
+  "status": "passed"
+}

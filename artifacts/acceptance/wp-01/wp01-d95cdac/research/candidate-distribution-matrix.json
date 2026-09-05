@@ -1,0 +1,86 @@
+{
+  "as_of": "2026-09-02",
+  "candidates": [
+    {
+      "current_release": "0.7.2",
+      "kind": "operational",
+      "macos_arm64_wheel_published": true,
+      "name": "pyturso",
+      "notes": [
+        "Project metadata claims Linux/macOS/Windows support.",
+        "The 0.7.2 PyPI distribution list has Linux and macOS wheels plus an sdist, but no Windows wheel.",
+        "Project metadata classifies the release line as alpha and states that it has not reached 1.0."
+      ],
+      "python_312_compatible_metadata": true,
+      "source_distribution_published": true,
+      "windows_x64_wheel_published": false
+    },
+    {
+      "current_release": "0.37.1",
+      "kind": "knowledge",
+      "macos_arm64_wheel_published": true,
+      "name": "lancedb",
+      "notes": [
+        "CPython 3.10 ABI3 wheels are published for macOS ARM64 and Windows x64.",
+        "The release has no source distribution and the Windows wheel is approximately 71 MB."
+      ],
+      "python_312_compatible_metadata": true,
+      "source_distribution_published": false,
+      "windows_x64_wheel_published": true
+    },
+    {
+      "current_release": "0.7.0",
+      "kind": "knowledge",
+      "macos_arm64_wheel_published": true,
+      "name": "zvec",
+      "notes": [
+        "CPython-version-specific wheels are published for Python 3.10 through 3.14 on macOS ARM64 and Windows x64.",
+        "The release has no source distribution; PyPI reports that Trusted Publishing was not used."
+      ],
+      "python_312_compatible_metadata": true,
+      "source_distribution_published": false,
+      "windows_x64_wheel_published": true
+    },
+    {
+      "current_release": "0.1.9",
+      "kind": "knowledge",
+      "macos_arm64_wheel_published": true,
+      "name": "sqlite-vec",
+      "notes": [
+        "Platform wheels are published for macOS ARM64 and Windows x64.",
+        "The release has no source distribution and the PyPI description remains a TODO, increasing maintenance-evidence risk."
+      ],
+      "python_312_compatible_metadata": true,
+      "source_distribution_published": false,
+      "windows_x64_wheel_published": true
+    },
+    {
+      "current_release": "1.5.5",
+      "kind": "analytics",
+      "macos_arm64_wheel_published": true,
+      "name": "duckdb",
+      "notes": [
+        "Wheels are published for macOS ARM64 and Windows x64.",
+        "Official concurrency documentation limits stable native-file writes to one process; Zekam must use one analytics writer."
+      ],
+      "python_312_compatible_metadata": true,
+      "source_distribution_published": true,
+      "windows_x64_wheel_published": true
+    }
+  ],
+  "evidence_class": "official-metadata-not-runtime-execution",
+  "schema": "zekam-wp01-candidate-distribution-matrix/v1",
+  "sources": [
+    "https://pypi.org/project/pyturso/0.7.2/",
+    "https://docs.turso.tech/sdk/python/quickstart",
+    "https://pypi.org/project/lancedb/0.37.1/",
+    "https://lancedb.github.io/lancedb/python/python/",
+    "https://pypi.org/project/zvec/0.7.0/",
+    "https://zvec.org/en/docs/db/quickstart/",
+    "https://pypi.org/project/sqlite-vec/0.1.9/",
+    "https://github.com/asg017/sqlite-vec/blob/main/README.md",
+    "https://pypi.org/project/duckdb/1.5.5/",
+    "https://duckdb.org/docs/stable/connect/concurrency.html",
+    "https://sqlite.org/wal.html"
+  ]
+}

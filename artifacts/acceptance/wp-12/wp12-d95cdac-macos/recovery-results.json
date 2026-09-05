@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "scenarios": [
+    "forged epoch",
+    "stale evidence",
+    "duplicate model ID",
+    "restart",
+    "replay"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

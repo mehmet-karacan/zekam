@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -85,10 +88,10 @@ def test_git_client_check_reports_availability() -> None:
 
 
 def test_windows_git_check_requires_schannel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(shutil, "which", lambda _name: "git.exe")
     monkeypatch.setattr(core_checks, "_git_version", lambda _executable: "git version test")
     monkeypatch.setattr(core_checks, "_git_config_value", lambda *_args: "openssl")
-    monkeypatch.setattr(core_checks.sys, "platform", "win32")
+    monkeypatch.setattr(sys, "platform", "win32")
 
     result = core_checks.GitClientCheck().run()
 
@@ -98,10 +101,10 @@ def test_windows_git_check_requires_schannel(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_windows_git_check_accepts_schannel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(shutil, "which", lambda _name: "git.exe")
     monkeypatch.setattr(core_checks, "_git_version", lambda _executable: "git version test")
     monkeypatch.setattr(core_checks, "_git_config_value", lambda *_args: "schannel")
-    monkeypatch.setattr(core_checks.sys, "platform", "win32")
+    monkeypatch.setattr(sys, "platform", "win32")
 
     result = core_checks.GitClientCheck().run()
 
@@ -116,7 +119,7 @@ def test_git_config_lookup_uses_read_only_argument_order(monkeypatch: pytest.Mon
         observed.extend(argv)
         return SimpleNamespace(returncode=0, stdout="schannel\n")
 
-    monkeypatch.setattr(core_checks.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     value = core_checks._git_config_value("git.exe", "--global", "http.sslBackend")
 
@@ -140,7 +143,7 @@ def test_git_repository_check_preserves_first_dirty_path_character(
         ("rev-parse", "@{upstream}"): "a" * 40,
         ("rev-list", "--left-right", "--count", "@{upstream}...HEAD"): "0 0",
     }
-    monkeypatch.setattr(core_checks.shutil, "which", lambda _name: "git.exe")
+    monkeypatch.setattr(shutil, "which", lambda _name: "git.exe")
     monkeypatch.setattr(
         core_checks,
         "_git_repository_value",

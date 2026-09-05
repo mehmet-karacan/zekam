@@ -1,0 +1,7 @@
+{
+  "archive_file_move_before_db_transition": "recovered-idempotently",
+  "cas_manifest_before_file_interruption": "recovered-idempotently",
+  "note_db_pending_before_file_interruption": "recovered-idempotently",
+  "restart_identity_duplicates": 0,
+  "status": "passed"
+}

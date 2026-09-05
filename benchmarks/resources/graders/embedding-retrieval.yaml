@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: embedding-retrieval-grader
+version: 1
+family: embedding-retrieval
+evaluation_class: technical
+dimensions:
+- correctness
+- reliability
+- latency
+hidden_key_model_visible: false

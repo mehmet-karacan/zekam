@@ -1,0 +1,1 @@
+Evaluate the structured-output fixture. Return only the required structured result.

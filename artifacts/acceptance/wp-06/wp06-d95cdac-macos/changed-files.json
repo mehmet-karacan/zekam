@@ -1,0 +1,25 @@
+{
+  "schema": "zekam-wp06-changed-files/v1",
+  "files": [
+    "src/zekam/application/embedding_provider.py",
+    "src/zekam/application/embedding_routing.py",
+    "src/zekam/application/local_embedding_composition.py",
+    "src/zekam/application/oracle_metadata_index.py",
+    "src/zekam/application/project_knowledge_index.py",
+    "src/zekam/application/project_rag_query.py",
+    "src/zekam/domain/retrieval.py",
+    "src/zekam/infrastructure/embedding/__init__.py",
+    "src/zekam/infrastructure/embedding/infinity_bge.py",
+    "src/zekam/interfaces/cli/ask.py",
+    "src/zekam/interfaces/cli/oracle.py",
+    "src/zekam/interfaces/cli/project.py",
+    "tests/integration/test_local_bge_akilli_kasa.py",
+    "tests/unit/test_local_bge_provider.py",
+    "tests/unit/test_project_embedding_apply_boundary.py",
+    "tests/unit/test_project_knowledge_index.py",
+    "tests/unit/test_project_rag_query.py"
+  ],
+  "user_changes_reset_or_cleaned": false,
+  "commit_created": false,
+  "push_performed": false
+}

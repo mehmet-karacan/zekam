@@ -9,7 +9,7 @@ from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.domain.memory import MemoryCandidate
+from zekam.domain.memory import MemoryCandidate, MemoryRecord
 
 
 def candidate_snapshot_digest(candidate: MemoryCandidate) -> str:
@@ -22,6 +22,16 @@ def candidate_snapshot_digest(candidate: MemoryCandidate) -> str:
             "observed_at": candidate.observed_at,
         }
     )
+
+
+@dataclass(frozen=True, slots=True)
+class LockedMemoryPromotion:
+    candidate: MemoryCandidate
+    candidate_storage_id: UUID
+    project_id: UUID | None
+    work_item_id: UUID | None
+    predecessor: MemoryRecord | None
+    predecessor_storage_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)

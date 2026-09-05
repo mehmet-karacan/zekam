@@ -3,20 +3,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import UUID
 
 from zekam.domain.model_benchmark import (
     DecisionRequirements,
+    ModelCandidate,
     ModelDecision,
+    QuotaObservation,
     RuntimeObservation,
     decide_model,
 )
-from zekam.infrastructure.postgres.model_benchmark_repository import BenchmarkRepository
+
+
+class BenchmarkDecisionStore(Protocol):
+    def load_decision_candidates(
+        self, requirements: DecisionRequirements
+    ) -> tuple[ModelCandidate, ...]: ...
+
+    def load_quota_observations(self) -> tuple[QuotaObservation, ...]: ...
+
+    def store_decision(self, decision: ModelDecision) -> UUID: ...
+
+    def record_runtime_observation(self, observation: RuntimeObservation) -> UUID: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ModelDecisionService:
-    repository: BenchmarkRepository
+    repository: BenchmarkDecisionStore
 
     def decide(
         self,

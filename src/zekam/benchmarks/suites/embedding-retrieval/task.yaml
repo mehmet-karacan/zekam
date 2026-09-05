@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: embedding-retrieval-smoke
+version: 1
+family: embedding-retrieval
+evaluation_class: technical
+workload: embedding-retrieval
+modality: text
+prompt_ref: resources/prompts/embedding-retrieval.txt
+fixture_refs:
+- resources/fixtures/embedding-retrieval.json
+hidden_key_ref: resources/hidden-keys/embedding-retrieval.json
+grader_ref: resources/graders/embedding-retrieval.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- reliability
+- latency
+pass_thresholds:
+  correctness: 0.8
+  reliability: 0.8
+  latency: 0.8
+resource_digests:
+  resources/fixtures/embedding-retrieval.json: sha256:044c4584f265e73a108fb8a8a901d47d9968bf4d745228edb9842c6b375fa7f0
+  resources/graders/embedding-retrieval.yaml: sha256:22ef5e11f1c7908267e2591794b51e2a65b8b17170254e8b1b24ced9fe191101
+  resources/hidden-keys/embedding-retrieval.json: sha256:aacce00676b964f74068d66558e927575b79d9f2770ecdf309594fede07c8d2f
+  resources/prompts/embedding-retrieval.txt: sha256:6eb2e4c71d6a40f24aa4e275527cd32015380e2e94f53f1e1d6ab719f7ed1f3e

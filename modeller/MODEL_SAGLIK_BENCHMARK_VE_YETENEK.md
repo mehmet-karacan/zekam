@@ -69,7 +69,7 @@ Minimum kategoriler:
 - long-context evidence recall
 - abstention/uncertainty
 - secret redaction
-- Oracle→PostgreSQL analysis
+- SQL/PLSQL source analysis
 - Spring/version-sensitive code
 - builder result quality
 - verifier defect detection

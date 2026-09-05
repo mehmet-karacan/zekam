@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
+from fastapi.routing import APIWebSocketRoute
 
 from zekam.application.app_server import InMemoryNotificationStore
 from zekam.domain.app_server_protocol import schema_bundle_digest
@@ -56,8 +57,9 @@ def test_websocket_transport_enforces_subprotocol_and_runs_handshake() -> None:
     app = FastAPI()
     store = InMemoryNotificationStore()
     install_app_server_routes(app, store_factory=lambda: nullcontext(store))
-    route = next(
-        route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"
+    route = cast(
+        APIWebSocketRoute,
+        next(route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"),
     )
 
     rejected = FakeWebSocket([], "future.protocol")
@@ -96,8 +98,9 @@ def test_websocket_transport_enforces_subprotocol_and_runs_handshake() -> None:
 def test_websocket_transport_returns_parse_error_and_keeps_connection_bounded() -> None:
     app = FastAPI()
     install_app_server_routes(app, store_factory=lambda: nullcontext(InMemoryNotificationStore()))
-    route = next(
-        route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"
+    route = cast(
+        APIWebSocketRoute,
+        next(route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"),
     )
     socket = FakeWebSocket(
         ['{"jsonrpc":"2.0",', '{"duplicate":1,"duplicate":2}', b"\xff"],
@@ -115,8 +118,9 @@ def test_websocket_transport_returns_parse_error_and_keeps_connection_bounded() 
 def test_websocket_transport_reports_typed_cursor_expired_without_generic_close() -> None:
     app = FastAPI()
     install_app_server_routes(app, store_factory=lambda: nullcontext(InMemoryNotificationStore()))
-    route = next(
-        route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"
+    route = cast(
+        APIWebSocketRoute,
+        next(route for route in app.routes if getattr(route, "path", "") == "/api/app-server/v1"),
     )
     request = {
         "jsonrpc": "2.0",

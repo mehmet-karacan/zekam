@@ -4,117 +4,149 @@ Zekam yalnız aşağıdaki kabiliyetler gerçek kod, migration, test, evaluation
 kanıtla sağlandığında kullanıma hazırdır. Demo, placeholder, TODO, sahte adapter veya yalnız
 dokümantasyon tamamlanmış sayılmaz.
 
+## Yeni mimari yeniden sınıflandırma durumu — 5 Eylül 2026
+
+Bu listedeki 83 eski kabul işareti `AKTIF_GOREV.md` K-001, K-002 ve Bölüm 31.4
+uyarınca sıfırlanmıştır. Her unchecked madde aksi açıkça belirtilmedikçe `pending`
+sınıfındadır; eski PostgreSQL kanıtı yeni mimari için evidence değildir. Makine-okur
+durum kaynağı `kalite/GLOBAL_DOD.yaml` da aynı nedenle 83/83 `pending` durumuna
+alınmıştır. Mac'e özgü geçici kabul ve K-013 ertelemeleri bağlayıcı görev dosyasının
+Bölüm 24 ve 33 kayıtlarında izlenir; bunlar global veya Windows kabulü üretmez.
+
+Aşağıdaki legacy maddeler uygulanacak bir PostgreSQL gereksinimi değildir ve yeni
+mimaride `removed-by-new-architecture` olarak sınıflandırılmıştır:
+
+- PostgreSQL 18 migration temiz kurulum/upgrade/rollback kapısı,
+- PostgreSQL durable queue/lease/lock kapısı,
+- PostgreSQL+pgvector knowledge-index kapısı,
+- Native PostgreSQL MemoryEngine kapısı,
+- PostgreSQL acceptance ve migration-drift release kapıları.
+
+Bu maddelerin yerel halefleri sırasıyla schema-v1 SQLite bootstrap/drift/recovery,
+SQLite operational queue/claim/receipt/recovery, SQLite FTS5+sqlite-vec hibrit indeks,
+SQLite local learning/memory ve local contract/chaos/DR testleridir. Haleflerin Mac
+kanıtları mevcut olsa da global checkbox ancak aynı kriterin tüm zorunlu platform,
+provider ve paket kanıtları tamamlanınca işaretlenir. Mem0 adapter maddesi yeni mimaride
+ayrı kabul kanıtı bulunmadığı için `pending` kalır.
+
 ## A. Kurulum ve çekirdek
 
 - [ ] Temiz Linux, macOS ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
-- [x] `zekam doctor` DB, pgvector, object storage, queue, clients, models ve policy durumunu doğrular.
-- [x] PostgreSQL 18 migration'ları temiz kurulum, upgrade ve rollback testlerinden geçer.
-- [x] Core kodu ile `ZEKAM_HOME` kullanıcı verisi fiziksel olarak ayrıdır.
-- [x] Proje source'ları kopyalanmadan logical binding ile yerinde okunabilir.
-- [x] Backup/restore ve disaster-recovery tatbikatı kanıtlanmıştır.
+- [ ] `zekam doctor` local operational/learning/model/benchmark/routing/analytics store,
+  knowledge index, queue, clients ve policy durumunu doğrular. — `pending`
+- [ ] Legacy server migration yolu kaldırılmıştır; schema-v1 local bootstrap, upgrade,
+  drift ve recovery kapıları geçer. — `removed-by-new-architecture`
+- [ ] Core kodu ile `ZEKAM_HOME` kullanıcı verisi fiziksel olarak ayrıdır.
+- [ ] Proje source'ları kopyalanmadan logical binding ile yerinde okunabilir.
+- [ ] Backup/restore ve disaster-recovery tatbikatı kanıtlanmıştır.
 
 ## B. Proje, doğal dil ve Work Graph
 
-- [x] Birden fazla bağımsız proje kayıt, alias, rebind ve capability profile ile yönetilir.
-- [x] `gpu projesi` gibi alias'lar exact project'e deterministik çözülür.
-- [x] Talep, defect, iş, task, subtask, decision ve research Work Item tipleri çalışır.
-- [x] Work revision ve event geçmişi append-only ve optimistic concurrency korumalıdır.
-- [x] `bugun ne islerimiz var`, `123 defect nerede kaldi` ve `nerede kaldik` sorguları kanonik state'ten yanıtlanır.
-- [x] Aynı iş idempotency key ile ikinci kez oluşturulmaz veya yürütülmez.
+- [ ] Birden fazla bağımsız proje kayıt, alias, rebind ve capability profile ile yönetilir.
+- [ ] `gpu projesi` gibi alias'lar exact project'e deterministik çözülür.
+- [ ] Talep, defect, iş, task, subtask, decision ve research Work Item tipleri çalışır.
+- [ ] Work revision ve event geçmişi append-only ve optimistic concurrency korumalıdır.
+- [ ] `bugun ne islerimiz var`, `123 defect nerede kaldi` ve `nerede kaldik` sorguları kanonik state'ten yanıtlanır.
+- [ ] Aynı iş idempotency key ile ikinci kez oluşturulmaz veya yürütülmez.
 
 ## C. Agent harness ve execution runtime
 
-- [x] Agentic her işte en az bir gerçek subagent enforcement seviyesinde zorunludur.
-- [x] Koordinatör subagent sayılmaz ve sabit global maksimum yoktur.
-- [x] DAG dependency ve resource conflict'e göre parallel/sequential route seçer.
-- [x] PostgreSQL durable queue, lease, heartbeat, fencing ve logical lock çalışır.
-- [x] Claim-before-effect ve terminal receipt-after-effect sözleşmesi uygulanır.
-- [x] Interrupted mutation `recovery-required` olur; sessiz retry yapılamaz.
-- [x] Strict Agent Result Envelope ve coordinator fan-in çalışır.
-- [x] Builder ve risk bazlı bağımsız verifier kimlikleri ayrıdır.
-- [x] Her meaningful step checkpoint ve continuity üretir.
-- [x] Entegre proje mutation'i yalniz bagli gercek source rootunda, tek-writer kilidiyla yapilir.
+- [ ] Agentic her işte en az bir gerçek subagent enforcement seviyesinde zorunludur.
+- [ ] Koordinatör subagent sayılmaz ve sabit global maksimum yoktur.
+- [ ] DAG dependency ve resource conflict'e göre parallel/sequential route seçer.
+- [ ] Local operational store durable queue, lease, heartbeat, fencing ve logical lock
+  çalışır. — `reimplemented-and-verified` (Mac)
+- [ ] Claim-before-effect ve terminal receipt-after-effect sözleşmesi uygulanır.
+- [ ] Interrupted mutation `recovery-required` olur; sessiz retry yapılamaz.
+- [ ] Strict Agent Result Envelope ve coordinator fan-in çalışır.
+- [ ] Builder ve risk bazlı bağımsız verifier kimlikleri ayrıdır.
+- [ ] Her meaningful step checkpoint ve continuity üretir.
+- [ ] Entegre proje mutation'i yalniz bagli gercek source rootunda, tek-writer kilidiyla yapilir.
 
 ## D. Model envanteri, benchmark ve routing
 
-- [x] 20 Model ID bağımsız inventory record olarak import edilir.
-- [x] 19 teknik profil ile 20 kanonik kayıt farkı görünür provenance olarak korunur.
+- [ ] 20 Model ID bağımsız inventory record olarak import edilir.
+- [ ] 19 teknik profil ile 20 kanonik kayıt farkı görünür provenance olarak korunur.
 - [ ] Chat/code, embedding, reranker, Whisper, guardrail ve VL için farklı health/contract testleri vardır.
-- [x] En az beş tekrarlı genel benchmark ve proje özel benchmark uygulanır.
-- [x] Quality, reliability, verifier pass, latency, token, cost ve human correction ölçülür.
-- [x] Model health, quarantine, cooldown ve stale evidence kuralları çalışır.
-- [x] Codex <%40, Claude <%30 fallback kuralı yalnız güvenilir quota observation ile çalışır.
-- [x] Bilinmeyen kota tahmin edilmez.
-- [x] Model assignment açıklanabilir, digest-bound ve authority-free'dir.
-- [x] Bounded model deliberation/fusion süre, tur, token ve kanıt bütçesine uyar.
+- [ ] En az beş tekrarlı genel benchmark ve proje özel benchmark uygulanır.
+- [ ] Quality, reliability, verifier pass, latency, token, cost ve human correction ölçülür.
+- [ ] Model health, quarantine, cooldown ve stale evidence kuralları çalışır.
+- [ ] Codex <%40, Claude <%30 fallback kuralı yalnız güvenilir quota observation ile çalışır.
+- [ ] Bilinmeyen kota tahmin edilmez.
+- [ ] Model assignment açıklanabilir, digest-bound ve authority-free'dir.
+- [ ] Bounded model deliberation/fusion süre, tur, token ve kanıt bütçesine uyar.
 
 ## E. Knowledge Plane
 
-- [x] BGE-M3 dense 1024 sürümlü ilk embedding profilidir.
-- [x] PostgreSQL+pgvector, exact, FTS, alias/trigram, dense, RRF ve opsiyonel reranker çalışır.
+- [ ] BGE-M3 dense 1024 sürümlü ilk embedding profilidir.
+- [ ] SQLite FTS5+sqlite-vec exact, lexical, dense, RRF ve opsiyonel reranker çalışır.
+  — `reimplemented-and-verified` (Mac)
 - [ ] DOCX heading/table, dijital/taranmış PDF, TXT/MD, PNG/JPEG/TIFF ve OCR ingestion çalışır.
-- [x] Orijinal artifact, normalized content, parser/chunker/embedding profile ve source revision korunur.
-- [x] Git URL, archive ve izinli directory taraması kod çalıştırmadan yapılır.
-- [x] AST/symbol chunking ve PL/SQL object ayrımı çalışır.
-- [x] Oracle/PostgreSQL metadata retrieval satır verisini varsayılan olarak toplamaz.
-- [x] Incremental re-index ve atomik active-version değişimi çalışır.
-- [x] PDF page, DOCX heading/block, OCR bbox, code path/symbol/line ve DB object citation üretilir.
-- [x] Golden retrieval evaluation Recall/MRR/nDCG ve no-answer oranlarını ölçer.
-- [x] Retrieval sonucu görev durumu veya yetki kaynağı olamaz.
+- [ ] Orijinal artifact, normalized content, parser/chunker/embedding profile ve source revision korunur.
+- [ ] Git URL, archive ve izinli directory taraması kod çalıştırmadan yapılır.
+- [ ] AST/symbol chunking ve PL/SQL object ayrımı çalışır.
+- [ ] Oracle/PostgreSQL metadata retrieval satır verisini varsayılan olarak toplamaz.
+- [ ] Incremental re-index ve atomik active-version değişimi çalışır.
+- [ ] PDF page, DOCX heading/block, OCR bbox, code path/symbol/line ve DB object citation üretilir.
+- [ ] Golden retrieval evaluation Recall/MRR/nDCG ve no-answer oranlarını ölçer.
+- [ ] Retrieval sonucu görev durumu veya yetki kaynağı olamaz.
 
 ## F. Bellek, öğrenme ve skills
 
-- [x] Native PostgreSQL MemoryEngine üretim çekirdeği olarak çalışır.
-- [x] Mem0 OSS adapter'ı opsiyonel ve aynı port arkasında çalışır.
-- [x] Working, episodic, semantic, procedural, preference ve failure memory ayrıdır.
-- [x] User/project/work/run/agent scope isolation testleri geçer.
-- [x] Exact+lexical+vector+entity+temporal memory retrieval açıklanabilirdir.
-- [x] Memory candidate bağımsız evidence ve verifier olmadan active olmaz.
-- [x] Duplicate, stale, conflict ve retention hygiene raporlanır; otomatik silme yapılmaz.
-- [x] Tekrarlı hatalar learning candidate olur; kanıt olmadan guideline/skill'e terfi etmez.
-- [x] Skill candidate, evaluation, approval, activate/deprecate/retire yaşam döngüsü çalışır.
-- [x] Memory veya Mem0 Work Graph durumunu, policy'yi veya authority'yi sahiplenmez.
+- [ ] Local SQLite learning/memory store üretim çekirdeği olarak çalışır.
+  — `reimplemented-and-verified` (Mac)
+- [ ] Mem0 OSS adapter'ı opsiyonel ve aynı port arkasında çalışır.
+- [ ] Working, episodic, semantic, procedural, preference ve failure memory ayrıdır.
+- [ ] User/project/work/run/agent scope isolation testleri geçer.
+- [ ] Exact+lexical+vector+entity+temporal memory retrieval açıklanabilirdir.
+- [ ] Memory candidate bağımsız evidence ve verifier olmadan active olmaz.
+- [ ] Duplicate, stale, conflict ve retention hygiene raporlanır; otomatik silme yapılmaz.
+- [ ] Tekrarlı hatalar learning candidate olur; kanıt olmadan guideline/skill'e terfi etmez.
+- [ ] Skill candidate, evaluation, approval, activate/deprecate/retire yaşam döngüsü çalışır.
+- [ ] Memory veya Mem0 Work Graph durumunu, policy'yi veya authority'yi sahiplenmez.
 
 ## G. Araştırma ve uygulama teslimi
 
-- [x] Doğal dil araştırma isteği Work+Intent+ResearchQuestion'a dönüşür.
-- [x] En az bir researcher subagent, critic/synthesizer ve risk bazlı citation verifier çalışır.
-- [x] Kaynak snapshot, claim, contradiction ve exact citation kanıtı tutulur.
-- [x] Araştırma raporu Decision ve exact Plan'a ayrı review ile dönüşür.
-- [x] Implementation yalnız approved path/resource scope'ta worktree içinde yapılır.
-- [x] Testler Zekam tarafından bağımsız yeniden çalıştırılır.
-- [x] Patch, receipt ve rollback artifact'ı üretilir.
-- [x] Commit/push kullanıcı ve policy kurallarına uyar.
+- [ ] Doğal dil araştırma isteği Work+Intent+ResearchQuestion'a dönüşür.
+- [ ] En az bir researcher subagent, critic/synthesizer ve risk bazlı citation verifier çalışır.
+- [ ] Kaynak snapshot, claim, contradiction ve exact citation kanıtı tutulur.
+- [ ] Araştırma raporu Decision ve exact Plan'a ayrı review ile dönüşür.
+- [ ] Implementation yalnız approved path/resource scope'ta worktree içinde yapılır.
+- [ ] Testler Zekam tarafından bağımsız yeniden çalıştırılır.
+- [ ] Patch, receipt ve rollback artifact'ı üretilir.
+- [ ] Commit/push kullanıcı ve policy kurallarına uyar.
 
 ## H. Secret, policy ve güvenlik
 
-- [x] Secret Broker logical SecretRef çözer; plaintext model context'ine girmez.
-- [x] Prompt/log/vector/artifact/report/backup içinde secret sızıntı testleri geçer.
-- [x] Network default-deny ve outbound disclosure/authorization uygulanır.
-- [x] Path traversal, symlink escape, archive bomb ve source-root escape fail-closed'dur.
-- [x] Untrusted document/repository talimatları asla sistem komutu sayılmaz.
-- [x] Güvenli read-only sorgular gereksiz onay istemez.
-- [x] Network, secret, mutation, DB write, push ve destructive effect exact one-shot authorization gerektirir.
-- [x] Yetkilendirilmiş planın child step'leri drift yoksa anlamsız ikinci onay istemez.
+- [ ] Secret Broker logical SecretRef çözer; plaintext model context'ine girmez.
+- [ ] Prompt/log/vector/artifact/report/backup içinde secret sızıntı testleri geçer.
+- [ ] Network default-deny ve outbound disclosure/authorization uygulanır.
+- [ ] Path traversal, symlink escape, archive bomb ve source-root escape fail-closed'dur.
+- [ ] Untrusted document/repository talimatları asla sistem komutu sayılmaz.
+- [ ] Güvenli read-only sorgular gereksiz onay istemez.
+- [ ] Network, secret, mutation, DB write, push ve destructive effect exact one-shot authorization gerektirir.
+- [ ] Yetkilendirilmiş planın child step'leri drift yoksa anlamsız ikinci onay istemez.
 
 ## I. Scheduler, rapor ve dashboard
 
-- [x] `gelen-belgeler` watcher idempotent ingestion/research job üretir.
-- [x] Gece model health, project scan, memory hygiene, recovery ve araştırma işleri çalışır.
-- [x] Sabah genel ve proje bazlı rapor oluşur.
-- [x] Rapor model, kaynak, agent, token, cost, quota, failure, contradiction ve next action içerir.
-- [x] Dashboard Work Graph, queue, model, retrieval, memory ve scheduler projection'larını gösterir.
-- [x] Dashboard veya OpenTelemetry kanonik state olmaz.
-- [x] Obsidian/sinaps benzeri graph görünümü güvenli derived projection olarak sağlanır.
+- [ ] `gelen-belgeler` watcher idempotent ingestion/research job üretir.
+- [ ] Gece model health, project scan, memory hygiene, recovery ve araştırma işleri çalışır.
+- [ ] Sabah genel ve proje bazlı rapor oluşur.
+- [ ] Rapor model, kaynak, agent, token, cost, quota, failure, contradiction ve next action içerir.
+- [ ] Dashboard Work Graph, queue, model, retrieval, memory ve scheduler projection'larını gösterir.
+- [ ] Dashboard veya OpenTelemetry kanonik state olmaz.
+- [ ] Obsidian/sinaps benzeri graph görünümü güvenli derived projection olarak sağlanır.
 
 ## J. Kalite, dokümantasyon ve release
 
-- [x] Unit, integration, security, property, concurrency, PostgreSQL acceptance ve E2E testleri geçer.
-- [x] Lint, format, type check, dependency audit, migration drift ve dead-code kapıları geçer.
-- [x] İnsan okunur Türkçe belgeler gerçek kodla çelişmez.
-- [x] Commit mesajları Türkçe anlamlı ve ASCII-only'dir.
-- [x] Kritik akışlarda placeholder, mock-only production path veya ölü kod yoktur.
-- [x] Release manifesti, SBOM, checksum ve rollback talimatı vardır.
-- [x] Zekam tekil kimlik testi package, CLI, environment, home, schema ve DB alias'ı bırakmaz.
+- [ ] Unit, integration, security, property, concurrency, local-store acceptance ve E2E
+  testleri desteklenen platformlarda geçer. — `reimplemented-and-verified` (Mac)
+- [ ] Lint, format, type check, dependency audit, local schema drift ve dead-code kapıları
+  geçer. — `reimplemented-and-verified` (Mac)
+- [ ] İnsan okunur Türkçe belgeler gerçek kodla çelişmez.
+- [ ] Commit mesajları Türkçe anlamlı ve ASCII-only'dir.
+- [ ] Kritik akışlarda placeholder, mock-only production path veya ölü kod yoktur.
+- [ ] Release manifesti, SBOM, checksum ve rollback talimatı vardır.
+- [ ] Zekam tekil kimlik testi package, CLI, environment, home, schema ve DB alias'ı bırakmaz.
 
 Global DoD'nin tek bir maddesi bile kanıtsızsa ürün `tamamlandi` sayılmaz.

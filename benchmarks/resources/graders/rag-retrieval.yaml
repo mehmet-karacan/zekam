@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: rag-retrieval-grader
+version: 1
+family: rag-retrieval
+evaluation_class: technical
+dimensions:
+- correctness
+- evidence-citation
+- reliability
+hidden_key_model_visible: false

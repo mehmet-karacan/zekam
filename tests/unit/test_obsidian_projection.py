@@ -34,8 +34,8 @@ def _record(
     classification: DataClassification = DataClassification.PUBLIC,
     related_id: str | None = None,
 ) -> ObsidianProjectionRecord:
-    relations = ()
-    related = ()
+    relations: tuple[ProjectionRelationRef, ...] = ()
+    related: tuple[str, ...] = ()
     if related_id is not None:
         relations = (
             ProjectionRelationRef(

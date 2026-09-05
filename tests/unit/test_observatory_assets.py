@@ -114,9 +114,7 @@ def test_live_execution_assets_are_packaged_content_free_and_self_contained() ->
 
 
 def test_live_execution_renderer_is_deterministic_bounded_and_dom_safe() -> None:
-    script = (
-        files("zekam.interfaces.api").joinpath("static/app.js").read_text(encoding="utf-8")
-    )
+    script = files("zekam.interfaces.api").joinpath("static/app.js").read_text(encoding="utf-8")
 
     assert "Math.random" not in script
     assert "innerHTML" not in script

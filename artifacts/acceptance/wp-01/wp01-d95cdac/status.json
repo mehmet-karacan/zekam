@@ -1,0 +1,25 @@
+{
+  "blocked_items": [
+    "Windows x64 acceptance is explicitly deferred by user decision K-013.",
+    "Global cross-platform acceptance still requires real Windows x64 parity evidence.",
+    "pyturso 0.7.2 has no published Windows wheel and requires a real Windows source-build probe.",
+    "A direct package-validator invocation rewrote pre-existing VALIDATION_RESULT.json; its original digest is known but original bytes are unavailable for safe automatic restoration."
+  ],
+  "completed_items": [
+    "Fail-closed technology evidence and single-selection contract",
+    "SQLite WAL-reset safety version gate",
+    "macOS ARM64 CPython SQLite and pyturso operational full-size spikes",
+    "Real loopback BAAI/bge-m3 corpus and exact/lexical/dense/RRF evaluation",
+    "LanceDB, Zvec and sqlite-vec 50000/250000 Mac bake-offs",
+    "Persistent SQLite FTS5 50000/250000 Mac bake-off",
+    "DuckDB immutable analytics projection/rebuild Mac bake-off",
+    "Negative, corruption, restart, recovery, isolation and network-deny probes",
+    "ADR drafts updated with measured limitations and no premature selection",
+    "Package validator now supports an explicit repository-external result sink",
+    "User-approved macOS provisional selection: CPython SQLite, SQLite FTS5 plus sqlite-vec, and DuckDB"
+  ],
+  "legacy_postgresql_access_attempts": 0,
+  "production_dependency_changes": 0,
+  "schema": "zekam-wp01-progress-status/v1",
+  "status": "macos-accepted-windows-deferred"
+}

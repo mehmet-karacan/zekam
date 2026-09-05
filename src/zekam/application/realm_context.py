@@ -12,18 +12,19 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.diagnostic_trace import RuntimeTraceSink
 from zekam.domain.errors import NotFound
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.realm import DEFAULT_REALM_SLUG, LifecycleStatus, Realm
-from zekam.infrastructure.postgres.connection import (
-    APPLICATION_ROLE,
-    configure_session,
-    set_realm_setting,
-)
+
+
+class RealmSessionOperations(Protocol):
+    def configure(self, connection: Any, *, realm_id: UUID | None = None) -> None: ...
+
+    def set_realm(self, connection: Any, realm_id: UUID) -> None: ...
 
 
 def find_realm_id(connection: Any, slug: str) -> UUID | None:
@@ -82,11 +83,11 @@ class RealmContext:
 
 def attach_realm(
     connection: Any,
+    session_operations: RealmSessionOperations,
     *,
     slug: str = DEFAULT_REALM_SLUG,
     display_name: str | None = None,
     create_if_missing: bool = False,
-    role: str | None = APPLICATION_ROLE,
 ) -> RealmContext:
     """Oturumu verilen realm kapsamina baglar.
 
@@ -95,7 +96,7 @@ def attach_realm(
     """
     # Once rol ayarlanir: boylece realm arama/olusturma da uygulama rolu altinda,
     # yalnizca SECURITY DEFINER fonksiyonlariyla yapilir.
-    configure_session(connection, realm_id=None, role=role)
+    session_operations.configure(connection, realm_id=None)
     realm_id = (
         ensure_realm_id(connection, slug, display_name)
         if create_if_missing
@@ -103,12 +104,13 @@ def attach_realm(
     )
     if realm_id is None:
         raise NotFound(f"Realm bulunamadi: {slug}")
-    set_realm_setting(connection, realm_id)
+    session_operations.set_realm(connection, realm_id)
     return RealmContext(realm=load_realm(connection, realm_id), connection=connection)
 
 
 def bootstrap_realm(
     connection: Any,
+    session_operations: RealmSessionOperations,
     *,
     slug: str = DEFAULT_REALM_SLUG,
     display_name: str | None = None,
@@ -116,4 +118,10 @@ def bootstrap_realm(
 ) -> RealmContext:
     """Varsayilan realm'i olusturur ve oturumu ona baglar (idempotent)."""
     del now  # Kimlik veritabaninda uretilir; imza gelecekteki test saati icin korunur.
-    return attach_realm(connection, slug=slug, display_name=display_name, create_if_missing=True)
+    return attach_realm(
+        connection,
+        session_operations,
+        slug=slug,
+        display_name=display_name,
+        create_if_missing=True,
+    )

@@ -1,167 +1,20 @@
-schema: zekam-active-work-projection/v1
-generator_version: active-work-root/v1
-source: canonical-postgresql-work-graph
-project:
-  id: 01a028b0-8ed6-752a-a09c-8e7ffd47fbe3
-  slug: zekam
-work:
-  id: 01a04fbf-6cd0-73ab-9279-95b7b2bea8ad
-  title: Zekam Canlı Yürütme Gözleme Merkezi
-  summary: Gercek OS process truth, normalize session ve kanonik runtime zincirini guvenli Zekam UI ile gozle.
-  state: completed
-  revision: 13
-  record_digest: sha256:48c48cc19b47fc9da1017635ae186a5008e1bd801dc4194da49056423755ee6e
-  acceptance_criteria:
-  - text: Açık CLI sayısı fake process fixture’daki gerçek root sayısıyla birebir eşleşir.
-    verified: true
-  - text: Node/python/shell child process’leri ayrı CLI olarak sayılmaz.
-    verified: true
-  - text: '`zekam ui serve` kendi kendisini CLI saymaz.'
-    verified: true
-  - text: Session dosyası yeni olsa bile OS process yoksa `Açık CLI` sayılmaz.
-    verified: true
-  - text: Process açık fakat session eşleşmemişse `unbound process` olarak görünür.
-    verified: true
-  - text: PID reuse `(pid, create_time)` ile ayrılır.
-    verified: true
-  - text: Scan sırasında kapanan process UI/API’yi düşürmez.
-    verified: true
-  - text: AccessDenied sahte inactive/active sonucu üretmez.
-    verified: true
-  - text: OpenCode, Codex ve Claude aynı normalize session sözleşmesine dönüşür.
-    verified: true
-  - text: Exact ve heuristic bağlar veri ve görsel düzeyde ayrıdır.
-    verified: true
-  - text: Heuristic bağ canonical ownership veya başarı iddiası vermez.
-    verified: true
-  - text: Parent/child session ve subagent ilişkisi mümkün olduğunda görünürdür.
-    verified: true
-  - text: Safe current_action yalnız enum/event metadata’dan türetilir.
-    verified: true
-  - text: Prompt/terminal içeriğinden görev özeti üretilmez.
-    verified: true
-  - text: Work → Job → Attempt → Agent → Lease → Claim → Receipt zinciri exact ID’lerle gösterilir.
-    verified: true
-  - text: Terminal receipt olmadan UI `completed/success` göstermez.
-    verified: true
-  - text: Expired lease, receipt’siz claim ve recovery-required durumları görünürdür.
-    verified: true
-  - text: Realm verilmezse DB realm tahmini yapılmaz.
-    verified: true
-  - text: Local process observation canonical runtime’dan bağımsız availability taşır.
-    verified: true
-  - text: Kullanıcıya görünen ana ad tam olarak `Zekam Canlı Yürütme Gözleme Merkezi`dir.
-    verified: true
-  - text: Ana ekran repository/commit dashboard’u değildir.
-    verified: true
-  - text: Üst şerit altı temel canlı metriği gösterir.
-    verified: true
-  - text: Ana graph her gerçek session/CLI için stabil cluster üretir.
-    verified: true
-  - text: Snapshot güncellemelerinde node’lar gereksiz yere yer değiştirmez.
-    verified: true
-  - text: Sağ ray her açık root CLI için tek kart gösterir.
-    verified: true
-  - text: Session Registry, Olay Akışı, Queue/Lease/Receipt ve Kaynak Kullanımı panelleri çalışır.
-    verified: true
-  - text: Search ve client/state/project filtreleri çalışır.
-    verified: true
-  - text: Canvas kullanılamazsa liste/tablo fallback ile temel bilgi kaybolmaz.
-    verified: true
-  - text: Reduced motion davranışı doğrulanır.
-    verified: true
-  - text: 1366×768 ve 1920×1080 ekranlarda taşma/üst üste binme yoktur.
-    verified: true
-  - text: API response’da raw cmdline yoktur.
-    verified: true
-  - text: API response’da environment veya absolute path yoktur.
-    verified: true
-  - text: Prompt, response, transcript ve tool body yoktur.
-    verified: true
-  - text: Secret/URL/path leakage negatif testleri geçer.
-    verified: true
-  - text: Mutation endpoint’i yoktur.
-    verified: true
-  - text: CSP, TrustedHost, no-store ve mevcut güvenlik header’ları korunur.
-    verified: true
-  - text: Process observation kapalıysa fail-closed ve açıklanabilir degrade mode çalışır.
-    verified: true
-  - text: Process scan bounded limitler içinde ölçülür ve ana thread’i bloklamaz.
-    verified: true
-  - text: 64 root + bounded child fixture’da snapshot süresi raporlanır.
-    verified: true
-  - text: 512 node / 1024 edge graph etkileşimi kullanılabilir kalır.
-    verified: true
-  - text: SSE reconnect duplicate process/session oluşturmaz.
-    verified: true
-  - text: Polling fallback canlı veriyi sürdürebilir.
-    verified: true
-  - text: Unit, integration, e2e, security, Ruff, mypy ve package validation geçer.
-    verified: true
-  - text: Gerçek viewport screenshot kanıtları repo dışı teslim alanında üretilir.
-    verified: true
-  - text: Bağımsız verifier process sayımı, content exclusion, receipt semantiği ve UI davranışını doğrular.
-    verified: true
-plan:
-  id: 01a0504c-a1ce-7f81-89bf-d1f0e30ea36a
-  revision: 8
-  plan_digest: sha256:40ce21b176f6c82b3b5fddeacde04af67d55845487a0d1a3555be39b57747efc
-  effect_digest: sha256:bea71e43e12857230e83a3a19e9e95c18ef893b3de63d9f13b100f4fe8021efe
-  source_revision: git:876b06871d30cabbc4957b7b6845232d7a4f1b5c;state:sha256:6c5133970d335ac1f9b33dc2a949b98340173f8ce20259878358d91e0a969ecb
-  steps:
-  - risk: high
-    title: Claim sonrasinda lifecycle child isini materialize et
-    effect: database-write
-    step_id: client-lifecycle-bootstrap
-    depends_on: []
-    logical_resources:
-    - runtime-bootstrap:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:d51d4412-c8fd-4bff-8356-74f04db523e8
-  - risk: high
-    title: Pending Codex lifecycle deliverysini isle
-    effect: database-write
-    step_id: client-lifecycle-drain
-    depends_on:
-    - client-lifecycle-bootstrap
-    logical_resources:
-    - memory:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:session:d51d4412-c8fd-4bff-8356-74f04db523e8
-  - risk: high
-    title: Verified Work ve staged pre-close zincirini atomik kapat
-    effect: database-write
-    step_id: projection-aware-close
-    depends_on:
-    - client-lifecycle-drain
-    logical_resources:
-    - work:01a028b0-8ed6-752a-a09c-8e7ffd47fbe3:01a04fbf-6cd0-73ab-9279-95b7b2bea8ad:projection-close:01a0504c-a1ce-7704-bfbf-1c9e41689b4d
-run:
-  id: 01a0504c-a1ce-7704-bfbf-1c9e41689b4d
-  state: completed
-  run_digest: sha256:ba80283e6f7e28edce5ffe2a7c7bcf5f4305c00430286ac53d8f19be478f734d
-source_observation:
-  id: 01a0503b-3ffc-78bc-ad13-82eee7d83b5f
-  head: 876b06871d30cabbc4957b7b6845232d7a4f1b5c
-  tree_digest: sha256:07bfab2cdcaa605c6eef76a0835ff049da597b82df8437691ceac3e49689edb2
-  branch: main
-  dirty: true
-  file_count: 989
-memory_continuity:
-  migration_head: 78
-  mode: enforced
-  hook_set_digest: sha256:27eea720344cec93a253db745ee13d078d44a7ab1fe6a220cacaea7563acc995
-  projection_receipt_digest: sha256:431712d7638c968952e4ac20a382573a76680c3743a49d3426a618b51c1a8186
-  projection_source_digest: sha256:eed3a33b9d6dae0f63d982071b52c095806f199eb2de4824a62648d77c9cb709
-runtime:
-  blocked_jobs: 0
-  pending_jobs: 0
-  recovery_required_jobs: 0
-  claims_without_receipt: 0
-legacy_global_dod:
-  status: preserved-not-reapplied
-  report: GLOBAL_DOD_DURUM.md
-  report_digest: sha256:2c598eb82ec3ce59d01e39878803d65e7b8d73ddb7b28b703e54a1f84d172ba7
-  release_report: SURUM_RAPORU.md
-  release_report_digest: sha256:a78af42dc844464ae30840a82f55d0ea4c5a2c358115c5c7d718249d1d2a4b57
-next_safe_action: null
+schema: zekam-active-task-projection/v1
+generator_version: active-task-contract/v1
+generated: true
+authority_ref: AKTIF_GOREV.md
+authority_digest: sha256:eab0182081050e212def4ac2639d9c13db8b0e76bcb01b0fa0fae810aea3bd5f
+task_id: ZEKAM-LOCAL-INTELLIGENCE-PLANE-001
+status: APPROVED_ACTIVE_TASK
+title: Zekam Yerel-İlk Polyglot Veri, Çalışan RAG, Model Laboratuvarı ve Ölçümlü Öz-İyileştirme
+  Düzlemi
+created_at: '2026-09-02T09:56:00+03:00'
+baseline_repository: mehmet-karacan/zekam
+baseline_branch: main
+baseline_head: d95cdac2713df797e42afda020ab6e8e55188031
+legacy_postgresql_data_import: FORBIDDEN
+postgresql_runtime_dependency: FORBIDDEN
+docker_required_for_zekam_core: false
+push_authorized: false
 read_only: true
 grants_authority: false
 approval_inherited: false
-projection_digest: sha256:6f762729c529d2accb940a0855c532e29d836017f4c979a943ee97efd3384271

@@ -1,0 +1,17 @@
+{
+  "schema": "zekam-test-result/v1",
+  "scope": "full-suite-macos",
+  "passed": 2695,
+  "skipped": 713,
+  "failed": 5,
+  "duration_seconds": 51.18,
+  "wp06_regressions": 0,
+  "known_environment_failures": [
+    "installed Claude version differs from pinned fixture",
+    "installed Claude binary digest differs from pinned fixture",
+    "installed Codex binary digest differs from pinned fixture",
+    "installed OpenCode binary digest differs from pinned fixture",
+    "macOS live observatory test assumes Windows zekam.exe"
+  ],
+  "status": "passed-with-5-pre-existing-environment-drifts"
+}

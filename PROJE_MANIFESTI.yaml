@@ -8,8 +8,8 @@ project:
   data_root_env: ZEKAM_HOME
   status: implementation-package-ready
 authority:
-  canonical_store: PostgreSQL 18
-  vector_extension: pgvector >= 0.8.6
+  canonical_store: CPython SQLite operational schema v1
+  vector_extension: sqlite-vec == 0.1.9
   work_truth: work-graph
   execution_truth: run-step-claim-receipt-ledger
   retrieval_is_authority: false
@@ -58,7 +58,7 @@ source_policy:
   push_default: deny
 memory:
   port: MemoryEngine
-  required_engine: NativePostgresMemoryEngine
+  required_engine: SQLiteLocalLearning
   optional_adapter: Mem0OssMemoryEngine
   classes:
   - working
@@ -84,7 +84,7 @@ knowledge:
   - exact-id
   - path-symbol-db-object
   - alias-trigram
-  - postgresql-fts
+  - sqlite-fts5
   - dense-vector
   - rrf
   - optional-reranker
@@ -132,7 +132,7 @@ commit_policy:
   push_default: deny
 entrypoints:
   first_read: 00_BASLA.md
-  main_task: NIHAI_UYGULAMA_PROMPTU.md
+  main_task: AKTIF_GOREV.md
   continuation: DEVAM_PROTOKOLU.md
   work_graph: kalite/UYGULAMA_IS_GRAFIGI.yaml
   global_done: GLOBAL_DEFINITION_OF_DONE.md

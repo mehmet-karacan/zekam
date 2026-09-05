@@ -1,0 +1,15 @@
+{
+  "AKTIF_GOREV.md": "sha256:c42e5d77db4e881e29f27022d7d07507f008f47d57d1189b738b8ce1665d0671",
+  "AKTIF_GOREV.yaml": "sha256:c7202503517b4eafcd852a2406f012c4102472a93a938f4f5037312fc5ac982c",
+  "src/zekam/application/home.py": "sha256:9906376b854268ab2f26a10e7247248d339ca32087050939803695cb381dac4c",
+  "src/zekam/application/knowledge_file_plane.py": "sha256:13e1b35ce633877a3f38bb33b88f2598b6caa085b4d2f6289c8bb02bb3875e44",
+  "src/zekam/application/knowledge_plane_service.py": "sha256:d22e28a561970767a2cab23ed6024c8ba9d44b86b0b252ba212f772974240003",
+  "src/zekam/application/operational_store.py": "sha256:970d77d3c80cce5821db5d7114fba1261c8296b5e455e45d3eae9a6f94a6da78",
+  "src/zekam/infrastructure/knowledge_files.py": "sha256:5cbb557e3b0e83f0413c37b7041886d00526dd396c3d128c96ba3f5786e423b8",
+  "src/zekam/infrastructure/sqlite/operational_schema.py": "sha256:69757f57d48086fba2bcc212a2830fb4d301427239ca9a794657c1a0017d7172",
+  "src/zekam/infrastructure/sqlite/operational_store.py": "sha256:771977884054bf0b7f84731ed0d5151dc870844d0581d815ab717b604ec4c2b8",
+  "tests/security/test_knowledge_file_plane_security.py": "sha256:3100ead8ce649297b637f3f02d21968bdd3f40a218c41a91a7034751f58efd20",
+  "tests/unit/test_home_layout.py": "sha256:21b7462f52782d39bce67429e395af5d30b028949ebb04ec178fb40c0a0dca0c",
+  "tests/unit/test_knowledge_file_plane.py": "sha256:1df166bd2dec2718e62613152d38597f49328e77770f37e4bf03edaa2da3a7a6",
+  "tests/unit/test_knowledge_plane_service.py": "sha256:0be98bc7190601b61708816af1db43106f44ccc09b062e4a44654016e863be43"
+}

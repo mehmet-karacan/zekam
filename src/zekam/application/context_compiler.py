@@ -14,6 +14,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
+    ContextCandidateKind,
     ContextManifest,
     ContextOmission,
     ContextSelection,
@@ -97,7 +98,13 @@ def _feature_rejection(
     if request.target_identity_refs and candidate.identity_refs and not features.exact_identity:
         return OmittedReason.IDENTITY_MISMATCH
     if request.realm_scope_ref is not None and features.scope_proximity is ScopeProximity.EXTERNAL:
-        return OmittedReason.SCOPE_MISMATCH
+        global_knowledge_opt_in = (
+            request.additional_scope_refs == ("global-user",)
+            and candidate.kind is ContextCandidateKind.KNOWLEDGE
+            and candidate.scope_ref == "global-user"
+        )
+        if not global_knowledge_opt_in:
+            return OmittedReason.SCOPE_MISMATCH
     if features.source_revision_state is SourceRevisionState.CONFLICT:
         return OmittedReason.CONFLICT
     if features.source_revision_state is SourceRevisionState.MISMATCH:

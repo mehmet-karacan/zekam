@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from zekam.application.config import PersistenceBackend, Settings, core_root, load_settings
+from zekam.application.config import Settings, core_root, load_settings
 from zekam.application.diagnostics import DoctorCheck, DoctorService
 from zekam.application.environment import environment_value
 from zekam.application.home import HomeLayout, resolve_home
@@ -69,47 +69,21 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
         core_checks.GitClientCheck(),
         core_checks.GitRepositoryCheck(root=context.core_path),
     ]
-    if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
-        from zekam.infrastructure.doctor import memory_checks, postgres_checks
-
-        checks.extend(
-            (
-                postgres_checks.DriverCheck(),
-                postgres_checks.ConnectionCheck(settings=context.settings.database),
-                postgres_checks.MigrationCheck(settings=context.settings.database),
-                postgres_checks.RoutineIntegrityCheck(
-                    settings=context.settings.database,
-                    directory=context.core_path / "migrations",
-                ),
-                memory_checks.MemoryContinuityCheck(
-                    settings=context.settings.database,
-                    core_path=context.core_path,
-                    private_store_path=context.home / "global" / "bellek",
-                ),
-            )
+    checks.extend(
+        (
+            sqlite_checks.PersistenceCheck(
+                path=context.settings.database.sqlite_path(context.home),
+                path_ref=f"ZEKAM_HOME/{context.settings.database.sqlite_relative_path}",
+            ),
+            sqlite_checks.LocalCoreStoresCheck(
+                context=context,
+            ),
+            sqlite_checks.CapabilityCheck(),
         )
-    else:
-        checks.extend(
-            (
-                sqlite_checks.PersistenceCheck(
-                    path=context.settings.database.sqlite_path(context.home),
-                    path_ref=f"ZEKAM_HOME/{context.settings.database.sqlite_relative_path}",
-                ),
-                sqlite_checks.CapabilityCheck(),
-            )
-        )
+    )
     checks.append(
         storage_checks.ObjectStoreCheck(root=context.home / context.settings.object_store_relative),
     )
-    if context.settings.database.backend is PersistenceBackend.POSTGRESQL:
-        checks.extend(
-            (
-                runtime_checks.QueueCheck(settings=context.settings.database),
-                runtime_checks.ModelInventoryCheck(settings=context.settings.database),
-                runtime_checks.PolicyCheck(settings=context.settings.database),
-                runtime_checks.SchedulerCheck(settings=context.settings.database),
-            )
-        )
     checks.extend(
         (
             runtime_checks.ClientsCheck(executables=_client_executables(context)),

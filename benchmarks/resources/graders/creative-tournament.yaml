@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: creative-tournament-grader
+version: 1
+family: creative-tournament
+evaluation_class: creative
+dimensions:
+- correctness
+- human-correction
+- reliability
+hidden_key_model_visible: false

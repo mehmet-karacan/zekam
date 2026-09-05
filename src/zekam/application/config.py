@@ -13,7 +13,7 @@ veya Secret Broker uzerinden gelir ve hicbir zaman loglanmaz.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -40,9 +40,8 @@ USER_CONFIG_FILE = "config.yaml"
 
 
 class PersistenceBackend(StrEnum):
-    """Kullanici tarafindan ilk kurulumda secilen persistence motoru."""
+    """Supported local persistence engine."""
 
-    POSTGRESQL = "postgresql"
     SQLITE = "sqlite"
 
 
@@ -88,46 +87,21 @@ class DatabaseSettings:
     port: int
     name: str
     user: str
-    backend: PersistenceBackend = PersistenceBackend.POSTGRESQL
-    sqlite_relative_path: str = "global/runtime/zekam.sqlite3"
+    backend: PersistenceBackend = PersistenceBackend.SQLITE
+    sqlite_relative_path: str = "state/operational.db"
     sslmode: str = "prefer"
     connect_timeout_seconds: int = 5
     minimum_server_version: int = 18
     required_extensions: tuple[str, ...] = ("vector",)
 
-    def dsn(self, password: str | None = None) -> str:
-        """libpq DSN uretir. Parola yalnizca cagri aninda verilir."""
-        if self.backend is not PersistenceBackend.POSTGRESQL:
-            raise ConfigurationError("SQLite secimi libpq DSN uretemez")
-        parts = [
-            f"host={self.host}",
-            f"port={self.port}",
-            f"dbname={self.name}",
-            f"user={self.user}",
-            f"sslmode={self.sslmode}",
-            f"connect_timeout={self.connect_timeout_seconds}",
-        ]
-        if password:
-            parts.append(f"password={password}")
-        return " ".join(parts)
-
     def sqlite_path(self, home: Path) -> Path:
         """SQLite dosyasini ZEKAM_HOME icinde ve portable olarak cozer."""
-        if self.backend is not PersistenceBackend.SQLITE:
-            raise ConfigurationError("PostgreSQL secimi SQLite dosya yolu tasimaz")
         return resolve_sqlite_path(home, self.sqlite_relative_path)
 
     def sanitized(self) -> dict[str, Any]:
         """Log ve rapor icin guvenli gorunum."""
         return {
             "backend": self.backend.value,
-            "host": self.host,
-            "port": self.port,
-            "name": self.name,
-            "user": self.user,
-            "sslmode": self.sslmode,
-            "minimum_server_version": self.minimum_server_version,
-            "required_extensions": list(self.required_extensions),
             "sqlite_relative_path": self.sqlite_relative_path,
         }
 
@@ -199,7 +173,7 @@ class Settings:
     knowledge: KnowledgeSettings = field(default_factory=KnowledgeSettings)
     diagnostic_trace: DiagnosticTraceSettings = field(default_factory=DiagnosticTraceSettings)
     clients: tuple[ClientSettings, ...] = ()
-    object_store_relative: str = "global/artifacts"
+    object_store_relative: str = "artifacts/sha256"
     sources: tuple[str, ...] = ()
     config_provenance: ConfigProvenanceGraph | None = None
     permission_profile: PermissionProfileRevision | None = None
@@ -313,6 +287,11 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:  # pragma: no cover - hata metni sanitize edilir
         raise ConfigurationError(f"Yapilandirma dosyasi okunamadi: {path.name}") from exc
+    return _validate_document(loaded, path)
+
+
+def _validate_document(loaded: object, path: Path) -> dict[str, Any]:
+    """Keep file and captured-document configuration validation identical."""
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
@@ -330,21 +309,6 @@ def _env_overrides(environ: Mapping[str, str]) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     database: dict[str, Any] = {}
     runtime: dict[str, Any] = {}
-
-    mapping = {
-        "ZEKAM_DATABASE_HOST": ("host", str),
-        "ZEKAM_DATABASE_PORT": ("port", int),
-        "ZEKAM_DATABASE_NAME": ("name", str),
-        "ZEKAM_DATABASE_USER": ("user", str),
-        "ZEKAM_DATABASE_SSLMODE": ("sslmode", str),
-    }
-    for env_key, (field_name, caster) in mapping.items():
-        raw = environment_value(environ, env_key)
-        if raw:
-            try:
-                database[field_name] = caster(raw)
-            except ValueError as exc:
-                raise ConfigurationError(f"Gecersiz ortam degiskeni: {env_key}") from exc
 
     log_level = environment_value(environ, "ZEKAM_LOG_LEVEL")
     if log_level:
@@ -394,8 +358,14 @@ def load_settings(
     default_file: Path | None = None,
     session_overrides: Mapping[str, Any] | None = None,
     session_permission_capabilities: tuple[str, ...] = (),
+    document_loader: Callable[[Path], dict[str, Any]] | None = None,
 ) -> Settings:
-    """Yapilandirmayi belirlenen oncelik sirasiyla yukler."""
+    """Resolve the canonical layers; an optional trusted loader supplies snapshots.
+
+    Injected documents still pass the same schema/secret validation. The caller
+    owns bounded capture and source stability; precedence and provenance do not
+    change when this hook is used.
+    """
     environ = os.environ if environ is None else environ
     if environment_value(environ, "ZEKAM_DATABASE_BACKEND"):
         raise ConfigurationError(
@@ -407,12 +377,17 @@ def load_settings(
     sources: list[str] = []
     layers: list[ConfigLayer] = []
 
-    default_document = _load_yaml(default_path)
+    def read_document(path: Path) -> dict[str, Any]:
+        if document_loader is None:
+            return _load_yaml(path)
+        return _validate_document(document_loader(path), path)
+
+    default_document = read_document(default_path)
     if default_document:
         sources.append("core-default")
         layers.append(ConfigLayer("core-default", 10, default_document))
 
-    user_document = _load_yaml(user_path)
+    user_document = read_document(user_path)
     if user_document:
         sources.append("user-config")
         layers.append(ConfigLayer("user-config", 20, user_document))
@@ -458,9 +433,12 @@ def load_settings(
     document = provenance.effective_document
 
     database_document = dict(document.get("database") or {})
+    unsupported_database_keys = set(database_document) - {"backend", "sqlite_relative_path"}
+    if unsupported_database_keys:
+        raise ConfigurationError("Yerel veritabani yapilandirmasi desteklenmeyen alan iceriyor")
     try:
         backend = PersistenceBackend(
-            str(database_document.get("backend", PersistenceBackend.POSTGRESQL.value)).lower()
+            str(database_document.get("backend", PersistenceBackend.SQLITE.value)).lower()
         )
         database = DatabaseSettings(
             host=str(database_document.get("host", "127.0.0.1")),
@@ -469,7 +447,7 @@ def load_settings(
             user=str(database_document.get("user", "zekam")),
             backend=backend,
             sqlite_relative_path=str(
-                database_document.get("sqlite_relative_path", "global/runtime/zekam.sqlite3")
+                database_document.get("sqlite_relative_path", "state/operational.db")
             ),
             sslmode=str(database_document.get("sslmode", "prefer")),
             connect_timeout_seconds=int(database_document.get("connect_timeout_seconds", 5)),
@@ -534,7 +512,7 @@ def load_settings(
         raise ConfigurationError("Diagnostic trace ayarlari gecersiz") from exc
 
     storage_document = dict(document.get("storage") or {})
-    object_store_relative = str(storage_document.get("object_store_relative", "global/artifacts"))
+    object_store_relative = str(storage_document.get("object_store_relative", "artifacts/sha256"))
     clients = _parse_clients(document)
 
     return Settings(

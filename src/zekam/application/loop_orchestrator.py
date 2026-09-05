@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid5
 
 from zekam.domain.canonical import digest, parse_digest
@@ -14,13 +15,34 @@ from zekam.domain.loop_progress import LoopProgressPacket, require_progress_pack
 from zekam.domain.optimization import OptimizationObjective
 from zekam.domain.resources import ResourceRequest
 from zekam.domain.runtime import Job, JobKind
-from zekam.infrastructure.postgres.measured_loop_repository import (
-    PostgresMeasuredLoopRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import JobRepository
 
 _ATTEMPT_NAMESPACE = UUID("a8f7ebc3-c8bf-53f0-b167-21ce714a4cc5")
 _JOB_NAMESPACE = UUID("51ea6e1d-6339-5fd2-a45f-0d927c82bef2")
+
+
+class MeasuredLoopStore(Protocol):
+    realm_id: UUID
+
+    def unit_of_work(self) -> AbstractContextManager[None]: ...
+
+    def assert_loop_open(self, loop_id: UUID) -> None: ...
+
+    def bind_loop_attempt_job(
+        self,
+        *,
+        loop_id: UUID,
+        ordinal: int,
+        predecessor_attempt_id: UUID | None,
+        progress_packet: LoopProgressPacket | None,
+        job: Job,
+        idempotency_digest: str,
+    ) -> bool: ...
+
+
+class LoopJobStore(Protocol):
+    realm_id: UUID
+
+    def enqueue(self, job: Job) -> tuple[Job, bool]: ...
 
 
 def measured_loop_effect_scope_digest(
@@ -88,8 +110,8 @@ class LoopAttemptAdmissionControl:
 
 @dataclass(frozen=True, slots=True)
 class DurableLoopOrchestrator:
-    measured_repository: PostgresMeasuredLoopRepository
-    job_repository: JobRepository
+    measured_repository: MeasuredLoopStore
+    job_repository: LoopJobStore
 
     def plan_attempt(
         self,
@@ -316,7 +338,7 @@ class DurableLoopOrchestrator:
                 or authorization.get("effect_digest") != plan.effect_scope_digest
             ):
                 raise PolicyViolation("Production loop enqueue attached exact authorization ister")
-        with self.measured_repository.connection.transaction():
+        with self.measured_repository.unit_of_work():
             self.measured_repository.assert_loop_open(plan.loop_id)
             job, job_created = self.job_repository.enqueue(plan.job)
             binding_created = self.measured_repository.bind_loop_attempt_job(

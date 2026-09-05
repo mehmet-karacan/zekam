@@ -4,12 +4,14 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from scripts import ci_pytest
 from scripts.ci_pytest import GitHubFailureAnnotations
 
 pytestmark = pytest.mark.unit
+_ci_module: Any = ci_pytest
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,7 @@ def test_main_propagates_pytest_exit_code(monkeypatch: pytest.MonkeyPatch) -> No
         observed["plugins"] = plugins
         return 7
 
-    monkeypatch.setattr(ci_pytest.pytest, "main", fake_main)
+    monkeypatch.setattr(_ci_module.pytest, "main", fake_main)
 
     assert ci_pytest.main(["-m", "not postgres"]) == 7
     assert observed["args"] == ["-m", "not postgres"]
@@ -145,7 +147,7 @@ def test_flush_writes_all_partial_pipe_chunks(monkeypatch: pytest.MonkeyPatch) -
         chunks.append(chunk)
         return len(chunk)
 
-    monkeypatch.setattr(ci_pytest.os, "write", partial_write)
+    monkeypatch.setattr(_ci_module.os, "write", partial_write)
     reporter = GitHubFailureAnnotations(output_fd=77)
     reporter.pytest_collectreport(
         _Report(
@@ -174,7 +176,7 @@ def test_reporter_bounds_many_failures_and_summarizes_omissions(
         chunks.append(bytes(payload))
         return len(payload)
 
-    monkeypatch.setattr(ci_pytest.os, "write", complete_write)
+    monkeypatch.setattr(_ci_module.os, "write", complete_write)
     reporter = GitHubFailureAnnotations(output_fd=88)
     for index in range(1_000):
         reporter.pytest_collectreport(
@@ -196,7 +198,7 @@ def test_reporter_bounds_many_failures_and_summarizes_omissions(
 
 
 def test_zero_byte_pipe_write_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ci_pytest.os, "write", lambda _fd, _payload: 0)
+    monkeypatch.setattr(_ci_module.os, "write", lambda _fd, _payload: 0)
     reporter = GitHubFailureAnnotations(output_fd=99)
     reporter.pytest_collectreport(
         _Report(

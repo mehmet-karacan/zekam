@@ -372,13 +372,16 @@ def test_timeout_and_invalid_output_follow_optional_policy_and_shutdown_is_bound
         timeout_ms=10,
     )
     release = threading.Event()
+
+    def late_result(_: Any) -> HookAdapterResult:
+        release.wait(1)
+        return HookAdapterResult(HookResultKind.OBSERVATION, {"message": "late"})
+
     adapter = LoadedHookAdapter(
         "adapter-v1",
         digest("adapter-v1"),
         HookExecutionMode.INTERNAL,
-        lambda _: (
-            release.wait(1) and HookAdapterResult(HookResultKind.OBSERVATION, {"message": "late"})
-        ),
+        late_result,
     )
     runtime = HookRuntime()
     _configure(runtime, spec, profile, adapter)

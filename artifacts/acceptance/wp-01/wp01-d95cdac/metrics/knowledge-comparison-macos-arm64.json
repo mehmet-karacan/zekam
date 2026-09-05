@@ -1,0 +1,11 @@
+{
+  "corpus": {"embedding_dimension": 1024, "embedding_model": "BAAI/bge-m3", "semantic_fallback_used": false, "unique_real_chunk_count": 132},
+  "results_250000": [
+    {"build_seconds": 16.46947937499499, "candidate": "lancedb", "citation_precision": 1.0, "disk_bytes": 2109718588, "fusion_recall_at_10": 1.0, "mrr": 0.9375, "no_answer_precision": 1.0, "no_answer_recall": 1.0, "query_p50_ms": 11.485665978398174, "query_p95_ms": 72.59141700342298, "version": "0.37.1"},
+    {"build_seconds": 54.9801608750131, "candidate": "sqlite-vec", "citation_precision": 1.0, "disk_bytes": 1560453120, "fusion_recall_at_10": 1.0, "mrr": 0.9375, "no_answer_precision": 1.0, "no_answer_recall": 1.0, "query_p50_ms": 183.77974996110424, "query_p95_ms": 199.1394580109045, "version": "0.1.9"},
+    {"build_seconds": 12.095340624975506, "candidate": "zvec", "citation_precision": 1.0, "disk_bytes": 1081322293, "fusion_recall_at_10": 1.0, "mrr": 0.9375, "no_answer_precision": 1.0, "no_answer_recall": 1.0, "query_p50_ms": 44.56908302381635, "query_p95_ms": 3229.428499995265, "version": "0.7.0"}
+  ],
+  "scale_limit": "250000 records cyclically repeat 132 real BGE-embedded chunks; semantic diversity is not 250000.",
+  "schema": "zekam-wp01-knowledge-comparison/v1",
+  "selection_status": "blocked-pending-windows-x64"
+}

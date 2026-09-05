@@ -16,7 +16,9 @@ from zekam.application.opencode_spool import inspect_spool
 from zekam.domain.model_inventory import CANONICAL_MODEL_COUNT
 from zekam.domain.observability import CANONICAL_COMMANDS, missing_commands
 from zekam.domain.scheduler import REQUIRED_JOBS, missing_required_jobs
-from zekam.infrastructure.postgres.connection import PSYCOPG_AVAILABLE, connect
+
+PSYCOPG_AVAILABLE = False
+connect: Any = None
 
 CATEGORY = "runtime"
 
@@ -169,7 +171,7 @@ class QueueCheck:
 
     def run(self) -> CheckResult:
         if not PSYCOPG_AVAILABLE:
-            return _unavailable(self.check_id, "psycopg yok")
+            return _unavailable(self.check_id, "Legacy runtime adapter etkin degil")
         try:
             with connect(self.settings) as connection, connection.cursor() as cursor:
                 cursor.execute("select state, count(*) from runtime.job group by state")
@@ -377,7 +379,7 @@ class ModelInventoryCheck:
 
     def run(self) -> CheckResult:
         if not PSYCOPG_AVAILABLE:
-            return _unavailable(self.check_id, "psycopg yok")
+            return _unavailable(self.check_id, "Legacy runtime adapter etkin degil")
         try:
             imported = int(
                 _scalar(self.settings, "select count(*) from models.model_inventory") or 0
@@ -443,7 +445,7 @@ class PolicyCheck:
 
     def run(self) -> CheckResult:
         if not PSYCOPG_AVAILABLE:
-            return _unavailable(self.check_id, "psycopg yok")
+            return _unavailable(self.check_id, "Legacy runtime adapter etkin degil")
         try:
             with connect(self.settings) as connection, connection.cursor() as cursor:
                 cursor.execute("select count(*) from security.policy")
@@ -496,7 +498,7 @@ class SchedulerCheck:
 
     def run(self) -> CheckResult:
         if not PSYCOPG_AVAILABLE:
-            return _unavailable(self.check_id, "psycopg yok")
+            return _unavailable(self.check_id, "Legacy runtime adapter etkin degil")
         try:
             with connect(self.settings) as connection, connection.cursor() as cursor:
                 cursor.execute("select job_name from ops.job_definition")

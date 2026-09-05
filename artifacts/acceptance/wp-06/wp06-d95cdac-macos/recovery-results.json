@@ -1,0 +1,16 @@
+{
+  "schema": "zekam-wp06-recovery-results/v1",
+  "wrong_dimension": "rejected",
+  "non_finite_vector": "rejected",
+  "partial_batch": "rejected-before-cas-or-database",
+  "wrong_row_index": "rejected",
+  "wrong_model_identity": "rejected",
+  "provider_timeout": "rejected-without-synthetic-fallback",
+  "missing_provider": "rejected-before-cas-or-database",
+  "profile_drift": "index-rebuild-required",
+  "device_namespace_drift": "separate-profile",
+  "remote_disclosure_without_authority": "rejected",
+  "provider_unavailable_query": "lexical-only-degraded",
+  "restart_profile_identity": "stable",
+  "status": "passed"
+}

@@ -469,6 +469,34 @@ class EffectReceipt:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedWork:
+    """Transport-neutral work package assigned to one worker."""
+
+    job: Job
+    attempt_id: UUID
+    lease: Lease
+    owner_token: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "job": self.job.as_dict(),
+            "attempt_id": str(self.attempt_id),
+            "lease": self.lease.as_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryFinalization:
+    """Exact recovery finalization; a replay does not create a new receipt."""
+
+    receipt: EffectReceipt
+    created: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"receipt": self.receipt.as_dict(), "created": self.created}
+
+
 class RecoveryOutcome(StrEnum):
     """Recovery degerlendirmesinin sonucu."""
 

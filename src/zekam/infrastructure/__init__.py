@@ -1,1 +1,1 @@
-"""Altyapi adapterleri: PostgreSQL, dosya sistemi, Git, saglayici istemcileri."""
+"""Altyapi adapterleri: SQLite, dosya sistemi, Git ve saglayici istemcileri."""

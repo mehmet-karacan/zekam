@@ -32,12 +32,13 @@ from zekam.application.client_lifecycle_spool import (
 )
 from zekam.application.execution import ExecutionHost
 from zekam.application.hook_runtime import HookRuntime, HookSession
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.memory_continuity import MemoryContinuityService, MemoryContinuityStore
 from zekam.application.memory_hooks import MemoryHookBundle, memory_hook_bundle
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.resources import LockMode, ResourceRequest
-from zekam.domain.runtime import AttemptOutcome, EffectClaim
+from zekam.domain.runtime import AttemptOutcome, ClaimedWork, EffectClaim
 from zekam.domain.session_continuity import DataClassification
 from zekam.infrastructure.clients.codex_lifecycle import (
     CODEX_CLIENT_ID,
@@ -46,15 +47,6 @@ from zekam.infrastructure.clients.codex_lifecycle import (
     codex_lifecycle_descriptor,
     load_codex_contract_evidence,
 )
-from zekam.infrastructure.postgres.client_lifecycle_repository import (
-    ClientLifecycleRepository,
-)
-from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
-from zekam.infrastructure.postgres.memory_continuity_repository import (
-    MemoryContinuityRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 _EVENT_NAMESPACE = UUID("81a59570-f0c1-4bd2-b6ce-62647df59e2f")
 _MAX_HOOK_GENERATION_REPLAY = 64
@@ -63,7 +55,7 @@ _MAX_HOOK_GENERATION_REPLAY = 64
 def _configure_active_memory_hook_runtime(
     runtime: HookRuntime,
     bundle: MemoryHookBundle,
-    repository: ClientLifecycleRepository,
+    repository: Any,
     *,
     now: dt.datetime,
 ) -> str:
@@ -112,7 +104,7 @@ class LifecyclePlanInputs:
 
 def _finish_receiptless_recovery(
     *,
-    repository: ClientLifecycleRepository,
+    repository: Any,
     work: ClaimedWork,
     claim: EffectClaim,
     reason: str,
@@ -157,7 +149,7 @@ def drain_claimed_codex_delivery(
     *,
     spool: ClientLifecycleSpool,
     bridge: ClientLifecycleBridge,
-    repository: ClientLifecycleRepository,
+    repository: Any,
     work: ClaimedWork,
     claim: EffectClaim,
     authorization_id: UUID,
@@ -296,7 +288,7 @@ def drain_claimed_codex_delivery(
 def recover_committed_codex_delivery(
     *,
     spool: ClientLifecycleSpool,
-    repository: ClientLifecycleRepository,
+    repository: Any,
 ) -> LifecycleReplayResult | None:
     """ACK one already-committed delivery without lease, claim, or effect retry."""
 
@@ -468,10 +460,10 @@ def compose_codex_lifecycle_handler(
 ) -> Callable[[ClaimedWork], str]:
     """Compose the only production queue handler for governed Codex delivery jobs."""
 
-    repository = ClientLifecycleRepository(connection, realm_id)
-    continuity = MemoryContinuityRepository(connection, realm_id)
-    authorizations = AuthorizationRepository(connection, realm_id)
-    hook_store = HookRuntimeRepository(connection, realm_id)
+    repository = legacy_repository("client_lifecycle", connection, realm_id)
+    continuity = legacy_repository("memory_continuity", connection, realm_id)
+    authorizations = legacy_repository("authorization", connection, realm_id)
+    hook_store = legacy_repository("hook_runtime", connection, realm_id)
     runtime = HookRuntime(max_workers=1)
     bundle = memory_hook_bundle(realm_id)
     _configure_active_memory_hook_runtime(

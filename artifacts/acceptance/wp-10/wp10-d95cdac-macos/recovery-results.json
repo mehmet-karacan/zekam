@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "scenarios": [
+    "removed model",
+    "revision drift",
+    "stale",
+    "quarantine",
+    "cooldown"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

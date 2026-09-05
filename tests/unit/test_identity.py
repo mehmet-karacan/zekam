@@ -35,20 +35,15 @@ def test_distribution_has_no_compatibility_package_or_console_script() -> None:
     assert f'"src/{removed_slug}"' not in pyproject
 
 
-def test_wheel_includes_complete_fresh_migration_set() -> None:
+def test_wheel_excludes_archived_postgresql_migrations() -> None:
     root = Path(__file__).resolve().parents[2]
     document = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     force_include = document["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert force_include["config"] == "zekam/_config"
-    migrations = sorted((root / "migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
-    up = [path for path in migrations if not path.name.endswith(".down.sql")]
-    down = [path for path in migrations if path.name.endswith(".down.sql")]
-
-    assert force_include["migrations"] == "zekam/migrations"
+    assert "migrations" not in force_include
     assert force_include["modeller"] == "zekam/modeller"
-    versions = [int(path.name[:4]) for path in up]
-    assert versions == list(range(1, max(versions) + 1))
-    assert len(down) == max(versions)
+    assert not (root / "migrations").exists()
+    assert (root / "legacy-preserved" / "migrations").is_dir()
 
 
 def test_distribution_and_runtime_version_have_one_value() -> None:

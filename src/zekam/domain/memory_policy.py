@@ -20,7 +20,7 @@ class MemoryContinuityMode(StrEnum):
 
 
 class MemoryStorageClass(StrEnum):
-    POSTGRESQL_RLS = "postgresql-rls"
+    SQLITE_LOCAL = "sqlite-local"
     LOCAL_CAS = "local-cas"
     DENIED = "denied"
 

@@ -1,0 +1,10 @@
+{
+  "schema": "zekam-wp-source-digests/v1",
+  "head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "remote_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "active_task_digest": "sha256:af6febb23aeddb210e409bec3126759075bae3c3c5832aa04a6a888d5eb19ead",
+  "active_task_projection_file_digest": "sha256:1132736b8dc0b8754b05f39136125825b931d8cf713bb5ddd7ffa62590c9afe0",
+  "baseline_matches_task": true,
+  "ahead": 0,
+  "behind": 0
+}

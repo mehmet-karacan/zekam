@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: safety-policy-grader
+version: 1
+family: safety-policy
+evaluation_class: technical
+dimensions:
+- safety
+- correctness
+- reliability
+hidden_key_model_visible: false

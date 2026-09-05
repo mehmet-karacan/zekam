@@ -16,12 +16,12 @@ from uuid import UUID
 
 import yaml
 
+from zekam.application.embedding_provider import EmbeddingPolicy, EmbeddingProvider
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
 from zekam.application.project_knowledge_index import (
-    LOCAL_EMBEDDING_DIMENSION,
-    LOCAL_EMBEDDING_MODEL_REF,
-    deterministic_local_embedding,
+    REAL_EMBEDDING_DIMENSION,
+    REAL_EMBEDDING_MODEL_REF,
 )
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
@@ -36,8 +36,6 @@ from zekam.domain.knowledge import (
     assert_safe_relative,
 )
 from zekam.domain.retrieval import Chunk, ChunkProfile, EmbeddingProfile, estimate_tokens
-from zekam.infrastructure.postgres.knowledge_repository import KnowledgeRepository
-from zekam.infrastructure.postgres.retrieval_repository import RetrievalRepository
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 MAX_CONFIG_BYTES = 1024 * 1024
@@ -500,7 +498,7 @@ class OracleMetadataIndexPlan:
                 "model_ref": self.embedding_profile.model_ref,
                 "dimension": self.embedding_profile.dimension,
                 "profile_digest": self.embedding_profile.profile_digest,
-                "mode": "offline-deterministic-fallback",
+                "mode": "verified-local-provider-required",
                 "remote_provider_used": False,
             },
             "plan_digest": self.plan_digest,
@@ -555,8 +553,8 @@ def build_oracle_metadata_index_plan(
         keep_code_whole=True,
     )
     embedding_profile = EmbeddingProfile(
-        model_ref=LOCAL_EMBEDDING_MODEL_REF,
-        dimension=LOCAL_EMBEDDING_DIMENSION,
+        model_ref=REAL_EMBEDDING_MODEL_REF,
+        dimension=REAL_EMBEDDING_DIMENSION,
         distance="cosine",
     )
     chunks = tuple(
@@ -609,13 +607,49 @@ def apply_oracle_metadata_index(
     plan: OracleMetadataIndexPlan,
     *,
     connection: Any,
-    realm_id: UUID,
+    knowledge: Any,
+    retrieval: Any,
     object_store: LocalContentAddressedStore,
+    embedding_provider: EmbeddingProvider | None = None,
+    embedding_policy: EmbeddingPolicy | None = None,
     now: dt.datetime | None = None,
 ) -> OracleMetadataIndexResult:
     """Persist a secret-safe Oracle DDL snapshot and its local vectors."""
 
     moment = now or dt.datetime.now(dt.UTC)
+    if embedding_provider is None or embedding_policy is None:
+        raise PolicyViolation("Verified embedding provider/policy olmadan indeks uygulanamaz")
+    provider_profile = embedding_provider.describe()
+    accepted_model_refs = {
+        provider_profile.exact_model_id,
+        f"openai/{provider_profile.exact_model_id}",
+    }
+    if (
+        plan.embedding_profile.model_ref not in accepted_model_refs
+        or plan.embedding_profile.dimension != provider_profile.dimension
+        or plan.embedding_profile.provider_profile_digest != provider_profile.profile_digest
+        or embedding_policy.expected_profile_digest != provider_profile.profile_digest
+    ):
+        raise PolicyViolation("Oracle index/provider profile drift; rebuild required")
+    provider_profile.assert_policy(embedding_policy)
+    vectors: dict[str, tuple[float, ...]] = {}
+    for offset in range(0, len(plan.chunks), 8):
+        chunk_batch = plan.chunks[offset : offset + 8]
+        embedded = embedding_provider.embed_documents(
+            tuple(chunk.text for chunk in chunk_batch), embedding_policy
+        )
+        if (
+            len(embedded.vectors) != len(chunk_batch)
+            or embedded.receipt.vector_count != len(chunk_batch)
+            or embedded.receipt.dimension != provider_profile.dimension
+            or embedded.receipt.profile_digest != provider_profile.profile_digest
+        ):
+            raise PolicyViolation("Oracle embedding batch/receipt contract drift")
+        for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
+            provider_profile.validate_vector(vector)
+            vectors[chunk.chunk_id] = vector
+    if len(vectors) != len(plan.chunks):
+        raise PolicyViolation("Oracle embedding batch eksik/duplicate sonuc uretti")
     service = IngestionService(default_router())
     artifact = service.artifact_for(
         plan.manifest,
@@ -628,8 +662,6 @@ def apply_oracle_metadata_index(
     stored = object_store.ensure().put(plan.manifest, media_type=artifact.media_type)
     if stored.digest != artifact.content_digest:
         raise PolicyViolation("Oracle metadata manifest CAS digest uyusmazligi")
-    knowledge = KnowledgeRepository(connection, realm_id, project_id=plan.project_id)
-    retrieval = RetrievalRepository(connection, realm_id)
     source_slug = f"project-{plan.project_slug}-oracle-metadata"
     ingestion = service.start(
         job_id=plan.plan_digest,
@@ -660,17 +692,24 @@ def apply_oracle_metadata_index(
         if equivalent is not None and equivalent[2] == "active":
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "select d.id, count(distinct c.id), count(distinct e.id)"
+                    "select d.id, count(distinct c.id), count(distinct e.id),"
+                    " ep.profile_digest"
                     " from knowledge.normalized_document d"
                     " join knowledge.source_version v on v.id=d.version_id"
+                    " join knowledge.document_index_profile dip on dip.document_id=d.id"
+                    " join knowledge.embedding_profile ep on ep.id=dip.embedding_profile_id"
                     " left join knowledge.chunk c on c.document_id=d.id"
                     " left join knowledge.chunk_embedding e on e.chunk_id=c.id"
-                    " where v.id=%s group by d.id",
+                    " where v.id=%s group by d.id,ep.profile_digest",
                     (equivalent[0],),
                 )
                 row = cursor.fetchone()
             if row is None or int(row[1]) != len(plan.chunks) or int(row[2]) != len(plan.chunks):
                 raise PolicyViolation("Mevcut Oracle metadata indeksi eksik")
+            if str(row[3]) != plan.embedding_profile.profile_digest:
+                raise PolicyViolation(
+                    "Mevcut Oracle index provider profile drift; rebuild required"
+                )
             return OracleMetadataIndexResult(
                 source_id=source_id,
                 document_id=row[0],
@@ -701,7 +740,7 @@ def apply_oracle_metadata_index(
                 chunk_ids[chunk.chunk_id],
                 embedding_profile_id,
                 plan.embedding_profile,
-                deterministic_local_embedding(chunk.text),
+                vectors[chunk.chunk_id],
                 now=moment,
             )
         retrieval.store_document_profiles(

@@ -1,0 +1,16 @@
+{
+  "schema": "zekam-wp07-source-digests/v1",
+  "source_binding": "project:akilli-kasa",
+  "source_head": "fae458661765c2e5228c84ea8e95aa6fded8b1c2",
+  "source_status_digest_before": "sha256:72328b100bd68ab4381d0a977901532887e55ddd700dad39f709c60c71124ce0",
+  "source_status_digest_after": "sha256:72328b100bd68ab4381d0a977901532887e55ddd700dad39f709c60c71124ce0",
+  "source_written": false,
+  "selected_files": [
+    {"relative_path": "belgeler/kararlar/ADR-0006-idempotent-dosya-ice-aktarma.md", "sha256": "2b758a069ef9409d04621f0297008eebe36dcb7c69831a9c3441e1eb1e7bd2de"},
+    {"relative_path": "belgeler/kararlar/ADR-0005-parasal-tutarlarda-decimal-kullanimi.md", "sha256": "fcd13ffae955b13ef4c82ea351ea9c5cf88c3888a8e672a13f8f9c6b34f35d3e"},
+    {"relative_path": "belgeler/kararlar/ADR-0010-frontend-backend-api-siniri.md", "sha256": "d984c206122d68c8e63dd626e5c02022ec6ffde67567dca0e67550863e7c694b"},
+    {"relative_path": "src/akilli_kasa/api/saglik.py", "sha256": "513234afc3a08fac74170cc3232c25cf8e4ca110b98c93c7bc36d1092b49cf95"},
+    {"relative_path": "tests/entegrasyon/test_saglik.py", "sha256": "f531e74bdc3195c8e4341a0f097a6a0355c770923d1da613f7329519e429f103"},
+    {"relative_path": "tests/birim/test_kurallar.py", "sha256": "6cdadc9f323a0f67b4bccc689b2df593f455ad8db1cc90dc7eb3e7c5dbab0871"}
+  ]
+}

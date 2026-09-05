@@ -1,0 +1,9 @@
+{
+  "failed": 0,
+  "passed": 101,
+  "schema": "zekam-focused-test-result/v1",
+  "source_evidence": "/Users/mkaracan/zekam-wp08-v3-evidence.16wYdB/wp09-mac-accepted-envelope.json",
+  "source_evidence_sha256": "57958008ce34dfa4688773dc16561aab226a63fe98c4c52b767c750621c055f8",
+  "verdict": "PASS_WP09_MAC",
+  "work_package": "WP-09"
+}

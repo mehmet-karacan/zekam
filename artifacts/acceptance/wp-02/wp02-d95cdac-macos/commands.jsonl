@@ -1,0 +1,9 @@
+{"command":"uv run pytest -q tests/security/test_legacy_database_access_sentinel.py tests/unit/test_fresh_bootstrap.py tests/unit/test_home_layout.py tests/unit/test_config.py tests/unit/test_sqlite_persistence.py tests/unit/test_technology_bakeoff.py tests/e2e/test_cli_baseline.py tests/e2e/test_cli_backup.py","exit_code":0,"result":"166 passed"}
+{"command":"uv run pytest -q tests/unit","exit_code":0,"result":"2169 passed before final two lock regression cases were added"}
+{"command":"uv run pytest -q tests/unit","exit_code":1,"result":"2169 passed, 1 existing lifecycle-spool concurrency test failed intermittently; isolated rerun passed twice then reproduced on third run"}
+{"command":"uv run pytest -q tests/security","exit_code":0,"result":"198 passed, 57 PostgreSQL-marked tests skipped because no PostgreSQL test host was configured"}
+{"command":"uv run ruff check src tests","exit_code":0,"result":"passed"}
+{"command":"uv run mypy src/zekam/application/fresh_bootstrap.py tests/unit/test_fresh_bootstrap.py","exit_code":0,"result":"passed"}
+{"command":"ZEKAM_VALIDATION_RESULT_PATH=/tmp/zekam-validation-result-final.json uv run python scripts/paket_dogrula.py","exit_code":0,"result":"passed, 0 warnings, 0 errors"}
+{"command":"uv run python scripts/generate_package_manifest.py --check","exit_code":0,"result":"passed"}
+{"command":"git diff --check","exit_code":0,"result":"passed"}

@@ -47,7 +47,7 @@ def test_remote_candidate_never_receives_project_source_without_policy() -> None
         local_dimension=1024,
         remote_source_allowed=False,
     )
-    assert decision.kind is EmbeddingRouteKind.LOCAL_FALLBACK
+    assert decision.kind is EmbeddingRouteKind.LOCAL_PROVIDER
     assert decision.reasons == ("remote-project-source-not-authorized",)
 
 
@@ -58,5 +58,5 @@ def test_missing_or_stale_candidate_uses_explicit_local_fallback() -> None:
         local_dimension=1024,
         remote_source_allowed=True,
     )
-    assert decision.kind is EmbeddingRouteKind.LOCAL_FALLBACK
+    assert decision.kind is EmbeddingRouteKind.LOCAL_PROVIDER
     assert decision.reasons == ("qualified-embedding-candidate-missing",)

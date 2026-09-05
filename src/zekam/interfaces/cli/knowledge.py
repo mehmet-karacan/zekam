@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 from typing import Annotated
+from uuid import NAMESPACE_URL, uuid5
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from zekam.application.composition import build_context
-from zekam.application.config import PersistenceBackend
+from zekam.application.knowledge_file_plane import note_content_digest
 from zekam.application.knowledge_ingestion import (
     ArchiveInspector,
     DirectoryScanner,
@@ -25,27 +27,25 @@ from zekam.application.knowledge_ingestion import (
     pending_version,
 )
 from zekam.application.knowledge_parsers import default_router
-from zekam.application.realm_context import attach_realm
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import ValidationFailed, ZekamError
+from zekam.domain.identifiers import validate_slug
 from zekam.domain.knowledge import SourceFormat
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.domain.retrieval import ChunkProfile, EmbeddingProfile, chunk_units
 from zekam.infrastructure.knowledge.document_parsers import media_type_for
-from zekam.infrastructure.postgres.connection import connect
-from zekam.infrastructure.postgres.knowledge_repository import KnowledgeRepository
-from zekam.infrastructure.postgres.retrieval_repository import RetrievalRepository
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 from zekam.interfaces.cli.session import (
     HOME_HELP,
     REALM_HELP,
     fail,
     fail_from,
+    sqlite_operational_store,
     sqlite_repository,
 )
 
 app = typer.Typer(name="knowledge", help="Knowledge Plane islemleri", no_args_is_help=True)
 console = Console()
+_LOCAL_REALM_ID = str(uuid5(NAMESPACE_URL, "zekam://realm/yerel"))
 
 #: Uzantidan format cikarimi; bilinmeyen uzanti tahmin edilmez.
 _SUFFIXES: dict[str, SourceFormat] = {
@@ -96,6 +96,26 @@ def _parse_vector(value: str) -> tuple[float, ...]:
         raise ValidationFailed("Vector JSON sonlu sayi dizisi olmali") from exc
 
 
+def _materialize_once(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.exists():
+        if path.is_symlink() or not path.is_file() or path.read_bytes() != payload:
+            raise ValidationFailed("Knowledge materialization replay drift")
+        return
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise ValidationFailed("Knowledge materialization yazilamadi") from exc
+
+
 @app.command("vector-index")
 def vector_index_command(
     project: Annotated[str, typer.Argument(help="Proje slug veya kimlik")],
@@ -112,6 +132,10 @@ def vector_index_command(
         console.print("[yellow]Dry-run. Indekslemek icin --uygula verin.[/yellow]")
         return
     try:
+        if sqlite_operational_store(home, realm) is not None:
+            raise ValidationFailed(
+                "Knowledge index operational DB'den ayridir; local adapter henuz aktif degil"
+            )
         repository = sqlite_repository(home, realm)
         if repository is None:
             raise ValidationFailed("vector-index yalniz SQLite minimum profilinde kullanilir")
@@ -140,6 +164,10 @@ def vector_search_command(
 ) -> None:
     """SQLite JSON-vector cosine aramasini model uzayina bagli calistirir."""
     try:
+        if sqlite_operational_store(home, realm) is not None:
+            raise ValidationFailed(
+                "Knowledge index operational DB'den ayridir; local adapter henuz aktif degil"
+            )
         repository = sqlite_repository(home, realm)
         if repository is None:
             raise ValidationFailed("vector-search yalniz SQLite minimum profilinde kullanilir")
@@ -279,93 +307,55 @@ def ingest_command(
             console.print("[yellow]Dry-run. Yazmak icin --uygula verin.[/yellow]")
         return
 
-    context = build_context(home=home)
-    if context.settings.database.backend is PersistenceBackend.SQLITE:
-        raise fail(
-            "knowledge ingest SQLite minimum profilinde desteklenmiyor; PostgreSQL'e fallback yok"
-        )
-    store = LocalContentAddressedStore(
-        context.home / context.settings.object_store_relative
-    ).ensure()
-    stored = store.put(payload, media_type=artifact.media_type)
-    if stored.digest != artifact.content_digest:
-        raise fail("CAS digest artifact ile eslesmiyor")
     try:
-        # CAS yazimi DB transaction'indan once tamamlanir. DB rollback olursa
-        # icerik adresli orphan guvenle reconcile edilebilir; payload kaybolmaz.
-        with connect(context.settings.database, autocommit=False) as connection:
-            try:
-                realm_context = attach_realm(connection, slug=realm, create_if_missing=True)
-                repository = KnowledgeRepository(connection, realm_context.realm_id)
-                retrieval = RetrievalRepository(connection, realm_context.realm_id)
-                artifact_id = repository.store_artifact(artifact)
-                source_id = repository.register_source(slug, source_format, now=now)
-                equivalent = repository.equivalent_version(
-                    source_id,
-                    artifact_digest=artifact.artifact_digest,
-                    content_digest=normalized.content_digest,
-                )
-                if equivalent is not None and equivalent[2] == "active":
-                    summary["revision"] = equivalent[1]
-                    summary["state"] = "active"
-                    connection.commit()
-                    if as_json:
-                        console.print_json(json.dumps(summary, ensure_ascii=False))
-                    else:
-                        console.print(
-                            f"[green]zaten aktif:[/green] {slug} ({normalized.unit_count} birim)"
-                        )
-                    return
-                revision = repository.next_revision(source_id)
-                version = pending_version(
-                    version_id=f"{slug}-r{revision}",
-                    source_id=slug,
-                    revision=revision,
-                    artifact=artifact,
-                    content_digest=normalized.content_digest,
-                    now=now,
-                )
-                job_id = repository.start_job(
-                    job, source_id=source_id, artifact_id=artifact_id, now=now
-                )
-                version_id = repository.store_version(
-                    version, source_id=source_id, artifact_id=artifact_id
-                )
-                document_id = repository.store_document(normalized, version_id=version_id, now=now)
-                chunk_profile = ChunkProfile(name="knowledge-default")
-                embedding_profile = EmbeddingProfile(
-                    model_ref=context.settings.knowledge.embedding_model_ref,
-                    dimension=context.settings.knowledge.embedding_dimension,
-                    distance=context.settings.knowledge.embedding_distance,
-                )
-                chunk_profile_id = retrieval.store_chunk_profile(chunk_profile, now=now)
-                embedding_profile_id = retrieval.store_embedding_profile(embedding_profile, now=now)
-                chunks = chunk_units(
-                    normalized.units,
-                    document_id=str(document_id),
-                    profile=chunk_profile,
-                )
-                retrieval.store_chunks(chunks, document_id=document_id, now=now)
-                retrieval.store_document_profiles(
-                    document_id=document_id,
-                    chunk_profile_id=chunk_profile_id,
-                    embedding_profile_id=embedding_profile_id,
-                    now=now,
-                )
-                repository.save_progress(job_id, job, now=now)
-                previous = repository.active_version(source_id)
-                if previous is not None and previous != version_id:
-                    repository.supersede_version(previous, version_id)
-                repository.activate_version(version_id)
-                connection.commit()
-                summary["revision"] = revision
-            except Exception:
-                connection.rollback()
-                raise
+        context = build_context(home=home)
+        operational = sqlite_operational_store(home, realm)
+        assert operational is not None
+        safe_slug = validate_slug(slug)
+        content_digest = note_content_digest(payload)
+        cas = LocalContentAddressedStore(
+            context.home / context.settings.object_store_relative
+        ).ensure()
+        stored = cas.put(payload, media_type=media_type, metadata={"source_slug": safe_slug})
+        portable_ref = f"inbox/user/global/{safe_slug}.md"
+        target = context.home / portable_ref
+        with operational.unit_of_work() as uow:
+            uow.register_artifact(
+                artifact_digest=stored.digest,
+                media_type=media_type,
+                size_bytes=stored.size_bytes,
+                classification="internal",
+            )
+            note = uow.register_knowledge_note(
+                realm_id=_LOCAL_REALM_ID,
+                project_id=None,
+                owner_scope="global-user",
+                portable_ref=portable_ref,
+                note_kind="reference",
+                authorship="user",
+                classification="internal",
+                content_digest=content_digest,
+            )
+            _materialize_once(target, payload)
+            note = uow.confirm_knowledge_note(
+                note_id=note.id,
+                expected_content_digest=content_digest,
+                evidence_digest=digest(
+                    {"artifact_digest": stored.digest, "portable_ref": portable_ref}
+                ),
+            )
+            uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-
+    summary.update(
+        {
+            "applied": True,
+            "note_id": note.id,
+            "portable_ref": portable_ref,
+            "artifact_digest": stored.digest,
+        }
+    )
     if as_json:
         console.print_json(json.dumps(summary, ensure_ascii=False))
     else:
-        console.print(f"[green]aktive edildi:[/green] {slug} ({normalized.unit_count} birim)")
+        console.print(f"[green]Ingest edildi:[/green] {portable_ref}")

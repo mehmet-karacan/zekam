@@ -1,0 +1,27 @@
+{
+  "files": {
+    "benchmarks/__init__.py": "sha256:86873c971380516ee45a25c12d43e98411929d186d0593c69b945d06c9863acb",
+    "benchmarks/suites/__init__.py": "sha256:c17909eec0d1a46e69eddf844003dd19cba1c10a0800546a71e19e85f189488f",
+    "benchmarks/suites/wp01_duckdb_analytics.py": "sha256:27e2491d06c93f3cfca690ddc58f989a37bb8a25db0b9ef11375e65ca81fc4e7",
+    "benchmarks/suites/wp01_knowledge_bakeoff.py": "sha256:825a843290e378559c2f21dbca34ed9bdeb65ebac16e90b1122ec2e9faafa9bc",
+    "benchmarks/suites/wp01_knowledge_corpus.py": "sha256:e06664e8970e14dc91c7218a1a01eb4c6a727dca1575494dfbb777e3a7f0e8df",
+    "benchmarks/suites/wp01_operational_fixture.py": "sha256:11a041e0e3c7e35f4e954f247cb5090ef24d3495dfc320d70f8481bb6f63eeff",
+    "benchmarks/suites/wp01_pyturso_operational.py": "sha256:494fcd1e41e592f3c481cf4892518381edeca44567d670705aa9eff77054b604",
+    "benchmarks/suites/wp01_sqlite_lexical.py": "sha256:6cc2b4a588da65f36415365acf6d7e14c78179fe42493f9d1e47b4f2d58d06b9",
+    "benchmarks/suites/wp01_sqlite_operational.py": "sha256:f3cbb3d11e186b6aefff0419b99fc0f7dfe7b3234623f4d44421c33f51954e35",
+    "docs/adr/ADR-ANALYTICS-001.md": "sha256:57630996b3fa8314b40824a990e9933977d512b48144f70c8e6a0d61c7ef0751",
+    "docs/adr/ADR-KNOWLEDGE-INDEX-001.md": "sha256:596946013413f48e574c6e02d836db5cc0f04c998aeefb1e294343018add8d04",
+    "docs/adr/ADR-LOCAL-STORE-001.md": "sha256:c9ba691c42aadfcd6bec8d399d86279d840814576dd2bb41f59451227cda0163",
+    "pyproject.toml": "sha256:385c19e5405688a5fb94ebcae659041d86ad32de237f7d5ca0d819815cf8e5ed",
+    "scripts/paket_dogrula.py": "sha256:b5dca1b39e2538aaa23e0923c3b9a2a5daf406cd46f8817f16513847132db7ac",
+    "src/zekam/application/technology_bakeoff.py": "sha256:5d2714f184534871ac3011aa07e35b7b789b782e1784e59db10f9abe06ad906e",
+    "tests/integration/test_wp01_sqlite_operational_bakeoff.py": "sha256:5691357e10925450e0a3e1b9765b049a8449c817a164e5833614c1c3a8402318",
+    "tests/unit/test_technology_bakeoff.py": "sha256:0d8e98a2c6f55a394752052c9b41fa70f61fbf6f030d24b200506865a240b7bb",
+    "tests/unit/test_wp01_duckdb_analytics.py": "sha256:26286f94733e3ba8291bad2d5908966da4ae1cca146c2e78e85e9f5fc646fe18",
+    "tests/unit/test_wp01_knowledge_bakeoff.py": "sha256:e69577c87efab4d67f737ac03fb241d5939dff933d9996535b5c1ec72d201825",
+    "tests/unit/test_wp01_knowledge_corpus.py": "sha256:a405dd4bc20b7a7c574daa9b8664671064aac94dd7a7afaa00cfb2863222972b",
+    "tests/unit/test_wp01_pyturso_operational.py": "sha256:5e4666bdd9b04ad848571b71250511c57fb098b7d073cd50207c53e47cce39b3",
+    "tests/unit/test_wp01_sqlite_lexical.py": "sha256:f65c67d7d2447119982ae7c5ae94b42804249829a7fbf47ce381809880616568"
+  },
+  "schema": "zekam-wp01-source-digests/v1"
+}

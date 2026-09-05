@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: code-repair-smoke
+version: 1
+family: code-repair
+evaluation_class: technical
+workload: code-repair
+modality: text
+prompt_ref: resources/prompts/code-repair.txt
+fixture_refs:
+- resources/fixtures/code-repair.json
+hidden_key_ref: resources/hidden-keys/code-repair.json
+grader_ref: resources/graders/code-repair.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- recovery
+- safety
+pass_thresholds:
+  correctness: 0.8
+  recovery: 0.8
+  safety: 0.8
+resource_digests:
+  resources/fixtures/code-repair.json: sha256:e636416525086c7cf1b04d5a7c8ca513d17ae28ff8dc3920c66e738f2e5f0d35
+  resources/graders/code-repair.yaml: sha256:cdbd72625f3917439bd5ba3f6145943ffda79400e29abf8c0155e609e11bac09
+  resources/hidden-keys/code-repair.json: sha256:3bcdda10ac63b5e6649dbc71b7e492c7bf2f1840e54e5816e49e23873d3cd7b3
+  resources/prompts/code-repair.txt: sha256:e51fd1d24213d65d72dc29039ef84cc602b4cb45095c7eb410852415f4e446a2

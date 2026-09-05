@@ -1,0 +1,7 @@
+{"assertion":"focused WP-05 lifecycle, boundary and recovery set","command":".venv/bin/pytest -q tests/unit/test_knowledge_file_plane.py tests/unit/test_knowledge_plane_service.py tests/security/test_knowledge_file_plane_security.py tests/unit/test_operational_store.py tests/unit/test_home_layout.py","exit_code":0,"result":"104 passed"}
+{"assertion":"all repository regressions classified","command":".venv/bin/pytest -q","exit_code":1,"result":"2678 passed, 712 skipped, 5 known machine-contract failures, 0 WP-05 regressions"}
+{"assertion":"lint clean","command":".venv/bin/ruff check .","exit_code":0,"result":"passed"}
+{"assertion":"WP-05 files formatted","command":".venv/bin/ruff format --check <WP-05 source and test set>","exit_code":0,"result":"9 files formatted"}
+{"assertion":"WP-05 source and test typing clean","command":".venv/bin/mypy --strict <WP-05 source and test set>","exit_code":0,"result":"8 files passed"}
+{"assertion":"package and secret scan isolated from tracked output","command":"ZEKAM_VALIDATION_RESULT_PATH=/tmp/zekam-wp05-validation-post-accept.json .venv/bin/python scripts/paket_dogrula.py","exit_code":0,"result":"passed, 0 warnings, 0 errors, 0 findings"}
+{"assertion":"active task Markdown/YAML authority binding","command":".venv/bin/pytest -q tests/unit/test_active_task_contract.py","exit_code":0,"result":"9 passed"}

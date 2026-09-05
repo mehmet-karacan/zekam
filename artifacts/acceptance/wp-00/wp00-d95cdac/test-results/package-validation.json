@@ -1,0 +1,19 @@
+{
+  "schema": "zekam-package-validation-evidence/v1",
+  "status": "passed",
+  "exit_code": 0,
+  "errors": 0,
+  "warnings": 0,
+  "repository_result_overwritten": false,
+  "result_sink": "in-memory-or-repository-external",
+  "active_task_authority": {
+    "task_id": "ZEKAM-LOCAL-INTELLIGENCE-PLANE-001",
+    "authority_ref": "AKTIF_GOREV.md",
+    "authority_digest": "sha256:af6febb23aeddb210e409bec3126759075bae3c3c5832aa04a6a888d5eb19ead",
+    "yaml_generated_projection": true,
+    "grants_authority": false,
+    "legacy_postgresql_data_import": "FORBIDDEN",
+    "postgresql_runtime_dependency": "FORBIDDEN"
+  },
+  "independently_reexecuted_by": "preflight_verifier"
+}

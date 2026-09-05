@@ -1,0 +1,27 @@
+{
+  "schema": "zekam-wp-evidence-manifest/v1",
+  "wp": "WP-00",
+  "run_id": "wp00-d95cdac",
+  "created_at": "2026-09-02T08:42:25Z",
+  "source_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "active_task_digest": "sha256:af6febb23aeddb210e409bec3126759075bae3c3c5832aa04a6a888d5eb19ead",
+  "builder_identity": "root",
+  "verifier_identity": "preflight_verifier",
+  "independent_verifier": true,
+  "provider_call_count": 0,
+  "legacy_postgresql_access_count": 0,
+  "artifact_count": 11,
+  "artifacts": [
+    {"path":"changed-files.json","sha256":"44142eff2f23a8e458a0bd3dbbf2f1e7c2a49bdd5db04d88272541052a1a942e"},
+    {"path":"commands.jsonl","sha256":"127afebb6a67f2de92ea05acf3deb43fce7b01bb45616970ada5e63820d90512"},
+    {"path":"environment.json","sha256":"8a1fcf8f608a13598e15f9c7d9df8fc00e539fd0a915a248c77814d02a0b7025"},
+    {"path":"metrics/wp00.json","sha256":"2c76cee28346e038ffc9cef6537f2b0cc4f74c0c55031058f23df0b493818403"},
+    {"path":"recovery-results.json","sha256":"ce4a456f93ebb56ba815ec8fd42f8b75576e92a433df14601d43ad8c09fa8f18"},
+    {"path":"security-scan.json","sha256":"bf37ca33a3ea07005877f29b276f2e567c519be36acd011b3bcbd870927c044d"},
+    {"path":"source-digests.json","sha256":"18b3f9f101d51df63480c24cb85564dc87261771944f072c0c1cbf3ae389a731"},
+    {"path":"summary.md","sha256":"1def534bf83a3e0d7012b63e3377a93bec224ac043f6df9580165308212dec14"},
+    {"path":"test-results/package-validation.json","sha256":"ac34bbad0f940be0eb0bf3f3a29ead128768f77c17190b43f2f7bbb92c36f22f"},
+    {"path":"test-results/wp00.json","sha256":"e324d677561daa1fcdf7f1116cc3996e0a6b8c12534935c411c2cbd6128f6ee7"},
+    {"path":"verifier-report.json","sha256":"5fd960ca86387984421d166f08e9b4692974d22f7b4038c83d17347b98e63f80"}
+  ]
+}

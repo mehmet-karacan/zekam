@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from zekam.application.composition import ApplicationContext
@@ -19,6 +19,10 @@ from zekam.application.doctor_repair import (
 )
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import DEFAULT_POLICY_NAME, EffectRequest, GovernanceService
+from zekam.application.legacy_repository_provider import (
+    legacy_database_maintenance,
+    legacy_repository,
+)
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.realm_context import RealmContext
 from zekam.application.work_graph import WorkGraphService
@@ -38,15 +42,6 @@ from zekam.domain.work import (
     WorkState,
     WorkType,
 )
-from zekam.infrastructure.postgres import migrations, routine_integrity
-from zekam.infrastructure.postgres.connection import configure_session, reset_role
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.control_plane_completion_repository import (
-    PostgresControlPlaneCompletionRepository,
-)
-from zekam.infrastructure.postgres.core_repository import ActorRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,7 +272,8 @@ def apply_doctor_repair_with_runtime(
             next_safe_action="doctor-rerun",
             created_at=dt.datetime.now(dt.UTC),
         )
-        stored_checkpoint = ContextContinuityRepository(
+        stored_checkpoint = legacy_repository(
+            "context_continuity",
             realm_context.connection,
             realm_context.realm_id,
             project_id,
@@ -300,8 +296,8 @@ def apply_doctor_repair_with_runtime(
         )
         current_work = graph.transition(current_work.id, WorkState.VERIFICATION)
         completion_service = ControlPlaneCompletionService(
-            PostgresControlPlaneCompletionRepository(
-                realm_context.connection, realm_context.realm_id
+            legacy_repository(
+                "control_plane_completion", realm_context.connection, realm_context.realm_id
             )
         )
         completion_request = ControlPlaneCompletionRequest(
@@ -397,11 +393,13 @@ def _effect_request(
         branch = repair_plan.git.state.remote_branch
         if remote is None or branch is None:
             raise PolicyViolation("Git repair exact remote/branch ister")
+        parse_requests(write=(f"path:{project_id}:.git/refs/remotes/{remote}/{branch}",))
         resources: tuple[str, ...] = (
             f"project:{project_id}:source",
-            f"git-ref:{repair_plan.git.state.branch}",
-            f"git-remote:{remote}:{branch}",
+            f"path:{project_id}:.git/refs/heads/{repair_plan.git.state.branch}",
+            f"provider:git:{remote}:{branch}",
         )
+        parse_requests(write=resources)
         return resources, EffectRequest(
             action=step,
             effects=(
@@ -467,7 +465,9 @@ def _apply_step(
         if migration_plan is None or migration_plan.next_migration is None:
             raise PolicyViolation("Migration repair plani yok")
         directory = context.core_path / "migrations"
-        before = migrations.status(realm_context.connection, directory)
+        before = legacy_database_maintenance(
+            "migration-status", realm_context.connection, directory
+        )
         before_binding = (
             before.head,
             tuple((item.version, item.name, item.checksum) for item in before.applied),
@@ -477,31 +477,32 @@ def _apply_step(
         planned_binding = (
             migration_plan.status.head,
             tuple(
-                (item.version, item.name, item.checksum)
-                for item in migration_plan.status.applied
+                (item.version, item.name, item.checksum) for item in migration_plan.status.applied
             ),
             tuple(
-                (item.version, item.name, item.checksum)
-                for item in migration_plan.status.pending
+                (item.version, item.name, item.checksum) for item in migration_plan.status.pending
             ),
             tuple(
-                (item.kind.value, item.version, item.detail)
-                for item in migration_plan.status.drift
+                (item.kind.value, item.version, item.detail) for item in migration_plan.status.drift
             ),
         )
         if before_binding != planned_binding:
             raise PolicyViolation("Migration repair plani veritabani durumu degistigi icin stale")
         target = migration_plan.next_migration
-        reset_role(realm_context.connection)
+        legacy_database_maintenance("session-reset-role", realm_context.connection)
         try:
-            applied = migrations.upgrade(
+            applied = legacy_database_maintenance(
+                "migration-upgrade",
                 realm_context.connection,
                 directory,
                 target=target.version,
             )
-            after = migrations.status(realm_context.connection, directory)
+            after = legacy_database_maintenance(
+                "migration-status", realm_context.connection, directory
+            )
         finally:
-            configure_session(
+            legacy_database_maintenance(
+                "session-configure",
                 realm_context.connection,
                 realm_id=realm_context.realm_id,
             )
@@ -523,15 +524,20 @@ def _apply_step(
     routines = repair_plan.routines
     if routines is None:
         raise PolicyViolation("Routine repair plani yok")
-    reset_role(realm_context.connection)
+    legacy_database_maintenance("session-reset-role", realm_context.connection)
     try:
-        return routine_integrity.repair_missing_routines(
-            realm_context.connection,
-            plan_digest=routines.plan_digest,
-            directory=context.core_path / "migrations",
-        ).as_dict()
+        return cast(
+            dict[str, Any],
+            legacy_database_maintenance(
+                "routine-repair",
+                realm_context.connection,
+                plan_digest=routines.plan_digest,
+                directory=context.core_path / "migrations",
+            ).as_dict(),
+        )
     finally:
-        configure_session(
+        legacy_database_maintenance(
+            "session-configure",
             realm_context.connection,
             realm_id=realm_context.realm_id,
         )
@@ -544,7 +550,9 @@ def _assert_actor_and_project(
     actor_id: UUID,
     project_id: UUID,
 ) -> None:
-    actor = ActorRepository(realm_context.connection, realm_context.realm_id).get(actor_id)
+    actor = legacy_repository("actor", realm_context.connection, realm_context.realm_id).get(
+        actor_id
+    )
     if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
         raise PolicyViolation("Doctor repair actor aktif human olmali")
     integration = ProjectIntegrationService(realm_context.connection, realm_context.realm)

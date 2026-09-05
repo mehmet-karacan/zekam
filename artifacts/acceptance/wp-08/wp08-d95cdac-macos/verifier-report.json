@@ -1,0 +1,10 @@
+{
+  "global_complete": false,
+  "p0": 0,
+  "p1": 0,
+  "schema": "zekam-evidence-verifier/v1",
+  "source": "/Users/mkaracan/zekam-wp08-v3-evidence.16wYdB/wp08-mac-final-independent-acceptance-envelope.json",
+  "source_sha256": "a8dceaf3c54c30bc4a84d36b102b51fac652838b159b8ba11927e03a65eddd3a",
+  "verdict": "PASS_WP08_MAC",
+  "work_package": "WP-08"
+}

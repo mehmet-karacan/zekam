@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: document-analysis-smoke
+version: 1
+family: document-analysis
+evaluation_class: technical
+workload: document-analysis
+modality: text
+prompt_ref: resources/prompts/document-analysis.txt
+fixture_refs:
+- resources/fixtures/document-analysis.json
+hidden_key_ref: resources/hidden-keys/document-analysis.json
+grader_ref: resources/graders/document-analysis.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- evidence-citation
+- structured-format
+pass_thresholds:
+  correctness: 0.8
+  evidence-citation: 0.8
+  structured-format: 0.8
+resource_digests:
+  resources/fixtures/document-analysis.json: sha256:e0a1b0b5df98e4a4e9e14e08576b4491f89e692bb4ecfc683ef0c7fd6d67b662
+  resources/graders/document-analysis.yaml: sha256:3618ff7311b8406211a03c05381d43dc90531a68137831be7ffe1eacb300dd63
+  resources/hidden-keys/document-analysis.json: sha256:0a311340d33226fd4bd593ec0730f38587d71e10756dd3cbb2d6d3cc38d655c7
+  resources/prompts/document-analysis.txt: sha256:013821e91789876c64e8d7e0f0ff67566970f59379c16d3f2061165881919024

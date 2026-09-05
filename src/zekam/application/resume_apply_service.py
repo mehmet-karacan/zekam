@@ -12,6 +12,7 @@ from zekam.application.agent_dispatch import CanonicalAgentDispatchService
 from zekam.application.environment_snapshot_service import EnvironmentEffectGuard
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import EffectRequest, GovernanceService
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.resume_coordinator import ResumeCoordinator
 from zekam.domain.agents import AgentInvocation, AssignmentStatus
 from zekam.domain.canonical import digest
@@ -31,12 +32,6 @@ from zekam.domain.resume_apply import (
 from zekam.domain.runtime import AttemptOutcome, FailureCategory
 from zekam.domain.work import EffectKind
 from zekam.infrastructure.clients.adapters import ClientAdapter
-from zekam.infrastructure.postgres.agent_assignment_repository import (
-    AgentAssignmentRepository,
-)
-from zekam.infrastructure.postgres.resume_apply_repository import ResumeApplyRepository
-from zekam.infrastructure.postgres.resume_repository import ResumeRepository
-from zekam.infrastructure.postgres.runtime_repository import JobRepository
 
 
 def _result(plan_digest: str, event: ResumeApplyEvent) -> ResumeApplyResult:
@@ -102,8 +97,8 @@ class ResumeApplyService:
             ),
             required_capabilities=("database.write", "process.run"),
         )
-        repository = ResumeApplyRepository(self.connection, plan.realm_id)
-        assignments = AgentAssignmentRepository(self.connection, plan.realm_id)
+        repository = legacy_repository("resume_apply", self.connection, plan.realm_id)
+        assignments = legacy_repository("agent_assignment", self.connection, plan.realm_id)
         host = ExecutionHost(self.connection, plan.realm_id, worker_label=request.worker_label)
 
         with self.connection.transaction():
@@ -124,7 +119,9 @@ class ResumeApplyService:
                     replay = repository.recover_interrupted(replay, now=moment)
                 return _result(plan.plan_digest, replay)
             fresh = ResumeCoordinator(
-                ResumeRepository(self.connection, plan.realm_id, manage_transaction=False)
+                legacy_repository(
+                    "resume", self.connection, plan.realm_id, manage_transaction=False
+                )
             ).prepare(
                 plan.work_item_id,
                 client_id=plan.target_client_id,
@@ -166,7 +163,7 @@ class ResumeApplyService:
                 consumed_by=request.worker_label,
                 now=moment,
             )
-            claimed = JobRepository(self.connection, plan.realm_id).claim_exact(
+            claimed = legacy_repository("job", self.connection, plan.realm_id).claim_exact(
                 plan.runtime.job_id,
                 project_id=plan.project_id,
                 work_item_id=plan.work_item_id,

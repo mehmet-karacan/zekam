@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: document-analysis-grader
+version: 1
+family: document-analysis
+evaluation_class: technical
+dimensions:
+- correctness
+- evidence-citation
+- structured-format
+hidden_key_model_visible: false

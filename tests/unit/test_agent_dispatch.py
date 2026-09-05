@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,8 +13,9 @@ import pytest
 from zekam.application.agent_dispatch import CanonicalAgentDispatchService
 from zekam.domain.agents import AgentAssignment, AgentInvocation, AssignmentRole
 from zekam.domain.canonical import digest
-from zekam.domain.clients import DispatchOutcome, DispatchResult
+from zekam.domain.clients import DispatchOutcome, DispatchRequest, DispatchResult
 from zekam.domain.errors import PolicyViolation
+from zekam.infrastructure.clients.adapters import ClientAdapter
 
 
 def _assignment(*, coordinator: bool = False) -> AgentAssignment:
@@ -22,7 +24,7 @@ def _assignment(*, coordinator: bool = False) -> AgentAssignment:
     project_id = uuid4()
     work_item_id = uuid4()
     parent_assignment_id = None if coordinator else uuid4()
-    identity = {
+    identity: dict[str, object] = {
         "id": str(assignment_id),
         "realm_id": str(realm_id),
         "project_id": str(project_id),
@@ -44,10 +46,10 @@ def _assignment(*, coordinator: bool = False) -> AgentAssignment:
         project_id=project_id,
         work_item_id=work_item_id,
         parent_assignment_id=parent_assignment_id,
-        role=AssignmentRole(identity["role"]),
-        agent_ref=identity["agent_ref"],
-        instruction_digest=identity["instruction_digest"],
-        context_manifest_digest=identity["context_manifest_digest"],
+        role=AssignmentRole(str(identity["role"])),
+        agent_ref=str(identity["agent_ref"]),
+        instruction_digest=str(identity["instruction_digest"]),
+        context_manifest_digest=str(identity["context_manifest_digest"]),
         assignment_digest=digest(identity),
         step_id="inspect",
         created_at=dt.datetime(2026, 8, 24, tzinfo=dt.UTC),
@@ -81,15 +83,15 @@ class RecordingStore:
     def __init__(self) -> None:
         self.events: list[str] = []
 
-    def create(self, assignment):
+    def create(self, assignment: AgentAssignment) -> tuple[UUID, bool]:
         self.events.append("assignment")
         return assignment.id, True
 
-    def record_invocation(self, invocation):
+    def record_invocation(self, invocation: AgentInvocation) -> tuple[UUID, bool]:
         self.events.append("invocation")
         return invocation.id, True
 
-    def store_result(self, **_kwargs):
+    def store_result(self, **_kwargs: Any) -> None:
         self.events.append("receipt")
 
 
@@ -99,7 +101,7 @@ class RecordingAdapter:
     def __init__(self, store: RecordingStore) -> None:
         self.store = store
 
-    def dispatch(self, request, *, cwd: Path, permit):
+    def dispatch(self, request: DispatchRequest, *, cwd: Path, permit: Any) -> DispatchResult:
         permit.assert_valid(request)
         self.store.events.append("effect")
         return DispatchResult(
@@ -113,37 +115,45 @@ class RecordingAdapter:
         )
 
 
-def test_dispatch_persists_canonical_bindings_before_effect_and_receipt(tmp_path) -> None:
+def test_dispatch_persists_canonical_bindings_before_effect_and_receipt(tmp_path: Path) -> None:
     assignment = _assignment()
     invocation = _invocation(assignment)
     store = RecordingStore()
 
     CanonicalAgentDispatchService(store).dispatch(
-        assignment, invocation, RecordingAdapter(store), cwd=tmp_path, timeout_seconds=30
+        assignment,
+        invocation,
+        cast(ClientAdapter, RecordingAdapter(store)),
+        cwd=tmp_path,
+        timeout_seconds=30,
     )
 
     assert store.events == ["assignment", "invocation", "effect", "receipt"]
 
 
-def test_coordinator_cannot_be_dispatched_as_child(tmp_path) -> None:
+def test_coordinator_cannot_be_dispatched_as_child(tmp_path: Path) -> None:
     assignment = _assignment(coordinator=True)
     invocation = _invocation(assignment)
     store = RecordingStore()
     with pytest.raises(PolicyViolation, match="child assignment"):
         CanonicalAgentDispatchService(store).dispatch(
-            assignment, invocation, RecordingAdapter(store), cwd=tmp_path, timeout_seconds=30
+            assignment,
+            invocation,
+            cast(ClientAdapter, RecordingAdapter(store)),
+            cwd=tmp_path,
+            timeout_seconds=30,
         )
     assert store.events == []
 
 
-def test_invocation_cannot_cross_assignment(tmp_path) -> None:
+def test_invocation_cannot_cross_assignment(tmp_path: Path) -> None:
     assignment = _assignment()
     invocation = _invocation(assignment, assignment_id=uuid4())
     with pytest.raises(PolicyViolation, match="baska assignment"):
         CanonicalAgentDispatchService(RecordingStore()).dispatch(
             assignment,
             invocation,
-            RecordingAdapter(RecordingStore()),
+            cast(ClientAdapter, RecordingAdapter(RecordingStore())),
             cwd=tmp_path,
             timeout_seconds=30,
         )

@@ -1,0 +1,14 @@
+{
+  "deferred": [
+    "Windows x64 acceptance",
+    "supported-Python matrix",
+    "large corpus and high-load stress",
+    "live OpenCode remote providers"
+  ],
+  "focused_passed": 0,
+  "full_suite_failures": 0,
+  "full_suite_tests": 6973,
+  "schema": "zekam-wp-metrics/v1",
+  "status": "macos-accepted/windows-deferred",
+  "work_package": "WP-16"
+}

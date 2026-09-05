@@ -13,13 +13,14 @@ devretmez; bu protokolün yerine geçmez.
 
 Ürün uygulandıktan sonra öncelik sırası:
 
-1. PostgreSQL Work Graph ve revision kayıtları
-2. Task Plan, Run, Step, Claim, Receipt ve Verification kayıtları
-3. Source binding ve source revision
-4. Checkpoint, Work Journal ve Continuity Packet
-5. İnsan okunur projection'lar (`AKTIF_GOREV.md`, raporlar)
-6. Retrieval ve memory sonuçları
-7. Sohbet geçmişi
+1. Bağlayıcı yaşayan görev ve kapsam authority'si (`AKTIF_GOREV.md`)
+2. Yerel operational Work Graph ve revision kayıtları
+3. Task Plan, Run, Step, Claim, Receipt ve Verification kayıtları
+4. Source binding ve source revision
+5. Checkpoint, Work Journal ve Continuity Packet
+6. İnsan okunur generated projection ve raporlar
+7. Retrieval ve memory sonuçları
+8. Sohbet geçmişi
 
 Alt seviye kaynak üst seviyeyi değiştiremez.
 

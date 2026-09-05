@@ -3,9 +3,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -160,7 +162,7 @@ def _continuity_binding(
 
 def _continuity_preflight(
     entry: LifecycleSpoolEntry,
-    canonical_event: dict[str, object],
+    canonical_event: Mapping[str, Any],
     *,
     client_instance_id: str,
 ) -> dict[str, object]:
@@ -419,18 +421,21 @@ def test_claimed_composition_accepts_only_canonical_completed_outcome(
         lifecycle_composition, "drain_to_postgres", lambda *args, **kwargs: (expected,)
     )
     result = drain_claimed_codex_delivery(
-        spool=spool,
-        bridge=SimpleNamespace(
-            repository=object(),
-            authorizations=object(),
-            prepare=lambda *args, **kwargs: SimpleNamespace(effect_digest=claim.effect_digest),
+        spool=cast(Any, spool),
+        bridge=cast(
+            Any,
+            SimpleNamespace(
+                repository=object(),
+                authorizations=object(),
+                prepare=lambda *args, **kwargs: SimpleNamespace(effect_digest=claim.effect_digest),
+            ),
         ),
         repository=repository,
-        work=work,
-        claim=claim,
+        work=cast(Any, work),
+        claim=cast(Any, claim),
         authorization_id=uuid4(),
-        contract=object(),
-        hook_session=object(),
+        contract=cast(Any, object()),
+        hook_session=cast(Any, object()),
         session_binding_id=uuid4(),
         inputs=LifecyclePlanInputs(
             "git:source",
@@ -452,34 +457,37 @@ def test_receiptless_claim_without_pending_entry_enters_recovery(
     outcomes: list[AttemptOutcome] = []
     state_calls: list[dict[str, object]] = []
 
+    def recovery_finish_state(**values: object) -> str:
+        state_calls.append(values)
+        return "running-exact"
+
     class Host:
         ledger = SimpleNamespace(receipt_for_claim=lambda claim_id: None)
 
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
         @staticmethod
-        def finish(claimed, *, outcome, result_digest):  # type: ignore[no-untyped-def]
+        def finish(claimed: object, *, outcome: AttemptOutcome, result_digest: str | None) -> bool:
+            del claimed, result_digest
             outcomes.append(outcome)
             return True
 
     monkeypatch.setattr(lifecycle_composition, "ExecutionHost", Host)
     with pytest.raises(PolicyViolation, match="Receiptless claimed Codex delivery"):
         drain_claimed_codex_delivery(
-            spool=SimpleNamespace(pending=lambda *, limit: ()),
-            bridge=object(),
+            spool=cast(Any, SimpleNamespace(pending=lambda *, limit: ())),
+            bridge=cast(Any, object()),
             repository=SimpleNamespace(
                 realm_id=uuid4(),
                 connection=object(),
-                recovery_finish_state=lambda **values: (
-                    state_calls.append(values) or "running-exact"
-                ),
+                recovery_finish_state=recovery_finish_state,
             ),
-            work=work,
-            claim=claim,
+            work=cast(Any, work),
+            claim=cast(Any, claim),
             authorization_id=uuid4(),
-            contract=object(),
-            hook_session=object(),
+            contract=cast(Any, object()),
+            hook_session=cast(Any, object()),
             session_binding_id=uuid4(),
             inputs=LifecyclePlanInputs(
                 "git:source",
@@ -543,12 +551,17 @@ def test_outer_drain_reconciles_only_exact_receiptless_recovery_state(
         pending=lambda *, limit: (entry,),
         client_instance_id=lambda: "codex-instance",
     )
+
+    def recovery_finish_state_fn(**values: object) -> str:
+        state_calls.append(values)
+        return recovery_state
+
     repository = SimpleNamespace(
         realm_id=uuid4(),
         connection=object(),
         previous_continuity_digest=lambda **_: None,
         current_work_plan_digest=lambda **_: digest("work-plan"),
-        recovery_finish_state=lambda **values: state_calls.append(values) or recovery_state,
+        recovery_finish_state=recovery_finish_state_fn,
     )
     bridge = SimpleNamespace(
         repository=object(),
@@ -559,11 +572,12 @@ def test_outer_drain_reconciles_only_exact_receiptless_recovery_state(
     class Host:
         ledger = SimpleNamespace(receipt_for_claim=lambda claim_id: None)
 
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
         @staticmethod
-        def finish(claimed, *, outcome, result_digest):  # type: ignore[no-untyped-def]
+        def finish(claimed: object, *, outcome: AttemptOutcome, result_digest: str | None) -> bool:
+            del claimed, result_digest
             outcomes.append(outcome)
             return True
 
@@ -583,14 +597,14 @@ def test_outer_drain_reconciles_only_exact_receiptless_recovery_state(
 
     with pytest.raises(PolicyViolation, match=expected_message):
         drain_claimed_codex_delivery(
-            spool=spool,
-            bridge=bridge,
+            spool=cast(Any, spool),
+            bridge=cast(Any, bridge),
             repository=repository,
-            work=work,
-            claim=claim,
+            work=cast(Any, work),
+            claim=cast(Any, claim),
             authorization_id=uuid4(),
-            contract=object(),
-            hook_session=object(),
+            contract=cast(Any, object()),
+            hook_session=cast(Any, object()),
             session_binding_id=uuid4(),
             inputs=LifecyclePlanInputs(
                 "git:source",
@@ -1112,30 +1126,39 @@ def test_production_drain_requires_preflight_apply_and_read_only_lookup(
 
         def preflight(
             self,
-            source: LifecycleSpoolEntry,
-            document: dict[str, object],
+            entry: LifecycleSpoolEntry,
+            canonical_event: Mapping[str, Any],
             *,
             client_instance_id: str,
-        ) -> dict[str, object]:
+        ) -> Mapping[str, Any]:
             self.calls.append("preflight")
-            return _continuity_preflight(source, document, client_instance_id=client_instance_id)
+            return _continuity_preflight(
+                entry, canonical_event, client_instance_id=client_instance_id
+            )
 
         def apply(
             self,
-            source: LifecycleSpoolEntry,
-            document: dict[str, object],
-            **_: object,
+            entry: LifecycleSpoolEntry,
+            canonical_event: Mapping[str, Any],
+            *,
+            preflight: Mapping[str, Any],
+            client_instance_id: str,
+            now: dt.datetime,
         ) -> CanonicalLifecycleReceipt:
+            del preflight, client_instance_id, now
             self.calls.append("apply")
             ack = SimpleNamespace(
                 event_id=CANONICAL_EVENT_ID,
-                local_event_digest=document["event_digest"],
+                local_event_digest=canonical_event["event_digest"],
                 canonical_digest=digest(
-                    {"event_id": str(CANONICAL_EVENT_ID), "event": document["event_digest"]}
+                    {
+                        "event_id": str(CANONICAL_EVENT_ID),
+                        "event": canonical_event["event_digest"],
+                    }
                 ),
             )
-            base = CanonicalLifecycleReceipt.verified(source, document, ack, ack)
-            self.receipt = base.bind_continuity(source, _continuity_binding(source, base))
+            base = CanonicalLifecycleReceipt.verified(entry, canonical_event, ack, ack)
+            self.receipt = base.bind_continuity(entry, _continuity_binding(entry, base))
             return self.receipt
 
         def lookup(self, *_: object, **__: object) -> CanonicalLifecycleReceipt:

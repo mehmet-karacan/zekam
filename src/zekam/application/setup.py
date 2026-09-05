@@ -4,6 +4,18 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+from zekam.domain.canonical import digest
+
+SETUP_PLAN_SCHEMA = "zekam-setup-plan/v2"
+SETUP_PLAN_GUARANTEES: dict[str, str] = {
+    "fresh_home_publish": "atomic",
+    "replay": "idempotent",
+    "apply_binding": "exact-plan-digest",
+    "network": "not-required",
+    "docker": "not-required",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,10 +36,15 @@ class SetupStep:
         }
 
 
-def build_setup_plan(*, platform: str | None = None) -> tuple[SetupStep, ...]:
+def build_setup_plan(
+    *,
+    platform: str | None = None,
+    home: Path | None = None,
+) -> tuple[SetupStep, ...]:
     """Platforma uygun, kararli yeni-makine kurulum sirasini uretir."""
 
     current_platform = sys.platform if platform is None else platform
+    home_arguments = ("--home", str(home)) if home is not None else ()
     steps: list[SetupStep] = []
     if current_platform == "win32":
         steps.append(
@@ -41,41 +58,33 @@ def build_setup_plan(*, platform: str | None = None) -> tuple[SetupStep, ...]:
     steps.extend(
         (
             SetupStep(
-                "home-layout",
-                ("init", "--persistence", "postgresql"),
+                "local-home-bootstrap",
+                ("init", "--persistence", "sqlite", *home_arguments),
                 True,
-                "ZEKAM_HOME yerlesimini idempotent kurar",
+                "SQLite ZEKAM_HOME'u atomik yayinlar ve yerel store'lari idempotent kurar",
             ),
             SetupStep(
-                "database-migrations",
-                ("db", "upgrade", "--uygula"),
-                True,
-                "Eksik tablo, fonksiyon ve diger migration nesnelerini uygular",
-            ),
-            SetupStep(
-                "default-policy",
-                ("policy", "init", "--uygula"),
-                True,
-                "Varsayilan policy ve capability kayitlarini kurar",
-            ),
-            SetupStep(
-                "model-inventory",
-                ("model", "inventory", "--uygula"),
-                True,
-                "Kanonik model envanterini kurar",
-            ),
-            SetupStep(
-                "scheduler-jobs",
-                ("scheduler", "init", "--uygula"),
-                True,
-                "Zorunlu scheduler islerini kurar",
-            ),
-            SetupStep(
-                "final-doctor",
-                ("doctor", "--json"),
+                "final-local-core-doctor",
+                ("doctor", "--category", "sqlite", "--json", *home_arguments),
                 False,
-                "Kurulum sonucunu salt okunur dogrular",
+                "Tum composed local store semantic fingerprintlerini dogrular",
             ),
         )
     )
     return tuple(steps)
+
+
+def setup_plan_digest(steps: tuple[SetupStep, ...]) -> str:
+    """Exact sirayi ve argv degerlerini tek canonical digest'e baglar."""
+
+    return digest(setup_plan_payload(steps))
+
+
+def setup_plan_payload(steps: tuple[SetupStep, ...]) -> dict[str, object]:
+    """Digest'e giren public setup plan govdesini uretir."""
+
+    return {
+        "schema": SETUP_PLAN_SCHEMA,
+        "guarantees": SETUP_PLAN_GUARANTEES,
+        "steps": [step.as_dict() for step in steps],
+    }

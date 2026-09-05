@@ -12,6 +12,7 @@ from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.projection_closure import (
     ProjectionAwareClosureService,
     ProjectionClosureApplyReceipt,
+    ProjectionClosurePlan,
     ProjectionClosureSnapshot,
 )
 from zekam.domain.canonical import digest
@@ -87,7 +88,7 @@ class Repository:
 
     def apply_closure(
         self,
-        plan,  # type: ignore[no-untyped-def]
+        plan: ProjectionClosurePlan,
         *,
         authorization: Authorization,
         claim_id: UUID,
@@ -510,7 +511,11 @@ def test_apply_rejects_self_consistent_crafted_plan_identity(field: str) -> None
     repository = Repository(snapshot)
     service = ProjectionAwareClosureService(repository, Authorizations())
     plan = service.prepare(receipt, idempotency_key="projection-close:crafted", now=NOW)
-    forged = replace(plan, **{field: uuid4()}, plan_digest="")
+    forged = (
+        replace(plan, task_plan_id=uuid4(), plan_digest="")
+        if field == "task_plan_id"
+        else replace(plan, pre_close_event_id=uuid4(), plan_digest="")
+    )
     forged = replace(forged, plan_digest=digest(forged.body()))
 
     with pytest.raises(PolicyViolation, match="lifecycle identity drift"):

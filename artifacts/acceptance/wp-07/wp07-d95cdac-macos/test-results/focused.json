@@ -1,0 +1,14 @@
+{
+  "schema": "zekam-test-result/v1",
+  "scope": "wp-07-focused-macos",
+  "passed": 273,
+  "failed": 0,
+  "real_bge_rag_e2e_passed": 1,
+  "real_bge_rag_e2e_failed": 0,
+  "ruff": "passed",
+  "mypy": "passed",
+  "uv_lock_check": "passed",
+  "package_validation": "passed",
+  "source_status_unchanged": true,
+  "status": "passed"
+}

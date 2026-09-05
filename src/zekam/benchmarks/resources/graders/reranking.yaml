@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: reranking-grader
+version: 1
+family: reranking
+evaluation_class: technical
+dimensions:
+- correctness
+- reliability
+- latency
+hidden_key_model_visible: false

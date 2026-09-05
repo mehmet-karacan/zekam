@@ -164,6 +164,12 @@ def test_farkli_boyut_ayri_profildir() -> None:
         ("app.musteri tablosu", ("app.musteri",)),
         ("#4711 defekti", ("#4711",)),
         ("123456 numarali kayit", ("123456",)),
+        ("SaglikYaniti ve kurallari_uygula", ("SaglikYaniti", "kurallari_uygula")),
+        (
+            "belgeler/kararlar/ADR-0006-idempotent-dosya-ice-aktarma.md",
+            ("belgeler/kararlar/ADR-0006-idempotent-dosya-ice-aktarma.md",),
+        ),
+        ('"Idempotent dosya ice aktarma" nerede?', ("Idempotent dosya ice aktarma",)),
         ("genel bir soru", ()),
     ],
 )

@@ -15,6 +15,8 @@ from zekam.application.control_plane_completion import (
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import DEFAULT_POLICY_NAME, EffectRequest, GovernanceService
 from zekam.application.layered_model_routing import prepare_project_context
+from zekam.application.legacy_repository_provider import legacy_repository
+from zekam.application.lifecycle_execution import ActiveLifecycleExecution
 from zekam.application.model_registry import load_inventory
 from zekam.application.project_integration import ProjectIntegrationService
 from zekam.application.provider_configuration import load_provider_bindings
@@ -65,28 +67,6 @@ from zekam.domain.work import (
     WorkState,
     WorkType,
 )
-from zekam.infrastructure.postgres.agent_assignment_repository import AgentAssignmentRepository
-from zekam.infrastructure.postgres.client_lifecycle_repository import (
-    ActiveLifecycleExecution,
-    ClientLifecycleRepository,
-)
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.control_plane_completion_repository import (
-    PostgresControlPlaneCompletionRepository,
-)
-from zekam.infrastructure.postgres.core_repository import ActorRepository
-from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
-from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
-from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
-    LifecycleRuntimeTemplate,
-    LifecycleRuntimeTemplateRepository,
-)
-from zekam.infrastructure.postgres.model_repository import ModelInventoryRepository
-from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
-from zekam.infrastructure.postgres.runtime_repository import JobRepository
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +134,7 @@ class LifecycleRuntimeTemplatePrepareService:
         now: dt.datetime | None = None,
     ) -> LifecycleTemplatePreparePlan:
         moment = now or dt.datetime.now(dt.UTC)
-        actor = ActorRepository(self.connection, self.realm.id).get(actor_id)
+        actor = legacy_repository("actor", self.connection, self.realm.id).get(actor_id)
         if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
             raise PolicyViolation("Lifecycle template prepare aktif human actor ister")
         work = WorkGraphService(self.connection, self.realm, actor_id=actor_id).items.get(
@@ -176,11 +156,9 @@ class LifecycleRuntimeTemplatePrepareService:
             ).plans.current(work_item_id)
             if current_plan is None:
                 raise PolicyViolation("Lifecycle template adoption current TaskPlan ister")
-            LifecycleRuntimeTemplateRepository(
-                self.connection, self.realm.id
-            ).assert_legacy_adoption_admissible(
-                work_item_id, task_plan_id=current_plan.id
-            )
+            legacy_repository(
+                "lifecycle_runtime_template", self.connection, self.realm.id
+            ).assert_legacy_adoption_admissible(work_item_id, task_plan_id=current_plan.id)
         elif adopt_existing:
             raise PolicyViolation("Lifecycle template adoption verification Work ister")
         policy = GovernanceService(self.connection, self.realm).policies.current(
@@ -188,8 +166,8 @@ class LifecycleRuntimeTemplatePrepareService:
         )
         if policy is None:
             raise PolicyViolation("Lifecycle template prepare current policy ister")
-        canonical = LifecycleRuntimeTemplateRepository(
-            self.connection, self.realm.id
+        canonical = legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm.id
         ).current_source_revision(project_id)
         if canonical != source_revision:
             raise PolicyViolation("Lifecycle template prepare canonical source drift")
@@ -295,7 +273,7 @@ class LifecycleRuntimeTemplatePrepareService:
                 deadline=plan.expires_at,
                 created_at=plan.prepared_at,
             )
-            runs = ExecutionRunRepository(self.connection, self.realm.id)
+            runs = legacy_repository("execution_run", self.connection, self.realm.id)
             runs.create_run(run)
             runs.activate_run(run.id, started_at=plan.prepared_at)
             _, planned_manifest = _prepare_manifest(plan, prep_work.id)
@@ -395,11 +373,13 @@ class LifecycleRuntimeTemplatePrepareService:
                     "assignment_digest": digest(verifier_draft.identity_body()),
                 }
             )
-            assignment_repository = AgentAssignmentRepository(self.connection, self.realm.id)
+            assignment_repository = legacy_repository(
+                "agent_assignment", self.connection, self.realm.id
+            )
             assignment_repository.create(coordinator)
             assignment_repository.create(assignment)
             assignment_repository.create(verifier)
-            job, created = JobRepository(self.connection, self.realm.id).enqueue(
+            job, created = legacy_repository("job", self.connection, self.realm.id).enqueue(
                 Job.create(
                     realm_id=self.realm.id,
                     project_id=plan.project_id,
@@ -514,7 +494,7 @@ def run_lifecycle_template_prepare_once(
         adopt_existing=plan.adopt_existing,
         now=plan.prepared_at,
     )
-    authorization = AuthorizationRepository(connection, realm.id).get(
+    authorization = legacy_repository("authorization", connection, realm.id).get(
         UUID(str(payload["authorization_id"]))
     )
     resource = (
@@ -599,10 +579,10 @@ def run_lifecycle_template_prepare_once(
         next_safe_action="target-client-runtime-bootstrap",
         created_at=terminal_moment,
     )
-    checkpoint_id = ContextContinuityRepository(
-        connection, realm.id, job.project_id, prep_work_id
+    checkpoint_id = legacy_repository(
+        "context_continuity", connection, realm.id, job.project_id, prep_work_id
     ).store_checkpoint(checkpoint, task_plan_id=task_plan_id, job_id=job.id)
-    lifecycle_repository = ClientLifecycleRepository(connection, realm.id)
+    lifecycle_repository = legacy_repository("client_lifecycle", connection, realm.id)
     active = runtime[2]
     lifecycle_repository.store_job_checkpoint(
         execution=ActiveLifecycleExecution(
@@ -637,10 +617,10 @@ def run_lifecycle_template_prepare_once(
         now=terminal_moment,
     ):
         raise PolicyViolation("Lifecycle template terminal job finish reddedildi")
-    ExecutionRunRepository(connection, realm.id).finish_run(
+    legacy_repository("execution_run", connection, realm.id).finish_run(
         UUID(str(payload["run_id"])), state="completed", terminal_at=terminal_moment
     )
-    AgentAssignmentRepository(connection, realm.id).complete_terminal_plan(
+    legacy_repository("agent_assignment", connection, realm.id).complete_terminal_plan(
         task_plan_id, now=terminal_moment
     )
     graph = WorkGraphService(connection, realm, actor_id=plan.actor_id)
@@ -655,7 +635,7 @@ def run_lifecycle_template_prepare_once(
     )
     graph.transition(prep_work.id, WorkState.VERIFICATION, now=terminal_moment)
     completion = ControlPlaneCompletionService(
-        PostgresControlPlaneCompletionRepository(connection, realm.id)
+        legacy_repository("control_plane_completion", connection, realm.id)
     ).complete(
         ControlPlaneCompletionRequest(
             project_id=job.project_id,
@@ -727,14 +707,14 @@ def _bind_prepare_runtime(
     result: dict[str, Any],
     now: dt.datetime,
     journal_created_at: dt.datetime | None = None,
-    template_override: LifecycleRuntimeTemplate | None = None,
+    template_override: Any | None = None,
 ) -> tuple[UUID, UUID, ActiveLifecycleExecution]:
     """Bind the claimed provider-free preparation to immutable execution evidence."""
 
     job = claimed.job
     assert job.work_item_id is not None and job.plan_id is not None and job.run_id is not None
     assert job.assignment_id is not None
-    template_repo = LifecycleRuntimeTemplateRepository(connection, realm.id)
+    template_repo = legacy_repository("lifecycle_runtime_template", connection, realm.id)
     template = template_override or template_repo.current(
         plan.project_id, plan.source_revision, plan.policy_digest
     )
@@ -745,7 +725,9 @@ def _bind_prepare_runtime(
     ):
         raise PolicyViolation("Lifecycle template runtime override binding drift")
     candidate, manifest = _prepare_manifest(plan, job.work_item_id)
-    context = ContextContinuityRepository(connection, realm.id, job.project_id, job.work_item_id)
+    context = legacy_repository(
+        "context_continuity", connection, realm.id, job.project_id, job.work_item_id
+    )
     manifest_id = context.store_manifest(manifest)
     packet = ContextPacket.create(
         realm_id=realm.id,
@@ -756,10 +738,10 @@ def _bind_prepare_runtime(
         sections=(ContextPacketSection(candidate.candidate_id, candidate.content_digest, 1),),
         created_at=now,
     )
-    runs = ExecutionRunRepository(connection, realm.id)
+    runs = legacy_repository("execution_run", connection, realm.id)
     runs.create_packet(packet)
     session_ref = f"lifecycle-template-{job.work_item_id}-{job.run_id}-{job.id}"
-    HookRuntimeRepository(connection, realm.id).start_session(session_ref=session_ref)
+    legacy_repository("hook_runtime", connection, realm.id).start_session(session_ref=session_ref)
     runs.bind_assignment_environment(
         AssignmentEnvironmentBinding.create(
             realm_id=realm.id,
@@ -827,7 +809,7 @@ def _bind_prepare_runtime(
     )
     runs.create_envelope(envelope)
     facts = template_repo.projection_facts(job.project_id, job.work_item_id)
-    lifecycle = ClientLifecycleRepository(connection, realm.id)
+    lifecycle = legacy_repository("client_lifecycle", connection, realm.id)
     head = context.journal_head()
     previous = None if head is None else head[1]
     journal = JournalEntry(
@@ -921,10 +903,10 @@ def materialize_lifecycle_template(
         independent_from_roles=(),
         policy_digest=plan.policy_digest,
     )
-    routing = ModelRoutingRepository(self.connection, self.realm.id)
-    execution = ExecutionRunRepository(self.connection, self.realm.id)
+    routing = legacy_repository("model_routing", self.connection, self.realm.id)
+    execution = legacy_repository("execution_run", self.connection, self.realm.id)
     with self.connection.transaction():
-        ModelInventoryRepository(self.connection, self.realm.id).upsert(
+        legacy_repository("model_inventory", self.connection, self.realm.id).upsert(
             inventory_records[binding.model_id]
         )
         context_id, context_inserted = routing.store_project_context(prepared.context)
@@ -1045,9 +1027,9 @@ def materialize_lifecycle_template(
             detect_environment_drift(sticky, current_env, checked_at=current_env.captured_at)
         )
 
-    template = LifecycleRuntimeTemplateRepository(self.connection, self.realm.id).current(
-        plan.project_id, plan.source_revision, plan.policy_digest
-    )
+    template = legacy_repository(
+        "lifecycle_runtime_template", self.connection, self.realm.id
+    ).current(plan.project_id, plan.source_revision, plan.policy_digest)
     return {
         "schema": "zekam-lifecycle-template-prepare-result/v1",
         "applied": True,

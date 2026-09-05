@@ -1,0 +1,121 @@
+{
+  "artifact_digest": "sha256:3085caceb441b7cae02c52139974891826c8f112fb6f13f07dab3256f46d350d",
+  "candidate": "cpython-sqlite",
+  "durations": {
+    "event_insert_seconds": 0.2637823749682866,
+    "project_insert_seconds": 0.011071958986576647,
+    "work_insert_seconds": 0.03763979201903567
+  },
+  "engine_kind": "operational",
+  "environment": {
+    "machine": "arm64",
+    "platform": "darwin",
+    "python": "3.12.14",
+    "sqlite": "3.53.4"
+  },
+  "executed_platforms": [
+    "macos-arm64"
+  ],
+  "finished_at": "2026-09-02T10:43:33.350104+00:00",
+  "hard_gates": {
+    "crash_integrity": true,
+    "macos_arm64": true,
+    "no_server_or_docker": true,
+    "offline_runtime": true,
+    "persistent_local_state": true,
+    "rebuild_or_restore": true,
+    "reproducible_install": true,
+    "windows_x64": false
+  },
+  "local_pass": true,
+  "measured": true,
+  "probes": {
+    "backup_restore": {
+      "duration_seconds": 0.0335608750465326,
+      "integrity": "ok",
+      "passed": true,
+      "restored_digest": "sha256:58f1b32ab3f040e59d7edf8cb5a8f4056726476e478c5d4520555d45f1a5446e",
+      "source_digest": "sha256:58f1b32ab3f040e59d7edf8cb5a8f4056726476e478c5d4520555d45f1a5446e"
+    },
+    "constraints": {
+      "check": {
+        "detail": "rejected-with-integrity-error",
+        "passed": true
+      },
+      "foreign_key": {
+        "detail": "rejected-with-integrity-error",
+        "passed": true
+      },
+      "idempotent_replay": {
+        "detail": "same-payload-remains-single-row",
+        "passed": true
+      },
+      "payload_drift": {
+        "detail": "different-payload-detected-before-mutation",
+        "passed": true
+      },
+      "unique": {
+        "detail": "rejected-with-integrity-error",
+        "passed": true
+      }
+    },
+    "corruption": {
+      "detail": "truncation-detected",
+      "passed": true
+    },
+    "disk_full": {
+      "detail": "full-rejected-rollback-ok",
+      "passed": true
+    },
+    "network_attempts": 0,
+    "read_only_directory": {
+      "detail": "read-only-directory-write-rejected",
+      "passed": true
+    },
+    "schema_drift": {
+      "detail": "unexpected-trigger-changes-schema-fingerprint",
+      "passed": true
+    },
+    "serialized_producers": {
+      "duration_seconds": 0.10457366600167006,
+      "errors": [],
+      "inserted": 10000,
+      "producer_count": 4,
+      "read_observation_count": 38,
+      "read_observation_monotonic": true
+    },
+    "snapshot_process_kill": {
+      "detail": "source-intact-and-partial-snapshot-not-publishable",
+      "passed": true
+    },
+    "uncommitted_process_kill": {
+      "detail": "uncommitted-row-absent-and-integrity-ok",
+      "passed": true
+    }
+  },
+  "row_counts": {
+    "idempotency_claim": 1,
+    "project": 10000,
+    "work_event": 110000,
+    "work_item": 10000
+  },
+  "runtime": {
+    "foreign_keys": 1,
+    "journal_mode": "wal",
+    "synchronous": 2
+  },
+  "schema": "zekam-wp01-sqlite-operational-bakeoff/v1",
+  "selection_status": "blocked-pending-windows-x64-and-other-candidates",
+  "started_at": "2026-09-02T10:43:32.110833+00:00",
+  "wal_safety": {
+    "reason": "wal-reset-fix-present",
+    "safe_for_multi_connection_wal": true,
+    "version": "3.53.4"
+  },
+  "workload": {
+    "event_rows": 100000,
+    "producer_rows": 10000,
+    "project_rows": 10000,
+    "work_rows": 10000
+  }
+}

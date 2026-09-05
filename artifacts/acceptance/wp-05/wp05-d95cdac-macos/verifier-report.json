@@ -1,0 +1,14 @@
+{
+  "identity": "wp05_quality_verifier",
+  "independent": true,
+  "result": "PASS",
+  "checks": {
+    "cross_project_owner_boundary": "passed-app-and-raw-sql",
+    "focused_tests": "104/104",
+    "mypy": "8/8 files",
+    "package_validator": "passed-0-warnings-0-errors",
+    "ruff_format": "8/8 files",
+    "ruff_lint": "passed"
+  },
+  "writes_performed": false
+}

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.loop_orchestrator import DurableLoopOrchestrator
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -22,11 +23,7 @@ from zekam.domain.loop_progress import (
     LoopStopReason,
 )
 from zekam.domain.optimization import MeasurementEvidence, OptimizationObjective
-from zekam.infrastructure.postgres.loop_policy_repository import PostgresLoopPolicyRepository
-from zekam.infrastructure.postgres.measured_loop_repository import (
-    PostgresMeasuredLoopRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork, JobRepository
+from zekam.domain.runtime import ClaimedWork
 
 if TYPE_CHECKING:
     from zekam.application.worker import Worker
@@ -70,8 +67,8 @@ class MeasuredLoopCheckpointWriter(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class MeasuredLoopWorkerHandler:
-    measured_repository: PostgresMeasuredLoopRepository
-    policy_repository: PostgresLoopPolicyRepository
+    measured_repository: Any
+    policy_repository: Any
     orchestrator: DurableLoopOrchestrator
     contract_loader: MeasuredLoopContractLoader
     runner: MeasuredLoopAttemptRunner
@@ -241,9 +238,9 @@ def build_measured_loop_worker(
     from zekam.application.worker import WorkerSettings, build_worker
     from zekam.domain.runtime import JobKind
 
-    measured = PostgresMeasuredLoopRepository(connection, realm_id)
-    policy = PostgresLoopPolicyRepository(connection, realm_id)
-    orchestrator = DurableLoopOrchestrator(measured, JobRepository(connection, realm_id))
+    measured = legacy_repository("measured_loop", connection, realm_id)
+    policy = legacy_repository("loop_policy", connection, realm_id)
+    orchestrator = DurableLoopOrchestrator(measured, legacy_repository("job", connection, realm_id))
     handler = MeasuredLoopWorkerHandler(
         measured,
         policy,

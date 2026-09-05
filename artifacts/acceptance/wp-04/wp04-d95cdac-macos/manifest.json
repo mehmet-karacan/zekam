@@ -1,0 +1,20 @@
+{
+  "artifacts": {
+    "changed-files.json": "sha256:177b1a1697a37c95d2164e7b1a58926a3a38921542e7b82d9d373bcbe7bc18ec",
+    "commands.jsonl": "sha256:63f0e2ff8eca9c8bc6ac935d6de1e9c4a9d6f3e094b2aadf4886815dad50b150",
+    "environment.json": "sha256:12bec5549125881c07a6462300c7ec0bcc6218c0746312fbabcf6be185fba8da",
+    "metrics/wp04.json": "sha256:79c60992c046c8db85a61c53f38bb77536b027ab70ac8dd9e0fde1b60039666c",
+    "recovery-results.json": "sha256:0e41c46123127a5e17beb3562a98e5be6fbd05168d5c15d6c88742b5bf574b1e",
+    "security-scan.json": "sha256:fa696dc11001b59e864629e7b7a1712f76d03bef43a4e27bd6410e22eb903595",
+    "source-digests.json": "sha256:9867243b1d5088b9d4047887c6a5de8122e4e2ada35f93b1906d2de98800ceee",
+    "summary.md": "sha256:ff13bec08ffb36df2a162d4ca727753148df32e49b28beaa4f7c40045d920ab3",
+    "test-results/focused.json": "sha256:36854e23e66e171f3b6519163e1486060b13cab2f9bdf2273192a3126abd59f4",
+    "test-results/full-suite.json": "sha256:cc02ab88d99104ebbd47cda1e0dd8aeb933103d21acb22063ff8b8a2dbfcb39c",
+    "verifier-report.json": "sha256:58a2bd2e5224bd194b992a77e561cce27b5b1e627cb817e0146dfe1f31700cda"
+  },
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "package": "WP-04",
+  "platform_status": "macos-accepted/windows-deferred",
+  "schema": "zekam-acceptance-manifest/v1",
+  "status": "passed"
+}

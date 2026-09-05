@@ -2,9 +2,10 @@
 
 ## 0. Bu görevin statüsü
 
-Bu belge Zekam ürününü boş başlangıçtan üretim kalitesinde çalışan sisteme götüren **kanonik
-nihai uygulama görevidir**. Araştırma önerisi, ilk sprint planı veya mimari fikir listesi
-değildir. Bu belge ve referans verdiği sözleşmeler tamamlanmadan kapsam sona ermez.
+**SUPERSEDED BASELINE:** Bu belge tarihsel nihai paket kapsamını korur; yaşayan görev veya
+mimari authority değildir. Güncel ve bağlayıcı görev `AKTIF_GOREV.md` dosyasıdır. Özellikle
+bu belgedeki server-veritabanı, migration, vector-store ve bootstrap kararları
+`AKTIF_GOREV.md` K-001..K-014 ile değiştirilmiştir ve uygulanmaz.
 
 Her model, ajan, geliştirici ve CLI bu belgeyi aynı anlamla uygular. Modelin kendi alışkanlığı,
 provider özelliği, context window'u veya kişisel prompt dosyası ürün kurallarını değiştiremez.
@@ -18,8 +19,8 @@ Python paketi: zekam
 CLI: zekam
 Kullanıcı veri kökü: ZEKAM_HOME
 Mimari: Modüler monolit + ayrı CLI/API/scheduler/worker process'leri
-Kanonik durum: PostgreSQL 18
-Vector: pgvector, ilk profil BGE-M3 dense 1024 cosine
+Kanonik durum: CPython SQLite operational schema v1
+Vector: SQLite FTS5 + sqlite-vec; BGE-M3 dense 1024 cosine
 ```
 
 Ürün kimliği yalnız `mimari/ZEKAM_KIMLIK_SOZLESMESI.md` içindeki Zekam yüzeyidir.
@@ -49,8 +50,9 @@ yeniden başlatılabilir olmalıdır.
 Her yeni oturum:
 
 1. `00_BASLA.md` ve `DEVAM_PROTOKOLU.md` dosyalarını uygula.
-2. `PROJE_MANIFESTI.yaml`, `AKTIF_GOREV.yaml` ve iş grafiğini oku.
-3. Repository HEAD, dirty state, migration state ve test baseline'ını doğrula.
+2. `PROJE_MANIFESTI.yaml`, bağlayıcı `AKTIF_GOREV.md`, generated
+   `AKTIF_GOREV.yaml` ve iş grafiğini oku.
+3. Repository HEAD, dirty state, local schema state ve test baseline'ını doğrula.
 4. Paket doğrulayıcısını çalıştır.
 5. Tamamlanmış iddiasını kod/test/receipt olmadan kabul etme.
 6. Aktif work item veya recovery-required claim varsa duplicate iş başlatma.

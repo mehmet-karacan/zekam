@@ -1,0 +1,16 @@
+{
+  "approval": "User replied 'ok' to the explicit isolated package download/install request.",
+  "environment": {"machine": "arm64", "platform": "darwin", "python": "3.12.14"},
+  "install_scope": "isolated-temporary-environments-only",
+  "network_authorized": true,
+  "packages": [
+    {"direct_runtime_dependencies": 1, "environment_size_kib": 18944, "name": "pyturso", "version": "0.7.2", "wheel_tag": "cp310-abi3-macosx_11_0_arm64"},
+    {"direct_runtime_dependencies": 8, "environment_size_kib": 304684, "name": "lancedb", "version": "0.37.1", "wheel_tag": "cp310-abi3-macosx_11_0_arm64"},
+    {"direct_runtime_dependencies": 1, "environment_size_kib": 55168, "name": "zvec", "version": "0.7.0", "wheel_tag": "cp312-cp312-macosx_11_0_arm64"},
+    {"direct_runtime_dependencies": 0, "environment_size_kib": 264, "name": "sqlite-vec", "version": "0.1.9", "wheel_tag": "py3-none-macosx_11_0_arm64"},
+    {"direct_runtime_dependencies": 0, "environment_size_kib": 45096, "name": "duckdb", "version": "1.5.5", "wheel_tag": "cp312-cp312-macosx_11_0_arm64"}
+  ],
+  "production_dependency_changes": 0,
+  "repository_virtualenv_modified": false,
+  "schema": "zekam-wp01-package-installation-evidence/v1"
+}

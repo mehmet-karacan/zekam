@@ -33,7 +33,7 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     settings = load_settings(home=home_root, environ={})
     assert "core-default" in settings.sources
     assert settings.database.name == "zekam"
-    assert settings.database.backend is PersistenceBackend.POSTGRESQL
+    assert settings.database.backend is PersistenceBackend.SQLITE
     assert settings.knowledge.embedding_dimension == 1024
     assert settings.knowledge.embedding_distance == "cosine"
     assert settings.diagnostic_trace.enabled is False
@@ -61,10 +61,10 @@ def test_diagnostic_trace_requires_explicit_key_ref_when_enabled(home_root: Path
 def test_user_config_overrides_core_default(home_root: Path) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ndatabase:\n  port: 6543\n",
+        f"schema: {CONFIG_SCHEMA}\ndatabase:\n  sqlite_relative_path: state/custom.db\n",
     )
     settings = load_settings(home=home_root, environ={})
-    assert settings.database.port == 6543
+    assert settings.database.sqlite_relative_path == "state/custom.db"
     assert settings.sources == ("core-default", "user-config", "managed-policy")
 
 
@@ -76,15 +76,10 @@ def test_removed_product_config_schema_is_rejected(home_root: Path) -> None:
 
 
 def test_environment_overrides_user_config(home_root: Path) -> None:
-    _write(
-        home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ndatabase:\n  port: 6543\n",
-    )
-    settings = load_settings(home=home_root, environ={"ZEKAM_DATABASE_PORT": "7777"})
-    assert settings.database.port == 7777
+    settings = load_settings(home=home_root, environ={"ZEKAM_LOG_LEVEL": "debug"})
+    assert settings.runtime.log_level == "DEBUG"
     assert settings.sources == (
         "core-default",
-        "user-config",
         "managed-policy",
         "environment",
     )
@@ -100,6 +95,7 @@ def test_managed_runtime_policy_and_profile_are_applied_by_normal_loader(
     assert settings.permission_profile.managed is True
     assert settings.permission_profile.grants_authority is False
     assert "managed-policy" in settings.sources
+    assert settings.config_provenance is not None
     field = settings.config_provenance.explain("runtime.network_default")
     assert field.origin == "managed-policy"
     assert field.managed_requirement is not None
@@ -135,12 +131,13 @@ def test_safe_session_override_is_provenance_visible(home_root: Path) -> None:
     )
     assert settings.runtime.log_level == "DEBUG"
     assert settings.sources[-1] == "session"
+    assert settings.config_provenance is not None
     assert settings.config_provenance.explain("runtime.log_level").origin == "session"
 
 
 def test_invalid_environment_value_is_rejected(home_root: Path) -> None:
     with pytest.raises(ConfigurationError):
-        load_settings(home=home_root, environ={"ZEKAM_DATABASE_PORT": "asla-sayi-degil"})
+        load_settings(home=home_root, environ={"ZEKAM_DATABASE_BACKEND": "remote"})
 
 
 def test_sqlite_config_uses_portable_home_relative_path(home_root: Path) -> None:
@@ -152,7 +149,7 @@ def test_sqlite_config_uses_portable_home_relative_path(home_root: Path) -> None
     assert settings.database.backend is PersistenceBackend.SQLITE
     assert (
         settings.database.sqlite_path(home_root)
-        == (home_root / "global" / "runtime" / "zekam.sqlite3").resolve()
+        == (home_root / "state" / "operational.db").resolve()
     )
 
 
@@ -166,14 +163,13 @@ def test_sqlite_path_escape_is_rejected(home_root: Path) -> None:
         load_settings(home=home_root, environ={}).database.sqlite_path(home_root)
 
 
-def test_sqlite_never_falls_back_to_postgresql_dsn(home_root: Path) -> None:
+def test_sqlite_settings_expose_no_remote_dsn(home_root: Path) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
         f"schema: {CONFIG_SCHEMA}\ndatabase:\n  backend: sqlite\n",
     )
     settings = load_settings(home=home_root, environ={})
-    with pytest.raises(ConfigurationError, match="libpq"):
-        settings.database.dsn()
+    assert not hasattr(settings.database, "dsn")
 
 
 @pytest.mark.parametrize(
@@ -202,16 +198,15 @@ def test_non_mapping_config_is_rejected(home_root: Path) -> None:
         load_settings(home=home_root, environ={})
 
 
-def test_dsn_omits_password_when_absent() -> None:
-    database = DatabaseSettings(host="localhost", port=5432, name="zekam", user="zekam")
-    assert "password=" not in database.dsn()
-    assert "password=gizli" in database.dsn("gizli")
+def test_only_local_persistence_backend_is_supported() -> None:
+    assert tuple(PersistenceBackend) == (PersistenceBackend.SQLITE,)
 
 
 def test_sanitized_view_never_contains_password() -> None:
     database = DatabaseSettings(host="localhost", port=5432, name="zekam", user="zekam")
     rendered = repr(database.sanitized())
     assert "password" not in rendered
+    assert "host" not in rendered
 
 
 def test_settings_sanitized_view_is_secret_free(home_root: Path) -> None:

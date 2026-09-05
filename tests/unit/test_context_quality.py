@@ -15,6 +15,7 @@ from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
     ContextCandidateKind,
+    ContextManifest,
     OmittedReason,
 )
 
@@ -49,7 +50,9 @@ def _candidate(
     )
 
 
-def _compile(role: str, candidates: tuple[ContextCandidate, ...], contents: dict[str, str]):
+def _compile(
+    role: str, candidates: tuple[ContextCandidate, ...], contents: dict[str, str]
+) -> ContextManifest:
     return compile_context_v2(
         candidates,
         ranking_request=ContextRankingRequest(

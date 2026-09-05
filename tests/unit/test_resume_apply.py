@@ -5,7 +5,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -15,7 +15,12 @@ from zekam.application.resume_apply_service import ResumeApplyService
 from zekam.domain.agents import AssignmentStatus
 from zekam.domain.canonical import digest
 from zekam.domain.checkpoint_v2 import SandboxBindingV2, SandboxDisposition
-from zekam.domain.clients import ClientDescriptor, ClientKind
+from zekam.domain.clients import (
+    ClientCapabilityManifest,
+    ClientDescriptor,
+    ClientKind,
+    ClientLifecycleEvent,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.resume import (
     ResumeAction,
@@ -97,6 +102,22 @@ class Adapter:
         self.calls += 1
         raise AssertionError("stale plan adapter'a ulasmamali")
 
+    @property
+    def capability_manifest(self) -> ClientCapabilityManifest:
+        return self.descriptor.capability_manifest
+
+    def lifecycle_event(
+        self,
+        *,
+        session_id: str,
+        sequence: int,
+        previous_digest: str | None,
+        event_type: str,
+        payload_digest: str,
+        occurred_at: dt.datetime,
+    ) -> ClientLifecycleEvent:
+        raise AssertionError("resume apply lifecycle event uretmemeli")
+
 
 class Governance:
     def __init__(self) -> None:
@@ -145,7 +166,11 @@ def test_stale_revalidation_consumes_no_authority_and_never_dispatches(
         def prepare(self, *_: Any, **__: Any) -> ResumePlan:
             return stale
 
-    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    monkeypatch.setattr(
+        apply_module,
+        "legacy_repository",
+        lambda kind, *_args, **_kwargs: Repository() if kind == "resume_apply" else object(),
+    )
     monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
     governance = Governance()
     adapter = Adapter()
@@ -196,7 +221,11 @@ def test_dirty_sandbox_live_guard_olmadan_apply_fail_closed(
         def prepare(self, *_: Any, **__: Any) -> ResumePlan:
             return original
 
-    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    monkeypatch.setattr(
+        apply_module,
+        "legacy_repository",
+        lambda kind, *_args, **_kwargs: Repository() if kind == "resume_apply" else object(),
+    )
     monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
     request = ResumeApplyRequest(
         original, original.plan_digest, uid(11), uid(12), "worker", ("database.write",)
@@ -250,14 +279,21 @@ def test_dirty_sandbox_live_guard_drifti_effectten_once_reddeder(
         def hold_checkpoint_binding(self, binding: SandboxBindingV2):  # type: ignore[no-untyped-def]
             return nullcontext()
 
-    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    monkeypatch.setattr(
+        apply_module,
+        "legacy_repository",
+        lambda kind, *_args, **_kwargs: Repository() if kind == "resume_apply" else object(),
+    )
     monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
     request = ResumeApplyRequest(
         original, original.plan_digest, uid(11), uid(12), "worker", ("database.write",)
     )
     with pytest.raises(PolicyViolation, match="dirty state drift"):
         ResumeApplyService(
-            Connection(), Governance(), EnvironmentGuard(), sandbox_binding_guard=RejectingGuard()
+            Connection(),
+            cast(Any, Governance()),
+            EnvironmentGuard(),
+            sandbox_binding_guard=RejectingGuard(),
         ).apply(request, Adapter(), cwd=tmp_path, timeout_seconds=10, now=now)
     assert calls == [dirty]
 
@@ -463,10 +499,18 @@ def _install_apply_fakes(
         )
 
     governance.require_authorized = require  # type: ignore[attr-defined]
-    monkeypatch.setattr(apply_module, "ResumeApplyRepository", Repository)
+    repositories = {
+        "resume_apply": Repository,
+        "agent_assignment": Assignments,
+        "resume": lambda *_args, **_kwargs: object(),
+        "job": Jobs,
+    }
+    monkeypatch.setattr(
+        apply_module,
+        "legacy_repository",
+        lambda kind, *args, **kwargs: repositories[kind](*args, **kwargs),
+    )
     monkeypatch.setattr(apply_module, "ResumeCoordinator", Coordinator)
-    monkeypatch.setattr(apply_module, "AgentAssignmentRepository", Assignments)
-    monkeypatch.setattr(apply_module, "JobRepository", Jobs)
     monkeypatch.setattr(apply_module, "ExecutionHost", Host)
     monkeypatch.setattr(apply_module, "CanonicalAgentDispatchService", Dispatch)
     return state, governance

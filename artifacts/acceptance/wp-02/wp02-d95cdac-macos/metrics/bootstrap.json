@@ -1,0 +1,26 @@
+{
+  "actual_home": "/tmp/zekam-wp02-final.1hwch5/home",
+  "authority_digest": "sha256:ebc993d36a07a79ce2f07afab0a15f8b513b1a4402bb74b2a15014945a762bad",
+  "domain_row_counts": {
+    "knowledge_chunk": 0,
+    "knowledge_embedding": 0,
+    "project": 0,
+    "work_item": 0
+  },
+  "dry_run_created_home": false,
+  "dry_run_seconds": 1.85,
+  "first_init_seconds": 0.97,
+  "first_receipt_digest": "sha256:ee4b47743b34670dd547eb50c3a040a8a86365c573d5a17d5203e267a805fd5d",
+  "migration": {
+    "checksum": "sha256:68c74dccbdded19a05afdedf84d174771cadae3442fb32f500db1f4fa02f09d7",
+    "name": "operational-schema-v1",
+    "version": 1
+  },
+  "network_calls": 0,
+  "postgresql_data_used": false,
+  "replay_init_seconds": 0.98,
+  "replay_receipt_digest": "sha256:ee4b47743b34670dd547eb50c3a040a8a86365c573d5a17d5203e267a805fd5d",
+  "schema": "zekam-wp02-bootstrap-metrics/v1",
+  "sqlite_integrity_ok": true,
+  "sqlite_schema_ok": true
+}

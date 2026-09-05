@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -92,7 +92,15 @@ def notification(sequence: int) -> AppNotification:
             "grants_authority": False,
         }
     )
-    return AppNotification(event_digest=event_digest, **values)
+    return AppNotification(
+        event_id=event_id,
+        sequence=sequence,
+        event_type="work.updated",
+        payload={"work_ref": f"work-{sequence}"},
+        occurred_at=occurred_at.isoformat().replace("+00:00", "Z"),
+        previous_digest=None if sequence == 1 else digest(f"previous-{sequence}"),
+        event_digest=event_digest,
+    )
 
 
 def test_generated_schema_is_exactly_tracked() -> None:
@@ -111,7 +119,9 @@ def test_generated_schema_validates_exact_method_contracts_and_rejects_drift() -
     with pytest.raises(ValidationError):
         validator.validate(frame("future/request", {}))
     invalid = initialize()
-    invalid["params"] = dict(invalid["params"], unexpected=True)
+    params = invalid["params"]
+    assert isinstance(params, dict)
+    invalid["params"] = dict(params, unexpected=True)
     with pytest.raises(ValidationError):
         validator.validate(invalid)
 
@@ -148,7 +158,7 @@ def test_generated_schema_validates_exact_method_contracts_and_rejects_drift() -
         frame(
             "initialize",
             {
-                **initialize()["params"],
+                **cast(dict[str, object], initialize()["params"]),
                 "client_id": 42,
             },
         ),
@@ -179,7 +189,7 @@ def test_initialize_initialized_handshake_is_mandatory_and_immutable() -> None:
     second = connection.handle(initialize(request_id=2))[0]
     assert second["error"]["data"]["category"] == ProtocolErrorCode.ALREADY_INITIALIZED.value
     connection.handle(initialized())
-    assert connection.phase is ConnectionPhase.READY
+    assert connection.phase.value == ConnectionPhase.READY.value
     status = connection.handle(frame("server/status", {}, 3))[0]["result"]
     assert status["read_only"] is True
     assert status["grants_authority"] is False

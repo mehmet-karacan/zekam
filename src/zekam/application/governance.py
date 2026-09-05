@@ -18,11 +18,11 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from zekam.domain.canonical import digest
-from zekam.domain.errors import AuthorizationRequired, NotFound, PolicyViolation
+from zekam.domain.errors import AuthorizationRequired, ConfigurationError, NotFound, PolicyViolation
 from zekam.domain.policy import (
     RISK_ORDER,
     Capability,
@@ -44,21 +44,30 @@ from zekam.domain.security import (
     OutboundState,
 )
 from zekam.domain.work import EffectKind, TaskPlan
-from zekam.infrastructure.postgres.security_repository import (
-    AuditRepository,
-    AuthorizationRepository,
-    CapabilityRepository,
-    ConsumeResult,
-    OutboundRequestRepository,
-    PolicyRepository,
-    SecretRefRepository,
-)
 
 #: Varsayilan policy adi.
 DEFAULT_POLICY_NAME = "varsayilan"
 
 #: Yetkinin varsayilan omru.
 DEFAULT_AUTHORIZATION_LIFETIME = dt.timedelta(minutes=30)
+
+
+class GovernanceRepositoryProvider(Protocol):
+    """Outer-composition port for governance repositories.
+
+    The local-first wheel deliberately provides no implicit database-backed
+    implementation.  A reviewed composition must inject narrow repositories;
+    absence is a deterministic fail-closed state.
+    """
+
+    def __call__(
+        self,
+        kind: str,
+        connection: Any,
+        realm_id: UUID,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,39 +149,48 @@ class GovernanceService:
     realm: Realm
     actor_id: UUID | None = None
     correlation_id: UUID | None = None
+    repository_provider: GovernanceRepositoryProvider | None = None
     _cached_policy: list[PolicyDocument] = field(default_factory=list, repr=False)
 
     # -- depolar ------------------------------------------------------------------
 
-    @property
-    def policies(self) -> PolicyRepository:
-        return PolicyRepository(self.connection, self.realm.id)
+    def _repository(self, kind: str) -> Any:
+        provider = self.repository_provider
+        if provider is None:
+            raise ConfigurationError(
+                "Governance repository provider local-first composition root'ta kurulmamıs"
+            )
+        return provider(kind, self.connection, self.realm.id)
 
     @property
-    def capabilities(self) -> CapabilityRepository:
-        return CapabilityRepository(self.connection, self.realm.id)
+    def policies(self) -> Any:
+        return self._repository("policy")
 
     @property
-    def secrets(self) -> SecretRefRepository:
-        return SecretRefRepository(self.connection, self.realm.id)
+    def capabilities(self) -> Any:
+        return self._repository("capability")
 
     @property
-    def authorizations(self) -> AuthorizationRepository:
-        return AuthorizationRepository(self.connection, self.realm.id)
+    def secrets(self) -> Any:
+        return self._repository("secret_ref")
 
     @property
-    def outbound(self) -> OutboundRequestRepository:
-        return OutboundRequestRepository(self.connection, self.realm.id)
+    def authorizations(self) -> Any:
+        return self._repository("authorization")
 
     @property
-    def audit(self) -> AuditRepository:
-        return AuditRepository(self.connection, self.realm.id)
+    def outbound(self) -> Any:
+        return self._repository("outbound_request")
+
+    @property
+    def audit(self) -> Any:
+        return self._repository("audit")
 
     # -- policy -------------------------------------------------------------------
 
     def ensure_default_policy(self, *, now: dt.datetime | None = None) -> PolicyDocument:
         """Varsayilan policy yoksa olusturur (idempotent)."""
-        current = self.policies.current(DEFAULT_POLICY_NAME)
+        current = cast(PolicyDocument | None, self.policies.current(DEFAULT_POLICY_NAME))
         if current is not None:
             return current
         document = PolicyDocument.create(
@@ -182,10 +200,10 @@ class GovernanceService:
             rules=default_policy_rules(),
             now=now,
         )
-        return self.policies.append(document)
+        return cast(PolicyDocument, self.policies.append(document))
 
     def active_policy(self, name: str = DEFAULT_POLICY_NAME) -> PolicyDocument:
-        current = self.policies.current(name)
+        current = cast(PolicyDocument | None, self.policies.current(name))
         if current is None:
             raise NotFound(f"Policy bulunamadi: {name}")
         return current
@@ -454,7 +472,7 @@ class GovernanceService:
         request: EffectRequest,
         consumed_by: str,
         now: dt.datetime | None = None,
-    ) -> ConsumeResult:
+    ) -> Any:
         """Yetkiyi atomik tuketir ve sonucu denetime yazar."""
         moment = now or dt.datetime.now(dt.UTC)
         result = self.authorizations.consume(
@@ -495,12 +513,12 @@ class GovernanceService:
             correlation_id=self.correlation_id,
             now=moment,
         )
-        return revoked
+        return cast(bool, revoked)
 
     def _existing_authorization_id(self, authorization_id: UUID) -> UUID | None:
         """Denetim kaydinin foreign key'i icin yalnizca var olan kimligi dondurur."""
         try:
-            return self.authorizations.get(authorization_id).id
+            return cast(UUID, self.authorizations.get(authorization_id).id)
         except NotFound:
             return None
 
@@ -530,7 +548,7 @@ class GovernanceService:
         )
         if not result.consumed or result.authorization is None:
             raise AuthorizationRequired(f"Yetki tuketilemedi: {result.reason}")
-        return result.authorization
+        return cast(Authorization, result.authorization)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,16 @@
+{
+  "schema": "zekam-wp07-environment/v1",
+  "platform": "macos",
+  "architecture": "arm64",
+  "macos_version": "26.6.2",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "sqlite_version": "3.53.4",
+  "sqlite_vec_version": "0.1.9",
+  "knowledge_engine": "sqlite-fts5+sqlite-vec/schema-v2",
+  "embedding_provider": "infinity-loopback-bge-m3",
+  "embedding_dimension": 1024,
+  "remote_provider_calls": 0,
+  "postgresql_connections": 0,
+  "docker_required": false,
+  "windows_e2e": "deferred-k-013"
+}

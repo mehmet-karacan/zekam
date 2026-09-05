@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import itertools
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -33,7 +33,7 @@ DIGEST = digest("p08")
 class RouteGuard:
     def require_current(
         self,
-        decision_id,  # type: ignore[no-untyped-def]
+        decision_id: UUID,
         *,
         target_model_ref: str,
         target_client_id: str,
@@ -236,6 +236,7 @@ def test_transcript_free_cross_client_resume_requires_reacquire(
         f"{target[0]}-test", ("filesystem.read", "process.run"), managed=True
     )
     route_id = uuid4()
+    assert target_descriptor.permission_manifest is not None
     handoff = FinalizedHandoff(
         target[0],
         target[1],

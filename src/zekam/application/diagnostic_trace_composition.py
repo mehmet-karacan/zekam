@@ -17,17 +17,11 @@ from zekam.application.diagnostic_trace import (
     DiagnosticTraceWriter,
     decode_trace_key,
 )
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.secret_broker import EnvironmentSecretStore, SecretBroker
 from zekam.domain.diagnostic_trace import DiagnosticTracePolicy
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.security import SecretBackend
-from zekam.infrastructure.postgres.diagnostic_trace_repository import (
-    PostgresDiagnosticTraceRepository,
-)
-from zekam.infrastructure.postgres.security_repository import (
-    AuthorizationRepository,
-    SecretRefRepository,
-)
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 TRACE_ID_ENV = "ZEKAM_DIAGNOSTIC_TRACE_ID"
@@ -68,15 +62,15 @@ def compose_diagnostic_trace_sink(
         export_allowed=settings.export_allowed,
         redaction_profile=settings.redaction_profile,
     )
-    repository = PostgresDiagnosticTraceRepository(connection, realm_id)
+    repository = legacy_repository("diagnostic_trace", connection, realm_id)
     bundle = repository.get_bundle(trace_id)
     if bundle.policy.policy_digest != policy.policy_digest or bundle.state != "open":
         raise PolicyViolation("Configured trace policy/open bundle exact binding mismatch")
     key_name = settings.encryption_key_ref or ""
-    secret_ref = SecretRefRepository(connection, realm_id).current_by_name(key_name)
+    secret_ref = legacy_repository("secret_ref", connection, realm_id).current_by_name(key_name)
     if secret_ref is None or secret_ref.store_backend is not SecretBackend.ENVIRONMENT:
         raise PolicyViolation("Diagnostic trace current environment SecretRef ister")
-    authorizations = AuthorizationRepository(connection, realm_id)
+    authorizations = legacy_repository("authorization", connection, realm_id)
     authorization = authorizations.get(authorization_id)
     resource = f"diagnostics.trace:{trace_id}"
     if not authorization.scope.covers_effect("diagnostic-trace-encrypt") or not (
@@ -120,13 +114,13 @@ def compose_diagnostic_trace_purge_handler(
         authorization_id = UUID(raw)
     except ValueError as exc:
         raise ValidationFailed(f"{TRACE_PURGE_AUTHORIZATION_ENV} UUID olmali") from exc
-    authorizations = AuthorizationRepository(connection, realm_id)
+    authorizations = legacy_repository("authorization", connection, realm_id)
     authorization = authorizations.get(authorization_id)
     if not authorization.scope.covers_effect("diagnostic-trace-purge") or not (
         authorization.scope.covers_resource("diagnostics.trace-expired")
     ):
         raise PolicyViolation("Scheduled trace purge authorization exact scope mismatch")
-    repository = PostgresDiagnosticTraceRepository(connection, realm_id)
+    repository = legacy_repository("diagnostic_trace", connection, realm_id)
     store = LocalContentAddressedStore(home / "global" / "diagnostic-traces").ensure()
 
     def purge(now: dt.datetime) -> str:

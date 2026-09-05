@@ -8,13 +8,38 @@ drift, caller supplied SQL and missing exact plan digests.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation
-from zekam.infrastructure.postgres import migrations, routine_integrity
+
+
+class MigrationView(Protocol):
+    version: int
+    name: str
+    checksum: str
+    has_down: bool
+    label: str
+
+
+class MigrationStatusView(Protocol):
+    head: int
+    applied: tuple[MigrationView, ...]
+    pending: tuple[MigrationView, ...]
+    drift: tuple[Any, ...]
+
+
+class RoutineIntegrityStatusView(Protocol):
+    missing: tuple[Any, ...]
+    migration_drift: tuple[Any, ...]
+    migration_pending: tuple[Any, ...]
+    repair_plan_digest: str
+    migration_head: int
+
+    def as_dict(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +106,7 @@ class GitFastForwardPlan:
 
 @dataclass(frozen=True, slots=True)
 class DatabaseRoutinePlan:
-    status: routine_integrity.RoutineIntegrityStatus
+    status: RoutineIntegrityStatusView
     blocked_reasons: tuple[str, ...]
 
     @property
@@ -108,7 +133,7 @@ class DatabaseRoutinePlan:
 class DatabaseMigrationPlan:
     """Exact siradaki migration'i immutable bir repair adimina baglar."""
 
-    status: migrations.MigrationStatus
+    status: MigrationStatusView
     blocked_reasons: tuple[str, ...]
 
     @property
@@ -116,7 +141,7 @@ class DatabaseMigrationPlan:
         return bool(self.status.pending)
 
     @property
-    def next_migration(self) -> migrations.Migration | None:
+    def next_migration(self) -> MigrationView | None:
         return self.status.pending[0] if self.status.pending else None
 
     @property
@@ -302,12 +327,16 @@ def build_doctor_repair_plan(
     core_path: Path,
     connection: Any | None = None,
     migrations_directory: Path | None = None,
+    migration_status_reader: Callable[[Any, Path | None], MigrationStatusView] | None = None,
+    routine_status_reader: Callable[[Any, Path | None], RoutineIntegrityStatusView] | None = None,
 ) -> DoctorRepairPlan:
     git = plan_git_fast_forward(core_path)
     migration_plan: DatabaseMigrationPlan | None = None
     routines: DatabaseRoutinePlan | None = None
     if connection is not None:
-        migration_status = migrations.status(connection, migrations_directory)
+        if migration_status_reader is None or routine_status_reader is None:
+            raise PolicyViolation("Database doctor repair status adapterlari ister")
+        migration_status = migration_status_reader(connection, migrations_directory)
         migration_blocked: list[str] = []
         if migration_status.drift:
             migration_blocked.append("migration-drift")
@@ -317,7 +346,7 @@ def build_doctor_repair_plan(
             status=migration_status,
             blocked_reasons=tuple(migration_blocked),
         )
-        routine_status = routine_integrity.status(connection, migrations_directory)
+        routine_status = routine_status_reader(connection, migrations_directory)
         blocked: list[str] = []
         if routine_status.migration_drift:
             blocked.append("migration-drift")

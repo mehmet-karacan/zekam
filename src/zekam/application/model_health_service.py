@@ -38,14 +38,59 @@ from zekam.domain.model_health import (
     validate_shape,
     verified_capabilities,
 )
-from zekam.domain.model_inventory import HealthState, Modality, ModelRecord
+from zekam.domain.model_inventory import BenchmarkState, HealthState, Modality, ModelRecord
 from zekam.domain.realm import Realm
-from zekam.infrastructure.postgres.model_repository import (
-    CapabilityCheckRepository,
-    HealthProbeRepository,
-    ModelInventoryRepository,
-    QuarantineRepository,
-)
+
+
+class ModelInventoryStore(Protocol):
+    def get(self, model_id: str) -> ModelRecord: ...
+
+    def list_all(self) -> tuple[ModelRecord, ...]: ...
+
+    def set_health(
+        self,
+        model_id: str,
+        *,
+        state: HealthState,
+        quarantine_until: dt.datetime | None,
+        benchmark_state: BenchmarkState,
+        policy_digest: str,
+        inventory_digest: str,
+        verified_capabilities: Sequence[str] | None = None,
+        now: dt.datetime | None = None,
+    ) -> None: ...
+
+    def health_metadata(
+        self, model_id: str
+    ) -> tuple[dt.datetime | None, str | None, str | None]: ...
+
+
+class HealthProbeStore(Protocol):
+    def record(
+        self, outcome: ProbeOutcome, *, policy_digest: str, inventory_digest: str
+    ) -> UUID: ...
+
+    def history(self, model_id: str, *, limit: int = 20) -> tuple[ProbeOutcome, ...]: ...
+
+
+class CapabilityCheckStore(Protocol):
+    def record(self, check: CapabilityCheck) -> UUID: ...
+
+    def latest_for_model(self, model_id: str) -> tuple[CapabilityCheck, ...]: ...
+
+
+class QuarantineStore(Protocol):
+    def record(
+        self,
+        *,
+        model_id: str,
+        action: str,
+        reason: str,
+        consecutive_failures: int,
+        cooldown_until: dt.datetime | None,
+        policy_digest: str,
+        now: dt.datetime | None = None,
+    ) -> UUID: ...
 
 
 class ProviderProbe(Protocol):
@@ -148,26 +193,12 @@ class HealthRunResult:
 class ModelHealthService:
     """Probe calistirma ve yasam dongusu yonetimi."""
 
-    connection: Any
-    realm: Realm
+    inventory: ModelInventoryStore
+    probes: HealthProbeStore
+    capabilities: CapabilityCheckStore
+    quarantine: QuarantineStore
     probe: ProviderProbe
     policy: QuarantinePolicy = field(default_factory=QuarantinePolicy)
-
-    @property
-    def inventory(self) -> ModelInventoryRepository:
-        return ModelInventoryRepository(self.connection, self.realm.id)
-
-    @property
-    def probes(self) -> HealthProbeRepository:
-        return HealthProbeRepository(self.connection, self.realm.id)
-
-    @property
-    def capabilities(self) -> CapabilityCheckRepository:
-        return CapabilityCheckRepository(self.connection, self.realm.id)
-
-    @property
-    def quarantine(self) -> QuarantineRepository:
-        return QuarantineRepository(self.connection, self.realm.id)
 
     # -- probe -------------------------------------------------------------------
 

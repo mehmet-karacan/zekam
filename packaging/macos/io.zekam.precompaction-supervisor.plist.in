@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.zekam.precompaction-supervisor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ZEKAM_PYTHON@</string>
+    <string>-I</string>
+    <string>-m</string>
+    <string>zekam.infrastructure.macos_precompaction_supervisor</string>
+  </array>
+  <key>Sockets</key>
+  <dict>
+    <key>PreCompactionListener</key>
+    <dict>
+      <key>SockPathName</key>
+      <string>@ZEKAM_PRECOMPACTION_SOCKET@</string>
+      <key>SockType</key>
+      <string>stream</string>
+      <key>SockPathMode</key>
+      <integer>384</integer>
+    </dict>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>Disabled</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+</dict>
+</plist>

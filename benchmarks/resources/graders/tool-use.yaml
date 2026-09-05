@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: tool-use-grader
+version: 1
+family: tool-use
+evaluation_class: technical
+dimensions:
+- tool-correctness
+- safety
+- recovery
+hidden_key_model_visible: false

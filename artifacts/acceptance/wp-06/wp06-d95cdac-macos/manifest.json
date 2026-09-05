@@ -1,0 +1,23 @@
+{
+  "schema": "zekam-evidence-manifest/v1",
+  "work_package": "WP-06",
+  "bundle_id": "wp06-d95cdac-macos",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "status": "macos-accepted/windows-deferred",
+  "files": [
+    {"path": "changed-files.json", "sha256": "f25dce902663f6c9171ccf1b15b40e50e4a235225cdb17d0c67065acd12a21d9"},
+    {"path": "commands.jsonl", "sha256": "8bdead02dbc1b3f93cb943ed0b97d2dc0e17aaeaa12fc5ca2f1cf9aa93725d8c"},
+    {"path": "environment.json", "sha256": "50e64c478751318c59381be798b9463056acd57ecc1c875fae05d9ed98108692"},
+    {"path": "metrics/wp06.json", "sha256": "57fcee4acb592f4aa3acdb59441917ac502cbe99235a328778340b0425509f63"},
+    {"path": "recovery-results.json", "sha256": "530410ef69718fab6aeb8dce3149c1c4aebce0c3d49d829a84ddfe6de604632e"},
+    {"path": "security-scan.json", "sha256": "a51cca790ed8dabe85195d5befa585341859ca1d3992d72c314245506ae44125"},
+    {"path": "source-digests.json", "sha256": "93638fdc28788d124ca420e3edc31dfe141570837d8b207a7b88599098f70e2a"},
+    {"path": "summary.md", "sha256": "fcb9dea3156e0b289627ee4495df0502859f79d55680ef6507639ccd697140c2"},
+    {"path": "test-results/focused.json", "sha256": "168a36394570855bac694ed5764d04d2e48775b55788610588a967452bb41f92"},
+    {"path": "test-results/full-suite.json", "sha256": "b3ae79aa6307583e101636c9ae2e90ce559036430b0c039208284c8fa611048f"},
+    {"path": "verifier-report.json", "sha256": "dff737d4afa5ec50d4565fdf1408e6f8246ccf0defc56ea5d64deccc92447b5f"}
+  ],
+  "builder_identity": "root",
+  "verifier_identity": "wp06_quality_verifier",
+  "push_performed": false
+}

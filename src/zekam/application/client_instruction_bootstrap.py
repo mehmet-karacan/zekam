@@ -32,10 +32,10 @@ _MANAGED_BODY = "\n".join(
         "provider/model cagrisi ve diger effect'ler kendi exact plan, authorization, "
         "claim-before-effect ve terminal receipt kapilarini korur.",
         "- Secret, PII ve raw transcript'i prompt, log, projection veya Git'e yazma.",
-        "- Obsidian projection salt okunur gorunumdur; kanonik authority PostgreSQL'dir "
-        "ve projection dosyalari elle degistirilmez.",
+        "- Obsidian projection salt okunur gorunumdur; kanonik authority yerel "
+        "operational store'dur ve projection dosyalari elle degistirilmez.",
         "- Olcumlu loop durumunu raw transcript istemeden `zekam loop status "
-        "<loop-id> --json` ile oku; metric ve stop reason kanonik PostgreSQL'den gelir.",
+        "<loop-id> --json` ile oku; metric ve stop reason kanonik operational store'dan gelir.",
         "- `zekam` kullanilamiyorsa pending talebi koru ve kurulum/onarimdan once "
         "kullanici onayi iste.",
         _END,

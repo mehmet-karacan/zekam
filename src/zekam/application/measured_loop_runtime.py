@@ -17,6 +17,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from zekam.application.execution import ExecutionHost
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.loop_orchestrator import measured_loop_effect_scope_digest
 from zekam.application.loop_progress_compiler import LoopProgressCompiler
 from zekam.application.measured_loop_worker import (
@@ -51,15 +52,6 @@ from zekam.domain.optimization import (
     ProgressState,
     evaluate_progress,
 )
-from zekam.infrastructure.postgres.agent_assignment_repository import (
-    AgentAssignmentRepository,
-)
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.loop_policy_repository import PostgresLoopPolicyRepository
-from zekam.infrastructure.postgres.project_repository import SourceBindingRepository
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 from zekam.infrastructure.process.capability_worker import (
     CapabilityProcessWorker,
     CapabilityWorkerRequest,
@@ -132,6 +124,10 @@ _FORBIDDEN_EXECUTABLES = frozenset(
     }
 )
 _FORBIDDEN_SCRIPT_SUFFIXES = frozenset({".bat", ".cmd", ".js", ".ps1", ".py", ".rb", ".sh"})
+_VERSIONED_INTERPRETER_RE = re.compile(
+    r"^(?:java|node|perl|pypy|python|pythonw|ruby)\d(?:[\d.]*)?(?:\.exe)?$",
+    re.IGNORECASE,
+)
 _SENSITIVE_KEY_RE = re.compile(
     r"^(raw[-_]?)?(prompt|response|transcript|secret|pii|credential|"
     r"private[-_]?reasoning|patch[-_]?body|test[-_]?log)s?$|"
@@ -168,6 +164,7 @@ class PinnedLocalDriverSpec:
             raise PolicyViolation("Measured loop pinned executable okunamadi") from exc
         if (
             resolved.name.casefold() in _FORBIDDEN_EXECUTABLES
+            or _VERSIONED_INTERPRETER_RE.fullmatch(resolved.name)
             or resolved.suffix.casefold() in _FORBIDDEN_SCRIPT_SUFFIXES
         ):
             raise PolicyViolation("Measured loop shell/interpreter driver reddedildi")
@@ -190,7 +187,7 @@ class LocalMeasuredLoopDriver:
         objective, policy = PostgresMeasuredLoopContractLoader(self.connection, self.realm_id).load(
             admission.loop_id
         )
-        assignments = AgentAssignmentRepository(self.connection, self.realm_id)
+        assignments = legacy_repository("agent_assignment", self.connection, self.realm_id)
         builder = assignments.get(policy.assignment_id)
         verifier = assignments.get(policy.validator_assignment_id)
         if builder.agent_ref == verifier.agent_ref:
@@ -211,7 +208,7 @@ class LocalMeasuredLoopDriver:
         moment = _database_now(self.connection)
         builder_invocation = _invocation(builder.id, "builder", work, moment)
         verifier_invocation = _invocation(verifier.id, "verifier", work, moment)
-        policy_repo = PostgresLoopPolicyRepository(self.connection, self.realm_id)
+        policy_repo = legacy_repository("loop_policy", self.connection, self.realm_id)
         policy_repo.bind_dispatch(admission.attempt_id, "agent", builder_invocation.id)
         policy_repo.bind_dispatch(admission.attempt_id, "agent", verifier_invocation.id)
         assignments.record_invocation(builder_invocation)
@@ -372,7 +369,8 @@ class PostgresMeasuredLoopCheckpointWriter:
     ) -> None:
         if work.job.project_id is None or work.job.work_item_id is None or work.job.plan_id is None:
             raise PolicyViolation("Measured loop checkpoint exact project/work/plan ister")
-        repository = ContextContinuityRepository(
+        repository = legacy_repository(
+            "context_continuity",
             self.connection,
             self.realm_id,
             work.job.project_id,
@@ -495,13 +493,13 @@ def load_local_driver_config(
 
 
 def _source_root(connection: Any, realm_id: UUID, project_id: UUID) -> Path:
-    bindings = SourceBindingRepository(connection, realm_id).for_project(project_id)
+    bindings = legacy_repository("source_binding", connection, realm_id).for_project(project_id)
     if len(bindings) != 1 or not bindings[0].is_usable:
         raise PolicyViolation("Measured loop exact usable project source binding ister")
-    root = SourceBindingRepository(connection, realm_id).local_path(bindings[0].id)
+    root = legacy_repository("source_binding", connection, realm_id).local_path(bindings[0].id)
     if root is None:
         raise PolicyViolation("Measured loop local source root bulunamadi")
-    return root.resolve(strict=True)
+    return Path(root).resolve(strict=True)
 
 
 def _consume_and_claim_effect(
@@ -516,7 +514,7 @@ def _consume_and_claim_effect(
     driver_digest: str,
     now: dt.datetime,
 ) -> Any:
-    authorizations = AuthorizationRepository(connection, realm_id)
+    authorizations = legacy_repository("authorization", connection, realm_id)
     authorization = authorizations.get(authorization_id)
     resources = tuple(item.resource.text for item in work.job.resources)
     if (
@@ -699,7 +697,7 @@ def _execution(
     admission: Any,
     builder_invocation: AgentInvocation,
     verifier_invocation: AgentInvocation,
-    policy_repository: PostgresLoopPolicyRepository,
+    policy_repository: Any,
 ) -> MeasuredLoopAttemptExecution:
     if body.get("schema") != "zekam-measured-loop-verifier-result/v1":
         raise ValidationFailed("Measured loop verifier result semasi gecersiz")

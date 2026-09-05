@@ -18,6 +18,7 @@ from zekam.domain.model_catalog import (
 from zekam.domain.model_routing import (
     AgentRole,
     CandidateDisposition,
+    ExecutionTargetSnapshot,
     LayeredRouteRequest,
     ModelFamilyPolicy,
     ProjectRoutingContext,
@@ -649,3 +650,85 @@ def test_independent_role_policy_requires_model_and_execution_exclusions() -> No
     decision = decide_layered_model(_request(), policy, _all_layers("model-a", 0.9), now=NOW)
     assert decision.status is RouteStatus.PENDING
     assert decision.candidates[0].rejection_reasons == ("independence-evidence-missing",)
+
+
+def test_model_family_policy_empty_duplicate_and_exact_text_boundary() -> None:
+    with pytest.raises(ValidationFailed):
+        ModelFamilyPolicy((), ())
+    with pytest.raises(ValidationFailed):
+        ModelFamilyPolicy((("same", "a"), ("same", "b")), ())
+    exact = "x" * 256
+    assert ModelFamilyPolicy(((exact, exact),), ()).family_for(exact) == exact
+    with pytest.raises(ValidationFailed):
+        ModelFamilyPolicy((("x" * 257, "family"),), ())
+
+
+def test_zero_budget_and_single_execution_slot_are_valid_boundaries() -> None:
+    assert replace(_policy(), max_cost=0.0, max_latency_ms=0.0).max_cost == 0.0
+    target = ExecutionTargetSnapshot(
+        client_id="client",
+        slot="slot",
+        execution_mode="native-sequential",
+        model_selectable=True,
+        structured_result=True,
+        cancellation=True,
+        max_concurrency=1,
+        cost_evidence_digest=digest("cost"),
+        capability_digest=digest("capability"),
+        captured_at=NOW,
+        expires_at=NOW + dt.timedelta(seconds=1),
+    )
+    assert target.max_concurrency == 1
+    with pytest.raises(ValidationFailed):
+        replace(target, expires_at=target.captured_at)
+
+
+def test_equal_context_and_capability_expiry_boundaries_fail_closed() -> None:
+    context = ProjectRoutingContext(
+        project_id=PROJECT_ID,
+        source_revision_id=uuid4(),
+        source_revision="revision",
+        tree_digest=digest("tree"),
+        capability_profile_digest=digest("capability"),
+        dependency_digest=digest("dependency"),
+        framework_digest=digest("framework"),
+        technology_digest=digest("technology"),
+        architecture_digest=digest("architecture"),
+        rules_digest=digest("rules"),
+        suite_digest=digest("suite"),
+        inventory_digest=INVENTORY,
+        policy_digest=POLICY,
+        captured_at=NOW,
+        expires_at=NOW + dt.timedelta(seconds=1),
+    )
+    assert context.stale_reasons(context, now=context.expires_at) == ()
+    with pytest.raises(ValidationFailed):
+        replace(context, expires_at=context.captured_at)
+    capability = _capability("model-a", RouteCapabilityDimension.TOOL)
+    with pytest.raises(ValidationFailed):
+        replace(capability, expires_at=capability.observed_at)
+
+
+def test_zero_qualification_metrics_and_equal_expiry_boundaries() -> None:
+    qualification = replace(
+        _qualification("model-a", RoutingLayer.GENERAL, 0.0),
+        mean_latency_ms=0.0,
+        mean_cost=0.0,
+    )
+    assert qualification.mean_latency_ms == qualification.mean_cost == 0.0
+    with pytest.raises(ValidationFailed):
+        replace(qualification, expires_at=qualification.valid_from)
+
+
+def test_role_and_workload_mismatch_never_match_qualification() -> None:
+    wrong_role = tuple(
+        replace(item, role=AgentRole.REVIEWER) for item in _all_layers("model-a", 0.9)
+    )
+    role_decision = decide_layered_model(_request(), _policy(), wrong_role, now=NOW)
+    assert role_decision.status is RouteStatus.PENDING
+    wrong_workload = tuple(
+        replace(item, workload="other") if item.layer is not RoutingLayer.GENERAL else item
+        for item in _all_layers("model-a", 0.9)
+    )
+    workload_decision = decide_layered_model(_request(), _policy(), wrong_workload, now=NOW)
+    assert workload_decision.status is RouteStatus.PENDING

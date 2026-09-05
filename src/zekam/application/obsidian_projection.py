@@ -1,6 +1,6 @@
 """Deterministic, privacy-filtered Obsidian projection planning.
 
-PostgreSQL records remain authoritative.  This module only renders an immutable
+Operational-store records remain authoritative.  This module only renders an immutable
 human view and creates a digest-bound file-write plan; it never interprets an
 edited Markdown file as canonical input.
 """
@@ -249,7 +249,7 @@ grants_authority: false
 # {_md(record.title)}
 
 > [!warning] Salt okunur uretilmis projection
-> Bu not PostgreSQL kaydinin insan gorunumudur; authority, review veya yetki vermez.
+> Bu not operational-store kaydinin insan gorunumudur; authority, review veya yetki vermez.
 
 ## Ozet
 

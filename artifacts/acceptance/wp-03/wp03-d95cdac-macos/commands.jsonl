@@ -1,0 +1,9 @@
+{"command":"pytest focused WP-03 port/operational/CLI/recovery suites","exit_code":0,"result":"100 passed"}
+{"command":"pytest -q","exit_code":1,"result":"2544 passed, 712 skipped, 5 pre-existing environment contract failures"}
+{"command":"ruff check application and changed adapters/interfaces/tests","exit_code":0,"result":"passed"}
+{"command":"mypy src/zekam/application","exit_code":1,"result":"only 9 pre-existing Windows-only ctypes/msvcrt findings in opencode_spool.py and client_lifecycle_spool.py; no new findings"}
+{"command":"AST concrete database import boundary test","exit_code":0,"result":"0 PostgreSQL imports; 0 SQLite imports under application"}
+{"command":"ZEKAM_VALIDATION_RESULT_PATH=/tmp/zekam-wp03-validation.json python scripts/paket_dogrula.py","exit_code":0,"result":"passed, 0 warnings, 0 errors"}
+{"command":"git diff --check","exit_code":0,"result":"passed"}
+{"command":"pytest -q --junitxml=final-current-source-full-suite-r3.xml","exit_code":0,"result":"6957 passed, 16 skipped, 0 failures, 0 errors"}
+{"command":"independent current-source WP-03/WP-04 acceptance and branch coverage","exit_code":0,"result":"448 passed; operational_store branch coverage 92.5%; P0=0; P1=0"}

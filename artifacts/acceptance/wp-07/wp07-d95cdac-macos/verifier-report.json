@@ -1,0 +1,19 @@
+{
+  "schema": "zekam-independent-verifier-report/v1",
+  "work_package": "WP-07",
+  "builder_identity": "root",
+  "verifier_identity": "wp06_quality_verifier",
+  "independent": true,
+  "verdict": "PASS",
+  "macos_acceptance": "accepted-bounded",
+  "windows_acceptance": "deferred-k-013",
+  "real_bge_rag_e2e_passed": 1,
+  "golden_case_count": 100,
+  "postgresql_connections": 0,
+  "source_repository_writes": 0,
+  "limitations": [
+    "Windows/OpenCode live remote embedding RAG E2E was not run",
+    "Corpus intentionally contains only six Akilli Kasa files",
+    "WP-08 and later work packages remain open"
+  ]
+}

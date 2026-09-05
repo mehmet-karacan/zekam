@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.capability_profile import profile_from_mapping
@@ -20,6 +20,7 @@ from zekam.application.source_discovery import discover
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_benchmark import build_project_suite
+from zekam.domain.model_catalog import ModelCatalogSnapshot
 from zekam.domain.model_routing import (
     LAYER_ORDER,
     AgentRole,
@@ -27,16 +28,76 @@ from zekam.domain.model_routing import (
     LayeredRouteRequest,
     ProjectRoutingContext,
     RoleRoutingPolicy,
+    RouteCapabilityEvidence,
     RoutingLayer,
     RoutingQualification,
     StaleReason,
     decide_layered_model,
 )
-from zekam.infrastructure.postgres.model_catalog_repository import ModelCatalogRepository
-from zekam.infrastructure.postgres.model_routing_repository import ModelRoutingRepository
 
 CONTEXT_TTL = dt.timedelta(days=7)
 QUALIFICATION_TTL = dt.timedelta(days=7)
+
+
+@dataclass(frozen=True, slots=True)
+class GeneralCampaignQualificationEvidence:
+    model_id: str
+    aggregate_id: UUID
+    aggregate_evidence_digest: str
+    metrics: dict[str, Any]
+    verifier_model_id: str
+    verifier_execution_identity: str
+    approved: bool
+    unsafe: bool
+    created_at: dt.datetime
+    suite_id: UUID
+    suite_digest: str
+    health_result_id: UUID
+    health_evidence_digest: str
+    inventory_digest: str
+    policy_digest: str
+    adapter_digests: tuple[str, ...]
+
+
+class LayeredRoutingStore(Protocol):
+    def latest_policy(
+        self, role: AgentRole, target_layer: RoutingLayer, *, at: dt.datetime
+    ) -> tuple[UUID, RoleRoutingPolicy] | None: ...
+
+    def qualifications_for(
+        self, request: LayeredRouteRequest
+    ) -> tuple[RoutingQualification, ...]: ...
+
+    def capability_evidence_for(
+        self, request: LayeredRouteRequest
+    ) -> tuple[RouteCapabilityEvidence, ...]: ...
+
+    def latest_context(self, project_id: UUID) -> tuple[UUID, ProjectRoutingContext] | None: ...
+
+    def general_campaign_qualification_evidence(
+        self, campaign_id: UUID
+    ) -> tuple[GeneralCampaignQualificationEvidence, ...]: ...
+
+    def store_suite_binding(
+        self,
+        *,
+        benchmark_suite_id: UUID,
+        suite_digest: str,
+        layer: RoutingLayer,
+        role: AgentRole,
+        workload: str | None,
+        technology: str | None,
+        project_context_id: UUID | None,
+        binding_digest: str,
+    ) -> UUID: ...
+
+    def store_qualification(
+        self, qualification: RoutingQualification, *, suite_binding_id: UUID
+    ) -> tuple[UUID, bool]: ...
+
+
+class ModelCatalogStore(Protocol):
+    def latest(self, provider_id: str) -> ModelCatalogSnapshot | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,11 +254,12 @@ def prepare_project_context(
 
 
 def preview_route(
-    repository: ModelRoutingRepository,
+    repository: LayeredRoutingStore,
     request: LayeredRouteRequest,
     *,
     current_context: ProjectRoutingContext | None = None,
     provider_id: str | None = None,
+    catalog: ModelCatalogStore | None = None,
     now: dt.datetime | None = None,
 ) -> RoutePreview:
     moment = now or dt.datetime.now(dt.UTC)
@@ -209,11 +271,12 @@ def preview_route(
     qualifications = repository.qualifications_for(request)
     capability_evidence = repository.capability_evidence_for(request)
     family_policy = None if request.family_policy_digest is None else load_model_family_policy()
-    catalog_snapshot = (
-        None
-        if provider_id is None
-        else ModelCatalogRepository(repository.connection, repository.realm_id).latest(provider_id)
-    )
+    if provider_id is not None and catalog is None:
+        raise PolicyViolation("Provider-scoped route preview model catalog store ister")
+    catalog_snapshot = None
+    if provider_id is not None:
+        assert catalog is not None
+        catalog_snapshot = catalog.latest(provider_id)
     decision = decide_layered_model(
         request,
         policy,
@@ -240,7 +303,7 @@ def preview_route(
 
 
 def adopt_general_campaign_qualifications(
-    repository: ModelRoutingRepository,
+    repository: LayeredRoutingStore,
     *,
     campaign_id: UUID,
     role: AgentRole = AgentRole.IMPLEMENTER,
@@ -251,39 +314,13 @@ def adopt_general_campaign_qualifications(
     campaign member result, benchmark suite, aggregate and tested claim adapter.
     """
 
-    with repository.connection.cursor() as cursor:
-        cursor.execute(
-            "select q.model_id, q.aggregate_id, a.evidence_digest, a.metrics,"
-            " a.verifier_model_id, a.verifier_execution_identity, a.approved, a.unsafe,"
-            " a.created_at, s.id, s.suite_digest, h.id, h.evidence_digest, c.inventory_digest,"
-            " c.policy_digest, array_agg(distinct ec.adapter_digest)"
-            " from models.opencode_model_qualification_event q"
-            " join models.opencode_benchmark_campaign c"
-            "   on c.realm_id=q.realm_id and c.id=q.campaign_id"
-            " join models.opencode_benchmark_campaign_member_result h"
-            "   on h.realm_id=q.realm_id and h.campaign_id=q.campaign_id"
-            "  and h.member_id=q.member_id and h.stage='health' and h.status='passed'"
-            " join models.benchmark_aggregate a"
-            "   on a.realm_id=q.realm_id and a.id=q.aggregate_id"
-            " join models.benchmark_plan p on p.realm_id=a.realm_id and p.id=a.plan_id"
-            " join models.benchmark_suite s on s.realm_id=p.realm_id and s.id=p.suite_id"
-            " join models.benchmark_trial t on t.realm_id=a.realm_id and t.plan_id=a.plan_id"
-            " join runtime.effect_claim ec"
-            "   on ec.realm_id=t.realm_id and ec.id=t.tested_claim_id"
-            " where q.realm_id=%s and q.campaign_id=%s and q.action='qualified'"
-            " group by q.model_id, q.aggregate_id, a.evidence_digest, a.metrics,"
-            " a.verifier_model_id, a.verifier_execution_identity, a.approved, a.unsafe,"
-            " a.created_at, s.id, s.suite_digest, h.id, h.evidence_digest, c.inventory_digest,"
-            " c.policy_digest order by q.model_id",
-            (repository.realm_id, campaign_id),
-        )
-        rows = cursor.fetchall()
+    rows = repository.general_campaign_qualification_evidence(campaign_id)
     record_ids: list[UUID] = []
     for row in rows:
-        adapter_digests = tuple(str(value) for value in row[15])
+        adapter_digests = row.adapter_digests
         if len(adapter_digests) != 1:
             raise PolicyViolation("General routing tested execution identity ambiguous")
-        metrics = dict(row[3])
+        metrics = row.metrics
         quality = float(dict(metrics.get("quality", {})).get("mean", -1))
         reliability = float(dict(metrics.get("reliability", {})).get("mean", -1))
         latency = float(dict(metrics.get("latency_ms", {})).get("mean", -1))
@@ -291,8 +328,8 @@ def adopt_general_campaign_qualifications(
         if min(quality, reliability, latency, cost) < 0:
             raise PolicyViolation("General routing aggregate metric seti eksik")
         suite_binding_id = repository.store_suite_binding(
-            benchmark_suite_id=UUID(str(row[9])),
-            suite_digest=str(row[10]),
+            benchmark_suite_id=row.suite_id,
+            suite_digest=row.suite_digest,
             layer=RoutingLayer.GENERAL,
             role=role,
             workload=None,
@@ -302,25 +339,25 @@ def adopt_general_campaign_qualifications(
                 {
                     "schema": "zekam-general-routing-suite-binding/v1",
                     "campaign_id": str(campaign_id),
-                    "model_id": str(row[0]),
-                    "suite_digest": str(row[10]),
+                    "model_id": row.model_id,
+                    "suite_digest": row.suite_digest,
                     "role": role.value,
                 }
             ),
         )
         qualification = RoutingQualification(
-            model_id=str(row[0]),
+            model_id=row.model_id,
             layer=RoutingLayer.GENERAL,
             role=role,
-            suite_digest=str(row[10]),
-            aggregate_id=UUID(str(row[1])),
-            aggregate_evidence_digest=str(row[2]),
-            health_result_id=UUID(str(row[11])),
-            health_evidence_digest=str(row[12]),
-            inventory_digest=str(row[13]),
-            policy_digest=str(row[14]),
-            verifier_model_id=str(row[4]),
-            verifier_execution_identity=str(row[5]),
+            suite_digest=row.suite_digest,
+            aggregate_id=row.aggregate_id,
+            aggregate_evidence_digest=row.aggregate_evidence_digest,
+            health_result_id=row.health_result_id,
+            health_evidence_digest=row.health_evidence_digest,
+            inventory_digest=row.inventory_digest,
+            policy_digest=row.policy_digest,
+            verifier_model_id=row.verifier_model_id,
+            verifier_execution_identity=row.verifier_execution_identity,
             tested_execution_identity=f"provider-adapter:{adapter_digests[0]}",
             score=(quality + reliability) / 2.0,
             mean_latency_ms=latency,
@@ -328,10 +365,10 @@ def adopt_general_campaign_qualifications(
             workload=None,
             technology=None,
             project_context_digest=None,
-            qualified=bool(row[6]),
-            unsafe=bool(row[7]),
-            valid_from=row[8],
-            expires_at=row[8] + QUALIFICATION_TTL,
+            qualified=row.approved,
+            unsafe=row.unsafe,
+            valid_from=row.created_at,
+            expires_at=row.created_at + QUALIFICATION_TTL,
         )
         record_id, _ = repository.store_qualification(
             qualification, suite_binding_id=suite_binding_id

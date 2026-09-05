@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 from zekam.interfaces.cli.main import app
 
 
-def test_raw_completed_transition_fails_before_opening_database() -> None:
+def test_removed_raw_transition_command_cannot_bypass_projection_close() -> None:
     result = CliRunner().invoke(
         app,
         [
@@ -22,5 +22,5 @@ def test_raw_completed_transition_fails_before_opening_database() -> None:
         ],
     )
 
-    assert result.exit_code == 64
-    assert "projection-aware close/release" in result.output
+    assert result.exit_code == 2
+    assert "No such command 'transition'" in result.output

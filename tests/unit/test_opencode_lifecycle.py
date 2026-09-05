@@ -3,12 +3,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
 from zekam.application.opencode_lifecycle import (
     SCHEMA_V1,
     OpenCodeForwardBatch,
+    OpenCodeLifecycleEvent,
     lifecycle_client_instance_id,
     lifecycle_root,
     recent_events,
@@ -22,7 +24,7 @@ from zekam.domain.errors import ValidationFailed
 NOW = dt.datetime(2026, 8, 23, 12, 0, tzinfo=dt.UTC)
 
 
-def test_interrupted_tool_is_model_independent_resume_evidence(tmp_path) -> None:
+def test_interrupted_tool_is_model_independent_resume_evidence(tmp_path: Path) -> None:
     event = record_event(
         tmp_path,
         event_type="tool.execute.before",
@@ -46,7 +48,7 @@ def test_interrupted_tool_is_model_independent_resume_evidence(tmp_path) -> None
     assert "sessiz retry" in projection["sessions"][0]["next_safe_action"]
 
 
-def test_completed_tool_and_idle_session_are_checkpointed(tmp_path) -> None:
+def test_completed_tool_and_idle_session_are_checkpointed(tmp_path: Path) -> None:
     for index, event_type in enumerate(
         ("session.created", "tool.execute.before", "tool.execute.after", "session.idle")
     ):
@@ -66,7 +68,7 @@ def test_completed_tool_and_idle_session_are_checkpointed(tmp_path) -> None:
     assert projection["sessions"][0]["active_tool"] is None
 
 
-def test_tool_after_alone_clears_active_tool(tmp_path) -> None:
+def test_tool_after_alone_clears_active_tool(tmp_path: Path) -> None:
     record_event(
         tmp_path,
         event_type="tool.execute.before",
@@ -89,7 +91,7 @@ def test_tool_after_alone_clears_active_tool(tmp_path) -> None:
     assert session["last_tool"] == "bash"
 
 
-def test_recent_pending_tool_is_active_and_sanitized(tmp_path) -> None:
+def test_recent_pending_tool_is_active_and_sanitized(tmp_path: Path) -> None:
     record_event(
         tmp_path,
         event_type="tool.execute.before",
@@ -104,7 +106,7 @@ def test_recent_pending_tool_is_active_and_sanitized(tmp_path) -> None:
     assert session["active_tool"] == "bash"
 
 
-def test_unknown_pending_tool_uses_generic_name(tmp_path) -> None:
+def test_unknown_pending_tool_uses_generic_name(tmp_path: Path) -> None:
     record_event(
         tmp_path,
         event_type="tool.execute.before",
@@ -129,7 +131,7 @@ def test_unknown_pending_tool_uses_generic_name(tmp_path) -> None:
         "session.deleted",
     ],
 )
-def test_terminal_session_event_clears_active_tool(tmp_path, terminal_event: str) -> None:
+def test_terminal_session_event_clears_active_tool(tmp_path: Path, terminal_event: str) -> None:
     record_event(
         tmp_path,
         event_type="tool.execute.before",
@@ -149,7 +151,7 @@ def test_terminal_session_event_clears_active_tool(tmp_path, terminal_event: str
     assert session["active_tool"] is None
 
 
-def test_error_then_deleted_remains_failed(tmp_path) -> None:
+def test_error_then_deleted_remains_failed(tmp_path: Path) -> None:
     record_event(tmp_path, event_type="session.error", session_id="ses_1", now=NOW)
     record_event(
         tmp_path,
@@ -161,7 +163,7 @@ def test_error_then_deleted_remains_failed(tmp_path) -> None:
     assert session["status"] == "failed"
 
 
-def test_pending_tool_then_deleted_is_interrupted(tmp_path) -> None:
+def test_pending_tool_then_deleted_is_interrupted(tmp_path: Path) -> None:
     record_event(
         tmp_path, event_type="tool.execute.before", session_id="ses_1", tool="bash", now=NOW
     )
@@ -176,7 +178,7 @@ def test_pending_tool_then_deleted_is_interrupted(tmp_path) -> None:
     assert "sessiz retry" in session["next_safe_action"]
 
 
-def test_checkpoint_then_deleted_preserves_checkpoint_state(tmp_path) -> None:
+def test_checkpoint_then_deleted_preserves_checkpoint_state(tmp_path: Path) -> None:
     record_event(tmp_path, event_type="session.checkpoint", session_id="ses_1", now=NOW)
     record_event(
         tmp_path,
@@ -187,7 +189,7 @@ def test_checkpoint_then_deleted_preserves_checkpoint_state(tmp_path) -> None:
     assert resume_projection(tmp_path)["sessions"][0]["status"] == "closed-checkpointed"
 
 
-def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path) -> None:
+def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path: Path) -> None:
     record_event(
         tmp_path,
         event_type="session.checkpoint",
@@ -208,7 +210,9 @@ def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_pat
     "summary",
     ["token=super-secret", r"C:\\Users\\name\\secret.txt", "/home/name/secret.txt"],
 )
-def test_semantic_checkpoint_rejects_sensitive_or_absolute_content(tmp_path, summary: str) -> None:
+def test_semantic_checkpoint_rejects_sensitive_or_absolute_content(
+    tmp_path: Path, summary: str
+) -> None:
     with pytest.raises(ValidationFailed):
         record_event(
             tmp_path,
@@ -219,7 +223,7 @@ def test_semantic_checkpoint_rejects_sensitive_or_absolute_content(tmp_path, sum
         )
 
 
-def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path) -> None:
+def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path: Path) -> None:
     event = record_event(
         tmp_path,
         event_type="session.created",
@@ -245,7 +249,7 @@ def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path) -> None:
         )
 
 
-def test_v2_events_form_a_monotonic_hash_chain(tmp_path) -> None:
+def test_v2_events_form_a_monotonic_hash_chain(tmp_path: Path) -> None:
     first = record_event(tmp_path, event_type="session.created", session_id="ses_1", now=NOW)
     second = record_event(
         tmp_path,
@@ -260,7 +264,7 @@ def test_v2_events_form_a_monotonic_hash_chain(tmp_path) -> None:
     assert second.previous_digest == first.document()["event_digest"]
 
 
-def test_delivery_id_replay_returns_existing_event_without_duplicate(tmp_path) -> None:
+def test_delivery_id_replay_returns_existing_event_without_duplicate(tmp_path: Path) -> None:
     first = record_event(
         tmp_path,
         event_type="session.created",
@@ -281,7 +285,7 @@ def test_delivery_id_replay_returns_existing_event_without_duplicate(tmp_path) -
     assert len(recent_events(tmp_path)) == 1
 
 
-def test_delivery_id_payload_drift_is_rejected(tmp_path) -> None:
+def test_delivery_id_payload_drift_is_rejected(tmp_path: Path) -> None:
     record_event(
         tmp_path,
         event_type="session.created",
@@ -300,8 +304,8 @@ def test_delivery_id_payload_drift_is_rejected(tmp_path) -> None:
         )
 
 
-def test_concurrent_delivery_id_replay_is_exactly_once(tmp_path) -> None:
-    def write(_: int):
+def test_concurrent_delivery_id_replay_is_exactly_once(tmp_path: Path) -> None:
+    def write(_: int) -> OpenCodeLifecycleEvent:
         return record_event(
             tmp_path,
             event_type="session.status",
@@ -318,7 +322,7 @@ def test_concurrent_delivery_id_replay_is_exactly_once(tmp_path) -> None:
     assert len(recent_events(tmp_path)) == 1
 
 
-def test_each_session_has_an_independent_hash_chain(tmp_path) -> None:
+def test_each_session_has_an_independent_hash_chain(tmp_path: Path) -> None:
     first = record_event(tmp_path, event_type="session.created", session_id="ses_a", now=NOW)
     second = record_event(tmp_path, event_type="session.created", session_id="ses_b", now=NOW)
 
@@ -326,7 +330,7 @@ def test_each_session_has_an_independent_hash_chain(tmp_path) -> None:
     assert (second.sequence, second.previous_digest) == (1, None)
 
 
-def test_legacy_v1_event_remains_readable(tmp_path) -> None:
+def test_legacy_v1_event_remains_readable(tmp_path: Path) -> None:
     root = lifecycle_root(tmp_path)
     root.mkdir(parents=True)
     body = {
@@ -357,7 +361,7 @@ def test_legacy_v1_event_remains_readable(tmp_path) -> None:
     assert recent_events(tmp_path)[0]["event_id"] == "legacy-event"
 
 
-def test_client_instance_and_canonical_ack_are_durable(tmp_path) -> None:
+def test_client_instance_and_canonical_ack_are_durable(tmp_path: Path) -> None:
     first = lifecycle_client_instance_id(tmp_path)
     second = lifecycle_client_instance_id(tmp_path)
     local_digest = digest("local-event")
@@ -376,7 +380,7 @@ def test_client_instance_and_canonical_ack_are_durable(tmp_path) -> None:
     assert json.loads(ack.read_text(encoding="utf-8"))["event_id"] == "event-1"
 
 
-def test_forward_batch_is_immutable_and_binds_exact_first_created_event(tmp_path) -> None:
+def test_forward_batch_is_immutable_and_binds_exact_first_created_event(tmp_path: Path) -> None:
     first = record_event(
         tmp_path,
         event_type="session.created",
@@ -412,7 +416,7 @@ def test_forward_batch_rejects_digest_drift() -> None:
         )
 
 
-def test_invalid_persisted_client_instance_is_rejected(tmp_path) -> None:
+def test_invalid_persisted_client_instance_is_rejected(tmp_path: Path) -> None:
     root = lifecycle_root(tmp_path)
     root.mkdir(parents=True)
     (root / "client-instance-id").write_text("   ", encoding="utf-8")
@@ -421,8 +425,8 @@ def test_invalid_persisted_client_instance_is_rejected(tmp_path) -> None:
         lifecycle_client_instance_id(tmp_path)
 
 
-def test_concurrent_writers_allocate_unique_contiguous_sequences(tmp_path) -> None:
-    def write(index: int):
+def test_concurrent_writers_allocate_unique_contiguous_sequences(tmp_path: Path) -> None:
+    def write(index: int) -> OpenCodeLifecycleEvent:
         return record_event(
             tmp_path,
             event_type="session.status",

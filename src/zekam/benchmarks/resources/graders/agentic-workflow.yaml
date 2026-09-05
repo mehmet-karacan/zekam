@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: agentic-workflow-grader
+version: 1
+family: agentic-workflow
+evaluation_class: technical
+dimensions:
+- tool-correctness
+- recovery
+- reliability
+hidden_key_model_visible: false

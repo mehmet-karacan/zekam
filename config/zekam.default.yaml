@@ -4,24 +4,13 @@ schema: zekam-config/v1
 # Oncelik sirasi: bu dosya -> $ZEKAM_HOME/config.yaml -> ortam degiskenleri.
 
 database:
-  # Ilk kurulumda postgresql veya sqlite secilir; secim ZEKAM_HOME/config.yaml'a yazilir.
-  backend: postgresql
-  host: 127.0.0.1
-  port: 5433
-  name: zekam
-  user: zekam
-  # Parola yalnizca ZEKAM_DATABASE_PASSWORD ortam degiskeni veya secret broker ile gelir.
-  sslmode: prefer
-  connect_timeout_seconds: 5
-  minimum_server_version: 18
-  required_extensions:
-    - vector
-  # Yalniz SQLite secildiginde kullanilir ve ZEKAM_HOME'a gore portable kalir.
-  sqlite_relative_path: global/runtime/zekam.sqlite3
+  # Yeni ZEKAM_HOME yerel SQLite ile sifirdan kurulur.
+  backend: sqlite
+  sqlite_relative_path: state/operational.db
 
 storage:
   # Nesne deposu kok dizini ZEKAM_HOME'a goredir.
-  object_store_relative: global/artifacts
+  object_store_relative: artifacts/sha256
 
 runtime:
   log_level: INFO

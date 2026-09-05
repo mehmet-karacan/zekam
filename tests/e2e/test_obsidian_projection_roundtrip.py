@@ -18,6 +18,7 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.markdown_projection import (
     ObsidianNoteKind,
     ObsidianProfile,
+    ObsidianProjectionBundle,
     ObsidianProjectionRecord,
     ProjectionRecord,
     ProjectionSourceRef,
@@ -63,7 +64,7 @@ def _bundle(
     project_id: UUID = PROJECT_ID,
     profile: ObsidianProfile = ObsidianProfile.PUBLIC_SAFE,
     realm_slug: str = "yerel",
-):  # type: ignore[no-untyped-def]
+) -> ObsidianProjectionBundle:
     record = ProjectionRecord(
         "work",
         "00000000-0000-0000-0000-000000000001",
@@ -97,8 +98,8 @@ def _bundle(
 
 
 def test_immutable_generation_and_atomic_current_roundtrip(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     first = _bundle("First canonical state.")
     published = store.publish(store.stage(first))
@@ -155,8 +156,8 @@ def test_immutable_generation_and_atomic_current_roundtrip(
 
 
 def test_existing_generation_is_reused_only_when_manifest_matches(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle("Immutable source.")
     store.publish(store.stage(bundle))
@@ -176,8 +177,8 @@ def test_existing_generation_is_reused_only_when_manifest_matches(
 
 
 def test_projection_service_requires_exact_store_bound_authorization(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     bundle = _bundle("Authorized publication.")
     plan = ObsidianApplyPlan.create(
@@ -214,8 +215,8 @@ def test_projection_service_requires_exact_store_bound_authorization(
 
 
 def test_projects_cannot_overwrite_each_others_current_pointer(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     first = _bundle("Equal canonical state.", PROJECT_ID)
     second = _bundle("Equal canonical state.", OTHER_PROJECT_ID)
@@ -252,8 +253,8 @@ def test_projects_cannot_overwrite_each_others_current_pointer(
 
 
 def test_empty_project_snapshots_publish_to_distinct_generations(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     first = build_obsidian_projection(
         (),
@@ -291,8 +292,8 @@ def test_empty_project_snapshots_publish_to_distinct_generations(
 
 
 def test_private_and_public_profiles_have_distinct_physical_current_pointers(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     public = _bundle("Shared public source.")
     private = _bundle(
@@ -334,9 +335,9 @@ def test_private_and_public_profiles_have_distinct_physical_current_pointers(
 
 
 def test_current_swap_failure_preserves_previous_valid_pointer(
-    tmp_path,
-    monkeypatch,
-) -> None:  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     store = LocalObsidianProjectionStore(tmp_path / "obsidian")
     first = _bundle("First stable state.")
     second = _bundle("Second state must not become CURRENT.")

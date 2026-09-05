@@ -10,10 +10,12 @@ Aşağıdaki işlemleri konuşma geçmişinden bağımsız yap:
 1. Repository kökünü ve `PROJE_MANIFESTI.yaml` dosyasını bul.
 2. `git status --short`, branch, HEAD ve son beş commit'i oku.
 3. `python scripts/paket_dogrula.py` çalıştır.
-4. `AKTIF_GOREV.yaml` ve varsa kanonik DB durumunu oku.
+4. Bağlayıcı `AKTIF_GOREV.md` dosyasını oku; `AKTIF_GOREV.yaml` projeksiyonunun exact
+   digest eşleşmesini ve yerel operational store durumunu doğrula.
 5. `DEVAM_PROTOKOLU.md` içindeki stale/recovery kurallarını uygula.
 6. Aktif işin bağımlılıklarını, logical resource'larını, lease ve receipt durumunu doğrula.
-7. `NIHAI_UYGULAMA_PROMPTU.md` ile `GLOBAL_DEFINITION_OF_DONE.md` kapsamını yükle.
+7. `AKTIF_GOREV.md` ile `GLOBAL_DEFINITION_OF_DONE.md` kapsamını yükle;
+   `NIHAI_UYGULAMA_PROMPTU.md` dosyasını yalnız superseded baseline/reference olarak oku.
 8. Yalnız aktif iş için gerekli bounded context'i derle; bütün repository'yi prompta yığma.
 9. İş agentic ise en az bir gerçek subagent planla. Koordinatör subagent sayılmaz.
 10. Uygulamadan önce exact plan, test ve rollback kapsamını üret.
@@ -84,7 +86,8 @@ Anlamlı her adımın sonunda:
 2. Subagent result envelope'larını ana run'a bağla.
 3. Başarısız veya reddedilen yaklaşımı failure memory adayı olarak kaydet.
 4. Checkpoint ve continuity packet güncelle.
-5. `AKTIF_GOREV.yaml` projection'ını kanonik state ile uzlaştır.
+5. `AKTIF_GOREV.yaml` projection'ını yaşayan `AKTIF_GOREV.md` authority digest'iyle
+   deterministik olarak uzlaştır; projeksiyona bağımsız state veya yetki yazma.
 6. Commit gerekiyorsa `kalite/COMMIT_POLITIKASI.md` kurallarını uygula.
 7. Bir sonraki exact safe action'ı yaz.
 

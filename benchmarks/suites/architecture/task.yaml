@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: architecture-smoke
+version: 1
+family: architecture
+evaluation_class: technical
+workload: architecture
+modality: text
+prompt_ref: resources/prompts/architecture.txt
+fixture_refs:
+- resources/fixtures/architecture.json
+hidden_key_ref: resources/hidden-keys/architecture.json
+grader_ref: resources/graders/architecture.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- evidence-citation
+- structured-format
+pass_thresholds:
+  correctness: 0.8
+  evidence-citation: 0.8
+  structured-format: 0.8
+resource_digests:
+  resources/fixtures/architecture.json: sha256:de94621f398456bb6a77117e1a872b1bdfed59fdd81d10bd1085fa00d9e21484
+  resources/graders/architecture.yaml: sha256:b12d705282e9b41b19ddd7d9d23150ba1fa8bb447de5d9c08f38845eb6822969
+  resources/hidden-keys/architecture.json: sha256:098d971bb9f2f31adb3db7e72990d35a1e17d76f85223fe8943bab130718042a
+  resources/prompts/architecture.txt: sha256:249aacecf23fcfcbf74ae40a3da059d8374ea2518244ad55263f123f85694077

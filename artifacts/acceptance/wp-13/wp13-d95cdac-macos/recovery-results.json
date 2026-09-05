@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "scenarios": [
+    "delete/rebuild",
+    "generation swap",
+    "duplicate",
+    "quarantine",
+    "concurrency"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

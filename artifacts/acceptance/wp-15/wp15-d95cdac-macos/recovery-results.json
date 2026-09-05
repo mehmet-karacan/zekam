@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "scenarios": [
+    "fresh setup",
+    "schema corruption",
+    "read-only doctor",
+    "package tamper"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

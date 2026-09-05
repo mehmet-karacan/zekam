@@ -11,6 +11,7 @@ from zekam.application.control_plane_completion import (
     ControlPlaneCompletionRequest,
     ControlPlaneCompletionService,
 )
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.lifecycle_runtime_template_prepare import (
     LifecycleTemplatePreparePlan,
     _bind_prepare_runtime,
@@ -27,31 +28,12 @@ from zekam.domain.context_continuity import Checkpoint, EvidenceReference, Journ
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.identifiers import new_uuid7
 from zekam.domain.realm import Realm
-from zekam.domain.runtime import Lease, ReconciledCompletionRequest
+from zekam.domain.runtime import ClaimedWork, Lease, ReconciledCompletionRequest
 from zekam.domain.security import Authorization
 from zekam.domain.work import AcceptanceCriterion, EffectKind, EvidenceRef, WorkState
-from zekam.infrastructure.postgres.agent_assignment_repository import AgentAssignmentRepository
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.control_plane_completion_repository import (
-    PostgresControlPlaneCompletionRepository,
-)
-from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
-from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
-    LifecycleRuntimeTemplate,
-    LifecycleRuntimeTemplateRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import (
-    ClaimedWork,
-    EffectLedger,
-    JobRepository,
-)
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
-from zekam.infrastructure.postgres.work_repository import TaskPlanRepository
 
 
-def _template_digest(template: LifecycleRuntimeTemplate) -> str:
+def _template_digest(template: Any) -> str:
     return digest(
         {
             "routing_context": template.routing_context_digest,
@@ -97,7 +79,7 @@ class LifecycleTemplateRecoveryService:
         self, *, job_id: UUID, actor_id: UUID, now: dt.datetime | None = None
     ) -> LifecycleTemplateRecoveryPlan:
         moment = now or dt.datetime.now(dt.UTC)
-        job = JobRepository(self.connection, self.realm.id).get(job_id)
+        job = legacy_repository("job", self.connection, self.realm.id).get(job_id)
         payload = dict(job.payload)
         if (
             payload.get("schema") != "zekam-lifecycle-template-prepare-job/v1"
@@ -121,12 +103,9 @@ class LifecycleTemplateRecoveryService:
         )
         if actor_id != plan.actor_id or plan.plan_digest != str(payload["plan_digest"]):
             raise PolicyViolation("Lifecycle template recovery actor/plan drift")
-        claims = EffectLedger(self.connection, self.realm.id).claims_for_job(job.id)
-        if (
-            len(claims) != 1
-            or EffectLedger(self.connection, self.realm.id).receipt_for_claim(claims[0].id)
-            is not None
-        ):
+        ledger = legacy_repository("effect_ledger", self.connection, self.realm.id)
+        claims = ledger.claims_for_job(job.id)
+        if len(claims) != 1 or ledger.receipt_for_claim(claims[0].id) is not None:
             raise PolicyViolation("Lifecycle template recovery exact receiptless claim ister")
         claim = claims[0]
         with self.connection.cursor() as cursor:
@@ -150,9 +129,9 @@ class LifecycleTemplateRecoveryService:
             raise PolicyViolation(
                 "Lifecycle template recovery expired lease ve eksik envelope ister"
             )
-        template = LifecycleRuntimeTemplateRepository(self.connection, self.realm.id).at_effect(
-            job.id, claim.id
-        )
+        template = legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm.id
+        ).at_effect(job.id, claim.id)
         template_digest = _template_digest(template)
         result_digest = digest(
             {
@@ -163,7 +142,9 @@ class LifecycleTemplateRecoveryService:
                 "network_calls": 0,
             }
         )
-        plans = TaskPlanRepository(self.connection, self.realm.id).history(job.work_item_id)
+        plans = legacy_repository("task_plan", self.connection, self.realm.id).history(
+            job.work_item_id
+        )
         task_plan = next((item for item in plans if item.id == job.plan_id), None)
         if task_plan is None:
             raise PolicyViolation("Lifecycle template recovery exact task plan ister")
@@ -172,8 +153,12 @@ class LifecycleTemplateRecoveryService:
             ref=f"lifecycle-template/{job.project_id}/{plan.source_revision}",
             evidence_digest=template_digest,
         )
-        journal_head = ContextContinuityRepository(
-            self.connection, self.realm.id, job.project_id, job.work_item_id
+        journal_head = legacy_repository(
+            "context_continuity",
+            self.connection,
+            self.realm.id,
+            job.project_id,
+            job.work_item_id,
         ).journal_head()
         previous_journal_digest = None if journal_head is None else journal_head[1]
         recovered_journal = JournalEntry(
@@ -267,19 +252,21 @@ class LifecycleTemplateRecoveryService:
             or current.template_digest != plan.template_digest
         ):
             raise PolicyViolation("Lifecycle template recovery current plan drift")
-        job = JobRepository(self.connection, self.realm.id).get(
+        job = legacy_repository("job", self.connection, self.realm.id).get(
             plan.reconciliation.old_completion.job_id
         )
         assert job.run_id is not None and job.plan_id is not None and job.work_item_id is not None
         run_id = job.run_id
         task_plan_id = job.plan_id
         prep_work_id = job.work_item_id
-        claim = EffectLedger(self.connection, self.realm.id).claims_for_job(job.id)[0]
-        old_authorization = AuthorizationRepository(self.connection, self.realm.id).get(
+        claim = legacy_repository("effect_ledger", self.connection, self.realm.id).claims_for_job(
+            job.id
+        )[0]
+        old_authorization = legacy_repository("authorization", self.connection, self.realm.id).get(
             UUID(str(job.payload["authorization_id"]))
         )
-        historical_template = LifecycleRuntimeTemplateRepository(
-            self.connection, self.realm.id
+        historical_template = legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm.id
         ).at_effect(job.id, claim.id)
         if _template_digest(historical_template) != plan.template_digest:
             raise PolicyViolation("Lifecycle template recovery historical template drift")
@@ -348,12 +335,12 @@ class LifecycleTemplateRecoveryService:
             )
 
         def after(finalization: Any, checkpoint_id: UUID, terminal_at: dt.datetime) -> None:
-            ExecutionRunRepository(self.connection, self.realm.id).finish_run(
+            legacy_repository("execution_run", self.connection, self.realm.id).finish_run(
                 run_id, state="completed", terminal_at=terminal_at
             )
-            AgentAssignmentRepository(self.connection, self.realm.id).complete_terminal_plan(
-                task_plan_id, now=terminal_at
-            )
+            legacy_repository(
+                "agent_assignment", self.connection, self.realm.id
+            ).complete_terminal_plan(task_plan_id, now=terminal_at)
             graph = WorkGraphService(
                 self.connection, self.realm, actor_id=plan.lifecycle_plan.actor_id
             )
@@ -369,7 +356,7 @@ class LifecycleTemplateRecoveryService:
             )
             graph.transition(prep_work.id, WorkState.VERIFICATION, now=terminal_at)
             ControlPlaneCompletionService(
-                PostgresControlPlaneCompletionRepository(self.connection, self.realm.id)
+                legacy_repository("control_plane_completion", self.connection, self.realm.id)
             ).complete(
                 ControlPlaneCompletionRequest(
                     project_id=job.project_id,

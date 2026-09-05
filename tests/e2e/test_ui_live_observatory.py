@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -24,7 +25,7 @@ def _read(url: str, *, timeout: float = 1.0) -> tuple[int, dict[str, str], bytes
 
 def test_ui_serve_real_http_is_read_only_and_degrades_without_realm(tmp_path: Path) -> None:
     port = _free_port()
-    executable = Path(sys.executable).with_name("zekam.exe")
+    executable = Path(sys.executable).with_name("zekam.exe" if os.name == "nt" else "zekam")
     process = subprocess.Popen(
         (
             str(executable),
@@ -69,7 +70,7 @@ def test_ui_serve_real_http_is_read_only_and_degrades_without_realm(tmp_path: Pa
         assert index_status == 200
         assert snapshot_status == 200
         assert "Zekam Canlı Yürütme Gözleme Merkezi" in index.decode("utf-8")
-        assert snapshot["runtime"] == {"available": False, "detail": "realm-id-required"}
+        assert snapshot["runtime"] == {"available": False, "detail": "local-core-unavailable"}
         assert snapshot["read_only"] is True
         assert snapshot["grants_authority"] is False
         assert headers["cache-control"] == "no-store"

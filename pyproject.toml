@@ -14,15 +14,19 @@ dependencies = [
     "pydantic>=2.9",
     "pyyaml>=6.0.2",
     "click>=8.1",
-    "typer>=0.12",
+    # cli_session imports one reviewed private compatibility seam; tests bind this exact release.
+    "typer==0.27.1",
     "rich>=13.7",
+    # CLI hook schemas are validated at import/runtime, including wheel-only installs.
+    "jsonschema>=4.23",
     "cryptography>=44,<51",
+    # WP-01 ADR: embedded, rebuildable hybrid knowledge index vector extension.
+    "sqlite-vec==0.1.9",
+    # WP-13 ADR: embedded, rebuildable local analytics projection engine.
+    "duckdb==1.5.5",
 ]
 
 [project.optional-dependencies]
-db = [
-    "psycopg[binary,pool]>=3.2",
-]
 oracle = [
     # Oracle'in resmi surucusu varsayilan Thin modda istemci kutuphanesi istemez.
     "oracledb>=4.0,<5",
@@ -45,7 +49,7 @@ dev = [
     "mypy>=1.11",
     "types-PyYAML>=6.0",
     "types-psutil>=7.0",
-    "jsonschema>=4.23",
+    "types-jsonschema>=4.23",
     # Kalite kapilari: bagimlilik audit ve olu kod taramasi.
     "pip-audit>=2.7",
     "vulture>=2.11",
@@ -56,14 +60,41 @@ zekam = "zekam.interfaces.cli.main:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zekam"]
+# Historical repository-backed compositions stay in the source checkout for
+# regression/reference tests, but are not part of the local-first runtime
+# artifact.  Keep this exact list aligned with scripts/audit_runtime_reachability.py.
+exclude = [
+    "/src/zekam/application/client_lifecycle_composition.py",
+    "/src/zekam/application/client_lifecycle_continuity.py",
+    "/src/zekam/application/client_runtime_bootstrap.py",
+    "/src/zekam/application/diagnostic_trace_composition.py",
+    "/src/zekam/application/doctor_repair_runtime.py",
+    "/src/zekam/application/execution.py",
+    "/src/zekam/application/legacy_repository_provider.py",
+    "/src/zekam/application/lifecycle_runtime_template_prepare.py",
+    "/src/zekam/application/lifecycle_template_recovery.py",
+    "/src/zekam/application/measured_loop_runtime.py",
+    "/src/zekam/application/measured_loop_worker.py",
+    "/src/zekam/application/project_integration.py",
+    "/src/zekam/application/projection_close_runtime.py",
+    "/src/zekam/application/provider_contract_runner.py",
+    "/src/zekam/application/recovery_reconciliation.py",
+    "/src/zekam/application/resume_apply_service.py",
+    "/src/zekam/application/run_reconciliation.py",
+    "/src/zekam/application/work_graph.py",
+    "/src/zekam/application/worker.py",
+]
+
+[tool.hatch.build]
+exclude = ["/legacy-preserved", "/legacy-preserved/**"]
 
 # Core varsayilan yapilandirmasi wheel icine de kopyalanir; boylece paket olarak
 # kurulumda `config/` dizini olmadan da varsayilanlar bulunur.
 [tool.hatch.build.targets.wheel.force-include]
 "config" = "zekam/_config"
-"migrations" = "zekam/migrations"
 "schemas" = "zekam/schemas"
 "modeller" = "zekam/modeller"
+"AKTIF_GOREV.md" = "zekam/AKTIF_GOREV.md"
 
 [tool.ruff]
 line-length = 100
@@ -71,7 +102,7 @@ target-version = "py312"
 src = ["src", "tests"]
 # Paket dogrulayicinin icerigi SHA256SUMS.txt ile sabitlenmistir; bicimlendirme
 # degisikligi teslim checksum'ini bozar.
-extend-exclude = ["scripts/paket_dogrula.py"]
+extend-exclude = ["scripts/paket_dogrula.py", "legacy-preserved"]
 
 [tool.ruff.lint]
 select = [
@@ -87,10 +118,13 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]
+"vulture_whitelist.py" = ["B018", "F821"]
 
 [tool.mypy]
 python_version = "3.12"
 files = ["src/zekam", "tests"]
+mypy_path = "src"
+explicit_package_bases = true
 strict = true
 warn_unreachable = true
 disallow_untyped_defs = true
@@ -99,29 +133,28 @@ plugins = []
 
 [[tool.mypy.overrides]]
 module = [
-    "psycopg.*",
     "oracledb.*",
     "typer.*",
     "rich.*",
     "pypdfium2.*",
     "pypdfium2_raw.*",
     "PIL.*",
+    "sqlite_vec.*",
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
 markers = [
     "unit: saf domain ve fonksiyon testleri",
     "property: ozellik ve fuzz testleri",
-    "integration: gercek PostgreSQL veya dis bagimlilik gerektiren testler",
+    "integration: gercek yerel bagimlilik gerektiren testler",
     "concurrency: coklu worker yaris testleri",
     "security: guvenlik ve negatif testler",
     "e2e: uctan uca akis testleri",
-    "postgres: gercek PostgreSQL 18 + pgvector container gerektirir",
 ]
 
 [tool.coverage.run]

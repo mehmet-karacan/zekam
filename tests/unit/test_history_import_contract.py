@@ -11,6 +11,7 @@ import pytest
 from zekam.application.history_import import (
     HistoryImportConsent,
     HistoryImportFilter,
+    HistoryImportPreview,
     HistoryImportRequest,
     HistoryImportService,
 )
@@ -54,7 +55,7 @@ def _request(filters: HistoryImportFilter | None = None) -> HistoryImportRequest
     )
 
 
-def _consent(preview):  # type: ignore[no-untyped-def]
+def _consent(preview: HistoryImportPreview) -> HistoryImportConsent:
     return HistoryImportConsent(
         preview_digest=preview.preview_digest,
         archive_digest=preview.archive_digest,

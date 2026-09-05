@@ -1,0 +1,7 @@
+{
+  "count": 532,
+  "schema": "zekam-evidence-changed-files/v1",
+  "source": "git-diff-name-only-preserving-user-worktree",
+  "user_changes_cleaned_or_reset": false,
+  "work_package": "WP-13"
+}

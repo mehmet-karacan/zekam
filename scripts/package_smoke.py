@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import os
 import platform
+import stat
 import subprocess
 import sys
 import tarfile
@@ -22,12 +23,18 @@ from collections.abc import Sequence
 from pathlib import Path
 from uuid import uuid4
 
+from zekam.application.package_acceptance import (
+    ARCHIVE_ONLY_WHEEL_PATHS,
+    _parse_wheel_exclusion_policy,
+    _strict_json_document,
+)
 from zekam.domain.canonical import digest, digest_of_bytes
+from zekam.domain.errors import ValidationFailed
 from zekam.domain.package_acceptance import (
     AcceptanceStatus,
     PackageAcceptanceResult,
     PackageAcceptanceRun,
-    PackageManifestV2,
+    PackageManifestV3,
     PackageVerifierProvenance,
 )
 
@@ -45,6 +52,85 @@ _STRIP = {
     "NO_PROXY",
     "PIP_CONFIG_FILE",
 }
+_IGNORED_PACKAGE_PARTS = frozenset({"__pycache__"})
+_IGNORED_PACKAGE_NAMES = frozenset({".DS_Store"})
+
+
+def _safe_archive_path(name: str) -> tuple[str, ...]:
+    if not name or "\\" in name or "\x00" in name or name.startswith("/"):
+        raise ValueError("Package archive path gecersiz")
+    raw_parts = name.split("/")
+    if raw_parts[-1] == "":
+        raw_parts.pop()
+    if (
+        not raw_parts
+        or any(part in {"", ".", ".."} for part in raw_parts)
+        or raw_parts[0].endswith(":")
+    ):
+        raise ValueError("Package archive traversal girdisi reddedildi")
+    return tuple(raw_parts)
+
+
+def _add_archive_entry(entries: dict[str, str], path: str, payload: bytes) -> None:
+    if (
+        any(part in _IGNORED_PACKAGE_PARTS for part in Path(path).parts)
+        or Path(path).name in _IGNORED_PACKAGE_NAMES
+        or Path(path).suffix in {".pyc", ".pyo"}
+    ):
+        return
+    folded = path.casefold()
+    if path in entries or any(existing.casefold() == folded for existing in entries):
+        raise ValueError(f"Package source duplicate/case-collision: {path}")
+    entries[path] = digest_of_bytes(payload)
+
+
+def _entry_bundle_digest(entries: dict[str, str]) -> str:
+    if not entries:
+        raise ValueError("Package source bundle bos")
+    return digest(
+        [
+            {"path": path, "content_digest": content_digest}
+            for path, content_digest in sorted(entries.items())
+        ]
+    )
+
+
+def _wheel_manifest(wheel: Path) -> PackageManifestV3:
+    entries: dict[str, str] = {}
+    with zipfile.ZipFile(wheel) as archive:
+        names: set[str] = set()
+        folded_names: set[str] = set()
+        manifest_payload: bytes | None = None
+        for member in archive.infolist():
+            parts = _safe_archive_path(member.filename)
+            normalized = "/".join(parts)
+            folded = normalized.casefold()
+            if normalized in names or folded in folded_names:
+                raise ValueError(f"Wheel duplicate/case-collision entry: {normalized}")
+            names.add(normalized)
+            folded_names.add(folded)
+            mode = (member.external_attr >> 16) & 0xFFFF
+            file_type = stat.S_IFMT(mode)
+            if file_type == stat.S_IFLNK:
+                raise ValueError("Wheel symlink girdisi reddedildi")
+            if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                raise ValueError("Wheel special-file girdisi reddedildi")
+            if member.is_dir():
+                continue
+            payload = archive.read(member)
+            if normalized == "zekam/PACKAGE_RELEASE_MANIFEST.json":
+                manifest_payload = payload
+            elif len(parts) > 1 and parts[0] == "zekam":
+                target = "/".join(parts[1:])
+                if target in ARCHIVE_ONLY_WHEEL_PATHS:
+                    raise ValueError(f"Wheel archive-only source sevk ediyor: {target}")
+                _add_archive_entry(entries, target, payload)
+        if manifest_payload is None:
+            raise ValueError("Wheel shipped package manifest icermiyor")
+    manifest = PackageManifestV3.parse(_strict_json_document(manifest_payload))
+    if manifest.package_source_bundle_digest != _entry_bundle_digest(entries):
+        raise ValueError("Wheel package source bundle manifest ile uyusmuyor")
+    return manifest
 
 
 def isolated_environment(root: Path, executable_dir: Path) -> dict[str, str]:
@@ -147,13 +233,7 @@ def accept_wheel(
         raise ValueError("--wheel exact .whl artifact istemeli")
     if wheelhouse is None and not allow_index:
         raise ValueError("Network-free acceptance icin --wheelhouse veya --allow-index gerekli")
-    with zipfile.ZipFile(wheel) as archive:
-        try:
-            packaged_manifest = PackageManifestV2.parse(
-                json.loads(archive.read("zekam/PACKAGE_RELEASE_MANIFEST.json"))
-            )
-        except (KeyError, json.JSONDecodeError) as exc:
-            raise ValueError("Wheel shipped package manifest icermiyor") from exc
+    packaged_manifest = _wheel_manifest(wheel)
     started_at = dt.datetime.now(dt.UTC)
     with tempfile.TemporaryDirectory(prefix="zekam-package-acceptance-") as temporary:
         root = Path(temporary).resolve()
@@ -174,7 +254,7 @@ def accept_wheel(
         pip_argv = [str(python), "-I", "-m", "pip", "--isolated", "install"]
         if wheelhouse is not None:
             pip_argv += ["--no-index", "--find-links", str(wheelhouse.resolve(strict=True))]
-        pip_argv.append(f"{wheel}[db]")
+        pip_argv.append(str(wheel))
         results = [
             _run_check("install.wheel", pip_argv, cwd=work, env=env),
         ]
@@ -272,24 +352,88 @@ def accept_wheel(
         )
 
 
-def _sdist_manifest(sdist: Path) -> PackageManifestV2:
+def _sdist_manifest(sdist: Path) -> PackageManifestV3:
     with tarfile.open(sdist, mode="r:gz") as archive:
         members = archive.getmembers()
+        names: set[str] = set()
+        folded_names: set[str] = set()
         for member in members:
-            parts = Path(member.name.replace("\\", "/")).parts
-            if Path(member.name).is_absolute() or ".." in parts or member.issym() or member.islnk():
+            parts = _safe_archive_path(member.name)
+            normalized = "/".join(parts)
+            folded = normalized.casefold()
+            if normalized in names or folded in folded_names:
+                raise ValueError(f"Sdist duplicate/case-collision entry: {normalized}")
+            names.add(normalized)
+            folded_names.add(folded)
+            if member.issym() or member.islnk():
                 raise ValueError("Sdist traversal/link girdisi reddedildi")
+            if not (member.isdir() or member.isfile()):
+                raise ValueError("Sdist special-file girdisi reddedildi")
         matches = [
             member
             for member in members
             if member.name.endswith("/src/zekam/PACKAGE_RELEASE_MANIFEST.json")
         ]
-        if len(matches) != 1:
+        if len(matches) != 1 or not matches[0].isfile():
             raise ValueError("Sdist exact package manifest icermiyor")
         stream = archive.extractfile(matches[0])
         if stream is None:
             raise ValueError("Sdist package manifest okunamadi")
-        return PackageManifestV2.parse(json.loads(stream.read()))
+        manifest = PackageManifestV3.parse(_strict_json_document(stream.read()))
+        manifest_parts = _safe_archive_path(matches[0].name)
+        source_prefix = manifest_parts[:-3]
+        pyproject_matches = [
+            member
+            for member in members
+            if _safe_archive_path(member.name) == (*source_prefix, "pyproject.toml")
+        ]
+        if len(pyproject_matches) != 1 or not pyproject_matches[0].isfile():
+            raise ValueError("Sdist exact pyproject exclusion policy icermiyor")
+        policy_stream = archive.extractfile(pyproject_matches[0])
+        if policy_stream is None:
+            raise ValueError("Sdist pyproject exclusion policy okunamadi")
+        try:
+            exclusions = _parse_wheel_exclusion_policy(policy_stream.read())
+        except ValidationFailed as exc:
+            raise ValueError("Sdist wheel exclusion policy gecersiz") from exc
+        entries: dict[str, str] = {}
+        excluded_seen: set[str] = set()
+        for member in members:
+            if not member.isfile() or member is matches[0]:
+                continue
+            parts = _safe_archive_path(member.name)
+            target: str | None = None
+            if parts[: len(source_prefix) + 2] == (*source_prefix, "src", "zekam"):
+                relative = parts[len(source_prefix) + 2 :]
+                if relative:
+                    target = "/".join(relative)
+            elif parts[: len(source_prefix) + 1] == (*source_prefix, "config"):
+                relative = parts[len(source_prefix) + 1 :]
+                if relative:
+                    target = "/".join(("_config", *relative))
+            elif parts[: len(source_prefix) + 1] == (*source_prefix, "schemas"):
+                relative = parts[len(source_prefix) + 1 :]
+                if relative:
+                    target = "/".join(("schemas", *relative))
+            elif parts[: len(source_prefix) + 1] == (*source_prefix, "modeller"):
+                relative = parts[len(source_prefix) + 1 :]
+                if relative:
+                    target = "/".join(("modeller", *relative))
+            elif parts == (*source_prefix, "AKTIF_GOREV.md"):
+                target = "AKTIF_GOREV.md"
+            if target is not None:
+                if target in exclusions:
+                    excluded_seen.add(target)
+                    continue
+                payload = archive.extractfile(member)
+                if payload is None:
+                    raise ValueError("Sdist package source girdisi okunamadi")
+                _add_archive_entry(entries, target, payload.read())
+        if excluded_seen != set(exclusions):
+            raise ValueError("Sdist reviewed wheel exclusion hedeflerinin tumunu icermiyor")
+        if manifest.package_source_bundle_digest != _entry_bundle_digest(entries):
+            raise ValueError("Sdist package source bundle manifest ile uyusmuyor")
+        return manifest
 
 
 def accept_sdist(
@@ -307,6 +451,8 @@ def accept_sdist(
     sdist = sdist.resolve(strict=True)
     if not sdist.name.endswith(".tar.gz"):
         raise ValueError("--sdist exact .tar.gz artifact istemeli")
+    if wheelhouse is None and not allow_index:
+        raise ValueError("Network-free acceptance icin --wheelhouse veya --allow-index gerekli")
     packaged_manifest = _sdist_manifest(sdist)
     started_at = dt.datetime.now(dt.UTC)
     with tempfile.TemporaryDirectory(prefix="zekam-sdist-acceptance-") as temporary:
@@ -314,20 +460,23 @@ def accept_sdist(
         wheel_dir = root / "wheel"
         wheel_dir.mkdir()
         env = isolated_environment(root, Path(sys.executable).resolve().parent)
+        build_argv = [
+            sys.executable,
+            "-I",
+            "-m",
+            "pip",
+            "--isolated",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+        ]
+        if wheelhouse is not None:
+            build_argv += ["--no-index", "--find-links", str(wheelhouse.resolve(strict=True))]
+        build_argv.append(str(sdist))
         build_result = _run_check(
             "sdist.build-wheel",
-            [
-                sys.executable,
-                "-I",
-                "-m",
-                "pip",
-                "--isolated",
-                "wheel",
-                "--no-deps",
-                "--wheel-dir",
-                str(wheel_dir),
-                str(sdist),
-            ],
+            build_argv,
             cwd=root,
             env=env,
         )

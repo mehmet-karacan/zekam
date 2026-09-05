@@ -51,16 +51,26 @@ def test_projection_excludes_private_records_and_is_repeatable() -> None:
         ),
         ClassifiedProjectionRecord(_record("public"), DataClassification.PUBLIC),
     )
-    arguments = {
-        "source_head": "abc123",
-        "migration_head": "55",
-        "database_revision_digest": digest("db"),
-        "expected_source_head": "abc123",
-        "expected_migration_head": "55",
-        "expected_database_revision_digest": digest("db"),
-    }
-    first = build_continuity_projection_recipe("zekam", records, **arguments)
-    second = build_continuity_projection_recipe("zekam", tuple(reversed(records)), **arguments)
+    first = build_continuity_projection_recipe(
+        "zekam",
+        records,
+        source_head="abc123",
+        migration_head="55",
+        database_revision_digest=digest("db"),
+        expected_source_head="abc123",
+        expected_migration_head="55",
+        expected_database_revision_digest=digest("db"),
+    )
+    second = build_continuity_projection_recipe(
+        "zekam",
+        tuple(reversed(records)),
+        source_head="abc123",
+        migration_head="55",
+        database_revision_digest=digest("db"),
+        expected_source_head="abc123",
+        expected_migration_head="55",
+        expected_database_revision_digest=digest("db"),
+    )
 
     assert first.bundle.projection_digest == second.bundle.projection_digest
     assert first.receipt.receipt_digest == second.receipt.receipt_digest

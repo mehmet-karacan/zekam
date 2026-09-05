@@ -1,0 +1,1 @@
+Evaluate the document-analysis fixture. Return only the required structured result.

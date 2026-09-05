@@ -44,7 +44,7 @@ def install_app_server_routes(
     @app.websocket("/api/app-server/v1")  # type: ignore[untyped-decorator]
     async def app_server_socket(websocket: WebSocket) -> None:
         if store_factory is None:
-            await websocket.close(code=4403, reason="realm-scoped PostgreSQL required")
+            await websocket.close(code=4403, reason="realm-scoped local authority required")
             return
         requested_protocols = {
             value.strip()

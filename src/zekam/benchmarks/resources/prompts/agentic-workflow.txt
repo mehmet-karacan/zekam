@@ -1,0 +1,1 @@
+Evaluate the agentic-workflow fixture. Return only the required structured result.

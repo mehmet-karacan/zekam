@@ -6,6 +6,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import yaml
 
@@ -17,7 +18,10 @@ from zekam.application.config import (
     resolve_sqlite_path,
 )
 from zekam.domain.errors import ConfigurationError
-from zekam.infrastructure.sqlite.repository import bootstrap as bootstrap_sqlite
+
+
+class DatabaseBootstrap(Protocol):
+    def __call__(self, path: Path) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +30,11 @@ class PersistenceSetupPlan:
     backend: PersistenceBackend
     config_exists: bool
     write_config: bool
-    sqlite_relative_path: str = "global/runtime/zekam.sqlite3"
+    sqlite_relative_path: str = "state/operational.db"
     legacy_config: bool = False
 
     @property
     def sqlite_path(self) -> Path | None:
-        if self.backend is not PersistenceBackend.SQLITE:
-            return None
         return resolve_sqlite_path(self.home, self.sqlite_relative_path)
 
 
@@ -77,20 +79,20 @@ def plan_persistence_setup(
         )
     return PersistenceSetupPlan(
         home,
-        requested or PersistenceBackend.POSTGRESQL,
+        requested or PersistenceBackend.SQLITE,
         config_exists=False,
         write_config=True,
     )
 
 
-def apply_persistence_setup(plan: PersistenceSetupPlan) -> None:
+def apply_persistence_setup(plan: PersistenceSetupPlan, *, bootstrap: DatabaseBootstrap) -> None:
     """Yeni secimi secret-free config'e yazar ve secilen motoru gercekten kurar."""
     plan.home.mkdir(parents=True, exist_ok=True)
     config_path = plan.home / USER_CONFIG_FILE
     if plan.backend is PersistenceBackend.SQLITE:
         sqlite_path = plan.sqlite_path
         assert sqlite_path is not None
-        bootstrap_sqlite(sqlite_path)
+        bootstrap(sqlite_path)
     if plan.write_config:
         if plan.legacy_config:
             _publish_legacy_selection(plan, config_path)

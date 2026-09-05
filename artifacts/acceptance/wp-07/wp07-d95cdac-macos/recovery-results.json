@@ -1,0 +1,18 @@
+{
+  "schema": "zekam-wp07-recovery-results/v1",
+  "provider_timeout": "lexical-only-degraded-or-explicit-abstain",
+  "provider_partial_batch": "rejected-before-generation-mutation",
+  "provider_wrong_dimension": "rejected-before-generation-mutation",
+  "provider_unhealthy": "dense-skipped-explicitly",
+  "duplicate_chunk": "transaction-rolled-back-current-preserved",
+  "concurrent_generation_build": "serialized-one-complete-current",
+  "concurrent_reindex_query": "generation-pinned-no-citation-mix",
+  "body_digest_tamper": "integrity-failed-citation-rejected",
+  "vector_digest_tamper": "integrity-failed-replay-rejected",
+  "fts_partial_corruption": "integrity-failed-replay-rejected",
+  "malformed_locator": "rejected",
+  "restart_continuity": "passed",
+  "scratch_rebuild": "same-generation-digest",
+  "stale_revision": "abstained-index-unavailable",
+  "status": "passed"
+}

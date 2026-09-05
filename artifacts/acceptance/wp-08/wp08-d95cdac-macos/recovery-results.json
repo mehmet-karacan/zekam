@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "scenarios": [
+    "restart",
+    "compaction",
+    "duplicate delivery",
+    "ancestry drift"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

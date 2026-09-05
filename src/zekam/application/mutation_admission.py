@@ -10,6 +10,9 @@ required by its own application service.
 from __future__ import annotations
 
 import json
+import sys
+import threading
+import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -332,6 +335,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("doctor",): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "ingest"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "vector-index"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("local-runtime", "recover"): MutationAdmissionExemption.RECOVERY,
     ("model", "benchmark"): MutationAdmissionExemption.CONTROL_PLANE,
     ("model", "campaign", "authorize"): MutationAdmissionExemption.CONTROL_PLANE,
     ("model", "campaign", "run"): MutationAdmissionExemption.CONTROL_PLANE,
@@ -384,7 +388,8 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("worker", "tick"): MutationAdmissionExemption.RECOVERY,
 }
 
-# These effects are deliberately local and authority-free.  They must remain
+# These effects are local and bound to their own existing authority checks;
+# registration does not mint work, policy, claims or execution authority. They remain
 # available before canonical hydration (hook/event durability) or outside the
 # Work Graph (deterministic backup/protocol artifacts), but they are still
 # explicit mutating surfaces and therefore may not be invisible to the common
@@ -392,7 +397,24 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
 _LOCAL_EFFECT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("backup", "create"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "verify"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("backup", "restore"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("client", "hook"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "drain"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "hydrate"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "checkpoint"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "freeze"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "freeze-v2"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "local", "close-tick"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "source-bind"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "source-rebind"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("local-runtime", "outbox-once"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("local-runtime", "resolve"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("local-runtime", "submit-journal"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("local-runtime", "worker-once"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("worker", "run-once"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("worker", "reconcile"): MutationAdmissionExemption.RECOVERY,
+    ("scheduler", "reconcile"): MutationAdmissionExemption.RECOVERY,
+    ("scheduler", "rebuild"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("opencode", "event"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("protocol", "generate-json-schema"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("protocol", "generate-typescript"): MutationAdmissionExemption.LOCAL_EFFECT,
@@ -561,6 +583,66 @@ def assert_local_effect_admission(command_path: tuple[str, ...]) -> CliMutationA
     ):
         raise PolicyViolation("CLI local effect exact reviewed admission ister")
     return admission
+
+
+class _GateASourceCapability:
+    __slots__ = ("__weakref__",)
+
+
+_GATE_A_LOCK = threading.Lock()
+_GATE_A_STATES: weakref.WeakKeyDictionary[_GateASourceCapability, tuple[tuple[str, ...], str]] = (
+    weakref.WeakKeyDictionary()
+)
+_GATE_A_ISSUER_CODE: object | None = None
+
+
+def _issue_gate_a_source_capability(
+    command_path: tuple[str, ...], *, confirmed: bool
+) -> _GateASourceCapability:
+    global _GATE_A_ISSUER_CODE
+    caller = sys._getframe(1)
+    module = sys.modules.get("zekam.interfaces.cli.continuity")
+    canonical = None if module is None else getattr(module, "_source_authority_execute", None)
+    canonical_code = getattr(canonical, "__code__", None)
+    if (
+        command_path
+        not in {
+            ("continuity", "source-bind"),
+            ("continuity", "source-rebind"),
+        }
+        or type(confirmed) is not bool
+        or not confirmed
+        or type(canonical) is not type(_issue_gate_a_source_capability)
+        or canonical is not caller.f_globals.get("_source_authority_execute")
+        or caller.f_code is not canonical_code
+    ):
+        raise PolicyViolation("Gate-A exact confirmed command required")
+    assert_local_effect_admission(command_path)
+    capability = object.__new__(_GateASourceCapability)
+    with _GATE_A_LOCK:
+        if _GATE_A_ISSUER_CODE is None:
+            _GATE_A_ISSUER_CODE = canonical_code
+        elif _GATE_A_ISSUER_CODE is not canonical_code:
+            raise PolicyViolation("Gate-A canonical issuer changed")
+        _GATE_A_STATES[capability] = (command_path, "INPUTS_VALID")
+    return capability
+
+
+def _advance_gate_a_source_capability(
+    capability: object, expected: str, successor: str
+) -> tuple[str, ...]:
+    if type(capability) is not _GateASourceCapability:
+        raise PolicyViolation("Gate-A capability state rejected")
+    with _GATE_A_LOCK:
+        current = _GATE_A_STATES.get(capability)
+        if (
+            current is None
+            or current[1] != expected
+            or (expected, successor) != ("INPUTS_VALID", "FIRST_CAPTURED")
+        ):
+            raise PolicyViolation("Gate-A capability state rejected")
+        del _GATE_A_STATES[capability]
+        return current[0]
 
 
 def assert_cli_mutation_admission(

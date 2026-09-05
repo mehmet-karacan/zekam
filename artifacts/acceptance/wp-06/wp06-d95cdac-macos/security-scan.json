@@ -1,0 +1,13 @@
+{
+  "schema": "zekam-wp06-security-scan/v1",
+  "package_validation": "passed",
+  "package_errors": 0,
+  "package_warnings": 0,
+  "git_security_findings": 0,
+  "legacy_database_sentinel_tests_passed": 12,
+  "postgresql_connections": 0,
+  "remote_provider_calls": 0,
+  "source_repository_writes": 0,
+  "literal_secret_findings": 0,
+  "status": "passed"
+}

@@ -31,7 +31,16 @@ _TOKEN = re.compile(r"\w+|[^\w\s]")
 #: Teknik kimlik gorunumundeki sorgu parcalari (ZEKAM-P12-T01, #123, app.musteri).
 #: `#123` icin `\b` kullanilamaz: `#` sozcuk karakteri degildir, bu yuzden dizgenin
 #: basinda sinir olusturmaz ve `#` kirpilirdi.
-_IDENTIFIER = re.compile(r"(?<![\w#])#\d+|\b(?:[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+|\w+\.\w+|\d{3,})\b")
+_IDENTIFIER = re.compile(
+    r"(?<![\w#])#\d+|\b(?:"
+    r"[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+|"
+    r"[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|"
+    r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|"
+    r"\w+\.\w+|\d{3,}"
+    r")\b"
+)
+_PORTABLE_PATH = re.compile(r"(?<![\w/])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?![\w/])")
+_QUOTED_PHRASE = re.compile(r'"([^"\n]{2,256})"|\'([^\'\n]{2,256})\'')
 
 
 def estimate_tokens(text: str) -> int:
@@ -43,7 +52,21 @@ def estimate_tokens(text: str) -> int:
 def extract_identifiers(query: str) -> tuple[str, ...]:
     """Sorgudaki exact teknik kimlikleri dondurur."""
 
-    return tuple(dict.fromkeys(_IDENTIFIER.findall(query)))
+    matches: list[tuple[int, int, str]] = []
+    protected_spans: list[tuple[int, int]] = []
+    for item in _PORTABLE_PATH.finditer(query):
+        matches.append((item.start(), 0, item.group(0)))
+        protected_spans.append(item.span())
+    for item in _QUOTED_PHRASE.finditer(query):
+        phrase = item.group(1) or item.group(2)
+        if phrase.strip() == phrase:
+            matches.append((item.start(), 1, phrase))
+            protected_spans.append(item.span())
+    for item in _IDENTIFIER.finditer(query):
+        if not any(item.start() >= start and item.end() <= end for start, end in protected_spans):
+            matches.append((item.start(), 2, item.group(0)))
+    matches.sort(key=lambda item: (item[0], item[1]))
+    return tuple(dict.fromkeys(value for _, _, value in matches))
 
 
 class RetrievalChannel(StrEnum):
@@ -247,6 +270,7 @@ class EmbeddingProfile:
     distance: str = "cosine"
     query_prefix: str = ""
     passage_prefix: str = ""
+    provider_profile_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.dimension <= 0:
@@ -255,6 +279,8 @@ class EmbeddingProfile:
             raise ValidationFailed("uzaklik olcusu taninmiyor")
         if not self.model_ref.strip():
             raise ValidationFailed("model referansi bos olamaz")
+        if self.provider_profile_digest is not None:
+            parse_digest(self.provider_profile_digest)
 
     def validate_vector(self, vector: tuple[float, ...]) -> None:
         """Boyut ve sonlu deger kontrolu; NaN/Inf indekslenmez."""
@@ -275,6 +301,7 @@ class EmbeddingProfile:
             "distance": self.distance,
             "query_prefix": self.query_prefix,
             "passage_prefix": self.passage_prefix,
+            "provider_profile_digest": self.provider_profile_digest,
         }
 
 

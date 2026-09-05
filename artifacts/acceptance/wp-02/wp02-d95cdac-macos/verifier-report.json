@@ -1,0 +1,23 @@
+{
+  "adversarial_cases": [
+    "symlink-parent-core-escape",
+    "duplicate-yaml-postgresql-hiding",
+    "duplicate-json-last-value-bypass",
+    "semantic-forged-receipt",
+    "authority-drift",
+    "real-process-kill",
+    "same-pid-orphan",
+    "acquire-window-race",
+    "normal-release-window-race",
+    "fsync-failure-release-window-race",
+    "durability-order"
+  ],
+  "fresh_bootstrap_tests": {
+    "failed": 0,
+    "passed": 34
+  },
+  "independent_verifier": "preflight_verifier",
+  "network_provider_or_postgresql_calls": 0,
+  "schema": "zekam-independent-verifier-report/v1",
+  "verdict": "passed"
+}

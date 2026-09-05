@@ -1,0 +1,19 @@
+{
+  "architecture_boundary": [
+    "src/zekam/application/legacy_repository_provider.py",
+    "src/zekam/infrastructure/postgres/legacy_repository_provider.py",
+    "tests/security/test_application_db_import_boundary.py",
+    "tests/unit/test_legacy_repository_provider.py"
+  ],
+  "operational_store": [
+    "src/zekam/application/operational_store.py",
+    "src/zekam/infrastructure/sqlite/operational_schema.py",
+    "src/zekam/infrastructure/sqlite/operational_store.py",
+    "src/zekam/infrastructure/sqlite/operational_backup.py"
+  ],
+  "schema": "zekam-changed-files/v1",
+  "tests": [
+    "tests/unit/test_operational_store.py",
+    "tests/e2e/test_cli_sqlite_operational.py"
+  ]
+}

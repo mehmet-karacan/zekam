@@ -1,9 +1,9 @@
-"""Read-only project source indexing with a deterministic local embedding fallback.
+"""Read-only project source indexing and non-semantic lexical baseline helpers.
 
 The source tree is never modified. Secret-bearing, ignored, binary, oversized and
 unsafe files are filtered by :mod:`source_discovery` before this module reads any
-content. The fallback is explicitly labelled as feature hashing; it is not
-presented as a language-model embedding.
+content. Feature hashing is only a testable non-semantic baseline; production
+vector writes require a verified :class:`EmbeddingProvider`.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
 
+from zekam.application.embedding_provider import EmbeddingPolicy, EmbeddingProvider
 from zekam.application.embedding_routing import (
     EmbeddingRouteCandidate,
     EmbeddingRouteDecision,
@@ -39,12 +40,12 @@ from zekam.domain.knowledge import (
     UnitKind,
 )
 from zekam.domain.retrieval import Chunk, ChunkProfile, EmbeddingProfile, estimate_tokens
-from zekam.infrastructure.postgres.knowledge_repository import KnowledgeRepository
-from zekam.infrastructure.postgres.retrieval_repository import RetrievalRepository
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
-LOCAL_EMBEDDING_MODEL_REF = "local/deterministic-feature-hashing-v1"
-LOCAL_EMBEDDING_DIMENSION = 1024
+NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
+NON_SEMANTIC_BASELINE_DIMENSION = 1024
+REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
+REAL_EMBEDDING_DIMENSION = 1024
 INDEXER_VERSION = "zekam-project-source-indexer/v1"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
@@ -168,13 +169,17 @@ class ProjectIndexResult:
         }
 
 
-def deterministic_local_embedding(
-    value: str, *, dimensions: int = LOCAL_EMBEDDING_DIMENSION
+def feature_hash_baseline_vector(
+    value: str, *, dimensions: int = NON_SEMANTIC_BASELINE_DIMENSION
 ) -> tuple[float, ...]:
-    """Return normalized word and character-trigram feature hashing."""
+    """Return a normalized non-semantic lexical baseline vector.
+
+    This helper must never populate a semantic/dense index or mark an embedding
+    profile ready. It exists only for lexical-baseline evaluation.
+    """
 
     if dimensions <= 0 or not value.strip():
-        raise ValidationFailed("Yerel embedding bos metin ve gecersiz boyut kabul etmez")
+        raise ValidationFailed("Feature-hash baseline bos metin/gecersiz boyut kabul etmez")
     normalized = unicodedata.normalize("NFKC", value).casefold()
     tokens = tuple(_TOKEN.findall(normalized))
     features = list(tokens)
@@ -196,7 +201,7 @@ def deterministic_local_embedding(
         values[index] += 1.0 if feature_digest[4] & 1 else -1.0
     norm = math.sqrt(sum(item * item for item in values))
     if norm == 0.0:
-        raise ValidationFailed("Yerel embedding ozellik uretemedi")
+        raise ValidationFailed("Feature-hash baseline ozellik uretemedi")
     return tuple(float(f"{item / norm:.12f}") for item in values)
 
 
@@ -304,6 +309,7 @@ def build_project_index_plan(
     expected_tree_digest: str,
     embedding_candidates: Sequence[EmbeddingRouteCandidate] = (),
     allow_remote_source: bool = False,
+    allowed_relative_paths: tuple[str, ...] | None = None,
 ) -> ProjectIndexPlan:
     """Build a deterministic source index plan without writing anywhere."""
 
@@ -311,9 +317,29 @@ def build_project_index_plan(
     discovery = discover(root)
     if discovery.truncated or discovery.tree_digest != expected_tree_digest:
         raise PolicyViolation("Kaynak revision/tree drift; yeniden project scan gerekli")
+    allowed: frozenset[str] | None = None
+    if allowed_relative_paths is not None:
+        if (
+            not allowed_relative_paths
+            or len(set(allowed_relative_paths)) != len(allowed_relative_paths)
+            or any(
+                PurePosixPath(value).is_absolute()
+                or PurePosixPath(value).as_posix() != value
+                or ".." in PurePosixPath(value).parts
+                for value in allowed_relative_paths
+            )
+        ):
+            raise ValidationFailed("Bounded source allowlist exact portable paths ister")
+        allowed = frozenset(allowed_relative_paths)
     selected = tuple(
-        item for item in discovery.files if item.is_text and _is_supported(item.relative_path)
+        item
+        for item in discovery.files
+        if item.is_text
+        and _is_supported(item.relative_path)
+        and (allowed is None or item.relative_path in allowed)
     )
+    if allowed is not None and {item.relative_path for item in selected} != allowed:
+        raise ValidationFailed("Bounded source allowlist eksik/desteklenmeyen dosya tasiyor")
     if not selected:
         raise ValidationFailed("Indekslenebilir kaynak dosyasi bulunamadi")
     units: list[ContentUnit] = []
@@ -373,8 +399,8 @@ def build_project_index_plan(
     )
     embedding_route = select_embedding_route(
         embedding_candidates,
-        local_model_ref=LOCAL_EMBEDDING_MODEL_REF,
-        local_dimension=LOCAL_EMBEDDING_DIMENSION,
+        local_model_ref=REAL_EMBEDDING_MODEL_REF,
+        local_dimension=REAL_EMBEDDING_DIMENSION,
         remote_source_allowed=allow_remote_source,
     )
     embedding_profile = EmbeddingProfile(
@@ -408,7 +434,12 @@ def build_project_index_plan(
         embedding_route=embedding_route,
         chunks=chunks,
         selected_file_count=len(manifest_files),
-        skipped_unsupported=discovery.file_count - len(selected),
+        skipped_unsupported=sum(
+            1
+            for item in discovery.files
+            if (allowed is None or item.relative_path in allowed)
+            and (not item.is_text or not _is_supported(item.relative_path))
+        ),
         skipped_encoding=skipped_encoding,
     )
 
@@ -417,8 +448,11 @@ def apply_project_index(
     plan: ProjectIndexPlan,
     *,
     connection: Any,
-    realm_id: UUID,
+    knowledge: Any,
+    retrieval: Any,
     object_store: LocalContentAddressedStore,
+    embedding_provider: EmbeddingProvider | None = None,
+    embedding_policy: EmbeddingPolicy | None = None,
     now: dt.datetime | None = None,
 ) -> ProjectIndexResult:
     """Persist immutable CAS manifest and atomically commit all PostgreSQL index rows.
@@ -433,6 +467,45 @@ def apply_project_index(
         raise PolicyViolation(
             "Remote project embedding yalniz ayri exact provider authorization akisi ile uygulanir"
         )
+    if embedding_provider is None or embedding_policy is None:
+        raise PolicyViolation("Verified embedding provider/policy olmadan indeks uygulanamaz")
+    provider_profile = embedding_provider.describe()
+    accepted_model_refs = {
+        provider_profile.exact_model_id,
+        f"openai/{provider_profile.exact_model_id}",
+    }
+    if (
+        plan.embedding_profile.model_ref not in accepted_model_refs
+        or plan.embedding_profile.dimension != provider_profile.dimension
+        or plan.embedding_profile.query_prefix != provider_profile.query_prefix
+        or plan.embedding_profile.passage_prefix != provider_profile.passage_prefix
+        or plan.embedding_profile.provider_profile_digest != provider_profile.profile_digest
+        or embedding_policy.expected_profile_digest != provider_profile.profile_digest
+    ):
+        raise PolicyViolation("Project index/provider profile drift; rebuild required")
+    provider_profile.assert_policy(embedding_policy)
+
+    # Provider work finishes before CAS/database mutation. A timeout, partial batch,
+    # NaN or dimension drift therefore cannot leave a half-activated generation.
+    vectors: dict[str, tuple[float, ...]] = {}
+    for offset in range(0, len(plan.chunks), 8):
+        chunk_batch = plan.chunks[offset : offset + 8]
+        embedded = embedding_provider.embed_documents(
+            tuple(chunk.text for chunk in chunk_batch), embedding_policy
+        )
+        if (
+            len(embedded.vectors) != len(chunk_batch)
+            or embedded.receipt.vector_count != len(chunk_batch)
+            or embedded.receipt.dimension != provider_profile.dimension
+            or embedded.receipt.profile_digest != provider_profile.profile_digest
+        ):
+            raise PolicyViolation("Project embedding batch/receipt contract drift")
+        for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
+            provider_profile.validate_vector(vector)
+            vectors[chunk.chunk_id] = vector
+    if len(vectors) != len(plan.chunks):
+        raise PolicyViolation("Project embedding batch eksik/duplicate sonuc uretti")
+
     service = IngestionService(default_router())
     artifact = service.artifact_for(
         plan.manifest,
@@ -446,8 +519,6 @@ def apply_project_index(
     if stored.digest != artifact.content_digest:
         raise PolicyViolation("Indeks manifest CAS digest uyusmazligi")
 
-    knowledge = KnowledgeRepository(connection, realm_id, project_id=plan.project_id)
-    retrieval = RetrievalRepository(connection, realm_id)
     source_slug = f"project-{plan.project_slug}-source"
     job = service.start(
         job_id=plan.plan_digest,
@@ -479,17 +550,22 @@ def apply_project_index(
         if equivalent is not None and equivalent[2] == "active":
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "select d.id, count(distinct c.id), count(distinct e.id)"
+                    "select d.id, count(distinct c.id), count(distinct e.id),"
+                    " ep.profile_digest"
                     " from knowledge.normalized_document d"
                     " join knowledge.source_version v on v.id = d.version_id"
+                    " join knowledge.document_index_profile dip on dip.document_id=d.id"
+                    " join knowledge.embedding_profile ep on ep.id=dip.embedding_profile_id"
                     " left join knowledge.chunk c on c.document_id = d.id"
                     " left join knowledge.chunk_embedding e on e.chunk_id = c.id"
-                    " where v.id = %s group by d.id",
+                    " where v.id = %s group by d.id,ep.profile_digest",
                     (equivalent[0],),
                 )
                 row = cursor.fetchone()
             if row is None or int(row[1]) != len(plan.chunks) or int(row[2]) != len(plan.chunks):
                 raise PolicyViolation("Mevcut indeks eksik; sessiz tamamlanmis sayilamaz")
+            if str(row[3]) != plan.embedding_profile.profile_digest:
+                raise PolicyViolation("Mevcut index provider profile drift; rebuild required")
             return ProjectIndexResult(
                 source_id=source_id,
                 document_id=row[0],
@@ -518,7 +594,7 @@ def apply_project_index(
                 chunk_ids[chunk.chunk_id],
                 embedding_profile_id,
                 plan.embedding_profile,
-                deterministic_local_embedding(chunk.text),
+                vectors[chunk.chunk_id],
                 now=moment,
             )
         retrieval.store_document_profiles(

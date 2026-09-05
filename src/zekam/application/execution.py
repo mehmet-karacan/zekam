@@ -17,16 +17,18 @@ import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from zekam.application.diagnostic_trace import RuntimeTraceSink
+from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.tool_dispatch import ToolDispatchService, ToolRuntimeAdapter
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.resources import ResourceRequest
 from zekam.domain.runtime import (
     AttemptOutcome,
+    ClaimedWork,
     EffectClaim,
     EffectReceipt,
     FailureCategory,
@@ -36,18 +38,11 @@ from zekam.domain.runtime import (
     ReconciledCompletionRequest,
     ReconciledFailureRequest,
     RecoveryAssessment,
+    RecoveryFinalization,
     assert_no_silent_retry,
     assess_recovery,
 )
 from zekam.domain.tool_registry import ToolDispatchBinding
-from zekam.infrastructure.postgres.runtime_repository import (
-    ClaimedWork,
-    EffectLedger,
-    JobRepository,
-    RecoveryFinalization,
-    ResourceLockRepository,
-)
-from zekam.infrastructure.postgres.tool_registry_repository import ToolRegistryRepository
 
 
 class AdmissionDecision(StrEnum):
@@ -131,16 +126,16 @@ class ExecutionHost:
     trace_sink: RuntimeTraceSink | None = None
 
     @property
-    def jobs(self) -> JobRepository:
-        return JobRepository(self.connection, self.realm_id)
+    def jobs(self) -> Any:
+        return legacy_repository("job", self.connection, self.realm_id)
 
     @property
-    def locks(self) -> ResourceLockRepository:
-        return ResourceLockRepository(self.connection, self.realm_id)
+    def locks(self) -> Any:
+        return legacy_repository("resource_lock", self.connection, self.realm_id)
 
     @property
-    def ledger(self) -> EffectLedger:
-        return EffectLedger(self.connection, self.realm_id)
+    def ledger(self) -> Any:
+        return legacy_repository("effect_ledger", self.connection, self.realm_id)
 
     # -- calisma dongusu ------------------------------------------------------------
 
@@ -156,11 +151,14 @@ class ExecutionHost:
 
         Kilit catismasi varsa is birakilir ve `None` doner; kilitler sizmaz.
         """
-        claimed = self.jobs.claim_next(
-            worker_label=self.worker_label,
-            capabilities=capabilities,
-            lease_seconds=lease_seconds,
-            now=now,
+        claimed = cast(
+            ClaimedWork | None,
+            self.jobs.claim_next(
+                worker_label=self.worker_label,
+                capabilities=capabilities,
+                lease_seconds=lease_seconds,
+                now=now,
+            ),
         )
         if claimed is None:
             return None
@@ -231,7 +229,7 @@ class ExecutionHost:
             adapter_digest=adapter_digest,
             now=now,
         )
-        return self.ledger.claim(claim, authorization_id=authorization_id)
+        return cast(EffectClaim, self.ledger.claim(claim, authorization_id=authorization_id))
 
     def dispatch_tool(
         self,
@@ -242,7 +240,7 @@ class ExecutionHost:
     ) -> Any:
         """Exact claim/turn/spec/current-runtime kapisindan tool effect'i calistirir."""
 
-        repository = ToolRegistryRepository(self.connection, self.realm_id)
+        repository = legacy_repository("tool_registry", self.connection, self.realm_id)
         return ToolDispatchService(repository, trace_sink=self.trace_sink).dispatch(
             binding, adapter, now=now
         )
@@ -269,7 +267,7 @@ class ExecutionHost:
             latency_ms=latency_ms,
             now=now,
         )
-        return self.ledger.receipt(receipt)
+        return cast(EffectReceipt, self.ledger.receipt(receipt))
 
     def record_failure(
         self,
@@ -289,7 +287,7 @@ class ExecutionHost:
             latency_ms=latency_ms,
             now=now,
         )
-        return self.ledger.receipt(receipt)
+        return cast(EffectReceipt, self.ledger.receipt(receipt))
 
     def finish(
         self,
@@ -310,14 +308,17 @@ class ExecutionHost:
                 "Terminal receipt'i olmayan "
                 f"{len(pending)} claim var; is yalniz recovery-required olabilir"
             )
-        return self.jobs.complete(
-            work.job.id,
-            token=work.owner_token,
-            fencing_token=work.lease.fencing_token,
-            outcome=outcome,
-            result_digest=result_digest,
-            failure_category=failure_category,
-            now=now,
+        return cast(
+            bool,
+            self.jobs.complete(
+                work.job.id,
+                token=work.owner_token,
+                fencing_token=work.lease.fencing_token,
+                outcome=outcome,
+                result_digest=result_digest,
+                failure_category=failure_category,
+                now=now,
+            ),
         )
 
     # -- recovery ------------------------------------------------------------------------
@@ -367,7 +368,10 @@ class ExecutionHost:
     ) -> RecoveryFinalization:
         """Bağımsız completed adapter kanıtını exact terminal kayda dönüştürür."""
 
-        return self.ledger.finalize_reconciled_completion(request, now=now)
+        return cast(
+            RecoveryFinalization,
+            self.ledger.finalize_reconciled_completion(request, now=now),
+        )
 
     def finalize_reconciled_failure(
         self,
@@ -377,7 +381,10 @@ class ExecutionHost:
     ) -> RecoveryFinalization:
         """Mevcut failed receipt'i exact expired job ile uzlastirir."""
 
-        return self.ledger.finalize_reconciled_failure(request, now=now)
+        return cast(
+            RecoveryFinalization,
+            self.ledger.finalize_reconciled_failure(request, now=now),
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,11 @@
+{
+  "deferred": [
+    "Windows platform acceptance"
+  ],
+  "focused_passed": 101,
+  "full_suite_failures": 0,
+  "full_suite_tests": 6973,
+  "schema": "zekam-wp-metrics/v1",
+  "status": "macos-accepted/windows-deferred",
+  "work_package": "WP-09"
+}

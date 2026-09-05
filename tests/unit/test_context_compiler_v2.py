@@ -15,6 +15,7 @@ from zekam.domain.context_continuity import (
     AuthorityLevel,
     ContextCandidate,
     ContextCandidateKind,
+    ContextManifest,
     OmittedReason,
 )
 from zekam.domain.context_scoring import CONTEXT_SCORING_POLICY_DIGEST
@@ -66,7 +67,7 @@ def _candidate(
     )
 
 
-def _compile(candidates: tuple[ContextCandidate, ...], budget: int = 30):
+def _compile(candidates: tuple[ContextCandidate, ...], budget: int = 30) -> ContextManifest:
     possible = (
         "same",
         *(

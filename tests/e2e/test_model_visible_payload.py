@@ -111,7 +111,7 @@ def test_selected_context_to_gateway_manifest_binds_exact_model_visible_payload(
         request_payload_digest=call.payload_digest,
     )
     gateway = ModelGateway(
-        repository=SimpleNamespace(mode=lambda: GatewayMode.ENFORCE),  # type: ignore[arg-type]
+        repository=SimpleNamespace(mode=lambda: GatewayMode.ENFORCE),
         source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
         bindings=ModelGatewayBindings(
             execution_envelope_id=uuid4(),

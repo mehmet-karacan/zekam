@@ -6,56 +6,30 @@ qualification olmadan routing yapilmaz.
 
 ## Suite aileleri
 
-### GEN-TR-01 — Türkçe mühendislik
-Terminoloji, uzun talep, doğal dil entity/alias, açıklama ve rapor.
+Bağlayıcı aile kümesi tam olarak şudur:
 
-### GEN-EVIDENCE-01 — Kanıtlı araştırma
-Claim-evidence, contradiction, citation, abstention, stale source.
+| Aile | Temel doğrulama |
+|---|---|
+| `sql-plsql` | SQL/PLSQL doğruluğu, transaction ve locking kanıtı |
+| `code-repair` | Minimal patch, regression ve recovery |
+| `code-review` | Root-cause, unsafe patch ve kanıt doğruluğu |
+| `architecture` | Boundary, ownership, tradeoff ve failure mode |
+| `rag-retrieval` | Retrieval, citation ve abstention |
+| `tool-use` | Tool seçimi, argüman doğruluğu ve yan etki yasağı |
+| `agentic-workflow` | Claim/receipt, replay ve recovery |
+| `long-context` | Evidence recall, distractor ve continuity |
+| `document-analysis` | Belge/OCR/diagram grounding |
+| `structured-output` | Strict schema, unknown field ve malformed çıktı |
+| `safety-policy` | Injection, secret, path ve network sınırları |
+| `embedding-retrieval` | Semantic retrieval doğruluğu ve latency |
+| `reranking` | Candidate sıra kalitesi ve determinism |
+| `creative-tournament` | Ayrı yaratıcı değerlendirme ve human correction |
 
-### CODE-NAV-01 — Repository anlama
-Modül, symbol, call/dependency, config ve version farkı.
-
-### CODE-PATCH-01 — Güvenli değişiklik
-Exact allowlist, minimal patch, tests, rollback, no unrelated changes.
-
-### CODE-VERIFY-01 — Bağımsız verification
-Deliberate bug/unsafe patch yakalama ve acceptance coverage.
-
-### ARCH-01 — Mimari
-Boundary, ownership, tradeoff, migration ve failure mode.
-
-### DB-MIG-01 — Oracle→PostgreSQL
-Type/function/package/sequence/transaction/locking farkı; uygulanabilir dönüşüm planı.
-
-### PROJECT-VERSION-01 — Teknoloji sürümü
-Spring/Java/Node/Python versiyonuna uygun kod; yanlış sürüm API'si negatif fixture.
-
-### STRUCTURED-01 — JSON schema/tool
-Strict output, unknown field, malformed input, function/tool planning.
-
-### SECURITY-01 — Prompt/secret/path/network
-Untrusted instructions, secret exfiltration, traversal, over-broad tool.
-
-### CONTEXT-01 — Uzun bağlam
-Required evidence recall, distractors, compaction/handoff.
-
-### EMBED-TR-01
-Türkçe semantic retrieval.
-
-### EMBED-CODE-01
-Identifier/path/symbol retrieval.
-
-### RERANK-01
-Candidate reranking quality delta.
-
-### ASR-TR-01
-Türkçe temiz/gürültülü audio WER/CER.
-
-### GUARD-01
-Safe/unsafe/injection/secret classification.
-
-### VL-01
-Image/OCR/chart/diagram grounded tasks.
+Kalıcı task manifestleri `benchmarks/suites/<aile>/task.yaml` altında, çözünür
+prompt/fixture/hidden-key/grader kaynakları `benchmarks/resources/` altındadır.
+`scripts/generate_benchmark_catalog.py --check` repo ve paket kopyalarının byte
+eşitliğini doğrular. Teknik ve yaratıcı task'lar aynı aggregate ile zorla
+karşılaştırılmaz.
 
 ## Case contract
 
@@ -112,6 +86,6 @@ Reviewed v1 bütçesi 17 health ve health-passed hedef başına 5 benchmark olma
 üzere en fazla 102 provider çağrısıdır. Her provider çağrısı ayrı `max_uses=1`
 authorization, claim ve terminal receipt taşır. Başarısız dış etki sessizce tekrar
 edilmez; kampanya `recovery-required` olur ve yeni exact plan/yetki ister. Sonuçlar
-PostgreSQL'deki append-only campaign/member/result/outcome/qualification kayıtlarında,
+Yerel SQLite append-only campaign/member/result/outcome/qualification kayıtlarında,
 aggregate metriklerinde ve runtime receipt/checkpoint zincirinde tutulur. Ham prompt,
 yanıt, endpoint ve credential bu kayıtlara yazılmaz.

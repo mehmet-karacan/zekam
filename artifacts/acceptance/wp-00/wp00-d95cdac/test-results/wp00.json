@@ -1,0 +1,37 @@
+{
+  "schema": "zekam-test-result-summary/v1",
+  "focused": {
+    "status": "passed",
+    "passed": 28,
+    "failed": 0,
+    "covers": [
+      "task-byte-digest-binding",
+      "generated-read-only-projection",
+      "stale-duplicate-unknown-field-rejection",
+      "forbidden-postgresql-connect",
+      "forbidden-psql-pg_dump-pg_restore",
+      "forbidden-docker-exec-psql",
+      "unrelated-subprocess-pass-through"
+    ]
+  },
+  "storage_and_bge_regression": {
+    "status": "passed",
+    "passed": 42,
+    "failed": 0
+  },
+  "broad_non_postgres": {
+    "status": "baseline-drift",
+    "passed": 2372,
+    "failed": 8,
+    "skipped": 14,
+    "deselected": 725,
+    "failure_categories": [
+      "installed-client-version-and-digest-drift",
+      "macos-executable-suffix-assumption",
+      "missing-optional-fastapi",
+      "existing-interpreter-policy-drift",
+      "existing-package-manifest-drift"
+    ],
+    "legacy_postgresql_access_failures": 0
+  }
+}

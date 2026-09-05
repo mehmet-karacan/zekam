@@ -1,8 +1,4 @@
-"""`zekam backup` komutlari: yedek manifesti uretimi ve dogrulamasi.
-
-Her iki komut da salt okunurdur; veri kopyalamaz veya silmez. Gercek arsiv
-uretimi ve restore, faz 17 kapsaminda exact authorization ile eklenir.
-"""
+"""`zekam backup` commands for manifests and complete local bundles."""
 
 from __future__ import annotations
 
@@ -26,8 +22,10 @@ from zekam.application.composition import build_context
 from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import ZekamError
 from zekam.domain.identity import PRODUCT
-from zekam.infrastructure.postgres import migrations
-from zekam.infrastructure.postgres.connection import PSYCOPG_AVAILABLE, connect
+from zekam.infrastructure.local_backup import create_bundle, restore_bundle, verify_bundle
+from zekam.infrastructure.local_core_services import LocalCoreServices
+from zekam.infrastructure.sqlite.operational_schema import MIGRATION_LEDGER
+from zekam.infrastructure.sqlite.operational_schema import status as sqlite_status
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 EXIT_RUNTIME_ERROR = 70
@@ -42,16 +40,12 @@ _HOME_HELP = f"{PRODUCT.data_root_env} kokunu gecici olarak ezer"
 
 def _schema_state(home: str | None) -> SchemaState:
     context = build_context(home=home)
-    if not PSYCOPG_AVAILABLE:
-        return schema_state_from_status(None, [])
-    try:
-        with connect(context.settings.database) as connection:
-            current = migrations.status(connection)
-    except Exception:
+    sqlite_current = sqlite_status(context.settings.database.sqlite_path(context.home))
+    if not sqlite_current.integrity_ok or not sqlite_current.schema_ok:
         return schema_state_from_status(None, [])
     return schema_state_from_status(
-        current.head,
-        [(record.version, record.name, record.checksum) for record in current.applied],
+        sqlite_current.schema_version,
+        list(MIGRATION_LEDGER),
     )
 
 
@@ -65,27 +59,38 @@ def _store(home: str | None) -> LocalContentAddressedStore:
 @app.command("create")
 def create_command(
     output: Annotated[Path | None, typer.Option("--cikti", help="Manifest dosyasi yolu")] = None,
+    bundle: Annotated[Path | None, typer.Option("--bundle", help="Yeni tam yedek dizini")] = None,
     home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
 ) -> None:
     """Mevcut durumdan yedek manifesti uretir."""
     assert_local_effect_admission(("backup", "create"))
     try:
         context = build_context(home=home)
+        if bundle is not None:
+            bundle_document = create_bundle(
+                LocalCoreServices.from_context(context), context.home, bundle.absolute()
+            )
+            encoded = json.dumps(bundle_document, ensure_ascii=False, sort_keys=True)
+            if output is None:
+                console.print_json(encoded)
+            else:
+                output.write_bytes((bundle.absolute() / "MANIFEST.json").read_bytes())
+            return
         manifest = build_manifest(
             schema_state=_schema_state(home),
             store=_store(home),
             configuration=context.settings.sanitized(),
         )
-    except ZekamError as exc:
+    except (OSError, ZekamError) as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
 
-    document = json.dumps(_encode(manifest), ensure_ascii=False, indent=2) + "\n"
+    legacy_document = json.dumps(_encode(manifest), ensure_ascii=False, indent=2) + "\n"
     if output is None:
-        console.print_json(document)
+        console.print_json(legacy_document)
         return
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(document, encoding="utf-8", newline="\n")
+    output.write_text(legacy_document, encoding="utf-8", newline="\n")
     console.print(f"[green]Manifest yazildi:[/green] {output}")
     console.print(f"artifact: {len(manifest.artifacts)}, toplam bayt: {manifest.total_bytes}")
 
@@ -93,11 +98,26 @@ def create_command(
 @app.command("verify")
 def verify_command(
     manifest_path: Annotated[Path, typer.Argument(help="Dogrulanacak manifest dosyasi")],
+    bundle: Annotated[Path | None, typer.Option("--bundle", help="Tam yedek dizini")] = None,
     home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
 ) -> None:
     """Manifest butunlugunu ve artifact varligini dogrular."""
     assert_local_effect_admission(("backup", "verify"))
     try:
+        if bundle is not None:
+            if manifest_path.read_bytes() != (bundle.absolute() / "MANIFEST.json").read_bytes():
+                raise ValueError("Bundle manifest path does not match the bundle")
+            document = verify_bundle(bundle.absolute())
+            console.print_json(
+                json.dumps(
+                    {
+                        "valid": True,
+                        "manifest_digest": document["manifest_digest"],
+                        "file_count": document["file_count"],
+                    }
+                )
+            )
+            return
         manifest = _decode(json.loads(manifest_path.read_text(encoding="utf-8")))
         result = verify_manifest(manifest, _store(home))
     except (OSError, KeyError, ValueError) as exc:
@@ -110,6 +130,22 @@ def verify_command(
     console.print_json(json.dumps(result.as_dict(), ensure_ascii=False))
     if not result.is_valid:
         raise typer.Exit(EXIT_VERIFICATION_FAILED)
+
+
+@app.command("restore")
+def restore_command(
+    bundle: Annotated[Path, typer.Argument(help="Dogrulanmis tam yedek dizini")],
+    target: Annotated[Path, typer.Argument(help="Yeni, mevcut olmayan hedef home")],
+) -> None:
+    """Verify and atomically restore a complete bundle to a new target."""
+
+    assert_local_effect_admission(("backup", "restore"))
+    try:
+        receipt = restore_bundle(bundle.absolute(), target.absolute())
+    except (OSError, ValueError, ZekamError) as exc:
+        error_console.print(f"[red]Hata:[/red] restore basarisiz ({type(exc).__name__})")
+        raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
+    console.print_json(json.dumps(receipt, ensure_ascii=False))
 
 
 def _encode(manifest: BackupManifest) -> dict[str, object]:

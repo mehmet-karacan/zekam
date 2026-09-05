@@ -1,4 +1,4 @@
-"""Generate or check the deterministic shipped package manifest v2."""
+"""Generate or check the deterministic shipped package manifest v3."""
 
 from __future__ import annotations
 

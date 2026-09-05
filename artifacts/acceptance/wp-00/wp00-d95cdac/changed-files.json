@@ -1,0 +1,30 @@
+{
+  "schema": "zekam-wp-changed-files/v1",
+  "pre_existing_user_changes": [
+    {"path":".idea/.gitignore","state":"staged-added","sha256":"de3dcd3b67895aa24d01485c60e342e81e37ea1530859b0756519a00f1b6d700"},
+    {"path":"AKTIF_GOREV.md","state":"unstaged-modified","pre_wp00_sha256":"a9aad9cfd5b180e876a345125bb6d8208971ee1127946226472204a2b1f61112"},
+    {"path":"VALIDATION_RESULT.json","state":"unstaged-modified","sha256":"63f2c302d9ef5a380be52ca8e4a6e3aa1720e997e1330843ce5dd1f4ba85e8bc"},
+    {"path":"src/zekam/application/project_knowledge_index.py","state":"unstaged-modified","sha256":"a730b74e7483fbc68464c0a69b92f3558d54930ea444bf004ca5f8535eea7bfb"},
+    {"path":"tests/unit/test_project_knowledge_index.py","state":"unstaged-modified","sha256":"073057b4808cacdc2fc5445e5bb0af026056568fb17a4af1f7e5639eabde1b04"},
+    {"path":".DS_Store","state":"untracked","sha256":"04c5c49c28ffd75b855f3f76de029b24dfff09053a4d3881341b7f57df29caa5"},
+    {"path":".idea/misc.xml","state":"untracked","sha256":"022fa2dd7bbc37d6189f9682e0acfab1aed28c793f73936c4b3cc5f6e3910b7d"},
+    {"path":".idea/modules.xml","state":"untracked","sha256":"05eec0d2180534332a8cd0f521ffca9db3470719b77746ad97114233ed71c265"},
+    {"path":".idea/vcs.xml","state":"untracked","sha256":"6323e12648862a0a96fc0d7877672817d6cd91e2c2a3c3d78f1090db23c6e88e"},
+    {"path":".idea/zekam.iml","state":"untracked","sha256":"af2bf573e02f9d307c457556797268e217ab49ac3c9bdd36e9bb4ae1109f85bc"},
+    {"path":"src/.DS_Store","state":"untracked","sha256":"b4c8d64f8e9670ebacb5d5ba7d61b418d096b1b16d0e69c2d1f39cacdf5e4686"},
+    {"path":"src/zekam/.DS_Store","state":"untracked","sha256":"580816af0e1a842443d1f93531fa78c7b1ba1c280d772bf8f28c2dfb84a9a944"},
+    {"path":"src/zekam/interfaces/.DS_Store","state":"untracked","sha256":"f7b792401c6ecc56c0853917661c38a3fb81a5e0a424bbbfa04ee6f56981ee7e"},
+    {"path":"src/zekam/interfaces/cli/.DS_Store","state":"untracked","sha256":"d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3"}
+  ],
+  "wp00_changes": [
+    "AKTIF_GOREV.md",
+    "AKTIF_GOREV.yaml",
+    "scripts/paket_dogrula.py",
+    "src/zekam/application/active_task_contract.py",
+    "tests/conftest.py",
+    "tests/security/test_legacy_database_access_sentinel.py",
+    "tests/unit/test_active_task_contract.py",
+    "artifacts/acceptance/wp-00/wp00-d95cdac"
+  ],
+  "pre_existing_content_removed": false
+}

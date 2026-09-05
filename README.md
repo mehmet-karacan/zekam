@@ -8,7 +8,7 @@ Repository iki katmandan oluşur:
 - **Sözleşme katmanı**: kanonik uygulama görevi, devam protokolü, mimari sözleşmeler, veri
   şemaları, model envanteri, benchmark planları, kabul kapıları ve operasyon runbook'ları.
 - **Uygulama katmanı**: `src/zekam/` altındaki çalışan kod, `tests/` altındaki kanıt üreten
-  testler, `migrations/`, `compose/` ve `scripts/`.
+  testler ve `scripts/`.
 
 Sözleşme katmanı üründen daha kalıcıdır; kod onu uygular, yerine geçmez.
 
@@ -31,10 +31,11 @@ Tekil package, CLI, environment, home, schema ve DB kimliği
 1. `00_BASLA.md`
 2. `DEVAM_PROTOKOLU.md`
 3. `PROJE_MANIFESTI.yaml`
-4. `AKTIF_GOREV.yaml`
-5. `NIHAI_UYGULAMA_PROMPTU.md`
+4. `AKTIF_GOREV.md`
+5. `AKTIF_GOREV.yaml` (salt-okunur generated projection)
 6. `GLOBAL_DEFINITION_OF_DONE.md`
-7. Aktif işin referans verdiği mimari, güvenlik, harness, bellek, model ve kalite belgeleri
+7. `NIHAI_UYGULAMA_PROMPTU.md` (superseded baseline/reference)
+8. Aktif işin referans verdiği mimari, güvenlik, harness, bellek, model ve kalite belgeleri
 
 ## Hızlı kullanım
 
@@ -57,13 +58,12 @@ Herhangi bir desteklenen istemciyi bu dizinde aç ve yalnız şunu söyle:
 
 ## Geliştirme kurulumu
 
-Çalışan kodu yerelde kurmak, PostgreSQL 18 + pgvector başlatmak, `zekam doctor`
-çalıştırmak ve kalite kapılarını görmek için: [docs/GELISTIRME_KURULUMU.md](docs/GELISTIRME_KURULUMU.md).
+Çalışan kodu yerelde kurmak, yerel depoları başlatmak, `zekam doctor` çalıştırmak ve kalite
+kapılarını görmek için: [docs/GELISTIRME_KURULUMU.md](docs/GELISTIRME_KURULUMU.md).
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[db,api,dev]"
-docker compose -f compose/docker-compose.yml up -d
+.venv/Scripts/python -m pip install -e ".[api,dev]"
 .venv/Scripts/zekam init
 .venv/Scripts/zekam doctor
 ```
@@ -79,9 +79,19 @@ session bağlarını ve kanonik runtime zincirini izlemek için:
 ```
 
 Varsayılan yüzey yalnız loopback adresine bağlanır ve mutation endpoint'i açmaz. Realm
-verilmezse yerel process/session görünümü çalışır, PostgreSQL realm tahmin edilmez. Mimari,
+verilmezse yerel process/session görünümü çalışır, uzak bir realm tahmin edilmez. Mimari,
 durum semantiği, kurulum ve mahremiyet sınırları:
 [`docs/UI_NEURO_OBSERVATORY_MIMARISI.md`](docs/UI_NEURO_OBSERVATORY_MIMARISI.md).
+
+## Yerel işletim ve tam yedek
+
+Mac yerel çalışma kökü Docker veya PostgreSQL gerektirmez. `zekam worker status`,
+`zekam worker run-once --uygula`, `zekam scheduler reconcile`, `zekam scheduler
+rebuild --uygula` ve `zekam scheduler report` kanonik SQLite/analytics depolarını
+kullanır; arka plan daemon'u kurmaz. `zekam backup create --bundle <yeni-dizin>`
+tüm yerel authority ve türetilmiş depoları içerik/mode manifestiyle yakalar;
+`backup verify` doğrular, `backup restore` ise yalnız mevcut olmayan bir hedefe
+atomik yayın yapar.
 
 ## Paket doğrulama
 

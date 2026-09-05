@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: reranking-smoke
+version: 1
+family: reranking
+evaluation_class: technical
+workload: reranking
+modality: text
+prompt_ref: resources/prompts/reranking.txt
+fixture_refs:
+- resources/fixtures/reranking.json
+hidden_key_ref: resources/hidden-keys/reranking.json
+grader_ref: resources/graders/reranking.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- reliability
+- latency
+pass_thresholds:
+  correctness: 0.8
+  reliability: 0.8
+  latency: 0.8
+resource_digests:
+  resources/fixtures/reranking.json: sha256:1f459acd3eed6410d6a69857dff28e2dccef9ad93e5ab059d8595072f78114b7
+  resources/graders/reranking.yaml: sha256:843b87d53ce142e26cc1457f70e90c4612c66975256a676143a2c01d49497ef1
+  resources/hidden-keys/reranking.json: sha256:53928b3c1984fc8d2c78e5243bf5d449f62cc1bc0d5a2e77dc36f713d0c1e9d8
+  resources/prompts/reranking.txt: sha256:ac3816cdf8538bc28c3a5e6bc8ca9cba09a81bbbe0e3dd7f3469728b361879a8

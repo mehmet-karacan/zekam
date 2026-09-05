@@ -3,24 +3,27 @@
 import asyncio
 import ipaddress
 import json
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from zekam.application.composition import ApplicationContext
-from zekam.application.config import PersistenceBackend
 from zekam.application.observatory import (
     CompositeRuntimeProjectionReader,
-    EmptyRuntimeProjectionReader,
     LocalSessionFileProjectionReader,
     ObservatoryService,
     OpenCodeLifecycleProjectionReader,
     RuntimeProjectionReader,
 )
+from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.process_observer import BoundedProcessObserver
+from zekam.infrastructure.sqlite.local_observatory import (
+    SQLiteLocalProjectionStore,
+    SQLiteRuntimeProjectionReader,
+)
 
 _STATIC_ROOT = Path(__file__).resolve().parent / "static"
+_LOCAL_REALM_ID = uuid5(NAMESPACE_URL, "zekam://realm/yerel")
 
 
 def validated_lan_hosts(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -211,29 +214,11 @@ def _runtime_reader(
     context: ApplicationContext,
     realm_id: UUID | None,
 ) -> RuntimeProjectionReader:
-    if realm_id is None:
-        return EmptyRuntimeProjectionReader("realm-id-required")
-    if context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
-        return EmptyRuntimeProjectionReader("postgresql-required-for-live-runtime")
-    from zekam.infrastructure.postgres.observatory_projection import (
-        PostgresObservatoryProjectionReader,
-    )
-
-    return PostgresObservatoryProjectionReader(context.settings.database, realm_id)
+    return SQLiteRuntimeProjectionReader(context, realm_id or _LOCAL_REALM_ID)
 
 
 def _app_server_store_factory(context: ApplicationContext, realm_id: UUID | None) -> Any:
-    if realm_id is None or context.settings.database.backend is not PersistenceBackend.POSTGRESQL:
-        return None
-
-    @contextmanager
-    def factory() -> Any:
-        from zekam.infrastructure.postgres.app_server_repository import (
-            PostgresAppNotificationRepository,
-        )
-        from zekam.infrastructure.postgres.connection import session
-
-        with session(context.settings.database, realm_id=realm_id) as connection:
-            yield PostgresAppNotificationRepository(connection, realm_id)
-
-    return factory
+    selected_realm = realm_id or _LOCAL_REALM_ID
+    return lambda: SQLiteLocalProjectionStore(
+        LocalCoreServices.from_context(context), selected_realm
+    )

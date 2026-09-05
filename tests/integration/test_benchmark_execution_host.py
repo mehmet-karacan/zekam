@@ -66,6 +66,22 @@ class FakeGateway:
         self.events.append("verifier-receipt")
         self.completed.add(claim_id)
 
+    def retain_failure(
+        self,
+        *,
+        plan_id: UUID,
+        claim_id: UUID,
+        fixture_digest: str,
+        repetition: int,
+        phase: str,
+        category: str,
+        result: TrialResult | None = None,
+    ) -> str:
+        del plan_id, claim_id, fixture_digest, repetition, result
+        retained = digest({"phase": phase, "category": category})
+        self.events.append("failure-retained")
+        return retained
+
 
 class FakeStore:
     def __init__(self, gateway: FakeGateway) -> None:

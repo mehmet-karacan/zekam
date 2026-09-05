@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: creative-tournament-smoke
+version: 1
+family: creative-tournament
+evaluation_class: creative
+workload: creative-tournament
+modality: text
+prompt_ref: resources/prompts/creative-tournament.txt
+fixture_refs:
+- resources/fixtures/creative-tournament.json
+hidden_key_ref: resources/hidden-keys/creative-tournament.json
+grader_ref: resources/graders/creative-tournament.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- human-correction
+- reliability
+pass_thresholds:
+  correctness: 0.8
+  human-correction: 0.8
+  reliability: 0.8
+resource_digests:
+  resources/fixtures/creative-tournament.json: sha256:4dd17ea6d2f43c77baa8003b7ae2d75f4aa4a49891ed03f160e1b147e6e43edf
+  resources/graders/creative-tournament.yaml: sha256:9edb0ee1c877ac8802905449838d44ad2226614a4802ef48ca5a00c025acbee5
+  resources/hidden-keys/creative-tournament.json: sha256:2a4aa19b92368bf8f442aeb3e2a171ddb5a13ca80db078c01ef584f1a0a7bfed
+  resources/prompts/creative-tournament.txt: sha256:ea1f200a26a0a12a0be1eb48323d4e6af994450ffc610483c2015172b125cfb3

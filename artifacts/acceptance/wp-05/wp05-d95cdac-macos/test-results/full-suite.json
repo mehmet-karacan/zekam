@@ -1,0 +1,14 @@
+{
+  "failed": 5,
+  "known_environment_failures": [
+    "installed Claude version 2.1.252 differs from test pin 2.1.224",
+    "installed Claude binary digest differs from pinned digest",
+    "installed Codex binary digest differs from pinned digest",
+    "installed OpenCode binary digest differs from pinned digest",
+    "macOS run cannot find Windows-only .venv/bin/zekam.exe"
+  ],
+  "passed": 2678,
+  "skipped": 712,
+  "status": "passed-with-known-environment-drift",
+  "wp05_regressions": 0
+}

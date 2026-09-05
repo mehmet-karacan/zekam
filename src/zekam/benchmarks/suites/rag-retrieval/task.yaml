@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: rag-retrieval-smoke
+version: 1
+family: rag-retrieval
+evaluation_class: technical
+workload: rag-retrieval
+modality: text
+prompt_ref: resources/prompts/rag-retrieval.txt
+fixture_refs:
+- resources/fixtures/rag-retrieval.json
+hidden_key_ref: resources/hidden-keys/rag-retrieval.json
+grader_ref: resources/graders/rag-retrieval.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- evidence-citation
+- reliability
+pass_thresholds:
+  correctness: 0.8
+  evidence-citation: 0.8
+  reliability: 0.8
+resource_digests:
+  resources/fixtures/rag-retrieval.json: sha256:2aeb99dd4e30bea88f17aad3b7bf31bfd6eafd1fb2023d29005ee7cb74284644
+  resources/graders/rag-retrieval.yaml: sha256:8268f49f227c1851f45d2ffe401379c507505d88966db7e5b04520382c70ef03
+  resources/hidden-keys/rag-retrieval.json: sha256:faf4a407ee7f45fcfd8d7d4a5c1b35a95198076406b2fdd5da76ee7ba54f43b0
+  resources/prompts/rag-retrieval.txt: sha256:b5712e690bade7cf0a58e6973ab2622ea79adbaa086aa19d89a06da476983d94

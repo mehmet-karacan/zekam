@@ -9,6 +9,8 @@ from uuid import UUID, uuid5
 
 from zekam.application.client_runtime_bootstrap import _ADOPTION_STEP_ID, _CLOSE_STEP_ID
 from zekam.application.execution import ExecutionHost
+from zekam.application.legacy_repository_provider import legacy_repository
+from zekam.application.lifecycle_runtime_template import template_source_revision
 from zekam.application.memory_upgrade import canonical_projection_source_digest
 from zekam.application.projection_closure import (
     PROJECTION_CLOSURE_ADAPTER_DIGEST,
@@ -33,25 +35,6 @@ from zekam.domain.session_continuity import (
     TruthClass,
 )
 from zekam.domain.work import EvidenceRef, WorkState
-from zekam.infrastructure.postgres.agent_assignment_repository import (
-    AgentAssignmentRepository,
-)
-from zekam.infrastructure.postgres.context_continuity_repository import (
-    ContextContinuityRepository,
-)
-from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
-from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
-    LifecycleRuntimeTemplateRepository,
-    template_source_revision,
-)
-from zekam.infrastructure.postgres.memory_continuity_repository import (
-    MemoryContinuityRepository,
-)
-from zekam.infrastructure.postgres.projection_closure_repository import (
-    ProjectionClosureRepository,
-)
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
-from zekam.infrastructure.postgres.work_repository import WorkItemRepository
 
 _CLOSE_NAMESPACE = UUID("24cfdca7-e4d6-5fcc-b171-07f6db7a91d3")
 _CLOSE_VERIFIER_NAMESPACE = UUID("8449e4c2-b565-5c90-87e7-cac161d24d5d")
@@ -109,8 +92,8 @@ class ProjectionCloseRuntimeService:
             run = cursor.fetchone()
         if run is None:
             raise PolicyViolation("Projection close active run bulunamadi")
-        release = MemoryContinuityRepository(
-            self.connection, self.realm_id
+        release = legacy_repository(
+            "memory_continuity", self.connection, self.realm_id
         ).read_projection_release_snapshot(
             project_id=UUID(str(row[0])),
             work_item_id=UUID(str(row[1])),
@@ -164,9 +147,10 @@ class ProjectionCloseRuntimeService:
             completed_results=completed_results,
             now=moment,
         )
-        authorizations = AuthorizationRepository(self.connection, self.realm_id)
+        authorizations = legacy_repository("authorization", self.connection, self.realm_id)
         service = ProjectionAwareClosureService(
-            ProjectionClosureRepository(self.connection, self.realm_id), authorizations
+            legacy_repository("projection_closure", self.connection, self.realm_id),
+            authorizations,
         )
         idempotency_key = f"projection-close:{payload['entry_digest']}:job:{job.id}"
         plan = service.prepare(receipt, idempotency_key=idempotency_key, now=moment)
@@ -249,7 +233,9 @@ class ProjectionCloseRuntimeService:
         assert job.plan_id is not None
         assert job.assignment_id is not None
         assert job.run_id is not None
-        template_repo = LifecycleRuntimeTemplateRepository(self.connection, self.realm_id)
+        template_repo = legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm_id
+        )
         run = template_repo.run_bindings(job.run_id)
         parent_job_id, manifest_id, manifest_digest, packet_id, packet_digest = (
             template_repo.bootstrap_context(job.run_id)
@@ -295,8 +281,12 @@ class ProjectionCloseRuntimeService:
         ):
             raise PolicyViolation("Projection close prior step result zinciri eksik")
         ordered_results = tuple((step, result_map[step]) for step in steps[:-1])
-        continuity = ContextContinuityRepository(
-            self.connection, self.realm_id, job.project_id, job.work_item_id
+        continuity = legacy_repository(
+            "context_continuity",
+            self.connection,
+            self.realm_id,
+            job.project_id,
+            job.work_item_id,
         )
         journal = continuity.journal_head()
         if journal is None:
@@ -319,7 +309,7 @@ class ProjectionCloseRuntimeService:
         checkpoint_id = continuity.store_checkpoint(
             checkpoint, task_plan_id=job.plan_id, job_id=job.id
         )
-        execution = ExecutionRunRepository(self.connection, self.realm_id)
+        execution = legacy_repository("execution_run", self.connection, self.realm_id)
         execution.bind_assignment_environment(
             AssignmentEnvironmentBinding.create(
                 realm_id=self.realm_id,
@@ -412,14 +402,16 @@ class ProjectionCloseRuntimeService:
         job = work.job
         assert job.work_item_id is not None
         assert job.run_id is not None
-        current = WorkItemRepository(self.connection, self.realm_id).get(job.work_item_id)
+        current = legacy_repository("work_item", self.connection, self.realm_id).get(
+            job.work_item_id
+        )
         if current.state is not WorkState.VERIFICATION or any(
             not criterion.verified for criterion in current.acceptance_criteria
         ):
             raise PolicyViolation("Projection close verified Work ister")
         session_id, client_id = self._run_identity(job.run_id)
-        release = MemoryContinuityRepository(
-            self.connection, self.realm_id
+        release = legacy_repository(
+            "memory_continuity", self.connection, self.realm_id
         ).read_projection_release_snapshot(
             project_id=job.project_id,
             work_item_id=job.work_item_id,
@@ -605,7 +597,7 @@ class ProjectionCloseRuntimeService:
             invocation_digest=digest(invocation_body),
             created_at=now,
         )
-        assignments = AgentAssignmentRepository(self.connection, self.realm_id)
+        assignments = legacy_repository("agent_assignment", self.connection, self.realm_id)
         stored_id, _ = assignments.record_invocation(invocation)
         if stored_id != invocation_id:
             raise ConcurrencyConflict("Projection close verifier invocation replay drift")

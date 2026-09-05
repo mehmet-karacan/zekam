@@ -135,7 +135,9 @@ def test_each_invariant_has_an_exact_failure_and_recovery(invariant_id: str) -> 
     field = _PASS_FIELDS[invariant_id]
     # MC-010 passes when the forbidden transition remains false; flip it true.
     failing_value = invariant_id == "inference-not-fact"
-    result = _evaluate(replace(_passing_snapshot(), **{field: failing_value}))
+    result = _evaluate(
+        replace(_passing_snapshot(), **{field: failing_value})  # type: ignore[arg-type]
+    )
     target = next(item for item in result.results if item.invariant_id == invariant_id)
 
     assert target.status is InvariantStatus.FAILED

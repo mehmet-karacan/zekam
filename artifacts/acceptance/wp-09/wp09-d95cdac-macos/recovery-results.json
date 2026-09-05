@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "scenarios": [
+    "duplicate",
+    "conflict",
+    "stale",
+    "supersession",
+    "restart"
+  ],
+  "schema": "zekam-evidence-recovery/v1"
+}

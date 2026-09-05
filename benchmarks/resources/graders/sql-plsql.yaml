@@ -1,0 +1,10 @@
+schema: zekam-benchmark-grader/v1
+grader_id: sql-plsql-grader
+version: 1
+family: sql-plsql
+evaluation_class: technical
+dimensions:
+- correctness
+- evidence-citation
+- safety
+hidden_key_model_visible: false

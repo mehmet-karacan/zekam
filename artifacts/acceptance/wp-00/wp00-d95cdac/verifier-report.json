@@ -1,0 +1,28 @@
+{
+  "schema": "zekam-independent-verifier-report/v1",
+  "verifier_identity": "preflight_verifier",
+  "builder_identity": "root",
+  "independent": true,
+  "verified_at": "2026-09-02T08:42:25Z",
+  "functional_verdict": "passed",
+  "checks": {
+    "task_digest_exact": true,
+    "projection_byte_exact": true,
+    "projection_has_independent_work_or_run_state": false,
+    "user_baseline_hashes_match": true,
+    "package_validator_exit_code": 0,
+    "package_validator_errors": 0,
+    "package_validator_warnings": 0,
+    "sentinel_installed_before_collection": true,
+    "sync_async_and_command_bypass_cases_rejected": true,
+    "legacy_database_access_observed": false
+  },
+  "formal_seal_required": [
+    "manifest.json with artifact SHA-256 entries"
+  ],
+  "formal_seal_status": "completed-by-coordinator-after-verifier-functional-pass",
+  "open_out_of_scope_risks": [
+    "Pre-existing BGE Infinity service listens on all IPv4 interfaces; assigned to WP-06.",
+    "Broad non-PostgreSQL suite retains eight pre-existing environment/baseline drift failures."
+  ]
+}

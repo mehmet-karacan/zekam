@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -30,7 +31,7 @@ class _TraceSink:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
 
-    def record(self, **values):  # type: ignore[no-untyped-def]
+    def record(self, **values: Any) -> TraceWriteResult:
         self.events.append(values)
         return TraceWriteResult("recorded", uuid4(), uuid4(), digest(values["event_type"].value))
 
@@ -125,9 +126,9 @@ class _EnvironmentGuard:
         return SimpleNamespace(id=envelope_id, captured_at=now)
 
 
-def _manifest(**changes):  # type: ignore[no-untyped-def]
+def _manifest(**changes: Any) -> ModelRequestManifest:
     now = dt.datetime.now(dt.UTC)
-    values = {
+    values: dict[str, Any] = {
         "realm_id": uuid4(),
         "project_id": uuid4(),
         "work_item_id": uuid4(),
@@ -208,8 +209,8 @@ def test_gateway_permit_is_process_local_and_exact() -> None:
 def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
     repository = _GatewayRepository()
     trace = _TraceSink()
-    gateway = ModelGateway(  # type: ignore[arg-type]
-        repository=repository,
+    gateway = ModelGateway(
+        repository=cast(Any, repository),
         source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
         trace_sink=trace,
     )
@@ -244,8 +245,8 @@ def test_gateway_records_reconciliation_result_when_effect_raises() -> None:
 def test_gateway_trace_records_final_provider_request_and_response() -> None:
     repository = _GatewayRepository()
     trace = _TraceSink()
-    gateway = ModelGateway(  # type: ignore[arg-type]
-        repository=repository,
+    gateway = ModelGateway(
+        repository=cast(Any, repository),
         source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
         trace_sink=trace,
     )

@@ -1,0 +1,55 @@
+{
+  "artifact_digest": "sha256:d4e8038c9885fdb7eaeb437e5cce5da4a93d439174c88d28e3675872583c7978",
+  "authority": "immutable-raw-artifacts",
+  "candidate": "duckdb",
+  "candidate_version": "1.5.5",
+  "database_bytes": 3158016,
+  "environment": {
+    "machine": "arm64",
+    "platform": "darwin",
+    "python": "3.12.14"
+  },
+  "first_import_seconds": 0.14665358402999118,
+  "first_projection_digest": "sha256:6d9d651e9f97db1d1bb65035a2488b84b8a630662b0f229cdb0333ca1dbd8263",
+  "hard_gates": {
+    "corruption_detection": true,
+    "macos_arm64": true,
+    "no_server_or_docker": true,
+    "offline_runtime": true,
+    "raw_artifact_authority": true,
+    "rebuild_parity": true,
+    "single_writer_enforced": true,
+    "windows_x64": false
+  },
+  "operational_mutation_supported": false,
+  "probes": {
+    "corruption_detection": {
+      "detail": "projection-manifest-digest-mismatch",
+      "engine_rejected": false,
+      "manifest_detected": true,
+      "passed": true
+    },
+    "network_attempts": 0,
+    "parallel_readers": {
+      "passed": true,
+      "reader_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "writer_exclusion": {
+      "child_exit_code": 1,
+      "failure_category": "file-lock",
+      "passed": true
+    }
+  },
+  "raw_artifact_digest": "sha256:19ffde678dae5a69b807c9ced78d3c1e808d8437a20f2d7fe1f45074a2ac3c22",
+  "raw_artifact_read_only": true,
+  "rebuild_seconds": 0.12423024995950982,
+  "rebuilt_projection_digest": "sha256:6d9d651e9f97db1d1bb65035a2488b84b8a630662b0f229cdb0333ca1dbd8263",
+  "row_count": 100000,
+  "schema": "zekam-wp01-duckdb-analytics-bakeoff/v1",
+  "selection_status": "blocked-pending-windows-x64"
+}

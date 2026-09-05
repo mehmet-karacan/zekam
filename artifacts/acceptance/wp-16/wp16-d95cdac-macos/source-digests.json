@@ -1,0 +1,13 @@
+{
+  "active_task_sha256": "eab0182081050e212def4ac2639d9c13db8b0e76bcb01b0fa0fae810aea3bd5f",
+  "coverage_full_junit_sha256": "d8d3a8e0cc98a2c9c2ebcf9a54a9dce5c9d40eab6f6bd947c781066dea0ad40d",
+  "coverage_report_sha256": "67122e2390cad1dc96a00d8b04d4bf4596b3fe8a9d6b7c63b9245e9d2b89ede6",
+  "critical_supplement_junit_sha256": "18d5e91ac807cf499d8bcee519f2facbfaa4dc46d5308261385f15d54fca25cf",
+  "critical_supplement_test_source_sha256": "e55e04cca3026f22267e18f86d904c6f0f9c7f4f371b6157108c71154da36cf0",
+  "mutation_report_sha256": "49eab0dfc67b449e2798a77b535788450871cd51598dddc15df34308324f1168",
+  "package_manifest_sha256": "b91349d12b1e5c3a2cb8f68361df895395d3fcf81b73f78e32a0a34324e2ebd8",
+  "package_source_sha256": "de5545ca0a5324bda16468b42b3c5494ced55b0af6f3d8cd1f966dadd8005208",
+  "schema": "zekam-evidence-source-digests/v1",
+  "handoff_independent_supplement_junit_sha256": "262356f5be5ad4c9e7068dc6a0749a9e97af1a4aa691fc583b2f482d79afccdb",
+  "verifier_evidence_sha256": "40e8b7af33bc126885e25cada4ce89a3def5bc3dd6a92332fc877f44eebb9a6f"
+}

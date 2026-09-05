@@ -10,6 +10,7 @@ from zekam.application.model_context_experiment import persist_experiment_propos
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_benchmark import (
+    BenchmarkAggregate,
     TrialResult,
     TrialStatus,
     VerifierIdentity,
@@ -38,7 +39,12 @@ def _benchmark_evidence(
     tokens: float = 1000.0,
     approved: bool = True,
     unsafe: bool = False,
-) -> tuple[object, tuple[TrialResult, ...], VerifierIdentity, tuple[VerifierVerdict, ...]]:
+) -> tuple[
+    BenchmarkAggregate,
+    tuple[TrialResult, ...],
+    VerifierIdentity,
+    tuple[VerifierVerdict, ...],
+]:
     verifier = VerifierIdentity(
         "independent-verifier", "verifier-run-1", digest("verifier-provenance")
     )

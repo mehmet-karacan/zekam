@@ -50,10 +50,10 @@ def test_layout_file_declares_schema_and_ownership(home_root: Path) -> None:
 
 def test_verify_reports_missing_directory(home_root: Path) -> None:
     layout = HomeLayout(home_root).ensure()
-    (layout.root / "kilitler").rmdir()
+    (layout.root / "runtime" / "locks").rmdir()
     issues = layout.verify()
     assert [issue.kind for issue in issues] == ["missing-directory"]
-    assert issues[0].relative == "kilitler"
+    assert issues[0].relative == "runtime/locks"
 
 
 def test_verify_reports_unsupported_layout_schema(home_root: Path) -> None:
@@ -63,6 +63,28 @@ def test_verify_reports_unsupported_layout_schema(home_root: Path) -> None:
     )
     kinds = {issue.kind for issue in layout.verify()}
     assert "unsupported-layout-schema" in kinds
+
+
+def test_ensure_does_not_overwrite_existing_unsupported_layout(home_root: Path) -> None:
+    layout = HomeLayout(home_root).ensure()
+    layout.layout_file.write_text(json.dumps({"schema": "zekam-home-layout/v1"}), encoding="utf-8")
+    before = layout.layout_file.read_bytes()
+
+    with pytest.raises(LayoutError, match="overwrite"):
+        layout.ensure()
+
+    assert layout.layout_file.read_bytes() == before
+
+
+def test_ensure_rejects_nonempty_unowned_home(home_root: Path) -> None:
+    home_root.mkdir()
+    marker = home_root / "user.txt"
+    marker.write_text("preserve", encoding="utf-8")
+
+    with pytest.raises(LayoutError, match="authority"):
+        HomeLayout(home_root).ensure()
+
+    assert marker.read_text(encoding="utf-8") == "preserve"
 
 
 def test_removed_product_layout_schema_is_rejected(home_root: Path) -> None:

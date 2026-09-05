@@ -12,6 +12,7 @@ from zekam.application.context_materializer import materialize_recipe_fragments
 from zekam.application.context_ranking import (
     ContextCandidateSetIssuer,
     ContextRankingRequest,
+    ContextRankingSnapshot,
     ContextRankingSnapshotIssuer,
     count_context_tokens,
 )
@@ -102,7 +103,7 @@ def _candidate(kind: ContextCandidateKind) -> tuple[ContextCandidate, str]:
     )
 
 
-def _snapshot():  # type: ignore[no-untyped-def]
+def _snapshot() -> ContextRankingSnapshot:
     scope = "scope/work"
     request = ContextRankingRequest(
         role="builder",

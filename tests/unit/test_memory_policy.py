@@ -50,7 +50,7 @@ def test_confidential_classification_cannot_be_remote_eligible() -> None:
     with pytest.raises(PolicyViolation, match="remote model"):
         ClassificationPolicy(
             classification=DataClassification.CONFIDENTIAL,
-            storage_class=MemoryStorageClass.POSTGRESQL_RLS,
+            storage_class=MemoryStorageClass.SQLITE_LOCAL,
             retention_class=MemoryRetentionClass.BOUNDED,
             retention_days=180,
             projection_eligible=False,

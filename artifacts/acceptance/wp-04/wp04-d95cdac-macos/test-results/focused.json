@@ -1,0 +1,25 @@
+{
+  "failed": 0,
+  "independent_verifier": {
+    "failed": 0,
+    "passed": 78,
+    "real_cli_sigkill_passed": 2,
+    "verdict": "passed"
+  },
+  "passed": 128,
+  "schema": "zekam-test-result/v1",
+  "scope": [
+    "local-queue-lease-lock-claim-receipt-recovery",
+    "process-incarnation-and-invalid-probe",
+    "application-worker-and-outbox-service",
+    "real-cli-fsync-sigkill-restart",
+    "immutable-recovery-resolution",
+    "hard-persisted-backpressure-bound",
+    "cli-mutation-admission"
+  ],
+  "security_and_authority": {
+    "failed": 0,
+    "passed": 71
+  },
+  "status": "passed"
+}

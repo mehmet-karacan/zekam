@@ -40,7 +40,7 @@ def serve_command(
         str | None,
         typer.Option(
             "--realm-id",
-            help="Canli PostgreSQL projeksiyonu icin exact realm UUID; yoksa belge modu",
+            help="Canli operational projeksiyon icin exact realm UUID; yoksa belge modu",
         ),
     ] = None,
     home: Annotated[
@@ -101,7 +101,6 @@ def serve_command(
     mode = "canli realm" if resolved_realm is not None else "belge grafigi"
     display_host = f"[{host}]" if ":" in host else host
     console.print(
-        "[green]Zekam Canli Yurutme Gozleme Merkezi:[/green] "
-        f"http://{display_host}:{port} ({mode})"
+        f"[green]Zekam Canli Yurutme Gozleme Merkezi:[/green] http://{display_host}:{port} ({mode})"
     )
     uvicorn.run(web_app, host=host, port=port, access_log=False, log_level="warning")

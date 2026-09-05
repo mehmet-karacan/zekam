@@ -4,7 +4,7 @@ initial_mode: shadow
 remote_calls_default: false
 classifications:
   public:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: durable
     retention_days: null
     projection_eligible: true
@@ -13,7 +13,7 @@ classifications:
     compiler_eligible: true
     human_review: standard
   internal:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: durable
     retention_days: null
     projection_eligible: false
@@ -22,7 +22,7 @@ classifications:
     compiler_eligible: true
     human_review: standard
   restricted:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: until-revoked
     retention_days: null
     projection_eligible: false
@@ -31,7 +31,7 @@ classifications:
     compiler_eligible: true
     human_review: required
   confidential:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: bounded
     retention_days: 180
     projection_eligible: false
@@ -49,7 +49,7 @@ classifications:
     compiler_eligible: true
     human_review: required
   pii:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: bounded
     retention_days: 90
     projection_eligible: false
@@ -58,7 +58,7 @@ classifications:
     compiler_eligible: false
     human_review: critical
   corporate-confidential:
-    storage_class: postgresql-rls
+    storage_class: sqlite-local
     retention_class: bounded
     retention_days: 90
     projection_eligible: false

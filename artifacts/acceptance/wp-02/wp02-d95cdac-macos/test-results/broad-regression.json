@@ -1,0 +1,18 @@
+{
+  "latest_attempt": {
+    "failed": 1,
+    "passed": 2169,
+    "status": "known-intermittent-failure",
+    "test": "tests/unit/test_codex_lifecycle.py::test_concurrent_identical_delivery_creates_one_event"
+  },
+  "prior_attempt": {
+    "failed": 0,
+    "passed": 2169,
+    "status": "passed"
+  },
+  "reproduction": "isolated test passed twice and failed on the third run",
+  "root_observation": "client lifecycle spool parent-chain creation races with its own concurrent directory creation and reports PolicyViolation",
+  "schema": "zekam-test-result/v1",
+  "wp02_gate_impact": "none; test belongs to a later lifecycle/spool work package and WP-02 focused concurrency gates pass",
+  "test_relaxation": false
+}

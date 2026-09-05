@@ -128,10 +128,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"git -C * log*": allow' in researcher
     assert "kopya, mirror, clone" in researcher
     assert "bounded source fallback" in researcher
-    assert all(
-        '"*": ask' not in path.read_text(encoding="utf-8")
-        for path in agents.glob("*.md")
-    )
+    assert all('"*": ask' not in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
     assert repeat.agents_to_update == ()

@@ -10,13 +10,20 @@ import pytest
 
 from zekam.application.config import CONFIG_SCHEMA, PersistenceBackend, load_settings
 from zekam.application.persistence_setup import (
-    apply_persistence_setup,
+    PersistenceSetupPlan,
     plan_persistence_setup,
 )
+from zekam.application.persistence_setup import (
+    apply_persistence_setup as _apply_persistence_setup,
+)
 from zekam.domain.errors import ConfigurationError, ValidationFailed
-from zekam.infrastructure.sqlite.repository import SQLitePersistence, status
+from zekam.infrastructure.sqlite.repository import SQLitePersistence, bootstrap, status
 
 pytestmark = pytest.mark.unit
+
+
+def apply_persistence_setup(plan: PersistenceSetupPlan) -> None:
+    _apply_persistence_setup(plan, bootstrap=bootstrap)
 
 
 def test_sqlite_selection_bootstraps_real_minimum_repository(tmp_path: Path) -> None:
@@ -72,8 +79,7 @@ def test_persistence_selection_is_one_shot_and_idempotent(tmp_path: Path) -> Non
     assert not replay.write_config
     apply_persistence_setup(replay)
 
-    with pytest.raises(ConfigurationError, match="sessiz motor degisimi yasak"):
-        plan_persistence_setup(home=home, requested=PersistenceBackend.POSTGRESQL)
+    assert tuple(PersistenceBackend) == (PersistenceBackend.SQLITE,)
 
 
 def test_sqlite_project_replay_payload_drift_is_rejected(tmp_path: Path) -> None:
@@ -173,21 +179,19 @@ def test_custom_sqlite_path_is_bootstrapped_and_reported(tmp_path: Path) -> None
 
     assert plan.sqlite_path == (home / "private" / "data.sqlite3").resolve()
     assert status(plan.sqlite_path).schema_ok
-    assert not (home / "global" / "runtime" / "zekam.sqlite3").exists()
+    assert not (home / "state" / "operational.db").exists()
 
 
-def test_sqlite_bootstrap_failure_does_not_publish_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sqlite_bootstrap_failure_does_not_publish_selection(tmp_path: Path) -> None:
     home = tmp_path / "home"
     plan = plan_persistence_setup(home=home, requested=PersistenceBackend.SQLITE)
 
-    def fail_bootstrap(_path: Path) -> None:
+    def fail_bootstrap(path: Path) -> object:
+        del path
         raise ConfigurationError("bootstrap failed")
 
-    monkeypatch.setattr("zekam.application.persistence_setup.bootstrap_sqlite", fail_bootstrap)
     with pytest.raises(ConfigurationError, match="bootstrap failed"):
-        apply_persistence_setup(plan)
+        _apply_persistence_setup(plan, bootstrap=fail_bootstrap)
 
     assert not (home / "config.yaml").exists()
 
@@ -202,8 +206,7 @@ def test_legacy_config_can_receive_explicit_one_shot_sqlite_selection(tmp_path: 
     apply_persistence_setup(plan)
 
     assert load_settings(home=home, environ={}).database.backend is PersistenceBackend.SQLITE
-    with pytest.raises(ConfigurationError, match="sessiz motor degisimi"):
-        plan_persistence_setup(home=home, requested=PersistenceBackend.POSTGRESQL)
+    assert tuple(PersistenceBackend) == (PersistenceBackend.SQLITE,)
 
 
 def test_sqlite_schema_manifest_drift_fails_closed(tmp_path: Path) -> None:
@@ -248,6 +251,24 @@ def test_sqlite_non_integer_schema_version_is_structured_drift(tmp_path: Path) -
     current = status(database_path)
     assert current.integrity_ok
     assert current.schema_version is None
+
+
+def test_sqlite_migration_ledger_drift_fails_closed(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    plan = plan_persistence_setup(home=home, requested=PersistenceBackend.SQLITE)
+    apply_persistence_setup(plan)
+    database_path = plan.sqlite_path or Path("missing")
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "update schema_migration set checksum = ? where version = 1",
+            ("sha256:" + "0" * 64,),
+        )
+
+    current = status(database_path)
+    assert current.integrity_ok
+    assert not current.schema_ok
+    with pytest.raises(ConfigurationError, match="migration ledger drift"):
+        bootstrap(database_path)
 
 
 def test_completed_work_rejects_noncanonical_evidence_digest(tmp_path: Path) -> None:

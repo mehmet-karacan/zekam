@@ -1,27 +1,46 @@
-"""Project-scoped PostgreSQL RAG gate for natural-language questions."""
+"""Project-scoped local RAG gate for natural-language questions."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
-from zekam.application.project_knowledge_index import deterministic_local_embedding
-from zekam.application.retrieval_service import RetrievalService
+from zekam.application.embedding_provider import (
+    EmbeddingDegradedState,
+    EmbeddingPolicy,
+    EmbeddingProvider,
+)
+from zekam.application.retrieval_service import ChunkView, RetrievalService
 from zekam.domain.canonical import digest
+from zekam.domain.errors import PolicyViolation
 from zekam.domain.project import IntegrationStage
 from zekam.domain.retrieval import AnswerState, ScoredHit
-from zekam.infrastructure.postgres.retrieval_repository import RetrievalRepository
+
+
+class ProjectRetrievalStore(Protocol):
+    def active_project_embedding_profile(self) -> dict[str, Any] | None: ...
+
+    def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]: ...
+
+    def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]: ...
+
+    def dense(
+        self, vector: tuple[float, ...], profile_id: UUID, *, limit: int
+    ) -> tuple[ScoredHit, ...]: ...
+
+    def views(self, chunk_refs: tuple[str, ...]) -> dict[str, ChunkView]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectRetrievalBackend:
     """Adapt the vector repository to RetrievalService without losing project scope."""
 
-    repository: RetrievalRepository
+    repository: ProjectRetrievalStore
     profile_id: UUID
     dimension: int
-    query_prefix: str = ""
+    embedding_provider: EmbeddingProvider | None = None
+    embedding_policy: EmbeddingPolicy | None = None
     source_type: str = "project-knowledge"
 
     def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
@@ -31,26 +50,28 @@ class ProjectRetrievalBackend:
         return self.repository.lexical(query, limit=limit)
 
     def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
-        vector = deterministic_local_embedding(
-            f"{self.query_prefix}{query}", dimensions=self.dimension
-        )
+        if self.embedding_provider is None or self.embedding_policy is None:
+            return ()
+        result = self.embedding_provider.embed_query(query, self.embedding_policy)
+        if len(result.vectors) != 1 or len(result.vectors[0]) != self.dimension:
+            raise PolicyViolation("Project query embedding provider dimension drift")
+        vector = result.vectors[0]
         return self.repository.dense(vector, self.profile_id, limit=limit)
 
 
 def query_project_knowledge(
     *,
-    connection: Any,
-    realm_id: UUID,
-    project_id: UUID,
+    repository: ProjectRetrievalStore,
     project_ref: str,
     query: str,
     integration_stage: IntegrationStage,
     integration_detail: dict[str, Any],
+    embedding_provider: EmbeddingProvider | None = None,
+    embedding_policy: EmbeddingPolicy | None = None,
     token_budget: int = 1200,
 ) -> dict[str, Any]:
-    """Search exact/FTS/pgvector first and emit a fail-closed source fallback gate."""
+    """Search exact/FTS/local-vector paths and emit a fail-closed source fallback gate."""
 
-    repository = RetrievalRepository(connection, realm_id, project_id=project_id)
     profile = repository.active_project_embedding_profile()
     index_state = str((integration_detail.get("knowledge_index") or {}).get("state", "missing"))
     base: dict[str, Any] = {
@@ -58,7 +79,7 @@ def query_project_knowledge(
         "project_ref": project_ref,
         "query_digest": digest({"query": query}),
         "index_state": index_state,
-        "searched_postgresql": profile is not None,
+        "searched_index": profile is not None,
         "searched_channels": [],
         "fallback_allowed": True,
         "fallback_kind": "bounded-source-researcher",
@@ -69,11 +90,29 @@ def query_project_knowledge(
         document["retrieval_digest"] = digest(document)
         return document
 
+    if (embedding_provider is None) != (embedding_policy is None):
+        raise PolicyViolation("Embedding provider/policy birlikte verilmelidir")
+    dense_enabled = embedding_provider is not None
+    if embedding_provider is not None and embedding_policy is not None:
+        provider_profile = embedding_provider.describe()
+        expected_index_profile_digest = str(
+            (integration_detail.get("knowledge_index") or {}).get("embedding_profile_digest", "")
+        )
+        expected_provider_digest = str(
+            (integration_detail.get("knowledge_index") or {}).get("provider_profile_digest", "")
+        )
+        if (
+            provider_profile.dimension != profile["dimension"]
+            or expected_index_profile_digest != profile["profile_digest"]
+            or expected_provider_digest != provider_profile.profile_digest
+        ):
+            raise PolicyViolation("Project index/provider profile drift; rebuild required")
     backend = ProjectRetrievalBackend(
         repository=repository,
         profile_id=profile["profile_id"],
         dimension=profile["dimension"],
-        query_prefix=profile["query_prefix"],
+        embedding_provider=embedding_provider,
+        embedding_policy=embedding_policy,
     )
     service = RetrievalService(backend)
     hits, trace = service.search(query)
@@ -87,11 +126,14 @@ def query_project_knowledge(
     )
     base.update(
         {
-            "searched_channels": ["exact", "lexical", "dense"],
+            "searched_channels": ["exact", "lexical"] + (["dense"] if dense_enabled else []),
             "channel_counts": trace.per_channel,
             "candidate_count": len(hits),
             "embedding_profile_digest": profile["profile_digest"],
             "source_content_digest": profile["source_content_digest"],
+            "degraded_state": (
+                None if dense_enabled else EmbeddingDegradedState.LEXICAL_ONLY.value
+            ),
         }
     )
 

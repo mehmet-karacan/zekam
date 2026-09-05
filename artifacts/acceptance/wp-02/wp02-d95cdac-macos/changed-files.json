@@ -1,0 +1,28 @@
+{
+  "adjacent_baseline_hardening": [
+    "pyproject.toml",
+    "uv.lock",
+    "src/zekam/PACKAGE_RELEASE_MANIFEST.json",
+    "src/zekam/application/measured_loop_runtime.py"
+  ],
+  "implementation": [
+    "config/zekam.default.yaml",
+    "src/zekam/application/config.py",
+    "src/zekam/application/fresh_bootstrap.py",
+    "src/zekam/application/home.py",
+    "src/zekam/application/persistence_setup.py",
+    "src/zekam/infrastructure/sqlite/repository.py",
+    "src/zekam/interfaces/cli/main.py",
+    "src/zekam/interfaces/cli/backup.py"
+  ],
+  "schema": "zekam-changed-files/v1",
+  "tests": [
+    "tests/unit/test_fresh_bootstrap.py",
+    "tests/unit/test_home_layout.py",
+    "tests/unit/test_config.py",
+    "tests/unit/test_sqlite_persistence.py",
+    "tests/e2e/test_cli_baseline.py",
+    "tests/e2e/test_cli_backup.py",
+    "tests/security/test_legacy_database_access_sentinel.py"
+  ]
+}

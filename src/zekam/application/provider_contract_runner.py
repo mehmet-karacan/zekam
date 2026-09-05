@@ -26,7 +26,7 @@ from zekam.domain.context_fragment import ModelVisiblePayloadBinding
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import GatewayInvocationPermit
 from zekam.domain.resources import parse_requests
-from zekam.domain.runtime import EffectClaim, EffectReceipt, FailureCategory
+from zekam.domain.runtime import ClaimedWork, EffectClaim, EffectReceipt, FailureCategory
 from zekam.domain.security import (
     Authorization,
     AuthorizationScope,
@@ -34,7 +34,6 @@ from zekam.domain.security import (
     SecretRef,
 )
 from zekam.domain.tool_registry import ModelToolPayloadBinding
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,19 @@
+{
+  "schema": "zekam-wp-security-scan/v1",
+  "legacy_postgresql_access": {
+    "connections": 0,
+    "exports": 0,
+    "imports": 0,
+    "sentinel_status": "passed"
+  },
+  "package_secret_scan": "passed",
+  "high_or_critical_findings_introduced_by_wp00": 0,
+  "pre_existing_findings": [
+    {
+      "id": "BGE-LISTEN-ALL-INTERFACES",
+      "scope": "WP-06",
+      "status": "open",
+      "detail": "Local Infinity process listens on all IPv4 interfaces although the current code claims loopback-only behavior."
+    }
+  ]
+}

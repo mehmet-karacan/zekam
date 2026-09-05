@@ -6,7 +6,7 @@ import datetime as dt
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid5
 
 from zekam.application.client_lifecycle_bridge import (
@@ -28,18 +28,39 @@ from zekam.application.memory_continuity import (
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.clients import ClientKind
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.runtime import AttemptOutcome, EffectClaim, ReceiptStatus
-from zekam.infrastructure.postgres.client_lifecycle_repository import (
-    ActiveLifecycleExecution,
-    ClientLifecycleRepository,
-)
-from zekam.infrastructure.postgres.runtime_repository import ClaimedWork
+from zekam.domain.runtime import AttemptOutcome, ClaimedWork, EffectClaim, ReceiptStatus
 
 LIFECYCLE_EFFECT_OPERATION = "client-lifecycle-drain"
 LIFECYCLE_ADAPTER_DIGEST = digest({"adapter": "claimedwork-codex-lifecycle", "version": 1})
 _HYDRATION_NAMESPACE = UUID("68cb28f0-0a80-4fba-a00c-b6e340e7e648")
 _SESSION_START_HYDRATION_TOKEN_BUDGET = 4096
 _HYDRATING_EVENT_TYPES = frozenset({"session_start", "pre_close"})
+
+
+class ActiveLifecycleExecutionView(Protocol):
+    project_id: UUID
+    work_item_id: UUID
+    plan_id: UUID
+    run_id: UUID
+    source_digest: str
+    policy_digest: str
+    migration_digest: str
+    work_plan_digest: str
+    envelope_id: UUID
+    envelope_digest: str
+
+
+class ClientLifecycleStore(Protocol):
+    def ingest(self, *args: Any, **kwargs: Any) -> Any: ...
+    def lookup_hook_terminal_output(self, *args: Any, **kwargs: Any) -> Any: ...
+    def exact_hydration_authorization_id(self, *args: Any, **kwargs: Any) -> Any: ...
+    def record_governed_admission(self, *args: Any, **kwargs: Any) -> Any: ...
+    def store_job_checkpoint(self, *args: Any, **kwargs: Any) -> Any: ...
+    def record_lifecycle_hydration_admission(self, *args: Any, **kwargs: Any) -> Any: ...
+    def current_execution(self, *args: Any, **kwargs: Any) -> ActiveLifecycleExecutionView: ...
+    def lookup(self, *args: Any, **kwargs: Any) -> Any: ...
+    def lookup_terminal_delivery(self, *args: Any, **kwargs: Any) -> Any: ...
+    def lookup_lifecycle_hydration(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +92,7 @@ class PostgresLifecycleContinuityAdmission:
     realm_id: UUID
     bridge: ClientLifecycleBridge
     memory_continuity: MemoryContinuityService
-    repository: ClientLifecycleRepository
+    repository: ClientLifecycleStore
     delivery: ClaimedLifecycleDelivery
 
     def preflight(
@@ -371,7 +392,7 @@ class PostgresLifecycleContinuityAdmission:
         *,
         now: dt.datetime,
         allow_consumed: bool = False,
-    ) -> ActiveLifecycleExecution:
+    ) -> ActiveLifecycleExecutionView:
         work = self.delivery.work
         return self.repository.current_execution(
             job_id=work.job.id,
@@ -397,7 +418,7 @@ class PostgresLifecycleContinuityAdmission:
             allow_consumed=allow_consumed,
         )
 
-    def _assert_plan_current(self, execution: ActiveLifecycleExecution) -> None:
+    def _assert_plan_current(self, execution: ActiveLifecycleExecutionView) -> None:
         plan = self.delivery.plan
         work = self.delivery.work
         claim = self.delivery.claim

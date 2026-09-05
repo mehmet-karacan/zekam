@@ -1,0 +1,8 @@
+{
+  "critical": 0,
+  "high": 0,
+  "legacy_postgresql_data_accessed": false,
+  "passed": true,
+  "provider_calls_during_default_tests": 0,
+  "schema": "zekam-evidence-security/v1"
+}

@@ -1,0 +1,6 @@
+{
+  "active_task_sha256": "eab0182081050e212def4ac2639d9c13db8b0e76bcb01b0fa0fae810aea3bd5f",
+  "package_manifest_sha256": "b91349d12b1e5c3a2cb8f68361df895395d3fcf81b73f78e32a0a34324e2ebd8",
+  "schema": "zekam-evidence-source-digests/v1",
+  "verifier_evidence_sha256": "8cf54ca7248b0364d97e7dfd5f44906ac37f33e4a25852a7a417e55696ca5cf4"
+}

@@ -166,7 +166,10 @@ def test_current_coordinator_matches_source_drift_receiptless_and_legacy_goldens
     ),
 )
 def test_current_coordinator_matches_recompile_goldens(case_id: str, binding_field: str) -> None:
-    current = replace(_bindings(), **{binding_field: digest(f"changed:{binding_field}")})
+    current = replace(
+        _bindings(),
+        **{binding_field: digest(f"changed:{binding_field}")},  # type: ignore[arg-type]
+    )
     actual = GoldenResumeActual.from_plan(_plan(_observation(current_bindings=current)))
     corpus = default_golden_resume_corpus()
     assert evaluate_golden_resume(corpus, _case(case_id), actual).passed

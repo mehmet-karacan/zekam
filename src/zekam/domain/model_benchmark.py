@@ -58,6 +58,38 @@ class SuiteKind(StrEnum):
     PROJECT = "project"
 
 
+class BenchmarkTaskFamily(StrEnum):
+    SQL_PLSQL = "sql-plsql"
+    CODE_REPAIR = "code-repair"
+    CODE_REVIEW = "code-review"
+    ARCHITECTURE = "architecture"
+    RAG_RETRIEVAL = "rag-retrieval"
+    TOOL_USE = "tool-use"
+    AGENTIC_WORKFLOW = "agentic-workflow"
+    LONG_CONTEXT = "long-context"
+    DOCUMENT_ANALYSIS = "document-analysis"
+    STRUCTURED_OUTPUT = "structured-output"
+    SAFETY_POLICY = "safety-policy"
+    EMBEDDING_RETRIEVAL = "embedding-retrieval"
+    RERANKING = "reranking"
+    CREATIVE_TOURNAMENT = "creative-tournament"
+
+
+BENCHMARK_TASK_FAMILIES: tuple[BenchmarkTaskFamily, ...] = tuple(BenchmarkTaskFamily)
+REQUIRED_SCORE_DIMENSIONS: tuple[str, ...] = (
+    "correctness",
+    "evidence-citation",
+    "structured-format",
+    "safety",
+    "reliability",
+    "latency",
+    "token-efficiency",
+    "tool-correctness",
+    "recovery",
+    "human-correction",
+)
+
+
 class ExecutionEligibility(StrEnum):
     LOCAL_ONLY = "local-only"
     REMOTE_ALLOWED = "remote-allowed"
@@ -122,10 +154,16 @@ class BenchmarkFixture:
     tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if any(type(value) is not str for value in (self.case_id, self.workload, self.modality)):
+            raise ValidationFailed("Fixture kimligi, workload ve modality metin olmali")
         if not self.case_id.strip() or not self.workload.strip() or not self.modality.strip():
             raise ValidationFailed("Fixture kimligi, workload ve modality bos olamaz")
-        if self.version < 1:
+        if type(self.version) is not int or self.version < 1:
             raise ValidationFailed("Fixture surumu pozitif olmali")
+        if type(self.execution_eligibility) is not ExecutionEligibility:
+            raise ValidationFailed("Fixture execution eligibility exact enum olmali")
+        if type(self.tags) is not tuple or any(type(item) is not str for item in self.tags):
+            raise ValidationFailed("Fixture tags metin tuple olmali")
         parse_digest(self.content_digest)
         parse_digest(self.expected_schema_digest)
         source = self.fixture_source.strip()
@@ -213,7 +251,15 @@ class BenchmarkSuite:
     project_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.suite_id.strip() or self.version < 1 or not self.fixture_digests:
+        if (
+            type(self.suite_id) is not str
+            or not self.suite_id.strip()
+            or type(self.version) is not int
+            or self.version < 1
+            or type(self.kind) is not SuiteKind
+            or type(self.fixture_digests) is not tuple
+            or not self.fixture_digests
+        ):
             raise ValidationFailed("Suite kimligi, surumu ve fixture'lari zorunludur")
         for value in self.fixture_digests:
             parse_digest(value)
@@ -272,7 +318,7 @@ class BenchmarkPlan:
     remote_execution: bool = False
 
     def __post_init__(self) -> None:
-        if not self.model_id.strip():
+        if type(self.model_id) is not str or not self.model_id.strip():
             raise ValidationFailed("Benchmark model kimligi bos olamaz")
         for value in (
             self.suite_digest,
@@ -281,8 +327,10 @@ class BenchmarkPlan:
             self.fixture_registry_digest,
         ):
             parse_digest(value)
-        if self.repetitions < MINIMUM_REPETITIONS:
+        if type(self.repetitions) is not int or self.repetitions < MINIMUM_REPETITIONS:
             raise PolicyViolation("Benchmark en az bes repetition ister")
+        if type(self.remote_execution) is not bool:
+            raise ValidationFailed("Benchmark remote execution bool olmali")
 
     @property
     def plan_digest(self) -> str:
@@ -320,13 +368,34 @@ class TrialResult:
     response_digest: str
     evidence_digest: str
     failure_category: str | None = None
+    tool_correctness: float = 0.0
+    recovery: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.repetition < 1:
+        if type(self.status) is not TrialStatus:
+            raise ValidationFailed("Trial status exact enum olmali")
+        if type(self.repetition) is not int or self.repetition < 1:
             raise ValidationFailed("Repetition pozitif olmali")
         parse_digest(self.fixture_digest)
+        if any(
+            type(value) is not bool
+            for value in (
+                self.parse_ok,
+                self.format_ok,
+                self.evidence_ok,
+                self.verifier_approved,
+            )
+        ):
+            raise ValidationFailed("Trial karar alanlari bool olmali")
+        if type(self.quality) is not float or type(self.reliability) is not float:
+            raise ValidationFailed("Quality ve reliability exact float olmali")
         if not 0 <= self.quality <= 1 or not 0 <= self.reliability <= 1:
             raise ValidationFailed("Quality ve reliability 0..1 araliginda olmali")
+        if any(
+            type(value) is not float or not math.isfinite(value) or not 0 <= value <= 1
+            for value in (self.tool_correctness, self.recovery)
+        ):
+            raise ValidationFailed("Tool correctness ve recovery 0..1 exact float olmali")
         numeric = (
             self.latency_ms,
             self.input_tokens,
@@ -334,12 +403,20 @@ class TrialResult:
             self.retry_count,
             self.human_corrections,
         )
-        if any(value < 0 for value in numeric) or self.estimated_cost < 0:
-            raise ValidationFailed("Trial metrikleri negatif olamaz")
-        if self.actual_cost is not None and self.actual_cost < 0:
-            raise ValidationFailed("Actual cost negatif olamaz")
+        if any(type(value) is not int or value < 0 for value in numeric):
+            raise ValidationFailed("Trial sayac alanlari negatif olmayan integer olmali")
+        if type(self.estimated_cost) is not float or not math.isfinite(self.estimated_cost):
+            raise ValidationFailed("Estimated cost exact finite float olmali")
+        if self.actual_cost is not None and (
+            type(self.actual_cost) is not float or not math.isfinite(self.actual_cost)
+        ):
+            raise ValidationFailed("Actual cost exact finite float veya None olmali")
+        if self.estimated_cost < 0 or (self.actual_cost is not None and self.actual_cost < 0):
+            raise ValidationFailed("Trial cost metrikleri negatif olamaz")
         parse_digest(self.response_digest)
         parse_digest(self.evidence_digest)
+        if self.failure_category is not None and type(self.failure_category) is not str:
+            raise ValidationFailed("Failure category metin olmali")
         if self.status is TrialStatus.PASSED and self.failure_category is not None:
             raise ValidationFailed("Basarili trial failure category tasiyamaz")
         if self.status is not TrialStatus.PASSED and not self.failure_category:
@@ -376,6 +453,8 @@ class VerifierVerdict:
     evidence_digest: str
 
     def __post_init__(self) -> None:
+        if type(self.approved) is not bool:
+            raise ValidationFailed("Verifier approved exact bool olmali")
         if not self.tested_model_id.strip() or not self.verifier_model_id.strip():
             raise ValidationFailed("Tested ve verifier model kimligi zorunludur")
         if self.tested_model_id == self.verifier_model_id:
@@ -428,6 +507,17 @@ class BenchmarkAggregate:
     latency_ms: MetricAggregate
     cost: MetricAggregate
     token_count: MetricAggregate
+    correctness: MetricAggregate
+    evidence_citation: MetricAggregate
+    structured_format: MetricAggregate
+    safety: MetricAggregate
+    token_efficiency: MetricAggregate
+    tool_correctness: MetricAggregate
+    recovery: MetricAggregate
+    human_correction: MetricAggregate
+    pass_rate: float
+    confidence_interval_low: float
+    confidence_interval_high: float
     evidence_digest: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -443,6 +533,19 @@ class BenchmarkAggregate:
             "latency_ms": self.latency_ms.as_dict(),
             "cost": self.cost.as_dict(),
             "token_count": self.token_count.as_dict(),
+            "correctness": self.correctness.as_dict(),
+            "evidence_citation": self.evidence_citation.as_dict(),
+            "structured_format": self.structured_format.as_dict(),
+            "safety": self.safety.as_dict(),
+            "token_efficiency": self.token_efficiency.as_dict(),
+            "tool_correctness": self.tool_correctness.as_dict(),
+            "recovery": self.recovery.as_dict(),
+            "human_correction": self.human_correction.as_dict(),
+            "pass_rate": self.pass_rate,
+            "confidence_interval": {
+                "low": self.confidence_interval_low,
+                "high": self.confidence_interval_high,
+            },
             "evidence_digest": self.evidence_digest,
         }
 
@@ -475,6 +578,19 @@ def aggregate_trials(
         raise PolicyViolation("Test edilen model kendi independent verifier'i olamaz")
     unsafe = any(trial.unsafe for trial in trials)
     approved = not unsafe and len(valid_trials) == len(trials)
+    pass_rate = len(valid_trials) / len(trials)
+    z = 1.959963984540054
+    denominator = 1 + (z * z / len(trials))
+    center = (pass_rate + (z * z / (2 * len(trials)))) / denominator
+    margin = (
+        z
+        * math.sqrt(
+            (pass_rate * (1 - pass_rate) / len(trials)) + (z * z / (4 * len(trials) * len(trials)))
+        )
+        / denominator
+    )
+    token_totals = [trial.input_tokens + trial.output_tokens for trial in trials]
+    token_floor = max(1, min(token_totals))
     evidence_digest = digest(
         {
             "tested_model_id": tested_model_id,
@@ -509,6 +625,21 @@ def aggregate_trials(
         token_count=_aggregate(
             [float(trial.input_tokens + trial.output_tokens) for trial in trials]
         ),
+        correctness=_aggregate([trial.quality for trial in trials]),
+        evidence_citation=_aggregate([1.0 if trial.evidence_ok else 0.0 for trial in trials]),
+        structured_format=_aggregate(
+            [1.0 if trial.parse_ok and trial.format_ok else 0.0 for trial in trials]
+        ),
+        safety=_aggregate([0.0 if trial.unsafe else 1.0 for trial in trials]),
+        token_efficiency=_aggregate(
+            [token_floor / max(1, token_total) for token_total in token_totals]
+        ),
+        tool_correctness=_aggregate([trial.tool_correctness for trial in trials]),
+        recovery=_aggregate([trial.recovery for trial in trials]),
+        human_correction=_aggregate([float(trial.human_corrections) for trial in trials]),
+        pass_rate=pass_rate,
+        confidence_interval_low=max(0.0, center - margin),
+        confidence_interval_high=min(1.0, center + margin),
         evidence_digest=evidence_digest,
     )
 

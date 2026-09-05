@@ -46,7 +46,10 @@ def _process_alive(pid: int) -> bool:
 
         process_query_limited_information = 0x1000
         still_active = 259
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        ctypes_api: Any = ctypes
+        win_dll: Any = ctypes_api.WinDLL
+        get_last_error: Any = ctypes_api.get_last_error
+        kernel32 = win_dll("kernel32", use_last_error=True)
         kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
         kernel32.OpenProcess.restype = wintypes.HANDLE
         kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
@@ -55,11 +58,11 @@ def _process_alive(pid: int) -> bool:
         kernel32.CloseHandle.restype = wintypes.BOOL
         handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
         if not handle:
-            return ctypes.get_last_error() == 5
+            return bool(get_last_error() == 5)
         try:
             exit_code = wintypes.DWORD()
             if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                return ctypes.get_last_error() == 5
+                return bool(get_last_error() == 5)
             return exit_code.value == still_active
         finally:
             kernel32.CloseHandle(handle)

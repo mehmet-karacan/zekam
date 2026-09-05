@@ -1,0 +1,20 @@
+{
+  "schema": "zekam-wp06-metrics/v1",
+  "fixture": "project:akilli-kasa:bounded-adr-v1",
+  "dimension": 1024,
+  "batch_repeat_max_delta": 0.0,
+  "batch_single_max_delta": 0.00020966439456308883,
+  "batch_single_cosine": 0.9999989093638272,
+  "positive_similarity": 0.6520354055730744,
+  "negative_similarity": 0.441258113560223,
+  "semantic_margin": 0.2107772920128514,
+  "thresholds": {
+    "max_repeat_delta": 0.000001,
+    "max_batch_delta": 0.0005,
+    "min_batch_cosine": 0.99999,
+    "min_semantic_margin": 0.05
+  },
+  "thresholds_passed": true,
+  "fixture_file_count": 3,
+  "full_repository_indexed": false
+}

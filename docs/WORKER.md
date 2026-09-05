@@ -1,87 +1,25 @@
-# Worker süreci
+# Yerel worker
 
-## Sohbetten bağımsız
-
-Worker ayrı bir işlemdir. Zamanlama tanımlarını `ops.job_definition`'dan okur,
-tetiklemeleri `ops.job_run`'a yazar ve `runtime.job` kuyruğundan iş alır. Süreç
-yeniden başladığında durum veritabanından gelir; hiçbir şey bellekte tutulmaz.
+Worker, fresh Mac yerel çekirdeğinin `state/operational.db` kuyruğu üzerinde
+bounded run-once olarak çalışır. Ayrı bir daemon, PostgreSQL bağlantısı, DB
+parolası, systemd birimi veya uzun ömürlü `run` komutu yoktur.
 
 ```bash
-zekam worker settings --json              # sinirlar, salt okunur
-zekam worker tick --json                  # ne olacagini gosterir, hicbir sey yazmaz
-zekam worker tick --uygula --json         # tek dongu calistirir
-zekam worker run --uygula                 # uzun omurlu; Ctrl+C ile zarif kapanir
+zekam worker status --home <home>
+zekam worker run-once --home <home>
+zekam worker run-once --uygula --home <home>
+zekam worker reconcile --home <home>
+zekam worker reconcile --uygula --home <home>
 ```
 
-`tick` ve `run` mutasyon yaptığı için **açık `--uygula` bayrağı ister** — bu kural
-`CANONICAL_COMMANDS` sözleşmesinde de kayıtlı ve `zekam surface check` ile
-doğrulanıyor. Bayrak olmadan `tick` salt okunur bir plan üretir.
+`status` yalnız ready/running/recovery-required/quarantined iş, outbox ve açık
+recovery-case sayılarını okur. `run-once` bayraksızken bu durumu içeren salt-okunur
+bir plan döndürür. `--uygula` verildiğinde startup recovery yapar ve en fazla bir
+ready yerel işi mevcut `LocalRuntimeService` üzerinden claim eder. PID/process
+incarnation, lease, fencing, claim-before-effect ve terminal receipt kuralları
+aynı SQLite transaction sözleşmelerinden gelir; CLI bunları uydurmaz.
 
-## Döngü sırası
-
-```text
-kapasite kontrolu -> zamanlama tetiklemeleri -> kuyruktan is alma -> isleme
-```
-
-1. **Kapasite**: kuyruk derinliği veya aktif worker sayısı sınırdaysa iş alınmaz
-   (`BackpressureDecision`). Gerekçe döndürülür, sessizce beklenmez.
-2. **Zamanlama**: zamanı gelen her tanım için idempotency anahtarıyla bir
-   `job_run` açılır. Aynı pencere ikinci kez iş üretmez. `skip-visible`
-   politikasında kaçırılan çalışma **olay olarak kaydedilir** ve
-   `next_safe_action` taşır.
-3. **Kuyruk**: `ExecutionHost.acquire_work` lease ve fencing ile iş alır; mantıksal
-   kilitler edinilir, çakışma varsa iş bırakılır.
-4. **İşleme**: iş türüne bağlı handler çalışır.
-
-## Model cagrisi execution kimligi
-
-Provider/model cagrisi yapacak bir job, once kanonik `runtime.execution_run` kaydina
-baglanir. Bu bag ilk atamadan sonra degistirilemez. Her model-visible context,
-`work.context_manifest` secimini ayni sirada ve yalniz exact section alanlariyla
-tasiyan `work.context_packet` olarak kaydedilir.
-
-Her gercek cagri ayri `runtime.execution_envelope` kaydidir. Envelope; run, job,
-attempt, aktif lease/fence, child assignment, selected route, route expiry, model
-provider protokolu, context packet, checkpoint disposition, source/policy, payload,
-authorization scope, output schema ve butceleri birlikte baglar. Ayni attempt icindeki
-cagrilar `request_ordinal` ve `idempotency_key` ile ayrilir. Bu kayitlar authority
-uretmez; eksik veya stale baglama sahip cagri fail-closed reddedilir.
-
-## Terminal durum kuralları
-
-- **İşleyicisi olmayan iş `failed` olur** — sessiz başarı üretilmez.
-- Handler hata fırlatırsa iş `failed` olur ve hata kategorisi `adapter` olarak
-  sanitize edilir; ham hata metni saklanmaz.
-- **Terminal receipt'i olmayan claim varsa `completed` reddedilir**
-  (`ExecutionHost.finish`).
-- **İptal edilen iş terminal sonuç yayımlayamaz**: `CancellationRequest`
-  onaylanmışsa iş `abandoned` olur ve sonuç yayımlanması `PolicyViolation` üretir.
-
-## Zarif kapanma
-
-`ShutdownSignal` SIGINT ve SIGTERM'i bağlar. Worker mevcut işi yarıda bırakmaz;
-o iş biter ve yeni döngü başlamaz. Sinyal ana iş parçacığı dışında bağlanamazsa
-bu ölümcül değildir — worker `max_iterations` veya dışarıdan `request()` ile de
-durdurulabilir.
-
-## Varsayılan handler
-
-`noop_handler` yan etkisi olmayan bir işleyicidir: işi güvenle tamamlar ve
-sonucunu digest'ler. Gerçek işleyiciler bağlanana kadar bu kullanılır — sahte
-başarı veya sessiz başarısızlık üretmez, yalnız "bu iş noop ile ele alındı"
-bilgisini kanıtlanabilir biçimde kaydeder.
-
-## Servis olarak çalıştırma
-
-Worker uzun ömürlü bir süreçtir; systemd, Windows service veya container
-supervisor altında çalıştırılabilir. Gereken tek dış girdi
-`ZEKAM_DATABASE_PASSWORD` ortam değişkenidir.
-
-```ini
-# ornek systemd birimi
-[Service]
-Environment=ZEKAM_DATABASE_PASSWORD=...
-ExecStart=/opt/zekam/.venv/bin/zekam worker run --uygula --etiket worker-1
-Restart=always
-KillSignal=SIGTERM
-```
+`reconcile` bayraksızken salt-okunur recovery planıdır. `--uygula`, yalnız mevcut
+orphan/expired lease ve belirsiz outbox kayıtlarını kanonik recovery kurallarıyla
+uzlaştırır. Ham payload, owner token veya secret yazdırılmaz. Süreç yeniden
+başlatıldığında tüm durum aynı yerel veritabanından yeniden okunur.

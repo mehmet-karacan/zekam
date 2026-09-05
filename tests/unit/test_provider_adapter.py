@@ -12,8 +12,10 @@ from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
     EnvironmentEndpointResolver,
     MultipartProviderCall,
+    ProviderCall,
     UrllibJsonProviderTransport,
     UrllibMultipartProviderTransport,
+    _read_json_response,
     build_multipart_body,
     openai_chat_payload,
     openai_chat_text,
@@ -28,6 +30,7 @@ from zekam.application.provider_adapter import (
     openai_vision_objects,
     openai_vision_payload,
     reviewed_endpoint_digest,
+    validated_provider_endpoint,
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
@@ -266,3 +269,148 @@ def test_multipart_transport_reuses_redirect_deny_and_sanitizes_secret(
             SecretValue("never-render-this-secret"),
         )
     assert "never-render-this-secret" not in str(caught.value)
+
+
+def test_endpoint_transport_and_response_strict_negative_boundaries() -> None:
+    for endpoint in ("", "https://example.test", "mailto:test@example.test"):
+        with pytest.raises(ValidationFailed):
+            validated_provider_endpoint(endpoint)
+    with pytest.raises(ProbeUnavailable, match="locator"):
+        EnvironmentEndpointResolver({}, {}).resolve("missing", "operation")
+    with pytest.raises(ValidationFailed):
+        reviewed_endpoint_digest("https://example.test:bad/path", path_hint="/path")
+    with pytest.raises(ValidationFailed):
+        UrllibJsonProviderTransport(timeout_seconds=0)
+    with pytest.raises(ValidationFailed):
+        UrllibJsonProviderTransport(max_response_bytes=0)
+    with pytest.raises(ValidationFailed):
+        UrllibMultipartProviderTransport(timeout_seconds=0)
+
+    class Response:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _maximum: int) -> bytes:
+            return self.payload
+
+    class Opener:
+        def __init__(self, result: bytes | BaseException) -> None:
+            self.result = result
+
+        def open(self, _request: object, *, timeout: float) -> Response:
+            assert timeout > 0
+            if isinstance(self.result, BaseException):
+                raise self.result
+            return Response(self.result)
+
+    request = urllib.request.Request("https://example.test/path")
+    for payload in (b"xxx", b"\xff", b"not-json", b"[]"):
+        with pytest.raises(ProbeUnavailable):
+            _read_json_response(Opener(payload), request, timeout_seconds=1, max_response_bytes=2)
+    with pytest.raises(ProbeUnavailable, match="kullanilamiyor"):
+        _read_json_response(
+            Opener(OSError("private")), request, timeout_seconds=1, max_response_bytes=8
+        )
+
+
+def test_provider_call_and_multipart_metadata_strict_branches() -> None:
+    with pytest.raises(ValidationFailed):
+        ProviderCall("", "endpoint", "operation", "request", {})
+    body = build_multipart_body(
+        fields={"model": "m"},
+        file_field="file",
+        filename="audio.wav",
+        file_content_type="audio/wav",
+        content=b"audio",
+    )
+    with pytest.raises(ValidationFailed):
+        MultipartProviderCall("provider", "", "operation", "request", body)
+    for values in (
+        {
+            "fields": {},
+            "file_field": "file",
+            "filename": "a",
+            "file_content_type": "x",
+            "content": b"",
+        },
+        {
+            "fields": {"bad": '"'},
+            "file_field": "file",
+            "filename": "a",
+            "file_content_type": "x",
+            "content": b"x",
+        },
+        {
+            "fields": {},
+            "file_field": "file",
+            "filename": "nested/a",
+            "file_content_type": "x",
+            "content": b"x",
+        },
+    ):
+        with pytest.raises(ValidationFailed):
+            build_multipart_body(**values)  # type: ignore[arg-type]
+    contracted = ProviderCall(
+        "provider",
+        "endpoint",
+        "operation",
+        "request",
+        {"value": 1},
+        authorization_plan_digest=digest("plan"),
+        authorization_resource="resource",
+    )
+    request = contracted.effect_request("target")
+    assert request.resources == ("target", "resource")
+    assert request.action.startswith("provider-contract-call-")
+
+
+@pytest.mark.parametrize(
+    ("parser", "response"),
+    (
+        (openai_chat_text, {"choices": [{}]}),
+        (openai_chat_text, {"choices": [{"message": {"content": [1]}}]}),
+        (openai_embeddings, {"data": [{"embedding": "wrong"}]}),
+        (openai_embeddings, {"data": [{"embedding": ["wrong"]}]}),
+        (openai_embeddings, {"data": [{"index": 2, "embedding": [1]}]}),
+        (openai_rerank_scores, {"results": ["wrong"]}),
+        (openai_rerank_scores, {"results": [{"score": None}]}),
+        (openai_rerank_scores, {"results": [{"score": "bad"}]}),
+    ),
+)
+def test_response_parser_adversarial_shapes(parser: object, response: dict[str, object]) -> None:
+    with pytest.raises(ValidationFailed):
+        parser(response)  # type: ignore[operator]
+
+
+def test_payload_and_structured_response_negative_branches() -> None:
+    with pytest.raises(ValidationFailed):
+        openai_chat_payload("", "prompt")
+    with pytest.raises(ValidationFailed):
+        openai_chat_payload("model", "prompt", max_output_tokens=0)
+    with pytest.raises(ValidationFailed):
+        openai_embedding_payload("model", ("",))
+    with pytest.raises(ValidationFailed):
+        openai_rerank_payload("model", "", ("document",))
+    with pytest.raises(ValidationFailed):
+        openai_guardrail_payload("model", ())
+    with pytest.raises(ValidationFailed):
+        openai_vision_payload("model", "", b"image", media_type="image/png")
+    with pytest.raises(ValidationFailed):
+        openai_transcription_body("", b"audio", filename="a.wav", media_type="audio/wav")
+    with pytest.raises(ValidationFailed):
+        openai_transcription_body(
+            "model", b"audio", filename="a.wav", media_type="audio/wav", language="x"
+        )
+    with pytest.raises(ValidationFailed):
+        openai_guardrail_labels(
+            {"choices": [{"message": {"content": '{"labels":["maybe"]}'}}]},
+            expected_count=1,
+        )
+    with pytest.raises(ValidationFailed):
+        openai_vision_objects({"choices": [{"message": {"content": '{"objects":[]}'}}]})

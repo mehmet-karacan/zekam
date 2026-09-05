@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.context_ranking import ContextCandidateSet, ContextRankingSnapshot
@@ -25,10 +25,9 @@ from zekam.domain.context_continuity import (
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.loop_progress import LoopProgressPacket
 
-if TYPE_CHECKING:
-    from zekam.infrastructure.postgres.context_ranking_repository import (
-        ContextRankingRepository,
-    )
+
+class ContextRankingStore(Protocol):
+    def compile_current(self, *args: Any, **kwargs: Any) -> RecipeContextPacket: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +136,7 @@ class ContextContinuityService:
         minimum_authority: AuthorityLevel,
         now: dt.datetime,
         ranking_snapshot: ContextRankingSnapshot,
-        repository: ContextRankingRepository,
+        repository: ContextRankingStore,
         loop_attempt_ordinal: int = 1,
         loop_progress_packet_digest: str | None = None,
         loop_id: UUID | None = None,

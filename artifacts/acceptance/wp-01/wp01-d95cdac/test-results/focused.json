@@ -1,0 +1,38 @@
+{
+  "commands": [
+    {
+      "command": ".venv/bin/pytest -q <WP-00/WP-01 unit, integration and security test set>",
+      "result": "79 passed"
+    },
+    {
+      "command": ".venv/bin/pytest -q <existing SQLite/config/admission/observatory regression set>",
+      "result": "112 passed"
+    },
+    {
+      "command": ".venv/bin/ruff check <WP-00/WP-01 source, benchmarks and tests>",
+      "result": "passed"
+    },
+    {
+      "command": ".venv/bin/mypy <20 WP-00/WP-01 source and test files>",
+      "result": "passed; no issues in 20 source files"
+    },
+    {
+      "command": "ZEKAM_VALIDATION_RESULT_PATH=/tmp/zekam-wp01-validation.json .venv/bin/python scripts/paket_dogrula.py",
+      "result": "passed; 0 warnings; 0 errors"
+    },
+    {
+      "command": ".venv/bin/pytest -q -m 'not postgres' --ignore=<two FastAPI collection modules>",
+      "result": "2431 passed, 8 pre-existing baseline failures, 14 skipped, 725 deselected"
+    },
+    {
+      "command": ".venv/bin/pytest -q -m 'not postgres'",
+      "result": "collection blocked by optional FastAPI dependency absent from current repository virtualenv"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "schema": "zekam-wp01-focused-test-results/v1",
+  "status": "passed"
+}

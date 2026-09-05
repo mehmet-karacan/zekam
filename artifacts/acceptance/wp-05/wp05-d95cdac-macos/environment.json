@@ -1,0 +1,13 @@
+{
+  "architecture": "arm64",
+  "baseline_head": "d95cdac2713df797e42afda020ab6e8e55188031",
+  "branch": "main",
+  "macos_build": "25G83",
+  "macos_version": "26.6.2",
+  "platform": "macos",
+  "python": "3.12.14",
+  "remote": "origin",
+  "upstream_ahead": 0,
+  "upstream_behind": 0,
+  "windows_status": "deferred-under-K-013"
+}

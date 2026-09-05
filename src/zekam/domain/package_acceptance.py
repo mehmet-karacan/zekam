@@ -12,7 +12,7 @@ from uuid import UUID
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
-PACKAGE_MANIFEST_SCHEMA = "zekam-package-manifest/v2"
+PACKAGE_MANIFEST_SCHEMA = "zekam-package-manifest/v3"
 ACCEPTANCE_RUN_SCHEMA = "zekam-package-acceptance-run/v1"
 VERIFIER_PROVENANCE_SCHEMA = "zekam-package-verifier-provenance/v1"
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[A-Za-z0-9.+-]*)?$")
@@ -20,32 +20,42 @@ _CHECK_ID = re.compile(r"^[a-z][a-z0-9_.-]{0,95}$")
 
 
 @dataclass(frozen=True, slots=True)
-class PackageManifestV2:
+class PackageManifestV3:
     """Deterministic component inventory embedded in every wheel."""
 
     version: str
     entrypoints: tuple[str, ...]
     python: str
-    included_migrations_digest: str
+    local_schema_bundle_digest: str
+    package_source_bundle_digest: str
     config_bundle_digest: str
     protocol_schema_digest: str
     agent_template_digest: str
     build_provenance_digest: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.version, str):
+            raise ValidationFailed("Package manifest surumu metin olmali")
         if not _VERSION.fullmatch(self.version):
             raise ValidationFailed("Package manifest surumu semantik olmali")
+        if not isinstance(self.entrypoints, tuple) or any(
+            not isinstance(item, str) for item in self.entrypoints
+        ):
+            raise ValidationFailed("Package entrypoint listesi metin tuple olmali")
         if not self.entrypoints or tuple(sorted(set(self.entrypoints))) != self.entrypoints:
             raise ValidationFailed("Package entrypoint listesi unique ve sirali olmali")
-        if not self.python.startswith(">="):
+        if not isinstance(self.python, str) or not self.python.startswith(">="):
             raise ValidationFailed("Package Python siniri acik minimum istemeli")
         for value in (
-            self.included_migrations_digest,
+            self.local_schema_bundle_digest,
+            self.package_source_bundle_digest,
             self.config_bundle_digest,
             self.protocol_schema_digest,
             self.agent_template_digest,
             self.build_provenance_digest,
         ):
+            if not isinstance(value, str):
+                raise ValidationFailed("Package manifest digest alanlari metin olmali")
             parse_digest(value)
 
     def body(self) -> dict[str, Any]:
@@ -54,7 +64,8 @@ class PackageManifestV2:
             "version": self.version,
             "entrypoints": list(self.entrypoints),
             "python": self.python,
-            "included_migrations_digest": self.included_migrations_digest,
+            "local_schema_bundle_digest": self.local_schema_bundle_digest,
+            "package_source_bundle_digest": self.package_source_bundle_digest,
             "config_bundle_digest": self.config_bundle_digest,
             "protocol_schema_digest": self.protocol_schema_digest,
             "agent_template_digest": self.agent_template_digest,
@@ -66,31 +77,49 @@ class PackageManifestV2:
         return digest(self.body())
 
     @classmethod
-    def parse(cls, value: Any) -> PackageManifestV2:
+    def parse(cls, value: Any) -> PackageManifestV3:
         expected = {
             "schema",
             "version",
             "entrypoints",
             "python",
-            "included_migrations_digest",
+            "local_schema_bundle_digest",
+            "package_source_bundle_digest",
             "config_bundle_digest",
             "protocol_schema_digest",
             "agent_template_digest",
             "build_provenance_digest",
         }
         if not isinstance(value, dict) or set(value) != expected:
-            raise ValidationFailed("Package manifest exact v2 schema ister")
-        if value["schema"] != PACKAGE_MANIFEST_SCHEMA or not isinstance(value["entrypoints"], list):
+            raise ValidationFailed("Package manifest exact v3 schema ister")
+        scalar_fields = (
+            "schema",
+            "version",
+            "python",
+            "local_schema_bundle_digest",
+            "package_source_bundle_digest",
+            "config_bundle_digest",
+            "protocol_schema_digest",
+            "agent_template_digest",
+            "build_provenance_digest",
+        )
+        if (
+            value["schema"] != PACKAGE_MANIFEST_SCHEMA
+            or any(not isinstance(value[field], str) for field in scalar_fields)
+            or not isinstance(value["entrypoints"], list)
+            or any(not isinstance(item, str) for item in value["entrypoints"])
+        ):
             raise ValidationFailed("Package manifest schema/entrypoints gecersiz")
         return cls(
-            version=str(value["version"]),
-            entrypoints=tuple(str(item) for item in value["entrypoints"]),
-            python=str(value["python"]),
-            included_migrations_digest=str(value["included_migrations_digest"]),
-            config_bundle_digest=str(value["config_bundle_digest"]),
-            protocol_schema_digest=str(value["protocol_schema_digest"]),
-            agent_template_digest=str(value["agent_template_digest"]),
-            build_provenance_digest=str(value["build_provenance_digest"]),
+            version=value["version"],
+            entrypoints=tuple(value["entrypoints"]),
+            python=value["python"],
+            local_schema_bundle_digest=value["local_schema_bundle_digest"],
+            package_source_bundle_digest=value["package_source_bundle_digest"],
+            config_bundle_digest=value["config_bundle_digest"],
+            protocol_schema_digest=value["protocol_schema_digest"],
+            agent_template_digest=value["agent_template_digest"],
+            build_provenance_digest=value["build_provenance_digest"],
         )
 
 

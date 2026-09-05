@@ -76,13 +76,10 @@ def _request(
         )
         start = next(message for message in sent if message["type"] == "http.response.start")
         chunks = [
-            message.get("body", b"")
-            for message in sent
-            if message["type"] == "http.response.body"
+            message.get("body", b"") for message in sent if message["type"] == "http.response.body"
         ]
         headers = {
-            key.decode("latin-1"): value.decode("latin-1")
-            for key, value in start["headers"]
+            key.decode("latin-1"): value.decode("latin-1") for key, value in start["headers"]
         }
         return int(start["status"]), headers, b"".join(chunks)
 
@@ -164,7 +161,7 @@ def test_http_surface_is_read_only_and_keeps_security_headers(context: Any) -> N
     assert "http:" not in headers["content-security-policy"]
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["referrer-policy"] == "no-referrer"
-    assert json.loads(body)["runtime"]["detail"] == "realm-id-required"
+    assert json.loads(body)["runtime"]["detail"] == "local-core-unavailable"
 
 
 def test_browser_projection_has_no_unsafe_content_sink_or_remote_dependency() -> None:

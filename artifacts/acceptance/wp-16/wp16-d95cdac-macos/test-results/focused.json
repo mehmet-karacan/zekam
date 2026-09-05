@@ -1,0 +1,9 @@
+{
+  "failed": 0,
+  "passed": 0,
+  "schema": "zekam-focused-test-result/v1",
+  "source_evidence": "/Users/mkaracan/zekam-wp08-v3-evidence.16wYdB/wp16-final-independent-verifier-r3.json",
+  "source_evidence_sha256": "ec7b599b871eac8c65bf866e96be8ac99cdc3a9ad896073c2bb08b2729b4e73d",
+  "verdict": "PASS_MAC_ONLY",
+  "work_package": "WP-16"
+}

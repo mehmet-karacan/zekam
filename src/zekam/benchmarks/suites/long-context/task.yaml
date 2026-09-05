@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: long-context-smoke
+version: 1
+family: long-context
+evaluation_class: technical
+workload: long-context
+modality: text
+prompt_ref: resources/prompts/long-context.txt
+fixture_refs:
+- resources/fixtures/long-context.json
+hidden_key_ref: resources/hidden-keys/long-context.json
+grader_ref: resources/graders/long-context.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- correctness
+- evidence-citation
+- reliability
+pass_thresholds:
+  correctness: 0.8
+  evidence-citation: 0.8
+  reliability: 0.8
+resource_digests:
+  resources/fixtures/long-context.json: sha256:d504d398e8b811de5f8ad5d305f4479de98346aaa2cf44b12eaf7949481a39e2
+  resources/graders/long-context.yaml: sha256:f406b43f1d1e346a669165e8ae81a977bbbf9870d13418c6b704e85013de2a5d
+  resources/hidden-keys/long-context.json: sha256:8491b2c987abdad597dbf459fdcef0e63a70a67e242f6aff68726c979bd2d285
+  resources/prompts/long-context.txt: sha256:15473dc7b629b941e5cbaf3a38bcf9d30906548883b4a8da2c007a0a3879af73

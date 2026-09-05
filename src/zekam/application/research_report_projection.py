@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from zekam.application.home import HomeLayout
@@ -19,7 +19,15 @@ from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.research import ResearchReport
-from zekam.infrastructure.postgres.research_repository import ResearchRepository
+
+
+class ResearchReportStore(Protocol):
+    def store_report(
+        self, question_id: UUID, report: ResearchReport, *, now: dt.datetime
+    ) -> UUID: ...
+
+    def report_document(self, report_id: UUID) -> dict[str, Any]: ...
+
 
 PROJECTION_SCHEMA = "zekam-research-report-projection/v1"
 _SAFE_REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -58,7 +66,7 @@ class StoredResearchReport:
 
 
 def persist_research_report(
-    repository: ResearchRepository,
+    repository: ResearchReportStore,
     layout: HomeLayout,
     project_id: str,
     question_id: UUID,
@@ -94,7 +102,7 @@ def render_research_report(document: Mapping[str, Any]) -> bytes:
         "---\n\n"
         f"# Research Report {report_id}\n\n"
         f"Status: {body.get('status', 'unknown')}\n\n"
-        "This file is a derived projection. PostgreSQL is canonical.\n\n"
+        "This file is a derived projection. The operational store is canonical.\n\n"
         "```json\n"
         f"{payload}\n"
         "```\n"

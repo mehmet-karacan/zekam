@@ -203,7 +203,7 @@ def test_runner_claims_before_transport_and_writes_success_receipt() -> None:
     runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=client,  # type: ignore[arg-type]
+        client=client,
     )
     result = runner.invoke(
         prepared,
@@ -222,7 +222,7 @@ def test_runner_scopes_claim_idempotency_to_runtime_job() -> None:
     first_runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=FakeClient(events),  # type: ignore[arg-type]
+        client=FakeClient(events),
     )
     first_runner.invoke(
         prepared,
@@ -243,7 +243,7 @@ def test_runner_scopes_claim_idempotency_to_runtime_job() -> None:
     second_runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=FakeClient(events),  # type: ignore[arg-type]
+        client=FakeClient(events),
     )
     second_runner.invoke(
         prepared,
@@ -264,7 +264,7 @@ def test_runner_failure_is_terminal_recovery_required_and_never_retried() -> Non
     runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=client,  # type: ignore[arg-type]
+        client=client,
     )
     with pytest.raises(RuntimeError, match="fake failure"):
         runner.invoke(
@@ -301,7 +301,7 @@ def test_runner_rejects_plan_swap_before_claim_or_transport() -> None:
     runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=client,  # type: ignore[arg-type]
+        client=client,
     )
     with pytest.raises(PolicyViolation, match="plan digest mismatch"):
         runner.invoke(
@@ -321,7 +321,7 @@ def test_receipt_write_failure_records_gateway_reconciliation() -> None:
     runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=FakeClient(events),  # type: ignore[arg-type]
+        client=FakeClient(events),
         gateway=gateway,  # type: ignore[arg-type]
     )
 
@@ -346,7 +346,7 @@ def test_claim_after_process_crash_blocks_silent_retry_for_recovery_scan() -> No
     runner = RuntimeProviderContractRunner(
         host=host,  # type: ignore[arg-type]
         work=SimpleNamespace(job=SimpleNamespace(id=uuid4())),  # type: ignore[arg-type]
-        client=client,  # type: ignore[arg-type]
+        client=client,
     )
     with pytest.raises(KeyboardInterrupt):
         runner.invoke(

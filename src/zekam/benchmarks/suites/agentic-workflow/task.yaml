@@ -1,0 +1,34 @@
+schema: zekam-benchmark-task/v1
+task_id: agentic-workflow-smoke
+version: 1
+family: agentic-workflow
+evaluation_class: technical
+workload: agentic-workflow
+modality: text
+prompt_ref: resources/prompts/agentic-workflow.txt
+fixture_refs:
+- resources/fixtures/agentic-workflow.json
+hidden_key_ref: resources/hidden-keys/agentic-workflow.json
+grader_ref: resources/graders/agentic-workflow.yaml
+required_tools: []
+forbidden_effects:
+- network
+- filesystem-write
+data_classification: public
+repetitions: 5
+timeout_seconds: 120
+max_input_tokens: null
+max_output_tokens: null
+scoring_dimensions:
+- tool-correctness
+- recovery
+- reliability
+pass_thresholds:
+  tool-correctness: 0.8
+  recovery: 0.8
+  reliability: 0.8
+resource_digests:
+  resources/fixtures/agentic-workflow.json: sha256:9df89902a8cd7dcaeee690b2b42c540c887d9511048776f870bca3dc6626a496
+  resources/graders/agentic-workflow.yaml: sha256:94a8057b1cfbaf5e5805862016a16cec7cee4c0fb02c494c7d8b313c4c7262e2
+  resources/hidden-keys/agentic-workflow.json: sha256:872212b64a34f07e37d4aa24531eaa9dcbf04482411f40d88d754188999eff96
+  resources/prompts/agentic-workflow.txt: sha256:246b3102fecb97781d033ab86797346f5730a2f047c70c4872e8362c2e7f2d84

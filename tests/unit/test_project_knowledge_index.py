@@ -10,10 +10,11 @@ import pytest
 
 from zekam.application.embedding_routing import EmbeddingRouteKind
 from zekam.application.project_knowledge_index import (
-    LOCAL_EMBEDDING_DIMENSION,
-    LOCAL_EMBEDDING_MODEL_REF,
+    NON_SEMANTIC_BASELINE_DIMENSION,
+    REAL_EMBEDDING_DIMENSION,
+    REAL_EMBEDDING_MODEL_REF,
     build_project_index_plan,
-    deterministic_local_embedding,
+    feature_hash_baseline_vector,
 )
 from zekam.application.source_discovery import discover
 from zekam.domain.errors import PolicyViolation
@@ -21,16 +22,16 @@ from zekam.domain.errors import PolicyViolation
 pytestmark = pytest.mark.unit
 
 
-def test_deterministic_local_embedding_is_normalized_and_stable() -> None:
-    first = deterministic_local_embedding("GPU servis baglantisi")
-    second = deterministic_local_embedding("GPU servis baglantisi")
+def test_feature_hash_baseline_is_normalized_stable_and_explicitly_non_semantic() -> None:
+    first = feature_hash_baseline_vector("GPU servis baglantisi")
+    second = feature_hash_baseline_vector("GPU servis baglantisi")
 
     assert first == second
-    assert len(first) == LOCAL_EMBEDDING_DIMENSION
+    assert len(first) == NON_SEMANTIC_BASELINE_DIMENSION
     assert math.isclose(sum(value * value for value in first), 1.0, rel_tol=1e-9)
-    assert first != deterministic_local_embedding("tamamen baska metin")
-    punctuation = deterministic_local_embedding("{} => []")
-    assert len(punctuation) == LOCAL_EMBEDDING_DIMENSION
+    assert first != feature_hash_baseline_vector("tamamen baska metin")
+    punctuation = feature_hash_baseline_vector("{} => []")
+    assert len(punctuation) == NON_SEMANTIC_BASELINE_DIMENSION
     assert math.isclose(sum(value * value for value in punctuation), 1.0, rel_tol=1e-9)
 
 
@@ -57,9 +58,9 @@ def test_project_plan_excludes_secret_generated_binary_and_unknown_files(tmp_pat
     assert plan.selected_file_count == 1
     assert plan.skipped_encoding == 1
     assert plan.skipped_unsupported == 1
-    assert plan.embedding_profile.model_ref == LOCAL_EMBEDDING_MODEL_REF
-    assert plan.embedding_profile.dimension == LOCAL_EMBEDDING_DIMENSION
-    assert plan.embedding_route.kind is EmbeddingRouteKind.LOCAL_FALLBACK
+    assert plan.embedding_profile.model_ref == REAL_EMBEDDING_MODEL_REF
+    assert plan.embedding_profile.dimension == REAL_EMBEDDING_DIMENSION
+    assert plan.embedding_route.kind is EmbeddingRouteKind.LOCAL_PROVIDER
     assert "qualified-embedding-candidate-missing" in plan.embedding_route.reasons
     assert all(chunk.locator.relative_path == "src/Service.java" for chunk in plan.chunks)
     rendered = repr(plan.as_dict())

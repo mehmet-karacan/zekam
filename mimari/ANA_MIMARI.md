@@ -2,77 +2,74 @@
 
 ## Mimari hedef
 
-Zekam, modellerin gelip geçici; state, policy, evidence ve execution sözleşmelerinin kalıcı
-olduğu local-first bir mühendislik kontrol düzlemidir.
+Zekam; provider, istemci ve oturumdan bağımsız çalışan, local-first bir mühendislik
+kontrol düzlemidir. Kanonik state ile yeniden üretilebilir projection'lar ayrıdır.
 
 ```text
-İstemciler
-  CLI | API | Codex | Claude Code | OpenCode | MCP adapter | Dashboard
-                               |
-                     Application Service
-                               |
-  ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
-  │ Control     │ Execution   │ Knowledge   │ Memory &    │ Operations  │
-  │ Plane       │ Plane       │ Plane       │ Learning    │ Plane       │
-  └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
-                               |
-            PostgreSQL 18 + pgvector + Object Storage
+CLI / API / lifecycle hooks / scheduler / worker
+                    |
+             application ports
+                    |
+  +-----------------+------------------+
+  |                                    |
+  v                                    v
+Operational authority              File plane / CAS
+CPython SQLite schema v1            source manifests
+  |                                    |
+  |          +-------------------------+
+  |          |
+  v          v
+SQLite FTS5 + sqlite-vec          immutable raw events
+rebuildable knowledge index          |
+  |                                  v
+  +----------------------------> DuckDB analytics
+                                  derived only
 ```
 
-## Process modeli
+## Kalıcı motor sınırı
 
-Tek source repository ve tek domain modeli korunur; şu process'ler ayrı ölçeklenebilir:
+Zekam core en fazla üç motor sınıfı kullanır:
 
-- `zekam` CLI
-- FastAPI veya eşdeğer API
-- Scheduler
-- Worker/execution host
-- İsteğe bağlı web dashboard
+1. Operational Store: project, work, run, lifecycle, claim/receipt, registry ve
+   policy activation state'i.
+2. Knowledge Index: exact, lexical, dense ve fusion için sürümlü/rebuildable indeks.
+3. Analytics Store: immutable raw girdilerden yeniden kurulan DuckDB projection.
 
-Bunlar aynı application use-case'lerini kullanır. CLI ve API kendi ürün kurallarını yazmaz.
+Markdown, Git ve CAS veri/kaynak alanıdır; dördüncü bir operational DB değildir.
 
-## Logical PostgreSQL schema'ları
+## Temel değişmezler
 
-| Schema | Sahiplik |
-|---|---|
-| `core` | realm, actor, canonical identity, policy revision |
-| `projects` | project, alias, source binding, capability profile |
-| `work` | Work Item, revision, event, relation, Intent, Decision, Plan |
-| `runtime` | job, attempt, lease, lock, checkpoint, claim, receipt, outbox |
-| `models` | inventory, health, benchmark, price, quota, assignment, observation |
-| `research` | question, source snapshot, claim, contradiction, report |
-| `knowledge` | source, artifact, normalized unit, chunk, embedding, FTS, citation |
-| `memory` | memory revision, relation, use, hygiene, promotion |
-| `skills` | candidate, evaluation, lifecycle, registry reference |
-| `security` | SecretRef metadata, authorization, disclosure, audit |
-| `ops` | scheduler, report, backup, incident, derived projection state |
+- Legacy server veritabanı yeni sistemin veri kaynağı değildir; bağlantı, migration,
+  dump, export/import, ETL ve fallback yasaktır.
+- Docker, ayrı DB servisi, port, kullanıcı veya parola core başlangıç gereksinimi değildir.
+- Operational state vektör, memory, Markdown, dashboard veya analytics'ten türetilmez.
+- Knowledge index ve analytics silinip güncel source manifest/raw eventlerden yeniden
+  üretilebilir.
+- Her mutation exact claim/effect/receipt zincirine ve tek-writer kaynağına bağlıdır.
+- Secret değerleri model context'i, log, indeks, rapor veya artifact'a girmez.
+- Proje veritabanı Zekam operational store'una taşınmaz; metadata erişimi satır verisi
+  toplamadan, proje kapsamı ve açık yetkiyle yapılır.
 
-Schema sınırı deployment zorunluluğu değildir; bounded context ownership sınırıdır.
+## Provider ve platform ayrımı
 
-## Authority matrisi
+Embedding provider ile storage provider bağımsızdır. Mac çalışma profili gerçek yerel
+BAAI/bge-m3 1024 çıktısı kullanır. Gerçek provider yoksa dense yol semantic gibi
+gösterilmez; açıkça lexical-only degraded olur. Windows/OpenCode uzak provider
+sözleşmesi korunur, fakat K-013 kapsamında Mac başlangıcının bağımlılığı değildir.
 
-| Soru | Yetkili kaynak |
-|---|---|
-| İşin durumu nedir? | Work Graph |
-| Hangi step çalışıyor? | Runtime Run/Step + lease |
-| Effect yapıldı mı? | Effect Claim/Receipt |
-| Model neden seçildi? | Model Assignment |
-| Bilgi nereden geldi? | Knowledge source/citation |
-| Önceden ne öğrendik? | Reviewed memory |
-| Kullanıcı izin verdi mi? | Authorization ledger |
-| Dashboard ne gösteriyor? | Derived projection; authority değil |
+Mac kabulü Windows veya büyük ölçek kabulü değildir. Platformlar aynı fixture, manifest,
+fault ve package matrislerini kendi ortamlarında ayrı çalıştırır.
 
-## Sadelik ilkesi
+## Execution ve öğrenme
 
-İlk üretim deployment'ı modüler monolittir. Queue, model, RAG veya memory için ayrı ürün
-state'i oluşturulmaz. Redis yalnız wakeup/cache; object storage artifact; pgvector retrieval
-işlevi görür. Yeni altyapı yalnız ölçülmüş ihtiyaçla eklenir.
+Runtime queue, lease, fencing, lock, claim, receipt ve recovery state'i operational
+store'dadır. Memory/failure/skill ve improvement kayıtları candidate→review→active
+akışı izler. Root instruction, schema, security, retention ve dış etki değişiklikleri
+insan onayı olmadan aktive edilemez.
 
-## Portability
+## Authority sırası
 
-- Kimlikler physical path'ten bağımsızdır.
-- Source binding export sırasında `unbound` olur.
-- Active lease/lock/owner token export edilmez.
-- Secret value export edilmez.
-- Thin export canonical user data; ready export verified derived data ve tamamlanmış runtime
-  history içerebilir.
+1. `AKTIF_GOREV.md` yaşayan görev ve kapsam authority'sidir.
+2. Operational Store yalnız bu exact digest'e bağlı execution/progress state'i tutar.
+3. `AKTIF_GOREV.yaml` read-only generated projection'dır ve yetki vermez.
+4. Knowledge, memory, analytics, dashboard ve Markdown projection'ları authority değildir.

@@ -27,6 +27,8 @@ from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
 from zekam.application.execution import ExecutionHost
 from zekam.application.governance import DEFAULT_POLICY_NAME, GovernanceService
 from zekam.application.hook_runtime import HookRuntime
+from zekam.application.legacy_repository_provider import legacy_repository
+from zekam.application.lifecycle_runtime_template import template_source_revision
 from zekam.application.memory_continuity import (
     HydrationPreparation,
     MemoryContinuityService,
@@ -80,19 +82,6 @@ from zekam.infrastructure.clients.codex_lifecycle import (
     codex_lifecycle_descriptor,
     load_codex_contract_evidence,
 )
-from zekam.infrastructure.postgres.agent_assignment_repository import AgentAssignmentRepository
-from zekam.infrastructure.postgres.client_lifecycle_repository import ClientLifecycleRepository
-from zekam.infrastructure.postgres.context_continuity_repository import ContextContinuityRepository
-from zekam.infrastructure.postgres.core_repository import ActorRepository
-from zekam.infrastructure.postgres.execution_run_repository import ExecutionRunRepository
-from zekam.infrastructure.postgres.hook_runtime_repository import HookRuntimeRepository
-from zekam.infrastructure.postgres.lifecycle_runtime_template_repository import (
-    LifecycleRuntimeTemplateRepository,
-    template_source_revision,
-)
-from zekam.infrastructure.postgres.memory_continuity_repository import MemoryContinuityRepository
-from zekam.infrastructure.postgres.runtime_repository import JobRepository
-from zekam.infrastructure.postgres.security_repository import AuthorizationRepository
 
 _BOOTSTRAP_STEP_ID = "client-lifecycle-bootstrap"
 _ADOPTION_STEP_ID = "client-lifecycle-legacy-adoption"
@@ -145,9 +134,7 @@ class ClientRuntimeBootstrapPlan:
             "lifecycle_resource": self.lifecycle_resource,
             "rebootstrap": self.rebootstrap,
             "adopt_existing": self.adopt_existing,
-            "adopted_run_id": (
-                None if self.adopted_run_id is None else str(self.adopted_run_id)
-            ),
+            "adopted_run_id": (None if self.adopted_run_id is None else str(self.adopted_run_id)),
             "adoption_resource": self.adoption_resource,
             "adoption_effect_digest": self.adoption_effect_digest,
             "strategy": "control-plane-only-then-governed-worker-tick",
@@ -261,7 +248,7 @@ class ClientRuntimeBootstrapService:
     ) -> ClientRuntimeBootstrapPlan:
         moment = now or dt.datetime.now(dt.UTC)
         graph = WorkGraphService(self.connection, self.realm, actor_id=actor_id)
-        actor = ActorRepository(self.connection, self.realm.id).get(actor_id)
+        actor = legacy_repository("actor", self.connection, self.realm.id).get(actor_id)
         if actor.kind is not ActorKind.HUMAN or actor.status is not LifecycleStatus.ACTIVE:
             raise PolicyViolation("Client runtime bootstrap aktif human actor ister")
         work = graph.items.get(work_item_id)
@@ -278,8 +265,8 @@ class ClientRuntimeBootstrapService:
             raise PolicyViolation("Client runtime bootstrap exact Work state ister")
         adopted_run_id = None
         if rebootstrap:
-            LifecycleRuntimeTemplateRepository(
-                self.connection, self.realm.id
+            legacy_repository(
+                "lifecycle_runtime_template", self.connection, self.realm.id
             ).assert_rebootstrap_admissible(work_item_id)
         elif adopt_existing:
             snapshot = graph.snapshot(work_item_id)
@@ -289,11 +276,9 @@ class ClientRuntimeBootstrapService:
                 or any(not item.verified for item in work.acceptance_criteria)
             ):
                 raise PolicyViolation("Legacy adoption verified pre_close Work ister")
-            adopted_run_id = LifecycleRuntimeTemplateRepository(
-                self.connection, self.realm.id
-            ).assert_legacy_adoption_admissible(
-                work_item_id, task_plan_id=snapshot.plan.id
-            )
+            adopted_run_id = legacy_repository(
+                "lifecycle_runtime_template", self.connection, self.realm.id
+            ).assert_legacy_adoption_admissible(work_item_id, task_plan_id=snapshot.plan.id)
         if not graph.snapshot(work_item_id).is_actionable:
             raise PolicyViolation("Client runtime bootstrap Work actionable degil")
         if client_id != "codex" or not session_id.strip():
@@ -366,9 +351,9 @@ class ClientRuntimeBootstrapService:
         ):
             raise PolicyViolation("Client runtime bootstrap Work state/revision drift")
 
-        assignments = AgentAssignmentRepository(self.connection, self.realm.id)
-        runs = ExecutionRunRepository(self.connection, self.realm.id)
-        jobs = JobRepository(self.connection, self.realm.id)
+        assignments = legacy_repository("agent_assignment", self.connection, self.realm.id)
+        runs = legacy_repository("execution_run", self.connection, self.realm.id)
+        jobs = legacy_repository("job", self.connection, self.realm.id)
         prior_plan = graph.snapshot(work.id).plan
         adoption_job_id = None
         adoption_claim_id = None
@@ -378,11 +363,9 @@ class ClientRuntimeBootstrapService:
                 if prior_plan is None:
                     raise PolicyViolation("Lifecycle continuation prior reviewed Plan ister")
                 if plan.adopt_existing:
-                    adopted_run_id = LifecycleRuntimeTemplateRepository(
-                        self.connection, self.realm.id
-                    ).assert_legacy_adoption_admissible(
-                        work.id, task_plan_id=prior_plan.id
-                    )
+                    adopted_run_id = legacy_repository(
+                        "lifecycle_runtime_template", self.connection, self.realm.id
+                    ).assert_legacy_adoption_admissible(work.id, task_plan_id=prior_plan.id)
                     if adopted_run_id != plan.adopted_run_id:
                         raise PolicyViolation("Lifecycle legacy adoption run binding drift")
                 if plan.rebootstrap:
@@ -473,8 +456,8 @@ class ClientRuntimeBootstrapService:
                 graph.transition(work.id, WorkState.READY, now=moment)
                 graph.transition(work.id, WorkState.ACTIVE, now=moment)
             elif plan.rebootstrap:
-                LifecycleRuntimeTemplateRepository(
-                    self.connection, self.realm.id
+                legacy_repository(
+                    "lifecycle_runtime_template", self.connection, self.realm.id
                 ).assert_rebootstrap_admissible(work.id)
             run = ExecutionRun.create(
                 id=run_id,
@@ -632,7 +615,7 @@ class ClientRuntimeBootstrapService:
                     lifetime=dt.timedelta(minutes=15),
                     now=moment,
                 )
-                authorizations = AuthorizationRepository(self.connection, self.realm.id)
+                authorizations = legacy_repository("authorization", self.connection, self.realm.id)
                 authorizations.issue(adoption_authorization)
                 adoption_capability = f"client.lifecycle.legacy-adoption.{plan.plan_digest[-16:]}"
                 adoption_host = ExecutionHost(
@@ -688,7 +671,7 @@ class ClientRuntimeBootstrapService:
                 )
                 if not consumed.consumed:
                     raise PolicyViolation("Lifecycle legacy adoption authorization tuketilemedi")
-                ExecutionRunRepository(self.connection, self.realm.id).finish_run(
+                legacy_repository("execution_run", self.connection, self.realm.id).finish_run(
                     plan.adopted_run_id,
                     state="failed",
                     terminal_at=moment,
@@ -735,7 +718,8 @@ class ClientRuntimeBootstrapService:
                     next_safe_action=_BOOTSTRAP_STEP_ID,
                     created_at=moment,
                 )
-                ContextContinuityRepository(
+                legacy_repository(
+                    "context_continuity",
                     self.connection,
                     self.realm.id,
                     plan.project_id,
@@ -784,7 +768,9 @@ class ClientRuntimeBootstrapService:
                 lifetime=dt.timedelta(minutes=15),
                 now=moment,
             )
-            AuthorizationRepository(self.connection, self.realm.id).issue(bootstrap_authorization)
+            legacy_repository("authorization", self.connection, self.realm.id).issue(
+                bootstrap_authorization
+            )
             bootstrap_payload = {
                 "schema": "zekam-codex-lifecycle-bootstrap-job/v1",
                 "entry_digest": plan.entry_digest,
@@ -927,7 +913,7 @@ class ClaimedLifecycleBootstrapService:
             raise PolicyViolation("Lifecycle bootstrap context timestamp drift") from exc
         if context_created_at.tzinfo is None:
             raise PolicyViolation("Lifecycle bootstrap context timestamp timezone ister")
-        authorizations = AuthorizationRepository(self.connection, self.realm_id)
+        authorizations = legacy_repository("authorization", self.connection, self.realm_id)
         try:
             authorization_id = UUID(str(payload["authorization_id"]))
             child_assignment_id = UUID(str(payload["child_assignment_id"]))
@@ -971,8 +957,8 @@ class ClaimedLifecycleBootstrapService:
         # Defensive revalidation immediately before claim-before-effect.  The
         # worker already checked this before queue claim; this closes direct
         # service callers and rejects any intervening template drift.
-        LifecycleRuntimeTemplateRepository(
-            self.connection, self.realm_id
+        legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm_id
         ).current_for_bootstrap_job(job.id)
         host = ExecutionHost(self.connection, self.realm_id, worker_label=work.lease.worker_label)
         claim = host.claim_effect(
@@ -1007,7 +993,8 @@ class ClaimedLifecycleBootstrapService:
                 ),
                 now=moment,
             )
-            continuity = ContextContinuityRepository(
+            continuity = legacy_repository(
+                "context_continuity",
                 self.connection,
                 self.realm_id,
                 job.project_id,
@@ -1025,9 +1012,11 @@ class ClaimedLifecycleBootstrapService:
                 moment,
             )
             continuity.append_journal(journal, expected_head=previous)
-            lifecycle_repository = ClientLifecycleRepository(self.connection, self.realm_id)
-            facts = LifecycleRuntimeTemplateRepository(
-                self.connection, self.realm_id
+            lifecycle_repository = legacy_repository(
+                "client_lifecycle", self.connection, self.realm_id
+            )
+            facts = legacy_repository(
+                "lifecycle_runtime_template", self.connection, self.realm_id
             ).projection_facts(job.project_id, job.work_item_id)
             work_plan_digest = lifecycle_repository.current_work_plan_digest(
                 work_item_id=job.work_item_id,
@@ -1157,7 +1146,7 @@ class ClaimedLifecycleBootstrapService:
         except (TypeError, ValueError) as exc:
             raise PolicyViolation("Lifecycle child materialized UUID drift") from exc
         assert job.assignment_id is not None and job.run_id is not None
-        repository = LifecycleRuntimeTemplateRepository(self.connection, self.realm_id)
+        repository = legacy_repository("lifecycle_runtime_template", self.connection, self.realm_id)
         run = repository.run_bindings(job.run_id)
         parent_job_id, manifest_id, manifest_digest, packet_id, packet_digest = (
             repository.bootstrap_context(job.run_id)
@@ -1168,7 +1157,7 @@ class ClaimedLifecycleBootstrapService:
             template_source_revision(source_revision),
             policy_digest,
         )
-        execution = ExecutionRunRepository(self.connection, self.realm_id)
+        execution = legacy_repository("execution_run", self.connection, self.realm_id)
         execution.bind_assignment_environment(
             AssignmentEnvironmentBinding.create(
                 realm_id=self.realm_id,
@@ -1198,7 +1187,7 @@ class ClaimedLifecycleBootstrapService:
             created_at=moment,
         )
         execution.create_turn_snapshot(turn)
-        authorization = AuthorizationRepository(self.connection, self.realm_id).get(
+        authorization = legacy_repository("authorization", self.connection, self.realm_id).get(
             authorization_id
         )
         execution.create_envelope(
@@ -1254,13 +1243,15 @@ class ClaimedLifecycleBootstrapService:
         entry: Any,
         child_assignment_id: UUID,
         close_assignment_id: UUID | None,
-        authorizations: AuthorizationRepository,
+        authorizations: Any,
         context_created_at: dt.datetime,
         now: dt.datetime,
     ) -> _MaterializedChild:
         job = work.job
         assert job.work_item_id is not None and job.plan_id is not None and job.run_id is not None
-        template_repo = LifecycleRuntimeTemplateRepository(self.connection, self.realm_id)
+        template_repo = legacy_repository(
+            "lifecycle_runtime_template", self.connection, self.realm_id
+        )
         facts = template_repo.projection_facts(job.project_id, job.work_item_id)
         template_source_revision, source_digest = str(facts[3]), str(facts[4])
         run_bindings = template_repo.run_bindings(job.run_id)
@@ -1276,8 +1267,8 @@ class ClaimedLifecycleBootstrapService:
         )
         if manifest.manifest_digest != str(job.payload["context_manifest_digest"]):
             raise PolicyViolation("Lifecycle bootstrap planned context manifest drift")
-        context_repo = ContextContinuityRepository(
-            self.connection, self.realm_id, job.project_id, job.work_item_id
+        context_repo = legacy_repository(
+            "context_continuity", self.connection, self.realm_id, job.project_id, job.work_item_id
         )
         manifest_id = context_repo.store_manifest(manifest)
         fragment = ContextFragment(
@@ -1306,10 +1297,10 @@ class ClaimedLifecycleBootstrapService:
             sections=(ContextPacketSection(candidate.candidate_id, candidate.content_digest, 1),),
             created_at=now,
         )
-        ExecutionRunRepository(self.connection, self.realm_id).create_packet(packet)
+        legacy_repository("execution_run", self.connection, self.realm_id).create_packet(packet)
         self._store_projection(job=job, facts=facts, source_digest=source_digest, now=now)
-        execution = ExecutionRunRepository(self.connection, self.realm_id)
-        HookRuntimeRepository(self.connection, self.realm_id).start_session(
+        execution = legacy_repository("execution_run", self.connection, self.realm_id)
+        legacy_repository("hook_runtime", self.connection, self.realm_id).start_session(
             session_ref=entry.session_id,
             reuse_existing=True,
         )
@@ -1437,7 +1428,7 @@ class ClaimedLifecycleBootstrapService:
         }
         if hydration_authorization is not None:
             child_payload["hydration_authorization_id"] = str(hydration_authorization.id)
-        child, child_created = JobRepository(self.connection, self.realm_id).enqueue(
+        child, child_created = legacy_repository("job", self.connection, self.realm_id).enqueue(
             replace(
                 Job.create(
                     realm_id=self.realm_id,
@@ -1470,7 +1461,9 @@ class ClaimedLifecycleBootstrapService:
                 f"work:{job.project_id}:{job.work_item_id}:projection-close:{job.run_id}"
             )
             close_job_id = new_uuid7(now=now)
-            close_job, close_created = JobRepository(self.connection, self.realm_id).enqueue(
+            close_job, close_created = legacy_repository(
+                "job", self.connection, self.realm_id
+            ).enqueue(
                 replace(
                     Job.create(
                         realm_id=self.realm_id,
@@ -1606,17 +1599,17 @@ class ClaimedLifecycleBootstrapService:
         if job.work_item_id is None or job.plan_id is None or job.run_id is None:
             raise PolicyViolation("Lifecycle child plan parent identity eksik")
         runtime = HookRuntime(max_workers=1)
-        repository = ClientLifecycleRepository(self.connection, self.realm_id)
+        repository = legacy_repository("client_lifecycle", self.connection, self.realm_id)
         _configure_active_memory_hook_runtime(
             runtime, memory_hook_bundle(self.realm_id), repository, now=now
         )
-        continuity = MemoryContinuityRepository(self.connection, self.realm_id)
-        authorizations = AuthorizationRepository(self.connection, self.realm_id)
+        continuity = legacy_repository("memory_continuity", self.connection, self.realm_id)
+        authorizations = legacy_repository("authorization", self.connection, self.realm_id)
         bridge = ClientLifecycleBridge(
             runtime,
             cast(LifecycleDeliveryRepository, continuity),
             authorizations,
-            HookRuntimeRepository(self.connection, self.realm_id),
+            legacy_repository("hook_runtime", self.connection, self.realm_id),
         )
         evidence = load_codex_contract_evidence(
             Path(__file__).resolve().parents[3]
@@ -1770,7 +1763,9 @@ class ClaimedLifecycleBootstrapService:
             generator_version="memory-continuity-shadow/v1",
             generated_at=now,
         )
-        MemoryContinuityRepository(self.connection, self.realm_id).store_projection_receipt(
+        legacy_repository(
+            "memory_continuity", self.connection, self.realm_id
+        ).store_projection_receipt(
             receipt, idempotency_key=f"bootstrap:{job.id}:active-work-projection"
         )
 
