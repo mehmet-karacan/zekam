@@ -121,7 +121,15 @@ class LocalCoreStoresCheck:
             for name, item in databases.items()
             if isinstance(item, Mapping)
             and item.get("exists") is True
+            and item.get("identity_ok") is True
             and (item.get("integrity") is not True or item.get("schema_ok") is not True)
+        )
+        identity_drift = sorted(
+            str(name)
+            for name, item in databases.items()
+            if isinstance(item, Mapping)
+            and item.get("exists") is True
+            and item.get("identity_ok") is not True
         )
         findings: list[Finding] = []
         if missing:
@@ -145,10 +153,28 @@ class LocalCoreStoresCheck:
                     authority_required=True,
                 )
             )
+        if identity_drift:
+            findings.append(
+                Finding(
+                    code="sqlite.local-store-identity-drift",
+                    severity=Severity.CRITICAL,
+                    title="Yerel store ACL veya dosya kimligi gecersiz",
+                    detail=", ".join(identity_drift),
+                    next_action=(
+                        "`zekam doctor --repair-plan --json` ile exact ACL onarim plani alin"
+                    ),
+                    authority_required=True,
+                )
+            )
         if analytics.get("ready") is not True:
             findings.append(
                 Finding(
-                    code="sqlite.local-analytics-semantic-drift",
+                    code=(
+                        "sqlite.local-analytics-identity-drift"
+                        if analytics.get("identity_ok") is False
+                        and analytics.get("semantic_ok") is True
+                        else "sqlite.local-analytics-semantic-drift"
+                    ),
                     severity=Severity.CRITICAL,
                     title="Yerel analytics store gecersiz",
                     detail=str(analytics.get("state", "unknown")),

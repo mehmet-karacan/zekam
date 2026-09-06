@@ -12,7 +12,11 @@ from zekam.application.composition import ApplicationContext
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
-from zekam.infrastructure.local_file_security import private_directory, private_regular
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_tree,
+)
 from zekam.infrastructure.sqlite.local_continuity_source_authority import (
     DDL_DIGEST as SOURCE_DDL_DIGEST,
 )
@@ -108,11 +112,13 @@ _ANALYTICS_EMPTY_FINGERPRINT = digest(
 )
 
 
-def validate_local_sqlite_store(name: str, path: Path) -> dict[str, object]:
+def validate_local_sqlite_store(
+    name: str, path: Path, *, require_private_identity: bool = True
+) -> dict[str, object]:
     """Reopen and verify one exact local schema, metadata row, FK graph and bytes."""
 
     info = path.lstat()
-    if not private_regular(path):
+    if require_private_identity and not private_regular(path):
         raise ConfigurationError(f"Local {name} database identity invalid")
     if name == "operational":
         current = operational_status(path)
@@ -279,6 +285,7 @@ class LocalCoreServices:
             if not path.is_file() or path.is_symlink():
                 databases[name] = {
                     "exists": False,
+                    "identity_ok": False,
                     "integrity": False,
                     "schema_ok": False,
                     "schema_version": None,
@@ -288,6 +295,7 @@ class LocalCoreServices:
                     "required": name != "source_authority",
                 }
                 continue
+            identity_ok = private_regular(path)
             try:
                 with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
                     tables = int(
@@ -296,10 +304,11 @@ class LocalCoreServices:
                             "where type='table' and name not like 'sqlite_%'"
                         ).fetchone()[0]
                     )
-                contract = validate_local_sqlite_store(name, path)
+                contract = validate_local_sqlite_store(name, path, require_private_identity=False)
             except (OSError, ConfigurationError, sqlite3.DatabaseError):
                 databases[name] = {
                     "exists": True,
+                    "identity_ok": identity_ok,
                     "integrity": False,
                     "schema_ok": False,
                     "schema_version": None,
@@ -311,6 +320,7 @@ class LocalCoreServices:
             else:
                 databases[name] = {
                     "exists": True,
+                    "identity_ok": identity_ok,
                     "integrity": True,
                     "schema_ok": True,
                     **contract,
@@ -352,7 +362,12 @@ class LocalCoreServices:
             "all_ready": analytics_ready
             and all(
                 (not item["required"] and not item["exists"])
-                or (item["exists"] and item["integrity"] and item["schema_ok"])
+                or (
+                    item["exists"]
+                    and item["identity_ok"]
+                    and item["integrity"]
+                    and item["schema_ok"]
+                )
                 for item in databases.values()
             ),
             "grants_authority": False,
@@ -427,6 +442,7 @@ class LocalCoreServices:
             "state": state,
             "missing": [path.name for path in missing_paths],
             "lock_exists": lock_exists,
+            "identity_ok": not path_drift and not lock_drift,
             "repairable": repairable,
             "required": True,
         }
@@ -448,24 +464,48 @@ class LocalCoreServices:
             sorted(
                 name
                 for name, item in databases.items()
-                if bool(item["exists"]) and not bool(item["integrity"])
+                if bool(item["exists"])
+                and bool(item["identity_ok"])
+                and (not bool(item["integrity"]) or not bool(item["schema_ok"]))
+            )
+        )
+        identity_drift = tuple(
+            sorted(
+                name
+                for name, item in databases.items()
+                if bool(item["exists"])
+                and bool(item["integrity"])
+                and bool(item["schema_ok"])
+                and not bool(item["identity_ok"])
             )
         )
         blockers = corrupt + (("operational-missing",) if "operational" in missing else ())
         analytics = snapshot["analytics"]
         assert isinstance(analytics, dict)
         needs_analytics = not bool(snapshot["analytics_ready"])
-        if needs_analytics and not bool(analytics["repairable"]):
+        analytics_identity_drift = (
+            needs_analytics
+            and analytics.get("semantic_ok") is True
+            and analytics.get("identity_ok") is False
+            and not analytics.get("missing")
+        )
+        if needs_analytics and not bool(analytics["repairable"]) and not analytics_identity_drift:
             blockers += ("analytics",)
         action = (
-            "bootstrap-missing-local-stores"
-            if not blockers and (missing or needs_analytics)
-            else None
+            "restrict-private-local-tree"
+            if not blockers and (identity_drift or analytics_identity_drift)
+            else (
+                "bootstrap-missing-local-stores"
+                if not blockers and (missing or needs_analytics)
+                else None
+            )
         )
         body: dict[str, object] = {
             "schema": "zekam-local-core-repair-plan/v1",
             "action": action,
             "missing": list(missing),
+            "identity_drift": list(identity_drift),
+            "analytics_identity_drift": analytics_identity_drift,
             "analytics_missing": needs_analytics,
             "blocked_reasons": list(blockers),
             "before": snapshot,
@@ -481,15 +521,22 @@ class LocalCoreServices:
             raise ConfigurationError("Yerel doctor repair plan digest stale veya farkli")
         if plan["blocked_reasons"]:
             raise ConfigurationError("Yerel doctor repair bozuk/mevcut authority nedeniyle bloke")
-        if plan["action"] != "bootstrap-missing-local-stores":
+        action = plan["action"]
+        if action not in {"bootstrap-missing-local-stores", "restrict-private-local-tree"}:
             raise ConfigurationError("Yerel doctor repair planinda uygulanacak adim yok")
-        self.bootstrap_extensions()
+        if action == "restrict-private-local-tree":
+            home = self.operational_path.parent.parent.resolve(strict=True)
+            if home == Path(home.anchor) or home.is_symlink():
+                raise ConfigurationError("Yerel doctor ACL repair bounded home ister")
+            restrict_private_tree(home)
+        else:
+            self.bootstrap_extensions()
         after = self.status(semantic_analytics=True)
         if not after["all_ready"]:
             raise ConfigurationError("Yerel doctor repair sonrasi butunluk dogrulanamadi")
         receipt_body = {
             "schema": "zekam-local-core-repair-receipt/v1",
-            "step": plan["action"],
+            "step": action,
             "plan_digest": plan_digest,
             "before": plan["before"],
             "after": after,
