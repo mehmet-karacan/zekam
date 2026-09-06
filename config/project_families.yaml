@@ -1,0 +1,33 @@
+schema: zekam-project-families/v1
+families:
+  - family_ref: gpu
+    display_name: GPU (Gelir Paylaşımı Uygulaması)
+    aliases:
+      - gpu
+      - gpu fusion
+      - gelir paylaşımı uygulaması
+      - gelir paylasimi uygulamasi
+    jira_prefix: SKYRSM
+    members:
+      - project_ref: gpu-fusion
+        role: fullstack
+  - family_ref: sky
+    display_name: SKY (Satış Kanalları Yönetim)
+    aliases:
+      - sky
+      - skytile
+      - sky-tile
+      - sky tile
+      - satış kanalları yönetim
+      - satış kanalları yönetimi
+      - satis kanallari yonetim
+      - satis kanallari yonetimi
+      - ttbp
+      - türk telekom bayi portalı
+      - turk telekom bayi portali
+    jira_prefix: TLCSKY
+    members:
+      - project_ref: sky-spring-ui
+        role: ui
+      - project_ref: sky-microservis
+        role: backend

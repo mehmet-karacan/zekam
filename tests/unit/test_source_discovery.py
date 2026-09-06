@@ -147,6 +147,16 @@ def test_file_with_secret_is_excluded_from_index(sample_project: Path) -> None:
     assert report.secrets[0].relative_path == "ayarlar.py"
 
 
+def test_yaml_with_unquoted_secret_is_excluded_from_index(sample_project: Path) -> None:
+    (sample_project / "application.yaml").write_text(
+        "datasource:\n  password: synthetic-value-12345\n",
+        encoding="utf-8",
+    )
+    report = discover(sample_project)
+    assert "application.yaml" not in {item.relative_path for item in report.files}
+    assert any(item.relative_path == "application.yaml" for item in report.secrets)
+
+
 def test_secret_scan_can_be_disabled(sample_project: Path) -> None:
     (sample_project / "ayarlar.py").write_text('api_key = "abcdefgh12345678"\n', encoding="utf-8")
     report = discover(sample_project, policy=DiscoveryPolicy(scan_secrets=False))

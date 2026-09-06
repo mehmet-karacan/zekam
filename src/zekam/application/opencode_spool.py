@@ -15,9 +15,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from zekam.domain.canonical import digest
-from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 
 _CANDIDATE = re.compile(r"^\.drain\.candidate\.([0-9a-fA-F-]{36})$")
+_TEMPORARY = re.compile(r"^.+\.json\.([0-9a-fA-F-]{36})\.tmp$")
 _LOCK_NAME = ".drain.lock"
 _MINIMUM_STALE_SECONDS = 300
 
@@ -173,6 +174,30 @@ class LegacyCleanupReceipt:
             "completed_at": self.completed_at,
             "reversible": True,
             "raw_delete": False,
+            "grants_authority": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SpoolDrainReceipt:
+    processed: int
+    acknowledged: int
+    quarantined: int
+    remaining: int
+    recovered_stale_lock: bool
+    receipt_digest: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-opencode-spool-drain/v1",
+            "processed": self.processed,
+            "acknowledged": self.acknowledged,
+            "quarantined": self.quarantined,
+            "remaining": self.remaining,
+            "recovered_stale_lock": self.recovered_stale_lock,
+            "receipt_digest": self.receipt_digest,
+            "contains_prompt": False,
+            "contains_response": False,
             "grants_authority": False,
         }
 
@@ -347,4 +372,188 @@ def apply_legacy_candidate_cleanup(
         len(moved),
         quarantine_refs,
         completed_at,
+    )
+
+
+_EVENT_FLAGS = {
+    "--type": "event_type",
+    "--session": "session_id",
+    "--delivery-id": "delivery_id",
+    "--parent": "parent_session_id",
+    "--agent": "agent",
+    "--model": "model_ref",
+    "--tool": "tool",
+    "--resource": "resource",
+    "--status": "status",
+    "--error-category": "error_category",
+    "--completed": "completed_summary",
+    "--pending": "pending_summary",
+    "--next-action": "next_action",
+    "--task-label": "task_label",
+}
+
+
+def _decode_event_args(document: Any) -> dict[str, str | None]:
+    if not isinstance(document, dict) or document.get("schema") != "zekam-opencode-plugin-spool/v2":
+        raise ValidationFailed("OpenCode spool item schema gecersiz")
+    identifier = str(document.get("id", ""))
+    try:
+        UUID(identifier)
+    except ValueError as exc:
+        raise ValidationFailed("OpenCode spool item id gecersiz") from exc
+    args = document.get("args")
+    if (
+        not isinstance(args, list)
+        or args[:2] != ["opencode", "event"]
+        or len(args) < 6
+        or len(args) > 32
+        or len(args) % 2 != 0
+        or any(not isinstance(value, str) for value in args)
+    ):
+        raise ValidationFailed("OpenCode spool item args gecersiz")
+    decoded: dict[str, str | None] = {}
+    for offset in range(2, len(args), 2):
+        flag, value = args[offset], args[offset + 1]
+        field = _EVENT_FLAGS.get(flag)
+        if field is None or field in decoded or not value:
+            raise ValidationFailed("OpenCode spool item flag gecersiz")
+        decoded[field] = value
+    if decoded.get("event_type") is None or decoded.get("session_id") is None:
+        raise ValidationFailed("OpenCode spool item type/session ister")
+    if decoded.get("delivery_id") != identifier:
+        raise ValidationFailed("OpenCode spool item delivery id drift")
+    return decoded
+
+
+def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str]:
+    if not lock.is_dir() or _is_link_or_reparse(lock):
+        raise ConfigurationError("OpenCode drain lock regular directory olmali")
+    try:
+        document = json.loads((lock / "owner.json").read_text(encoding="utf-8"))
+        pid = int(document["pid"])
+        expires_at = dt.datetime.fromisoformat(str(document["expiresAt"]).replace("Z", "+00:00"))
+        token = str(UUID(str(document["ownerToken"])))
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError("OpenCode drain lock owner gecersiz") from exc
+    return pid, expires_at, token
+
+
+def drain_plugin_spool(
+    home: Path,
+    *,
+    limit: int = 500,
+    now: dt.datetime | None = None,
+) -> SpoolDrainReceipt:
+    """Replay typed plugin events directly into the durable local ledger."""
+
+    if limit < 1 or limit > 500:
+        raise ValidationFailed("OpenCode spool drain limiti 1..500 olmali")
+    from zekam.application.opencode_lifecycle import record_event
+
+    observed_at = now or dt.datetime.now(dt.UTC)
+    root = plugin_spool_root(home)
+    root.mkdir(parents=True, exist_ok=True)
+    if not root.is_dir() or _is_link_or_reparse(root):
+        raise ConfigurationError("OpenCode plugin spool regular directory olmali")
+    quarantine = root / "quarantine"
+    quarantine.mkdir(exist_ok=True)
+    if _is_link_or_reparse(quarantine):
+        raise ConfigurationError("OpenCode quarantine link veya reparse point olamaz")
+
+    recovered = False
+    lock = root / _LOCK_NAME
+    if lock.exists():
+        pid, expires_at, _ = _lock_owner(lock)
+        if _process_alive(pid) or expires_at > observed_at:
+            raise PolicyViolation("OpenCode drain lock halen aktif")
+        lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
+        recovered = True
+
+    owner_token = str(uuid4())
+    candidate = root / f".drain.candidate.{owner_token}"
+    candidate.mkdir()
+    _atomic_json(
+        candidate / "owner.json",
+        {
+            "schema": "zekam-opencode-drain-owner/v2",
+            "pid": os.getpid(),
+            "ownerToken": owner_token,
+            "startedAt": observed_at.isoformat(),
+            "expiresAt": (observed_at + dt.timedelta(minutes=10)).isoformat(),
+        },
+    )
+    candidate.replace(lock)
+
+    processed = acknowledged = quarantined = 0
+    try:
+        for path in sorted(root.iterdir(), key=lambda item: item.name):
+            if processed >= limit:
+                break
+            if not path.is_file() or not path.name.endswith(".json"):
+                continue
+            processed += 1
+            try:
+                decoded = _decode_event_args(json.loads(path.read_text(encoding="utf-8")))
+                record_event(
+                    home,
+                    event_type=str(decoded["event_type"]),
+                    session_id=str(decoded["session_id"]),
+                    delivery_id=decoded.get("delivery_id"),
+                    parent_session_id=decoded.get("parent_session_id"),
+                    agent=decoded.get("agent"),
+                    model_ref=decoded.get("model_ref"),
+                    tool=decoded.get("tool"),
+                    resource=decoded.get("resource"),
+                    status=decoded.get("status"),
+                    error_category=decoded.get("error_category"),
+                    completed_summary=decoded.get("completed_summary"),
+                    pending_summary=decoded.get("pending_summary"),
+                    next_action=decoded.get("next_action"),
+                    task_label=decoded.get("task_label"),
+                )
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ZekamError):
+                path.replace(quarantine / f"invalid-spool-item.{uuid4()}.json")
+                quarantined += 1
+            else:
+                path.unlink()
+                acknowledged += 1
+
+        for path in sorted(root.iterdir(), key=lambda item: item.name):
+            matched = _TEMPORARY.fullmatch(path.name)
+            if matched is None or not path.is_file() or _is_link_or_reparse(path):
+                continue
+            try:
+                UUID(matched.group(1))
+            except ValueError:
+                continue
+            path.replace(quarantine / f"abandoned-spool-temp.{uuid4()}.tmp")
+            quarantined += 1
+    finally:
+        try:
+            _, _, current_token = _lock_owner(lock)
+            if current_token == owner_token:
+                (lock / "owner.json").unlink()
+                lock.rmdir()
+        except (OSError, ZekamError):
+            pass
+
+    remaining = sum(1 for item in root.iterdir() if item.is_file() and item.name.endswith(".json"))
+    body = {
+        "schema": "zekam-opencode-spool-drain/v1",
+        "processed": processed,
+        "acknowledged": acknowledged,
+        "quarantined": quarantined,
+        "remaining": remaining,
+        "recovered_stale_lock": recovered,
+        "contains_prompt": False,
+        "contains_response": False,
+        "grants_authority": False,
+    }
+    return SpoolDrainReceipt(
+        processed,
+        acknowledged,
+        quarantined,
+        remaining,
+        recovered,
+        digest(body),
     )

@@ -86,3 +86,18 @@ def test_scheduler_rebuild_report_and_reconcile_are_real_local_commands(tmp_path
     reconciled = runner.invoke(app, ["scheduler", "reconcile", "--home", str(home)])
     assert reconciled.exit_code == 0
     assert json.loads(reconciled.stdout)["apply"] is False
+
+
+def test_scheduler_report_represents_an_empty_analytics_home(tmp_path: Path) -> None:
+    home = tmp_path / "empty-scheduler-home"
+    _init(home)
+
+    report = runner.invoke(app, ["scheduler", "report", "--home", str(home)])
+
+    assert report.exit_code == 0, report.stdout
+    document = json.loads(report.stdout)
+    assert document["schema"] == "zekam-local-analytics-empty/v1"
+    assert document["state"] == "empty"
+    assert document["reports"] == {}
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False

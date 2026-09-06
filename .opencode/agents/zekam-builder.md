@@ -1,30 +1,10 @@
 ---
+# zekam-managed-agent/v1
 description: Exact approved plan ile bagli gercek proje dosyalarini degistiren builder subagent
 mode: subagent
 permission:
   edit: allow
-  bash:
-    "*": allow
-    "git -C * status*": allow
-    "git -C * log*": allow
-    "git -C * show*": allow
-    "git -C * diff*": allow
-    "git -C * branch --show-current*": allow
-    "git -C * rev-parse*": allow
-    "pytest *": allow
-    "python -m pytest *": allow
-    "npm --prefix * test*": allow
-    "npm --prefix * run lint*": allow
-    "mvn -f * test*": allow
-    "gradle -p * test*": allow
-    "gradlew -p * test*": allow
-    "*git commit*": deny
-    "*git push*": deny
-    "*git clone*": deny
-    "*git worktree add*": deny
-    "*Copy-Item*": deny
-    "*robocopy*": deny
-    "*xcopy*": deny
+  bash: allow
   webfetch: deny
   external_directory:
     "*": deny

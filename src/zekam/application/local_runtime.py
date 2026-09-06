@@ -19,7 +19,15 @@ RUNTIME_OUTBOX_KINDS = (
     "job.recovery-required",
     "job.quarantined",
 )
-RESERVED_JOB_OPERATIONS = ("continuity.compile",)
+RESERVED_JOB_OPERATIONS = (
+    "continuity.compile",
+    "research.run",
+    "knowledge.create",
+    "knowledge.update",
+    "knowledge.archive",
+    "knowledge.restore",
+    "project.odi-bind",
+)
 _RUNTIME_KIND = re.compile(r"[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*")
 
 
@@ -157,6 +165,8 @@ class LocalRuntimeStatus:
 
 class LocalRuntimeStore(Protocol):
     def status(self) -> LocalRuntimeStatus: ...
+
+    def job_snapshot(self, reference: str) -> dict[str, Any] | None: ...
 
     def recovery_cases(self, *, open_only: bool = True) -> tuple[LocalRecoveryCase, ...]: ...
 

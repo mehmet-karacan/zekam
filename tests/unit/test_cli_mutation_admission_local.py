@@ -33,11 +33,66 @@ def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:
     )
     assert applied.exit_code == 0, applied.stdout
 
+    alias_added = runner.invoke(
+        app,
+        [
+            "project",
+            "alias-add",
+            "source",
+            "temporary",
+            "--home",
+            str(home),
+            "--uygula",
+        ],
+    )
+    assert alias_added.exit_code == 0, alias_added.stdout
+    remove_dry_run = runner.invoke(
+        app,
+        ["project", "alias-remove", "source", "temporary", "--home", str(home)],
+    )
+    assert remove_dry_run.exit_code == 0, remove_dry_run.stdout
+    assert (
+        "temporary"
+        in json.loads(
+            runner.invoke(
+                app, ["project", "resolve", "source", "--home", str(home), "--json"]
+            ).stdout
+        )["aliases"]
+    )
+    alias_removed = runner.invoke(
+        app,
+        [
+            "project",
+            "alias-remove",
+            "source",
+            "temporary",
+            "--home",
+            str(home),
+            "--uygula",
+        ],
+    )
+    assert alias_removed.exit_code == 0, alias_removed.stdout
+    assert (
+        "temporary"
+        not in json.loads(
+            runner.invoke(
+                app, ["project", "resolve", "source", "--home", str(home), "--json"]
+            ).stdout
+        )["aliases"]
+    )
+
 
 def test_retired_provider_commands_are_not_advertised() -> None:
     help_result = CliRunner().invoke(app, ["--help"])
     assert help_result.exit_code == 0
-    for command in ("memory", "loop", "oracle", "opencode", "trace"):
+    for command in ("memory", "loop", "oracle", "trace"):
         assert f" {command} " not in help_result.stdout
     assert " model " in help_result.stdout
     assert " local-core " in help_result.stdout
+    assert " opencode " in help_result.stdout
+
+    lifecycle_help = CliRunner().invoke(app, ["opencode", "--help"])
+    assert lifecycle_help.exit_code == 0
+    assert " event " in lifecycle_help.stdout
+    assert " pre-compact " in lifecycle_help.stdout
+    assert " forward " not in lifecycle_help.stdout

@@ -1,7 +1,7 @@
-"""Dormant SQLite benchmark ledger and immutable local artifact store.
+"""SQLite benchmark ledger and immutable local artifact store.
 
-This module is deliberately not wired into the production CLI.  It supplies a
-Mac-local, provider-free acceptance boundary for benchmark contracts and replay.
+The provider-free in-process acceptance path is portable across supported
+desktop platforms. Process adapters retain their separate OS sandbox policy.
 """
 
 # ruff: noqa: E501 -- literal SQLite DDL remains directly reviewable.
@@ -324,6 +324,25 @@ class SQLiteLocalBenchmarkLab:
             db.executescript(_SCHEMA)
         self.path.chmod(0o600)
 
+    def prepare_local_security(self) -> None:
+        """Narrow an existing benchmark tree to the canonical private ACL."""
+
+        root = self.path.parent
+        if not root.is_dir() or root.is_symlink():
+            raise PolicyViolation("Local benchmark security root invalid")
+        if (
+            private_directory(root)
+            and private_regular(self.path)
+            and (not self.artifact_root.exists() or private_directory(self.artifact_root))
+        ):
+            return
+        try:
+            restrict_private_tree(root)
+        except OSError as exc:
+            raise PolicyViolation("Local benchmark private ACL preparation failed") from exc
+        if not private_directory(root) or (self.path.exists() and not private_regular(self.path)):
+            raise PolicyViolation("Local benchmark private ACL verification failed")
+
     def _connect(self) -> sqlite3.Connection:
         if not private_regular(self.path):
             raise PolicyViolation("Local benchmark database identity invalid")
@@ -398,7 +417,7 @@ class SQLiteLocalBenchmarkLab:
         ):
             raise ValidationFailed("Exact benchmark contracts required")
         if plan.remote_execution:
-            raise PolicyViolation("Mac-local benchmark store rejects remote execution")
+            raise PolicyViolation("Local benchmark store rejects remote execution")
         if (
             plan.suite_digest != suite.suite_digest
             or plan.fixture_registry_digest != registry.registry_digest
@@ -1232,3 +1251,83 @@ class SQLiteLocalBenchmarkLab:
                     "artifact_pair",
                 )
             }
+
+    def campaign_snapshot(self, plan_digest: str) -> dict[str, object] | None:
+        """Return bounded read-only status/report evidence for one exact plan."""
+
+        parse_digest(plan_digest)
+        with closing(self._connect()) as db:
+            plan = db.execute(
+                "select plan_id,suite_digest,model_id,repetitions,body_json "
+                "from benchmark_plan where plan_digest=?",
+                (plan_digest,),
+            ).fetchone()
+            if plan is None:
+                return None
+            suite_row = db.execute(
+                "select body_json from contract where kind='suite' and digest=?",
+                (str(plan["suite_digest"]),),
+            ).fetchone()
+            if suite_row is None:
+                raise PolicyViolation("Stored benchmark suite contract missing")
+            suite = _canonical_document(str(suite_row[0]))
+            fixture_digests = suite.get("fixture_digests")
+            if not isinstance(fixture_digests, list) or not fixture_digests:
+                raise PolicyViolation("Stored benchmark suite fixture set invalid")
+            plan_id = str(plan["plan_id"])
+            trial_count = int(
+                db.execute(
+                    "select count(*) from benchmark_trial where plan_id=?", (plan_id,)
+                ).fetchone()[0]
+            )
+            failure_count = int(
+                db.execute(
+                    "select count(*) from benchmark_failure where plan_id=?", (plan_id,)
+                ).fetchone()[0]
+            )
+            claim_count = int(
+                db.execute(
+                    "select count(*) from call_claim where plan_digest=?", (plan_digest,)
+                ).fetchone()[0]
+            )
+            receipt_count = int(
+                db.execute(
+                    "select count(*) from call_receipt r join call_claim c "
+                    "on c.claim_id=r.claim_id where c.plan_digest=?",
+                    (plan_digest,),
+                ).fetchone()[0]
+            )
+            aggregate_row = db.execute(
+                "select aggregate_digest,body_json from benchmark_aggregate where plan_id=?",
+                (plan_id,),
+            ).fetchone()
+        expected_trials = int(plan["repetitions"]) * len(fixture_digests)
+        if aggregate_row is not None:
+            state = "completed"
+        elif failure_count:
+            state = "failed"
+        elif trial_count:
+            state = "running"
+        else:
+            state = "planned"
+        aggregate = None if aggregate_row is None else _canonical_document(str(aggregate_row[1]))
+        return {
+            "schema": "zekam-native-benchmark-campaign-status/v1",
+            "plan_id": plan_id,
+            "plan_digest": plan_digest,
+            "suite_digest": str(plan["suite_digest"]),
+            "model_id": str(plan["model_id"]),
+            "state": state,
+            "repetitions": int(plan["repetitions"]),
+            "expected_trials": expected_trials,
+            "trial_count": trial_count,
+            "failure_count": failure_count,
+            "expected_calls": expected_trials * 2,
+            "claim_count": claim_count,
+            "receipt_count": receipt_count,
+            "aggregate_digest": None if aggregate_row is None else str(aggregate_row[0]),
+            "aggregate": aggregate,
+            "provider_calls": 0,
+            "read_only": True,
+            "grants_authority": False,
+        }

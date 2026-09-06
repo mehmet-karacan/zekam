@@ -20,6 +20,7 @@ from rich.table import Table
 
 from zekam import __version__
 from zekam.application.active_task_contract import ActiveTaskContract
+from zekam.application.capability_inventory import capability_inventory
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
 from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
@@ -29,7 +30,14 @@ from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
 )
+from zekam.application.opencode_embedding import default_opencode_config_file
+from zekam.application.project_rag_runtime import (
+    query_registered_project,
+    resolve_question_project,
+    resolve_registered_project,
+)
 from zekam.application.setup import build_setup_plan, setup_plan_digest, setup_plan_payload
+from zekam.application.workspace_resume import build_resume_packet, render_resume_prompt
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.domain.realm import DEFAULT_REALM_SLUG
@@ -45,8 +53,11 @@ from zekam.interfaces.cli import knowledge as knowledge_commands
 from zekam.interfaces.cli import local_core as local_core_commands
 from zekam.interfaces.cli import local_runtime as local_runtime_commands
 from zekam.interfaces.cli import model as model_commands
+from zekam.interfaces.cli import opencode as opencode_commands
 from zekam.interfaces.cli import project as project_commands
 from zekam.interfaces.cli import protocol as protocol_commands
+from zekam.interfaces.cli import research as research_commands
+from zekam.interfaces.cli import route as route_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import surface as surface_commands
@@ -77,12 +88,14 @@ app = typer.Typer(
 console = Console()
 error_console = Console(stderr=True)
 _OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
+_DEFAULT_OPENCODE_CONFIG_FILE = default_opencode_config_file()
 
 app.add_typer(db_commands.app)
 app.add_typer(project_commands.app)
 app.add_typer(protocol_commands.app)
 app.add_typer(work_commands.app)
 app.add_typer(model_commands.app)
+app.add_typer(opencode_commands.app)
 app.add_typer(backup_commands.app)
 app.add_typer(client_commands.app)
 app.add_typer(sandbox_commands.sandbox_app)
@@ -94,6 +107,8 @@ app.add_typer(continuity_commands.app)
 app.add_typer(configuration_commands.config_app)
 app.add_typer(configuration_commands.permission_app)
 app.add_typer(jira_commands.app)
+app.add_typer(route_commands.app)
+app.add_typer(research_commands.app)
 app.add_typer(surface_commands.app)
 app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
@@ -120,6 +135,100 @@ def main(
     # ``meta``.  The registry is authority-free; leaf services retain their
     # existing exact plan/authorization/claim/receipt gates.
     ctx.find_root().meta[CLI_MUTATION_REGISTRY_META_KEY] = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY
+
+
+@app.command("capabilities")
+def capabilities_command(
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Reviewed Zekam capability inventory with explicit readiness gaps."""
+
+    document = capability_inventory()
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+        return
+    counts = document["counts"]
+    console.print(
+        f"ready={counts['ready']} partial={counts['partial']} scaffold={counts['scaffold']}"
+    )
+
+
+@app.command("resume")
+def resume_command(
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    prompt: Annotated[bool, typer.Option("--prompt")] = False,
+    session_id: Annotated[str | None, typer.Option("--session")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Model-independent work, checkpoint, project and capability resume packet."""
+
+    if output_json and prompt:
+        error_console.print("[red]Hata:[/red] --json ve --prompt birlikte kullanilamaz")
+        raise typer.Exit(EXIT_USAGE_ERROR)
+    try:
+        document = build_resume_packet(resolve_home(home), session_id=session_id)
+    except ZekamError as exc:
+        error_console.print(f"[red]Hata:[/red] {exc}")
+        raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
+    if prompt:
+        typer.echo(render_resume_prompt(document))
+    elif output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        checkpoint = document["latest_semantic_checkpoint"]
+        completed = checkpoint["completed"] if checkpoint else "semantic checkpoint yok"
+        console.print(f"{document['semantic_state']}: {completed}")
+        console.print(f"siradaki: {document['next_safe_action']}")
+
+
+@app.command()
+def ask(
+    question: Annotated[str, typer.Argument(help="Proje bilgisi icin exact kullanici sorusu")],
+    project: Annotated[str | None, typer.Option("--project", help="Exact proje slug")] = None,
+    output_json: Annotated[bool, typer.Option("--json", help="RAG sonucunu JSON yazar")] = False,
+    authorize_remote_query: Annotated[
+        bool,
+        typer.Option(
+            "--authorize-remote-query", help="Sorgu embedding'ini uzak saglayiciya yollar"
+        ),
+    ] = False,
+    opencode_config: Annotated[
+        Path, typer.Option("--opencode-config")
+    ] = _DEFAULT_OPENCODE_CONFIG_FILE,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Dogal dil sorusunu aktif project-scoped hybrid RAG indeksine yonlendirir."""
+
+    if not authorize_remote_query:
+        error_console.print(
+            "[red]Hata:[/red] Remote query embedding explicit --authorize-remote-query ister"
+        )
+        raise typer.Exit(77)
+    try:
+        resolved_home = resolve_home(home).resolve(strict=True)
+        selected_project = (
+            resolve_registered_project(resolved_home, project)
+            if project is not None
+            else resolve_question_project(resolved_home, question)
+        )
+        retrieval = query_registered_project(
+            resolved_home,
+            selected_project,
+            question,
+            opencode_config=opencode_config,
+        )
+    except ZekamError as exc:
+        error_console.print(f"[red]Hata:[/red] {exc}")
+        raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
+    result = {
+        "schema": "zekam-ask-result/v1",
+        "project_ref": selected_project,
+        "retrieval": retrieval,
+    }
+    if output_json:
+        console.print_json(json.dumps(result, ensure_ascii=False))
+    else:
+        console.print(str(retrieval.get("answer_excerpt", "")))
 
 
 @app.command()

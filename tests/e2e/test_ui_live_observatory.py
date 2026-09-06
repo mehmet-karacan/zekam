@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 from urllib.error import HTTPError
@@ -25,10 +24,11 @@ def _read(url: str, *, timeout: float = 1.0) -> tuple[int, dict[str, str], bytes
 
 def test_ui_serve_real_http_is_read_only_and_degrades_without_realm(tmp_path: Path) -> None:
     port = _free_port()
-    executable = Path(sys.executable).with_name("zekam.exe" if os.name == "nt" else "zekam")
+    executable = shutil.which("zekam")
+    assert executable is not None, "installed zekam console script is required"
     process = subprocess.Popen(
         (
-            str(executable),
+            executable,
             "ui",
             "serve",
             "--home",

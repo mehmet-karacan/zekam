@@ -14,12 +14,14 @@ from typing import Any
 import pytest
 import sqlite_vec
 
+import zekam.infrastructure.sqlite.knowledge_index as knowledge_index_module
 from zekam.application.knowledge_index import KnowledgeIndexRecord
 from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator
 from zekam.infrastructure.sqlite.knowledge_index import (
+    MAX_RECORDS_PER_GENERATION,
     VECTOR_DIMENSION,
     SQLiteKnowledgeIndex,
 )
@@ -45,6 +47,7 @@ def _record(
     text: str = "ADR-0006 idempotent dosya ice aktarma SHA-256 ile tekrar engeller.",
     vector: tuple[float, ...] | None = None,
     order: int = 0,
+    object_name: str | None = None,
 ) -> KnowledgeIndexRecord:
     return KnowledgeIndexRecord(
         chunk_id=chunk_id,
@@ -52,7 +55,12 @@ def _record(
         source_revision=revision,
         source_path=path,
         source_digest=digest({"source": path, "revision": revision}),
-        locator=Locator(relative_path=path, line_start=1, line_end=3),
+        locator=Locator(
+            relative_path=path,
+            line_start=1,
+            line_end=3,
+            object_name=object_name,
+        ),
         text=text,
         content_digest=digest_of_bytes(text.encode("utf-8")),
         chunk_order=order,
@@ -110,6 +118,49 @@ def test_generation_exact_lexical_dense_citation_and_restart(tmp_path: Path) -> 
     with SQLiteKnowledgeIndex(path) as restarted:
         assert restarted.generation("akilli-kasa").generation_digest == generation
         assert restarted.dense("akilli-kasa", _vector(1), limit=1)[0].chunk_id == ("chunk-decimal")
+
+
+def test_exact_database_object_locator_outranks_incidental_body_matches(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    identifier = "GPU_USER.LOG_REPORT_CREATION:TABLE"
+    noisy = tuple(
+        _record(
+            f"source-{index}",
+            path=f"reports/template-{index}.jrxml",
+            text=f"Reference to {identifier} in report template {index}",
+            order=index,
+        )
+        for index in range(25)
+    )
+    database = _record(
+        "oracle-object",
+        path="oracle/table/LOG_REPORT_CREATION",
+        text=f"Object: {identifier}\nCREATE TABLE LOG_REPORT_CREATION (ID NUMBER)",
+        order=10_000,
+        object_name=identifier,
+    )
+
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        _build(index, (*noisy, database))
+        hits = index.exact("akilli-kasa", (identifier,), limit=20)
+
+    assert hits[0].chunk_id == "oracle-object"
+
+
+def test_generation_bound_accepts_real_medium_repository_scale() -> None:
+    assert MAX_RECORDS_PER_GENERATION >= 20_518
+
+
+def test_generation_over_bound_fails_with_explicit_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    monkeypatch.setattr(knowledge_index_module, "MAX_RECORDS_PER_GENERATION", 1)
+    with (
+        SQLiteKnowledgeIndex(path, create=True) as index,
+        pytest.raises(ValidationFailed, match=r"2 > 1"),
+    ):
+        _build(index, (_record("first"), _record("second", order=1)))
 
 
 def test_journal_mode_follows_runtime_wal_safety_and_uses_writer_lock(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import stat
@@ -151,6 +152,25 @@ class KnowledgeFileStore:
                     os.close(descriptor)
         except FileNotFoundError:
             return None
+
+    def read_note(
+        self, manifest: KnowledgeNoteManifest, *, relative_ref: str | None = None
+    ) -> bytes:
+        """Read one manifested note through the race/reparse-safe file boundary."""
+
+        relative = validate_portable_relative(relative_ref or manifest.portable_ref)
+        if manifest.state == "archived":
+            expected = f"archive/{manifest.owner_scope.replace(':', '/')}/"
+            if not relative.startswith(expected):
+                raise LayoutError("Archived knowledge note owner archive root disinda")
+        if manifest.state != "archived" and relative != manifest.portable_ref:
+            raise LayoutError("Active knowledge note portable ref drift")
+        payload = self._read_optional(relative, max_bytes=2 * 1024 * 1024)
+        if payload is None:
+            raise LayoutError("Knowledge note bulunamadi")
+        if note_content_digest(payload) != manifest.content_digest:
+            raise ConcurrencyConflict("Knowledge note content digest drift")
+        return payload
 
     def _unlink(self, relative: str) -> None:
         if os.name == "nt":
@@ -376,6 +396,46 @@ class KnowledgeFileStore:
             if existing != payload:
                 raise
             return self.home / manifest.portable_ref
+
+    def write_private_binding(self, relative: str, payload: bytes) -> Path:
+        """Atomically write a private project binding through the safe home boundary."""
+
+        portable = validate_portable_relative(relative)
+        parts = PurePosixPath(portable).parts
+        if (
+            len(parts) != 4
+            or parts[0] != "projeler"
+            or parts[2] != "baglantilar"
+            or not parts[3].endswith(".json")
+        ):
+            raise LayoutError("Private binding project baglantilar JSON ref ister")
+        existing = self._read_optional(portable, max_bytes=2 * 1024 * 1024)
+        if existing == payload:
+            return self.home / portable
+        return self._atomic_write(portable, payload, replace_existing=existing is not None)
+
+    def read_private_binding(self, relative: str) -> dict[str, object]:
+        """Read one bounded project binding through the same safe path boundary."""
+
+        portable = validate_portable_relative(relative)
+        parts = PurePosixPath(portable).parts
+        if (
+            len(parts) != 4
+            or parts[0] != "projeler"
+            or parts[2] != "baglantilar"
+            or not parts[3].endswith(".json")
+        ):
+            raise LayoutError("Private binding project baglantilar JSON ref ister")
+        payload = self._read_optional(portable, max_bytes=2 * 1024 * 1024)
+        if payload is None:
+            raise LayoutError("Private binding bulunamadi")
+        try:
+            value = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValidationFailed("Private binding strict JSON olmali") from exc
+        if not isinstance(value, dict):
+            raise ValidationFailed("Private binding JSON object olmali")
+        return value
 
     def archive_note(self, manifest: KnowledgeNoteManifest) -> str:
         with self._archive_lock:

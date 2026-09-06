@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -96,3 +97,11 @@ def test_oracle_metadata_plan_is_ddl_digest_bound_and_local_only() -> None:
     embedding = plan.as_dict()["embedding"]
     assert isinstance(embedding, dict)
     assert embedding["remote_provider_used"] is False
+
+    refreshed = build_oracle_metadata_index_plan(
+        project_id=plan.project_id,
+        project_slug="gpu-fusion",
+        snapshot=replace(snapshot, database_identity_digest=digest({"database": "refreshed"})),
+    )
+    assert refreshed.snapshot.revision_digest != plan.snapshot.revision_digest
+    assert refreshed.chunks[0].chunk_id == plan.chunks[0].chunk_id

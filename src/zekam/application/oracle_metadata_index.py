@@ -557,9 +557,18 @@ def build_oracle_metadata_index_plan(
         dimension=REAL_EMBEDDING_DIMENSION,
         distance="cosine",
     )
+
+    def stable_chunk_suffix(unit: ContentUnit) -> str:
+        return digest(
+            {
+                "unit_id": unit.unit_id,
+                "content_digest": digest_of_bytes(unit.text.encode("utf-8")),
+            }
+        )[-24:]
+
     chunks = tuple(
         Chunk(
-            chunk_id=f"oracle-{project_id}-{snapshot.revision_digest[-12:]}-c{index}",
+            chunk_id=f"oracle-{project_id}-{stable_chunk_suffix(unit)}",
             document_id=document.document_id,
             text=unit.text,
             locator=unit.locator,

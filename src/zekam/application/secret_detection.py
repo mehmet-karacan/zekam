@@ -19,6 +19,28 @@ from typing import Any
 #: Maskelenmis ozet uzunlugu. Tam digest de degeri dogrulamaya yarayabilecegi icin kisaltilir.
 FINGERPRINT_LENGTH = 12
 
+# Unquoted ``key=value`` / YAML scalars are meaningful in configuration and
+# metadata payloads.  In source files the same shapes are commonly Python/Java
+# identifiers, annotations or keyword arguments; quoted literals remain scanned.
+_CODE_SUFFIXES = (
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".py",
+    ".rs",
+    ".ts",
+    ".tsx",
+)
+
 
 class SecretSeverity(StrEnum):
     """Bulgunun ciddiyeti."""
@@ -80,9 +102,17 @@ SECRET_RULES: tuple[SecretRule, ...] = (
         title="Atanmis kimlik bilgisi",
         severity=SecretSeverity.MEDIUM,
         pattern=re.compile(
-            r"(?i)\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
+            r"(?i)(?:"
+            r"\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
             r"|client[_-]?secret|password|passwd|token|secret|credential)\b\s*[:=]\s*"
-            r"""(?P<quote>['"])(?P<value>[^'"\s]{8,})(?P=quote)"""
+            r"""(?P<quote>['"])(?P<quoted>[^'"\s]{8,})(?P=quote)"""
+            r"|^\s*(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
+            r"|client[_-]?secret|password|passwd|token|secret|credential)\s*:\s*"
+            r"""(?P<yaml_value>[^\s#,'"}\]]{8,})\s*(?:#.*)?$"""
+            r"|\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token"
+            r"|client[_-]?secret|password|passwd|token|secret|credential)="
+            r"""(?P<env_value>[^\s#,'"}\])]{8,})(?=$|[\s;])"""
+            r")"
         ),
     ),
     SecretRule(
@@ -106,6 +136,7 @@ PLACEHOLDER_MARKERS: tuple[str, ...] = (
     "dummy",
     "redacted",
     "<",
+    "${",
 )
 
 
@@ -141,6 +172,11 @@ def _looks_like_placeholder(line: str) -> bool:
     return any(marker in lowered for marker in PLACEHOLDER_MARKERS)
 
 
+def _is_code_path(relative_path: str) -> bool:
+    name = relative_path.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    return name.endswith(_CODE_SUFFIXES)
+
+
 def scan_text(
     text: str,
     *,
@@ -150,14 +186,25 @@ def scan_text(
 ) -> tuple[SecretFinding, ...]:
     """Metin icerigini tarar ve deger tasimayan bulgular dondurur."""
     findings: list[SecretFinding] = []
-    for line_number, line in enumerate(text.splitlines()[:max_lines], start=1):
+    lines = text.splitlines()
+    for line_number, line in enumerate(lines[:max_lines], start=1):
         if _looks_like_placeholder(line):
             continue
         for rule in rules:
             match = rule.pattern.search(line)
             if match is None:
                 continue
-            captured = match.groupdict().get("value") or match.group(0)
+            groups = match.groupdict()
+            if (groups.get("yaml_value") or groups.get("env_value")) and _is_code_path(
+                relative_path
+            ):
+                continue
+            captured = (
+                groups.get("quoted")
+                or groups.get("yaml_value")
+                or groups.get("env_value")
+                or match.group(0)
+            )
             findings.append(
                 SecretFinding(
                     rule_id=rule.rule_id,
@@ -168,6 +215,17 @@ def scan_text(
                     fingerprint=_fingerprint(captured),
                 )
             )
+    if len(lines) > max_lines:
+        findings.append(
+            SecretFinding(
+                rule_id="scan-limit-exceeded",
+                title="Secret tarama satir siniri asildi",
+                severity=SecretSeverity.HIGH,
+                relative_path=relative_path,
+                line_number=max_lines + 1,
+                fingerprint=_fingerprint(f"line-count:{len(lines)}"),
+            )
+        )
     return tuple(findings)
 
 

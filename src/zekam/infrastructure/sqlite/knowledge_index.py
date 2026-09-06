@@ -43,7 +43,10 @@ from zekam.infrastructure.local_file_security import private_regular, restrict_p
 
 SCHEMA_VERSION = 2
 VECTOR_DIMENSION = KNOWLEDGE_VECTOR_DIMENSION
-MAX_RECORDS_PER_GENERATION = 10_000
+# A real medium-sized repository can exceed 10k source chunks. Keep a hard
+# per-generation bound for memory/disk safety, but size it to the Windows
+# acceptance workload (sky-microservis currently produces about 20.5k chunks).
+MAX_RECORDS_PER_GENERATION = 50_000
 MAX_QUERY_BYTES = 16 * 1024
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _FileIdentity = tuple[int, int, int, int, int, int]
@@ -527,15 +530,18 @@ class SQLiteKnowledgeIndex:
         created_at: str,
     ) -> KnowledgeGeneration:
         self._require_writable()
-        if (
-            not records
-            or len(records) > MAX_RECORDS_PER_GENERATION
-            or any(
-                record.project_id != project_id or record.source_revision != source_revision
-                for record in records
+        if not records:
+            raise ValidationFailed("Knowledge generation en az bir kayit ister")
+        if len(records) > MAX_RECORDS_PER_GENERATION:
+            raise ValidationFailed(
+                "Knowledge generation kayit sinirini asiyor: "
+                f"{len(records)} > {MAX_RECORDS_PER_GENERATION}"
             )
+        if any(
+            record.project_id != project_id or record.source_revision != source_revision
+            for record in records
         ):
-            raise ValidationFailed("Knowledge generation bounded single project/revision ister")
+            raise ValidationFailed("Knowledge generation tek project/revision ister")
         if len({record.chunk_id for record in records}) != len(records):
             raise ValidationFailed("Knowledge generation duplicate chunk id tasiyor")
         for value in (
@@ -745,11 +751,33 @@ class SQLiteKnowledgeIndex:
         for identifier in identifiers:
             if not identifier or len(identifier.encode("utf-8")) > MAX_QUERY_BYTES:
                 continue
+            normalized = identifier.casefold()
             rows = self._connection.execute(
                 "select id from chunk where project_id=? and generation_digest=?"
-                " and (instr(body,?)>0 or instr(source_path,?)>0)"
-                " order by chunk_order,id limit ?",
-                (project_id, generation.generation_digest, identifier, identifier, limit),
+                " and ("
+                " lower(coalesce(json_extract(locator_json,'$.object_name'),''))=?"
+                " or instr(lower(coalesce(json_extract(locator_json,'$.object_name'),'')),?)>0"
+                " or instr(lower(source_path),?)>0"
+                " or instr(lower(body),?)>0"
+                ")"
+                " order by case"
+                " when lower(coalesce(json_extract(locator_json,'$.object_name'),''))=? then 0"
+                " when instr(lower(coalesce(json_extract(locator_json,'$.object_name'),'')),?)>0"
+                " then 1"
+                " when instr(lower(source_path),?)>0 then 2"
+                " else 3 end,chunk_order,id limit ?",
+                (
+                    project_id,
+                    generation.generation_digest,
+                    normalized,
+                    normalized,
+                    normalized,
+                    normalized,
+                    normalized,
+                    normalized,
+                    normalized,
+                    limit,
+                ),
             ).fetchall()
             for row in rows:
                 chunk_id = str(row[0])

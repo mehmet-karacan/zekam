@@ -10,7 +10,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import NAMESPACE_URL, uuid5
 
 import typer
@@ -27,12 +27,25 @@ from zekam.application.knowledge_ingestion import (
     pending_version,
 )
 from zekam.application.knowledge_parsers import default_router
+from zekam.application.markdown_knowledge import (
+    list_markdown_knowledge,
+    search_markdown_knowledge,
+    show_markdown_knowledge,
+)
+from zekam.application.markdown_knowledge_mutation import (
+    apply_knowledge_mutation,
+    build_knowledge_mutation_plan,
+    knowledge_mutation_status,
+    knowledge_recovery_plan_body,
+)
 from zekam.domain.canonical import digest, digest_of_bytes
-from zekam.domain.errors import ValidationFailed, ZekamError
+from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.knowledge import SourceFormat
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.knowledge.document_parsers import media_type_for
+from zekam.infrastructure.knowledge_files import KnowledgeFileStore
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 from zekam.interfaces.cli.session import (
     HOME_HELP,
@@ -114,6 +127,339 @@ def _materialize_once(path: Path, payload: bytes) -> None:
             os.close(descriptor)
     except OSError as exc:
         raise ValidationFailed("Knowledge materialization yazilamadi") from exc
+
+
+def _read_scope(
+    *, home: str | None, realm: str, project: str | None, work: str | None
+) -> tuple[SQLiteOperationalStore, Path, str | None, str | None]:
+    context = build_context(home=home)
+    operational = sqlite_operational_store(home, realm)
+    assert operational is not None
+    project_id: str | None = None
+    owner_scope: str | None = "global-user" if project is None and work is None else None
+    with operational.unit_of_work() as uow:
+        if project is not None:
+            project_id = uow.resolve_project(project).id
+        if work is not None:
+            record = uow.get_work(work)
+            if project_id is not None and record.project_id != project_id:
+                raise ValidationFailed("Knowledge work/project scope eslesmiyor")
+            project_id = record.project_id
+            owner_scope = f"work:{record.id}"
+        uow.commit()
+    return operational, context.home, project_id, owner_scope
+
+
+@app.command("list")
+def list_command(
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    note_kind: Annotated[str | None, typer.Option("--kind")] = None,
+    state: Annotated[str | None, typer.Option("--state")] = "active",
+    limit: Annotated[int, typer.Option("--limit", min=1, max=1000)] = 100,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Kanonik Markdown note metadata'sini scope'lu ve bounded listeler."""
+
+    try:
+        store, _root, project_id, owner_scope = _read_scope(
+            home=home, realm=realm, project=project, work=work
+        )
+        with store.unit_of_work() as uow:
+            document_out = list_markdown_knowledge(
+                uow,
+                project_id=project_id,
+                owner_scope=owner_scope,
+                note_kind=note_kind,
+                state=state,
+                limit=limit,
+            )
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+    else:
+        for item in cast(list[dict[str, object]], document_out["notes"]):
+            console.print(f"{item['note_id']}\t{item['note_kind']}\t{item['portable_ref']}")
+
+
+@app.command("show")
+def show_command(
+    reference: Annotated[str, typer.Argument(help="Note UUID veya portable ref")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Markdown govdesini content digest'ini dogrulayarak gosterir."""
+
+    try:
+        store, root, project_id, owner_scope = _read_scope(
+            home=home, realm=realm, project=project, work=work
+        )
+        with store.unit_of_work() as uow:
+            document_out = show_markdown_knowledge(
+                uow,
+                KnowledgeFileStore(root),
+                reference,
+                project_id=project_id,
+                owner_scope=owner_scope,
+            )
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+    else:
+        typer.echo(document_out["body"])
+
+
+@app.command("search")
+def search_command(
+    query: Annotated[str, typer.Argument(help="Markdown lexical arama metni")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    note_kind: Annotated[str | None, typer.Option("--kind")] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 20,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Aktif Markdown notlarini digest dogrulamali lexical olarak arar."""
+
+    try:
+        store, root, project_id, owner_scope = _read_scope(
+            home=home, realm=realm, project=project, work=work
+        )
+        with store.unit_of_work() as uow:
+            document_out = search_markdown_knowledge(
+                uow,
+                KnowledgeFileStore(root),
+                query,
+                project_id=project_id,
+                owner_scope=owner_scope,
+                note_kind=note_kind,
+                limit=limit,
+            )
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+    else:
+        for item in cast(list[dict[str, object]], document_out["hits"]):
+            note = cast(dict[str, object], item["note"])
+            console.print(f"{item['score']}\t{note['portable_ref']}\t{item['excerpt']}")
+
+
+def _mutation_command(
+    operation: str,
+    *,
+    reference: str | None,
+    source_file: Path | None,
+    title: str | None,
+    project: str | None,
+    work: str | None,
+    note_kind: str | None,
+    classification: str | None,
+    expected_plan_digest: str | None,
+    apply: bool,
+    output_json: bool,
+    realm: str,
+    home: str | None,
+) -> None:
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        root = build_context(home=home).home
+        files = KnowledgeFileStore(root)
+        recovery_body = (
+            knowledge_recovery_plan_body(root, expected_plan_digest)
+            if apply and expected_plan_digest is not None
+            else None
+        )
+        plan = build_knowledge_mutation_plan(
+            store,
+            files,
+            operation=operation,
+            project_ref=project,
+            work_ref=work,
+            reference=reference,
+            source_file=source_file,
+            title=title,
+            note_kind=note_kind,
+            classification=classification,
+            recovery_body=recovery_body,
+        )
+        if not apply:
+            document_out = plan.body
+        else:
+            if expected_plan_digest is None:
+                raise PolicyViolation("Knowledge mutation --plan-digest ister")
+            document_out = apply_knowledge_mutation(
+                store,
+                files,
+                root,
+                plan,
+                expected_plan_digest=expected_plan_digest,
+            )
+    except (ValueError, ZekamError) as exc:
+        if isinstance(exc, ZekamError):
+            raise fail_from(exc) from exc
+        raise fail(str(exc)) from exc
+    if output_json:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+    else:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+
+
+@app.command("create")
+def create_command(
+    source_file: Annotated[Path, typer.Argument(help="UTF-8 Markdown govde dosyasi")],
+    title: Annotated[str, typer.Option("--title")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    note_kind: Annotated[str | None, typer.Option("--kind")] = "note",
+    classification: Annotated[str | None, typer.Option("--classification")] = "internal",
+    expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """User-owned Markdown note icin plan uretir veya exact plani uygular."""
+
+    _mutation_command(
+        "create",
+        reference=None,
+        source_file=source_file,
+        title=title,
+        project=project,
+        work=work,
+        note_kind=note_kind,
+        classification=classification,
+        expected_plan_digest=expected_plan_digest,
+        apply=apply,
+        output_json=output_json,
+        realm=realm,
+        home=home,
+    )
+
+
+@app.command("update")
+def update_command(
+    reference: Annotated[str, typer.Argument(help="Guncellenecek note UUID/ref")],
+    source_file: Annotated[Path, typer.Argument(help="Yeni UTF-8 Markdown govdesi")],
+    title: Annotated[str, typer.Option("--title")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    note_kind: Annotated[str | None, typer.Option("--kind")] = None,
+    classification: Annotated[str | None, typer.Option("--classification")] = None,
+    expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Yeni immutable revision uretir ve onceki revision'i arsivler."""
+
+    _mutation_command(
+        "update",
+        reference=reference,
+        source_file=source_file,
+        title=title,
+        project=project,
+        work=work,
+        note_kind=note_kind,
+        classification=classification,
+        expected_plan_digest=expected_plan_digest,
+        apply=apply,
+        output_json=output_json,
+        realm=realm,
+        home=home,
+    )
+
+
+@app.command("archive")
+def archive_command(
+    reference: Annotated[str, typer.Argument(help="Arsivlenecek note UUID/ref")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Note'u silmeden digest-bound arsivler."""
+
+    _mutation_command(
+        "archive",
+        reference=reference,
+        source_file=None,
+        title=None,
+        project=project,
+        work=work,
+        note_kind=None,
+        classification=None,
+        expected_plan_digest=expected_plan_digest,
+        apply=apply,
+        output_json=output_json,
+        realm=realm,
+        home=home,
+    )
+
+
+@app.command("restore")
+def restore_command(
+    reference: Annotated[str, typer.Argument(help="Archived note UUID/ref")],
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    work: Annotated[str | None, typer.Option("--work")] = None,
+    expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Archived user note'tan yeni active revision uretir."""
+
+    _mutation_command(
+        "restore",
+        reference=reference,
+        source_file=None,
+        title=None,
+        project=project,
+        work=work,
+        note_kind=None,
+        classification=None,
+        expected_plan_digest=expected_plan_digest,
+        apply=apply,
+        output_json=output_json,
+        realm=realm,
+        home=home,
+    )
+
+
+@app.command("mutation-status")
+def mutation_status_command(
+    reference: Annotated[str, typer.Argument(help="Knowledge mutation job UUID")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Knowledge mutation claim/receipt durumunu salt okunur gosterir."""
+
+    try:
+        document_out = knowledge_mutation_status(build_context(home=home).home, reference)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document_out, ensure_ascii=False))
+    else:
+        console.print(f"{document_out['job_id']}\t{document_out['state']}")
 
 
 @app.command("vector-index")

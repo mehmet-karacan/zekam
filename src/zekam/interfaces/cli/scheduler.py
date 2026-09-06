@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from dataclasses import asdict
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from rich.console import Console
@@ -82,7 +82,21 @@ def report_command(home: Annotated[str | None, typer.Option("--home")] = None) -
     """Read and reconcile the current immutable analytics reports."""
 
     try:
-        document = _services(home).analytics.current_projection()
+        services = _services(home)
+        analytics_status = cast(
+            dict[str, object], services.status(semantic_analytics=True)["analytics"]
+        )
+        if analytics_status["state"] == "empty":
+            document = {
+                "schema": "zekam-local-analytics-empty/v1",
+                "state": "empty",
+                "reports": {},
+                "semantic_fingerprint": analytics_status["semantic_fingerprint"],
+                "read_only": True,
+                "grants_authority": False,
+            }
+        else:
+            document = services.analytics.current_projection()
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(70) from exc

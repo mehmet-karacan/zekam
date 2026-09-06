@@ -56,6 +56,34 @@ def test_assigned_credential_is_detected() -> None:
     assert "assigned-credential" in _rule_ids('api_key = "abcdefgh12345678"')
 
 
+def test_unquoted_yaml_and_env_credentials_are_detected() -> None:
+    assert "assigned-credential" in _rule_ids("password: synthetic-value-12345")
+    assert "assigned-credential" in _rule_ids("AUTH_TOKEN=synthetic-token-12345")
+
+
+def test_environment_reference_is_not_treated_as_secret_value() -> None:
+    assert scan_text("password: ${DATABASE_PASSWORD}", relative_path="application.yaml") == ()
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'password = _required_text(datasource, "password", "password")',
+        "credential: SecretValue,",
+        "token = self.owner_token",
+    ],
+)
+def test_code_identifiers_are_not_treated_as_unquoted_secret_values(line: str) -> None:
+    assert scan_text(line, relative_path="config.py") == ()
+
+
+def test_scan_limit_excess_fails_closed_without_content() -> None:
+    findings = scan_text("safe\nline\nextra", relative_path="large.sql", max_lines=2)
+    assert findings[0].rule_id == "scan-limit-exceeded"
+    assert findings[0].line_number == 3
+    assert "extra" not in repr(findings[0].as_dict())
+
+
 def test_authorization_header_is_detected() -> None:
     assert "authorization-header" in _rule_ids('Authorization: "Bearer abcdefgh12345678"')
 

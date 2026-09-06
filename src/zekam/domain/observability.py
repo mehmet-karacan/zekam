@@ -86,6 +86,7 @@ class CommandContract:
 
 #: Kanonik CLI yuzeyi. Yuzeyler bu listeden turer.
 CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
+    CommandContract("capabilities", "Yetkinlik ve bosluk envanterini gosterir", mutating=False),
     CommandContract("doctor", "Kurulum ve baglanti sagligini raporlar", mutating=False),
     CommandContract(
         "init", "ZEKAM_HOME yerlesimini olusturur", mutating=True, requires_apply_flag=True
@@ -95,12 +96,56 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     ),
     CommandContract("project add", "Proje kaydeder", mutating=True, requires_apply_flag=True),
     CommandContract("project list", "Projeleri listeler", mutating=False),
+    CommandContract("resume", "Model bagimsiz devam paketini gosterir", mutating=False),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),
     CommandContract("knowledge scan", "Dizini salt okunur tarar", mutating=False),
+    CommandContract("knowledge list", "Markdown notlarini scope ile listeler", mutating=False),
+    CommandContract("knowledge show", "Markdown notunu digest ile dogrular", mutating=False),
+    CommandContract("knowledge search", "Markdown notlarini lexical arar", mutating=False),
+    CommandContract(
+        "knowledge create", "User Markdown notu olusturur", mutating=True, requires_apply_flag=True
+    ),
+    CommandContract(
+        "knowledge update",
+        "Yeni immutable Markdown revizyonu uretir",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
+    CommandContract(
+        "knowledge archive",
+        "Markdown notunu recoverable arsivler",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
+    CommandContract(
+        "knowledge restore",
+        "Arsivden yeni aktif revizyon uretir",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
+    CommandContract(
+        "knowledge mutation-status", "Markdown mutation receipt durumunu okur", mutating=False
+    ),
     CommandContract(
         "knowledge ingest",
         "Belgeyi normalize eder ve aktive eder",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
+    CommandContract(
+        "research run",
+        "Project RAG kanitini OpenCode researcher/verifier ile raporlar",
+        mutating=True,
+        requires_apply_flag=True,
+        requires_authorization=True,
+    ),
+    CommandContract("research status", "Research job ve receipt durumunu okur", mutating=False),
+    CommandContract("research report", "Digest dogrulamali research raporunu okur", mutating=False),
+    CommandContract("project odi-preflight", "ODI 11g XML exportunu guvenli tarar", mutating=False),
+    CommandContract(
+        "project odi-bind",
+        "ODI 11g exportunu local-only baglar",
         mutating=True,
         requires_apply_flag=True,
     ),

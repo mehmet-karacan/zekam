@@ -610,6 +610,11 @@ def test_project_resolution_and_alias_slug_collisions_fail_atomically(tmp_path: 
     with store.unit_of_work() as uow:
         assert uow.resolve_project("one") == first
         assert uow.list_project_aliases(first.id) == ("one",)
+        uow.remove_project_alias(project_id=first.id, alias="one")
+        assert uow.list_project_aliases(first.id) == ()
+        with pytest.raises(ValidationFailed, match="bagli degil"):
+            uow.remove_project_alias(project_id=first.id, alias="one")
+        uow.add_project_alias(project_id=first.id, alias="one")
         with pytest.raises(ValidationFailed, match="mevcut slug"):
             uow.add_project_alias(project_id=first.id, alias="first")
 

@@ -382,12 +382,22 @@ class OpenCodeRemoteEmbeddingProvider:
                 "dimension": self._dimension,
             }
         )
+        model_revision_fingerprint = digest(
+            {
+                "provider_id": self._configuration.provider_id,
+                "endpoint_identity_digest": (self._configuration.endpoint_identity.identity_digest),
+                "canonical_model_id": self._configuration.canonical_model_id,
+                "exact_model_id": self._configuration.selected_model_id,
+                "dimension": self._dimension,
+            }
+        )
         evidence_body = {
             "schema": "zekam-opencode-remote-embedding-probe/v1",
             "provider_identity_digest": self._configuration.endpoint_identity.identity_digest,
             "exact_model_id": self._configuration.selected_model_id,
             "canonical_model_id": self._configuration.canonical_model_id,
             "public_probe_fingerprint": response_fingerprint,
+            "model_revision_fingerprint": model_revision_fingerprint,
             "source_refs": list(fixture.source_refs),
             "source_digests": list(fixture.source_digests),
             "dimension": self._dimension,
@@ -411,7 +421,8 @@ class OpenCodeRemoteEmbeddingProvider:
         profile = EmbeddingProfile(
             profile_id=(
                 "opencode-remote-"
-                f"{self._configuration.canonical_model_id[:12]}-{response_fingerprint[7:19]}"
+                f"{self._configuration.canonical_model_id[:12]}-"
+                f"{model_revision_fingerprint[7:19]}"
             ),
             display_name="Windows OpenCode remote embedding",
             provider_kind=EmbeddingProviderKind.REMOTE,
@@ -424,7 +435,7 @@ class OpenCodeRemoteEmbeddingProvider:
                 }
             ),
             exact_model_id=self._configuration.selected_model_id,
-            model_revision_fingerprint=response_fingerprint,
+            model_revision_fingerprint=model_revision_fingerprint,
             dimension=self._dimension,
             vector_dtype="float32",
             normalized=True,
