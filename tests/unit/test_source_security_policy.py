@@ -14,9 +14,25 @@ from zekam.domain.errors import ValidationFailed
 
 def test_reviewed_secret_fixture_allowlist_is_exact_and_digest_bound() -> None:
     policy = load_secret_scan_allowlist()
-    assert len(policy.allowances) == 32
+    identities = {
+        (item.surface, item.relative_path, item.rule_id, item.fingerprint)
+        for item in policy.allowances
+    }
+    assert len(policy.allowances) == len(identities) == 40
     assert policy.policy_digest.startswith("sha256:")
     assert all(item.relative_path.startswith("tests/") for item in policy.allowances)
+    detection_current = {
+        (item.rule_id, item.fingerprint)
+        for item in policy.allowances
+        if item.surface == "current" and item.relative_path == "tests/unit/test_secret_detection.py"
+    }
+    detection_history = {
+        (item.rule_id, item.fingerprint)
+        for item in policy.allowances
+        if item.surface == "history" and item.relative_path == "tests/unit/test_secret_detection.py"
+    }
+    assert len(detection_current) == 8
+    assert detection_history == detection_current
 
 
 def test_secret_allowlist_unknown_field_is_rejected(tmp_path: Path) -> None:

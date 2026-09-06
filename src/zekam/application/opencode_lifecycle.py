@@ -552,9 +552,13 @@ def _safe_tool_name(value: Any) -> str:
 
 
 def resume_projection(
-    home: Path, *, limit: int = 20, now: dt.datetime | None = None
+    home: Path,
+    *,
+    limit: int = 20,
+    now: dt.datetime | None = None,
+    quarantine_invalid: bool = True,
 ) -> dict[str, Any]:
-    events = list(recent_events(home, limit=5000))
+    events = list(recent_events(home, limit=5000, quarantine_invalid=quarantine_invalid))
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))
     sessions: dict[str, dict[str, Any]] = {}
     pending_tools: dict[str, tuple[str, dt.datetime]] = {}
@@ -648,7 +652,9 @@ def resume_projection(
     }
 
 
-def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
+def recent_events(
+    home: Path, *, limit: int = 80, quarantine_invalid: bool = True
+) -> tuple[dict[str, Any], ...]:
     """Return newest verified, content-free OpenCode lifecycle events."""
 
     if limit < 1 or limit > 5000:
@@ -656,7 +662,7 @@ def recent_events(home: Path, *, limit: int = 80) -> tuple[dict[str, Any], ...]:
     root = lifecycle_root(home)
     if not root.is_dir():
         return ()
-    events = _verified_events(root, quarantine_invalid=True)
+    events = _verified_events(root, quarantine_invalid=quarantine_invalid)
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]), reverse=True)
     return tuple(events[:limit])
 

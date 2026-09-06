@@ -35,8 +35,10 @@ _IDENTIFIER = re.compile(
     r"(?<![\w#])#\d+|\b(?:"
     r"[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+|"
     r"[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|"
+    r"[A-Za-z][A-Za-z0-9_$#]*\.[A-Za-z][A-Za-z0-9_$#]*"
+    r"(?::[A-Za-z][A-Za-z0-9_$#]*)?|"
     r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|"
-    r"\w+\.\w+|\d{3,}"
+    r"\d{3,}"
     r")\b"
 )
 _PORTABLE_PATH = re.compile(r"(?<![\w/])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?![\w/])")

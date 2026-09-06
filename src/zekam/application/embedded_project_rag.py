@@ -30,6 +30,22 @@ def _tokens(value: str) -> frozenset[str]:
     return frozenset(item.casefold() for item in _TOKEN.findall(value) if len(item) > 1)
 
 
+def _supports_all_identifiers(text: str, identifiers: tuple[str, ...]) -> bool:
+    """Require one answerable chunk to contain every technical query identity."""
+
+    if not identifiers:
+        return True
+    text_tokens = _tokens(text)
+    return all(
+        all(
+            part.casefold() in text_tokens
+            for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
+            if len(part) > 1
+        )
+        for identifier in identifiers
+    )
+
+
 def build_embedded_project_generation(
     index: KnowledgeIndexPort,
     plan: ProjectIndexPlan,
@@ -249,6 +265,7 @@ class EmbeddedProjectRAG:
             generation_digest=generation.generation_digest,
         )
         query_terms = _tokens(query)
+        identifiers = extract_identifiers(query)
         lexical_coverage = max(
             (
                 len(query_terms & _tokens(views[hit.chunk_id].text)) / len(query_terms)
@@ -261,17 +278,43 @@ class EmbeddedProjectRAG:
         dense_margin = (
             top_dense - backend.last_dense[1].raw_score if len(backend.last_dense) > 1 else 0.0
         )
+        exact_identity_support = any(
+            hit.chunk_id in views
+            and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            for hit in backend.last_exact
+        )
+        lexical_identity_support = any(
+            hit.chunk_id in views
+            and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            for hit in backend.last_lexical
+        )
+        dense_identity_support = any(
+            hit.chunk_id in views
+            and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            for hit in backend.last_dense[:2]
+        )
         enough_evidence = (
-            bool(backend.last_exact)
-            or lexical_coverage >= self.lexical_coverage_threshold
+            exact_identity_support
+            or (lexical_coverage >= self.lexical_coverage_threshold and lexical_identity_support)
             or (
                 top_dense >= self.dense_evidence_threshold
+                and dense_identity_support
                 and (
                     dense_margin >= self.dense_margin_threshold
-                    or lexical_coverage >= self.lexical_coverage_threshold / 2
+                    or (
+                        lexical_coverage >= self.lexical_coverage_threshold / 2
+                        and lexical_identity_support
+                    )
                 )
             )
         )
+        if identifiers:
+            hits = tuple(
+                hit
+                for hit in hits
+                if hit.chunk_id in views
+                and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            )
         if not enough_evidence:
             hits = ()
         answer = service.build_answer(
@@ -322,7 +365,9 @@ class EmbeddedProjectRAG:
                     "source_digest": identity["source_digest"],
                     "content_digest": identity["content_digest"],
                     "chunk_id": citation.chunk_id,
-                    "locator_type": "project-file",
+                    "locator_type": (
+                        "database-object" if view.locator.object_name else "project-file"
+                    ),
                     "locator": view.locator.as_dict(),
                     "retrieval_channels": [item.value for item in fused_hit.channels],
                     "rank_trace": {
@@ -338,7 +383,10 @@ class EmbeddedProjectRAG:
             state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
         if backend.dense_failure_reason:
             if state == AnswerState.ANSWERED.value and (
-                bool(backend.last_exact) or lexical_coverage >= self.lexical_coverage_threshold
+                exact_identity_support
+                or (
+                    lexical_coverage >= self.lexical_coverage_threshold and lexical_identity_support
+                )
             ):
                 state = "lexical-only-degraded"
             else:
@@ -360,6 +408,10 @@ class EmbeddedProjectRAG:
             "channel_counts": trace.per_channel,
             "candidate_count": len(candidate_ids),
             "lexical_coverage": lexical_coverage,
+            "identifier_count": len(identifiers),
+            "single_chunk_identifier_support": (
+                exact_identity_support or lexical_identity_support or dense_identity_support
+            ),
             "top_dense_similarity": top_dense,
             "dense_top_2_margin": dense_margin,
             "evidence_sufficient": enough_evidence,

@@ -64,6 +64,9 @@ def load_mappings(path: Path | None = None) -> tuple[JiraProjectMapping, ...]:
     if document["schema"] != SCHEMA or not isinstance(document["mappings"], list):
         raise ValidationFailed("Jira mapping schema/version gecersiz")
     mappings: list[JiraProjectMapping] = []
+    seen_project_refs: set[str] = set()
+    seen_aliases: set[str] = set()
+    seen_prefixes: set[str] = set()
     for item in document["mappings"]:
         if not isinstance(item, dict) or set(item) != {
             "project_ref",
@@ -73,15 +76,27 @@ def load_mappings(path: Path | None = None) -> tuple[JiraProjectMapping, ...]:
             raise ValidationFailed("Jira project mapping girdisi gecersiz")
         aliases = tuple(str(alias).strip().casefold() for alias in item["project_aliases"])
         prefix = str(item["jira_prefix"]).strip().upper()
-        if not aliases or len(aliases) != len(set(aliases)) or not prefix.isalnum():
+        project_ref = str(item["project_ref"]).strip().casefold()
+        if (
+            not project_ref
+            or project_ref in seen_project_refs
+            or not aliases
+            or len(aliases) != len(set(aliases))
+            or set(aliases) & seen_aliases
+            or not prefix.isalnum()
+            or prefix in seen_prefixes
+        ):
             raise ValidationFailed("Jira project mapping normalize degil")
         mappings.append(
             JiraProjectMapping(
-                project_ref=str(item["project_ref"]).strip().casefold(),
+                project_ref=project_ref,
                 project_aliases=aliases,
                 jira_prefix=prefix,
             )
         )
+        seen_project_refs.add(project_ref)
+        seen_aliases.update(aliases)
+        seen_prefixes.add(prefix)
     if not mappings:
         raise ValidationFailed("Jira mapping listesi bos olamaz")
     return tuple(mappings)

@@ -176,7 +176,7 @@ class SQLiteLocalRuntimeStore:
             connection.close()
 
     def status(self) -> LocalRuntimeStatus:
-        connection = self._connect()
+        connection = self._connect_readonly()
         try:
             jobs = {
                 str(row["state"]): int(row["count"])
@@ -205,6 +205,62 @@ class SQLiteLocalRuntimeStore:
                 outbox.get("recovery-required", 0),
                 cases,
             )
+        finally:
+            connection.close()
+
+    def job_snapshot(self, reference: str) -> dict[str, Any] | None:
+        """Read one job and its effect receipt chain without exposing lease secrets."""
+
+        selected = _required(reference, "Job reference")
+        connection = self._connect_readonly()
+        try:
+            row = connection.execute(
+                "select * from local_job where id=? or idempotency_key=? order by id",
+                (selected, selected),
+            ).fetchall()
+            if len(row) != 1:
+                return None
+            job = _job(row[0])
+            effects = connection.execute(
+                "select c.id,c.operation,c.effect_digest,c.claimed_at,r.id receipt_id,"
+                "r.status receipt_status,r.evidence_digest,r.created_at receipt_created_at "
+                "from local_effect_claim c left join local_effect_receipt r on r.claim_id=c.id "
+                "where c.job_id=? order by c.claimed_at,c.id",
+                (job.id,),
+            ).fetchall()
+            return {
+                "job_id": job.id,
+                "idempotency_key": job.idempotency_key,
+                "state": job.state,
+                "attempt_count": job.attempt_count,
+                "max_attempts": job.max_attempts,
+                "payload": job.payload,
+                "effects": [
+                    {
+                        "claim_id": str(item["id"]),
+                        "operation": str(item["operation"]),
+                        "effect_digest": str(item["effect_digest"]),
+                        "claimed_at": str(item["claimed_at"]),
+                        "receipt_id": (
+                            None if item["receipt_id"] is None else str(item["receipt_id"])
+                        ),
+                        "receipt_status": (
+                            None if item["receipt_status"] is None else str(item["receipt_status"])
+                        ),
+                        "evidence_digest": (
+                            None
+                            if item["evidence_digest"] is None
+                            else str(item["evidence_digest"])
+                        ),
+                        "receipt_created_at": (
+                            None
+                            if item["receipt_created_at"] is None
+                            else str(item["receipt_created_at"])
+                        ),
+                    }
+                    for item in effects
+                ],
+            }
         finally:
             connection.close()
 
@@ -238,6 +294,18 @@ class SQLiteLocalRuntimeStore:
             sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5.0)
             if self.existing_only
             else sqlite3.connect(self.path, timeout=5.0)
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("pragma foreign_keys=on")
+        if connection.execute("pragma foreign_keys").fetchone()[0] != 1:
+            connection.close()
+            raise PolicyViolation("SQLite foreign key enforcement acilamadi")
+        connection.execute("pragma busy_timeout=5000")
+        return connection
+
+    def _connect_readonly(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
         )
         connection.row_factory = sqlite3.Row
         connection.execute("pragma foreign_keys=on")

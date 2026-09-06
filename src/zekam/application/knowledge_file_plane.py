@@ -413,6 +413,71 @@ def generated_note_bytes(
     return f"---\n{rendered}\n---\n\n{body}".encode()
 
 
+def user_note_bytes(
+    *,
+    owner_scope: str,
+    note_kind: str,
+    classification: KnowledgeClassification,
+    title: str,
+    body: str,
+    project_slug: str | None = None,
+    predecessor_note_id: str | None = None,
+    restored_from_note_id: str | None = None,
+) -> bytes:
+    """Render one deterministic, secret-scanned user-owned Markdown revision."""
+
+    validate_owner_scope(owner_scope)
+    if owner_scope == "global-user":
+        if project_slug is not None:
+            raise ValidationFailed("Global user note project slug tasiyamaz")
+    elif not isinstance(project_slug, str):
+        raise ValidationFailed("Project user note project slug ister")
+    else:
+        validate_slug(project_slug)
+    if note_kind not in _NOTE_KINDS:
+        raise ValidationFailed("User note kind gecersiz")
+    if not isinstance(classification, KnowledgeClassification):
+        raise ValidationFailed("User note classification typed olmali")
+    if classification is KnowledgeClassification.SECRET:
+        raise PolicyViolation("Secret note normal file plane yerine secret backend ister")
+    if (
+        not isinstance(title, str)
+        or not title.strip()
+        or title != title.strip()
+        or len(title) > 200
+        or any(token in title for token in ("\n", "\r", "<!--"))
+    ):
+        raise ValidationFailed("User note title gecersiz")
+    if not isinstance(body, str) or not body.strip():
+        raise ValidationFailed("User note body bos olamaz")
+    if predecessor_note_id is not None:
+        _uuid(predecessor_note_id, "User note predecessor")
+    if restored_from_note_id is not None:
+        _uuid(restored_from_note_id, "User note restored-from")
+    if predecessor_note_id is not None and restored_from_note_id is not None:
+        raise ValidationFailed("User note revision tek lineage kaynagi tasiyabilir")
+    if scan_text(title + "\n" + body, relative_path="knowledge-user-note.md"):
+        raise PolicyViolation("User note secret taramasini gecemedi")
+    frontmatter = {
+        "schema": USER_NOTE_SCHEMA,
+        "user_owned": True,
+        "owner_scope": owner_scope,
+        "project_slug": project_slug,
+        "note_kind": note_kind,
+        "classification": classification.value,
+        "title": title,
+        "predecessor_note_id": predecessor_note_id,
+        "restored_from_note_id": restored_from_note_id,
+        "editable": True,
+    }
+    rendered = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip()
+    payload = f"---\n{rendered}\n---\n\n{body.strip()}\n".encode()
+    note_content_digest(payload)
+    if classification is KnowledgeClassification.PUBLIC:
+        assert_public_safe_projection(payload, relative_path="knowledge-user-note.md")
+    return payload
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactPutPlan:
     digest: str
@@ -736,4 +801,51 @@ def validate_generated_note(payload: bytes) -> dict[str, Any]:
     ):
         raise ValidationFailed("Generated note generator version gecersiz")
     canonical_json(value)
+    return value
+
+
+def validate_user_note(payload: bytes) -> dict[str, Any]:
+    if not isinstance(payload, bytes) or not payload or len(payload) > _MAX_NOTE_BYTES:
+        raise ValidationFailed("User note bos/oversized")
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed("User note strict UTF-8 olmali") from exc
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+        raise ValidationFailed("User note front matter eksik")
+    boundary = text.find("\n---\n", 4)
+    try:
+        value = yaml.load(text[4:boundary], Loader=_UniqueKeySafeLoader)
+    except yaml.YAMLError as exc:
+        raise ValidationFailed("User note YAML bozuk") from exc
+    expected = {
+        "schema",
+        "user_owned",
+        "owner_scope",
+        "project_slug",
+        "note_kind",
+        "classification",
+        "title",
+        "predecessor_note_id",
+        "restored_from_note_id",
+        "editable",
+    }
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ValidationFailed("User note metadata exact degil")
+    rebuilt = user_note_bytes(
+        owner_scope=value["owner_scope"],
+        project_slug=value["project_slug"],
+        note_kind=value["note_kind"],
+        classification=KnowledgeClassification(value["classification"]),
+        title=value["title"],
+        predecessor_note_id=value["predecessor_note_id"],
+        restored_from_note_id=value["restored_from_note_id"],
+        body=text[boundary + len("\n---\n") :].strip(),
+    )
+    if rebuilt != payload:
+        raise ValidationFailed("User note canonical render drift")
+    if value["schema"] != USER_NOTE_SCHEMA or value["user_owned"] is not True:
+        raise ValidationFailed("User note ownership metadata drift")
+    if value["editable"] is not True:
+        raise ValidationFailed("User note editable metadata drift")
     return value

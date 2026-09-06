@@ -56,6 +56,67 @@ Herhangi bir desteklenen istemciyi bu dizinde aç ve yalnız şunu söyle:
 
 İstemci, sohbet geçmişine güvenmeden repository ve kanonik durum kayıtlarını doğrulamalıdır.
 
+## Modelden bağımsız kaldığın yer ve yetkinlikler
+
+Zekam, açık işleri, son semantik checkpoint'i, kayıtlı projeleri, RAG indeks durumlarını ve
+ürün yetkinlik özetini tek bir yerel pakette birleştirir:
+
+```bash
+zekam resume
+zekam resume --json
+zekam capabilities --json
+```
+
+Managed OpenCode yaşam döngüsü eklentisi bu paketi her yeni oturumun sistem bağlamına ve
+compaction bağlamına otomatik ekler. Kurulum veya güncelleme önce planlanabilir, sonra açık
+bir apply bayrağıyla yapılır:
+
+```bash
+zekam opencode install
+zekam opencode install --uygula
+```
+
+Paket salt okunurdur ve yetki taşımaz. Semantik checkpoint yoksa Zekam tamamlanan işi
+uydurmaz; `semantic_state=missing` veya yalnız açık iş varsa `work-only` döndürür. Hazır,
+kısmi ve yalnız iskelet düzeyindeki özelliklerin kanıt/gap matrisi
+[`docs/ZEKAM_YETKINLIK_ENVANTERI.md`](docs/ZEKAM_YETKINLIK_ENVANTERI.md) içindedir.
+
+## Kanıtlı proje araştırması ve Markdown bilgi
+
+İndekslenmiş bir projede araştırma önce provider çağrısı yapmayan bir plan üretir. Planın
+exact digest'i ve iki dış-etki yetkisi verilirse OpenCode researcher ile bağımsız verifier
+çalışır; sonuç job/claim/receipt zincirine ve digest doğrulamalı generated Markdown rapora
+bağlanır:
+
+```bash
+zekam research run "<soru>" --project <alias> --json
+zekam research run "<soru>" --project <alias> --run-digest <digest> --uygula \
+  --authorize-remote-query --authorize-agent-run --json
+zekam research status <job-id> --json
+zekam research report <job-id> --json
+
+zekam knowledge list --project <alias> --json
+zekam knowledge show <note-id> --json
+zekam knowledge search "<terimler>" --project <alias> --json
+zekam knowledge create <body.md> --title "<baslik>" --project <alias> --json
+zekam knowledge update <note-id> <body.md> --title "<baslik>" --project <alias> --json
+zekam knowledge archive <note-id> --project <alias> --json
+zekam knowledge restore <note-id> --project <alias> --json
+```
+
+Aynı research plan replay edildiğinde yeni provider/agent çağrısı yapılmaz. Markdown hiçbir
+zaman Work veya authorization authority'si değildir.
+
+ODI 11g exportları önce provider çağrısı yapmayan güvenlik preflight'ından geçer ve exact
+plan digest'iyle local-only bağlanır. Bu aşama ham XML'i embedding'e açmaz:
+
+```bash
+zekam project odi-preflight <alias> <export-root> --json
+zekam project odi-bind <alias> <export-root> --plan-digest <digest> --uygula --json
+```
+
+Export kapsamı ve güvenlik sınırı: [`docs/ODI11G_EXPORT_VE_LINEAGE.md`](docs/ODI11G_EXPORT_VE_LINEAGE.md).
+
 ## Geliştirme kurulumu
 
 Çalışan kodu yerelde kurmak, yerel depoları başlatmak, `zekam doctor` çalıştırmak ve kalite

@@ -149,19 +149,28 @@ class QueryProvider:
 
 
 def _rag(
-    tmp_path: Path, provider: QueryProvider
+    tmp_path: Path,
+    provider: QueryProvider,
+    *,
+    path: str = PATH,
+    object_name: str | None = None,
+    text: str = "ADR-0006 idempotent dosya ice aktarma SHA-256 ile tekrar engeller.",
 ) -> tuple[SQLiteKnowledgeIndex, EmbeddedProjectRAG]:
     index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
-    text = "ADR-0006 idempotent dosya ice aktarma SHA-256 ile tekrar engeller."
     index.build_generation(
         (
             KnowledgeIndexRecord(
                 chunk_id="chunk-adr-0006",
                 project_id=PROJECT,
                 source_revision=REVISION,
-                source_path=PATH,
-                source_digest=digest({"source": PATH}),
-                locator=Locator(relative_path=PATH, line_start=1, line_end=3),
+                source_path=path,
+                source_digest=digest({"source": path}),
+                locator=Locator(
+                    relative_path=path,
+                    line_start=None if object_name else 1,
+                    line_end=None if object_name else 3,
+                    object_name=object_name,
+                ),
                 text=text,
                 content_digest=digest_of_bytes(text.encode("utf-8")),
                 chunk_order=0,
@@ -207,6 +216,41 @@ def test_answer_citation_has_complete_validated_identity_and_rank_trace(tmp_path
         assert citation["rank_trace"]["exact_match"] is True
         assert citation["rank_trace"]["channel_ranks"]["exact"] == 1
         assert "exact" in citation["retrieval_channels"]
+    finally:
+        index.close()
+
+
+def test_multiple_technical_identifiers_abstain_without_single_chunk_support(
+    tmp_path: Path,
+) -> None:
+    provider = QueryProvider()
+    index, rag = _rag(tmp_path, provider)
+    try:
+        result = _query(rag, "ADR-0006 MISSING_IDENTIFIER")
+        assert result["state"] == "abstained-low-evidence"
+        assert result["evidence_sufficient"] is False
+        assert result["single_chunk_identifier_support"] is False
+        assert result["citations"] == []
+        assert result["answer_excerpt"] is None
+    finally:
+        index.close()
+
+
+def test_database_object_citation_is_typed_from_locator(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    object_name = "GPU_USER.LOG_REPORT_CREATION:TABLE"
+    index, rag = _rag(
+        tmp_path,
+        provider,
+        path="oracle/table/LOG_REPORT_CREATION",
+        object_name=object_name,
+        text=f"Object: {object_name}\nCREATE TABLE LOG_REPORT_CREATION (ID NUMBER)",
+    )
+    try:
+        result = _query(rag, object_name)
+        citation = result["citations"][0]
+        assert citation["locator_type"] == "database-object"
+        assert citation["locator"]["object_name"] == object_name
     finally:
         index.close()
 

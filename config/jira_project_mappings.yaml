@@ -1,8 +1,23 @@
 schema: zekam-jira-project-mappings/v1
 mappings:
   - project_ref: gpu-fusion
-    project_aliases: [gpu, gpu projesi]
+    project_aliases:
+      - gpu
+      - gpu projesi
+      - gelir paylaşımı uygulaması
+      - gelir paylasimi uygulamasi
     jira_prefix: SKYRSM
-  - project_ref: sky-fusion
-    project_aliases: [sky, sky projesi]
+  - project_ref: sky
+    project_aliases:
+      - sky
+      - skytile
+      - sky-tile
+      - sky projesi
+      - satış kanalları yönetim
+      - satış kanalları yönetimi
+      - satis kanallari yonetim
+      - satis kanallari yonetimi
+      - ttbp
+      - türk telekom bayi portalı
+      - turk telekom bayi portali
     jira_prefix: TLCSKY

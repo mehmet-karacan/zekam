@@ -334,6 +334,10 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("db", "upgrade"): MutationAdmissionExemption.BOOTSTRAP,
     ("doctor",): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "ingest"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("knowledge", "create"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("knowledge", "update"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("knowledge", "archive"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("knowledge", "restore"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "vector-index"): MutationAdmissionExemption.CONTROL_PLANE,
     ("local-runtime", "recover"): MutationAdmissionExemption.RECOVERY,
     ("model", "benchmark"): MutationAdmissionExemption.CONTROL_PLANE,
@@ -349,17 +353,22 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("model", "report"): MutationAdmissionExemption.CONTROL_PLANE,
     ("model", "route", "decide"): MutationAdmissionExemption.CONTROL_PLANE,
     ("model", "route", "prepare"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("opencode", "install"): MutationAdmissionExemption.CONTROL_PLANE,
     ("opencode", "spool-cleanup"): MutationAdmissionExemption.CONTROL_PLANE,
     ("oracle", "index"): MutationAdmissionExemption.CONTROL_PLANE,
     ("policy", "init"): MutationAdmissionExemption.BOOTSTRAP,
     ("project", "add"): MutationAdmissionExemption.BOOTSTRAP,
+    ("project", "alias-add"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("project", "alias-remove"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "index"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "integrate"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("project", "odi-bind"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "rebind"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "remove"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "restore"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "scan"): MutationAdmissionExemption.CONTROL_PLANE,
     ("research", "report", "rebuild"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("research", "run"): MutationAdmissionExemption.CONTROL_PLANE,
     ("scheduler", "init"): MutationAdmissionExemption.BOOTSTRAP,
     ("secret", "add"): MutationAdmissionExemption.CONTROL_PLANE,
     ("secret", "revoke"): MutationAdmissionExemption.CONTROL_PLANE,
@@ -416,17 +425,17 @@ _LOCAL_EFFECT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("scheduler", "reconcile"): MutationAdmissionExemption.RECOVERY,
     ("scheduler", "rebuild"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("opencode", "event"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("opencode", "pre-compact"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("opencode", "spool-drain"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("protocol", "generate-json-schema"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("protocol", "generate-typescript"): MutationAdmissionExemption.LOCAL_EFFECT,
 }
 
-# These lifecycle commands mutate canonical PostgreSQL without an ``--uygula``
-# switch.  Local authority-free spooling (``client hook`` / ``opencode event``)
-# is intentionally absent: it remains an offline durable observation, not a
-# canonical full-continuity mutation.
+# These lifecycle commands mutate canonical state without an ``--uygula``
+# switch. Local authority-free OpenCode event/pre-compact observations are
+# handled by the exemptions above and remain content-free durable evidence.
 _ALWAYS_MUTATING_FULL_CONTINUITY: frozenset[tuple[str, ...]] = frozenset(
     {
-        ("opencode", "pre-compact"),
         ("opencode", "forward"),
         ("trace", "reduce"),
     }

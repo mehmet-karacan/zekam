@@ -204,7 +204,12 @@ def test_source_bundle_rejects_symlink_and_case_collision(tmp_path: Path) -> Non
     package = tmp_path / "zekam"
     package.mkdir()
     (package / "module.py").write_bytes(b"ok")
-    (package / "alias.py").symlink_to(package / "module.py")
+    try:
+        (package / "alias.py").symlink_to(package / "module.py")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Unprivileged Windows file symlink")
+        raise
     with pytest.raises(ValidationFailed, match="symlink"):
         _package_source_bundle(package)
 
@@ -347,7 +352,12 @@ def test_wheel_exclusion_policy_and_targets_reject_symlinks(tmp_path: Path) -> N
     policy = repository / "pyproject.toml"
     real_policy = repository / "real.toml"
     policy.replace(real_policy)
-    policy.symlink_to(real_policy)
+    try:
+        policy.symlink_to(real_policy)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Unprivileged Windows file symlink")
+        raise
     with pytest.raises(ValidationFailed, match="regular-file"):
         _wheel_exclusion_paths(repository)
 

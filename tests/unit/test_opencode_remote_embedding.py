@@ -113,6 +113,9 @@ class _Executor:
             rows[1]["embedding"] = [0.9999, 0.0001, 0.0]
         elif self.fault == "repeat-large" and len(rows) > 1:
             rows[1]["embedding"] = [0.95, 0.05, 0.0]
+        elif self.fault == "profile-jitter":
+            for row in rows:
+                row["embedding"][0] += 0.0001
         response = {"data": rows, "model": MODEL}
         response_digest = digest(response)
         realm_id = uuid4()
@@ -356,6 +359,21 @@ def test_remote_provider_rejects_material_repeat_numeric_drift(tmp_path: Path) -
     )
     with pytest.raises(ValidationFailed, match="determinism drift"):
         provider.probe(_fixture())
+
+
+def test_remote_profile_identity_is_stable_across_bounded_probe_jitter(tmp_path: Path) -> None:
+    baseline = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(), dimension=3
+    ).probe(_fixture())
+    jittered = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="profile-jitter"), dimension=3
+    ).probe(_fixture())
+
+    assert baseline.profile.profile_digest == jittered.profile.profile_digest
+    assert (
+        baseline.profile.model_revision_fingerprint == jittered.profile.model_revision_fingerprint
+    )
+    assert baseline.evidence_digest != jittered.evidence_digest
 
 
 @pytest.mark.parametrize("fault", ["partial", "nan", "dimension"])

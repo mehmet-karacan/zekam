@@ -240,13 +240,18 @@ def test_knowledge_ingest_is_durable_replayable_and_conflict_safe(tmp_path: Path
         assert db.execute("select count(*) from knowledge_note").fetchone()[0] == 1
 
 
-def test_removed_remote_commands_are_not_advertised(tmp_path: Path) -> None:
+def test_removed_remote_commands_and_current_local_surfaces_are_advertised_correctly(
+    tmp_path: Path,
+) -> None:
     result = _run("--help")
     assert result.exit_code == 0
-    for command in ("memory", "loop", "oracle", "opencode", "trace"):
+    for command in ("memory", "loop", "oracle", "trace"):
         assert f" {command} " not in result.stdout
     assert " model " in result.stdout
     assert " local-core " in result.stdout
+    assert " opencode " in result.stdout
+    assert " resume " in result.stdout
+    assert " capabilities " in result.stdout
 
 
 def test_doctor_applies_only_the_exact_current_local_repair_plan(tmp_path: Path) -> None:

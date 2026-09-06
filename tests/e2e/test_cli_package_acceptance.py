@@ -36,6 +36,14 @@ def test_sqlite_clean_home_supports_package_acceptance_read_surface(
     assert resume_document["source"] == "sqlite-work-graph"
     assert resume_document["open_items"] == []
 
+    workspace_resume = runner.invoke(app, ["resume", "--json", "--home", str(home)])
+    assert workspace_resume.exit_code == 0, workspace_resume.stdout
+    workspace_document = json.loads(workspace_resume.stdout)
+    assert workspace_document["semantic_state"] == "missing"
+    assert workspace_document["work"]["open"] == []
+    assert workspace_document["read_only"] is True
+    assert workspace_document["grants_authority"] is False
+
 
 def test_permission_profile_list_is_read_only_and_digest_bound() -> None:
     result = runner.invoke(app, ["permission", "profile", "list", "--json"])

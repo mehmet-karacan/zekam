@@ -188,6 +188,8 @@ class OperationalUnitOfWork(Protocol):
 
     def add_project_alias(self, *, project_id: str, alias: str) -> None: ...
 
+    def remove_project_alias(self, *, project_id: str, alias: str) -> None: ...
+
     def bind_source(
         self, *, project_id: str, portable_ref: str, source_kind: str
     ) -> SourceBindingRecord: ...
@@ -355,6 +357,18 @@ class OperationalUnitOfWork(Protocol):
     def archive_knowledge_note(
         self, *, note_id: str, expected_content_digest: str, archived_ref: str
     ) -> KnowledgeNoteRecord: ...
+
+    def list_knowledge_notes(
+        self,
+        *,
+        project_id: str | None = None,
+        owner_scope: str | None = None,
+        note_kind: str | None = None,
+        state: str | None = "active",
+        limit: int = 100,
+    ) -> tuple[KnowledgeNoteRecord, ...]: ...
+
+    def get_knowledge_note(self, reference: str) -> KnowledgeNoteRecord: ...
 
     def commit(self) -> None: ...
 

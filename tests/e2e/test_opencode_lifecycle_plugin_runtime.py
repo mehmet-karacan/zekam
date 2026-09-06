@@ -48,7 +48,11 @@ tool.schema = { string: () => ({ max: () => ({}) }) }
     )
     fake_source = root / "fake-zekam.js"
     fake_source.write_text(
-        """const code = Number(Bun.env.FAKE_ZEKAM_EXIT_CODE ?? "0")
+        """if (Bun.argv.includes("resume")) {
+  console.log('ZEKAM_RESUME_PACKET_V1\\n{"schema":"zekam-resume-packet/v1","read_only":true,"grants_authority":false}')
+  process.exit(0)
+}
+const code = Number(Bun.env.FAKE_ZEKAM_EXIT_CODE ?? "0")
 process.exit(Number.isInteger(code) ? code : 1)
 """,
         encoding="utf-8",
@@ -82,6 +86,16 @@ const results = await Promise.allSettled(
   })),
 )
 if (results.some((result) => result.status === "rejected")) process.exit(2)
+if (Bun.env.RUN_SYSTEM_TRANSFORM === "1") {
+  const output = { system: [] }
+  await plugin["experimental.chat.system.transform"](
+    { sessionID: `${prefix}-hydrate`, model: {} }, output,
+  )
+  await plugin["experimental.chat.system.transform"](
+    { sessionID: `${prefix}-hydrate`, model: {} }, output,
+  )
+  console.log(JSON.stringify(output))
+}
 if (Bun.env.RUN_PRECOMPACT === "1") {
   try {
     await plugin["experimental.session.compacting"]({ sessionID: `${prefix}-compact` })
@@ -94,6 +108,33 @@ if (Bun.env.RUN_PRECOMPACT === "1") {
         encoding="utf-8",
     )
     return runner, fake_executable
+
+
+def test_plugin_injects_bounded_resume_packet_once_per_session(tmp_path: Path) -> None:
+    runner, fake_executable = _write_runtime_files(tmp_path)
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ZEKAM_EXECUTABLE": str(fake_executable),
+            "ZEKAM_HOME": str(tmp_path / "home"),
+            "RUN_SYSTEM_TRANSFORM": "1",
+        }
+    )
+
+    result = subprocess.run(
+        [_bun_executable(), str(runner)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout.splitlines()[-1])
+    assert len(document["system"]) == 1
+    assert document["system"][0].startswith("ZEKAM_RESUME_PACKET_V1")
 
 
 def _native_opencode() -> Path:

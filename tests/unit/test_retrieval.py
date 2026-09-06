@@ -162,6 +162,10 @@ def test_farkli_boyut_ayri_profildir() -> None:
     [
         ("ZEKAM-P12-T01 nasil calisir", ("ZEKAM-P12-T01",)),
         ("app.musteri tablosu", ("app.musteri",)),
+        (
+            "GPU_USER.LOG_REPORT_CREATION:TABLE nesnesinin DDL yapisi",
+            ("GPU_USER.LOG_REPORT_CREATION:TABLE",),
+        ),
         ("#4711 defekti", ("#4711",)),
         ("123456 numarali kayit", ("123456",)),
         ("SaglikYaniti ve kurallari_uygula", ("SaglikYaniti", "kurallari_uygula")),

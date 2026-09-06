@@ -1,9 +1,10 @@
 ---
+# zekam-managed-agent/v1
 description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only subagent
 mode: subagent
 permission:
   edit: deny
-  bash: deny
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny

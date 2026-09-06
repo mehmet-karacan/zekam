@@ -155,6 +155,24 @@ def _row_work(row: Any) -> OperationalWorkRecord:
     )
 
 
+def _row_knowledge_note(row: Any) -> KnowledgeNoteRecord:
+    return KnowledgeNoteRecord(
+        str(row["id"]),
+        str(row["owner_scope"]),
+        str(row["portable_ref"]),
+        str(row["note_kind"]),
+        str(row["authorship"]),
+        str(row["classification"]),
+        str(row["content_digest"]),
+        str(row["state"]),
+        str(row["realm_id"]),
+        str(row["project_id"]) if row["project_id"] is not None else None,
+        str(row["project_slug"]) if row["project_slug"] is not None else None,
+        bool(row["materialized"]),
+        str(row["archived_ref"]) if row["archived_ref"] is not None else None,
+    )
+
+
 class SQLiteOperationalStore:
     """Create transaction-scoped SQLite units of work."""
 
@@ -358,6 +376,19 @@ class SQLiteOperationalUnitOfWork:
             )
         except sqlite3.IntegrityError as exc:
             raise ValidationFailed("Project alias constraint ihlali") from exc
+
+    def remove_project_alias(self, *, project_id: str, alias: str) -> None:
+        validate_slug(alias)
+        connection = self._db()
+        existing = connection.execute(
+            "select project_id from project_alias where alias = ?", (alias,)
+        ).fetchone()
+        if existing is None or existing["project_id"] != project_id:
+            raise ValidationFailed("Project alias bu project'e bagli degil")
+        connection.execute(
+            "delete from project_alias where alias = ? and project_id = ?",
+            (alias, project_id),
+        )
 
     def bind_source(
         self, *, project_id: str, portable_ref: str, source_kind: str
@@ -1322,3 +1353,62 @@ class SQLiteOperationalUnitOfWork:
             True,
             archived_ref,
         )
+
+    def list_knowledge_notes(
+        self,
+        *,
+        project_id: str | None = None,
+        owner_scope: str | None = None,
+        note_kind: str | None = None,
+        state: str | None = "active",
+        limit: int = 100,
+    ) -> tuple[KnowledgeNoteRecord, ...]:
+        if project_id is not None:
+            project_id = _canonical_uuid(project_id, "Knowledge project")
+        if owner_scope is not None:
+            owner_scope = validate_owner_scope(owner_scope)
+        if note_kind is not None and note_kind not in _KNOWLEDGE_NOTE_KINDS:
+            raise ValidationFailed("Knowledge note kind gecersiz")
+        if state is not None and state not in {"inbox", "active", "archived"}:
+            raise ValidationFailed("Knowledge note state gecersiz")
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValidationFailed("Knowledge list limit 1..1000 araliginda olmali")
+        clauses: list[str] = []
+        values: list[object] = []
+        for column, value in (
+            ("project_id", project_id),
+            ("owner_scope", owner_scope),
+            ("note_kind", note_kind),
+            ("state", state),
+        ):
+            if value is not None:
+                clauses.append(f"{column}=?")
+                values.append(value)
+        where = "" if not clauses else " where " + " and ".join(clauses)
+        rows = (
+            self._db()
+            .execute(
+                "select * from knowledge_note"
+                + where
+                + " order by updated_at desc,id desc limit ?",
+                (*values, limit),
+            )
+            .fetchall()
+        )
+        return tuple(_row_knowledge_note(row) for row in rows)
+
+    def get_knowledge_note(self, reference: str) -> KnowledgeNoteRecord:
+        reference = _required_text(reference, "Knowledge note reference")
+        if len(reference.encode("utf-8")) > 1024:
+            raise ValidationFailed("Knowledge note reference bounded sinirini asiyor")
+        rows = (
+            self._db()
+            .execute(
+                "select * from knowledge_note where id=? or portable_ref=? order by id",
+                (reference, reference),
+            )
+            .fetchall()
+        )
+        if len(rows) != 1:
+            raise ValidationFailed("Knowledge note bulunamadi veya belirsiz")
+        return _row_knowledge_note(rows[0])
