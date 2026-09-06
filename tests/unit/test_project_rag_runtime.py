@@ -141,3 +141,23 @@ def test_document_embedding_retry_exhaustion_preserves_failure(
         runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
 
     assert provider.calls == 4
+
+
+def test_project_status_reports_acl_block_before_claiming_query_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runtime, "_registered_project", lambda *_: "project-1")
+    monkeypatch.setattr(runtime, "private_directory", lambda _path: False)
+
+    result = runtime.project_rag_status(tmp_path, "gpu-fusion")
+
+    assert result == {
+        "schema": "zekam-project-rag-status/v1",
+        "project_id": "project-1",
+        "project_slug": "gpu-fusion",
+        "state": "blocked",
+        "query_ready": False,
+        "blocked_reason": "knowledge-home-acl-drift",
+        "retryable": False,
+        "provider_calls": 0,
+    }

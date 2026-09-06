@@ -88,6 +88,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "Route `general` ise source/RAG komutu cagirmadan" in coordinator
     assert "yalniz temel `zekam-researcher` agent'ini cagir" in coordinator
     assert "--authorize-remote-query" in coordinator
+    assert "subagent zorunlu degildir" in coordinator
+    assert "en fazla ilk uc `used_chunk_ids`" in coordinator
+    assert "capabilities, help veya ikinci query cagirma" in coordinator
+    assert "resolve/show/source-root zinciri calistirma" in coordinator
     assert "top-level `project_ref`" in coordinator
     assert "locator_type=database-object" in coordinator
     assert "locator_type=database-object" in researcher

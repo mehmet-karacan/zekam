@@ -499,6 +499,17 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
 
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
+    if not private_directory(home):
+        return {
+            "schema": "zekam-project-rag-status/v1",
+            "project_id": str(project_id),
+            "project_slug": slug,
+            "state": "blocked",
+            "query_ready": False,
+            "blocked_reason": "knowledge-home-acl-drift",
+            "retryable": False,
+            "provider_calls": 0,
+        }
     paths = _runtime_paths(home, slug)
     if not paths["state"].is_file() or not paths["index"].is_file():
         return {
@@ -506,6 +517,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "project_id": str(project_id),
             "project_slug": slug,
             "state": "unavailable",
+            "query_ready": False,
         }
     state = json.loads(paths["state"].read_text(encoding="utf-8"))
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
@@ -518,6 +530,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
         "project_id": str(project_id),
         "project_slug": slug,
         "state": "ready" if integrity.get("status") == "passed" else "corrupt",
+        "query_ready": integrity.get("status") == "passed",
         "generation_digest": generation.generation_digest,
         "chunk_count": generation.chunk_count,
         "source_chunk_count": state.get("source_chunk_count"),

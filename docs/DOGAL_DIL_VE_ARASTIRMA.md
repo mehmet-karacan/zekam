@@ -17,6 +17,9 @@ Route `single-project-rag` dondururse
 `zekam ask "<dogal dil>" --project <exact-project-ref> --authorize-remote-query` aktif hybrid
 indeksi sorgular. `parallel-project-rag` kararinda coordinator ayni exact soruyu her hedefe
 ayri yollar ve citation sonuclarini fan-in eder. `general` sorular project RAG'a dusmez.
+Tek turda ayni soru/proje/config icin basarisiz RAG cagrisi tekrarlanmaz. Yerel ACL/layout
+hatasinda coordinator alternatif query komutuyla dolasmaz; tek doctor repair plani tanisi
+sonrasinda exact onarim adimini bildirir veya durur.
 
 Kurallar:
 

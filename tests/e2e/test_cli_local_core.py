@@ -311,3 +311,52 @@ def test_doctor_applies_only_the_exact_current_local_repair_plan(tmp_path: Path)
     assert prepared.exit_code == 0, prepared.stdout
     receipt = json.loads(prepared.stdout)["doctor_prepare_results"]
     assert len(receipt) == 1 and receipt[0]["after"]["all_ready"] is True
+
+
+def test_doctor_repairs_acl_identity_drift_without_changing_database_bytes(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    assert _run("init", "--home", str(home)).exit_code == 0
+    database = home / "state" / "learning.db"
+    before = database.read_bytes()
+    if os.name == "nt":
+        icacls = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "icacls.exe"
+        weakened = subprocess.run(
+            [str(icacls), str(database), "/grant", "*S-1-1-0:R", "/Q"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        assert weakened.returncode == 0, weakened.stderr
+    else:
+        database.chmod(0o644)
+
+    planned = _run("doctor", "--home", str(home), "--repair-plan", "--json")
+    assert planned.exit_code == 2, planned.stdout
+    document = json.loads(planned.stdout)
+    local = next(
+        item for item in document["results"] if item["check_id"] == "sqlite.local-core-stores"
+    )
+    assert {item["code"] for item in local["findings"]} == {"sqlite.local-store-identity-drift"}
+    plan = document["doctor_repair_plan"]
+    assert plan["action"] == "restrict-private-local-tree"
+    assert plan["identity_drift"] == ["learning"]
+
+    applied = _run(
+        "doctor",
+        "--home",
+        str(home),
+        "--category",
+        "sqlite",
+        "--uygula",
+        "--plan-digest",
+        plan["plan_digest"],
+        "--json",
+    )
+    assert applied.exit_code == 0, applied.stdout
+    result = json.loads(applied.stdout)["doctor_repair_result"]
+    assert result["step"] == "restrict-private-local-tree"
+    assert database.read_bytes() == before
+    assert result["after"]["all_ready"] is True
+    assert result["receipt_id"].startswith("sha256:")
