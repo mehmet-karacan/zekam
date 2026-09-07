@@ -23,6 +23,10 @@ sonrasinda exact onarim adimini bildirir veya durur.
 Windows'ta ZEKAM_HOME kokune istemci sandbox'i icin verilen salt-okunur gecis izni tek basina
 RAG'i kapatmaz. Readiness, ilgili proje, manifest, indeks ve state kapsamlarinin private ACL ve
 dosya kimlikleriyle belirlenir; bu scoped kayitlardan biri drift ederse sorgu fail-closed durur.
+Markdown bilgi katmani da ayni siniri uygular: ZEKAM_HOME yalniz fiziksel ve sabit kimlikli
+olabilir; secilen `global`, `projeler`, `inbox`, `archive` veya artifact alt zincirinin her
+dizini ve hedef dosyasi private kalir. Boylece kokteki salt-okunur sandbox gecisi gunluk
+ogrenme watermark'ini bozmaz, yazilabilir bilgi kapsami gevsetilmez.
 
 Kurallar:
 

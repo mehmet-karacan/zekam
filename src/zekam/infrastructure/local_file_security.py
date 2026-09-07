@@ -14,6 +14,7 @@ from typing import Any
 
 _ACE = re.compile(r"\(([^()]*)\)")
 _ALLOWED_WINDOWS_TRUSTEES = frozenset({"SY", "S-1-5-18", "BA", "S-1-5-32-544", "OW"})
+_WINDOWS_READ_TRAVERSE_MASK = 0x001200A9
 
 
 def _effective_user_id() -> int:
@@ -49,6 +50,69 @@ def windows_user_sid() -> str:
     if run.returncode != 0 or not re.fullmatch(r"S-1-(?:[0-9]+-)+[0-9]+", sid):
         raise OSError("Windows user SID discovery failed")
     return sid
+
+
+@lru_cache(maxsize=1)
+def windows_codex_sandbox_sid() -> str | None:
+    """Resolve the optional local Codex read-only traversal group."""
+
+    if os.name != "nt":
+        return None
+    computer = os.environ.get("COMPUTERNAME")
+    if not computer:
+        return None
+    account = f"{computer}\\CodexSandboxUsers"
+    windll: Any = getattr(ctypes, "windll")  # noqa: B009 -- Windows-only API
+    advapi32 = windll.advapi32
+    lookup = advapi32.LookupAccountNameW
+    lookup.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_uint),
+    ]
+    lookup.restype = ctypes.c_int
+    sid_size = ctypes.c_ulong()
+    domain_size = ctypes.c_ulong()
+    account_type = ctypes.c_uint()
+    lookup(
+        None,
+        account,
+        None,
+        ctypes.byref(sid_size),
+        None,
+        ctypes.byref(domain_size),
+        ctypes.byref(account_type),
+    )
+    if not sid_size.value:
+        return None
+    sid_buffer = ctypes.create_string_buffer(sid_size.value)
+    domain_buffer = ctypes.create_unicode_buffer(max(1, domain_size.value))
+    if not lookup(
+        None,
+        account,
+        sid_buffer,
+        ctypes.byref(sid_size),
+        domain_buffer,
+        ctypes.byref(domain_size),
+        ctypes.byref(account_type),
+    ):
+        return None
+    if account_type.value != 4 or domain_buffer.value.casefold() != computer.casefold():
+        return None
+    rendered = ctypes.c_wchar_p()
+    convert = advapi32.ConvertSidToStringSidW
+    convert.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    convert.restype = ctypes.c_int
+    if not convert(sid_buffer, ctypes.byref(rendered)) or rendered.value is None:
+        return None
+    try:
+        return rendered.value
+    finally:
+        windll.kernel32.LocalFree(rendered)
 
 
 def _windows_sddl(path: Path) -> str:
@@ -94,13 +158,104 @@ def _windows_acl_is_private(path: Path) -> bool:
     if owner not in {sid, "OW"}:
         return False
     allowed = _ALLOWED_WINDOWS_TRUSTEES | {sid}
+    entries = _windows_dacl_entries(sddl)
+    if entries is None:
+        return False
     grants = 0
-    for raw in _ACE.findall(sddl.partition("D:")[2].partition("S:")[0]):
-        fields = raw.split(";")
-        if len(fields) != 6 or fields[0] not in {"A", "OA"}:
+    for fields in entries:
+        if fields[0] in {"D", "OD"}:
             continue
+        if fields[0] not in {"A", "OA"}:
+            return False
         grants += 1
         if fields[5] not in allowed:
+            return False
+    return grants > 0
+
+
+def _windows_dacl_entries(sddl: str) -> tuple[tuple[str, ...], ...] | None:
+    """Parse only simple known SDDL ACEs; conditional/callback forms fail closed."""
+
+    dacl = sddl.partition("D:")[2].partition("S:")[0]
+    first = dacl.find("(")
+    if first < 0 or not re.fullmatch(r"(?:P|AI|AR)*", dacl[:first]):
+        return None
+    body = dacl[first:]
+    matches = tuple(_ACE.finditer(body))
+    if not matches or "".join(match.group(0) for match in matches) != body:
+        return None
+    entries = tuple(tuple(match.group(1).split(";")) for match in matches)
+    if any(len(fields) != 6 for fields in entries):
+        return None
+    return entries
+
+
+def _windows_rights_mask(value: str) -> int | None:
+    if value.startswith("0x"):
+        try:
+            return int(value, 16)
+        except ValueError:
+            return None
+    symbolic = {
+        "FR": 0x00120089,
+        "FX": 0x001200A0,
+        "GR": 0x80000000,
+        "GX": 0x20000000,
+        "RC": 0x00020000,
+    }
+    if len(value) % 2:
+        return None
+    mask = 0
+    for offset in range(0, len(value), 2):
+        right = symbolic.get(value[offset : offset + 2])
+        if right is None:
+            return None
+        mask |= right
+    return mask
+
+
+def private_or_sandbox_readonly_directory(path: Path) -> bool:
+    """Accept a private directory or exact Codex read/traverse access at its root."""
+
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
+        return False
+    if os.name != "nt":
+        return info.st_uid == _effective_user_id() and stat.S_IMODE(info.st_mode) == 0o700
+    try:
+        sddl = _windows_sddl(path)
+        user_sid = windows_user_sid()
+        sandbox_sid = windows_codex_sandbox_sid()
+    except OSError:
+        return False
+    owner = sddl.partition("O:")[2].partition("G:")[0].partition("D:")[0]
+    if owner not in {user_sid, "OW"}:
+        return False
+    private_trustees = _ALLOWED_WINDOWS_TRUSTEES | {user_sid}
+    entries = _windows_dacl_entries(sddl)
+    if entries is None:
+        return False
+    grants = 0
+    for fields in entries:
+        if fields[0] in {"D", "OD"}:
+            continue
+        if fields[0] not in {"A", "OA"}:
+            return False
+        grants += 1
+        trustee = fields[5]
+        if trustee in private_trustees:
+            continue
+        mask = _windows_rights_mask(fields[2])
+        if (
+            sandbox_sid is None
+            or trustee != sandbox_sid
+            or mask is None
+            or mask == 0
+            or mask & ~(_WINDOWS_READ_TRAVERSE_MASK | 0xA0000000)
+        ):
             return False
     return grants > 0
 

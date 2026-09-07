@@ -36,6 +36,7 @@ from zekam.domain.errors import (
 )
 from zekam.infrastructure.local_file_security import (
     private_directory,
+    private_or_sandbox_readonly_directory,
     private_regular,
     restrict_private_file,
 )
@@ -241,7 +242,12 @@ class KnowledgeFileStore:
     ) -> tuple[Path | None, tuple[int, int]]:
         portable = validate_portable_relative(relative)
         parts = PurePosixPath(portable).parts
-        if not private_directory(self.home):
+        # The Codex Windows sandbox may need a read/traverse ACE on ZEKAM_HOME.
+        # That does not grant write access and must not make every knowledge read
+        # unavailable.  Keep the root identity and physical-directory pins here;
+        # every writable/readable descendant in the requested path remains
+        # fail-closed behind private_directory below.
+        if not private_or_sandbox_readonly_directory(self.home):
             raise LayoutError("Knowledge home reparse veya ACL drift")
         home_identity = self.home.lstat()
         if (home_identity.st_dev, home_identity.st_ino) != self._home_identity:

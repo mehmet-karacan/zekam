@@ -372,3 +372,50 @@ def test_home_identity_drift_and_unlink_missing_are_fail_closed(
     with pytest.raises(LayoutError, match="identity drift"):
         store._open_home()
     monkeypatch.setattr(os, "fstat", real_fstat)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL boundary")
+def test_windows_read_allows_read_only_home_acl_but_requires_private_descendants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    payload = b"# Root ACL\n"
+    manifest = _manifest(payload)
+    target = store.home / manifest.portable_ref
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+
+    real_private_directory = knowledge_files.private_directory
+    checked: list[Path] = []
+    root_checked: list[Path] = []
+
+    def scoped_private_directory(path: Path, mode: int = 0o700) -> bool:
+        checked.append(path)
+        if path == store.home:
+            return False
+        return real_private_directory(path, mode)
+
+    monkeypatch.setattr(knowledge_files, "private_directory", scoped_private_directory)
+    monkeypatch.setattr(
+        knowledge_files,
+        "private_or_sandbox_readonly_directory",
+        lambda path: not root_checked.append(path),
+    )
+
+    assert store.read_note(manifest) == payload
+    assert root_checked == [store.home]
+    assert store.home not in checked
+    assert store.home / "projeler" in checked
+
+    monkeypatch.setattr(
+        knowledge_files, "private_or_sandbox_readonly_directory", lambda _path: False
+    )
+    with pytest.raises(LayoutError, match="Knowledge home"):
+        store.read_note(manifest)
+
+    monkeypatch.setattr(
+        knowledge_files, "private_or_sandbox_readonly_directory", lambda _path: True
+    )
+    monkeypatch.setattr(knowledge_files, "private_directory", lambda path, mode=0o700: False)
+    with pytest.raises(LayoutError, match="Knowledge parent"):
+        store.read_note(manifest)
