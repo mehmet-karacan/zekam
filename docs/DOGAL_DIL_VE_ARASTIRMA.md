@@ -20,6 +20,9 @@ ayri yollar ve citation sonuclarini fan-in eder. `general` sorular project RAG'a
 Tek turda ayni soru/proje/config icin basarisiz RAG cagrisi tekrarlanmaz. Yerel ACL/layout
 hatasinda coordinator alternatif query komutuyla dolasmaz; tek doctor repair plani tanisi
 sonrasinda exact onarim adimini bildirir veya durur.
+Windows'ta ZEKAM_HOME kokune istemci sandbox'i icin verilen salt-okunur gecis izni tek basina
+RAG'i kapatmaz. Readiness, ilgili proje, manifest, indeks ve state kapsamlarinin private ACL ve
+dosya kimlikleriyle belirlenir; bu scoped kayitlardan biri drift ederse sorgu fail-closed durur.
 
 Kurallar:
 

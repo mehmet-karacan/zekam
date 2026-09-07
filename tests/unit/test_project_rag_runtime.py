@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -9,6 +10,7 @@ import pytest
 from zekam.application import project_rag_runtime as runtime
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.domain.canonical import digest_of_bytes
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk
 
@@ -143,10 +145,29 @@ def test_document_embedding_retry_exhaustion_preserves_failure(
     assert provider.calls == 4
 
 
-def test_project_status_reports_acl_block_before_claiming_query_ready(
+def test_project_status_reports_scoped_acl_block_before_claiming_query_ready(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(runtime, "_registered_project", lambda *_: "project-1")
+    state = tmp_path / "project" / "runtime" / "rag-state.json"
+    index = tmp_path / "index" / "knowledge.sqlite3"
+    state.parent.mkdir(parents=True)
+    index.parent.mkdir(parents=True)
+    (tmp_path / "manifest").mkdir()
+    state.write_text("{}", encoding="utf-8")
+    index.write_bytes(b"")
+    monkeypatch.setattr(
+        runtime,
+        "_existing_runtime_paths",
+        lambda *_: {
+            "home": tmp_path,
+            "project_root": tmp_path / "project",
+            "index_root": tmp_path / "index",
+            "manifest_root": tmp_path / "manifest",
+            "state": state,
+            "index": index,
+        },
+    )
     monkeypatch.setattr(runtime, "private_directory", lambda _path: False)
 
     result = runtime.project_rag_status(tmp_path, "gpu-fusion")
@@ -157,7 +178,199 @@ def test_project_status_reports_acl_block_before_claiming_query_ready(
         "project_slug": "gpu-fusion",
         "state": "blocked",
         "query_ready": False,
-        "blocked_reason": "knowledge-home-acl-drift",
+        "blocked_reason": "knowledge-scope-acl-drift",
         "retryable": False,
         "provider_calls": 0,
     }
+
+
+def test_project_status_does_not_require_private_home_when_scope_is_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runtime, "_registered_project", lambda *_: "project-1")
+    state = tmp_path / "project" / "runtime" / "rag-state.json"
+    index = tmp_path / "index" / "knowledge.sqlite3"
+    state.parent.mkdir(parents=True)
+    index.parent.mkdir(parents=True)
+    (tmp_path / "manifest").mkdir()
+    state.write_text("{}", encoding="utf-8")
+    index.write_bytes(b"")
+    monkeypatch.setattr(
+        runtime,
+        "_existing_runtime_paths",
+        lambda *_: {
+            "home": tmp_path,
+            "project_root": tmp_path / "project",
+            "index_root": tmp_path / "index",
+            "manifest_root": tmp_path / "manifest",
+            "state": state,
+            "index": index,
+        },
+    )
+    directory_checks: list[Path] = []
+
+    def private_scope(path: Path) -> bool:
+        directory_checks.append(path)
+        return True
+
+    monkeypatch.setattr(runtime, "private_directory", private_scope)
+    file_checks: list[Path] = []
+
+    def private_file(path: Path) -> bool:
+        file_checks.append(path)
+        return True
+
+    monkeypatch.setattr(runtime, "private_regular", private_file)
+
+    class _Index:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> _Index:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest="sha256:generation",
+                chunk_count=1,
+                source_revision="revision",
+                tree_digest="sha256:tree",
+                provider_profile_digest="sha256:provider",
+            )
+
+        def integrity(self) -> dict[str, str]:
+            return {"status": "passed"}
+
+    state.write_text(
+        json.dumps({"generation_digest": "sha256:generation"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
+
+    result = runtime.project_rag_status(tmp_path, "gpu-fusion")
+
+    assert result["state"] == "ready"
+    assert result["query_ready"] is True
+    assert directory_checks == [
+        tmp_path / "project",
+        tmp_path / "index",
+        tmp_path / "manifest",
+    ]
+    assert file_checks == [state, index]
+    assert tmp_path not in directory_checks
+
+
+@pytest.mark.parametrize(
+    ("kind", "name"),
+    (
+        ("directory", "project_root"),
+        ("directory", "index_root"),
+        ("directory", "manifest_root"),
+        ("file", "state"),
+        ("file", "index"),
+    ),
+)
+def test_rag_scope_rejects_each_scoped_acl_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str, name: str
+) -> None:
+    project_root = tmp_path / "project"
+    index_root = tmp_path / "index"
+    manifest_root = tmp_path / "manifest"
+    state = project_root / "runtime" / "rag-state.json"
+    index = index_root / "knowledge.sqlite3"
+    state.parent.mkdir(parents=True)
+    index_root.mkdir()
+    manifest_root.mkdir()
+    state.write_text("{}", encoding="utf-8")
+    index.write_bytes(b"")
+    paths = {
+        "home": tmp_path,
+        "project_root": project_root,
+        "index_root": index_root,
+        "manifest_root": manifest_root,
+        "state": state,
+        "index": index,
+    }
+    drifted = paths[name]
+    monkeypatch.setattr(
+        runtime, "private_directory", lambda path: not (kind == "directory" and path == drifted)
+    )
+    monkeypatch.setattr(
+        runtime, "private_regular", lambda path: not (kind == "file" and path == drifted)
+    )
+
+    assert runtime._rag_scope_is_private(paths) is False
+
+
+def test_scoped_path_rejects_missing_and_outside_home(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    missing = root / "missing"
+    outside = tmp_path / "outside-rag-index"
+    outside.write_bytes(b"")
+
+    assert runtime._scoped_path_is_private(root, missing, directory=False) is False
+    assert runtime._scoped_path_is_private(root, outside, directory=False) is False
+
+
+def test_existing_paths_preserve_lexical_project_path_for_alias_detection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runtime.HomeLayout, "verify", lambda _self: [])
+    monkeypatch.setattr(
+        runtime.HomeLayout,
+        "project_root",
+        lambda *_: (_ for _ in ()).throw(AssertionError("must stay lexical")),
+    )
+
+    paths = runtime._existing_runtime_paths(tmp_path, "gpu-fusion")
+
+    assert paths["project_root"] == tmp_path / "projeler" / "gpu-fusion"
+
+
+def test_read_surfaces_reject_acl_drift_without_runtime_self_heal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    project_root = tmp_path / "project"
+    state = project_root / "runtime" / "rag-state.json"
+    index = tmp_path / "index" / "knowledge.sqlite3"
+    binding = project_root / "baglantilar" / "source.json"
+    state.parent.mkdir(parents=True)
+    index.parent.mkdir(parents=True)
+    binding.parent.mkdir(parents=True)
+    state.write_text("{}", encoding="utf-8")
+    index.write_bytes(b"")
+    binding.write_text("{}", encoding="utf-8")
+    paths = {
+        "home": tmp_path,
+        "project_root": project_root,
+        "index_root": index.parent,
+        "manifest_root": tmp_path / "manifest",
+        "state": state,
+        "index": index,
+    }
+    monkeypatch.setattr(runtime, "_registered_project", lambda *_: "project-1")
+    monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
+    monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: False)
+    monkeypatch.setattr(runtime, "_scoped_path_is_private", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        runtime,
+        "_runtime_paths",
+        lambda *_: (_ for _ in ()).throw(AssertionError("read path must not self-heal")),
+    )
+
+    with pytest.raises(ValidationFailed, match="source binding bulunamadi"):
+        runtime.resolve_project_source(tmp_path, "gpu-fusion")
+    with pytest.raises(PolicyViolation, match="scoped ACL/identity drift"):
+        runtime.read_project_citation(tmp_path, "gpu-fusion", "chunk-1")
+    with pytest.raises(PolicyViolation, match="scoped ACL/identity drift"):
+        runtime._query(
+            tmp_path,
+            tmp_path,
+            cast(Any, "project-1"),
+            "gpu-fusion",
+            tmp_path / "opencode.json",
+            "question",
+        )

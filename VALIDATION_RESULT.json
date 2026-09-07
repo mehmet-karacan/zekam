@@ -66,15 +66,15 @@
       "repository": "zekam",
       "findings": [],
       "tracked_blob_count": 1747,
-      "worktree_file_count": 4,
-      "history_blob_count": 3382,
+      "worktree_file_count": 5,
+      "history_blob_count": 3358,
       "history_complete": true,
       "reviewed_allowance_count": 54,
       "allowlist_digest": "sha256:c2411072f480b0413f4b24958695172469b0aeb7510ce3d3eff83d16d630bee4",
       "passed": true,
       "requires_revoke_or_rotate": false,
       "grants_authority": false,
-      "report_digest": "sha256:1fdbea2b61e418599ea6e0da052913a8e5874fed1d8d258575cb07938570d1f5"
+      "report_digest": "sha256:6ed7888c14e1b2aaec8f7957521e51642829daa8e48ebbef2af231695cbc9463"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

@@ -238,6 +238,56 @@ def _runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
     }
 
 
+def _existing_runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
+    """Resolve existing RAG paths without mutating ACLs or creating directories."""
+
+    root = home.resolve(strict=True)
+    layout = HomeLayout(root)
+    issues = layout.verify()
+    if issues:
+        raise PolicyViolation(f"ZEKAM_HOME layout gecersiz: {issues[0].kind}")
+    # Keep the lexical path so the scoped validator can detect junction/symlink aliases.
+    project_root = root / "projeler" / project_slug
+    index_root = root / "knowledge-index" / "vector" / "opencode-bge-m3" / project_slug
+    manifest_root = root / "knowledge-index" / "manifests" / project_slug
+    return {
+        "home": root,
+        "project_root": project_root,
+        "index_root": index_root,
+        "manifest_root": manifest_root,
+        "index": index_root / "knowledge.sqlite3",
+        "cache": index_root / "vector-cache.sqlite3",
+        "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
+        "state": project_root / "runtime" / "rag-state.json",
+    }
+
+
+def _scoped_path_is_private(
+    root: Path, path: Path, *, directory: bool
+) -> bool:
+    """Reject missing, escaped, symlinked or reparse-backed scoped RAG paths."""
+
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return False
+    if resolved != path:
+        return False
+    return private_directory(path) if directory else private_regular(path)
+
+
+def _rag_scope_is_private(paths: dict[str, Path]) -> bool:
+    root = paths["home"]
+    return all(
+        _scoped_path_is_private(root, paths[name], directory=True)
+        for name in ("project_root", "index_root", "manifest_root")
+    ) and all(
+        _scoped_path_is_private(root, paths[name], directory=False)
+        for name in ("state", "index")
+    )
+
+
 def _provider(
     ledger_path: Path,
     config_file: Path,
@@ -473,9 +523,13 @@ def resolve_project_source(home: Path, project_slug: str) -> Path:
 
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
-    paths = _runtime_paths(home, slug)
+    paths = _existing_runtime_paths(home, slug)
     binding_path = paths["project_root"] / "baglantilar" / "source.json"
-    if not binding_path.is_file() or not private_regular(binding_path):
+    if not (
+        _scoped_path_is_private(paths["home"], paths["project_root"], directory=True)
+        and _scoped_path_is_private(paths["home"], binding_path.parent, directory=True)
+        and _scoped_path_is_private(paths["home"], binding_path, directory=False)
+    ):
         raise ValidationFailed("Project local source binding bulunamadi")
     document = json.loads(binding_path.read_text(encoding="utf-8"))
     if (
@@ -499,18 +553,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
 
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
-    if not private_directory(home):
-        return {
-            "schema": "zekam-project-rag-status/v1",
-            "project_id": str(project_id),
-            "project_slug": slug,
-            "state": "blocked",
-            "query_ready": False,
-            "blocked_reason": "knowledge-home-acl-drift",
-            "retryable": False,
-            "provider_calls": 0,
-        }
-    paths = _runtime_paths(home, slug)
+    paths = _existing_runtime_paths(home, slug)
     if not paths["state"].is_file() or not paths["index"].is_file():
         return {
             "schema": "zekam-project-rag-status/v1",
@@ -518,6 +561,17 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "project_slug": slug,
             "state": "unavailable",
             "query_ready": False,
+        }
+    if not _rag_scope_is_private(paths):
+        return {
+            "schema": "zekam-project-rag-status/v1",
+            "project_id": str(project_id),
+            "project_slug": slug,
+            "state": "blocked",
+            "query_ready": False,
+            "blocked_reason": "knowledge-scope-acl-drift",
+            "retryable": False,
+            "provider_calls": 0,
         }
     state = json.loads(paths["state"].read_text(encoding="utf-8"))
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
@@ -564,9 +618,9 @@ def read_project_citation(
     project_id = str(_registered_project(home, slug))
     if not chunk_id or len(chunk_id.encode("utf-8")) > 512:
         raise ValidationFailed("Citation chunk id bounded olmali")
-    paths = _runtime_paths(home, slug)
-    if not paths["index"].is_file():
-        raise ValidationFailed("Project knowledge index bulunamadi")
+    paths = _existing_runtime_paths(home, slug)
+    if not _rag_scope_is_private(paths):
+        raise PolicyViolation("Project RAG scoped ACL/identity drift")
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
         generation = index.generation(project_id)
         selected_generation = generation_digest or generation.generation_digest
@@ -1040,9 +1094,11 @@ def _query(
     config_file: Path,
     query: str,
 ) -> dict[str, Any]:
-    paths = _runtime_paths(home, project_slug)
+    paths = _existing_runtime_paths(home, project_slug)
     if not paths["state"].is_file() or not paths["index"].is_file():
         raise ValidationFailed("Project RAG index bulunamadi")
+    if not _rag_scope_is_private(paths):
+        raise PolicyViolation("Project RAG scoped ACL/identity drift")
     state = json.loads(paths["state"].read_text(encoding="utf-8"))
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
