@@ -13,6 +13,7 @@ from zekam.application.local_runtime import (
     LocalOutboxEvent,
     LocalRuntimeStore,
     RecoverySweep,
+    validate_job_operations,
     validate_outbox_kinds,
 )
 from zekam.domain.canonical import digest, parse_digest
@@ -51,6 +52,41 @@ class LocalEffectExecutor(Protocol):
 
 class LocalOutboxPublisher(Protocol):
     def __call__(self, claim: LocalOutboxClaim, /) -> LocalDeliveryResult: ...
+
+
+@dataclass(frozen=True, slots=True)
+class LocalEffectDispatcher:
+    """Exact operation-to-handler registry used by CLI and supervised ticks alike."""
+
+    routes: tuple[tuple[str, LocalEffectExecutor], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.routes, tuple) or not 1 <= len(self.routes) <= 64:
+            raise ValidationFailed("Effect routes 1..64 elemanli tuple olmali")
+        for route in self.routes:
+            if not isinstance(route, tuple) or len(route) != 2 or not callable(route[1]):
+                raise ValidationFailed("Effect route exact operation/callable pair olmali")
+        validate_job_operations(tuple(operation for operation, _ in self.routes))
+
+    @property
+    def supported_operations(self) -> tuple[str, ...]:
+        return tuple(operation for operation, _ in self.routes)
+
+    def __call__(self, request: LocalEffectRequest) -> LocalEffectResult:
+        if not isinstance(request, LocalEffectRequest):
+            raise ValidationFailed("Effect dispatch typed request ister")
+        if request.operation not in self.supported_operations:
+            raise PolicyViolation("Effect operation handler registry disinda")
+        if not isinstance(request.payload, dict):
+            raise ValidationFailed("Effect dispatch payload object olmali")
+        for operation, handler in self.routes:
+            if operation == request.operation:
+                result = handler(request)
+                if not isinstance(result, LocalEffectResult):
+                    raise ValidationFailed("Effect handler typed terminal result ister")
+                parse_digest(result.evidence_digest)
+                return result
+        raise PolicyViolation("Effect operation handler registry disinda")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,10 +141,14 @@ class LocalRuntimeService:
         self,
         store: LocalRuntimeStore,
         *,
-        effect_executor: LocalEffectExecutor,
+        effect_executor: LocalEffectExecutor | None = None,
+        effect_dispatcher: LocalEffectDispatcher | None = None,
         outbox_publisher: LocalOutboxPublisher | None = None,
         outbox_dispatcher: LocalOutboxDispatcher | None = None,
+        supported_operations: tuple[str, ...] | None = None,
     ) -> None:
+        if (effect_executor is None) == (effect_dispatcher is None):
+            raise ValidationFailed("Effect exact tek executor veya dispatcher ister")
         if (outbox_publisher is None) == (outbox_dispatcher is None):
             raise ValidationFailed("Outbox exact tek publisher veya dispatcher ister")
         if outbox_dispatcher is not None and not isinstance(
@@ -123,8 +163,22 @@ class LocalRuntimeService:
             )
         assert outbox_dispatcher is not None
         self._store = store
-        self._effect_executor = effect_executor
+        if effect_dispatcher is not None and supported_operations is not None:
+            raise ValidationFailed("Effect dispatcher ayri supported_operations kabul etmez")
+        resolved_effect = effect_dispatcher or effect_executor
+        if resolved_effect is None:  # constructor XOR guard; narrows the protocol type
+            raise ValidationFailed("Effect executor resolution failed")
+        self._effect_executor: LocalEffectExecutor = resolved_effect
         self._outbox_dispatcher = outbox_dispatcher
+        self._supported_operations = (
+            effect_dispatcher.supported_operations
+            if effect_dispatcher is not None
+            else (
+                None
+                if supported_operations is None
+                else validate_job_operations(supported_operations)
+            )
+        )
 
     def startup(
         self,
@@ -153,12 +207,15 @@ class LocalRuntimeService:
         owner_pid: int,
         owner_token: str,
         lease_seconds: int = 30,
+        job_id: str | None = None,
     ) -> LocalClaimedWork | None:
         work = self._store.claim_next(
             owner_id=owner_id,
             owner_pid=owner_pid,
             owner_token=owner_token,
             lease_seconds=lease_seconds,
+            supported_operations=self._supported_operations,
+            job_id=job_id,
         )
         if work is None:
             return None

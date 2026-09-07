@@ -69,6 +69,9 @@ _UniqueKeyLoader.add_constructor(
 
 
 def _front_matter(document: str) -> dict[str, str]:
+    if "\r" in document.replace("\r\n", ""):
+        raise ValidationFailed("Aktif gorev satir sonlari gecersiz")
+    document = document.replace("\r\n", "\n")
     if not document.startswith("---\n"):
         raise ValidationFailed("Aktif gorev YAML front matter ile baslamali")
     boundary = document.find("\n---\n", 4)

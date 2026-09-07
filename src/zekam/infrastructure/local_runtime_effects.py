@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib
+import json
 import os
 import stat
 import time
@@ -20,6 +22,10 @@ from zekam.application.local_runtime_service import (
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_file_security import private_directory, private_regular
+
+LOCAL_JOURNAL_OPERATIONS = ("local.append-journal/v1",)
+MAINTENANCE_RECONCILE_OPERATION = "maintenance.reconcile/v1"
+LOCAL_EVOLUTION_OPERATIONS = (*LOCAL_JOURNAL_OPERATIONS, MAINTENANCE_RECONCILE_OPERATION)
 
 
 def _relative_parts(value: object) -> tuple[str, ...]:
@@ -41,7 +47,7 @@ class LocalJournalEffectExecutor:
     def __call__(self, request: LocalEffectRequest) -> LocalEffectResult:
         if (
             not isinstance(request, LocalEffectRequest)
-            or request.operation != "local.append-journal/v1"
+            or request.operation not in LOCAL_JOURNAL_OPERATIONS
             or not isinstance(request.payload, dict)
         ):
             raise ValidationFailed("Local effect operation desteklenmiyor")
@@ -69,10 +75,83 @@ class LocalJournalEffectExecutor:
             digest({"idempotency_key": request.idempotency_key, "line": value}),
         )
 
+    def verify_record(self, *, relative_path: str, idempotency_key: str, line: str) -> bool:
+        """Re-open and verify one exact bounded record through the pinned root."""
+
+        parts = _relative_parts(relative_path)
+        if (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key
+            or "\n" in idempotency_key
+            or not isinstance(line, str)
+            or not line
+            or "\n" in line
+        ):
+            raise ValidationFailed("Local journal verification exact record ister")
+        expected = f"{idempotency_key}\t{line}\n".encode()
+        return self._directory.contains(parts, expected)
+
+
+class LocalMaintenanceReconcileExecutor:
+    """Typed, fixed-target heartbeat effect for supervised bounded ticks."""
+
+    def __init__(self, root: Path) -> None:
+        self._journal = LocalJournalEffectExecutor(root)
+
+    def __call__(self, request: LocalEffectRequest) -> LocalEffectResult:
+        payload = request.payload
+        if (
+            request.operation != MAINTENANCE_RECONCILE_OPERATION
+            or frozenset(payload) != {"scheduled_for", "schedule_digest", "source"}
+            or payload.get("source") != "os-supervisor"
+            or not isinstance(payload.get("scheduled_for"), str)
+            or not isinstance(payload.get("schedule_digest"), str)
+        ):
+            raise ValidationFailed("Maintenance reconcile exact typed payload ister")
+        parse_digest(payload["schedule_digest"])
+        try:
+            scheduled_for = dt.datetime.fromisoformat(
+                payload["scheduled_for"].replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise ValidationFailed("Maintenance scheduled_for UTC timestamp olmali") from exc
+        if (
+            scheduled_for.tzinfo is None
+            or scheduled_for.utcoffset() != dt.timedelta(0)
+            or scheduled_for.second
+            or scheduled_for.microsecond
+            or scheduled_for.minute % 5
+        ):
+            raise ValidationFailed("Maintenance scheduled_for exact UTC 5-minute slot olmali")
+        expected_schedule = digest(
+            {
+                "schema": "zekam-maintenance-reconcile-schedule/v1",
+                "interval_minutes": 5,
+                "scheduled_for": payload["scheduled_for"],
+                "operation": MAINTENANCE_RECONCILE_OPERATION,
+                "misfire": "run-once",
+                "overlap": "skip",
+            }
+        )
+        if payload["schedule_digest"] != expected_schedule:
+            raise PolicyViolation("Maintenance reconcile schedule digest drift")
+        line = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return self._journal(
+            LocalEffectRequest(
+                operation="local.append-journal/v1",
+                idempotency_key=request.idempotency_key,
+                payload={
+                    "relative_path": "evolution/maintenance-reconcile.jsonl",
+                    "line": line,
+                },
+            )
+        )
+
 
 MAX_JOURNAL_BYTES = 256 * 1024 * 1024
 MAX_JOURNAL_RECORD_BYTES = 16 * 1024
 MAX_EFFECT_JOURNAL_RECORD_BYTES = 1024 * 1024 + 4096
+MAX_VERIFICATION_JOURNAL_BYTES = 8 * 1024 * 1024
 
 
 def _effective_user_id() -> int:
@@ -219,6 +298,85 @@ class _PinnedJournalDirectory:
                 self._verify_path(parent, parts, after)
             finally:
                 os.close(descriptor)
+
+    def contains(self, parts: tuple[str, ...], expected: bytes) -> bool:
+        if len(expected) > MAX_EFFECT_JOURNAL_RECORD_BYTES:
+            raise ValidationFailed("Local journal verification record bound exceeded")
+        if os.name == "nt":
+            target = self.root.joinpath(*parts)
+            current = self.root
+            for part in parts[:-1]:
+                current /= part
+                if not private_directory(current):
+                    return False
+            if not private_regular(target):
+                return False
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            try:
+                descriptor = os.open(target, flags)
+            except FileNotFoundError:
+                return False
+            try:
+                before = os.fstat(descriptor)
+                self._verify_windows_leaf(target, before)
+                payload = self._read_verification_payload(descriptor, before)
+                after = os.fstat(descriptor)
+                self._verify_windows_leaf(target, after)
+                if (before.st_dev, before.st_ino, before.st_size) != (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_size,
+                ):
+                    raise PolicyViolation("Local journal changed during verification")
+                return expected in payload.splitlines(keepends=True)
+            finally:
+                os.close(descriptor)
+        relative_parent, name = parts[:-1], parts[-1]
+        with self.open(create=False, allow_missing=True, relative_parent=relative_parent) as parent:
+            if parent is None:
+                return False
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            try:
+                descriptor = os.open(name, flags, dir_fd=parent)
+            except FileNotFoundError:
+                return False
+            try:
+                before = os.fstat(descriptor)
+                self._verify_leaf(before)
+                payload = self._read_verification_payload(descriptor, before)
+                after = os.fstat(descriptor)
+                self._verify_leaf(after)
+                if (before.st_dev, before.st_ino, before.st_size) != (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_size,
+                ):
+                    raise PolicyViolation("Local journal changed during verification")
+                self._verify_path(parent, parts, after)
+                return expected in payload.splitlines(keepends=True)
+            finally:
+                os.close(descriptor)
+
+    @staticmethod
+    def _read_verification_payload(
+        descriptor: int, before: os.stat_result
+    ) -> bytes:
+        if not stat.S_ISREG(before.st_mode):
+            raise PolicyViolation("Local journal verification requires regular file")
+        if before.st_size > MAX_VERIFICATION_JOURNAL_BYTES:
+            raise PolicyViolation("Local journal verification byte bound exceeded")
+        chunks: list[bytes] = []
+        remaining = before.st_size + 1
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) != before.st_size:
+            raise PolicyViolation("Local journal changed during verification read")
+        return payload
 
     def _append_windows(self, parts: tuple[str, ...], payload: bytes, *, pause: float) -> None:
         import msvcrt

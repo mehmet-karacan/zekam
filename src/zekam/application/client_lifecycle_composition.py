@@ -30,6 +30,10 @@ from zekam.application.client_lifecycle_spool import (
     canonical_lifecycle_event,
     drain_to_postgres,
 )
+from zekam.application.evolution_capture import (
+    EvolutionCaptureEnvelope,
+    EvolutionCaptureReceipt,
+)
 from zekam.application.execution import ExecutionHost
 from zekam.application.hook_runtime import HookRuntime, HookSession
 from zekam.application.legacy_repository_provider import legacy_repository
@@ -267,6 +271,17 @@ def drain_claimed_codex_delivery(
         spool,
         client_instance_id=spool.client_instance_id(),
         continuity_admission=admission,
+        capture=lambda captured_entry, receipt: EvolutionCaptureReceipt.verified(
+            EvolutionCaptureEnvelope.from_terminal(
+                plan,
+                contract,
+                spool=spool,
+                entry=captured_entry,
+                receipt=receipt,
+            ),
+            captured_entry,
+            receipt,
+        ).as_dict(),
         limit=1,
     )
     if (
@@ -479,7 +494,7 @@ def compose_codex_lifecycle_handler(
         hook_store,
     )
     evidence = load_codex_contract_evidence(
-        Path(__file__).resolve().parents[3] / "config" / "client-lifecycle" / "codex-0.150.1.json"
+        Path(__file__).resolve().parents[3] / "config" / "client-lifecycle" / "codex-0.153.1.json"
     )
     contract = LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),

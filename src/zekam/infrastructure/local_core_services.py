@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from zekam.application.composition import ApplicationContext
+from zekam.application.skill_runtime import SkillRuntimeSigner
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
@@ -16,6 +17,9 @@ from zekam.infrastructure.local_file_security import (
     private_directory,
     private_regular,
     restrict_private_tree,
+)
+from zekam.infrastructure.skill_receipt_authority import (
+    load_or_create_skill_runtime_authority,
 )
 from zekam.infrastructure.sqlite.local_continuity_source_authority import (
     DDL_DIGEST as SOURCE_DDL_DIGEST,
@@ -45,10 +49,13 @@ from zekam.infrastructure.sqlite.local_model_registry import (
 from zekam.infrastructure.sqlite.local_model_registry import SQLiteLocalModelRegistry
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_schema import (
+    RUNTIME_SCHEMA_VERSIONS as OPERATIONAL_RUNTIME_SCHEMA_VERSIONS,
+)
+from zekam.infrastructure.sqlite.operational_schema import (
     SCHEMA_DIGEST as OPERATIONAL_SCHEMA_DIGEST,
 )
 from zekam.infrastructure.sqlite.operational_schema import (
-    SCHEMA_VERSION as OPERATIONAL_SCHEMA_VERSION,
+    SCHEMA_DIGESTS as OPERATIONAL_SCHEMA_DIGESTS,
 )
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -91,7 +98,7 @@ _LOCAL_CONTRACTS: dict[str, tuple[str, str, tuple[object, ...]]] = {
     "improvement": (
         IMPROVEMENT_SCHEMA_DIGEST,
         "select singleton,version from improvement_schema",
-        (1, 3),
+        (1, 8),
     ),
 }
 
@@ -126,12 +133,12 @@ def validate_local_sqlite_store(
             current.exists
             and current.integrity_ok
             and current.schema_ok
-            and current.schema_version == OPERATIONAL_SCHEMA_VERSION
+            and current.schema_version in OPERATIONAL_RUNTIME_SCHEMA_VERSIONS
         ):
             raise ConfigurationError("Local operational schema validation failed")
         return {
-            "schema_version": OPERATIONAL_SCHEMA_VERSION,
-            "schema_digest": OPERATIONAL_SCHEMA_DIGEST,
+            "schema_version": current.schema_version,
+            "schema_digest": OPERATIONAL_SCHEMA_DIGESTS[current.schema_version],
         }
     connection: sqlite3.Connection | None = None
     try:
@@ -179,7 +186,10 @@ def validate_local_sqlite_store(
             or _schema_digest(connection) != expected_digest
         ):
             raise ConfigurationError(f"Local {name} schema validation failed")
-        return {"schema_version": 1, "schema_digest": expected_digest}
+        schema_version = expected_row[1]
+        if type(schema_version) is not int:
+            raise ConfigurationError(f"Local {name} schema version contract invalid")
+        return {"schema_version": schema_version, "schema_digest": expected_digest}
     except (OSError, sqlite3.DatabaseError) as exc:
         raise ConfigurationError(f"Local {name} database validation failed") from exc
     finally:
@@ -200,6 +210,7 @@ class LocalCoreServices:
     routing: SQLiteLocalEvidenceRouter
     analytics: LocalAnalyticsStore
     improvement: SQLiteLocalImprovementStore
+    skill_runtime_signer: SkillRuntimeSigner
 
     @classmethod
     def from_context(cls, context: ApplicationContext) -> LocalCoreServices:
@@ -209,11 +220,19 @@ class LocalCoreServices:
         registry_path = home / "modeller" / "registry" / "models.db"
         benchmark_path = home / "benchmarklar" / "benchmark.db"
         routing_path = home / "modeller" / "routing" / "routing.db"
+        skill_runtime_signer, skill_runtime_verifier = load_or_create_skill_runtime_authority(
+            home / "state" / "skill-receipt.key"
+        )
         return cls(
             operational_path=operational_path,
             operational=SQLiteOperationalStore(operational_path),
             runtime=SQLiteLocalRuntimeStore(operational_path),
-            learning=SQLiteLocalLearning(learning_path, operational_path=operational_path),
+            learning=SQLiteLocalLearning(
+                learning_path,
+                operational_path=operational_path,
+                effects_root=home / "runtime" / "local-effects",
+                skill_runtime_verifier=skill_runtime_verifier,
+            ),
             registry=SQLiteLocalModelRegistry(registry_path),
             benchmark=SQLiteLocalBenchmarkLab(benchmark_path, home / "benchmarklar" / "artifacts"),
             routing=SQLiteLocalEvidenceRouter(
@@ -223,6 +242,7 @@ class LocalCoreServices:
             improvement=SQLiteLocalImprovementStore(
                 home / "state" / "improvement.db", learning_path, benchmark_path
             ),
+            skill_runtime_signer=skill_runtime_signer,
         )
 
     def bootstrap_extensions(self) -> None:
@@ -265,6 +285,8 @@ class LocalCoreServices:
             )
             if missing:
                 store.bootstrap()
+            elif store is self.improvement:
+                self.improvement.migrate()
 
     def status(self, *, semantic_analytics: bool = False) -> dict[str, object]:
         """Bounded read-only census; absence or corruption is never reported healthy."""
@@ -324,7 +346,11 @@ class LocalCoreServices:
                     "integrity": True,
                     "schema_ok": True,
                     **contract,
-                    "expected_schema_digest": _EXPECTED_DATABASE_DIGESTS[name],
+                    "expected_schema_digest": (
+                        contract["schema_digest"]
+                        if name == "operational"
+                        else _EXPECTED_DATABASE_DIGESTS[name]
+                    ),
                     "tables": tables,
                     "required": name != "source_authority",
                 }

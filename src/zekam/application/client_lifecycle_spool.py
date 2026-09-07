@@ -31,7 +31,8 @@ from zekam.domain.errors import (
 )
 
 SPOOL_ENTRY_SCHEMA = "zekam-client-lifecycle-spool-entry/v1"
-SPOOL_ACK_SCHEMA = "zekam-client-lifecycle-spool-ack/v1"
+SPOOL_ACK_SCHEMA = "zekam-client-lifecycle-spool-ack/v2"
+SPOOL_ACK_SCHEMA_V1 = "zekam-client-lifecycle-spool-ack/v1"
 SPOOL_ATTEMPT_SCHEMA = "zekam-client-lifecycle-spool-attempt/v3"
 SPOOL_ATTEMPT_STATE_SCHEMA = "zekam-client-lifecycle-attempt-state/v3"
 SPOOL_DELIVERY_REF_SCHEMA = "zekam-client-lifecycle-delivery-ref/v1"
@@ -92,6 +93,9 @@ _FALSE_KEYS = (
 )
 _TOKEN = re.compile(r"^[A-Za-z0-9_.:/-]{1,200}$")
 _CLIENT_INSTANCE = re.compile(r"^[A-Za-z0-9_-]{1,160}$")
+_CAPTURE_SAFE_REF = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
+_CAPTURE_GIT_REVISION = re.compile(r"^(?:git:)?[0-9a-f]{7,64}$")
+_CAPTURE_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
 _ENTRY_KEYS = frozenset(
     {
         "schema",
@@ -122,11 +126,13 @@ _ACK_KEYS = frozenset(
         "runtime_binding_id",
         "runtime_binding_digest",
         "continuity_binding",
+        "evolution_capture",
         "acknowledged_at",
         "grants_authority",
         "ack_digest",
     }
 )
+_ACK_KEYS_V1 = _ACK_KEYS - {"evolution_capture"}
 _CONTINUITY_BINDING_KEYS = frozenset(
     {
         "schema",
@@ -818,6 +824,7 @@ class ClientLifecycleSpool:
         self.sessions_directory = self.root / "sessions"
         self.queue_directory = self.root / "queue"
         self.drain_cursors_directory = self.root / "drain-cursors"
+        self.capture_gaps_directory = self.root / "capture-gaps"
         self.queue_state_path = self.root / "queue-state.json"
         self.drain_cursor_path = self.root / "drain-cursor.json"
         self.instance_path = self.root / "client-instance.json"
@@ -974,6 +981,52 @@ class ClientLifecycleSpool:
             raise PolicyViolation("Lifecycle spool session cursor parity mismatch")
         return entries
 
+    def read_session_window(
+        self,
+        *,
+        client_id: str,
+        session_id: str,
+        after_sequence: int,
+        limit: int = MAX_PENDING_BATCH,
+    ) -> tuple[int, tuple[LifecycleSpoolEntry, ...]] | None:
+        """Read at most ``limit`` exact predecessors from the trusted session tail."""
+
+        if client_id != self.root.name:
+            raise PolicyViolation("Lifecycle spool client binding mismatch")
+        if after_sequence < 0 or limit < 1 or limit > MAX_PENDING_BATCH:
+            raise ValidationFailed("Lifecycle session window cursor/limit gecersiz")
+        tail = self._load_session_tail(client_id=client_id, session_id=session_id)
+        if tail is None:
+            return 0, ()
+        tail_sequence = tail.sequence
+        if after_sequence > tail_sequence:
+            return tail_sequence, ()
+        if tail_sequence - after_sequence > limit:
+            return None
+        selected: list[LifecycleSpoolEntry] = []
+        current: LifecycleSpoolEntry | None = tail
+        while current is not None and current.sequence > after_sequence:
+            selected.append(current)
+            if len(selected) > limit:
+                raise PolicyViolation("Lifecycle session source window bounded limitini asti")
+            previous_digest = current.previous_entry_digest
+            if previous_digest is None:
+                current = None
+            else:
+                previous = self._read_entry(previous_digest)
+                if (
+                    previous is None
+                    or previous.client_id != client_id
+                    or previous.session_id != session_id
+                    or previous.sequence + 1 != current.sequence
+                ):
+                    raise PolicyViolation("Lifecycle session source window chain drift")
+                current = previous
+        observed_tail = self._load_session_tail(client_id=client_id, session_id=session_id)
+        if observed_tail is None or observed_tail.entry_digest != tail.entry_digest:
+            raise ConcurrencyConflict("Lifecycle session source window changed; retry required")
+        return tail_sequence, tuple(reversed(selected))
+
     def client_instance_id(self) -> str:
         """Return one persistent, path-free Codex instance identity for canonical ingest."""
 
@@ -1058,12 +1111,24 @@ class ClientLifecycleSpool:
         entry: LifecycleSpoolEntry,
         *,
         receipt: CanonicalLifecycleReceipt,
+        evolution_capture: Mapping[str, Any] | None = None,
         acknowledged_at: dt.datetime | None = None,
     ) -> dict[str, Any]:
         """Add a local ACK only after exact canonical ingest and lookup agree."""
 
         entry.assert_integrity()
         receipt.assert_binding(entry)
+        if evolution_capture is not None:
+            assert receipt.continuity_binding is not None
+            _validate_evolution_capture(
+                evolution_capture,
+                entry_digest=entry.entry_digest,
+                canonical_event_digest=receipt.canonical_event_digest,
+                canonical_lookup_digest=receipt.canonical_lookup_digest,
+                continuity_binding_digest=str(
+                    receipt.continuity_binding["binding_digest"]
+                ),
+            )
         if not _safe_regular_file_exists(self.instance_path):
             raise PolicyViolation("Lifecycle ACK canonical client instance ister")
         instance_id = _validate_instance(_read_json(self.instance_path), self.root.name)
@@ -1104,6 +1169,7 @@ class ClientLifecycleSpool:
                     )
                     or existing["runtime_binding_digest"] != receipt.runtime_binding_digest
                     or existing["continuity_binding"] != receipt.continuity_binding
+                    or existing.get("evolution_capture") != evolution_capture
                 ):
                     raise PolicyViolation("Lifecycle ACK replay digest drift")
                 self._advance_drain_cursor()
@@ -1120,6 +1186,7 @@ class ClientLifecycleSpool:
                 ),
                 "runtime_binding_digest": receipt.runtime_binding_digest,
                 "continuity_binding": receipt.continuity_binding,
+                "evolution_capture": evolution_capture,
                 "acknowledged_at": _timestamp(at, label="acknowledged_at"),
                 "grants_authority": False,
             }
@@ -1276,6 +1343,21 @@ class ClientLifecycleSpool:
                 state_body | {"state_digest": digest(state_body)},
             )
             return document
+
+    def record_capture_gap(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        """Persist one content-free, digest-bound source gap idempotently."""
+
+        checked = _validate_capture_gap(document, client_id=self.root.name)
+        self._ensure_write_directories()
+        path = self.capture_gaps_directory / f"{parse_digest(checked['decision_digest'])}.json"
+        with _exclusive_lock(self.lock_path):
+            if _safe_regular_file_exists(path):
+                existing = _read_json(path)
+                if existing != checked:
+                    raise PolicyViolation("Lifecycle capture-gap replay drift")
+                return cast(dict[str, Any], existing)
+            _write_immutable_json(path, checked)
+            return checked
 
     def record_predecessor_manual_review(
         self,
@@ -2081,6 +2163,7 @@ class ClientLifecycleSpool:
             self.sessions_directory,
             self.queue_directory,
             self.drain_cursors_directory,
+            self.capture_gaps_directory,
         ):
             _ensure_safe_directory(path)
 
@@ -2118,6 +2201,10 @@ def replay_pending(
     spool: ClientLifecycleSpool,
     *,
     deliver: Callable[[LifecycleSpoolEntry], CanonicalLifecycleReceipt],
+    capture: Callable[
+        [LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]
+    ]
+    | None = None,
     limit: int = 80,
     attempted_at: dt.datetime | None = None,
 ) -> tuple[LifecycleReplayResult, ...]:
@@ -2156,6 +2243,7 @@ def replay_pending(
         try:
             receipt = deliver(entry)
             receipt.assert_binding(entry)
+            evolution_capture = None if capture is None else dict(capture(entry, receipt))
         except (ZekamError, OSError) as exc:
             category = exc.code if isinstance(exc, ZekamError) else "io-error"
             outcome = (
@@ -2220,6 +2308,7 @@ def replay_pending(
         spool._acknowledge_verified_receipt(
             entry,
             receipt=receipt,
+            evolution_capture=evolution_capture,
             acknowledged_at=at,
         )
         results.append(
@@ -2276,6 +2365,10 @@ def drain_to_postgres(
     *,
     client_instance_id: str,
     continuity_admission: LifecycleContinuityAdmission | None = None,
+    capture: Callable[
+        [LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]
+    ]
+    | None = None,
     limit: int = 80,
     attempted_at: dt.datetime | None = None,
 ) -> tuple[LifecycleReplayResult, ...]:
@@ -2335,16 +2428,19 @@ def drain_to_postgres(
     return replay_pending(
         spool,
         deliver=deliver,
+        capture=capture,
         limit=limit,
         attempted_at=at,
     )
 
 
 def _validate_ack(document: Any, *, entry_digest: str) -> None:
+    schema = document.get("schema") if isinstance(document, dict) else None
+    expected_keys = _ACK_KEYS if schema == SPOOL_ACK_SCHEMA else _ACK_KEYS_V1
     if (
         not isinstance(document, dict)
-        or frozenset(document) != _ACK_KEYS
-        or document.get("schema") != SPOOL_ACK_SCHEMA
+        or frozenset(document) != expected_keys
+        or schema not in {SPOOL_ACK_SCHEMA, SPOOL_ACK_SCHEMA_V1}
     ):
         raise ValidationFailed("Lifecycle ACK schema gecersiz")
     if (
@@ -2359,6 +2455,7 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
     runtime_binding_id = document.get("runtime_binding_id")
     runtime_binding_digest = document.get("runtime_binding_digest")
     continuity_binding = document.get("continuity_binding")
+    evolution_capture = document.get("evolution_capture")
     ack_digest = document.get("ack_digest")
     if (
         not isinstance(canonical_ack_digest, str)
@@ -2441,6 +2538,14 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
         raise ValidationFailed("ACK continuity compiler_enqueue boolean olmali")
     if continuity_binding.get("event_type") == "pre_compaction" and not compiler_enqueue:
         raise PolicyViolation("ACK pre-compaction compiler enqueue ister")
+    if evolution_capture is not None:
+        _validate_evolution_capture(
+            evolution_capture,
+            entry_digest=entry_digest,
+            canonical_event_digest=canonical_event_digest,
+            canonical_lookup_digest=canonical_lookup_digest,
+            continuity_binding_digest=binding_digest,
+        )
     _parse_timestamp(document.get("acknowledged_at"), label="acknowledged_at")
     body = {key: value for key, value in document.items() if key != "ack_digest"}
     if digest(body) != ack_digest:
@@ -2460,6 +2565,175 @@ def _validate_ack(document: Any, *, entry_digest: str) -> None:
     )
     if canonical_lookup_digest != expected_lookup_digest:
         raise PolicyViolation("Lifecycle ACK canonical lookup digest mismatch")
+
+
+def _validate_evolution_capture(
+    document: Any,
+    *,
+    entry_digest: str,
+    canonical_event_digest: str,
+    canonical_lookup_digest: str,
+    continuity_binding_digest: str,
+) -> None:
+    """Validate the optional derived capture receipt embedded in the canonical ACK."""
+
+    expected = frozenset(
+        {
+            "schema",
+            "capture",
+            "capture_digest",
+            "spool_entry_digest",
+            "canonical_event_digest",
+            "canonical_lookup_digest",
+            "continuity_binding_digest",
+            "status",
+            "grants_authority",
+            "receipt_digest",
+        }
+    )
+    if (
+        not isinstance(document, dict)
+        or frozenset(document) != expected
+        or document.get("schema") != "zekam-evolution-capture-receipt/v2"
+        or document.get("status") != "completed"
+        or document.get("grants_authority") is not False
+        or document.get("spool_entry_digest") != entry_digest
+        or document.get("canonical_event_digest") != canonical_event_digest
+        or document.get("canonical_lookup_digest") != canonical_lookup_digest
+        or document.get("continuity_binding_digest") != continuity_binding_digest
+    ):
+        raise PolicyViolation("Lifecycle ACK evolution capture binding gecersiz")
+    for key in (
+        "capture_digest",
+        "spool_entry_digest",
+        "canonical_event_digest",
+        "canonical_lookup_digest",
+        "continuity_binding_digest",
+        "receipt_digest",
+    ):
+        _digest_text(document.get(key), label=f"evolution capture {key}")
+    _validate_capture_envelope(document.get("capture"), document["capture_digest"])
+    body = {key: value for key, value in document.items() if key != "receipt_digest"}
+    if digest(body) != document["receipt_digest"]:
+        raise PolicyViolation("Lifecycle ACK evolution capture receipt digest mismatch")
+
+
+def _validate_capture_envelope(document: Any, capture_digest: str) -> None:
+    expected = frozenset(
+        {
+            "schema", "event_id", "event_type", "schema_version", "device_id",
+            "client_id", "client_version", "session_id", "project_scope", "work_ref",
+            "run_ref", "source_revision", "occurred_at", "received_at",
+            "sequence_or_cursor", "idempotency_key", "parent_run_ref", "origin",
+            "payload_digest", "privacy_class", "evidence_refs", "contains_prompt",
+            "contains_response", "contains_transcript", "grants_authority",
+            "capture_digest",
+        }
+    )
+    if (
+        not isinstance(document, dict)
+        or frozenset(document) != expected
+        or document.get("schema") != "zekam-evolution-capture-envelope/v1"
+        or document.get("schema_version") != 1
+        or document.get("capture_digest") != capture_digest
+        or document.get("parent_run_ref") is not None
+        or document.get("privacy_class") != "internal"
+        or any(document.get(key) is not False for key in _FALSE_KEYS)
+        or not isinstance(document.get("sequence_or_cursor"), int)
+        or document["sequence_or_cursor"] < 1
+    ):
+        raise PolicyViolation("Lifecycle evolution capture envelope schema gecersiz")
+    for key in (
+        "device_id", "client_id", "client_version", "session_id", "source_revision",
+        "idempotency_key", "origin",
+    ):
+        value = document.get(key)
+        if not isinstance(value, str) or _CAPTURE_SAFE_REF.fullmatch(value) is None:
+            raise PolicyViolation("Lifecycle evolution capture path/secret ref reddedildi")
+    if (
+        _CAPTURE_GIT_REVISION.fullmatch(document["source_revision"]) is None
+        or _CAPTURE_SEMVER.fullmatch(document["client_version"]) is None
+        or document["origin"] != f"client:{document['client_id']}"
+        or not document["device_id"].startswith(f"{document['client_id']}-")
+    ):
+        raise PolicyViolation("Lifecycle evolution capture typed ref binding gecersiz")
+    _digest_text(document["idempotency_key"], label="capture idempotency key")
+    try:
+        UUID(document["session_id"])
+    except ValueError as exc:
+        raise ValidationFailed("Lifecycle evolution capture session UUID olmali") from exc
+    try:
+        UUID(str(document.get("event_id")))
+    except ValueError as exc:
+        raise ValidationFailed("Lifecycle evolution capture event_id UUID olmali") from exc
+    for key, prefix in (
+        ("project_scope", "project:"), ("work_ref", "work:"), ("run_ref", "run:")
+    ):
+        value = document.get(key)
+        if not isinstance(value, str) or not value.startswith(prefix):
+            raise PolicyViolation("Lifecycle evolution capture scope binding gecersiz")
+        try:
+            UUID(value.removeprefix(prefix))
+        except ValueError as exc:
+            raise ValidationFailed("Lifecycle evolution capture scope UUID olmali") from exc
+    _digest_text(document.get("payload_digest"), label="capture payload digest")
+    evidence = document.get("evidence_refs")
+    if not isinstance(evidence, (list, tuple)) or len(evidence) != 3:
+        raise PolicyViolation("Lifecycle evolution capture evidence refs gecersiz")
+    for value, prefix in zip(
+        evidence,
+        ("canonical-event:", "canonical-lookup:", "continuity-binding:"),
+        strict=True,
+    ):
+        if not isinstance(value, str) or not value.startswith(prefix):
+            raise PolicyViolation("Lifecycle evolution capture evidence binding gecersiz")
+        _digest_text(value.removeprefix(prefix), label="capture evidence digest")
+    _parse_timestamp(document.get("occurred_at"), label="capture occurred_at")
+    _parse_timestamp(document.get("received_at"), label="capture received_at")
+    body = {key: value for key, value in document.items() if key != "capture_digest"}
+    if digest(body) != capture_digest:
+        raise PolicyViolation("Lifecycle evolution capture envelope digest mismatch")
+
+
+def _validate_capture_gap(document: Any, *, client_id: str) -> dict[str, Any]:
+    expected = frozenset(
+        {
+            "schema",
+            "state",
+            "source_ref",
+            "source_digest",
+            "after_sequence",
+            "through_sequence",
+            "limit",
+            "reason",
+            "inferred_content",
+            "grants_authority",
+            "decision_digest",
+        }
+    )
+    if (
+        not isinstance(document, dict)
+        or frozenset(document) != expected
+        or document.get("schema") != "zekam-capture-replay-decision/v1"
+        or document.get("state") != "capture-gap"
+        or document.get("reason")
+        not in {"source-unavailable", "source-window-expired"}
+        or document.get("inferred_content") is not False
+        or document.get("grants_authority") is not False
+        or document.get("limit") != 0
+        or not isinstance(document.get("after_sequence"), int)
+        or not isinstance(document.get("through_sequence"), int)
+        or not isinstance(document.get("source_ref"), str)
+        or not document["source_ref"].startswith(f"client-spool:{client_id}:")
+    ):
+        raise PolicyViolation("Lifecycle capture-gap schema/binding gecersiz")
+    if document["source_digest"] is not None:
+        _digest_text(document["source_digest"], label="capture-gap source digest")
+    _digest_text(document.get("decision_digest"), label="capture-gap decision digest")
+    body = {key: value for key, value in document.items() if key != "decision_digest"}
+    if digest(body) != document["decision_digest"]:
+        raise PolicyViolation("Lifecycle capture-gap decision digest mismatch")
+    return cast(dict[str, Any], document)
 
 
 def _validate_delivery_ref(document: Any, *, delivery_id: str) -> None:

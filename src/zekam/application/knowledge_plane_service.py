@@ -25,6 +25,8 @@ class KnowledgeFilePort(Protocol):
 
     def create_note(self, manifest: KnowledgeNoteManifest, payload: bytes) -> Path: ...
 
+    def read_note(self, manifest: KnowledgeNoteManifest) -> bytes: ...
+
     def archive_note(self, manifest: KnowledgeNoteManifest) -> str: ...
 
     def put_artifact(self, plan: ArtifactPutPlan, payload: bytes) -> Path: ...
@@ -70,14 +72,7 @@ class KnowledgePlaneService:
             )
             uow.commit()
         path = self._files.create_note(manifest, payload)
-        evidence = digest(
-            {
-                "operation": "knowledge-note-materialized",
-                "note_id": pending.id,
-                "portable_ref": manifest.portable_ref,
-                "content_digest": manifest.content_digest,
-            }
-        )
+        evidence = _materialization_evidence(pending, manifest)
         with self._operational.unit_of_work() as uow:
             ready = uow.confirm_knowledge_note(
                 note_id=pending.id,
@@ -86,6 +81,25 @@ class KnowledgePlaneService:
             )
             uow.commit()
         return MaterializedKnowledgeNote(ready, path)
+
+    def reconcile_materialized_note(
+        self, *, record: KnowledgeNoteRecord, manifest: KnowledgeNoteManifest
+    ) -> KnowledgeNoteRecord:
+        """Confirm a crash-interrupted pending row only after exact file readback."""
+
+        if record.materialized:
+            self._files.read_note(manifest)
+            return record
+        self._files.read_note(manifest)
+        evidence = _materialization_evidence(record, manifest)
+        with self._operational.unit_of_work() as uow:
+            ready = uow.confirm_knowledge_note(
+                note_id=record.id,
+                expected_content_digest=manifest.content_digest,
+                evidence_digest=evidence,
+            )
+            uow.commit()
+        return ready
 
     def archive_note(
         self, *, record: KnowledgeNoteRecord, manifest: KnowledgeNoteManifest
@@ -117,3 +131,16 @@ class KnowledgePlaneService:
             uow.commit()
         self._files.put_artifact(plan, payload)
         return record
+
+
+def _materialization_evidence(
+    record: KnowledgeNoteRecord, manifest: KnowledgeNoteManifest
+) -> str:
+    return digest(
+        {
+            "operation": "knowledge-note-materialized",
+            "note_id": record.id,
+            "portable_ref": manifest.portable_ref,
+            "content_digest": manifest.content_digest,
+        }
+    )

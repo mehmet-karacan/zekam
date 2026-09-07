@@ -17,7 +17,7 @@ _EVENTS = ("SessionStart", "PreCompact", "PostCompact", "Stop", "SessionEnd")
 _REPARSE_POINT = 0x400
 _COMMAND_MARKER = "-m zekam.interfaces.cli.client hook --client "
 _LEGACY_COMMAND_PREFIX = "python " + _COMMAND_MARKER
-_VERSIONS = {"codex": "0.150.1", "claude-code": "2.1.224"}
+_VERSIONS = {"codex": "0.153.1", "claude-code": "2.1.224"}
 
 
 @dataclass(frozen=True, slots=True)

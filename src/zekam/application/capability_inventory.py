@@ -192,6 +192,33 @@ CAPABILITIES: tuple[Capability, ...] = (
         ("zekam-verifier",),
         ("tests/e2e/test_cli_backup.py", "tests/unit/test_backup_manifest.py"),
     ),
+    Capability(
+        "autonomous-evolution",
+        "Measured local learning and bounded autonomous rollout",
+        "ready",
+        (
+            "evolve plan",
+            "evolve status",
+            "evolve candidates",
+            "evolve report",
+            "evolve pause",
+            "evolve resume",
+            "evolve disable",
+            "evolve run-once",
+            "evolve enable",
+            "evolve bootstrap-plan",
+            "evolve supervisor-plan",
+            "evolve supervisor-status",
+        ),
+        ("zekam-coordinator", "zekam-builder", "zekam-verifier"),
+        (
+            "tests/integration/test_authorized_rollout_runtime.py",
+            "tests/unit/test_evolution_rollout.py",
+            "tests/unit/test_windows_task_scheduler.py",
+        ),
+        "Runtime authority and native two-cycle acceptance are reported dynamically by "
+        "evolve status; capability readiness does not itself grant effects.",
+    ),
 )
 
 

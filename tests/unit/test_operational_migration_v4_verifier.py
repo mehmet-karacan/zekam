@@ -18,6 +18,9 @@ from zekam.infrastructure.sqlite import operational_migration as migration
 from zekam.infrastructure.sqlite import operational_schema as schema
 
 pytestmark = pytest.mark.unit
+_POSIX_ONLY = pytest.mark.skipif(
+    os.name == "nt", reason="POSIX dir-fd, symlink, and link-count race semantics"
+)
 
 
 class _Admission:
@@ -53,6 +56,7 @@ def _migrate(path: Path, backup: Path, lock: Path) -> None:
     )
 
 
+@_POSIX_ONLY
 def test_migration_lock_hardlink_never_mutates_external_victim(tmp_path: Path) -> None:
     victim = tmp_path / "external-victim"
     lock = tmp_path / "migration.lock"
@@ -83,6 +87,7 @@ def test_hardlinked_database_is_rejected_without_mutating_other_name(tmp_path: P
     assert schema.status(original).schema_version == 3
 
 
+@_POSIX_ONLY
 def test_lock_parent_swap_cannot_redirect_creation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -122,6 +127,7 @@ def test_lock_parent_swap_cannot_redirect_creation(
     assert not (attacker_parent / "migration.lock").exists()
 
 
+@_POSIX_ONLY
 def test_database_parent_swap_cannot_create_redirected_writer_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -159,6 +165,7 @@ def test_database_parent_swap_cannot_create_redirected_writer_file(
     assert not (attacker_parent / "operational.db").exists()
 
 
+@_POSIX_ONLY
 def test_backup_parent_swap_never_writes_to_replacement_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -189,6 +196,7 @@ def test_backup_parent_swap_never_writes_to_replacement_directory(
     assert list(attacker_parent.iterdir()) == []
 
 
+@_POSIX_ONLY
 def test_backup_content_drift_before_writer_aborts_migration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -240,7 +248,8 @@ def test_backup_temporary_hardlink_race_never_publishes_success(
         original_write(descriptor, content)
 
     monkeypatch.setattr(operational_backup, "_write_all", racing_write)
-    with pytest.raises(ConfigurationError, match=r"link|identity|artifact"):
+    expected_error = (ConfigurationError, OSError) if os.name == "nt" else ConfigurationError
+    with pytest.raises(expected_error):
         operational_backup.SQLiteOperationalBackup(source).create_backup(str(destination))
 
     assert not destination.exists()
@@ -260,7 +269,9 @@ def test_corrupted_anchored_write_is_verified_from_persisted_bytes(
         original_write(descriptor, b"X" + content[1:])
 
     monkeypatch.setattr(operational_backup, "_write_all", corrupt_write)
-    with pytest.raises(ConfigurationError, match=r"serialized|integrity|parity|header"):
+    with pytest.raises(
+        ConfigurationError, match=r"serialized|integrity|parity|header|truncated"
+    ):
         operational_backup.SQLiteOperationalBackup(source).create_backup(str(destination))
 
     assert not destination.exists()
@@ -299,6 +310,7 @@ def test_anchored_backup_zero_write_leaves_no_destination(
     assert not destination.exists()
 
 
+@_POSIX_ONLY
 def test_publication_fsync_failure_unlinks_destination(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

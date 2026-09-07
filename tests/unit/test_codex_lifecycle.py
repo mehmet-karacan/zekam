@@ -75,7 +75,7 @@ EFFECT_DIGEST = digest("codex-governed-drain-effect")
 def test_reviewed_camelcase_mapping_binds_exact_tracked_contract_digest() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     evidence = load_codex_contract_evidence(
-        repository_root / "config" / "client-lifecycle" / "codex-0.150.1.json"
+        repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
     )
     contract = LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
@@ -241,7 +241,7 @@ def test_exact_codex_events_map_to_canonical_continuity(
     assert observation["grants_authority"] is False
 
 
-@pytest.mark.parametrize("reason", ("clear", "logout", "prompt_input_exit", "other"))
+@pytest.mark.parametrize("reason", ("other",))
 def test_official_session_end_reasons_are_exactly_allowlisted(reason: str) -> None:
     envelope = parse_codex_hook_input(
         json.dumps(
@@ -253,6 +253,20 @@ def test_official_session_end_reasons_are_exactly_allowlisted(reason: str) -> No
         )
     )
     assert envelope.reason == reason
+
+
+@pytest.mark.parametrize("reason", ("clear", "logout", "prompt_input_exit"))
+def test_historical_session_end_reasons_fail_closed_for_current_contract(reason: str) -> None:
+    with pytest.raises(ValidationFailed, match="reviewed enum"):
+        parse_codex_hook_input(
+            json.dumps(
+                {
+                    "session_id": SESSION_ID,
+                    "hook_event_name": "SessionEnd",
+                    "reason": reason,
+                }
+            )
+        )
 
 
 def test_session_turn_and_occurrence_ids_require_lowercase_uuid_shape() -> None:
@@ -341,11 +355,11 @@ def test_unknown_or_drifted_codex_contract_fails_closed() -> None:
 def test_exact_version_descriptor_and_tracked_evidence() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     evidence = load_codex_contract_evidence(
-        repository_root / "config" / "client-lifecycle" / "codex-0.150.1.json"
+        repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
     )
     descriptor = codex_lifecycle_descriptor(
         "codex",
-        installed_version=parse_codex_version_output("codex-cli 0.150.1"),
+        installed_version=parse_codex_version_output("codex-cli 0.153.1"),
     )
 
     assert descriptor.version == CODEX_REVIEWED_VERSION
@@ -648,7 +662,7 @@ def test_tracked_contract_rejects_durability_semantic_drift(
     drifted: object,
 ) -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    source = repository_root / "config" / "client-lifecycle" / "codex-0.150.1.json"
+    source = repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
     document = json.loads(source.read_text(encoding="utf-8"))
     document["durability"][field] = drifted
     candidate = tmp_path / "codex-contract.json"
@@ -676,7 +690,7 @@ def test_tracked_contract_rejects_critical_remote_and_hook_drift(
     drifted: object,
 ) -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    source = repository_root / "config" / "client-lifecycle" / "codex-0.150.1.json"
+    source = repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
     document = json.loads(source.read_text(encoding="utf-8"))
     document[section][field] = drifted
     candidate = tmp_path / "codex-critical-contract.json"

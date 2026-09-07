@@ -25,8 +25,15 @@ from zekam.application.local_runtime import (
     validate_job_operations,
     validate_outbox_kinds,
 )
+from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
-from zekam.domain.errors import ConcurrencyConflict, NotFound, PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    ConcurrencyConflict,
+    ConfigurationError,
+    NotFound,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.domain.identifiers import new_uuid7
 from zekam.infrastructure.sqlite.local_runtime_recovery_tx import (
     EffectRecoveryCaseSpec,
@@ -40,7 +47,11 @@ from zekam.infrastructure.sqlite.local_runtime_recovery_tx import (
     require_outbox_capacity_tx,
     transition_running_job_to_recovery_tx,
 )
-from zekam.infrastructure.sqlite.operational_schema import SCHEMA_VERSION, bootstrap, status
+from zekam.infrastructure.sqlite.operational_schema import (
+    RUNTIME_SCHEMA_VERSIONS,
+    bootstrap,
+    status,
+)
 
 # Matches str.strip() used by the legacy worker before invoking its executor.
 # Padding must not disguise a reserved operation as an ordinary legacy job.
@@ -91,6 +102,13 @@ def _bounded_int(value: int, name: str, *, minimum: int, maximum: int) -> int:
 def _payload_json(payload: dict[str, Any]) -> str:
     if not isinstance(payload, dict):
         raise ValidationFailed("Local payload object olmali")
+    if payload.get("operation") == "skill.execute.local-journal/v1":
+        effect = payload.get("effect")
+        line = effect.get("line") if isinstance(effect, dict) else None
+        if isinstance(line, str) and scan_text(
+            line, relative_path="runtime/skill-execution-input"
+        ):
+            raise PolicyViolation("Skill execution secret durable queue'ya yazilamaz")
     try:
         encoded = canonical_json(payload)
     except (TypeError, ValueError) as exc:
@@ -134,20 +152,41 @@ class SQLiteLocalRuntimeStore:
             )
         self.path = path
         self.existing_only = existing_only
+        observed = status(path)
         if existing_only:
-            observed = status(path)
             if not (
                 observed.exists
-                and observed.schema_version == SCHEMA_VERSION
+                and observed.schema_version in RUNTIME_SCHEMA_VERSIONS
                 and observed.integrity_ok
                 and observed.schema_ok
             ):
                 raise PolicyViolation("Local runtime requires existing current operational schema")
         else:
-            bootstrap(path)
-        connection = self._connect()
+            if observed.exists:
+                if not (
+                    observed.schema_version in RUNTIME_SCHEMA_VERSIONS
+                    and observed.integrity_ok
+                    and observed.schema_ok
+                ):
+                    if not observed.integrity_ok or not observed.schema_ok:
+                        raise ConfigurationError(
+                            "Operational SQLite unknown/corrupt schema rejected"
+                        )
+                    if observed.schema_version in {1, 2}:
+                        raise ConfigurationError(
+                            "Operational SQLite migration-required: explicit upgrade gerekli"
+                        )
+                    if observed.schema_version == 4:
+                        raise ConfigurationError("Operational SQLite downgrade forbidden")
+                    raise ConfigurationError("Operational SQLite unsupported schema rejected")
+            elif path.exists() or path.is_symlink():
+                raise PolicyViolation("Local runtime operational schema symlink olamaz")
+            else:
+                bootstrap(path)
+        connection = self._connect_readonly() if existing_only else self._connect()
         try:
-            connection.execute("begin immediate")
+            if not existing_only:
+                connection.execute("begin immediate")
             row = connection.execute(
                 "select max_pending_outbox from local_runtime_config where singleton=1"
             ).fetchone()
@@ -167,10 +206,12 @@ class SQLiteLocalRuntimeStore:
                 configured = int(row["max_pending_outbox"])
                 if max_pending_outbox is not None and max_pending_outbox != configured:
                     raise PolicyViolation("Persisted max pending outbox config drift")
-            connection.commit()
+            if not existing_only:
+                connection.commit()
             self.max_pending_outbox = configured
         except Exception:
-            connection.rollback()
+            if not existing_only:
+                connection.rollback()
             raise
         finally:
             connection.close()
@@ -235,6 +276,7 @@ class SQLiteLocalRuntimeStore:
                 "attempt_count": job.attempt_count,
                 "max_attempts": job.max_attempts,
                 "payload": job.payload,
+                "terminal_evidence_digest": row[0]["terminal_evidence_digest"],
                 "effects": [
                     {
                         "claim_id": str(item["id"]),
@@ -1230,6 +1272,79 @@ class SQLiteLocalRuntimeStore:
             raise
         finally:
             connection.close()
+
+    def latest_completed_learning_day(self) -> dt.date | None:
+        """Read the newest receipt-backed daily range watermark."""
+
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "select s.slot_key,s.schedule_digest,j.payload_json,j.state,"
+                "j.terminal_evidence_digest,c.operation,c.effect_digest,r.status,"
+                "r.evidence_digest from local_scheduler_slot s join local_job j"
+                " on j.id=s.job_id left join local_effect_claim c on c.job_id=j.id"
+                " left join local_effect_receipt r on r.claim_id=c.id"
+                " where s.slot_key like 'learning-daily:%'"
+                " order by s.slot_key desc limit 2"
+            ).fetchall()
+        finally:
+            connection.close()
+        if not rows:
+            return None
+        suffix = str(rows[0]["slot_key"])[len("learning-daily:") :]
+        try:
+            day = dt.date.fromisoformat(suffix)
+        except ValueError as exc:
+            raise PolicyViolation("Learning daily scheduler watermark drift") from exc
+        if f"learning-daily:{day.isoformat()}" != rows[0]["slot_key"]:
+            raise PolicyViolation("Learning daily scheduler watermark noncanonical")
+        try:
+            payload = json.loads(str(rows[0]["payload_json"]))
+        except (TypeError, ValueError) as exc:
+            raise PolicyViolation("Learning daily scheduler payload malformed") from exc
+        effect = payload.get("effect") if isinstance(payload, dict) else None
+        if not isinstance(effect, dict):
+            raise PolicyViolation("Learning daily scheduler effect missing")
+        try:
+            start_day = dt.date.fromisoformat(str(effect.get("start_day")))
+        except ValueError as exc:
+            raise PolicyViolation("Learning daily scheduler start watermark drift") from exc
+        from zekam.application.learning_daily_compiler import (  # local import avoids cycle
+            DAILY_TIMEZONE,
+            LEARNING_DAILY_OPERATION,
+            learning_daily_scheduled_for,
+        )
+
+        scheduled_for = learning_daily_scheduled_for(day).isoformat().replace("+00:00", "Z")
+        schedule_body = {
+            "schema": "zekam-learning-daily-schedule/v1",
+            "start_day": effect.get("start_day"),
+            "day": day.isoformat(),
+            "scheduled_for": scheduled_for,
+            "operation": LEARNING_DAILY_OPERATION,
+            "misfire": "run-once",
+            "timezone": DAILY_TIMEZONE,
+        }
+        if (
+            frozenset(payload) != {"operation", "effect"}
+            or payload.get("operation") != LEARNING_DAILY_OPERATION
+            or frozenset(effect)
+            != {"start_day", "day", "scheduled_for", "schedule_digest", "source", "timezone"}
+            or effect.get("day") != day.isoformat()
+            or effect.get("start_day") != start_day.isoformat()
+            or start_day > day
+            or effect.get("scheduled_for") != scheduled_for
+            or effect.get("source") != "os-supervisor"
+            or effect.get("timezone") != DAILY_TIMEZONE
+            or digest(schedule_body) != rows[0]["schedule_digest"]
+            or effect.get("schedule_digest") != rows[0]["schedule_digest"]
+            or digest(effect) != rows[0]["effect_digest"]
+            or rows[0]["operation"] != LEARNING_DAILY_OPERATION
+            or (rows[0]["state"], rows[0]["status"]) != ("completed", "completed")
+            or rows[0]["terminal_evidence_digest"] != rows[0]["evidence_digest"]
+        ):
+            raise PolicyViolation("Learning daily scheduler watermark evidence drift")
+        return day
 
     def pending_outbox(self, *, limit: int = 100) -> tuple[LocalOutboxEvent, ...]:
         _bounded_int(limit, "Outbox limit", minimum=1, maximum=1000)

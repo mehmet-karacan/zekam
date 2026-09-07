@@ -6,6 +6,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from zekam.application.evolution_runtime import build_evolution_plan, build_evolution_report
 from zekam.application.observatory import (
     CompositeRuntimeProjectionReader,
     LocalSessionFileProjectionReader,
@@ -151,9 +152,26 @@ def test_http_surface_is_read_only_and_keeps_security_headers(context: Any) -> N
     )
 
     status, headers, body = _request(app, "GET", "/api/observatory/snapshot")
+    evolution_status, evolution_headers, evolution_body = _request(
+        app, "GET", "/api/observatory/evolution"
+    )
     rejected_status, _, _ = _request(app, "POST", "/api/observatory/snapshot", b"{}")
 
     assert status == 200
+    assert evolution_status == 200
+    evolution = json.loads(evolution_body)
+    assert evolution["schema"] == "zekam-observatory-evolution/v1"
+    assert evolution["read_only"] is True
+    assert evolution["grants_authority"] is False
+    plan = build_evolution_plan(context)
+    report = build_evolution_report(context, plan=plan)
+    assert evolution["state"] == report["state"]
+    assert evolution["runtime"] == plan["runtime"]
+    normalized_plan = json.loads(json.dumps(plan))
+    assert evolution["handlers"] == normalized_plan["handlers"]
+    assert evolution["permissions"] == normalized_plan["permissions"]
+    assert evolution["metrics"] == report["metrics"]
+    assert evolution_headers["cache-control"] == "no-store"
     assert rejected_status == 405
     assert headers["cache-control"] == "no-store"
     assert "default-src 'self'" in headers["content-security-policy"]

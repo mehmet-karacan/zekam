@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
-from zekam.infrastructure.sqlite.operational_schema import SCHEMA_DIGEST, SCHEMA_VERSION, status
+from zekam.infrastructure.sqlite.operational_schema import (
+    RUNTIME_SCHEMA_VERSIONS,
+    SCHEMA_DIGESTS,
+    SCHEMA_VERSION,
+    status,
+)
 
 if TYPE_CHECKING:
     from zekam.application.composition import ApplicationContext
@@ -25,13 +30,19 @@ class PersistenceCheck:
 
     def run(self) -> CheckResult:
         current = status(self.path)
+        expected_digest = (
+            SCHEMA_DIGESTS.get(current.schema_version)
+            if current.schema_version in RUNTIME_SCHEMA_VERSIONS
+            else None
+        )
         evidence = {
             "exists": current.exists,
             "schema_version": current.schema_version,
             "expected_schema_version": SCHEMA_VERSION,
+            "supported_runtime_schema_versions": sorted(RUNTIME_SCHEMA_VERSIONS),
             "integrity_ok": current.integrity_ok,
             "schema_ok": current.schema_ok,
-            "expected_schema_digest": SCHEMA_DIGEST,
+            "expected_schema_digest": expected_digest,
             "path_ref": self.path_ref,
         }
         if not current.exists:
@@ -54,7 +65,7 @@ class PersistenceCheck:
         if (
             not current.integrity_ok
             or not current.schema_ok
-            or current.schema_version != SCHEMA_VERSION
+            or current.schema_version not in RUNTIME_SCHEMA_VERSIONS
         ):
             return CheckResult(
                 self.check_id,

@@ -17,8 +17,17 @@ from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 from typing import final
+from zoneinfo import ZoneInfo
 
 from zekam.application.memory_service import ReviewDecision
+from zekam.application.skill_runtime import (
+    SKILL_EXECUTE_OPERATION,
+    SKILL_VERIFY_HANDLER,
+    SKILL_VERIFY_OPERATION,
+    SkillRuntimeVerifier,
+    execution_receipt_unsigned_body,
+    verification_receipt_unsigned_body,
+)
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.learning import MINIMUM_SKILL_TRIALS, FailureOccurrence, SkillEvaluation
@@ -28,12 +37,26 @@ from zekam.infrastructure.local_file_security import (
     private_regular,
     restrict_private_tree,
 )
+from zekam.infrastructure.local_runtime_effects import LocalJournalEffectExecutor
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 
 SCHEMA_VERSION = 1
 SCHEMA_DIGEST = "sha256:4d5d9f79cf576a2385179198045d0bd91972c86d9ab996d57cd68eb181d0f038"
 MAX_BODY_BYTES = 32_768
 _SOURCE_KINDS = frozenset({"receipt", "test", "citation", "observation-summary"})
+_DAILY_SOURCES = {
+    "memory_revision": ("revision_digest", "created_at"),
+    "failure_occurrence": ("occurrence_digest", "observed_at"),
+    "failure_card": ("card_digest", "created_at"),
+    "lesson": ("lesson_digest", "created_at"),
+    "skill_manifest": ("manifest_digest", "created_at"),
+    "skill_evaluation": ("evaluation_digest", "created_at"),
+    "skill_review": ("review_digest", "created_at"),
+    "skill_activation": ("activation_digest", "activated_at"),
+    "skill_usage": ("usage_digest", "used_at"),
+    "skill_outcome": ("outcome_digest", "observed_at"),
+    "hygiene_proposal": ("proposal_digest", "created_at"),
+}
 
 _SCHEMA = r"""
 pragma foreign_keys=on;
@@ -343,7 +366,14 @@ class SkillManifestDraft:
 class SQLiteLocalLearning:
     """Append-only, explicitly constructed WP-09 local learning store."""
 
-    def __init__(self, path: Path, *, operational_path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        operational_path: Path,
+        effects_root: Path | None = None,
+        skill_runtime_verifier: SkillRuntimeVerifier | None = None,
+    ) -> None:
         if type(path) is not type(Path()) or not path.is_absolute() or path.is_symlink():
             raise ValidationFailed("WP-09 exact absolute SQLite path required")
         if (
@@ -355,6 +385,24 @@ class SQLiteLocalLearning:
             raise ValidationFailed("WP-09 distinct operational evidence path required")
         self.path = path
         self.operational_path = operational_path
+        if effects_root is not None and (
+            type(effects_root) is not type(Path())
+            or not effects_root.is_absolute()
+            or ".." in effects_root.parts
+        ):
+            raise ValidationFailed("WP-09 skill effects exact absolute root required")
+        self.effects_root = effects_root
+        self.skill_runtime_verifier = skill_runtime_verifier
+
+    def _skill_journal(self) -> LocalJournalEffectExecutor:
+        if self.effects_root is None:
+            raise PolicyViolation("Skill evidence physical journal binding ister")
+        return LocalJournalEffectExecutor(self.effects_root)
+
+    def _skill_authority(self) -> SkillRuntimeVerifier:
+        if self.skill_runtime_verifier is None:
+            raise PolicyViolation("Skill evidence sealed runtime authority ister")
+        return self.skill_runtime_verifier
 
     def _operational(self) -> sqlite3.Connection:
         if not private_regular(self.operational_path):
@@ -367,6 +415,7 @@ class SQLiteLocalLearning:
             not in {
                 3,
                 4,
+                5,
             }
         ):
             raise PolicyViolation("WP-09 current operational evidence schema required")
@@ -1098,45 +1147,512 @@ class SQLiteLocalLearning:
         usage_digest: str,
         outcome: str,
         verifier_ref: str,
+        verification_job_ref: str | None = None,
+        verification_evidence_digest: str | None = None,
         now: dt.datetime,
     ) -> tuple[str, str]:
+        """Reject the former atomic facade; verification must happen after usage."""
+
         parse_digest(activation_digest)
         parse_digest(usage_digest)
         _text(run_ref, "run ref")
         _text(verifier_ref, "verifier")
+        _text(verification_job_ref, "verification job")
+        if not isinstance(verification_evidence_digest, str):
+            raise ValidationFailed("Skill verification evidence digest required")
+        parse_digest(verification_evidence_digest)
         if type(outcome) is not str or outcome not in {
             "verified-success",
             "verified-failure",
         }:
             raise ValidationFailed("Skill outcome must be verified")
+        _time(now)
+        raise PolicyViolation(
+            "Skill usage ve outcome atomik facade ile uretilemez; ayri verifier job ister"
+        )
+
+    def record_skill_usage(
+        self,
+        activation_digest: str,
+        *,
+        run_ref: str,
+        usage_evidence_digest: str,
+        now: dt.datetime,
+    ) -> str:
+        """Record a real active-skill use only after terminal runtime evidence."""
+
+        parse_digest(activation_digest)
+        parse_digest(usage_evidence_digest)
+        _text(run_ref, "run ref")
+        evidence = self._skill_run_evidence(
+            activation_digest, run_ref, usage_evidence_digest
+        )
+        if not self._physical_skill_record_present(evidence):
+            raise PolicyViolation("Skill usage physical effect readback ister")
+        if _parse_time(evidence["terminal_at"]) > _parse_time(_time(now)):
+            raise PolicyViolation("Skill usage cannot predate terminal run evidence")
         used = {
             "schema": "zekam-local-skill-usage/v1",
             "activation_digest": activation_digest,
             "run_ref": run_ref,
-            "usage_evidence_digest": usage_digest,
+            "usage_evidence_digest": usage_evidence_digest,
+            "runtime_evidence": evidence,
             "used_at": _time(now),
         }
         used_raw, used_id = _body(used)
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            active = db.execute(
+                "select activated_at from skill_activation where activation_digest=?",
+                (activation_digest,),
+            ).fetchone()
+            if active is None:
+                raise PolicyViolation("Skill usage requires active manifest")
+            if _parse_time(active["activated_at"]) > _parse_time(evidence["claimed_at"]):
+                raise PolicyViolation("Skill execution cannot predate activation")
+            existing = db.execute(
+                "select usage_digest,body_json from skill_usage "
+                "where activation_digest=? and run_ref=?",
+                (activation_digest, run_ref),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["body_json"]) != used_raw:
+                    raise PolicyViolation("Skill usage replay payload drift")
+                db.rollback()
+                return str(existing["usage_digest"])
+            db.execute(
+                "insert into skill_usage values(?,?,?,?,?)",
+                (used_id, activation_digest, run_ref, _time(now), used_raw),
+            )
+            db.commit()
+        return used_id
+
+    def verify_skill_outcome(
+        self,
+        usage_digest: str,
+        *,
+        outcome: str,
+        verifier_ref: str,
+        verification_job_ref: str | None = None,
+        verification_evidence_digest: str | None = None,
+        now: dt.datetime,
+    ) -> str:
+        """Attach an independently verified result to one persisted real usage."""
+
+        parse_digest(usage_digest)
+        _text(verifier_ref, "verifier")
+        verification_job = _text(verification_job_ref, "verification job")
+        if not isinstance(verification_evidence_digest, str):
+            raise ValidationFailed("Skill verification evidence digest required")
+        parse_digest(verification_evidence_digest)
+        if type(outcome) is not str or outcome not in {
+            "verified-success",
+            "verified-failure",
+        }:
+            raise ValidationFailed("Skill outcome must be verified")
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            row = db.execute(
+                "select u.activation_digest,u.run_ref,u.used_at,u.body_json,m.author_ref,"
+                "e.evaluator_ref,e.verifier_ref,r.reviewer_ref "
+                "from skill_usage u join skill_activation a "
+                "on a.activation_digest=u.activation_digest "
+                "join skill_manifest m on m.manifest_digest=a.manifest_digest "
+                "join skill_evaluation e on e.evaluation_digest=a.evaluation_digest "
+                "join skill_review r on r.review_digest=a.review_digest "
+                "where u.usage_digest=?",
+                (usage_digest,),
+            ).fetchone()
+            if row is None:
+                raise PolicyViolation("Skill outcome requires persisted usage")
+            if verifier_ref != SKILL_VERIFY_HANDLER:
+                raise PolicyViolation("Skill outcome trusted verifier handler ister")
+            try:
+                usage_body = json.loads(str(row["body_json"]))
+            except (TypeError, ValueError) as exc:
+                raise PolicyViolation("Skill usage evidence malformed") from exc
+            evidence_digest = usage_body.get("usage_evidence_digest")
+            if not isinstance(evidence_digest, str):
+                raise PolicyViolation("Skill usage evidence digest missing")
+            evidence = self._skill_run_evidence(
+                str(row["activation_digest"]), str(row["run_ref"]), evidence_digest
+            )
+            verifier = self._skill_verification_evidence(
+                usage_digest,
+                verification_job,
+                verification_evidence_digest,
+                evidence,
+            )
+            physically_present = self._physical_skill_record_present(evidence)
+            physical_outcome = (
+                "verified-success" if physically_present else "verified-failure"
+            )
+            if outcome != verifier["outcome"]:
+                raise PolicyViolation("Skill outcome contradicts verifier receipt")
+            if outcome != physical_outcome:
+                raise PolicyViolation("Skill outcome contradicts physical readback")
+            if _parse_time(verifier["claimed_at"]) < _parse_time(str(row["used_at"])):
+                raise PolicyViolation("Skill verifier cannot predate persisted usage")
+            if _parse_time(_time(now)) < _parse_time(str(row["used_at"])):
+                raise PolicyViolation("Skill outcome cannot predate usage")
         result = {
             "schema": "zekam-local-skill-outcome/v1",
-            "usage_digest": used_id,
+            "usage_digest": usage_digest,
             "status": outcome,
             "verifier_ref": verifier_ref,
+            "terminal_evidence_digest": evidence_digest,
+            "verification_job_ref": verification_job,
+            "verification_evidence_digest": verification_evidence_digest,
             "observed_at": _time(now),
         }
         result_raw, result_id = _body(result)
         with closing(self._connect()) as db:
             db.execute("begin immediate")
-            db.execute(
-                "insert into skill_usage values(?,?,?,?,?)",
-                (used_id, activation_digest, run_ref, _time(now), used_raw),
-            )
+            existing = db.execute(
+                "select outcome_digest,body_json from skill_outcome where usage_digest=?",
+                (usage_digest,),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["body_json"]) != result_raw:
+                    raise PolicyViolation("Skill outcome replay payload drift")
+                db.rollback()
+                return str(existing["outcome_digest"])
             db.execute(
                 "insert into skill_outcome values(?,?,?,?,?,?)",
-                (result_id, used_id, outcome, verifier_ref, _time(now), result_raw),
+                (result_id, usage_digest, outcome, verifier_ref, _time(now), result_raw),
             )
             db.commit()
-        return used_id, result_id
+        return result_id
+
+    def _physical_skill_record_present(self, evidence: dict[str, str]) -> bool:
+        return self._skill_journal().verify_record(
+            relative_path=evidence["journal_ref"],
+            idempotency_key=evidence["execution_idempotency_key"],
+            line=evidence["line"],
+        )
+
+    def _skill_run_evidence(
+        self, activation_digest: str, run_ref: str, evidence_digest: str
+    ) -> dict[str, str]:
+        with closing(self._operational()) as db:
+            rows = db.execute(
+                "select j.payload_json,j.state,j.updated_at terminal_at,c.id claim_id,"
+                "c.operation,c.effect_digest,c.idempotency_key,c.claimed_at,"
+                "r.id receipt_id,r.status,"
+                "r.evidence_digest,r.created_at receipt_at "
+                "from local_job j join local_effect_claim c on c.job_id=j.id "
+                "join local_effect_receipt r on r.claim_id=c.id "
+                "where j.id=? and j.state in ('completed','failed') "
+                "and j.terminal_evidence_digest=? and r.evidence_digest=?",
+                (run_ref, evidence_digest, evidence_digest),
+            ).fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Skill usage requires exact terminal run receipt")
+        row = rows[0]
+        try:
+            payload = json.loads(str(row["payload_json"]))
+        except (TypeError, ValueError) as exc:
+            raise PolicyViolation("Skill usage runtime payload malformed") from exc
+        effect = payload.get("effect") if isinstance(payload, dict) else None
+        if isinstance(effect, dict):
+            activation_value = effect.get("activation_digest")
+            trigger = effect.get("trigger")
+            input_digest = effect.get("input_digest")
+            line = effect.get("line")
+        else:
+            activation_value = trigger = input_digest = line = None
+        journal_ref = f"skills/executions/{activation_digest[7:]}.jsonl"
+        journal_evidence = digest(
+            {"idempotency_key": row["idempotency_key"], "line": line}
+        )
+        unsigned_receipt = execution_receipt_unsigned_body(
+            activation_digest=activation_digest,
+            trigger=str(trigger),
+            input_digest=str(input_digest),
+            journal_ref=journal_ref,
+            line=str(line),
+            idempotency_key=str(row["idempotency_key"]),
+            journal_evidence_digest=journal_evidence,
+        )
+        if (
+            not isinstance(payload, dict)
+            or payload.get("operation") != row["operation"]
+            or row["operation"] != SKILL_EXECUTE_OPERATION
+            or payload.get("skill_activation_digest") != activation_digest
+            or not isinstance(effect, dict)
+            or frozenset(effect) != {"activation_digest", "trigger", "input_digest", "line"}
+            or activation_value != activation_digest
+            or not all(isinstance(value, str) for value in (trigger, input_digest, line))
+            or digest(effect) != row["effect_digest"]
+            or (row["state"], row["status"]) != ("completed", "completed")
+            or not self._skill_authority().matches_receipt_digest(
+                unsigned_receipt, evidence_digest
+            )
+            or not (
+                _parse_time(row["claimed_at"])
+                <= _parse_time(row["receipt_at"])
+                <= _parse_time(row["terminal_at"])
+            )
+        ):
+            raise PolicyViolation("Skill usage terminal run binding drift")
+        return {
+            "activation_digest": activation_digest,
+            "job_id": run_ref,
+            "claim_id": str(row["claim_id"]),
+            "receipt_id": str(row["receipt_id"]),
+            "operation": str(row["operation"]),
+            "terminal_state": str(row["state"]),
+            "evidence_digest": evidence_digest,
+            "claimed_at": str(row["claimed_at"]),
+            "receipt_at": str(row["receipt_at"]),
+            "terminal_at": str(row["terminal_at"]),
+            "execution_idempotency_key": str(row["idempotency_key"]),
+            "journal_ref": journal_ref,
+            "line": str(line),
+        }
+
+    def skill_usage_verification_target(self, usage_digest: str) -> dict[str, str]:
+        parse_digest(usage_digest)
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "select activation_digest,run_ref,body_json from skill_usage "
+                "where usage_digest=?",
+                (usage_digest,),
+            ).fetchone()
+        if row is None:
+            raise PolicyViolation("Skill verifier persisted usage ister")
+        try:
+            body = json.loads(str(row["body_json"]))
+        except (TypeError, ValueError) as exc:
+            raise PolicyViolation("Skill verifier usage body malformed") from exc
+        evidence_digest = body.get("usage_evidence_digest")
+        if not isinstance(evidence_digest, str):
+            raise PolicyViolation("Skill verifier usage evidence missing")
+        evidence = self._skill_run_evidence(
+            str(row["activation_digest"]), str(row["run_ref"]), evidence_digest
+        )
+        return {
+            "activation_digest": str(row["activation_digest"]),
+            "execution_job_id": str(row["run_ref"]),
+            "execution_evidence_digest": evidence_digest,
+            "execution_idempotency_key": evidence["execution_idempotency_key"],
+            "journal_ref": evidence["journal_ref"],
+            "line": evidence["line"],
+        }
+
+    def _skill_verification_evidence(
+        self,
+        usage_digest: str,
+        job_ref: str,
+        evidence_digest: str,
+        execution: dict[str, str],
+    ) -> dict[str, str]:
+        with closing(self._operational()) as db:
+            rows = db.execute(
+                "select j.payload_json,j.state,j.updated_at terminal_at,c.operation,"
+                "c.effect_digest,c.idempotency_key,c.claimed_at,r.status,r.evidence_digest,"
+                "r.created_at receipt_at "
+                "from local_job j join local_effect_claim c on c.job_id=j.id "
+                "join local_effect_receipt r on r.claim_id=c.id where j.id=? "
+                "and j.terminal_evidence_digest=? and r.evidence_digest=?",
+                (job_ref, evidence_digest, evidence_digest),
+            ).fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Skill outcome exact verifier receipt ister")
+        row = rows[0]
+        try:
+            payload = json.loads(str(row["payload_json"]))
+        except (TypeError, ValueError) as exc:
+            raise PolicyViolation("Skill verifier runtime payload malformed") from exc
+        effect = payload.get("effect") if isinstance(payload, dict) else None
+        present = row["status"] == "completed" and row["state"] == "completed"
+        audit_ref = f"skills/verifications/{usage_digest[7:]}.jsonl"
+        audit_line = canonical_json(
+            {
+                "schema": "zekam-trusted-skill-verification-audit/v1",
+                "usage_digest": usage_digest,
+                "activation_digest": execution["activation_digest"],
+                "execution_job_id": execution["job_id"],
+                "execution_evidence_digest": execution["evidence_digest"],
+                "journal_ref": execution["journal_ref"],
+                "journal_record_present": present,
+            }
+        )
+        audit_evidence = digest(
+            {"idempotency_key": row["idempotency_key"], "line": audit_line}
+        )
+        unsigned_receipt = verification_receipt_unsigned_body(
+            usage_digest=usage_digest,
+            activation_digest=execution["activation_digest"],
+            execution_job_id=execution["job_id"],
+            execution_evidence_digest=execution["evidence_digest"],
+            journal_ref=execution["journal_ref"],
+            journal_record_present=present,
+            verification_audit_ref=audit_ref,
+            verification_idempotency_key=str(row["idempotency_key"]),
+            verification_audit_line=audit_line,
+            verification_audit_evidence_digest=audit_evidence,
+        )
+        terminal_pair = (str(row["state"]), str(row["status"]))
+        if (
+            not isinstance(effect, dict)
+            or effect != {"usage_digest": usage_digest}
+            or payload.get("operation") != SKILL_VERIFY_OPERATION
+            or row["operation"] != SKILL_VERIFY_OPERATION
+            or digest(effect) != row["effect_digest"]
+            or terminal_pair not in {("completed", "completed"), ("failed", "failed")}
+            or not self._skill_authority().matches_receipt_digest(
+                unsigned_receipt, evidence_digest
+            )
+            or not self._skill_journal().verify_record(
+                relative_path=audit_ref,
+                idempotency_key=str(row["idempotency_key"]),
+                line=audit_line,
+            )
+            or not (
+                _parse_time(row["claimed_at"])
+                <= _parse_time(row["receipt_at"])
+                <= _parse_time(row["terminal_at"])
+            )
+        ):
+            raise PolicyViolation("Skill outcome verifier binding drift")
+        return {
+            "outcome": str(unsigned_receipt["outcome"]),
+            "claimed_at": str(row["claimed_at"]),
+        }
+
+    def select_active_skills(
+        self, trigger: str, *, maximum: int = 8
+    ) -> tuple[dict[str, object], ...]:
+        """Return bounded active manifests eligible for an exact dispatch trigger."""
+
+        _text(trigger, "skill trigger", maximum=128)
+        if type(maximum) is not int or not 1 <= maximum <= 32:
+            raise ValidationFailed("Skill selection maximum 1..32 olmali")
+        selected: list[dict[str, object]] = []
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "select a.activation_digest,a.activated_at,m.manifest_digest,m.skill_id,"
+                "m.version,m.body_json from skill_activation a join skill_manifest m "
+                "on m.manifest_digest=a.manifest_digest order by a.activated_at desc,"
+                "a.activation_digest limit 257"
+            ).fetchall()
+        if len(rows) > 256:
+            raise PolicyViolation("Active skill selection scan bound exceeded")
+        for row in rows:
+            try:
+                body = json.loads(str(row["body_json"]))
+            except (TypeError, ValueError) as exc:
+                raise PolicyViolation("Active skill manifest malformed") from exc
+            triggers = body.get("triggers") if isinstance(body, dict) else None
+            if not isinstance(triggers, list) or not all(
+                isinstance(item, str) for item in triggers
+            ):
+                raise PolicyViolation("Active skill trigger manifest drift")
+            if trigger not in triggers:
+                continue
+            selected.append(
+                {
+                    "activation_digest": str(row["activation_digest"]),
+                    "manifest_digest": str(row["manifest_digest"]),
+                    "skill_id": str(row["skill_id"]),
+                    "version": int(row["version"]),
+                    "trigger": trigger,
+                    "purpose": str(body.get("purpose")),
+                    "permissions_ceiling": str(body.get("permissions_ceiling")),
+                    "source_evidence": tuple(body.get("source_evidence", ())),
+                    "required_tools": tuple(body.get("required_tools", ())),
+                    "steps": tuple(body.get("steps", ())),
+                    "checks": tuple(body.get("checks", ())),
+                }
+            )
+            if len(selected) == maximum:
+                break
+        return tuple(selected)
+
+    def daily_snapshot(
+        self,
+        day: dt.date,
+        *,
+        start_day: dt.date | None = None,
+        timezone_name: str = "UTC",
+    ) -> dict[str, object]:
+        """Compile a bounded, content-free index over one canonical local-day range."""
+
+        if type(day) is not dt.date:
+            raise ValidationFailed("Learning daily snapshot exact date ister")
+        start = day if start_day is None else start_day
+        if type(start) is not dt.date or start > day or timezone_name not in {
+            "UTC",
+            "Europe/Istanbul",
+        }:
+            raise ValidationFailed("Learning daily snapshot bounded day range ister")
+        zone = ZoneInfo(timezone_name)
+        range_start = dt.datetime.combine(start, dt.time.min, tzinfo=zone).astimezone(dt.UTC)
+        range_end = dt.datetime.combine(
+            day + dt.timedelta(days=1), dt.time.min, tzinfo=zone
+        ).astimezone(dt.UTC)
+        range_start_text = range_start.replace(microsecond=0).isoformat()
+        range_end_text = range_end.replace(microsecond=0).isoformat()
+        records: list[dict[str, str]] = []
+        counts: dict[str, int] = {}
+        with closing(self._connect()) as db:
+            db.execute("pragma query_only=on")
+            db.execute("begin")
+            for table, (identity, timestamp) in _DAILY_SOURCES.items():
+                rows = db.execute(
+                    f"select {identity},{timestamp} from {table} "
+                    f"where {timestamp}>=? and {timestamp}<? "
+                    f"order by {timestamp},{identity} limit 513",
+                    (range_start_text, range_end_text),
+                ).fetchall()
+                if len(rows) > 512:
+                    raise PolicyViolation("Learning daily snapshot table bound exceeded")
+                counts[table] = len(rows)
+                for row in rows:
+                    value = str(row[identity])
+                    parse_digest(value)
+                    records.append(
+                        {
+                            "kind": table,
+                            "record_digest": value,
+                            "observed_at": str(row[timestamp]),
+                            "source_ref": f"learning/{table}/{value[7:]}",
+                        }
+                    )
+            db.rollback()
+        body: dict[str, object] = {
+            "schema": "zekam-learning-daily-snapshot/v1",
+            "start_day": start.isoformat(),
+            "day": day.isoformat(),
+            "timezone": timezone_name,
+            "range_start_utc": range_start_text,
+            "range_end_utc": range_end_text,
+            "counts": counts,
+            "records": records,
+            "record_count": len(records),
+            "contains_record_content": False,
+            "grants_authority": False,
+        }
+        return body | {"snapshot_digest": digest(body)}
+
+    def earliest_learning_day(self, timezone_name: str) -> dt.date | None:
+        """Return the oldest durable learning record's local calendar day."""
+
+        if timezone_name not in {"UTC", "Europe/Istanbul"}:
+            raise ValidationFailed("Learning daily watermark timezone gecersiz")
+        instants: list[dt.datetime] = []
+        with closing(self._connect()) as db:
+            db.execute("pragma query_only=on")
+            db.execute("begin")
+            for table, (_identity, timestamp) in _DAILY_SOURCES.items():
+                row = db.execute(f"select min({timestamp}) from {table}").fetchone()
+                if row is not None and row[0] is not None:
+                    instants.append(_parse_time(str(row[0])))
+            db.rollback()
+        if not instants:
+            return None
+        return min(instants).astimezone(ZoneInfo(timezone_name)).date()
 
     def effectiveness(self, activation_digest: str) -> dict[str, int]:
         parse_digest(activation_digest)

@@ -105,7 +105,7 @@ def test_capabilities_expose_ready_partial_and_scaffold_without_claiming_authori
     assert result.exit_code == 0, result.output
     document = json.loads(result.output)
     assert document["schema"] == "zekam-capability-inventory/v1"
-    assert document["counts"] == {"ready": 6, "partial": 6, "scaffold": 1}
+    assert document["counts"] == {"ready": 7, "partial": 6, "scaffold": 1}
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert all(item["verified_by"] for item in document["capabilities"])

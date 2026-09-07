@@ -1615,7 +1615,7 @@ class ClaimedLifecycleBootstrapService:
             Path(__file__).resolve().parents[3]
             / "config"
             / "client-lifecycle"
-            / "codex-0.150.1.json"
+            / "codex-0.153.1.json"
         )
         contract = LifecycleClientContract.verified(
             descriptor=codex_lifecycle_descriptor(

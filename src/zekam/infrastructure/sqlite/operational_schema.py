@@ -18,6 +18,9 @@ from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.sqlite.continuity_control_schema import SCHEMA_V3_SQL
 from zekam.infrastructure.sqlite.continuity_native_schema import SCHEMA_V4_SQL
 from zekam.infrastructure.sqlite.continuity_schema import SCHEMA_V2_SQL
+from zekam.infrastructure.sqlite.evolution_authority import (
+    EVOLUTION_AUTHORITY_DDL as SCHEMA_V5_SQL,
+)
 from zekam.infrastructure.sqlite.repository import (
     _SCHEMA_V1 as _LEGACY_TABLE_SCAFFOLD,
 )
@@ -26,6 +29,7 @@ from zekam.infrastructure.sqlite.repository import (
 )
 
 SCHEMA_VERSION = 3
+RUNTIME_SCHEMA_VERSIONS = frozenset({3, 5})
 MIGRATION_NAME = "operational-authority-v1"
 
 # The historical scaffold is used only as a schema-construction detail for a
@@ -537,11 +541,17 @@ V2_MIGRATION_LEDGER = (*V1_MIGRATION_LEDGER, (2, V2_MIGRATION_NAME, V2_MIGRATION
 MIGRATION_LEDGER = (*V2_MIGRATION_LEDGER, (3, V3_MIGRATION_NAME, V3_MIGRATION_DIGEST))
 V3_MIGRATION_LEDGER = MIGRATION_LEDGER
 V4_MIGRATION_LEDGER = (*V3_MIGRATION_LEDGER, (4, V4_MIGRATION_NAME, V4_MIGRATION_DIGEST))
+V5_MIGRATION_NAME = "operational-evolution-authority-v5"
+V5_MIGRATION_DIGEST = "sha256:901d39f0fd9da799065f4f38701d26e972bb9f4c57ab538f278b8eab22a9d36d"
+if "sha256:" + hashlib.sha256(SCHEMA_V5_SQL.encode("utf-8")).hexdigest() != V5_MIGRATION_DIGEST:
+    raise ConfigurationError("Immutable operational v5 migration SQL drift")
+V5_MIGRATION_LEDGER = (*V4_MIGRATION_LEDGER, (5, V5_MIGRATION_NAME, V5_MIGRATION_DIGEST))
 _MIGRATION_SQL = {
     1: V1_SCHEMA_SQL,
     2: SCHEMA_V2_SQL,
     3: SCHEMA_V3_SQL,
     4: SCHEMA_V4_SQL,
+    5: SCHEMA_V5_SQL,
 }
 
 
@@ -620,11 +630,15 @@ if _expected_schema_fingerprint(3) != SCHEMA_DIGEST:
 V4_SCHEMA_DIGEST = "sha256:e24c03cfb576f11774ffa1a1b2e7251800e2b68d41217b259d4ae947f19a163f"
 if _expected_schema_fingerprint(4) != V4_SCHEMA_DIGEST:
     raise ConfigurationError("Immutable operational v4 schema fingerprint drift")
+V5_SCHEMA_DIGEST = "sha256:b76c64e6394b72fb93a7307b24661c5db142dcbd471eb5b890145722fec72117"
+if _expected_schema_fingerprint(5) != V5_SCHEMA_DIGEST:
+    raise ConfigurationError("Immutable operational v5 schema fingerprint drift")
 SCHEMA_DIGESTS = {
     1: V1_SCHEMA_DIGEST,
     2: V2_SCHEMA_DIGEST,
     3: SCHEMA_DIGEST,
     4: V4_SCHEMA_DIGEST,
+    5: V5_SCHEMA_DIGEST,
 }
 
 
@@ -689,7 +703,7 @@ def _validate_connection(connection: sqlite3.Connection) -> int:
     digest_row = connection.execute(
         "select value from zekam_meta where key='schema_digest'"
     ).fetchone()
-    expected_ledger = list(V4_MIGRATION_LEDGER[:version])
+    expected_ledger = list(V5_MIGRATION_LEDGER[:version])
     for table, label in (
         ("schema_migration", "migration ledger"),
         ("schema_revision", "schema revision"),
@@ -822,7 +836,7 @@ def _assert_quiescent(
 
 def _apply_migration(connection: sqlite3.Connection, version: int) -> None:
     _execute_script(connection, _MIGRATION_SQL[version])
-    _, name, checksum = V4_MIGRATION_LEDGER[version - 1]
+    _, name, checksum = V5_MIGRATION_LEDGER[version - 1]
     applied_at = _now()
     for table in ("schema_migration", "schema_revision"):
         connection.execute(
@@ -902,6 +916,28 @@ def bootstrap_v4(path: Path) -> OperationalSchemaStatus:
     except sqlite3.DatabaseError as exc:
         connection.rollback()
         raise ConfigurationError("Operational SQLite v4 bootstrap rejected") from exc
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return status(path)
+
+
+def bootstrap_v5(path: Path) -> OperationalSchemaStatus:
+    """Create a fresh v5 integration fixture; it registers no standing grant."""
+
+    if path.exists() or path.is_symlink():
+        raise ConfigurationError("Operational SQLite fresh v5 empty destination required")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = _connect(path)
+    try:
+        connection.execute("begin immediate")
+        _apply_forward_path(connection, 0, 5)
+        connection.commit()
+    except sqlite3.DatabaseError as exc:
+        connection.rollback()
+        raise ConfigurationError("Operational SQLite v5 bootstrap rejected") from exc
     except Exception:
         connection.rollback()
         raise

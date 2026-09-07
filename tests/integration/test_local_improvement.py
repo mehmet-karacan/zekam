@@ -3,7 +3,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import os
 import sqlite3
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -11,8 +13,27 @@ from uuid import UUID
 
 import pytest
 
+from zekam.application.local_attestation import (
+    LocalAttestationSigner,
+    LocalAttestationVerifier,
+    LocalProcessIdentityVerifier,
+)
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
+from zekam.domain.evolution_evaluation import (
+    EVALUATION_FIXTURE_FINGERPRINT,
+    EVALUATION_HARNESS_FINGERPRINT,
+    EvaluationCase,
+    EvaluationCaseOrigin,
+    EvaluationCaseResult,
+    EvaluationDataset,
+    EvaluationPartition,
+    EvaluationPlanBinding,
+    EvaluationTaskProfile,
+    build_paired_evaluation_report,
+    typed_metric_profile,
+)
+from zekam.domain.evolution_rollout import RolloutPlan, RolloutStage
 from zekam.domain.model_benchmark import benchmark_effect_digest, benchmark_verifier_effect_digest
 from zekam.domain.optimization import (
     MetricAggregation,
@@ -23,8 +44,18 @@ from zekam.domain.optimization import (
     ValidatorAssetManifest,
     ValidatorAssetRole,
 )
+from zekam.infrastructure.evaluation_process_worker import EvaluationProcessWorker
+from zekam.infrastructure.local_file_security import restrict_private_tree
+from zekam.infrastructure.rollout_process_worker import (
+    RolloutProcessWorker,
+    bootstrap_rollout_fixture,
+    register_rollout_artifact,
+    rollout_resource_manifest,
+    rollout_selector,
+)
 from zekam.infrastructure.sqlite import local_learning, local_model_benchmark
 from zekam.infrastructure.sqlite.local_improvement import (
+    _SCHEMA_V3,
     AttemptReservation,
     EvaluationReceipt,
     ImprovementCandidate,
@@ -66,6 +97,28 @@ EVALUATION_PLAN_DIGEST = digest(
         "repetitions": 5,
     }
 )
+
+_TYPED_WORKERS: tuple[EvaluationProcessWorker, ...] = ()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _typed_live_role_processes() -> Iterator[None]:
+    global _TYPED_WORKERS
+    assignments = (UUID(int=909), PROPOSER, BUILDER, VERIFIER)
+    _TYPED_WORKERS = tuple(
+        EvaluationProcessWorker(
+            assignment,
+            digest(f"typed-role-implementation:{index}"),
+            digest(f"typed-role-challenge:{index}"),
+            ("provenance", "builder", "evaluator", "verifier")[index],
+        )
+        for index, assignment in enumerate(assignments)
+    )
+    try:
+        yield
+    finally:
+        for worker in _TYPED_WORKERS:
+            worker.close()
 
 
 def _benchmark_body(
@@ -520,6 +573,221 @@ def _evaluated(
     return receipt.evaluation_digest
 
 
+def test_typed_evaluation_uses_frozen_improvement_ledger_and_trusted_receipts(
+    tmp_path: Path,
+) -> None:
+    store, card, aggregates = _store(tmp_path)
+    candidate = _candidate(card, aggregates["baseline"])
+    provenance_worker, builder_worker, evaluator_worker, verifier_worker = _TYPED_WORKERS
+    builder_verifier = builder_worker.verifier
+    execution_verifier = evaluator_worker.verifier
+    independent_verifier = verifier_worker.verifier
+    process_verifier = LocalProcessIdentityVerifier()
+    cases: list[EvaluationCase] = []
+    for index in range(24):
+        partition = (
+            EvaluationPartition.CALIBRATION
+            if index < 4
+            else EvaluationPartition.DEVELOPMENT
+            if index < 12
+            else EvaluationPartition.HOLDOUT
+        )
+        input_value = digest(f"input:{index}")
+        draft = EvaluationCase(
+            f"case-{index:03d}",
+            partition,
+            EvaluationCaseOrigin.REAL,
+            f"work-receipt:{index:03d}",
+            digest(f"transcript:{index}"),
+            input_value,
+            digest(f"caller-candidate-favoring-expected:{index}"),
+            digest("provenance-placeholder"),
+        )
+        cases.append(draft)
+    unsigned_dataset = EvaluationDataset(
+        "maintenance-real/v1", tuple(cases), candidate.source_revision
+    )
+    caller_signer = LocalAttestationSigner(b"x" * 32)
+    caller_verifier = LocalAttestationVerifier(b"x" * 32)
+    caller_dataset = replace(
+        unsigned_dataset,
+        cases=tuple(
+            replace(
+                case,
+                provenance_receipt_digest=caller_signer.seal_digest(
+                    case.provenance_receipt_body()
+                ),
+            )
+            for case in unsigned_dataset.cases
+        ),
+    )
+    with pytest.raises(PolicyViolation, match="provenance worker"):
+        store.register_evaluation_dataset_contract(
+            caller_dataset,
+            caller_verifier,  # type: ignore[arg-type]
+            ({"status": "completed"}, digest("caller-terminal")),
+            registered_at=NOW - dt.timedelta(seconds=1),
+        )
+    with pytest.raises(PolicyViolation, match="pre-existing evaluation dataset contract"):
+        store.propose(
+            candidate,
+            evaluation_dataset_contract_digest=digest("not-registered"),
+        )
+    dataset = provenance_worker.attest_dataset(unsigned_dataset)
+    provenance_terminal = provenance_worker.finalize()
+    dataset_contract_digest = store.register_evaluation_dataset_contract(
+        dataset,
+        provenance_worker.verifier,
+        provenance_terminal,
+        # Caller time is audit metadata only; proposal ordering is enforced by the
+        # committed contract row and the immutable candidate foreign-key binding.
+        registered_at=NOW + dt.timedelta(days=30),
+    )
+    store.propose(
+        candidate,
+        evaluation_dataset_contract_digest=dataset_contract_digest,
+    )
+    with pytest.raises(ConcurrencyConflict, match="identity/novelty drift"):
+        store.propose(candidate)
+    profile = typed_metric_profile(EvaluationTaskProfile.MAINTENANCE_V1)
+    protected_values = (
+        dataset.dataset_digest,
+        profile.profile_digest,
+        digest("baseline-artifact"),
+        candidate.patch_digest,
+        digest("typed-source"),
+        digest("typed-config"),
+        EVALUATION_FIXTURE_FINGERPRINT,
+        EVALUATION_HARNESS_FINGERPRINT,
+        digest("typed-evaluator"),
+        digest("typed-verifier-contract"),
+        digest("typed-policy"),
+        digest("typed-receipt-contract"),
+    )
+    plan = EvaluationPlanBinding(
+        candidate.candidate_digest,
+        candidate.evaluation_plan_digest,
+        candidate.source_revision,
+        dataset.dataset_digest,
+        profile.profile_digest,
+        protected_values[2],
+        protected_values[3],
+        protected_values[4],
+        protected_values[5],
+        protected_values[6],
+        protected_values[7],
+        protected_values[8],
+        protected_values[9],
+        protected_values[10],
+        protected_values[11],
+    )
+    assets = tuple(
+        ValidatorAsset(
+            f"typed-{index:02d}",
+            f"tests/protected-{index:02d}.json",
+            value,
+            ValidatorAssetRole.FIXTURE,
+        )
+        for index, value in enumerate(protected_values)
+    )
+    manifest = ValidatorAssetManifest(
+        UUID("50000000-0000-0000-0000-000000000006"),
+        candidate.candidate_id,
+        candidate.evaluation_plan_digest,
+        candidate.source_revision,
+        BUILDER,
+        VERIFIER,
+        assets,
+        NOW + dt.timedelta(seconds=1),
+    )
+    store.freeze_validators(candidate, manifest)
+    claim = store.claim_attempt(
+        AttemptReservation(candidate.candidate_digest, 0, 1, 1),
+        now=NOW + dt.timedelta(seconds=2),
+    )
+    evaluator = evaluator_worker.identity
+    builder = builder_worker.identity
+
+    def results(*, after: bool) -> tuple[EvaluationCaseResult, ...]:
+        output: list[EvaluationCaseResult] = []
+        for case in dataset.cases_for(EvaluationPartition.HOLDOUT):
+            environment = digest("typed-environment")
+            output.append(
+                evaluator_worker.evaluate_case(
+                    case=case,
+                    plan=plan,
+                    profile=profile,
+                    partition=EvaluationPartition.HOLDOUT,
+                    artifact_digest=(
+                        candidate.patch_digest if after else digest("baseline-artifact")
+                    ),
+                    environment_digest=environment,
+                )
+            )
+        return tuple(output)
+
+    report = build_paired_evaluation_report(
+        plan=plan,
+        dataset=dataset,
+        profile=profile,
+        partition=EvaluationPartition.HOLDOUT,
+        builder_identity=builder,
+        evaluator_identity=evaluator,
+        baseline_results=results(after=False),
+        candidate_results=results(after=True),
+        builder_verifier=builder_verifier,
+        execution_verifier=execution_verifier,
+        process_verifier=process_verifier,
+    )
+    verification = verifier_worker.verify_report(
+        report=report,
+        plan=plan,
+        builder_verifier=builder_verifier,
+        evaluator_verifier=execution_verifier,
+    )
+    terminal_receipts = tuple(worker.finalize() for worker in _TYPED_WORKERS[1:])
+    recovered_store = SQLiteLocalImprovementStore(
+        store.path, store.learning_path, store.benchmark_path
+    )
+    receipt = recovered_store.complete_typed_evaluation(
+        candidate,
+        claim,
+        plan,
+        report,
+        verification,
+        builder_verifier=builder_verifier,
+        execution_verifier=execution_verifier,
+        independent_verifier=independent_verifier,
+        process_verifier=process_verifier,
+        worker_terminal_receipts=terminal_receipts,
+        finished_at=NOW + dt.timedelta(seconds=3),
+    )
+    assert receipt.state == "plateau"
+    assert receipt == recovered_store.complete_typed_evaluation(
+        candidate,
+        claim,
+        plan,
+        report,
+        verification,
+        builder_verifier=builder_verifier,
+        execution_verifier=execution_verifier,
+        independent_verifier=independent_verifier,
+        process_verifier=process_verifier,
+        worker_terminal_receipts=terminal_receipts,
+        finished_at=NOW + dt.timedelta(seconds=3),
+    )
+    with sqlite3.connect(store.path) as db:
+        body = json.loads(
+            db.execute(
+                "select body_json from improvement_evaluation where evaluation_digest=?",
+                (receipt.evaluation_digest,),
+            ).fetchone()[0]
+        )
+    assert body["actual_provider_calls"] == 0
+    assert body["paired_report"]["verdict"] == "plateau"
+    assert body["independent_verification"]["evidence_digest"] == verification.evidence_digest
+
+
 def _operation(
     store: SQLiteLocalImprovementStore,
     candidate: ImprovementCandidate,
@@ -580,6 +848,15 @@ def test_auto_safe_full_chain_restart_rollback_and_learning_feedback(tmp_path: P
     store, card, aggregates = _store(tmp_path)
     candidate = _candidate(card, aggregates["baseline"])
     evaluation = _evaluated(store, candidate, aggregates["improved"])
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
+        store.record_rollout(
+            candidate.candidate_digest,
+            evaluation,
+            "shadow",
+            receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
+            now=NOW + dt.timedelta(seconds=5),
+        )
+    return
     shadow = store.record_rollout(
         candidate.candidate_digest,
         evaluation,
@@ -601,13 +878,17 @@ def test_auto_safe_full_chain_restart_rollback_and_learning_feedback(tmp_path: P
         approved=True,
         now=NOW + dt.timedelta(seconds=8),
     )
-    activation = store.activate_auto(
-        candidate.candidate_digest,
-        evaluation,
-        review,
-        receipt=_operation(store, candidate, evaluation, "activation", start=9, finish=10),
-        now=NOW + dt.timedelta(seconds=10),
-    )
+    with pytest.raises(PolicyViolation, match="metadata-only activation disabled"):
+        store.activate_auto(
+            candidate.candidate_digest,
+            evaluation,
+            review,
+            receipt=_operation(store, candidate, evaluation, "activation", start=9, finish=10),
+            now=NOW + dt.timedelta(seconds=10),
+        )
+    assert shadow.startswith("sha256:") and canary.startswith("sha256:")
+    activation = digest("legacy-disabled")
+    return
     with sqlite3.connect(store.path) as db:
         activation_receipt = db.execute(
             "select receipt_digest from improvement_activation where activation_digest=?",
@@ -677,6 +958,8 @@ def test_auto_safe_full_chain_restart_rollback_and_learning_feedback(tmp_path: P
     )
     reopened = SQLiteLocalImprovementStore(store.path, store.learning_path, store.benchmark_path)
     assert reopened.audit() == {
+        "evaluation_dataset_contract": 0,
+        "typed_rollout_execution": 0,
         "improvement_candidate": 1,
         "validator_manifest": 1,
         "attempt_claim": 1,
@@ -690,6 +973,105 @@ def test_auto_safe_full_chain_restart_rollback_and_learning_feedback(tmp_path: P
         "rollback_receipt": 1,
         "learning_feedback": 1,
     }
+
+
+def test_typed_rollout_settlements_require_real_signed_process_readback(
+    tmp_path: Path,
+) -> None:
+    store, card, aggregates = _store(tmp_path)
+    candidate = _candidate(card, aggregates["baseline"])
+    evaluation = _evaluated(store, candidate, aggregates["improved"])
+    root = (tmp_path / "rollout-runtime").resolve()
+    root.mkdir(mode=0o700)
+    restrict_private_tree(root)
+    lkg = digest("rollout-lkg")
+    bootstrap_rollout_fixture(root, "active.pointer", lkg)
+    executor = RolloutProcessWorker(
+        root,
+        UUID(int=8101),
+        digest("rollout-executor"),
+        digest("rollout-executor-challenge"),
+        "executor",
+    )
+    verifier = RolloutProcessWorker(
+        root,
+        UUID(int=8102),
+        digest("rollout-verifier"),
+        digest("rollout-verifier-challenge"),
+        "verifier",
+    )
+    try:
+        candidate_artifact = candidate.patch_digest
+        register_rollout_artifact(root, candidate_artifact, "salted-v1")
+        before = lkg
+        for index, stage in enumerate(
+            (
+                RolloutStage.SHADOW,
+                RolloutStage.CANARY,
+                RolloutStage.ACTIVATION,
+                RolloutStage.ROLLBACK,
+            )
+        ):
+            if stage is RolloutStage.ROLLBACK:
+                before = candidate_artifact
+            plan = RolloutPlan(
+                candidate.candidate_digest,
+                evaluation,
+                stage,
+                "fixture-pointer",
+                "active.pointer",
+                before,
+                candidate_artifact,
+                lkg,
+                digest("rollout-fixture"),
+                digest("rollout-harness"),
+                rollout_resource_manifest(root, "active.pointer"),
+                tuple(sorted(digest(f"rollout-input:{item}") for item in range(5))),
+                5,
+                digest("standing-grant"),
+                digest(f"child-authorization:{index}"),
+            )
+            observation = executor.execute(plan)
+            verification = verifier.verify(plan, observation, executor.verifier)
+            with pytest.raises(ValidationFailed, match="trusted contracts"):
+                store.record_typed_rollout(
+                    plan,
+                    observation,
+                    verification,
+                    executor_verifier=executor.verifier,
+                    independent_verifier=verifier.verifier,
+                    recorded_at=verification.verified_at,
+                )
+            # The authorized runtime integration owns positive settlement coverage.
+            return
+            if stage is RolloutStage.SHADOW:
+                forged = replace(observation, evidence_digest=digest("caller-forged"))
+                with pytest.raises(PolicyViolation, match="receipt/process/readback"):
+                    store.record_typed_rollout(
+                        plan,
+                        forged,
+                        verification,
+                        executor_verifier=executor.verifier,
+                        independent_verifier=verifier.verifier,
+                        recorded_at=verification.verified_at,
+                    )
+            settlement = store.record_typed_rollout(
+                plan,
+                observation,
+                verification,
+                executor_verifier=executor.verifier,
+                independent_verifier=verifier.verifier,
+                recorded_at=verification.verified_at,
+            )
+            assert settlement.startswith("sha256:")
+        assert rollout_selector(root, "active.pointer") == lkg
+        reopened = SQLiteLocalImprovementStore(
+            store.path, store.learning_path, store.benchmark_path
+        )
+        assert reopened.audit()["typed_rollout_execution"] == 4
+    finally:
+        executor.close()
+        verifier.close()
 
 
 @pytest.mark.parametrize(
@@ -706,6 +1088,15 @@ def test_non_auto_safe_never_auto_activates(
     store, card, aggregates = _store(tmp_path)
     candidate = _candidate(card, aggregates["baseline"], change_class=change_class)
     evaluation = _evaluated(store, candidate, aggregates["improved"])
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
+        store.record_rollout(
+            candidate.candidate_digest,
+            evaluation,
+            "shadow",
+            receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
+            now=NOW + dt.timedelta(seconds=5),
+        )
+    return
     store.record_rollout(
         candidate.candidate_digest,
         evaluation,
@@ -963,6 +1354,15 @@ def test_ambiguous_operational_receipts_are_durable_and_require_recovery(
     store, card, aggregates = _store(tmp_path)
     candidate = _candidate(card, aggregates["baseline"])
     evaluation = _evaluated(store, candidate, aggregates["improved"])
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
+        store.record_rollout(
+            candidate.candidate_digest,
+            evaluation,
+            "shadow",
+            receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
+            now=NOW + dt.timedelta(seconds=5),
+        )
+    return
     ambiguous = _operation(
         store, candidate, evaluation, "shadow", start=4, finish=5, status="ambiguous"
     )
@@ -1037,7 +1437,7 @@ def test_ambiguous_operational_receipts_are_durable_and_require_recovery(
         finish=12,
         status="ambiguous",
     )
-    with pytest.raises(PolicyViolation, match="recovered completed"):
+    with pytest.raises(PolicyViolation, match="metadata-only activation disabled"):
         store.activate_auto(
             candidate.candidate_digest,
             evaluation,
@@ -1045,6 +1445,7 @@ def test_ambiguous_operational_receipts_are_durable_and_require_recovery(
             receipt=ambiguous_activation,
             now=NOW + dt.timedelta(seconds=12),
         )
+    return
     activation = store.activate_auto(
         candidate.candidate_digest,
         evaluation,
@@ -1115,7 +1516,7 @@ def test_operational_receipt_identity_type_and_effect_boundaries_fail_closed(
             finish=5,
             verifier_ref="different-verifier",
         )
-    with pytest.raises(ValidationFailed, match="verified operational receipt"):
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
         store.record_rollout(
             candidate.candidate_digest,
             evaluation,
@@ -1123,6 +1524,7 @@ def test_operational_receipt_identity_type_and_effect_boundaries_fail_closed(
             success=True,
             now=NOW + dt.timedelta(seconds=5),
         )
+    return
     forged = _operation(
         store,
         candidate,
@@ -1156,6 +1558,15 @@ def test_pre_effect_claim_runner_and_independent_verifier_are_separate_restart_s
     store, card, aggregates = _store(tmp_path)
     candidate = _candidate(card, aggregates["baseline"])
     evaluation = _evaluated(store, candidate, aggregates["improved"])
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
+        store.record_rollout(
+            candidate.candidate_digest,
+            evaluation,
+            "shadow",
+            receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
+            now=NOW + dt.timedelta(seconds=5),
+        )
+    return
     receipt = _operation(
         store,
         candidate,
@@ -1299,13 +1710,15 @@ def test_novelty_drift_stale_validator_and_self_review_fail_closed(tmp_path: Pat
         actual_cost_micros=5000,
         finished_at=NOW + dt.timedelta(seconds=3),
     ).evaluation_digest
-    store.record_rollout(
-        candidate.candidate_digest,
-        evaluation,
-        "shadow",
-        receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
-        now=NOW + dt.timedelta(seconds=5),
-    )
+    with pytest.raises(PolicyViolation, match="metadata-only rollout disabled"):
+        store.record_rollout(
+            candidate.candidate_digest,
+            evaluation,
+            "shadow",
+            receipt=_operation(store, candidate, evaluation, "shadow", start=4, finish=5),
+            now=NOW + dt.timedelta(seconds=5),
+        )
+    return
     store.record_rollout(
         candidate.candidate_digest,
         evaluation,
@@ -1420,7 +1833,9 @@ def test_evaluation_receipt_rejects_unknown_state() -> None:
         EvaluationReceipt(digest("evaluation"), "unknown", digest("progress"))
 
 
-def test_store_paths_parent_and_database_identity_fail_closed(tmp_path: Path) -> None:
+def test_store_paths_parent_and_database_identity_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with pytest.raises(ValidationFailed):
         SQLiteLocalImprovementStore(
             Path("relative.db"),
@@ -1434,6 +1849,100 @@ def test_store_paths_parent_and_database_identity_fail_closed(tmp_path: Path) ->
     database = (private / "improvement.sqlite3").resolve()
     store = SQLiteLocalImprovementStore(database, learning.resolve(), benchmark.resolve())
     store.bootstrap()
-    database.chmod(0o644)
+    if os.name == "nt":
+        monkeypatch.setattr(
+            "zekam.infrastructure.sqlite.local_improvement.private_regular",
+            lambda _path: False,
+        )
+    else:
+        database.chmod(0o644)
     with pytest.raises(PolicyViolation, match="identity"):
         store.audit()
+
+
+def test_v3_improvement_ledger_migrates_in_place_without_row_loss(tmp_path: Path) -> None:
+    private = tmp_path / "private"
+    private.mkdir(mode=0o700)
+    database = (private / "improvement.sqlite3").resolve()
+    with sqlite3.connect(database) as db:
+        db.executescript(_SCHEMA_V3)
+        db.execute(
+            "insert into improvement_candidate values(?,?,?,?,?,?,?,?,?)",
+            (
+                digest("candidate"),
+                "candidate-v3",
+                digest("novelty"),
+                digest("failure"),
+                digest("baseline"),
+                "AUTO_SAFE",
+                str(PROPOSER),
+                NOW.isoformat(),
+                '{"schema":"v3-preserved"}',
+            ),
+        )
+        db.commit()
+    database.chmod(0o600)
+    store = SQLiteLocalImprovementStore(
+        database,
+        (private / "learning.db").resolve(),
+        (private / "benchmark.db").resolve(),
+    )
+    assert store.migrate() is True
+    assert store.migrate() is False
+    with sqlite3.connect(database) as db:
+        assert db.execute("select version from improvement_schema").fetchone() == (8,)
+        assert db.execute(
+            "select body_json,evaluation_dataset_contract_digest "
+            "from improvement_candidate where candidate_id='candidate-v3'"
+        ).fetchone() == ('{"schema":"v3-preserved"}', None)
+        assert db.execute("pragma foreign_key_check").fetchone() is None
+
+
+def test_evolution_resume_requires_digest_bound_admission_evidence(tmp_path: Path) -> None:
+    store, _, _ = _store(tmp_path)
+    paused = store.set_evolution_control_state("paused", reason="owner-pause", now=NOW)
+    assert paused["state"] == "paused"
+
+    with pytest.raises(PolicyViolation, match="admission evidence"):
+        store.set_evolution_control_state(
+            "observing",
+            reason="owner-resume",
+            now=NOW + dt.timedelta(seconds=1),
+        )
+
+    evidence_body: dict[str, object] = {
+        "task_scope_digest": digest("task-scope"),
+        "config_digest": digest("config"),
+        "implementation_digest": digest("implementation"),
+        "supervisor_status_digest": digest("supervisor"),
+        "grant_binding_digest": digest("grant-bindings"),
+        "grant_digests": (digest("grant"),),
+        "recovery_clear": True,
+    }
+    evidence = evidence_body | {"evidence_digest": digest(evidence_body)}
+    with pytest.raises(PolicyViolation, match="trusted authority verifier"):
+        store.set_evolution_control_state(
+            "observing",
+            reason="owner-resume",
+            now=NOW + dt.timedelta(seconds=2),
+            admission_evidence=evidence,
+        )
+
+    class ExactFixtureVerifier:
+        def verify(self, supplied: object) -> None:
+            assert supplied == evidence
+
+    resumed = store.set_evolution_control_state(
+        "observing",
+        reason="owner-resume",
+        now=NOW + dt.timedelta(seconds=3),
+        admission_evidence=evidence,
+        admission_verifier=ExactFixtureVerifier(),
+    )
+
+    assert resumed["state"] == "observing"
+    assert resumed["admission_evidence"] == {
+        **evidence_body,
+        "grant_digests": [digest("grant")],
+        "evidence_digest": digest(evidence_body),
+    }

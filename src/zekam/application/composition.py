@@ -88,6 +88,7 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
         (
             runtime_checks.ClientsCheck(executables=_client_executables(context)),
             runtime_checks.OpenCodeSpoolCheck(home=context.home),
+            runtime_checks.EvolutionCheck(context=context),
             runtime_checks.CommandSurfaceCheck(),
         )
     )

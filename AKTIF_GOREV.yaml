@@ -2,15 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:ebd9ca00a5cc500a650984e3cdc7be22186b85b5a283d86a6f9d863237530629
-task_id: ZEKAM-LOCAL-INTELLIGENCE-PLANE-001
+authority_digest: sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba
+task_id: ZEKAM-AUTONOMOUS-EVOLUTION-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Yerel-İlk Polyglot Veri, Çalışan RAG, Model Laboratuvarı ve Ölçümlü Öz-İyileştirme
-  Düzlemi
-created_at: '2026-09-02T09:56:00+03:00'
+title: Zekam Sürekli Öğrenme ve Ölçümlü Otonom İyileştirme Entegrasyonu
+created_at: '2026-09-06T15:18:10+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: d95cdac2713df797e42afda020ab6e8e55188031
+baseline_head: b59221a0891dc94d3702d042132254066dc089ed
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false

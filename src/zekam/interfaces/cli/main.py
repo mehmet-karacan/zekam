@@ -48,6 +48,7 @@ from zekam.interfaces.cli import client as client_commands
 from zekam.interfaces.cli import configuration as configuration_commands
 from zekam.interfaces.cli import continuity as continuity_commands
 from zekam.interfaces.cli import db as db_commands
+from zekam.interfaces.cli import evolve as evolve_commands
 from zekam.interfaces.cli import jira as jira_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
 from zekam.interfaces.cli import local_core as local_core_commands
@@ -91,6 +92,7 @@ _OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
 _DEFAULT_OPENCODE_CONFIG_FILE = default_opencode_config_file()
 
 app.add_typer(db_commands.app)
+app.add_typer(evolve_commands.app)
 app.add_typer(project_commands.app)
 app.add_typer(protocol_commands.app)
 app.add_typer(work_commands.app)

@@ -21,13 +21,18 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.hook_runtime import HookEventType
 
 CODEX_CLIENT_ID = "codex"
-CODEX_REVIEWED_VERSION = "0.150.1"
-CODEX_REVIEWED_WINDOWS_SHA256 = "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f"
+CODEX_REVIEWED_VERSION = "0.153.1"
+CODEX_REVIEWED_WINDOWS_SHA256 = "921b3df53973e3ec80e9c27b0fb6f5dfec463be44333007f93e60b20caef4f41"
 CODEX_REVIEWED_EVIDENCE_DIGEST = (
-    "sha256:e9327e030f757d539fdad344a9669781eff0ad9700b98ec769a484b6106f4086"
+    "sha256:4ba115cec95b0ecd483ab2fffc6dfd4b87faa65973043a9fe180ef13b8a75402"
 )
 CODEX_REVIEWED_CLIENT_CONTRACT_DIGEST = (
-    "sha256:e688a17271134e25ef233bfda7095308311afc48a7bee825bd720e3e93571147"
+    "sha256:bda9e5b0629615a6e4e14c845ebb54f057a56340e956bc5996e971aa11b724eb"
+)
+CODEX_HISTORICAL_WINDOWS_CONTRACT = (
+    "0.150.1",
+    "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f",
+    "sha256:e9327e030f757d539fdad344a9669781eff0ad9700b98ec769a484b6106f4086",
 )
 CODEX_HOOK_CONTRACT_SCHEMA = "zekam-codex-command-hook/v1"
 CODEX_CONTRACT_EVIDENCE_SCHEMA = "zekam-codex-lifecycle-contract/v1"
@@ -39,7 +44,7 @@ _UUID_IDENTIFIER = re.compile(
 _VERSION_OUTPUT = re.compile(r"^codex-cli ([0-9]+\.[0-9]+\.[0-9]+)$")
 _SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact"})
 _COMPACTION_TRIGGERS = frozenset({"manual", "auto"})
-CODEX_SESSION_END_REASONS = frozenset({"clear", "logout", "prompt_input_exit", "other"})
+CODEX_SESSION_END_REASONS = frozenset({"other"})
 _PERMISSION_MODES = frozenset({"default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"})
 
 # SessionEnd is advisory in Codex and therefore maps only to post_close.  The
@@ -357,12 +362,12 @@ def load_codex_contract_evidence(path: Path) -> dict[str, Any]:
             "hooks": "https://developers.openai.com/codex/hooks",
             "configuration": "https://developers.openai.com/codex/config-reference",
             "noninteractive": "https://developers.openai.com/codex/noninteractive",
-            "reviewed_on": "2026-08-28",
+            "reviewed_on": "2026-09-06",
         }
         or hook_command
         != {
             "command": (
-                "python -m zekam.interfaces.cli.client hook --client codex --client-version 0.150.1"
+                "python -m zekam.interfaces.cli.client hook --client codex --client-version 0.153.1"
             ),
             "windows_override_field": "commandWindows",
             "stdin": "one Codex hook JSON object",
@@ -396,8 +401,7 @@ def load_codex_contract_evidence(path: Path) -> dict[str, Any]:
         or wire_constraints.get("session_id") != "lowercase-uuid"
         or wire_constraints.get("turn_id") != "lowercase-uuid-when-present"
         or wire_constraints.get("occurrence_id") != "lowercase-uuid-local-only"
-        or wire_constraints.get("session_end_reasons")
-        != ["clear", "logout", "prompt_input_exit", "other"]
+        or wire_constraints.get("session_end_reasons") != ["other"]
         or not isinstance(durability, dict)
         or durability.get("append_only_events") is not True
         or durability.get("per_session_hash_chain") is not True

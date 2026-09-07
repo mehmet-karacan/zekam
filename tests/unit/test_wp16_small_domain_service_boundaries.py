@@ -286,6 +286,10 @@ def test_sqlite_doctor_status_matrix_and_capabilities(
         assert check.run().findings[0].code == "sqlite.integrity-or-schema-drift"
     monkeypatch.setattr(sqlite_checks, "status", lambda _path: state())
     assert check.run().status.value == "passed"
+    monkeypatch.setattr(sqlite_checks, "status", lambda _path: state(schema_version=5))
+    v5 = check.run()
+    assert v5.status.value == "passed"
+    assert v5.evidence["supported_runtime_schema_versions"] == [3, 5]
     assert CapabilityCheck().run().evidence["fallback"] is False
 
     missing = ObjectStoreCheck(tmp_path / "missing").run()

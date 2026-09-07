@@ -294,6 +294,63 @@ class ClientsCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class EvolutionCheck:
+    """Expose truthful evolution setup/recovery state without applying its plan."""
+
+    context: Any
+    check_id: str = "runtime.autonomous-evolution"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        from zekam.application.evolution_runtime import (
+            build_evolution_plan,
+            build_evolution_report,
+        )
+
+        try:
+            plan = build_evolution_plan(self.context)
+            report = build_evolution_report(self.context, plan=plan)
+        except Exception as exc:
+            return _unavailable(self.check_id, type(exc).__name__)
+        state = str(report["state"])
+        findings: tuple[Finding, ...]
+        if state == "recovery-required" or plan["state"] == "recovery-required":
+            status = CheckStatus.FAILED
+            findings = (
+                Finding(
+                    code="runtime.evolution-recovery-required",
+                    severity=Severity.ERROR,
+                    title="Otonom evolution recovery bekliyor",
+                    detail="Kanonik ledger tamamlanmamis typed rollout kaniti iceriyor",
+                    next_action="`zekam evolve report --json` kanitini inceleyin",
+                ),
+            )
+        else:
+            status = CheckStatus.SKIPPED if plan["setup_gaps"] else CheckStatus.PASSED
+            findings = ()
+        return CheckResult(
+            check_id=self.check_id,
+            category=self.category,
+            status=status,
+            summary=(
+                f"evolution {state}"
+            ),
+            findings=findings,
+            evidence={
+                "state": state,
+                "setup_gaps": list(plan["setup_gaps"]),
+                "control": report["control"],
+                "handlers": plan["handlers"],
+                "permissions": plan["permissions"],
+                "admission_bindings": plan["admission_bindings"],
+                "runtime": plan["runtime"],
+                "provider_calls": 0,
+                "network_calls": 0,
+            },
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class OpenCodeSpoolCheck:
     """OpenCode plugin spool backlog, lock ve legacy adaylarini salt okunur raporlar."""
 

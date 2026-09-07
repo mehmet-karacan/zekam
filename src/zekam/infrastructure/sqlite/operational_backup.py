@@ -442,6 +442,7 @@ class SQLiteOperationalBackup:
             )
             _write_all(descriptor, serialized)
             os.fsync(descriptor)
+            _fsync(temporary)
             size = os.fstat(descriptor).st_size
             os.lseek(descriptor, 0, os.SEEK_SET)
             persisted = os.read(descriptor, size)

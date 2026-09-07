@@ -8,6 +8,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from zekam.application.composition import ApplicationContext
+from zekam.application.evolution_runtime import build_evolution_plan, build_evolution_report
 from zekam.application.observatory import (
     CompositeRuntimeProjectionReader,
     LocalSessionFileProjectionReader,
@@ -158,6 +159,36 @@ def create_app(
         projection = await asyncio.to_thread(service.snapshot)
         return JSONResponse(
             projection.as_dict(),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/observatory/evolution")
+    async def evolution() -> JSONResponse:
+        """Read canonical evolution status without granting or executing work."""
+
+        plan = await asyncio.to_thread(build_evolution_plan, context)
+        report = await asyncio.to_thread(build_evolution_report, context, plan=plan)
+        return JSONResponse(
+            {
+                "schema": "zekam-observatory-evolution/v1",
+                "state": report["state"],
+                "control": report["control"],
+                "counts": report["counts"],
+                "metrics": report["metrics"],
+                "actual_usage": report["actual_usage"],
+                "budget": report["budget"],
+                "capture_gaps": report["capture_gaps"],
+                "runtime": plan["runtime"],
+                "handlers": plan["handlers"],
+                "permissions": plan["permissions"],
+                "admission_bindings": plan["admission_bindings"],
+                "packages": plan["packages"],
+                "native_acceptance": plan["native_acceptance"],
+                "setup_gaps": plan["setup_gaps"],
+                "blockers": plan["blockers"],
+                "read_only": True,
+                "grants_authority": False,
+            },
             headers={"Cache-Control": "no-store"},
         )
 

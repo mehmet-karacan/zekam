@@ -35,7 +35,7 @@ from zekam.application.operational_store import (
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConfigurationError, ValidationFailed
 from zekam.domain.identifiers import assert_portable, new_uuid7, validate_slug
-from zekam.infrastructure.sqlite.operational_schema import SCHEMA_VERSION, status
+from zekam.infrastructure.sqlite.operational_schema import RUNTIME_SCHEMA_VERSIONS, status
 
 _WORK_STATES: Final = frozenset(
     {"proposed", "ready", "active", "blocked", "verification", "completed", "cancelled", "archived"}
@@ -181,7 +181,7 @@ class SQLiteOperationalStore:
         if (
             not current.integrity_ok
             or not current.schema_ok
-            or current.schema_version != SCHEMA_VERSION
+            or current.schema_version not in RUNTIME_SCHEMA_VERSIONS
         ):
             raise ConfigurationError("Operational SQLite store current schema gerektiriyor")
         self._path = path

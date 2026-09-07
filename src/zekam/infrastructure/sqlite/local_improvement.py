@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import math
@@ -14,13 +15,34 @@ import unicodedata
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast, final
+from typing import Any, Protocol, cast, final
 from uuid import UUID
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from zekam.application.local_attestation import Ed25519ReceiptVerifier
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
+from zekam.domain.evolution_evaluation import (
+    EvaluationDataset,
+    EvaluationPartition,
+    EvaluationPlanBinding,
+    EvaluationVerdict,
+    IndependentEvaluationReceipt,
+    PairedEvaluationReport,
+    ProcessIdentityVerifier,
+    WorkerReceiptVerifier,
+    assert_trusted_evaluation_receipts,
+)
+from zekam.domain.evolution_rollout import (
+    RolloutObservation,
+    RolloutPlan,
+    RolloutStage,
+    RolloutStatus,
+    RolloutVerification,
+)
+from zekam.domain.improvement_policy import ImprovementChangeClass
 from zekam.domain.model_benchmark import (
     benchmark_effect_digest,
     benchmark_verifier_effect_digest,
@@ -46,6 +68,13 @@ from zekam.infrastructure.sqlite.local_learning import (
 from zekam.infrastructure.sqlite.local_model_benchmark import (
     SCHEMA_DIGEST as BENCHMARK_SCHEMA_DIGEST,
 )
+
+
+class _UnsetPreviousEvent:
+    pass
+
+
+_UNSET_PREVIOUS_EVENT = _UnsetPreviousEvent()
 
 MAX_BODY_BYTES = 1_048_576
 _SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$")
@@ -124,13 +153,6 @@ _IDENTITY_EXACT_STEMS = {
 }
 
 
-class ImprovementChangeClass(StrEnum):
-    AUTO_SAFE = "AUTO_SAFE"
-    REVIEW_REQUIRED = "REVIEW_REQUIRED"
-    HUMAN_APPROVAL_REQUIRED = "HUMAN_APPROVAL_REQUIRED"
-    PROHIBITED_AUTONOMOUS = "PROHIBITED_AUTONOMOUS"
-
-
 _CLASS_RESOURCES = {
     ImprovementChangeClass.AUTO_SAFE: _AUTO_SAFE_RESOURCES,
     ImprovementChangeClass.REVIEW_REQUIRED: _REVIEW_RESOURCES,
@@ -140,6 +162,12 @@ _CLASS_RESOURCES = {
         {"approval-bypass", "force-push", "history-rewrite", "receipt-delete", "secret-export"}
     ),
 }
+
+
+class EvolutionResumeAdmissionVerifier(Protocol):
+    """Trusted application boundary that re-reads current resume authority."""
+
+    def verify(self, evidence: Mapping[str, object]) -> None: ...
 
 
 _SCHEMA = r"""
@@ -176,6 +204,58 @@ for _table in (
     _SCHEMA += f"create trigger {_table}_no_update before update on {_table} begin select raise(abort,'append-only'); end;\n"
     _SCHEMA += f"create trigger {_table}_no_delete before delete on {_table} begin select raise(abort,'append-only'); end;\n"
 
+_SCHEMA_V3 = _SCHEMA
+_MIGRATION_V4 = r"""
+begin immediate;
+create table evaluation_dataset_contract(contract_digest text primary key,dataset_digest text unique not null,registered_at text not null,body_json text not null) strict;
+create trigger evaluation_dataset_contract_no_update before update on evaluation_dataset_contract begin select raise(abort,'append-only'); end;
+create trigger evaluation_dataset_contract_no_delete before delete on evaluation_dataset_contract begin select raise(abort,'append-only'); end;
+alter table improvement_candidate add column evaluation_dataset_contract_digest text references evaluation_dataset_contract;
+update improvement_schema set version=4 where singleton=1 and version=3;
+commit;
+"""
+_SCHEMA += _MIGRATION_V4
+_SCHEMA_V4 = _SCHEMA
+_MIGRATION_V5 = r"""
+begin immediate;
+create table typed_rollout_execution(settlement_digest text primary key,plan_digest text unique not null,candidate_digest text not null references improvement_candidate,evaluation_digest text not null references improvement_evaluation,stage text not null,status text not null,grant_digest text not null,authorization_digest text unique not null,recorded_at text not null,body_json text not null,unique(candidate_digest,stage),check(stage in('shadow','canary','activation','rollback')),check(status in('completed','failed','recovery-required'))) strict;
+create trigger typed_rollout_execution_no_update before update on typed_rollout_execution begin select raise(abort,'append-only'); end;
+create trigger typed_rollout_execution_no_delete before delete on typed_rollout_execution begin select raise(abort,'append-only'); end;
+update improvement_schema set version=5 where singleton=1 and version=4;
+commit;
+"""
+_SCHEMA += _MIGRATION_V5
+_SCHEMA_V5 = _SCHEMA
+_MIGRATION_V6 = r"""
+begin immediate;
+create table typed_rollout_pending(reservation_id text primary key,plan_digest text unique not null,run_plan_digest text unique not null,authorization_digest text unique not null,evidence_digest text not null,settlement_digest text unique not null,candidate_digest text not null references improvement_candidate,evaluation_digest text not null references improvement_evaluation,stage text not null,status text not null,grant_digest text not null,recorded_at text not null,body_json text not null,check(stage in('shadow','canary','activation','rollback')),check(status in('completed','failed','recovery-required'))) strict;
+create trigger typed_rollout_pending_no_update before update on typed_rollout_pending begin select raise(abort,'append-only'); end;
+create trigger typed_rollout_pending_no_delete before delete on typed_rollout_pending begin select raise(abort,'append-only'); end;
+update improvement_schema set version=6 where singleton=1 and version=5;
+commit;
+"""
+_SCHEMA += _MIGRATION_V6
+_SCHEMA_V6 = _SCHEMA
+_MIGRATION_V7 = r"""
+begin immediate;
+create table typed_rollout_recovery(receipt_digest text primary key,reservation_id text unique not null,plan_digest text unique not null,recovery_digest text unique not null,recovered_at text not null,body_json text not null) strict;
+create trigger typed_rollout_recovery_no_update before update on typed_rollout_recovery begin select raise(abort,'append-only'); end;
+create trigger typed_rollout_recovery_no_delete before delete on typed_rollout_recovery begin select raise(abort,'append-only'); end;
+update improvement_schema set version=7 where singleton=1 and version=6;
+commit;
+"""
+_SCHEMA += _MIGRATION_V7
+_SCHEMA_V7 = _SCHEMA
+_MIGRATION_V8 = r"""
+begin immediate;
+create table evolution_control_event(event_digest text primary key,ordinal integer unique not null check(ordinal>0),state text not null check(state in('observing','paused','disabled')),previous_event_digest text unique,reason text not null,occurred_at text not null,body_json text not null) strict;
+create trigger evolution_control_event_no_update before update on evolution_control_event begin select raise(abort,'append-only'); end;
+create trigger evolution_control_event_no_delete before delete on evolution_control_event begin select raise(abort,'append-only'); end;
+update improvement_schema set version=8 where singleton=1 and version=7;
+commit;
+"""
+_SCHEMA += _MIGRATION_V8
+
 
 def _text(value: object, label: str, *, maximum: int = 4096) -> str:
     if (
@@ -192,6 +272,12 @@ def _safe(value: object, label: str) -> str:
     if type(value) is not str or not _SAFE.fullmatch(value) or _SECRET.search(value):
         raise ValidationFailed(f"Local improvement {label} invalid")
     return value
+
+
+def _legacy_rollout_disabled() -> bool:
+    """Permanent compatibility gate; legacy tables are audit-only."""
+
+    return True
 
 
 def _normalized_identity(value: str) -> str:
@@ -297,7 +383,17 @@ def _metric_aggregate(values: list[float]) -> dict[str, float]:
 
 
 with closing(sqlite3.connect(":memory:")) as _schema_db:
-    _schema_db.executescript(_SCHEMA)
+    _schema_db.executescript(_SCHEMA_V3)
+    SCHEMA_V3_DIGEST = _schema_digest(_schema_db)
+    _schema_db.executescript(_MIGRATION_V4)
+    SCHEMA_V4_DIGEST = _schema_digest(_schema_db)
+    _schema_db.executescript(_MIGRATION_V5)
+    SCHEMA_V5_DIGEST = _schema_digest(_schema_db)
+    _schema_db.executescript(_MIGRATION_V6)
+    SCHEMA_V6_DIGEST = _schema_digest(_schema_db)
+    _schema_db.executescript(_MIGRATION_V7)
+    SCHEMA_V7_DIGEST = _schema_digest(_schema_db)
+    _schema_db.executescript(_MIGRATION_V8)
     SCHEMA_DIGEST = _schema_digest(_schema_db)
 
 
@@ -661,6 +757,39 @@ class SQLiteLocalImprovementStore:
             db.executescript(_SCHEMA)
         self.path.chmod(0o600)
 
+    def migrate(self) -> bool:
+        """Upgrade the exact append-only v3-v8 ledger without rewriting existing rows."""
+
+        if not private_regular(self.path):
+            raise PolicyViolation("Local improvement database identity invalid")
+        with closing(sqlite3.connect(self.path)) as db:
+            version_row = db.execute("select version from improvement_schema").fetchone()
+            if version_row == (8,) and _schema_digest(db) == SCHEMA_DIGEST:
+                return False
+            if version_row == (3,) and _schema_digest(db) == SCHEMA_V3_DIGEST:
+                db.executescript(_MIGRATION_V4)
+                version_row = (4,)
+            if version_row == (4,) and _schema_digest(db) == SCHEMA_V4_DIGEST:
+                db.executescript(_MIGRATION_V5)
+                version_row = (5,)
+            if version_row == (5,) and _schema_digest(db) == SCHEMA_V5_DIGEST:
+                db.executescript(_MIGRATION_V6)
+                version_row = (6,)
+            if version_row == (6,) and _schema_digest(db) == SCHEMA_V6_DIGEST:
+                db.executescript(_MIGRATION_V7)
+                version_row = (7,)
+            if version_row != (7,) or _schema_digest(db) != SCHEMA_V7_DIGEST:
+                raise PolicyViolation("Local improvement schema drift")
+            db.executescript(_MIGRATION_V8)
+            if (
+                db.execute("select version from improvement_schema").fetchone() != (8,)
+                or _schema_digest(db) != SCHEMA_DIGEST
+                or db.execute("pragma foreign_key_check").fetchone() is not None
+            ):
+                raise PolicyViolation("Local improvement migration verification failed")
+        self.path.chmod(0o600)
+        return True
+
     def _connect(self) -> sqlite3.Connection:
         if not private_regular(self.path):
             raise PolicyViolation("Local improvement database identity invalid")
@@ -669,7 +798,7 @@ class SQLiteLocalImprovementStore:
         db.execute("pragma foreign_keys=on")
         db.execute("pragma busy_timeout=5000")
         if (
-            db.execute("select version from improvement_schema").fetchone()[0] != 3
+            db.execute("select version from improvement_schema").fetchone()[0] != 8
             or _schema_digest(db) != SCHEMA_DIGEST
         ):
             db.close()
@@ -1046,7 +1175,12 @@ class SQLiteLocalImprovementStore:
             reasons.append("confidence.width")
         return tuple(sorted(set(reasons)))
 
-    def propose(self, candidate: ImprovementCandidate) -> tuple[str, bool]:
+    def propose(
+        self,
+        candidate: ImprovementCandidate,
+        *,
+        evaluation_dataset_contract_digest: str | None = None,
+    ) -> tuple[str, bool]:
         if type(candidate) is not ImprovementCandidate:
             raise ValidationFailed("Exact improvement candidate required")
         candidate.__post_init__()
@@ -1055,19 +1189,34 @@ class SQLiteLocalImprovementStore:
         if baseline_contract != candidate.evaluation_plan_digest:
             raise PolicyViolation("Improvement candidate benchmark plan binding drift")
         raw, value = _body(candidate.body())
+        if evaluation_dataset_contract_digest is not None:
+            parse_digest(evaluation_dataset_contract_digest)
         with closing(self._connect()) as db:
             db.execute("begin immediate")
             existing = db.execute(
-                "select candidate_digest,body_json from improvement_candidate where candidate_id=? or novelty_digest=?",
+                "select candidate_digest,evaluation_dataset_contract_digest,body_json "
+                "from improvement_candidate where candidate_id=? or novelty_digest=?",
                 (str(candidate.candidate_id), candidate.novelty_digest),
             ).fetchone()
             if existing is not None:
-                if tuple(existing) != (value, raw):
+                if tuple(existing) != (value, evaluation_dataset_contract_digest, raw):
                     raise ConcurrencyConflict("Improvement candidate identity/novelty drift")
                 db.rollback()
                 return value, False
+            if evaluation_dataset_contract_digest is not None:
+                contract = db.execute(
+                    "select 1 from evaluation_dataset_contract where contract_digest=?",
+                    (evaluation_dataset_contract_digest,),
+                ).fetchone()
+                if contract is None:
+                    raise PolicyViolation(
+                        "Candidate requires pre-existing evaluation dataset contract"
+                    )
             db.execute(
-                "insert into improvement_candidate values(?,?,?,?,?,?,?,?,?)",
+                "insert into improvement_candidate("
+                "candidate_digest,candidate_id,novelty_digest,failure_card_digest,"
+                "baseline_aggregate_digest,change_class,proposer_ref,created_at,body_json,"
+                "evaluation_dataset_contract_digest) values(?,?,?,?,?,?,?,?,?,?)",
                 (
                     value,
                     str(candidate.candidate_id),
@@ -1078,6 +1227,7 @@ class SQLiteLocalImprovementStore:
                     candidate.proposer_ref,
                     _instant(candidate.created_at),
                     raw,
+                    evaluation_dataset_contract_digest,
                 ),
             )
             db.commit()
@@ -1409,6 +1559,376 @@ class SQLiteLocalImprovementStore:
             db.commit()
         return EvaluationReceipt(value, state, progress.progress_digest)
 
+    def complete_typed_evaluation(
+        self,
+        candidate: ImprovementCandidate,
+        claim_digest: str,
+        plan: EvaluationPlanBinding,
+        report: PairedEvaluationReport,
+        verification: IndependentEvaluationReceipt,
+        *,
+        builder_verifier: WorkerReceiptVerifier,
+        execution_verifier: WorkerReceiptVerifier,
+        independent_verifier: WorkerReceiptVerifier,
+        process_verifier: ProcessIdentityVerifier,
+        worker_terminal_receipts: tuple[tuple[dict[str, Any], str], ...],
+        finished_at: dt.datetime,
+    ) -> EvaluationReceipt:
+        """Persist a model-free typed report through the existing improvement ledger."""
+        from zekam.infrastructure.evaluation_process_worker import EvaluationWorkerVerifier
+
+        if (
+            type(candidate) is not ImprovementCandidate
+            or type(plan) is not EvaluationPlanBinding
+            or type(report) is not PairedEvaluationReport
+            or type(verification) is not IndependentEvaluationReceipt
+            or type(builder_verifier) is not EvaluationWorkerVerifier
+            or type(execution_verifier) is not EvaluationWorkerVerifier
+            or type(independent_verifier) is not EvaluationWorkerVerifier
+        ):
+            raise ValidationFailed("Exact typed improvement evaluation input required")
+        candidate.__post_init__()
+        plan.__post_init__()
+        report.__post_init__()
+        verification.__post_init__()
+        parse_digest(claim_digest)
+        finished_timestamp = _instant(finished_at)
+        dataset_contract_digest, provenance_verifier = self._registered_dataset_authority(
+            report.dataset
+        )
+        assert_trusted_evaluation_receipts(
+            report,
+            verification,
+            provenance_verifier=provenance_verifier,
+            builder_verifier=builder_verifier,
+            execution_verifier=execution_verifier,
+            independent_verifier=independent_verifier,
+            process_verifier=process_verifier,
+        )
+        identities = (
+            report.builder_identity,
+            report.evaluator_identity,
+            verification.verifier_identity,
+        )
+        verifiers = (builder_verifier, execution_verifier, independent_verifier)
+        if len(worker_terminal_receipts) != 3:
+            raise PolicyViolation("Typed evaluation requires three worker terminal receipts")
+        for identity, verifier, (terminal_body, terminal_receipt) in zip(
+            identities, verifiers, worker_terminal_receipts, strict=True
+        ):
+            expected_terminal = {
+                "schema": "zekam-evaluation-worker-terminal/v1",
+                "assignment_id": str(identity.assignment_id),
+                "assignment_challenge_digest": identity.assignment_challenge_digest,
+                "process_id": identity.process_id,
+                "process_start_token": identity.process_start_token,
+                "implementation_digest": identity.implementation_digest,
+            }
+            if (
+                type(terminal_body) is not dict
+                or any(terminal_body.get(key) != value for key, value in expected_terminal.items())
+                or terminal_body.get("status") != "completed"
+                or type(terminal_body.get("receipt_count")) is not int
+                or not verifier.matches_receipt_digest(terminal_body, terminal_receipt)
+            ):
+                raise PolicyViolation("Typed evaluation worker terminal binding drift")
+        if (
+            plan.improvement_candidate_digest != candidate.candidate_digest
+            or plan.ledger_baseline_contract_digest != candidate.evaluation_plan_digest
+            or plan.source_revision != candidate.source_revision
+            or report.plan_digest != plan.plan_digest
+            or report.dataset_digest != plan.dataset_digest
+            or report.profile_digest != plan.profile_digest
+        ):
+            raise PolicyViolation("Typed evaluation candidate/plan/report binding drift")
+        baseline_artifacts = {item.artifact_digest for item in report.baseline_results}
+        candidate_artifacts = {item.artifact_digest for item in report.candidate_results}
+        if (
+            len(baseline_artifacts) != 1
+            or candidate_artifacts != {candidate.patch_digest}
+            or plan.candidate_artifact_digest != candidate.patch_digest
+            or baseline_artifacts != {plan.baseline_artifact_digest}
+            or baseline_artifacts == candidate_artifacts
+        ):
+            raise PolicyViolation("Typed evaluation baseline/candidate artifact binding drift")
+        cases_by_id = {
+            item.case_id: item for item in report.dataset.cases_for(report.partition)
+        }
+        for baseline, evaluated_candidate in zip(
+            report.baseline_results, report.candidate_results, strict=True
+        ):
+            case = cases_by_id.get(baseline.case_id)
+            if case is None:
+                raise PolicyViolation("Typed evaluation case is outside frozen dataset")
+            expected_condition = digest(
+                {
+                    "plan_digest": plan.plan_digest,
+                    "case_id": case.case_id,
+                    "input_digest": case.input_digest,
+                    "partition": str(report.partition),
+                    "environment_digest": baseline.environment_digest,
+                }
+            )
+            if (
+                report.partition is EvaluationPartition.CALIBRATION
+                or baseline.condition_digest != expected_condition
+                or evaluated_candidate.condition_digest != expected_condition
+            ):
+                raise PolicyViolation("Typed evaluation frozen condition binding drift")
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            stored_candidate = db.execute(
+                "select body_json,evaluation_dataset_contract_digest "
+                "from improvement_candidate where candidate_digest=?",
+                (candidate.candidate_digest,),
+            ).fetchone()
+            dataset_contract = db.execute(
+                "select body_json from evaluation_dataset_contract "
+                "where dataset_digest=?",
+                (report.dataset_digest,),
+            ).fetchone()
+            claim = db.execute(
+                "select * from attempt_claim where claim_digest=? and candidate_digest=?",
+                (claim_digest, candidate.candidate_digest),
+            ).fetchone()
+            manifest = db.execute(
+                "select * from validator_manifest where candidate_digest=?",
+                (candidate.candidate_digest,),
+            ).fetchone()
+            if (
+                stored_candidate is None
+                or claim is None
+                or manifest is None
+                or dataset_contract is None
+            ):
+                raise PolicyViolation("Typed evaluation requires stored candidate/claim/validators")
+            dataset_contract_body = _document(dataset_contract["body_json"])
+            manifest_body = _document(manifest["body_json"])
+            assets = manifest_body.get("assets")
+            asset_digests = (
+                set()
+                if type(assets) is not list
+                else {
+                    item.get("content_digest")
+                    for item in assets
+                    if type(item) is dict and type(item.get("content_digest")) is str
+                }
+            )
+            protected = {
+                plan.dataset_digest,
+                plan.profile_digest,
+                plan.baseline_artifact_digest,
+                plan.candidate_artifact_digest,
+                plan.source_fingerprint,
+                plan.config_fingerprint,
+                plan.fixture_fingerprint,
+                plan.harness_fingerprint,
+                plan.evaluator_fingerprint,
+                plan.verifier_contract_digest,
+                plan.policy_digest,
+                plan.receipt_contract_digest,
+            }
+            if (
+                stored_candidate[0] != canonical_json(candidate.body())
+                or stored_candidate["evaluation_dataset_contract_digest"]
+                != dataset_contract_digest
+                or dataset_contract_body.get("dataset_manifest") != report.dataset.body()
+                or digest(manifest_body) != manifest["manifest_digest"]
+                or str(report.builder_identity.assignment_id) != candidate.proposer_ref
+                or str(report.evaluator_identity.assignment_id) != manifest["builder_ref"]
+                or str(verification.verifier_identity.assignment_id) != manifest["verifier_ref"]
+                or not protected <= asset_digests
+                or claim["reserved_provider_calls"] != 0
+                or finished_timestamp <= claim["started_at"]
+                or finished_timestamp <= manifest["created_at"]
+            ):
+                raise PolicyViolation("Typed evaluation frozen ledger/identity/budget drift")
+            state = (
+                "improved"
+                if report.verdict is EvaluationVerdict.IMPROVED and verification.accepted
+                else "regressed"
+                if report.verdict is EvaluationVerdict.REGRESSED
+                else "failed"
+                if not verification.accepted
+                else "plateau"
+            )
+            body = {
+                "schema": "zekam-local-typed-improvement-evaluation/v1",
+                "candidate_digest": candidate.candidate_digest,
+                "claim_digest": claim_digest,
+                "validator_manifest_digest": manifest["manifest_digest"],
+                "evaluation_plan": plan.body(),
+                "paired_report": report.body(),
+                "independent_verification": verification.body(),
+                "worker_terminal_receipts": [
+                    body | {"terminal_receipt": receipt}
+                    for body, receipt in worker_terminal_receipts
+                ],
+                "state": state,
+                "reason": (
+                    "insufficient-evidence"
+                    if report.verdict is EvaluationVerdict.INSUFFICIENT_EVIDENCE
+                    else str(report.verdict)
+                ),
+                "actual_provider_calls": 0,
+                "actual_tokens": 0,
+                "actual_cost_micros": 0,
+                "evaluator_ref": manifest["builder_ref"],
+                "verifier_ref": manifest["verifier_ref"],
+                "finished_at": finished_timestamp,
+            }
+            raw, value = _body(body)
+            existing = db.execute(
+                "select evaluation_digest,state,body_json from improvement_evaluation "
+                "where claim_digest=?",
+                (claim_digest,),
+            ).fetchone()
+            if existing is not None:
+                if (existing["evaluation_digest"], existing["body_json"]) != (value, raw):
+                    raise ConcurrencyConflict("Typed improvement evaluation replay drift")
+                db.rollback()
+                return EvaluationReceipt(
+                    value,
+                    str(existing["state"]),
+                    digest(dict(report.metric_deltas)),
+                )
+            db.execute(
+                "insert into improvement_evaluation values(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    value,
+                    claim_digest,
+                    candidate.candidate_digest,
+                    report.report_digest,
+                    manifest["manifest_digest"],
+                    state,
+                    manifest["builder_ref"],
+                    manifest["verifier_ref"],
+                    finished_timestamp,
+                    raw,
+                ),
+            )
+            db.commit()
+        return EvaluationReceipt(value, state, digest(dict(report.metric_deltas)))
+
+    def _registered_dataset_authority(
+        self, dataset: EvaluationDataset
+    ) -> tuple[str, Ed25519ReceiptVerifier]:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "select contract_digest,body_json from evaluation_dataset_contract "
+                "where dataset_digest=?",
+                (dataset.dataset_digest,),
+            ).fetchone()
+        if row is None:
+            raise PolicyViolation("Typed evaluation requires registered dataset authority")
+        body = _document(row["body_json"])
+        if body.get("dataset_manifest") != dataset.body():
+            raise PolicyViolation("Registered evaluation dataset readback drift")
+        public_key_text = body.get("provenance_public_key")
+        if type(public_key_text) is not str:
+            raise PolicyViolation("Registered provenance public key missing")
+        try:
+            public_key = base64.b64decode(public_key_text, validate=True)
+            verifier = Ed25519ReceiptVerifier(
+                Ed25519PublicKey.from_public_bytes(public_key)
+            )
+        except (ValueError, TypeError) as exc:
+            raise PolicyViolation("Registered provenance public key invalid") from exc
+        terminal = body.get("provenance_terminal")
+        if type(terminal) is not dict:
+            raise PolicyViolation("Registered provenance terminal receipt missing")
+        terminal_receipt = terminal.get("terminal_receipt")
+        unsigned_terminal = {
+            key: value for key, value in terminal.items() if key != "terminal_receipt"
+        }
+        if (
+            type(terminal_receipt) is not str
+            or not verifier.matches_receipt_digest(unsigned_terminal, terminal_receipt)
+            or any(
+                not verifier.matches_receipt_digest(
+                    case.provenance_receipt_body(), case.provenance_receipt_digest
+                )
+                for case in dataset.cases
+            )
+        ):
+            raise PolicyViolation("Registered provenance authority receipt untrusted")
+        return str(row["contract_digest"]), verifier
+
+    def register_evaluation_dataset_contract(
+        self,
+        dataset: EvaluationDataset,
+        provenance_verifier: WorkerReceiptVerifier,
+        terminal_receipt: tuple[dict[str, Any], str],
+        *,
+        registered_at: dt.datetime,
+    ) -> str:
+        """Freeze independently attested holdout data before any candidate is persisted."""
+        from zekam.infrastructure.evaluation_process_worker import EvaluationWorkerVerifier
+
+        if (
+            type(dataset) is not EvaluationDataset
+            or type(provenance_verifier) is not EvaluationWorkerVerifier
+            or provenance_verifier.role != "provenance"
+        ):
+            raise PolicyViolation("Dataset contract requires exact provenance worker")
+        dataset.__post_init__()
+        if any(
+            not case.provenance_receipt_digest.startswith("ed25519:")
+            or not provenance_verifier.matches_receipt_digest(
+                case.provenance_receipt_body(), case.provenance_receipt_digest
+            )
+            for case in dataset.cases
+        ):
+            raise PolicyViolation("Dataset contract provenance receipt untrusted")
+        terminal_body, terminal_signature = terminal_receipt
+        if (
+            type(terminal_body) is not dict
+            or terminal_body.get("status") != "completed"
+            or terminal_body.get("assignment_challenge_digest")
+            != provenance_verifier.identity.assignment_challenge_digest
+            or not provenance_verifier.matches_receipt_digest(
+                terminal_body, terminal_signature
+            )
+        ):
+            raise PolicyViolation("Dataset contract provenance terminal receipt untrusted")
+        body = {
+            "schema": "zekam-evaluation-dataset-contract/v1",
+            "dataset_manifest": dataset.body(),
+            "provenance_identity": provenance_verifier.identity.body(),
+            "provenance_public_key": base64.b64encode(
+                provenance_verifier.public_key
+            ).decode("ascii"),
+            "provenance_terminal": terminal_body
+            | {"terminal_receipt": terminal_signature},
+            "registered_at": _instant(registered_at),
+            "grants_candidate_authority": False,
+        }
+        raw, contract_digest = _body(body)
+        with closing(self._connect()) as db:
+            existing = db.execute(
+                "select contract_digest,body_json from evaluation_dataset_contract "
+                "where dataset_digest=?",
+                (dataset.dataset_digest,),
+            ).fetchone()
+            if existing is not None:
+                if (existing["contract_digest"], existing["body_json"]) != (
+                    contract_digest,
+                    raw,
+                ):
+                    raise ConcurrencyConflict("Evaluation dataset contract replay drift")
+            else:
+                db.execute(
+                    "insert into evaluation_dataset_contract values(?,?,?,?)",
+                    (
+                        contract_digest,
+                        dataset.dataset_digest,
+                        _instant(registered_at),
+                        raw,
+                    ),
+                )
+                db.commit()
+        return contract_digest
+
     def _assert_operation_ready(
         self, db: sqlite3.Connection, receipt: OperationalExecutionReceipt
     ) -> None:
@@ -1679,6 +2199,10 @@ class SQLiteLocalImprovementStore:
         success: object | None = None,
         now: dt.datetime,
     ) -> str:
+        if _legacy_rollout_disabled():
+            raise PolicyViolation(
+                "Legacy metadata-only rollout disabled; use authorized typed rollout"
+            )
         for value in (candidate_digest, evaluation_digest):
             parse_digest(value)
         if type(stage) is not str or stage not in {"shadow", "canary"}:
@@ -1858,6 +2382,11 @@ class SQLiteLocalImprovementStore:
         receipt: OperationalExecutionReceipt | None = None,
         now: dt.datetime,
     ) -> str:
+        if _legacy_rollout_disabled():
+            raise PolicyViolation(
+                "Legacy metadata-only activation disabled; use authorized typed rollout"
+            )
+        # Historical implementation remains below for schema/audit compatibility.
         for value in (candidate_digest, evaluation_digest, review_digest):
             parse_digest(value)
         if type(receipt) is not OperationalExecutionReceipt:
@@ -1989,6 +2518,11 @@ class SQLiteLocalImprovementStore:
         success: object | None = None,
         now: dt.datetime,
     ) -> str:
+        if _legacy_rollout_disabled():
+            raise PolicyViolation(
+                "Legacy metadata-only rollback disabled; use authorized typed rollout"
+            )
+        # Historical implementation remains below for schema/audit compatibility.
         parse_digest(activation_digest)
         if success is not None and type(success) is not bool:
             raise ValidationFailed("Improvement rollback status must be bool")
@@ -2121,8 +2655,528 @@ class SQLiteLocalImprovementStore:
             db.commit()
         return value
 
+    def record_typed_rollout(
+        self,
+        plan: RolloutPlan,
+        observation: RolloutObservation,
+        verification: RolloutVerification,
+        *,
+        executor_verifier: object,
+        independent_verifier: object,
+        recorded_at: dt.datetime,
+        authority_ledger: object | None = None,
+        reservation_id: str | None = None,
+        run_plan: object | None = None,
+        child_authorization: object | None = None,
+        prepare_only: bool = False,
+    ) -> str:
+        """Persist only independently signed real-work/CAS rollout evidence."""
+
+        from zekam.domain.evolution_authority import EvolutionRunPlan
+        from zekam.domain.security import Authorization
+        from zekam.infrastructure.rollout_process_worker import RolloutWorkerVerifier
+        from zekam.infrastructure.sqlite.evolution_authority import (
+            SQLiteEvolutionAuthorityLedger,
+        )
+
+        if (
+            type(plan) is not RolloutPlan
+            or type(observation) is not RolloutObservation
+            or type(verification) is not RolloutVerification
+            or type(executor_verifier) is not RolloutWorkerVerifier
+            or type(independent_verifier) is not RolloutWorkerVerifier
+            or type(authority_ledger) is not SQLiteEvolutionAuthorityLedger
+            or type(reservation_id) is not str
+            or type(run_plan) is not EvolutionRunPlan
+            or type(child_authorization) is not Authorization
+        ):
+            raise ValidationFailed("Typed rollout exact trusted contracts required")
+        plan.__post_init__()
+        observation.__post_init__()
+        verification.__post_init__()
+        if (
+            run_plan.input_digest != plan.intent_digest
+            or run_plan.parent_grant_digest != plan.grant_digest
+            or child_authorization.authorization_digest != plan.authorization_digest
+        ):
+            raise PolicyViolation("Typed rollout standing-grant plan binding invalid")
+        if type(prepare_only) is not bool:
+            raise ValidationFailed("Typed rollout prepare flag must be bool")
+        timestamp = _instant(recorded_at)
+        expected_effects = (
+            1 if plan.stage in {RolloutStage.ACTIVATION, RolloutStage.ROLLBACK} else 0
+        )
+        completed = observation.status is RolloutStatus.COMPLETED
+        if (
+            executor_verifier.identity.role != "executor"
+            or independent_verifier.identity.role != "verifier"
+            or executor_verifier.identity == independent_verifier.identity
+            or observation.worker != executor_verifier.identity
+            or verification.worker != independent_verifier.identity
+            or observation.plan_digest != plan.plan_digest
+            or observation.stage is not plan.stage
+            or verification.plan_digest != plan.plan_digest
+            or verification.observation_digest != observation.observation_digest
+            or not executor_verifier.matches(
+                observation.worker.boundary_body(), observation.worker.boundary_receipt
+            )
+            or not executor_verifier.matches(
+                observation.receipt_body(), observation.execution_receipt
+            )
+            or not independent_verifier.matches(
+                verification.worker.boundary_body(), verification.worker.boundary_receipt
+            )
+            or not independent_verifier.matches(
+                verification.receipt_body(), verification.verification_receipt
+            )
+            or timestamp < _instant(verification.verified_at)
+            or (completed and not verification.accepted)
+            or (completed and observation.observation_count < plan.minimum_observations)
+            or (completed and observation.production_effect_count != expected_effects)
+        ):
+            raise PolicyViolation("Typed rollout receipt/process/readback binding invalid")
+        body = {
+            "schema": "zekam-local-typed-rollout-settlement/v1",
+            "plan": plan.body(),
+            "observation": observation.receipt_body()
+            | {"execution_receipt": observation.execution_receipt},
+            "verification": verification.receipt_body()
+            | {"verification_receipt": verification.verification_receipt},
+            "status": observation.status.value,
+            "recorded_at": timestamp,
+            "grants_authority": False,
+        }
+        raw, settlement_digest = _body(body)
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            evaluation = db.execute(
+                "select state,finished_at from improvement_evaluation "
+                "where evaluation_digest=? and candidate_digest=?",
+                (plan.evaluation_digest, plan.candidate_digest),
+            ).fetchone()
+            predecessors = {
+                str(row["stage"]): str(row["status"])
+                for row in db.execute(
+                    "select stage,status from typed_rollout_execution "
+                    "where candidate_digest=?",
+                    (plan.candidate_digest,),
+                ).fetchall()
+            }
+            required = {
+                RolloutStage.SHADOW: (),
+                RolloutStage.CANARY: (RolloutStage.SHADOW.value,),
+                RolloutStage.ACTIVATION: (
+                    RolloutStage.SHADOW.value,
+                    RolloutStage.CANARY.value,
+                ),
+                RolloutStage.ROLLBACK: (RolloutStage.ACTIVATION.value,),
+            }[plan.stage]
+            if (
+                evaluation is None
+                or evaluation["state"] not in {"improved", "target-reached"}
+                or _instant(observation.started_at) <= evaluation["finished_at"]
+                or any(
+                    stage not in predecessors
+                    or predecessors[stage] != RolloutStatus.COMPLETED.value
+                    for stage in required
+                )
+            ):
+                raise PolicyViolation("Typed rollout ledger order/evaluation binding invalid")
+            pending = db.execute(
+                "select settlement_digest,body_json from typed_rollout_pending "
+                "where reservation_id=? or plan_digest=?",
+                (reservation_id, plan.plan_digest),
+            ).fetchone()
+            if prepare_only:
+                if pending is not None:
+                    if tuple(pending) != (settlement_digest, raw):
+                        raise ConcurrencyConflict("Typed rollout pending replay drift")
+                    db.rollback()
+                    return settlement_digest
+                db.execute(
+                    "insert into typed_rollout_pending values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        reservation_id,
+                        plan.plan_digest,
+                        run_plan.plan_digest,
+                        child_authorization.authorization_digest,
+                        verification.readback_digest,
+                        settlement_digest,
+                        plan.candidate_digest,
+                        plan.evaluation_digest,
+                        plan.stage.value,
+                        observation.status.value,
+                        plan.grant_digest,
+                        timestamp,
+                        raw,
+                    ),
+                )
+                db.commit()
+                return settlement_digest
+            authority_ledger.assert_terminal_settlement(
+                reservation_id,
+                run_plan,
+                child_authorization,
+                evidence_digest=verification.readback_digest,
+            )
+            if pending is None or tuple(pending) != (settlement_digest, raw):
+                raise PolicyViolation("Typed rollout requires durable prepared settlement")
+            existing = db.execute(
+                "select settlement_digest,body_json from typed_rollout_execution "
+                "where plan_digest=? or (candidate_digest=? and stage=?)",
+                (plan.plan_digest, plan.candidate_digest, plan.stage.value),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != (settlement_digest, raw):
+                    raise ConcurrencyConflict("Typed rollout replay/stage drift")
+                db.rollback()
+                return settlement_digest
+            db.execute(
+                "insert into typed_rollout_execution values(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    settlement_digest,
+                    plan.plan_digest,
+                    plan.candidate_digest,
+                    plan.evaluation_digest,
+                    plan.stage.value,
+                    observation.status.value,
+                    plan.grant_digest,
+                    plan.authorization_digest,
+                    timestamp,
+                    raw,
+                ),
+            )
+            db.commit()
+        return settlement_digest
+
+    def pending_typed_rollout_reservations(self) -> tuple[str, ...]:
+        """List prepared receipts lacking a final typed settlement."""
+
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "select p.reservation_id from typed_rollout_pending p "
+                "left join typed_rollout_execution e on e.plan_digest=p.plan_digest "
+                "left join typed_rollout_recovery r on r.plan_digest=p.plan_digest "
+                "where e.plan_digest is null and r.plan_digest is null "
+                "order by p.reservation_id"
+            ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def record_typed_rollout_recovery(
+        self,
+        authority_ledger: object,
+        reservation_id: str,
+        run_plan: object,
+        child_authorization: object,
+        rollout_plan_digest: str,
+        recovery_digest: str,
+        *,
+        recovered_at: dt.datetime,
+    ) -> str:
+        """Close an interrupted rollout in the improvement ledger without replay."""
+
+        from zekam.domain.evolution_authority import EvolutionRunPlan
+        from zekam.domain.security import Authorization
+        from zekam.infrastructure.sqlite.evolution_authority import (
+            SQLiteEvolutionAuthorityLedger,
+        )
+
+        if (
+            type(authority_ledger) is not SQLiteEvolutionAuthorityLedger
+            or type(run_plan) is not EvolutionRunPlan
+            or type(child_authorization) is not Authorization
+            or type(reservation_id) is not str
+        ):
+            raise ValidationFailed("Typed rollout recovery authority invalid")
+        parse_digest(recovery_digest)
+        parse_digest(rollout_plan_digest)
+        authority_ledger.assert_recovery_terminal(
+            reservation_id,
+            run_plan,
+            child_authorization,
+            recovery_digest=recovery_digest,
+        )
+        timestamp = _instant(recovered_at)
+        body = {
+            "schema": "zekam-local-typed-rollout-recovery/v1",
+            "reservation_id": reservation_id,
+            "plan_digest": rollout_plan_digest,
+            "run_plan_digest": run_plan.plan_digest,
+            "authorization_digest": child_authorization.authorization_digest,
+            "recovery_digest": recovery_digest,
+            "recovered_at": timestamp,
+            "blind_replay_allowed": False,
+        }
+        raw, value = _body(body)
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            existing = db.execute(
+                "select recovery_digest,body_json from typed_rollout_recovery "
+                "where reservation_id=?",
+                (reservation_id,),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != (recovery_digest, raw):
+                    raise ConcurrencyConflict("Typed rollout recovery replay drift")
+                db.rollback()
+                return value
+            pending = db.execute(
+                "select plan_digest from typed_rollout_pending where reservation_id=?",
+                (reservation_id,),
+            ).fetchone()
+            plan_digest = rollout_plan_digest if pending is None else str(pending[0])
+            if plan_digest != rollout_plan_digest:
+                raise PolicyViolation("Typed rollout recovery pending plan drift")
+            body["plan_digest"] = plan_digest
+            raw, value = _body(body)
+            db.execute(
+                "insert into typed_rollout_recovery values(?,?,?,?,?,?)",
+                (value, reservation_id, plan_digest, recovery_digest, timestamp, raw),
+            )
+            db.commit()
+        return value
+
+    def finalize_prepared_typed_rollout(
+        self,
+        authority_ledger: object,
+        reservation_id: str,
+        run_plan: object,
+        child_authorization: object,
+    ) -> str:
+        """Reconcile a prepared receipt after a cross-ledger interruption."""
+
+        from zekam.domain.evolution_authority import EvolutionRunPlan
+        from zekam.domain.security import Authorization
+        from zekam.infrastructure.sqlite.evolution_authority import (
+            SQLiteEvolutionAuthorityLedger,
+        )
+
+        if (
+            type(authority_ledger) is not SQLiteEvolutionAuthorityLedger
+            or type(reservation_id) is not str
+            or type(run_plan) is not EvolutionRunPlan
+            or type(child_authorization) is not Authorization
+        ):
+            raise ValidationFailed("Typed rollout reconciliation authority invalid")
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            pending = db.execute(
+                "select * from typed_rollout_pending where reservation_id=?",
+                (reservation_id,),
+            ).fetchone()
+            if (
+                pending is None
+                or pending["run_plan_digest"] != run_plan.plan_digest
+                or pending["authorization_digest"]
+                != child_authorization.authorization_digest
+            ):
+                raise PolicyViolation("Typed rollout prepared receipt binding missing")
+            authority_ledger.assert_terminal_settlement(
+                reservation_id,
+                run_plan,
+                child_authorization,
+                evidence_digest=str(pending["evidence_digest"]),
+            )
+            existing = db.execute(
+                "select settlement_digest,body_json from typed_rollout_execution "
+                "where plan_digest=?",
+                (pending["plan_digest"],),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != (
+                    pending["settlement_digest"],
+                    pending["body_json"],
+                ):
+                    raise ConcurrencyConflict("Typed rollout reconciliation replay drift")
+                db.rollback()
+                return str(existing[0])
+            db.execute(
+                "insert into typed_rollout_execution values(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    pending["settlement_digest"],
+                    pending["plan_digest"],
+                    pending["candidate_digest"],
+                    pending["evaluation_digest"],
+                    pending["stage"],
+                    pending["status"],
+                    pending["grant_digest"],
+                    pending["authorization_digest"],
+                    pending["recorded_at"],
+                    pending["body_json"],
+                ),
+            )
+            db.commit()
+            return str(pending["settlement_digest"])
+
+    def typed_rollout_plan_digests(self) -> tuple[str, ...]:
+        """Return only independently settled typed rollout plan identities."""
+
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "select plan_digest from typed_rollout_execution order by plan_digest"
+            ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def evolution_control_status(self) -> dict[str, object]:
+        """Read the latest append-only admission-control decision."""
+
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "select event_digest,ordinal,state,reason,occurred_at,body_json from "
+                "evolution_control_event order by ordinal desc limit 1"
+            ).fetchone()
+        if row is None:
+            return {
+                "state": "observing",
+                "ordinal": 0,
+                "event_digest": None,
+                "reason": "default-local-observation",
+                "occurred_at": None,
+            }
+        result: dict[str, object] = {
+            "event_digest": str(row[0]),
+            "ordinal": int(row[1]),
+            "state": str(row[2]),
+            "reason": str(row[3]),
+            "occurred_at": str(row[4]),
+        }
+        body = _document(str(row[5]))
+        evidence = body.get("admission_evidence")
+        if isinstance(evidence, dict):
+            result["admission_evidence"] = evidence
+        enable_plan_digest = body.get("enable_plan_digest")
+        if isinstance(enable_plan_digest, str):
+            result["enable_plan_digest"] = enable_plan_digest
+        bootstrap_settlement = body.get("bootstrap_settlement")
+        if isinstance(bootstrap_settlement, dict):
+            result["bootstrap_settlement"] = bootstrap_settlement
+        return result
+
+    def set_evolution_control_state(
+        self,
+        state: str,
+        *,
+        reason: str,
+        now: dt.datetime,
+        enable_plan_digest: str | None = None,
+        admission_evidence: Mapping[str, object] | None = None,
+        admission_verifier: EvolutionResumeAdmissionVerifier | None = None,
+        bootstrap_settlement: Mapping[str, object] | None = None,
+        expected_previous_event_digest: str | _UnsetPreviousEvent | None = _UNSET_PREVIOUS_EVENT,
+    ) -> dict[str, object]:
+        """Append one exact pause/resume/disable decision with idempotent replay."""
+
+        if state not in {"observing", "paused", "disabled"}:
+            raise ValidationFailed("Evolution control state invalid")
+        reason = _safe(reason, "control reason")
+        occurred_at = _instant(now)
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            previous = db.execute(
+                "select event_digest,ordinal,state from evolution_control_event "
+                "order by ordinal desc limit 1"
+            ).fetchone()
+            previous_state = "observing" if previous is None else str(previous[2])
+            previous_digest = None if previous is None else str(previous[0])
+            if (
+                not isinstance(expected_previous_event_digest, _UnsetPreviousEvent)
+                and expected_previous_event_digest != previous_digest
+            ):
+                raise ConcurrencyConflict("Evolution control previous event CAS drift")
+            if previous_state == state and enable_plan_digest is None:
+                db.rollback()
+                return self.evolution_control_status() | {"changed": False}
+            if enable_plan_digest is not None:
+                parse_digest(enable_plan_digest)
+            if bootstrap_settlement is not None:
+                settlement = dict(bootstrap_settlement)
+                receipt_digest = settlement.pop("receipt_digest", None)
+                if (
+                    state != "observing"
+                    or reason != "bootstrap-complete"
+                    or enable_plan_digest is None
+                    or not isinstance(receipt_digest, str)
+                    or digest(settlement) != receipt_digest
+                ):
+                    raise PolicyViolation("Evolution bootstrap terminal settlement invalid")
+            if (
+                previous_state == "disabled"
+                and state != "disabled"
+                and enable_plan_digest is None
+            ):
+                raise PolicyViolation("Disabled evolution requires exact enable plan")
+            if previous_state == "paused" and state == "observing":
+                if not isinstance(admission_evidence, Mapping):
+                    raise PolicyViolation("Evolution resume exact admission evidence ister")
+                if admission_verifier is None:
+                    raise PolicyViolation("Evolution resume trusted authority verifier ister")
+                required = {
+                    "evidence_digest",
+                    "task_scope_digest",
+                    "config_digest",
+                    "implementation_digest",
+                    "supervisor_status_digest",
+                    "grant_binding_digest",
+                    "grant_digests",
+                    "recovery_clear",
+                }
+                if set(admission_evidence) != required:
+                    raise PolicyViolation("Evolution resume admission evidence schema drift")
+                for field in required - {"grant_digests", "recovery_clear"}:
+                    value = admission_evidence[field]
+                    if not isinstance(value, str):
+                        raise PolicyViolation("Evolution resume admission digest gecersiz")
+                    parse_digest(value)
+                grants = admission_evidence["grant_digests"]
+                if (
+                    not isinstance(grants, (list, tuple))
+                    or not grants
+                    or tuple(sorted(set(grants))) != tuple(grants)
+                    or admission_evidence["recovery_clear"] is not True
+                ):
+                    raise PolicyViolation("Evolution resume grant/recovery evidence gecersiz")
+                for grant_digest in grants:
+                    parse_digest(grant_digest)
+                evidence_body = {
+                    key: admission_evidence[key]
+                    for key in required
+                    if key != "evidence_digest"
+                }
+                if digest(evidence_body) != admission_evidence["evidence_digest"]:
+                    raise PolicyViolation("Evolution resume admission evidence digest drift")
+                admission_verifier.verify(admission_evidence)
+            ordinal = 1 if previous is None else int(previous[1]) + 1
+            body = {
+                "schema": "zekam-evolution-control-event/v1",
+                "ordinal": ordinal,
+                "state": state,
+                "previous_event_digest": previous_digest,
+                "reason": reason,
+                "enable_plan_digest": enable_plan_digest,
+                "admission_evidence": (
+                    None if admission_evidence is None else dict(admission_evidence)
+                ),
+                "bootstrap_settlement": (
+                    None if bootstrap_settlement is None else dict(bootstrap_settlement)
+                ),
+                "occurred_at": occurred_at,
+                "grants_authority": False,
+            }
+            raw, event_digest = _body(body)
+            db.execute(
+                "insert into evolution_control_event values(?,?,?,?,?,?,?)",
+                (event_digest, ordinal, state, previous_digest, reason, occurred_at, raw),
+            )
+            db.commit()
+        return self.evolution_control_status() | {"changed": True}
+
     def audit(self) -> dict[str, int]:
         tables = (
+            ("evolution_control_event", "event_digest"),
+            ("evaluation_dataset_contract", "contract_digest"),
+            ("typed_rollout_pending", "settlement_digest"),
+            ("typed_rollout_recovery", "receipt_digest"),
+            ("typed_rollout_execution", "settlement_digest"),
             ("improvement_candidate", "candidate_digest"),
             ("validator_manifest", "manifest_digest"),
             ("attempt_claim", "claim_digest"),

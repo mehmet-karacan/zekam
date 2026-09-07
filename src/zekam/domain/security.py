@@ -265,6 +265,8 @@ class AuthorizationScope:
     """
 
     allowed_resources: tuple[str, ...] = ()
+    allowed_read_resources: tuple[str, ...] = ()
+    allowed_write_resources: tuple[str, ...] = ()
     allowed_effects: tuple[str, ...] = ()
     provider_refs: tuple[str, ...] = ()
     secret_ref_ids: tuple[UUID, ...] = ()
@@ -287,17 +289,27 @@ class AuthorizationScope:
                 return True
         return False
 
+    def covers_read(self, resource: str) -> bool:
+        return resource in self.allowed_read_resources
+
+    def covers_write(self, resource: str) -> bool:
+        return resource in self.allowed_write_resources
+
     def covers_effect(self, effect: str) -> bool:
         return effect in self.allowed_effects
 
     def body(self) -> dict[str, Any]:
-        return {
+        body = {
             "allowed_resources": sorted(self.allowed_resources),
             "allowed_effects": sorted(self.allowed_effects),
             "provider_refs": sorted(self.provider_refs),
             "secret_ref_ids": sorted(str(item) for item in self.secret_ref_ids),
             "data_classifications": sorted(item.value for item in self.data_classifications),
         }
+        if self.allowed_read_resources or self.allowed_write_resources:
+            body["allowed_read_resources"] = sorted(self.allowed_read_resources)
+            body["allowed_write_resources"] = sorted(self.allowed_write_resources)
+        return body
 
     def as_dict(self) -> dict[str, Any]:
         return self.body()
@@ -365,7 +377,9 @@ class Authorization:
         )
 
     def is_valid_at(self, moment: dt.datetime) -> bool:
-        return self.state is AuthorizationState.ISSUED and self.expires_at > moment
+        return (
+            self.state is AuthorizationState.ISSUED and self.issued_at <= moment < self.expires_at
+        )
 
     def rejection_reason(self, moment: dt.datetime) -> str | None:
         """Neden kullanilamaz? Kullanilabiliyorsa `None`."""
@@ -375,6 +389,8 @@ class Authorization:
             return "authorization-revoked"
         if self.state is AuthorizationState.EXPIRED or self.expires_at <= moment:
             return "authorization-expired"
+        if moment < self.issued_at:
+            return "authorization-not-yet-valid"
         return None
 
     def body(self) -> dict[str, Any]:

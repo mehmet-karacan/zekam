@@ -90,14 +90,20 @@ def test_readonly_inventory_never_runs_process_network_or_writes(
 def test_additive_pins_leave_historical_windows_contracts_unchanged() -> None:
     from zekam.infrastructure.clients.claude_lifecycle import CLAUDE_REVIEWED_VERSION
     from zekam.infrastructure.clients.codex_lifecycle import (
+        CODEX_HISTORICAL_WINDOWS_CONTRACT,
         CODEX_REVIEWED_VERSION,
         CODEX_REVIEWED_WINDOWS_SHA256,
     )
 
     assert CLAUDE_REVIEWED_VERSION == "2.1.224"
-    assert CODEX_REVIEWED_VERSION == "0.150.1"
+    assert CODEX_REVIEWED_VERSION == "0.153.1"
     assert CODEX_REVIEWED_WINDOWS_SHA256 == (
-        "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f"
+        "921b3df53973e3ec80e9c27b0fb6f5dfec463be44333007f93e60b20caef4f41"
+    )
+    assert CODEX_HISTORICAL_WINDOWS_CONTRACT == (
+        "0.150.1",
+        "cbd657ddfe151d1a6ebad660beffdbd3265dc5aff4b3a6095124d3e2f0156f2f",
+        "sha256:e9327e030f757d539fdad344a9669781eff0ad9700b98ec769a484b6106f4086",
     )
     assert [(pin.client_id, pin.version) for pin in app.MAC_NATIVE_ARTIFACT_PINS] == [
         ("codex", "0.151.0"),

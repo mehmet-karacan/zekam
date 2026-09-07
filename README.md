@@ -117,6 +117,28 @@ zekam project odi-bind <alias> <export-root> --plan-digest <digest> --uygula --j
 
 Export kapsamı ve güvenlik sınırı: [`docs/ODI11G_EXPORT_VE_LINEAGE.md`](docs/ODI11G_EXPORT_VE_LINEAGE.md).
 
+## Olculu otonom evolution
+
+Kanonik aday/olcum/rollout kanitlari ve gercek kurulum durumu ayri raporlanir:
+
+```bash
+zekam evolve plan --json
+zekam evolve status --json
+zekam evolve candidates --json
+zekam evolve report --json
+zekam evolve pause --uygula
+zekam evolve resume --uygula
+zekam evolve disable --uygula
+zekam evolve run-once --uygula
+```
+
+Windows bootstrap once `zekam evolve bootstrap-plan` ile operational v3->v5 backup/migration,
+eksik project-realm binding, provider-free yerel standing grant ve supervisor icin tek exact
+digest gosterir; ayri onaydan sonra `zekam evolve enable --uygula --plan-digest <digest>`
+kullanilir. Kesinti halinde ayni digest immutable local intent ve gercek readback ile idempotent
+devam eder. Dusuk seviye yalniz-scheduler plani `supervisor-plan` yuzeyinde kalir. Ayrintili sinir
+[`docs/OTONOM_EVOLUTION_RUNBOOK.md`](docs/OTONOM_EVOLUTION_RUNBOOK.md) icindedir.
+
 ## Geliştirme kurulumu
 
 Çalışan kodu yerelde kurmak, yerel depoları başlatmak, `zekam doctor` çalıştırmak ve kalite

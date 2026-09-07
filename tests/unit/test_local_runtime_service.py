@@ -8,13 +8,18 @@ import pytest
 
 from zekam.application.local_runtime_service import (
     LocalDeliveryResult,
+    LocalEffectDispatcher,
     LocalEffectRequest,
     LocalEffectResult,
     LocalRuntimeService,
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
-from zekam.infrastructure.local_runtime_effects import LocalJournalEffectExecutor
+from zekam.infrastructure.local_runtime_effects import (
+    MAINTENANCE_RECONCILE_OPERATION,
+    LocalJournalEffectExecutor,
+    LocalMaintenanceReconcileExecutor,
+)
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
 
@@ -82,6 +87,79 @@ def test_executor_exception_is_unknown_and_never_implicitly_retried(tmp_path: Pa
     assert store.status().recovery_jobs == store.status().open_recovery_cases == 1
     assert service.run_worker_once(owner_id="replacement", owner_pid=2, owner_token="two") is None
     assert calls == 1
+
+
+def test_worker_claims_only_the_executor_operation_allowlist(tmp_path: Path) -> None:
+    store = SQLiteLocalRuntimeStore(tmp_path / "operational.db")
+    foreign, _ = store.enqueue(
+        idempotency_key="foreign",
+        payload={"operation": "oracle.metadata.read", "effect": {"project": "gpu"}},
+    )
+    journal, _ = store.enqueue(
+        idempotency_key="journal",
+        payload={
+            "operation": "local.append-journal/v1",
+            "effect": {"relative_path": "scope.log", "line": "transition"},
+        },
+    )
+    service = LocalRuntimeService(
+        store,
+        effect_executor=LocalJournalEffectExecutor(tmp_path / "effects"),
+        outbox_publisher=lambda _claim: LocalDeliveryResult("delivered", digest("ok")),
+        supported_operations=("local.append-journal/v1",),
+    )
+
+    work = service.run_worker_once(owner_id="journal", owner_pid=1, owner_token="one")
+
+    assert work is not None and work.job.id == journal.id
+    assert store.job_snapshot(foreign.id)["state"] == "ready"  # type: ignore[index]
+    assert store.status().recovery_jobs == 0
+
+
+def test_typed_effect_dispatcher_selects_exact_operation_and_rejects_foreign() -> None:
+    calls: list[str] = []
+
+    def handled(request: LocalEffectRequest) -> LocalEffectResult:
+        calls.append(request.operation)
+        return LocalEffectResult("completed", digest(request.payload))
+
+    dispatcher = LocalEffectDispatcher((("report.daily/v1", handled),))
+    result = dispatcher(
+        LocalEffectRequest("report.daily/v1", "job:one", {"day": "2026-09-06"})
+    )
+    assert result.status == "completed"
+    assert calls == ["report.daily/v1"]
+    with pytest.raises(PolicyViolation, match="registry"):
+        dispatcher(LocalEffectRequest("shell.exec", "job:two", {"command": "whoami"}))
+
+
+def test_maintenance_handler_recomputes_exact_schedule_digest(tmp_path: Path) -> None:
+    scheduled_for = "2026-09-06T12:05:00Z"
+    body = {
+        "schema": "zekam-maintenance-reconcile-schedule/v1",
+        "interval_minutes": 5,
+        "scheduled_for": scheduled_for,
+        "operation": MAINTENANCE_RECONCILE_OPERATION,
+        "misfire": "run-once",
+        "overlap": "skip",
+    }
+    executor = LocalMaintenanceReconcileExecutor(tmp_path / "effects")
+    payload = {
+        "scheduled_for": scheduled_for,
+        "schedule_digest": digest(body),
+        "source": "os-supervisor",
+    }
+    assert executor(
+        LocalEffectRequest(MAINTENANCE_RECONCILE_OPERATION, "job:one", payload)
+    ).status == "completed"
+    with pytest.raises(PolicyViolation, match="schedule digest"):
+        executor(
+            LocalEffectRequest(
+                MAINTENANCE_RECONCILE_OPERATION,
+                "job:two",
+                payload | {"schedule_digest": digest("forged")},
+            )
+        )
 
 
 def test_local_journal_retries_short_writes_until_every_byte_is_persisted(
