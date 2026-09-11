@@ -51,4 +51,4 @@ def fail_from(exc: ZekamError) -> typer.Exit:
         if isinstance(exc, PolicyViolation)
         else EXIT_RUNTIME_ERROR
     )
-    return fail(str(exc), code)
+    return fail(f"{exc.code}: {exc}", code)

@@ -56,6 +56,14 @@ def test_setup_json_is_dry_run_by_default() -> None:
     document = json.loads(result.stdout)
     assert document["schema"] == SETUP_PLAN_SCHEMA
     assert document["apply"] is False
+    assert document["acceptance_profile"] == "core-only"
+    assert document["readiness"] == {
+        "core": "planned",
+        "embedding": "unconfigured",
+        "index": "unavailable",
+        "query": "unverified",
+        "full_rag_ready": False,
+    }
     assert document["guarantees"] == {
         "fresh_home_publish": "atomic",
         "replay": "idempotent",

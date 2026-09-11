@@ -17,21 +17,26 @@ import os
 import sqlite3
 import struct
 import subprocess
+import sys
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from zekam.application.config import EmbeddingRoute, KnowledgeSettings, load_settings
 from zekam.application.embedded_project_rag import EmbeddedProjectRAG
 from zekam.application.embedding_provider import (
     EmbeddingBatch,
     EmbeddingPolicy,
     EmbeddingProbeFixture,
+    EmbeddingProvider,
 )
+from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.home import HomeLayout
 from zekam.application.knowledge_file_plane import ProjectProjection
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.local_embedding_composition import build_verified_mac_embedding
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.model_registry import load_inventory
 from zekam.application.odi11g_smart_export import (
@@ -63,7 +68,7 @@ from zekam.application.request_routing import (
 )
 from zekam.application.source_discovery import DiscoveryReport, discover
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.retrieval import Chunk
 from zekam.domain.security import (
@@ -114,23 +119,92 @@ create table if not exists vector_cache(
 """
 
 
+def _directory_source_state(root: Path) -> tuple[str, str, str]:
+    discovery = discover(root)
+    if discovery.truncated:
+        raise ValidationFailed("Project directory source snapshot truncated")
+    identity = discovery.tree_digest.removeprefix("sha256:")
+    return "", identity, f"directory:{discovery.tree_digest}"
+
+
+def _has_git_marker(root: Path) -> bool:
+    """Detect Git metadata without following a possibly broken link."""
+
+    try:
+        os.lstat(root / ".git")
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ValidationFailed("Project Git source marker denetlenemedi") from exc
+    return True
+
+
+def classify_project_source(root: Path) -> str:
+    """Classify a project root from its lexical Git marker."""
+
+    return "git" if _has_git_marker(root) else "directory"
+
+
 def _git_source_state(root: Path) -> tuple[str, str, str]:
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    ).stdout.strip()
-    status = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        timeout=30,
-    ).stdout
-    status_digest = hashlib.sha256(status).hexdigest()
+    """Return a stable source identity for Git roots and ordinary directories.
+
+    Project registration explicitly accepts both source kinds.  Git repositories
+    require a committed HEAD, while ordinary directories use the same bounded,
+    secret-filtered discovery digest as the index plan.
+    """
+
+    try:
+        repository = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        repository = None
+    if repository is None or repository.returncode != 0:
+        if _has_git_marker(root):
+            raise ValidationFailed("Project Git source identity probe basarisiz")
+        return _directory_source_state(root)
+
+    try:
+        repository_root = Path(repository.stdout.strip()).resolve(strict=True)
+    except OSError:
+        raise ValidationFailed("Project Git source root cozumlenemedi") from None
+    if repository_root != root.resolve(strict=True):
+        return _directory_source_state(root)
+    try:
+        head_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="ascii",
+            errors="replace",
+            timeout=10,
+        )
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise ValidationFailed("Project Git source identity probe basarisiz") from None
+    if head_result.returncode != 0:
+        raise ValidationFailed("Project Git source committed HEAD ister")
+    if status_result.returncode != 0:
+        raise ValidationFailed("Project Git source status okunamadi")
+    head = head_result.stdout.strip()
+    if len(head) != 40 or any(character not in "0123456789abcdef" for character in head):
+        raise ValidationFailed("Project Git source HEAD kimligi gecersiz")
+    status_digest = hashlib.sha256(status_result.stdout).hexdigest()
     return head, status_digest, f"{head}:status:{status_digest}"
 
 
@@ -153,7 +227,13 @@ def resolve_registered_project(home: Path, reference: str) -> str:
 
 
 def _project_plan(
-    root: Path, *, project_id: UUID, project_slug: str
+    root: Path,
+    *,
+    project_id: UUID,
+    project_slug: str,
+    knowledge: KnowledgeSettings | None = None,
+    embedding_candidates: tuple[EmbeddingRouteCandidate, ...] = (),
+    allow_remote_source: bool = False,
 ) -> tuple[DiscoveryReport, ProjectIndexPlan]:
     _, _, revision = _git_source_state(root)
     discovery = discover(root)
@@ -163,6 +243,12 @@ def _project_plan(
         source_root=root,
         source_revision=revision,
         expected_tree_digest=discovery.tree_digest,
+        embedding_candidates=embedding_candidates,
+        allow_remote_source=allow_remote_source,
+        local_model_ref=(knowledge.embedding_model_ref if knowledge is not None else MODEL_ID),
+        local_dimension=(
+            knowledge.embedding_dimension if knowledge is not None else VECTOR_DIMENSION
+        ),
     )
     return discovery, plan
 
@@ -199,8 +285,9 @@ def _plan_document(
         "skipped_unsupported": plan.skipped_unsupported,
         "skipped_encoding": plan.skipped_encoding,
         "truncated": discovery.truncated,
-        "model_id": MODEL_ID,
-        "dimension": VECTOR_DIMENSION,
+        "model_id": plan.embedding_profile.model_ref,
+        "dimension": plan.embedding_profile.dimension,
+        "embedding_route": plan.embedding_route.sanitized(),
         "estimated_provider_calls": (
             len(plan.chunks) + oracle_chunks + odi_chunks + MAX_BATCH_SIZE - 1
         )
@@ -288,20 +375,109 @@ def _rag_scope_is_private(paths: dict[str, Path]) -> bool:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _EmbeddingBinding:
+    provider: EmbeddingProvider
+    policy: EmbeddingPolicy
+    ledger: dict[str, Any]
+    probe: dict[str, Any]
+    route: EmbeddingRoute
+    remote_provider_used: bool
+    probe_call_count: int
+
+
+def project_embedding_route(home: Path) -> EmbeddingRoute:
+    """Resolve the explicit, secret-free project embedding route."""
+
+    return load_settings(home=home.resolve(strict=True)).knowledge.embedding_route
+
+
+def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
+    if (
+        knowledge.embedding_profile_id != "bge-m3-dense-v1"
+        or knowledge.embedding_dimension != VECTOR_DIMENSION
+        or knowledge.embedding_distance != "cosine"
+    ):
+        raise ConfigurationError("Project RAG canonical embedding profili desteklenmiyor")
+
+
+def _knowledge_binding(knowledge: KnowledgeSettings) -> dict[str, object]:
+    """Return the exact secret-free config identity that owns an index."""
+
+    return {
+        "embedding_profile_id": knowledge.embedding_profile_id,
+        "embedding_route": knowledge.embedding_route.value,
+        "embedding_model_ref": knowledge.embedding_model_ref,
+        "embedding_dimension": knowledge.embedding_dimension,
+        "embedding_distance": knowledge.embedding_distance,
+        "remote_provider_id": (
+            knowledge.remote_provider_id
+            if knowledge.embedding_route is EmbeddingRoute.REMOTE
+            else None
+        ),
+    }
+
+
+def _knowledge_binding_digest(knowledge: KnowledgeSettings) -> str:
+    return str(digest(_knowledge_binding(knowledge)))
+
+
+def _runtime_platform() -> str:
+    """Keep platform policy runtime-evaluated for cross-OS package builds."""
+
+    return str(sys.platform)
+
+
 def _provider(
+    home: Path,
     ledger_path: Path,
-    config_file: Path,
+    config_file: Path | None,
     project_id: UUID,
-) -> tuple[
-    OpenCodeRemoteEmbeddingProvider,
-    EmbeddingPolicy,
-    SQLiteProviderLedgerHost,
-    dict[str, Any],
-]:
+    chunks: tuple[Chunk, ...],
+    knowledge: KnowledgeSettings,
+    *,
+    remote_authorized: bool,
+) -> _EmbeddingBinding:
+    _assert_canonical_knowledge_profile(knowledge)
+    if knowledge.embedding_route is EmbeddingRoute.LOCAL:
+        if _runtime_platform() != "darwin":
+            raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
+        local = build_verified_mac_embedding(chunks)
+        accepted_model_refs = {
+            local.profile.exact_model_id,
+            f"openai/{local.profile.exact_model_id}",
+        }
+        if (
+            knowledge.embedding_model_ref not in accepted_model_refs
+            or local.profile.dimension != knowledge.embedding_dimension
+        ):
+            raise ConfigurationError("Local provider canonical embedding profile drift")
+        return _EmbeddingBinding(
+            provider=local.provider,
+            policy=local.policy,
+            ledger={
+                "schema": "zekam-local-provider-ledger-summary/v1",
+                "provider_calls": 0,
+                "durable_remote_effects": 0,
+            },
+            probe={
+                "profile_digest": local.profile.profile_digest,
+                "probe_evidence_digest": local.profile.probe_evidence_digest,
+                "semantic_margin": "verified",
+                "route": "local",
+            },
+            route=knowledge.embedding_route,
+            remote_provider_used=False,
+            probe_call_count=2,
+        )
+    if not remote_authorized:
+        raise PolicyViolation("Remote embedding explicit authorization ister")
+    if config_file is None:
+        raise ConfigurationError("Remote embedding OpenCode config ister")
     configuration = load_opencode_embedding_configuration(
         config_file,
-        provider_id=PROVIDER_ID,
-        selected_model_id=MODEL_ID,
+        provider_id=knowledge.remote_provider_id,
+        selected_model_id=knowledge.embedding_model_ref,
         inventory=load_inventory(),
     )
     realm_id = uuid5(NAMESPACE_URL, f"zekam://local-realm/{project_id}")
@@ -350,7 +526,7 @@ def _provider(
     provider = OpenCodeRemoteEmbeddingProvider(
         configuration,
         RuntimeOpenCodeEmbeddingExecutor(invocation),
-        dimension=VECTOR_DIMENSION,
+        dimension=knowledge.embedding_dimension,
         max_batch_size=MAX_BATCH_SIZE,
     )
     fixture = EmbeddingProbeFixture(
@@ -367,17 +543,22 @@ def _provider(
         probe.profile.profile_digest,
         remote_disclosure_authorized=True,
     )
-    return (
-        provider,
-        policy,
-        host,
-        {
+    return _EmbeddingBinding(
+        provider=provider,
+        policy=policy,
+        ledger=host.summary(),
+        probe={
             "profile_digest": probe.profile.profile_digest,
             "probe_evidence_digest": probe.evidence_digest,
             "semantic_margin": probe.semantic_margin,
             "max_repeat_delta": probe.max_repeat_delta,
             "max_batch_delta": probe.max_batch_delta,
+            "latency_ms": probe.latency_ms,
+            "route": "remote",
         },
+        route=knowledge.embedding_route,
+        remote_provider_used=True,
+        probe_call_count=probe.provider_call_count,
     )
 
 
@@ -399,6 +580,23 @@ def _cache(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def _emit_index_progress(*, completed: int, total: int, provider_batches: int) -> None:
+    """Keep progress as JSONL on stderr so stdout remains one final JSON document."""
+
+    print(
+        json.dumps(
+            {
+                "progress": completed,
+                "total": total,
+                "provider_batches": provider_batches,
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _vector_blob(vector: tuple[float, ...]) -> bytes:
     return struct.pack(f"<{len(vector)}f", *vector)
 
@@ -410,7 +608,7 @@ def _vector_from_blob(blob: bytes) -> tuple[float, ...]:
 
 
 def _embed_documents_with_retry(
-    provider: OpenCodeRemoteEmbeddingProvider,
+    provider: EmbeddingProvider,
     texts: tuple[str, ...],
     policy: EmbeddingPolicy,
 ) -> EmbeddingBatch:
@@ -491,8 +689,10 @@ def _write_private(path: Path, payload: bytes) -> None:
         stage.unlink(missing_ok=True)
 
 
-def bind_project_source(home: Path, project_slug: str, source_root: Path) -> dict[str, Any]:
-    """Persist this device's private, exact source-root binding for a project."""
+def build_project_source_binding_plan(
+    home: Path, project_slug: str, source_root: Path
+) -> dict[str, Any]:
+    """Validate and identify an exact device-local source binding without writing."""
 
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
@@ -500,22 +700,47 @@ def bind_project_source(home: Path, project_slug: str, source_root: Path) -> dic
     if not root.is_dir() or root == Path(root.anchor):
         raise ValidationFailed("Project source root bounded directory olmali")
     head, status_digest, revision = _git_source_state(root)
-    paths = _runtime_paths(home, slug)
-    document = {
+    source_kind = "git" if head else "directory"
+    body = {
         "schema": "zekam-project-local-source-binding/v1",
         "project_id": str(project_id),
         "project_slug": slug,
+        "source_kind": source_kind,
         "source_root": str(root),
         "source_root_digest": digest_of_bytes(str(root).encode("utf-8")),
-        "git_head": head,
-        "git_status_digest": f"sha256:{status_digest}",
+        "git_head": head or None,
+        "git_status_digest": f"sha256:{status_digest}" if head else None,
         "source_revision": revision,
     }
+    return body | {
+        "schema": "zekam-project-local-source-binding-plan/v1",
+        "binding_schema": body["schema"],
+        "plan_digest": digest(body),
+        "apply": False,
+    }
+
+
+def bind_project_source(home: Path, project_slug: str, source_root: Path) -> dict[str, Any]:
+    """Persist this device's private, exact source-root binding for a project."""
+
+    plan = build_project_source_binding_plan(home, project_slug, source_root)
+    document = {
+        key: value
+        for key, value in plan.items()
+        if key not in {"binding_schema", "plan_digest", "apply"}
+    }
+    document["schema"] = plan["binding_schema"]
+    slug = str(document["project_slug"])
+    paths = _runtime_paths(home, slug)
     binding_path = paths["project_root"] / "baglantilar" / "source.json"
     _write_private(binding_path, (canonical_json(document) + "\n").encode("utf-8"))
     if not private_regular(binding_path):
         raise PolicyViolation("Project source binding private ACL ister")
-    return document | {"binding_ref": binding_path.relative_to(paths["home"]).as_posix()}
+    return document | {
+        "binding_ref": binding_path.relative_to(paths["home"]).as_posix(),
+        "plan_digest": plan["plan_digest"],
+        "apply": True,
+    }
 
 
 def resolve_project_source(home: Path, project_slug: str) -> Path:
@@ -560,6 +785,9 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "project_id": str(project_id),
             "project_slug": slug,
             "state": "unavailable",
+            "index_readable": False,
+            "provider_readiness": "unknown",
+            "query_verified_at": None,
             "query_ready": False,
         }
     if not _rag_scope_is_private(paths):
@@ -568,6 +796,9 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "project_id": str(project_id),
             "project_slug": slug,
             "state": "blocked",
+            "index_readable": False,
+            "provider_readiness": "unknown",
+            "query_verified_at": None,
             "query_ready": False,
             "blocked_reason": "knowledge-scope-acl-drift",
             "retryable": False,
@@ -576,15 +807,34 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
     state = json.loads(paths["state"].read_text(encoding="utf-8"))
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
         generation = index.generation(str(project_id))
-        integrity = index.integrity()
+        integrity = index.readiness(str(project_id))
     if state.get("generation_digest") != generation.generation_digest:
         raise PolicyViolation("Project RAG state/generation drift")
+    index_readable = integrity.get("status") == "passed"
+    current_knowledge = load_settings(home=paths["home"]).knowledge
+    _assert_canonical_knowledge_profile(current_knowledge)
+    profile_binding_current = state.get(
+        "knowledge_binding_digest"
+    ) == _knowledge_binding_digest(current_knowledge)
     return {
         "schema": "zekam-project-rag-status/v1",
         "project_id": str(project_id),
         "project_slug": slug,
-        "state": "ready" if integrity.get("status") == "passed" else "corrupt",
-        "query_ready": integrity.get("status") == "passed",
+        # Keep the v1 state contract stable for existing consumers.  The
+        # readiness fields below make explicit that this only proves the local
+        # index is readable; it is not a successful provider query receipt.
+        "state": (
+            "ready"
+            if index_readable and profile_binding_current
+            else "index-rebuild-required"
+            if index_readable
+            else "corrupt"
+        ),
+        "index_readable": index_readable,
+        "index_rebuild_required": index_readable and not profile_binding_current,
+        "provider_readiness": "unknown",
+        "query_verified_at": state.get("query_verified_at"),
+        "query_ready": False,
         "generation_digest": generation.generation_digest,
         "chunk_count": generation.chunk_count,
         "source_chunk_count": state.get("source_chunk_count"),
@@ -599,6 +849,9 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
         "source_revision": generation.source_revision,
         "tree_digest": generation.tree_digest,
         "provider_profile_digest": generation.provider_profile_digest,
+        "embedding_profile_id": state.get("embedding_profile_id"),
+        "embedding_route": state.get("embedding_route"),
+        "knowledge_binding_digest": state.get("knowledge_binding_digest"),
         "index_integrity": integrity,
         "row_data_included": False,
         "secret_values_recorded": False,
@@ -812,15 +1065,23 @@ def _index(
     home: Path,
     project_id: UUID,
     project_slug: str,
-    opencode_config: Path,
+    opencode_config: Path | None,
     oracle_config: str | None,
     *,
     batch_size: int,
     authorize_odi_metadata: bool = False,
+    authorize_remote_source: bool = False,
 ) -> dict[str, Any]:
     paths = _runtime_paths(home, project_slug)
+    knowledge = load_settings(home=paths["home"]).knowledge
+    _assert_canonical_knowledge_profile(knowledge)
     source_state_before = _git_source_state(source_root)
-    discovery, plan = _project_plan(source_root, project_id=project_id, project_slug=project_slug)
+    discovery, plan = _project_plan(
+        source_root,
+        project_id=project_id,
+        project_slug=project_slug,
+        knowledge=knowledge,
+    )
     oracle_plan: OracleMetadataIndexPlan | None = None
     oracle_receipt: dict[str, object] | None = None
     if oracle_config is not None:
@@ -843,8 +1104,42 @@ def _index(
             project_slug=project_slug,
             source=Path(str(odi_binding["source_file"])),
         )
-    provider, policy, ledger, probe = _provider(paths["ledger"], opencode_config, project_id)
+    binding = _provider(
+        paths["home"],
+        paths["ledger"],
+        opencode_config,
+        project_id,
+        plan.chunks,
+        knowledge,
+        remote_authorized=authorize_remote_source,
+    )
+    provider = binding.provider
+    policy = binding.policy
     profile = provider.describe()
+    if binding.route is EmbeddingRoute.REMOTE:
+        candidate = EmbeddingRouteCandidate(
+            model_ref=profile.exact_model_id,
+            dimension=profile.dimension,
+            qualified=True,
+            health_fresh=True,
+            verified=True,
+            latency_ms=float(binding.probe["latency_ms"]),
+            semantic_margin=float(binding.probe["semantic_margin"]),
+            qualification_evidence_digest=profile.profile_digest,
+            probe_evidence_digest=profile.probe_evidence_digest,
+        )
+        discovery, plan = _project_plan(
+            source_root,
+            project_id=project_id,
+            project_slug=project_slug,
+            knowledge=knowledge,
+            embedding_candidates=(candidate,),
+            allow_remote_source=True,
+        )
+        if plan.embedding_route.kind is not EmbeddingRouteKind.QUALIFIED_REMOTE:
+            raise PolicyViolation("Remote embedding route plan/effect drift")
+    elif plan.embedding_route.kind is not EmbeddingRouteKind.LOCAL_PROVIDER:
+        raise PolicyViolation("Local embedding route plan/effect drift")
     bound_plan = replace(
         plan,
         embedding_profile=replace(
@@ -904,16 +1199,10 @@ def _index(
                 connection.rollback()
                 raise
             provider_batches += 1
-            print(
-                json.dumps(
-                    {
-                        "progress": len(vectors),
-                        "total": len(chunks),
-                        "provider_batches": provider_batches,
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
+            _emit_index_progress(
+                completed=len(vectors),
+                total=len(chunks),
+                provider_batches=provider_batches,
             )
     finally:
         connection.close()
@@ -1059,18 +1348,21 @@ def _index(
         "generation_digest": generation.generation_digest,
         "provider_profile_digest": profile.profile_digest,
         "embedding_profile_digest": bound_plan.embedding_profile.profile_digest,
+        "embedding_profile_id": knowledge.embedding_profile_id,
+        "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
         "cache_hits": cache_hits,
         "newly_embedded_chunks": len(chunks) - cache_hits,
         "provider_batches": provider_batches,
-        "probe": probe,
-        "ledger": ledger.summary(),
+        "probe": binding.probe,
+        "ledger": binding.ledger,
         "index_integrity": integrity,
         "index_ref": f"knowledge-index/vector/opencode-bge-m3/{project_slug}/knowledge.sqlite3",
         "project_projection_ref": projection_path.relative_to(paths["home"]).as_posix(),
         "source_mutated": False,
         "row_data_included": False,
-        "remote_provider_used": True,
-        "provider_call_budget": provider_batches + 2,
+        "embedding_route": binding.route.value,
+        "remote_provider_used": binding.remote_provider_used,
+        "provider_call_budget": provider_batches + binding.probe_call_count,
         "secret_values_recorded": False,
         "odi_source_digest": odi_plan.source_digest if odi_plan else None,
         "odi_chunk_count": len(odi_plan.chunks) if odi_plan else 0,
@@ -1091,8 +1383,10 @@ def _query(
     home: Path,
     project_id: UUID,
     project_slug: str,
-    config_file: Path,
+    config_file: Path | None,
     query: str,
+    *,
+    authorize_remote_query: bool = False,
 ) -> dict[str, Any]:
     paths = _existing_runtime_paths(home, project_slug)
     if not paths["state"].is_file() or not paths["index"].is_file():
@@ -1113,16 +1407,56 @@ def _query(
     current_odi_digest = odi_binding.get("source_digest") if odi_binding else None
     if state.get("odi_source_digest") != current_odi_digest:
         raise PolicyViolation("ODI Smart Export binding degisti; yeniden index gerekli")
-    provider, policy, _, probe = _provider(paths["ledger"], config_file, project_id)
+    knowledge = load_settings(home=paths["home"]).knowledge
+    _assert_canonical_knowledge_profile(knowledge)
+    if state.get("knowledge_binding_digest") != _knowledge_binding_digest(knowledge):
+        raise PolicyViolation("Project embedding profile/route degisti; yeniden index gerekli")
+    _, query_plan = _project_plan(
+        source_root,
+        project_id=project_id,
+        project_slug=project_slug,
+        knowledge=knowledge,
+    )
+    binding = _provider(
+        paths["home"],
+        paths["ledger"],
+        config_file,
+        project_id,
+        query_plan.chunks,
+        knowledge,
+        remote_authorized=authorize_remote_query,
+    )
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
-        result = EmbeddedProjectRAG(index, provider, policy).query(
+        result = EmbeddedProjectRAG(index, binding.provider, binding.policy).query(
             query,
             project_id=str(project_id),
             expected_source_revision=str(state["source_revision"]),
             expected_tree_digest=str(state["tree_digest"]),
         )
+    provider_profile_digest = binding.provider.describe().profile_digest
+    query_contract_verified = (
+        "dense" in result.get("searched_channels", ())
+        and result.get("degraded_reason") is None
+        and result.get("provider_profile_digest") == provider_profile_digest
+        and result.get("generation_digest") == state.get("generation_digest")
+    )
+    query_verified_at = state.get("query_verified_at")
+    if query_contract_verified:
+        query_verified_at = dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
+        state["query_verified_at"] = query_verified_at
+        state["query_verification"] = {
+            "embedding_route": binding.route.value,
+            "provider_profile_digest": provider_profile_digest,
+            "source_revision": state["source_revision"],
+            "retrieval_digest": result.get("retrieval_digest"),
+        }
+        _write_private(paths["state"], (canonical_json(state) + "\n").encode("utf-8"))
     return result | {
-        "probe_evidence_digest": probe["probe_evidence_digest"],
+        "probe_evidence_digest": binding.probe["probe_evidence_digest"],
+        "embedding_route": binding.route.value,
+        "remote_provider_used": binding.remote_provider_used,
+        "query_verified_at": query_verified_at,
+        "query_verification_recorded": query_contract_verified,
         "database_freshness": (
             "disabled" if state.get("database_access") == "disabled" else "last-indexed-snapshot"
         ),
@@ -1138,14 +1472,29 @@ def query_registered_project(
     question: str,
     *,
     opencode_config: Path | None = None,
+    authorize_remote_query: bool = False,
 ) -> dict[str, Any]:
     """Query a registered project through its validated local binding and active index."""
 
     slug = validate_slug(project_slug)
     root = resolve_project_source(home, slug)
     project_id = _registered_project(home, slug)
-    config_file = (opencode_config or default_opencode_config_file()).resolve(strict=True)
-    return _query(root, home.resolve(strict=True), project_id, slug, config_file, question)
+    resolved_home = home.resolve(strict=True)
+    route = project_embedding_route(resolved_home)
+    config_file = (
+        (opencode_config or default_opencode_config_file()).resolve(strict=True)
+        if route is EmbeddingRoute.REMOTE
+        else None
+    )
+    return _query(
+        root,
+        resolved_home,
+        project_id,
+        slug,
+        config_file,
+        question,
+        authorize_remote_query=authorize_remote_query,
+    )
 
 
 def index_registered_project(
@@ -1156,6 +1505,7 @@ def index_registered_project(
     opencode_config: Path | None = None,
     batch_size: int = MAX_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
+    authorize_remote_source: bool = False,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
@@ -1164,16 +1514,23 @@ def index_registered_project(
     slug = validate_slug(project_slug)
     root = resolve_project_source(home, slug)
     project_id = _registered_project(home, slug)
-    config_file = (opencode_config or default_opencode_config_file()).resolve(strict=True)
+    resolved_home = home.resolve(strict=True)
+    route = project_embedding_route(resolved_home)
+    config_file = (
+        (opencode_config or default_opencode_config_file()).resolve(strict=True)
+        if route is EmbeddingRoute.REMOTE
+        else None
+    )
     return _index(
         root,
-        home.resolve(strict=True),
+        resolved_home,
         project_id,
         slug,
         config_file,
         oracle_config,
         batch_size=batch_size,
         authorize_odi_metadata=authorize_odi_metadata,
+        authorize_remote_source=authorize_remote_source,
     )
 
 
@@ -1231,7 +1588,8 @@ def main() -> int:
                 "provider_call_budget": result["estimated_provider_calls"] + 2,
             }
     elif args.command == "index":
-        if not args.authorize_remote_source:
+        route = project_embedding_route(home)
+        if route is EmbeddingRoute.REMOTE and not args.authorize_remote_source:
             raise PolicyViolation("Remote source disclosure explicit authorization ister")
         if args.oracle_config is not None and not args.authorize_database_metadata:
             raise PolicyViolation("Database metadata disclosure explicit authorization ister")
@@ -1242,22 +1600,33 @@ def main() -> int:
             home,
             project_id,
             project_slug,
-            args.opencode_config.resolve(strict=True),
+            (
+                args.opencode_config.resolve(strict=True)
+                if route is EmbeddingRoute.REMOTE
+                else None
+            ),
             args.oracle_config,
             batch_size=args.batch_size,
+            authorize_remote_source=args.authorize_remote_source,
         )
     else:
-        if not args.authorize_remote_query:
+        route = project_embedding_route(home)
+        if route is EmbeddingRoute.REMOTE and not args.authorize_remote_query:
             raise PolicyViolation("Remote query embedding explicit authorization ister")
         result = _query(
             source_root,
             home,
             project_id,
             project_slug,
-            args.opencode_config.resolve(strict=True),
+            (
+                args.opencode_config.resolve(strict=True)
+                if route is EmbeddingRoute.REMOTE
+                else None
+            ),
             args.question,
+            authorize_remote_query=args.authorize_remote_query,
         )
-    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    print(json.dumps(result, ensure_ascii=True, sort_keys=True))
     return 0
 
 

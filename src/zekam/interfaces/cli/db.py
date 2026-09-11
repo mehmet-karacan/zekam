@@ -43,14 +43,15 @@ def status_command(
         document = {
             "backend": "sqlite",
             "head": sqlite_status.schema_version,
-            "expected_head": sqlite_repository.SCHEMA_VERSION,
+            "expected_head": max(sqlite_repository.RUNTIME_SCHEMA_VERSIONS),
+            "supported_heads": sorted(sqlite_repository.RUNTIME_SCHEMA_VERSIONS),
             "integrity_ok": sqlite_status.integrity_ok,
             "schema_ok": sqlite_status.schema_ok,
             "drift": (
                 []
                 if sqlite_status.integrity_ok
                 and sqlite_status.schema_ok
-                and sqlite_status.schema_version == sqlite_repository.SCHEMA_VERSION
+                and sqlite_status.schema_version in sqlite_repository.RUNTIME_SCHEMA_VERSIONS
                 else ["sqlite-integrity-or-schema-drift"]
             ),
         }
@@ -84,7 +85,7 @@ def plan_command(
         if (
             current_sqlite.integrity_ok
             and current_sqlite.schema_ok
-            and current_sqlite.schema_version == sqlite_repository.SCHEMA_VERSION
+            and current_sqlite.schema_version in sqlite_repository.RUNTIME_SCHEMA_VERSIONS
         ):
             console.print("[green]Bekleyen migration yok.[/green]")
             return
@@ -110,7 +111,7 @@ def upgrade_command(
         if (
             current_sqlite.integrity_ok
             and current_sqlite.schema_ok
-            and current_sqlite.schema_version == sqlite_repository.SCHEMA_VERSION
+            and current_sqlite.schema_version in sqlite_repository.RUNTIME_SCHEMA_VERSIONS
         ):
             console.print("[green]Bekleyen migration yok.[/green]")
             return

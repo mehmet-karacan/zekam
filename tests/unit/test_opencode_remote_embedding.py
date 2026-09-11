@@ -116,6 +116,9 @@ class _Executor:
         elif self.fault == "profile-jitter":
             for row in rows:
                 row["embedding"][0] += 0.0001
+        elif self.fault == "profile-shift":
+            for row in rows:
+                row["embedding"][1] += 0.2
         response = {"data": rows, "model": MODEL}
         response_digest = digest(response)
         realm_id = uuid4()
@@ -374,6 +377,23 @@ def test_remote_profile_identity_is_stable_across_bounded_probe_jitter(tmp_path:
         baseline.profile.model_revision_fingerprint == jittered.profile.model_revision_fingerprint
     )
     assert baseline.evidence_digest != jittered.evidence_digest
+
+
+def test_remote_profile_identity_changes_when_probe_vectors_materially_change(
+    tmp_path: Path,
+) -> None:
+    baseline = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(), dimension=3
+    ).probe(_fixture())
+    shifted = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="profile-shift"), dimension=3
+    ).probe(_fixture())
+
+    assert baseline.profile.profile_digest != shifted.profile.profile_digest
+    assert (
+        baseline.profile.model_revision_fingerprint
+        != shifted.profile.model_revision_fingerprint
+    )
 
 
 @pytest.mark.parametrize("fault", ["partial", "nan", "dimension"])

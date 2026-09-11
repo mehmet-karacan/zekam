@@ -34,6 +34,15 @@ def _store(tmp_path: Path) -> KnowledgeFileStore:
     return KnowledgeFileStore(home)
 
 
+def _directory_symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows host does not grant symbolic-link privilege")
+        raise
+
+
 def _note(
     *,
     note_id: str = "018f0000-0000-7000-8000-000000000003",
@@ -86,7 +95,7 @@ def test_store_rejects_non_directory_relative_and_symlink_homes(tmp_path: Path) 
     target = tmp_path / "target"
     target.mkdir()
     linked = tmp_path / "linked"
-    linked.symlink_to(target, target_is_directory=True)
+    _directory_symlink_or_skip(linked, target)
 
     for candidate in (relative, regular, linked):
         with pytest.raises(LayoutError, match="regular directory"):
@@ -279,7 +288,7 @@ def test_audit_bounds_walk_and_rejects_unsafe_note_root(
     global_root = store.home / "global"
     if global_root.exists():
         global_root.rename(store.home / "global-real")
-    global_root.symlink_to(outside, target_is_directory=True)
+    _directory_symlink_or_skip(global_root, outside)
     inbox = store.home / "inbox" / "user"
     inbox.mkdir(parents=True, exist_ok=True)
     (inbox / "first.md").write_text("# first\n", encoding="utf-8")
@@ -350,32 +359,24 @@ def test_audit_rejects_cas_root_symlink(tmp_path: Path) -> None:
     outside = tmp_path / "outside-cas"
     outside.mkdir()
     cas_root.parent.mkdir(parents=True, exist_ok=True)
-    cas_root.symlink_to(outside, target_is_directory=True)
+    _directory_symlink_or_skip(cas_root, outside)
 
     issues = store.audit(notes=(), artifacts=())
     assert any(issue.kind == "unsafe-cas-root" for issue in issues)
 
 
-def test_home_identity_drift_and_unlink_missing_are_fail_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory-descriptor boundary")
+def test_home_identity_drift_and_unlink_missing_are_fail_closed(tmp_path: Path) -> None:
     store = _store(tmp_path)
     (store.home / "inbox" / "user").mkdir(parents=True, exist_ok=True)
     store._unlink("inbox/user/missing.md")
-    real_fstat = os.fstat
-
-    class _Identity:
-        st_dev = -1
-        st_ino = -1
-
-    monkeypatch.setattr(os, "fstat", lambda _descriptor: _Identity())
+    store._home_identity = (-1, -1)
     with pytest.raises(LayoutError, match="identity drift"):
         store._open_home()
-    monkeypatch.setattr(os, "fstat", real_fstat)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL boundary")
-def test_windows_read_allows_read_only_home_acl_but_requires_private_descendants(
+def test_windows_readonly_traversal_requires_private_write_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = _store(tmp_path)
@@ -385,37 +386,51 @@ def test_windows_read_allows_read_only_home_acl_but_requires_private_descendants
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
 
-    real_private_directory = knowledge_files.private_directory
-    checked: list[Path] = []
-    root_checked: list[Path] = []
+    traversal_checked: list[Path] = []
 
-    def scoped_private_directory(path: Path, mode: int = 0o700) -> bool:
-        checked.append(path)
-        if path == store.home:
-            return False
-        return real_private_directory(path, mode)
+    def readonly_traversal(path: Path) -> bool:
+        traversal_checked.append(path)
+        return True
 
-    monkeypatch.setattr(knowledge_files, "private_directory", scoped_private_directory)
     monkeypatch.setattr(
         knowledge_files,
         "private_or_sandbox_readonly_directory",
-        lambda path: not root_checked.append(path),
+        readonly_traversal,
     )
 
     assert store.read_note(manifest) == payload
-    assert root_checked == [store.home]
-    assert store.home not in checked
-    assert store.home / "projeler" in checked
+    assert traversal_checked == [
+        store.home,
+        store.home / "projeler",
+        store.home / "projeler" / "akilli-kasa",
+        store.home / "projeler" / "akilli-kasa" / "notlar",
+        store.home / "projeler" / "akilli-kasa" / "notlar" / "user",
+    ]
 
     monkeypatch.setattr(
-        knowledge_files, "private_or_sandbox_readonly_directory", lambda _path: False
+        knowledge_files,
+        "private_or_sandbox_readonly_directory",
+        lambda path: path != store.home / "projeler",
     )
-    with pytest.raises(LayoutError, match="Knowledge home"):
+    with pytest.raises(LayoutError, match="Knowledge parent"):
         store.read_note(manifest)
 
     monkeypatch.setattr(
         knowledge_files, "private_or_sandbox_readonly_directory", lambda _path: True
     )
-    monkeypatch.setattr(knowledge_files, "private_directory", lambda path, mode=0o700: False)
-    with pytest.raises(LayoutError, match="Knowledge parent"):
-        store.read_note(manifest)
+    binding_ref = "projeler/akilli-kasa/baglantilar/test.json"
+    binding_parent = store.home / "projeler" / "akilli-kasa" / "baglantilar"
+    binding_parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        knowledge_files,
+        "private_directory",
+        lambda path, mode=0o700: path == binding_parent,
+    )
+    payload_json = b'{"ok":true}\n'
+    assert store.write_private_binding(binding_ref, payload_json).read_bytes() == payload_json
+
+    monkeypatch.setattr(
+        knowledge_files, "private_directory", lambda _path, mode=0o700: False
+    )
+    with pytest.raises(LayoutError, match="Knowledge parent identity drift"):
+        store.write_private_binding(binding_ref, b'{"ok":false}\n')

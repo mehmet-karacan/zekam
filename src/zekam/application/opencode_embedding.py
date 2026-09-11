@@ -32,7 +32,13 @@ from zekam.application.provider_contract_execution import (
     ProviderExecutionManifest,
 )
 from zekam.domain.canonical import digest
-from zekam.domain.errors import ConfigurationError, NotFound, PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    ClassifiedConfigurationError,
+    ConfigurationError,
+    CredentialUnavailable,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.domain.model_inventory import HealthState, InventorySnapshot, Modality, ModelRecord
 from zekam.domain.security import DataClassification, SecretBackend, SecretRef, SecretValue
 
@@ -82,7 +88,9 @@ def _secure_json_document(path: Path, *, max_bytes: int) -> Mapping[str, Any]:
     try:
         candidate = path.resolve(strict=True)
     except OSError:
-        raise ConfigurationError("OpenCode config dosyasi bulunamadi") from None
+        raise ClassifiedConfigurationError(
+            "config-missing", "OpenCode config dosyasi bulunamadi"
+        ) from None
     if _is_link_or_reparse(path) or _is_link_or_reparse(candidate):
         raise ConfigurationError("OpenCode config link/reparse olamaz")
     current = candidate.parent
@@ -104,14 +112,24 @@ def _secure_json_document(path: Path, *, max_bytes: int) -> Mapping[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
             if key in result:
-                raise ConfigurationError("OpenCode config duplicate JSON key tasiyor")
+                raise ClassifiedConfigurationError(
+                    "config-duplicate-key", "OpenCode config duplicate JSON key tasiyor"
+                )
             result[key] = value
         return result
 
     try:
-        document = json.loads(raw.decode("utf-8"), object_pairs_hook=exact_object)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ConfigurationError("OpenCode config gecerli UTF-8 JSON degil") from None
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ClassifiedConfigurationError(
+            "config-encoding", "OpenCode config gecerli UTF-8 JSON degil"
+        ) from None
+    try:
+        document = json.loads(text, object_pairs_hook=exact_object)
+    except json.JSONDecodeError:
+        raise ClassifiedConfigurationError(
+            "config-json-invalid", "OpenCode config gecerli UTF-8 JSON degil"
+        ) from None
     if not isinstance(document, dict):
         raise ConfigurationError("OpenCode config JSON object olmali")
     return document
@@ -487,7 +505,9 @@ def load_opencode_embedding_configuration(
             raise ConfigurationError("OpenCode provider model name gecersiz")
         model_ids.append(model_id)
     if selected_model_id not in model_ids:
-        raise ConfigurationError("OpenCode selected model provider altinda bulunamadi")
+        raise ClassifiedConfigurationError(
+            "model-not-accessible", "OpenCode selected model provider altinda bulunamadi"
+        )
     canonical = _canonical_model(inventory, selected_model_id)
     if canonical is None or canonical.modality is not Modality.EMBEDDING:
         raise ValidationFailed("OpenCode selected model embedding modalitesinde degil")
@@ -521,7 +541,7 @@ class OpenCodeCredentialStore:
             raise PolicyViolation("OpenCode credential exact provider/locator eslesmiyor")
         raw = environment_value(self.environ, self.credential_locator)
         if raw is None or not raw.strip():
-            raise NotFound("OpenCode credential degeri bulunamadi")
+            raise CredentialUnavailable("OpenCode credential degeri bulunamadi")
         return SecretValue(raw)
 
 

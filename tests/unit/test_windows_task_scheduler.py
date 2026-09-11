@@ -22,7 +22,7 @@ NOW = dt.datetime(2026, 9, 6, 12, 5, tzinfo=dt.UTC)
 
 
 def _plan(tmp_path: Path, *, principal_sid: str | None = None) -> WindowsTaskPlan:
-    executable = tmp_path / "zekam.exe"
+    executable = tmp_path / "zekam-background.exe"
     executable.write_bytes(b"reviewed-zekam-executable")
     manifest = tmp_path / "PACKAGE_RELEASE_MANIFEST.json"
     manifest.write_bytes(b"reviewed-package-manifest")
@@ -42,7 +42,10 @@ def test_windows_supervisor_plan_is_exact_read_only_and_requires_authorization(
 ) -> None:
     document = _plan(tmp_path).as_dict()
     assert document["task_name"] == TASK_NAME
-    assert document["schema"] == "zekam-windows-supervisor-install-plan/v2"
+    assert document["schema"] == "zekam-windows-supervisor-install-plan/v3"
+    assert document["executable"].endswith("zekam-background.exe")
+    assert document["arguments"] == ["tick", "--home", str(tmp_path / "home")]
+    assert document["console_window"] is False
     assert document["interval_minutes"] == 5
     assert document["multiple_instances"] == "IgnoreNew"
     assert document["principal_sid"] is None
@@ -312,7 +315,7 @@ def test_install_and_uninstall_require_exact_digest_and_terminal_readback(
 def test_drifted_same_name_is_never_overwritten_or_deleted(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     drifted_xml = _task_xml(plan).decode("utf-16").replace(
-        "ZEKAM_SUPERVISOR_V2", "FOREIGN_TASK"
+        "ZEKAM_SUPERVISOR_V3", "FOREIGN_TASK"
     )
 
     def runner(arguments: tuple[str, ...]) -> subprocess.CompletedProcess[str]:

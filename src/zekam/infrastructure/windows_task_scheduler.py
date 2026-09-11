@@ -87,12 +87,12 @@ class WindowsTaskPlan:
         executable_digest = _sha256_file(resolved_executable)
         resolved_manifest = implementation_manifest.resolve(strict=True)
         implementation_digest = _sha256_file(resolved_manifest)
-        arguments = ("local-runtime", "tick", "--home", str(resolved_home))
+        arguments = ("tick", "--home", str(resolved_home))
         boundary = start_boundary.astimezone(dt.UTC).replace(microsecond=0).isoformat().replace(
             "+00:00", "Z"
         )
         body = {
-            "schema": "zekam-windows-supervisor-install-plan/v2",
+            "schema": "zekam-windows-supervisor-install-plan/v3",
             "task_name": TASK_NAME,
             "executable": str(resolved_executable),
             "executable_digest": executable_digest,
@@ -116,6 +116,7 @@ class WindowsTaskPlan:
             "restart_on_idle": False,
             "use_unified_scheduling_engine": True,
             "logoff_supported": False,
+            "console_window": False,
             "provider_calls": 0,
             "network_scope": "none",
             "uninstall_target": TASK_NAME,
@@ -140,7 +141,7 @@ class WindowsTaskPlan:
 
     def as_dict(self) -> dict[str, Any]:
         body = {
-            "schema": "zekam-windows-supervisor-install-plan/v2",
+            "schema": "zekam-windows-supervisor-install-plan/v3",
             "task_name": self.task_name,
             "executable": self.executable,
             "executable_digest": self.executable_digest,
@@ -164,6 +165,7 @@ class WindowsTaskPlan:
             "restart_on_idle": False,
             "use_unified_scheduling_engine": True,
             "logoff_supported": False,
+            "console_window": False,
             "provider_calls": 0,
             "network_scope": "none",
             "uninstall_target": self.task_name,
@@ -554,7 +556,7 @@ def _task_xml(plan: WindowsTaskPlan) -> bytes:
 
 def _registration_marker(plan: WindowsTaskPlan) -> str:
     return (
-        "ZEKAM_SUPERVISOR_V2|"
+        "ZEKAM_SUPERVISOR_V3|"
         f"plan={plan.plan_digest}|executable={plan.executable_digest}|"
         f"implementation={plan.implementation_digest}|config={plan.config_digest}"
     )

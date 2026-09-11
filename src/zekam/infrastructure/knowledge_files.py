@@ -245,8 +245,9 @@ class KnowledgeFileStore:
         # The Codex Windows sandbox may need a read/traverse ACE on ZEKAM_HOME.
         # That does not grant write access and must not make every knowledge read
         # unavailable.  Keep the root identity and physical-directory pins here;
-        # every writable/readable descendant in the requested path remains
-        # fail-closed behind private_directory below.
+        # Intermediate ancestors may carry that same exact read/traverse ACL.
+        # Atomic writes still require the final target parent to be private,
+        # both before staging and immediately before publish.
         if not private_or_sandbox_readonly_directory(self.home):
             raise LayoutError("Knowledge home reparse veya ACL drift")
         home_identity = self.home.lstat()
@@ -260,7 +261,7 @@ class KnowledgeFileStore:
                     return None, (0, 0)
                 with suppress(FileExistsError):
                     parent.mkdir()
-            if not private_directory(parent):
+            if not private_or_sandbox_readonly_directory(parent):
                 raise LayoutError("Knowledge parent symlink/reparse veya ACL drift")
         identity = parent.lstat()
         target = parent / parts[-1]

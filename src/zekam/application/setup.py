@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from zekam.domain.canonical import digest
 
@@ -77,7 +78,7 @@ def build_setup_plan(
 def setup_plan_digest(steps: tuple[SetupStep, ...]) -> str:
     """Exact sirayi ve argv degerlerini tek canonical digest'e baglar."""
 
-    return digest(setup_plan_payload(steps))
+    return str(digest(setup_plan_payload(steps)))
 
 
 def setup_plan_payload(steps: tuple[SetupStep, ...]) -> dict[str, object]:
@@ -86,5 +87,19 @@ def setup_plan_payload(steps: tuple[SetupStep, ...]) -> dict[str, object]:
     return {
         "schema": SETUP_PLAN_SCHEMA,
         "guarantees": SETUP_PLAN_GUARANTEES,
+        "acceptance_profile": "core-only",
+        "readiness": setup_readiness("planned"),
         "steps": [step.as_dict() for step in steps],
+    }
+
+
+def setup_readiness(core_state: Literal["planned", "ready", "failed"]) -> dict[str, object]:
+    """Keep core installation distinct from embedding, index and live-query proof."""
+
+    return {
+        "core": core_state,
+        "embedding": "unconfigured",
+        "index": "unavailable",
+        "query": "unverified",
+        "full_rag_ready": False,
     }

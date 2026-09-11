@@ -58,6 +58,9 @@ dev = [
 [project.scripts]
 zekam = "zekam.interfaces.cli.main:run"
 
+[project.gui-scripts]
+zekam-background = "zekam.interfaces.cli.background:run"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/zekam"]
 # Historical repository-backed compositions stay in the source checkout for

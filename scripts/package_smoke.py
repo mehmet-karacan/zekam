@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from uuid import uuid4
 
@@ -54,6 +54,61 @@ _STRIP = {
 }
 _IGNORED_PACKAGE_PARTS = frozenset({"__pycache__"})
 _IGNORED_PACKAGE_NAMES = frozenset({".DS_Store"})
+_NATIVE_STORAGE_PROBE = """
+import importlib.metadata
+import json
+import pathlib
+import sqlite3
+import sys
+
+import duckdb
+import sqlite_vec
+
+root = pathlib.Path(sys.argv[1])
+database = root / "native-storage.sqlite3"
+connection = sqlite3.connect(database)
+connection.enable_load_extension(True)
+try:
+    sqlite_vec.load(connection)
+finally:
+    connection.enable_load_extension(False)
+connection.execute(
+    "create virtual table vectors using vec0("
+    "id text primary key, embedding float[1024])"
+)
+vector = [0.0] * 1024
+vector[0] = 1.0
+connection.execute(
+    "insert into vectors values(?,?)",
+    ("package-native-probe", sqlite_vec.serialize_float32(vector)),
+)
+connection.execute("create virtual table text_probe using fts5(body)")
+connection.execute("insert into text_probe values(?)", ("Turkce ALPHA741",))
+connection.commit()
+connection.close()
+connection = sqlite3.connect(database)
+connection.enable_load_extension(True)
+try:
+    sqlite_vec.load(connection)
+finally:
+    connection.enable_load_extension(False)
+assert connection.execute("select count(*) from vectors").fetchone()[0] == 1
+assert connection.execute(
+    "select count(*) from text_probe where text_probe match 'ALPHA741'"
+).fetchone()[0] == 1
+assert connection.execute("pragma integrity_check").fetchone()[0] == "ok"
+connection.close()
+analytics = duckdb.connect(str(root / "native-analytics.duckdb"))
+assert analytics.execute("select 1").fetchone()[0] == 1
+analytics.close()
+print(json.dumps({
+    "kind": "native-storage-only-not-model-embedding",
+    "sqlite": sqlite3.sqlite_version,
+    "sqlite_vec": importlib.metadata.version("sqlite-vec"),
+    "duckdb": importlib.metadata.version("duckdb"),
+    "reopened": True,
+}, sort_keys=True))
+"""
 
 
 def _safe_archive_path(name: str) -> tuple[str, ...]:
@@ -172,6 +227,7 @@ def _run_check(
     cwd: Path,
     env: dict[str, str],
     accepted: frozenset[int] = frozenset({0}),
+    stdout_validator: Callable[[bytes], str | None] | None = None,
 ) -> PackageAcceptanceResult:
     started = time.monotonic()
     completed = subprocess.run(
@@ -184,11 +240,17 @@ def _run_check(
         check=False,
     )
     duration_ms = round((time.monotonic() - started) * 1000)
+    exit_accepted = completed.returncode in accepted
+    validation_detail = None
+    if exit_accepted and stdout_validator is not None:
+        try:
+            validation_detail = stdout_validator(completed.stdout)
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, KeyError):
+            validation_detail = "stdout-semantic-validation-failed"
+    passed = exit_accepted and validation_detail is None
     return PackageAcceptanceResult(
         check_id=check_id,
-        status=(
-            AcceptanceStatus.PASSED if completed.returncode in accepted else AcceptanceStatus.FAILED
-        ),
+        status=AcceptanceStatus.PASSED if passed else AcceptanceStatus.FAILED,
         command_digest=digest(
             {
                 "argv": _portable_command(argv, cwd.parent),
@@ -198,7 +260,11 @@ def _run_check(
         stdout_digest=digest_of_bytes(completed.stdout),
         stderr_digest=digest_of_bytes(completed.stderr),
         duration_ms=duration_ms,
-        detail=None if completed.returncode in accepted else f"exit-{completed.returncode}",
+        detail=(
+            None
+            if passed
+            else validation_detail or f"exit-{completed.returncode}"
+        ),
     )
 
 
@@ -259,6 +325,11 @@ def accept_wheel(
             _run_check("install.wheel", pip_argv, cwd=work, env=env),
         ]
         if results[-1].status is AcceptanceStatus.PASSED:
+            project_fixture = work / "Türkçe Örnek Proje"
+            project_fixture.mkdir()
+            (project_fixture / "kaynak.md").write_text(
+                "Paket kabul kaynak kimligi.\n", encoding="utf-8", newline="\n"
+            )
             import_check = (
                 "import json,pathlib,zekam;"
                 "from zekam.application.package_acceptance import verify_package_manifest;"
@@ -273,6 +344,11 @@ def accept_wheel(
                 ("cli.version", [str(zekam), "--version"], frozenset({0})),
                 ("cli.help", [str(zekam), "--help"], frozenset({0})),
                 (
+                    "native.storage",
+                    [str(python), "-I", "-c", _NATIVE_STORAGE_PROBE, str(work)],
+                    frozenset({0}),
+                ),
+                (
                     "init.sqlite",
                     [
                         str(zekam),
@@ -286,8 +362,16 @@ def accept_wheel(
                 ),
                 (
                     "cli.doctor",
-                    [str(zekam), "doctor", "--json", "--home", str(zekam_home)],
-                    frozenset({0, 1}),
+                    [
+                        str(zekam),
+                        "doctor",
+                        "--json",
+                        "--category",
+                        "sqlite",
+                        "--home",
+                        str(zekam_home),
+                    ],
+                    frozenset({0}),
                 ),
                 (
                     "cli.init-dry-run",
@@ -297,6 +381,48 @@ def accept_wheel(
                 (
                     "cli.db-status",
                     [str(zekam), "db", "status", "--json", "--home", str(zekam_home)],
+                    frozenset({0}),
+                ),
+                (
+                    "project.add-directory",
+                    [
+                        str(zekam),
+                        "project",
+                        "add",
+                        str(project_fixture),
+                        "--slug",
+                        "package-fixture",
+                        "--uygula",
+                        "--home",
+                        str(zekam_home),
+                    ],
+                    frozenset({0}),
+                ),
+                (
+                    "project.bind-directory",
+                    [
+                        str(zekam),
+                        "project",
+                        "bind",
+                        "package-fixture",
+                        str(project_fixture),
+                        "--uygula",
+                        "--home",
+                        str(zekam_home),
+                    ],
+                    frozenset({0}),
+                ),
+                (
+                    "project.source-root-json",
+                    [
+                        str(zekam),
+                        "project",
+                        "source-root",
+                        "package-fixture",
+                        "--json",
+                        "--home",
+                        str(zekam_home),
+                    ],
                     frozenset({0}),
                 ),
                 (
@@ -320,8 +446,56 @@ def accept_wheel(
                     frozenset({0}),
                 ),
             )
+
+            def ascii_json(stdout: bytes) -> object:
+                if not stdout.isascii():
+                    raise ValueError("stdout is not ASCII-safe JSON")
+                return json.loads(stdout.decode("ascii"))
+
+            def healthy_doctor(stdout: bytes) -> str | None:
+                document = ascii_json(stdout)
+                return (
+                    None
+                    if isinstance(document, dict) and document.get("overall") == "healthy"
+                    else "doctor-not-healthy"
+                )
+
+            def directory_binding(stdout: bytes) -> str | None:
+                document = ascii_json(stdout)
+                expected = str(project_fixture.resolve(strict=True))
+                return (
+                    None
+                    if isinstance(document, dict)
+                    and document.get("source_kind") == "directory"
+                    and document.get("source_root") == expected
+                    else "directory-binding-mismatch"
+                )
+
+            def exact_source_root(stdout: bytes) -> str | None:
+                document = ascii_json(stdout)
+                expected = str(project_fixture.resolve(strict=True))
+                return (
+                    None
+                    if isinstance(document, dict)
+                    and document.get("project") == "package-fixture"
+                    and document.get("source_root") == expected
+                    else "source-root-mismatch"
+                )
+
+            validators = {
+                "cli.doctor": healthy_doctor,
+                "project.bind-directory": directory_binding,
+                "project.source-root-json": exact_source_root,
+            }
             results.extend(
-                _run_check(check_id, argv, cwd=work, env=env, accepted=accepted)
+                _run_check(
+                    check_id,
+                    argv,
+                    cwd=work,
+                    env=env,
+                    accepted=accepted,
+                    stdout_validator=validators.get(check_id),
+                )
                 for check_id, argv, accepted in commands
             )
         suite_digest = digest(

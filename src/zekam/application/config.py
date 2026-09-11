@@ -45,6 +45,13 @@ class PersistenceBackend(StrEnum):
     SQLITE = "sqlite"
 
 
+class EmbeddingRoute(StrEnum):
+    """Explicit project embedding execution route."""
+
+    LOCAL = "local"
+    REMOTE = "remote"
+
+
 #: Yapilandirma dosyasinda gorunmesi yasak anahtarlar.
 FORBIDDEN_CONFIG_KEYS: frozenset[str] = frozenset(
     {"password", "passwd", "secret", "token", "api_key", "apikey", "private_key"}
@@ -119,9 +126,22 @@ class RuntimeSettings:
 class KnowledgeSettings:
     """Bilgi duzlemi varsayilanlari."""
 
+    embedding_profile_id: str = "bge-m3-dense-v1"
+    embedding_route: EmbeddingRoute = EmbeddingRoute.REMOTE
+    remote_provider_id: str = "litellm"
     embedding_model_ref: str = "openai/BAAI/bge-m3"
     embedding_dimension: int = 1024
     embedding_distance: str = "cosine"
+
+    def __post_init__(self) -> None:
+        if (
+            not self.embedding_profile_id.strip()
+            or not self.remote_provider_id.strip()
+            or not self.embedding_model_ref.strip()
+            or self.embedding_dimension < 1
+            or self.embedding_distance != "cosine"
+        ):
+            raise ConfigurationError("Knowledge embedding profili gecersiz")
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +209,9 @@ class Settings:
                 "permission_profile": self.runtime.permission_profile,
             },
             "knowledge": {
+                "embedding_profile_id": self.knowledge.embedding_profile_id,
+                "embedding_route": self.knowledge.embedding_route.value,
+                "remote_provider_id": self.knowledge.remote_provider_id,
                 "embedding_model_ref": self.knowledge.embedding_model_ref,
                 "embedding_dimension": self.knowledge.embedding_dimension,
                 "embedding_distance": self.knowledge.embedding_distance,
@@ -474,13 +497,35 @@ def load_settings(
     permission_profile.resolve_session(session_permission_capabilities)
 
     knowledge_document = dict(document.get("knowledge") or {})
-    knowledge = KnowledgeSettings(
-        embedding_model_ref=str(
-            knowledge_document.get("embedding_model_ref", "openai/BAAI/bge-m3")
-        ),
-        embedding_dimension=int(knowledge_document.get("embedding_dimension", 1024)),
-        embedding_distance=str(knowledge_document.get("embedding_distance", "cosine")),
-    )
+    unsupported_knowledge_keys = set(knowledge_document) - {
+        "embedding_profile_id",
+        "embedding_route",
+        "remote_provider_id",
+        "embedding_model_ref",
+        "embedding_dimension",
+        "embedding_distance",
+    }
+    if unsupported_knowledge_keys:
+        raise ConfigurationError("Knowledge yapilandirmasi desteklenmeyen alan iceriyor")
+    try:
+        knowledge = KnowledgeSettings(
+            embedding_profile_id=str(
+                knowledge_document.get("embedding_profile_id", "bge-m3-dense-v1")
+            ),
+            embedding_route=EmbeddingRoute(
+                str(knowledge_document.get("embedding_route", EmbeddingRoute.REMOTE.value))
+            ),
+            remote_provider_id=str(
+                knowledge_document.get("remote_provider_id", "litellm")
+            ),
+            embedding_model_ref=str(
+                knowledge_document.get("embedding_model_ref", "openai/BAAI/bge-m3")
+            ),
+            embedding_dimension=int(knowledge_document.get("embedding_dimension", 1024)),
+            embedding_distance=str(knowledge_document.get("embedding_distance", "cosine")),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationError("Knowledge embedding profili gecersiz") from exc
 
     trace_document = dict(document.get("diagnostic_trace") or {})
     diagnostic_trace = DiagnosticTraceSettings(

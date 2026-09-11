@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -102,7 +103,12 @@ def _cache(tmp_path: Path) -> Path:
     weight_digest = hashlib.sha256(weight_payload).hexdigest()
     weight = blobs / weight_digest
     weight.write_bytes(weight_payload)
-    (snapshot / "pytorch_model.bin").symlink_to(weight)
+    try:
+        (snapshot / "pytorch_model.bin").symlink_to(weight)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Unprivileged Windows file symlink; Mac local-BGE cache fixture")
+        raise
     (snapshot / "tokenizer.json").write_bytes(b"{}")
     (snapshot / "sentencepiece.bpe.model").write_bytes(b"sentencepiece")
     (snapshot / "config.json").write_bytes(b"{}")

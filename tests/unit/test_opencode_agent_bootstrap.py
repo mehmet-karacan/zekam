@@ -91,7 +91,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "subagent zorunlu degildir" in coordinator
     assert "en fazla ilk uc `used_chunk_ids`" in coordinator
     assert "capabilities, help veya ikinci query cagirma" in coordinator
-    assert "resolve/show/source-root zinciri calistirma" in coordinator
+    assert "resolve/source-root zinciri calistirma" in coordinator
+    assert "`zekam-router` bir shell/CLI komutu" in coordinator
+    assert "Git worktree dirty" in coordinator
+    assert "dispatch hazirligi icin butun RAG indeksini" in coordinator
     assert "top-level `project_ref`" in coordinator
     assert "locator_type=database-object" in coordinator
     assert "locator_type=database-object" in researcher

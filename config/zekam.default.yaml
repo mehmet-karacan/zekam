@@ -18,6 +18,10 @@ runtime:
   network_default: deny
 
 knowledge:
+  # Project RAG route is explicit. Remote still requires per-call CLI authorization.
+  embedding_profile_id: bge-m3-dense-v1
+  embedding_route: remote
+  remote_provider_id: litellm
   embedding_model_ref: openai/BAAI/bge-m3
   embedding_dimension: 1024
   embedding_distance: cosine

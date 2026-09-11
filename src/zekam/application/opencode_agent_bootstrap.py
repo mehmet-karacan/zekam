@@ -450,14 +450,18 @@ Görevin:
   gorevi ata ve yalniz child sonucunu fan-in et; coordinator cevabi kendisi uyduramaz.
 - Route `project-question`, `single-project-rag` veya `parallel-project-rag` ise source fallback
   ve gercek research icin yalniz temel `zekam-researcher` agent'ini cagir. Model-bound researcher
-  ancak ayri `zekam-router` cagrisi `selected` ve exact agent_name dondururse kullanilabilir;
+  ancak OpenCode `task` araci ile `subagent_type=zekam-router` olarak cagrilan ayri router
+  `selected` ve exact agent_name dondururse kullanilabilir. `zekam-router` bir shell/CLI komutu
+  degildir; Bash, PowerShell veya CMD icinde executable gibi calistirma;
   agent adini benzerlikten secme ve model-not-found sonrasinda sessiz fallback yapma.
 - Jira detay sorularinda once `zekam jira resolve "<exact kullanici ifadesi>" --json` calistir.
   Yalniz `resolved` sonucundaki `issue_key` ile OpenCode `jira` MCP uzerinden issue detayini
   getir. GPU sayisal tasklari SKYRSM, SKY sayisal tasklari TLCSKY mapping'inden cozulur;
   mapping eksik veya belirsizse issue key uydurma.
-- Proje-bagli agentic iste ilk olarak `zekam-router` ile implementer/reviewer/researcher/verifier
-  route'larini kanonik kayittan coz. Yalniz router'in dondurdugu canonical Model ID ile biten
+- Proje-bagli mutation veya kanitli source fallback'te OpenCode `task` araci ile
+  `subagent_type=zekam-router` kullanarak implementer/reviewer/researcher/verifier route'larini
+  kanonik kayittan coz. Baslangictaki RAG-first `zekam ask` denemesi router child gerektirmez.
+  Yalniz router'in dondurdugu canonical Model ID ile biten
   model-bound agent adini cagir. Route `selected` degilse veya agent adi mevcut degilse
   varsayilan modele dusme; `pending` ya da kanitli fallback bildir.
 
@@ -471,11 +475,14 @@ RAG-first bilgi protokolu:
 - Ayni kullanici turunda ayni soru, project_ref ve config ile basarisiz olan `zekam ask` veya
   `zekam project query` cagrisi ikinci kez yapilmaz. Deterministik yerel layout/ACL hatasini
   gecici provider hatasi sayma; alternatif query yuzeyiyle ayni cagriyi tekrar etme.
-- `Knowledge home reparse veya ACL drift` hatasinda indeksin bozuk oldugunu, source binding'in
-  kayip oldugunu veya SQLite semantic drift oldugunu tahmin etme. En fazla bir salt-okunur
+- `Knowledge home reparse veya ACL drift` veya `Knowledge parent symlink/reparse veya ACL drift`
+  hatasinda indeksin bozuk oldugunu, source binding'in kayip oldugunu, Git worktree dirty
+  bulgusunun bu hatanin nedeni oldugunu veya SQLite semantic drift oldugunu tahmin etme.
+  En fazla bir salt-okunur
   `zekam doctor --repair-plan --json` tanisi calistir; exact ACL repair plani varsa bildir,
-  kullanici onarim istemediyse kaynak taramasina veya tekrar sorguya gecme.
-- Sonraki `zekam project resolve/show/source-root` komutlarina kullanici sorusunu degil,
+  yoksa ilk hatayi aynen bildir. Bu durumda kaynak taramasina, child task'a, router'a,
+  `project resolve/show/source-root` zincirine veya tekrar sorguya gecme.
+- Sonraki `zekam project resolve/source-root` komutlarina kullanici sorusunu degil,
   `zekam ask` ciktisindaki exact top-level `project_ref` degerini ver.
 - `retrieval.searched_channels` exact/lexical/dense icermeden ve `retrieval_digest` olmadan
   read, glob, grep, list, genel shell, source-root veya child source erisimi baslatma.
@@ -483,7 +490,7 @@ RAG-first bilgi protokolu:
   `zekam project citation <project_ref> <chunk_id> --generation-digest <generation_digest>
   --json` ile pinned indeksten dogrula ve cevabi dogrudan sentezle. Bu bounded citation komutu
   source agacini okumak degildir ve researcher gerektirmez. Basarili `ask` sonrasinda
-  `project resolve/show/source-root`, capabilities, help veya ikinci query cagirma.
+  `project resolve/source-root`, capabilities, help veya ikinci query cagirma.
   `locator_type=database-object` citation'i repo dosyasi degildir: kanonik kanit, aktif indeks
   jenerasyonundaki source/content digest, source revision, object locator ve exact-match izidir.
   Citation govdesi yetersiz veya celiskiliyse ancak o zaman ilk citation'i researcher'a ver.
@@ -497,13 +504,14 @@ RAG-first bilgi protokolu:
   kullanici onayi ya da child talimatiyla kaldirilamaz.
 
 Dispatch protokolu:
-- Proje-bagli her agentic kaynak okuma veya yazmadan once `zekam project resolve` ile exact projeyi,
-  `zekam project show` ile binding durumunu ve `zekam project source-root` ile bu makinedeki
-  local-only gercek kaynak kokunu coz. Child task'a exact project ID ve exact source root'u
-  acikca ver; child'in ilk kaynak erisiminden once Git projelerinde
+- Proje-bagli her agentic kaynak okuma veya yazmadan once `zekam project resolve` ile exact projeyi
+  ve `zekam project source-root` ile bu makinedeki local-only gercek kaynak kokunu coz.
+  `source-root` exact binding'i zaten dogrular; dispatch hazirligi icin butun RAG indeksini
+  tarayan `zekam project show` komutunu cagirma. Child task'a exact project ID ve exact
+  source root'u acikca ver; child'in ilk kaynak erisiminden once Git projelerinde
   `git -C <exact-root> rev-parse --show-toplevel` esitligini fail-closed dogrulamasini zorunlu tut.
   Basarili `zekam ask` ve pinned `zekam project citation` bu source-dispatch hazirliginin
-  disindadir; bunlar icin resolve/show/source-root zinciri calistirma.
+  disindadir; bunlar icin resolve/source-root zinciri calistirma.
 - Istegi once bagimliliklari ve her adimin logical read/write resource'larini aciklayan
   dalgalara ayir. Bir sonraki dalgaya, onceki dalganin gerekli sonucu fan-in olmadan gecme.
 - Bir dalgada bagimsiz ve salt-okunur gorevleri, ayni assistant turunde ayri `task` cagriyla

@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+from zekam.application.config import EmbeddingRoute
 from zekam.interfaces.cli import main as cli
 
 
-def test_ask_requires_explicit_remote_query_authorization() -> None:
+def test_ask_requires_explicit_remote_query_authorization(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(cli, "project_embedding_route", lambda _home: EmbeddingRoute.REMOTE)
     result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?"])
 
     assert result.exit_code == 77
@@ -20,12 +23,15 @@ def test_ask_requires_explicit_remote_query_authorization() -> None:
 def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     observed: dict[str, object] = {}
 
-    def fake_query(home, project, question, *, opencode_config):  # type: ignore[no-untyped-def]
+    def fake_query(  # type: ignore[no-untyped-def]
+        home, project, question, *, opencode_config, authorize_remote_query
+    ):
         observed.update(
             home=home,
             project=project,
             question=question,
             opencode_config=opencode_config,
+            authorize_remote_query=authorize_remote_query,
         )
         return {
             "schema": "zekam-embedded-rag-result/v1",
@@ -36,6 +42,7 @@ def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # 
         }
 
     monkeypatch.setattr(cli, "resolve_question_project", lambda _home, _question: "gpu-fusion")
+    monkeypatch.setattr(cli, "project_embedding_route", lambda _home: EmbeddingRoute.REMOTE)
     monkeypatch.setattr(cli, "query_registered_project", fake_query)
     result = CliRunner().invoke(
         cli.app,
@@ -78,6 +85,22 @@ def test_project_status_and_source_root_are_exposed(monkeypatch, tmp_path: Path)
     assert json.loads(root_result.output)["source_root"] == str(source)
     assert status_result.exit_code == 0, status_result.output
     assert json.loads(status_result.output)["chunk_count"] == 8496
+
+
+def test_project_json_output_is_ascii_safe_for_windows_code_pages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "Türkçe Örnek Proje"
+    source.mkdir()
+    monkeypatch.setattr(cli.project_commands, "_canonical_slug", lambda *_args, **_kwargs: "ornek")
+    monkeypatch.setattr(cli.project_commands, "resolve_project_source", lambda *_args: source)
+
+    result = CliRunner().invoke(cli.app, ["project", "source-root", "ornek", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.isascii()
+    assert "\\u00fc" in result.output
+    assert json.loads(result.output)["source_root"] == str(source)
 
 
 def test_project_resolve_and_show_are_exposed(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
@@ -176,6 +199,7 @@ def test_project_index_allows_source_only_without_database_authorization(
         opencode_config,
         batch_size,
         authorize_odi_metadata,
+        authorize_remote_source,
     ):
         observed.update(
             home=home,
@@ -184,6 +208,7 @@ def test_project_index_allows_source_only_without_database_authorization(
             opencode_config=opencode_config,
             batch_size=batch_size,
             authorize_odi_metadata=authorize_odi_metadata,
+            authorize_remote_source=authorize_remote_source,
         )
         return {
             "generation_digest": "sha256:" + "b" * 64,
@@ -197,6 +222,11 @@ def test_project_index_allows_source_only_without_database_authorization(
         lambda *_args, **_kwargs: "sky-spring-ui",
     )
     monkeypatch.setattr(cli.project_commands, "index_registered_project", fake_index)
+    monkeypatch.setattr(
+        cli.project_commands,
+        "project_embedding_route",
+        lambda _home: EmbeddingRoute.REMOTE,
+    )
     result = CliRunner().invoke(
         cli.app,
         [
@@ -212,6 +242,46 @@ def test_project_index_allows_source_only_without_database_authorization(
     assert json.loads(result.output)["database_access"] == "disabled"
     assert observed["project"] == "sky-spring-ui"
     assert observed["oracle_config"] is None
+    assert observed["authorize_remote_source"] is True
+
+
+def test_project_local_route_does_not_require_remote_authorization(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli.project_commands,
+        "project_embedding_route",
+        lambda _home: EmbeddingRoute.LOCAL,
+    )
+    monkeypatch.setattr(
+        cli.project_commands,
+        "_canonical_slug",
+        lambda *_args, **_kwargs: "local-project",
+    )
+
+    def fake_query(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {"state": "answered", "answer_excerpt": "local"}
+
+    monkeypatch.setattr(cli.project_commands, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "project",
+            "query",
+            "local-project",
+            "yerel soru",
+            "--json",
+            "--home",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["state"] == "answered"
+    assert observed["authorize_remote_query"] is False
 
 
 def test_project_index_requires_database_authorization_only_when_configured() -> None:

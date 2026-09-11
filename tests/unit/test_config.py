@@ -11,6 +11,7 @@ from zekam.application.config import (
     CONFIG_SCHEMA,
     USER_CONFIG_FILE,
     DatabaseSettings,
+    EmbeddingRoute,
     PersistenceBackend,
     core_root,
     database_password,
@@ -35,6 +36,9 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     assert settings.database.name == "zekam"
     assert settings.database.backend is PersistenceBackend.SQLITE
     assert settings.knowledge.embedding_dimension == 1024
+    assert settings.knowledge.embedding_profile_id == "bge-m3-dense-v1"
+    assert settings.knowledge.embedding_route is EmbeddingRoute.REMOTE
+    assert settings.knowledge.remote_provider_id == "litellm"
     assert settings.knowledge.embedding_distance == "cosine"
     assert settings.diagnostic_trace.enabled is False
     assert settings.diagnostic_trace.encryption_key_ref is None
@@ -66,6 +70,37 @@ def test_user_config_overrides_core_default(home_root: Path) -> None:
     settings = load_settings(home=home_root, environ={})
     assert settings.database.sqlite_relative_path == "state/custom.db"
     assert settings.sources == ("core-default", "user-config", "managed-policy")
+
+
+def test_embedding_route_is_explicit_and_secret_free(home_root: Path) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\nknowledge:\n"
+        "  embedding_profile_id: bge-m3-dense-v1\n"
+        "  embedding_route: local\n"
+        "  remote_provider_id: reviewed-remote\n"
+        "  embedding_model_ref: openai/BAAI/bge-m3\n"
+        "  embedding_dimension: 1024\n"
+        "  embedding_distance: cosine\n",
+    )
+
+    settings = load_settings(home=home_root, environ={})
+
+    assert settings.knowledge.embedding_route is EmbeddingRoute.LOCAL
+    assert settings.sanitized()["knowledge"]["embedding_route"] == "local"
+
+
+@pytest.mark.parametrize("route", ["", "auto", "provider-fallback"])
+def test_embedding_route_rejects_implicit_or_fallback_values(
+    home_root: Path, route: str
+) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\nknowledge:\n  embedding_route: {route!r}\n",
+    )
+
+    with pytest.raises(ConfigurationError, match="Knowledge embedding"):
+        load_settings(home=home_root, environ={})
 
 
 def test_removed_product_config_schema_is_rejected(home_root: Path) -> None:

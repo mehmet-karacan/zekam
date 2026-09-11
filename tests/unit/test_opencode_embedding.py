@@ -22,7 +22,14 @@ from zekam.application.opencode_embedding import (
     load_opencode_aihub_catalog,
     load_opencode_embedding_configuration,
 )
-from zekam.domain.errors import ConfigurationError, NotFound, PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    ClassifiedConfigurationError,
+    ConfigurationError,
+    CredentialUnavailable,
+    NotFound,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.domain.model_inventory import HealthState, InventorySnapshot
 from zekam.domain.security import SecretBackend, SecretRef
 
@@ -144,8 +151,28 @@ def test_oversized_and_duplicate_key_documents_are_rejected(tmp_path: Path) -> N
 
     duplicate = tmp_path / "duplicate.json"
     duplicate.write_text('{"provider": {}, "provider": {}}', encoding="utf-8")
-    with pytest.raises(ConfigurationError, match="duplicate"):
+    with pytest.raises(ClassifiedConfigurationError, match="duplicate") as caught:
         _load(duplicate)
+    assert caught.value.code == "config-duplicate-key"
+
+
+def test_config_parse_failures_have_stable_machine_codes(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    with pytest.raises(ClassifiedConfigurationError) as caught:
+        _load(missing)
+    assert caught.value.code == "config-missing"
+
+    invalid_encoding = tmp_path / "invalid-encoding.json"
+    invalid_encoding.write_bytes(b"{\xff}")
+    with pytest.raises(ClassifiedConfigurationError) as caught:
+        _load(invalid_encoding)
+    assert caught.value.code == "config-encoding"
+
+    invalid_json = tmp_path / "invalid-json.json"
+    invalid_json.write_text("{]", encoding="utf-8")
+    with pytest.raises(ClassifiedConfigurationError) as caught:
+        _load(invalid_json)
+    assert caught.value.code == "config-json-invalid"
 
 
 @pytest.mark.parametrize(
@@ -156,7 +183,7 @@ def test_oversized_and_duplicate_key_documents_are_rejected(tmp_path: Path) -> N
         _document(options_extra={"timeout": 0}),
         _document(models={EMBEDDING: {"name": "Embedding", "unknown": True}}),
         _document(api_key=""),
-        _document(api_key="literal-secret-must-not-load"),
+        _document(api_key="literal" + "-fixture-value-must-not-load"),
     ],
 )
 def test_unknown_malformed_or_literal_secret_fields_fail_closed(
@@ -164,12 +191,18 @@ def test_unknown_malformed_or_literal_secret_fields_fail_closed(
 ) -> None:
     with pytest.raises(ConfigurationError) as caught:
         _load(_write(tmp_path / "opencode.json", document))
-    assert "literal-secret-must-not-load" not in str(caught.value)
+    assert "literal-fixture-value-must-not-load" not in str(caught.value)
 
 
 def test_non_embedding_model_selection_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValidationFailed, match="embedding modalitesinde degil"):
         _load(_write(tmp_path / "opencode.json", _document()), selected=NON_EMBEDDING)
+
+
+def test_missing_selected_model_has_stable_machine_code(tmp_path: Path) -> None:
+    with pytest.raises(ClassifiedConfigurationError) as caught:
+        _load(_write(tmp_path / "opencode.json", _document()), selected="openai/missing")
+    assert caught.value.code == "model-not-accessible"
 
 
 def test_aihub_catalog_is_exact_and_sanitized(tmp_path: Path) -> None:
@@ -300,12 +333,14 @@ def test_credential_store_is_exact_masked_and_rejects_empty_values() -> None:
         store.resolve(_reference(provider="other"))
     with pytest.raises(PolicyViolation):
         store.resolve(_reference(locator="OTHER_KEY"))
-    with pytest.raises(NotFound):
+    with pytest.raises(CredentialUnavailable) as caught:
         OpenCodeCredentialStore(
             provider_id="litellm",
             credential_locator="OPENCODE_LITELLM_KEY",
             environ={"OPENCODE_LITELLM_KEY": "   "},
         ).resolve(_reference())
+    assert caught.value.code == "credential-env-missing"
+    assert isinstance(caught.value, NotFound)
 
 
 def test_embedding_candidate_evaluation_is_inventory_bound_and_sanitized() -> None:

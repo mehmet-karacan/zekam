@@ -382,6 +382,20 @@ class OpenCodeRemoteEmbeddingProvider:
                 "dimension": self._dimension,
             }
         )
+        # Bind cache compatibility to the actual normalized probe vectors while
+        # tolerating the already accepted sub-milliscale numeric jitter.  Raw
+        # provider response digests may contain request metadata and therefore
+        # remain evidence-only rather than profile identity.
+        probe_vector_compatibility_fingerprint = digest(
+            {
+                "batch_milliunits": [
+                    [round(value * 1000) for value in vector] for vector in batch
+                ],
+                "single_milliunits": [
+                    [round(value * 1000) for value in vector] for vector in single_rows
+                ],
+            }
+        )
         model_revision_fingerprint = digest(
             {
                 "provider_id": self._configuration.provider_id,
@@ -389,6 +403,9 @@ class OpenCodeRemoteEmbeddingProvider:
                 "canonical_model_id": self._configuration.canonical_model_id,
                 "exact_model_id": self._configuration.selected_model_id,
                 "dimension": self._dimension,
+                "probe_vector_compatibility_fingerprint": (
+                    probe_vector_compatibility_fingerprint
+                ),
             }
         )
         evidence_body = {
@@ -397,6 +414,9 @@ class OpenCodeRemoteEmbeddingProvider:
             "exact_model_id": self._configuration.selected_model_id,
             "canonical_model_id": self._configuration.canonical_model_id,
             "public_probe_fingerprint": response_fingerprint,
+            "probe_vector_compatibility_fingerprint": (
+                probe_vector_compatibility_fingerprint
+            ),
             "model_revision_fingerprint": model_revision_fingerprint,
             "source_refs": list(fixture.source_refs),
             "source_digests": list(fixture.source_digests),

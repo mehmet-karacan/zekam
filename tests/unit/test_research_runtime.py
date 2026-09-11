@@ -98,6 +98,9 @@ def _runtime(tmp_path: Path, monkeypatch):  # type: ignore[no-untyped-def]
         "project_rag_status",
         lambda *_: {
             "state": "ready",
+            "index_readable": True,
+            "provider_readiness": "unknown",
+            "query_ready": False,
             "generation_digest": generation,
             "source_revision": revision,
         },
@@ -161,6 +164,37 @@ def test_research_run_status_report_and_replay(monkeypatch, tmp_path: Path) -> N
     assert replay["replayed"] is True
     assert replay["state"] == "completed"
     assert len(status["effects"]) == 1
+
+
+def test_research_forwards_exact_remote_query_authorization(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    observed: dict[str, object] = {}
+
+    def query(*_args, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": [{"chunk_id": "chunk-1"}],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", query)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+
+    assert observed["authorize_remote_query"] is True
 
 
 def test_opencode_result_rejects_unknown_citation_and_non_independent_verifier() -> None:

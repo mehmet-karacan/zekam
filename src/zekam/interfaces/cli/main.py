@@ -22,7 +22,7 @@ from zekam import __version__
 from zekam.application.active_task_contract import ActiveTaskContract
 from zekam.application.capability_inventory import capability_inventory
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
-from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
+from zekam.application.config import USER_CONFIG_FILE, EmbeddingRoute, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
 from zekam.application.fresh_bootstrap import apply_fresh_bootstrap, plan_fresh_bootstrap
 from zekam.application.home import resolve_home
@@ -32,11 +32,17 @@ from zekam.application.mutation_admission import (
 )
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
+    project_embedding_route,
     query_registered_project,
     resolve_question_project,
     resolve_registered_project,
 )
-from zekam.application.setup import build_setup_plan, setup_plan_digest, setup_plan_payload
+from zekam.application.setup import (
+    build_setup_plan,
+    setup_plan_digest,
+    setup_plan_payload,
+    setup_readiness,
+)
 from zekam.application.workspace_resume import build_resume_packet, render_resume_prompt
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
@@ -88,6 +94,12 @@ app = typer.Typer(
 )
 console = Console()
 error_console = Console(stderr=True)
+
+
+def _print_json(document: object) -> None:
+    """Emit machine JSON independently of the active Windows code page."""
+
+    typer.echo(json.dumps(document, ensure_ascii=True, sort_keys=True, default=str))
 _OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
 _DEFAULT_OPENCODE_CONFIG_FILE = default_opencode_config_file()
 
@@ -147,7 +159,7 @@ def capabilities_command(
 
     document = capability_inventory()
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
         return
     counts = document["counts"]
     console.print(
@@ -175,7 +187,7 @@ def resume_command(
     if prompt:
         typer.echo(render_resume_prompt(document))
     elif output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
         checkpoint = document["latest_semantic_checkpoint"]
         completed = checkpoint["completed"] if checkpoint else "semantic checkpoint yok"
@@ -201,13 +213,14 @@ def ask(
 ) -> None:
     """Dogal dil sorusunu aktif project-scoped hybrid RAG indeksine yonlendirir."""
 
-    if not authorize_remote_query:
-        error_console.print(
-            "[red]Hata:[/red] Remote query embedding explicit --authorize-remote-query ister"
-        )
-        raise typer.Exit(77)
     try:
         resolved_home = resolve_home(home).resolve(strict=True)
+        route = project_embedding_route(resolved_home)
+        if route is EmbeddingRoute.REMOTE and not authorize_remote_query:
+            error_console.print(
+                "[red]Hata:[/red] Remote query embedding explicit --authorize-remote-query ister"
+            )
+            raise typer.Exit(77)
         selected_project = (
             resolve_registered_project(resolved_home, project)
             if project is not None
@@ -218,6 +231,7 @@ def ask(
             selected_project,
             question,
             opencode_config=opencode_config,
+            authorize_remote_query=authorize_remote_query,
         )
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
@@ -228,7 +242,7 @@ def ask(
         "retrieval": retrieval,
     }
     if output_json:
-        console.print_json(json.dumps(result, ensure_ascii=False))
+        _print_json(result)
     else:
         console.print(str(retrieval.get("answer_excerpt", "")))
 
@@ -315,7 +329,7 @@ def doctor(
             document["doctor_repair_result"] = applied_result
         if automatic_results:
             document["doctor_prepare_results"] = automatic_results
-        console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+        _print_json(document)
     else:
         _render_report(report)
         if selected_plan is not None:
@@ -411,15 +425,12 @@ def setup(
     exact_plan_digest = setup_plan_digest(plan)
     if output_json and not apply:
         plan_document = setup_plan_payload(plan)
-        console.print_json(
-            json.dumps(
-                {
-                    **plan_document,
-                    "apply": apply,
-                    "plan_digest": exact_plan_digest,
-                },
-                ensure_ascii=False,
-            )
+        _print_json(
+            {
+                **plan_document,
+                "apply": apply,
+                "plan_digest": exact_plan_digest,
+            }
         )
         return
     elif not apply:
@@ -452,15 +463,15 @@ def setup(
         receipts.append({"step_id": step.step_id, "returncode": completed.returncode})
         if completed.returncode != 0:
             if output_json:
-                console.print_json(
-                    json.dumps(
-                        {
-                            "schema": "zekam-setup-result/v1",
-                            "status": "failed",
-                            "plan_digest": exact_plan_digest,
-                            "receipts": receipts,
-                        }
-                    )
+                _print_json(
+                    {
+                        "schema": "zekam-setup-result/v1",
+                        "status": "failed",
+                        "acceptance_profile": "core-only",
+                        "readiness": setup_readiness("failed"),
+                        "plan_digest": exact_plan_digest,
+                        "receipts": receipts,
+                    }
                 )
             else:
                 error_console.print(f"[red]Kurulum durdu:[/red] {step.step_id}")
@@ -468,15 +479,15 @@ def setup(
         if not output_json:
             console.print(f"[green]Tamam:[/green] {step.step_id}")
     if output_json:
-        console.print_json(
-            json.dumps(
-                {
-                    "schema": "zekam-setup-result/v1",
-                    "status": "completed",
-                    "plan_digest": exact_plan_digest,
-                    "receipts": receipts,
-                }
-            )
+        _print_json(
+            {
+                "schema": "zekam-setup-result/v1",
+                "status": "completed",
+                "acceptance_profile": "core-only",
+                "readiness": setup_readiness("ready"),
+                "plan_digest": exact_plan_digest,
+                "receipts": receipts,
+            }
         )
 
 

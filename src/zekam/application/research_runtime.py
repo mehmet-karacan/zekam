@@ -449,6 +449,7 @@ def run_research(
             plan.project_slug,
             question.question,
             opencode_config=opencode_config,
+            authorize_remote_query=authorize_remote_query,
         )
         if rag.get("generation_digest") != plan.body["generation_digest"]:
             raise PolicyViolation("Research retrieval generation drift")

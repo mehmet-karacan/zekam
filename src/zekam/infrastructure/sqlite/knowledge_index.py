@@ -705,7 +705,8 @@ class SQLiteKnowledgeIndex:
     def generation(self, project_id: str) -> KnowledgeGeneration:
         row = self._connection.execute(
             "select g.* from current_generation c join generation g"
-            " on g.generation_digest=c.generation_digest where c.project_id=?",
+            " on g.generation_digest=c.generation_digest where c.project_id=?"
+            " and g.state='ready'",
             (project_id,),
         ).fetchone()
         if row is None:
@@ -912,6 +913,36 @@ class SQLiteKnowledgeIndex:
             "source_ref": str(row["source_path"]),
             "source_digest": str(row["source_digest"]),
             "content_digest": str(row["content_digest"]),
+        }
+
+    @_stable_read
+    def readiness(self, project_id: str) -> dict[str, object]:
+        """Return bounded status evidence without re-hashing indexed content.
+
+        Opening the index has already validated the schema, SQLite quick-check,
+        and foreign keys.  Full body/vector digest verification deliberately
+        remains in :meth:`integrity` for build and audit boundaries.
+        """
+
+        generation = self._connection.execute(
+            "select g.chunk_count from current_generation c join generation g"
+            " on g.generation_digest=c.generation_digest where c.project_id=?"
+            " and g.state='ready'",
+            (project_id,),
+        ).fetchone()
+        current_present = generation is not None
+        project_count = int(
+            self._connection.execute("select count(*) from current_generation").fetchone()[0]
+        )
+        return {
+            "quick_check": "ok",
+            "project_count": project_count,
+            "current_generation_present": current_present,
+            "generation_counts_consistent": None,
+            "content_digests_consistent": None,
+            "verification_scope": "readiness",
+            "content_verification": "deferred-full-audit",
+            "status": "passed" if current_present else "failed",
         }
 
     @_stable_read

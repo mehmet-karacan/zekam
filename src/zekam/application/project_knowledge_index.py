@@ -108,17 +108,19 @@ class ProjectIndexPlan:
 
     @property
     def plan_digest(self) -> str:
-        return digest(
-            {
-                "project_id": str(self.project_id),
-                "source_revision": self.source_revision,
-                "tree_digest": self.tree_digest,
-                "document_digest": self.document.content_digest,
-                "chunk_profile_digest": self.chunk_profile.profile_digest,
-                "embedding_profile_digest": self.embedding_profile.profile_digest,
-                "embedding_route_digest": self.embedding_route.decision_digest,
-                "chunk_count": len(self.chunks),
-            }
+        return str(
+            digest(
+                {
+                    "project_id": str(self.project_id),
+                    "source_revision": self.source_revision,
+                    "tree_digest": self.tree_digest,
+                    "document_digest": self.document.content_digest,
+                    "chunk_profile_digest": self.chunk_profile.profile_digest,
+                    "embedding_profile_digest": self.embedding_profile.profile_digest,
+                    "embedding_route_digest": self.embedding_route.decision_digest,
+                    "chunk_count": len(self.chunks),
+                }
+            )
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -309,6 +311,8 @@ def build_project_index_plan(
     expected_tree_digest: str,
     embedding_candidates: Sequence[EmbeddingRouteCandidate] = (),
     allow_remote_source: bool = False,
+    local_model_ref: str = REAL_EMBEDDING_MODEL_REF,
+    local_dimension: int = REAL_EMBEDDING_DIMENSION,
     allowed_relative_paths: tuple[str, ...] | None = None,
 ) -> ProjectIndexPlan:
     """Build a deterministic source index plan without writing anywhere."""
@@ -399,8 +403,8 @@ def build_project_index_plan(
     )
     embedding_route = select_embedding_route(
         embedding_candidates,
-        local_model_ref=REAL_EMBEDDING_MODEL_REF,
-        local_dimension=REAL_EMBEDDING_DIMENSION,
+        local_model_ref=local_model_ref,
+        local_dimension=local_dimension,
         remote_source_allowed=allow_remote_source,
     )
     embedding_profile = EmbeddingProfile(

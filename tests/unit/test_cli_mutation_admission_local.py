@@ -33,6 +33,27 @@ def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:
     )
     assert applied.exit_code == 0, applied.stdout
 
+    bind_preflight = runner.invoke(
+        app, ["project", "bind", "source", str(source), "--home", str(home)]
+    )
+    assert bind_preflight.exit_code == 0, bind_preflight.stdout
+    bind_plan = json.loads(bind_preflight.stdout)
+    assert bind_plan["schema"] == "zekam-project-local-source-binding-plan/v1"
+    assert bind_plan["source_root"] == str(source.resolve())
+    assert bind_plan["source_kind"] == "directory"
+    assert bind_plan["plan_digest"].startswith("sha256:")
+    assert bind_plan["apply"] is False
+
+    bound = runner.invoke(
+        app,
+        ["project", "bind", "source", str(source), "--home", str(home), "--uygula"],
+    )
+    assert bound.exit_code == 0, bound.stdout
+    binding = json.loads(bound.stdout)
+    assert binding["source_root"] == bind_plan["source_root"]
+    assert binding["plan_digest"] == bind_plan["plan_digest"]
+    assert binding["apply"] is True
+
     alias_added = runner.invoke(
         app,
         [

@@ -307,6 +307,45 @@ def test_logical_corruption_is_reported_and_replay_refuses_false_recovery(
             _build(index, records)
 
 
+def test_readiness_is_bounded_and_defers_full_content_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        _build(index, (_record("stable-id"),))
+
+        def forbidden_full_scan(*_args: object, **_kwargs: object) -> bool:
+            raise AssertionError("readiness must not perform a full content scan")
+
+        monkeypatch.setattr(index, "_content_rows_consistent", forbidden_full_scan)
+        readiness = index.readiness("akilli-kasa")
+
+    assert readiness["status"] == "passed"
+    assert readiness["verification_scope"] == "readiness"
+    assert readiness["content_verification"] == "deferred-full-audit"
+    assert readiness["content_digests_consistent"] is None
+
+
+def test_readiness_fails_without_current_project_generation(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        assert index.readiness("missing-project")["status"] == "failed"
+
+
+def test_current_generation_must_point_to_ready_state(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        generation_digest = _build(index, (_record("stable-id"),))
+        index._connection.execute(
+            "update generation set state='building' where generation_digest=?",
+            (generation_digest,),
+        )
+
+        assert index.readiness("akilli-kasa")["status"] == "failed"
+        with pytest.raises(ValidationFailed, match="current knowledge generation"):
+            index.generation("akilli-kasa")
+
+
 def test_malformed_persisted_locator_fails_closed(tmp_path: Path) -> None:
     path = tmp_path / "knowledge.sqlite3"
     with SQLiteKnowledgeIndex(path, create=True) as index:

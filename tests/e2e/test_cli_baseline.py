@@ -78,11 +78,31 @@ def test_init_sqlite_bootstraps_and_doctor_reports_exact_profile(home_root: Path
     assert migration_document == {
         "backend": "sqlite",
         "head": 3,
-        "expected_head": 3,
+        "expected_head": 5,
+        "supported_heads": [3, 5],
         "integrity_ok": True,
         "schema_ok": True,
         "drift": [],
     }
+
+
+def test_db_status_accepts_supported_operational_v5(tmp_path: Path) -> None:
+    home = tmp_path / "home-v5"
+    initialized = runner.invoke(app, ["init", "--home", str(home)])
+    assert initialized.exit_code == 0, initialized.stdout
+    database = home / "state" / "operational.db"
+    database.unlink()
+    from zekam.infrastructure.sqlite.operational_schema import bootstrap_v5
+
+    bootstrap_v5(database)
+
+    result = runner.invoke(app, ["db", "status", "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert document["head"] == 5
+    assert document["supported_heads"] == [3, 5]
+    assert document["drift"] == []
 
 
 def test_init_rejects_persistence_switch_without_mutation(home_root: Path) -> None:

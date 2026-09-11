@@ -50,6 +50,22 @@ class NotFound(ZekamError):
     code = "not-found"
 
 
+class ClassifiedConfigurationError(ConfigurationError):
+    """Configuration failure with a stable machine-facing reason code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        if not code or code != code.strip():
+            raise ValueError("configuration error code exact text required")
+        self.code = code
+        super().__init__(message)
+
+
+class CredentialUnavailable(NotFound):
+    """A secret locator exists but its process-local value is unavailable."""
+
+    code = "credential-env-missing"
+
+
 class ValidationFailed(ZekamError):
     """Girdi sozlesmeye uymuyor."""
 

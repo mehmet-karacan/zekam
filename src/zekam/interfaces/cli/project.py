@@ -10,6 +10,7 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from zekam.application.config import EmbeddingRoute
 from zekam.application.home import resolve_home
 from zekam.application.odi11g_export import (
     Odi11gExportPlan,
@@ -24,7 +25,10 @@ from zekam.application.odi11g_smart_export import (
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
     bind_project_source,
+    build_project_source_binding_plan,
+    classify_project_source,
     index_registered_project,
+    project_embedding_route,
     project_rag_status,
     query_registered_project,
     read_project_citation,
@@ -44,6 +48,12 @@ from zekam.interfaces.cli.session import (
 app = typer.Typer(name="project", help="Yerel proje kayitlari", no_args_is_help=True)
 console = Console()
 _DEFAULT_OPENCODE_CONFIG_FILE = default_opencode_config_file()
+
+
+def _print_json(document: object) -> None:
+    """Emit one ASCII-safe JSON document for locale-independent automation."""
+
+    typer.echo(json.dumps(document, ensure_ascii=True, sort_keys=True))
 
 
 def _resolve_project_document(
@@ -87,9 +97,7 @@ def add_command(
         raise fail("Kaynak koku bir dizin olmali")
     selected_slug = validate_slug(slug) if slug else normalize_slug(resolved.name)
     if not apply:
-        console.print_json(
-            json.dumps({"slug": selected_slug, "source_kind": "read-only", "apply": False})
-        )
+        _print_json({"slug": selected_slug, "source_kind": "read-only", "apply": False})
         return
     try:
         store = sqlite_operational_store(home, realm)
@@ -101,7 +109,7 @@ def add_command(
             uow.bind_source(
                 project_id=project.id,
                 portable_ref=f"source:{selected_slug}",
-                source_kind="git" if (resolved / ".git").is_dir() else "directory",
+                source_kind=classify_project_source(resolved),
             )
             uow.commit()
     except ZekamError as exc:
@@ -135,7 +143,7 @@ def list_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(rows, ensure_ascii=False))
+        _print_json(rows)
     else:
         for row in rows:
             console.print(f"{row['slug']}\t{row['display_name']}\t{row['status']}")
@@ -152,9 +160,7 @@ def alias_add_command(
     """Tekil proje aliasini operational registry'ye ekler."""
 
     if not apply:
-        console.print_json(
-            json.dumps({"project": project, "alias": alias, "apply": False}, ensure_ascii=False)
-        )
+        _print_json({"project": project, "alias": alias, "apply": False})
         return
     try:
         store = sqlite_operational_store(home, realm)
@@ -166,11 +172,8 @@ def alias_add_command(
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    console.print_json(
-        json.dumps(
-            {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True},
-            ensure_ascii=False,
-        )
+    _print_json(
+        {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True}
     )
 
 
@@ -185,9 +188,7 @@ def alias_remove_command(
     """Tekil proje aliasini operational registry'den kaldirir."""
 
     if not apply:
-        console.print_json(
-            json.dumps({"project": project, "alias": alias, "apply": False}, ensure_ascii=False)
-        )
+        _print_json({"project": project, "alias": alias, "apply": False})
         return
     try:
         store = sqlite_operational_store(home, realm)
@@ -199,11 +200,8 @@ def alias_remove_command(
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    console.print_json(
-        json.dumps(
-            {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True},
-            ensure_ascii=False,
-        )
+    _print_json(
+        {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True}
     )
 
 
@@ -222,7 +220,7 @@ def resolve_command(
         raise fail_from(exc) from exc
     document = {"schema": "zekam-project-resolution/v1", "reference": project} | result
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
         console.print(f"{document['slug']}\t{document['display_name']}\t{document['status']}")
 
@@ -252,7 +250,7 @@ def show_command(
         "rag": rag,
     }
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
         console.print(
             f"{document['slug']}\t{document['status']}\t"
@@ -269,25 +267,17 @@ def bind_command(
 ) -> None:
     """Projeyi bu makinedeki salt-okunur kaynak kokune baglar."""
 
-    if not apply:
-        console.print_json(
-            json.dumps(
-                {
-                    "project": project,
-                    "source": str(source),
-                    "source_kind": "read-only",
-                    "apply": False,
-                }
-            )
-        )
-        return
     try:
-        result = bind_project_source(
-            resolve_home(home), _canonical_slug(project, home=home), source
+        resolved_home = resolve_home(home)
+        slug = _canonical_slug(project, home=home)
+        result = (
+            bind_project_source(resolved_home, slug, source)
+            if apply
+            else build_project_source_binding_plan(resolved_home, slug, source)
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    console.print_json(json.dumps(result, ensure_ascii=False))
+    _print_json(result)
 
 
 def _odi_plan_document(
@@ -317,7 +307,7 @@ def odi_preflight_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
         console.print(
             f"{document['project_slug']}\taccepted={document['accepted']}\t"
@@ -352,9 +342,9 @@ def odi_bind_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
 
 
 @app.command("odi-smart-import")
@@ -390,7 +380,7 @@ def odi_smart_import_command(
             )
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    console.print_json(json.dumps(document, ensure_ascii=False))
+    _print_json(document)
 
 
 @app.command("odi-smart-status")
@@ -414,7 +404,7 @@ def odi_smart_status_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(document, ensure_ascii=False))
+        _print_json(document)
     else:
         console.print(
             f"{resolved['slug']}\tchunks={document['chunk_count']}\tedges={document['lineage_edge_count']}"
@@ -435,7 +425,7 @@ def source_root_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps({"project": slug, "source_root": str(root)}))
+        _print_json({"project": slug, "source_root": str(root)})
     else:
         console.print(str(root))
 
@@ -453,7 +443,7 @@ def status_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(result, ensure_ascii=False))
+        _print_json(result)
     else:
         console.print(
             f"{result['project_slug']}\t{result['state']}\tchunks={result.get('chunk_count', 0)}"
@@ -480,7 +470,7 @@ def citation_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(result, ensure_ascii=False))
+        _print_json(result)
     else:
         console.print(str(result["body"]))
 
@@ -504,19 +494,22 @@ def query_command(
 ) -> None:
     """Aktif exact/lexical/dense proje indeksini sorgular."""
 
-    if not authorize_remote_query:
-        raise fail("Remote query embedding explicit --authorize-remote-query ister", 77)
     try:
+        resolved_home = resolve_home(home)
+        route = project_embedding_route(resolved_home)
+        if route is EmbeddingRoute.REMOTE and not authorize_remote_query:
+            raise fail("Remote query embedding explicit --authorize-remote-query ister", 77)
         result = query_registered_project(
-            resolve_home(home),
+            resolved_home,
             _canonical_slug(project, home=home),
             question,
             opencode_config=opencode_config,
+            authorize_remote_query=authorize_remote_query,
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(result, ensure_ascii=False))
+        _print_json(result)
     else:
         console.print(str(result.get("answer_excerpt", "")))
 
@@ -539,23 +532,26 @@ def index_command(
 ) -> None:
     """Kaynak kodu ve Oracle metadata snapshot'ini atomik yeniler."""
 
-    if not authorize_remote_source:
-        raise fail("Remote source disclosure explicit --authorize-remote-source ister", 77)
     if oracle_config is not None and not authorize_database_metadata:
         raise fail("Database metadata disclosure explicit authorization ister", 77)
     try:
+        resolved_home = resolve_home(home)
+        route = project_embedding_route(resolved_home)
+        if route is EmbeddingRoute.REMOTE and not authorize_remote_source:
+            raise fail("Remote source disclosure explicit --authorize-remote-source ister", 77)
         result = index_registered_project(
-            resolve_home(home),
+            resolved_home,
             _canonical_slug(project, home=home),
             oracle_config=oracle_config,
             opencode_config=opencode_config,
             batch_size=batch_size,
             authorize_odi_metadata=authorize_odi_metadata,
+            authorize_remote_source=authorize_remote_source,
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
-        console.print_json(json.dumps(result, ensure_ascii=False))
+        _print_json(result)
     else:
         console.print(
             f"[green]Aktif:[/green] {result['generation_digest']} chunks={result['chunk_count']}"

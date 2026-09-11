@@ -664,7 +664,7 @@ def _capture_gap_summary(home: Path) -> dict[str, Any]:
 def _supervisor_status(context: ApplicationContext, config_digest: str) -> dict[str, object]:
     if os.name != "nt":
         return {"state": "unverified", "platform": os.name, "registered": False}
-    executable = shutil.which("zekam")
+    executable = shutil.which("zekam-background")
     if executable is None:
         return {"state": "unavailable", "reason": "zekam-executable-missing", "registered": False}
     try:
@@ -679,13 +679,15 @@ def build_windows_supervisor_plan(
 ) -> WindowsTaskPlan:
     """Build the one current-source-validated Windows supervisor plan."""
 
-    executable = shutil.which("zekam")
+    executable = shutil.which("zekam-background")
     provenance = context.settings.config_provenance
     effective_digest = config_digest or (
         None if provenance is None else provenance.effective_digest
     )
     if executable is None or effective_digest is None:
-        raise ValidationFailed("Windows supervisor plan config ve kurulu executable ister")
+        raise ValidationFailed(
+            "Windows supervisor plan config ve kurulu background executable ister"
+        )
     return WindowsTaskPlan.create(
         executable=Path(executable),
         home=context.home,
