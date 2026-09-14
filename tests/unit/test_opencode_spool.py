@@ -10,6 +10,7 @@ import pytest
 
 from zekam.application.opencode_spool import (
     apply_legacy_candidate_cleanup,
+    drain_plugin_spool,
     inspect_spool,
     plan_legacy_candidate_cleanup,
     plugin_spool_root,
@@ -123,3 +124,23 @@ def test_queued_delivery_makes_spool_unhealthy(tmp_path: Path) -> None:
 
     assert status.queued == 1
     assert not status.healthy
+
+
+@pytest.mark.parametrize("owner", [None, "{broken-json", b"\xff\xfe\x00"])
+def test_drain_recovers_invalid_lock_without_wedging(
+    tmp_path: Path, owner: str | bytes | None
+) -> None:
+    root = plugin_spool_root(tmp_path)
+    lock = root / ".drain.lock"
+    lock.mkdir(parents=True)
+    if isinstance(owner, str):
+        (lock / "owner.json").write_text(owner, encoding="utf-8")
+    elif owner is not None:
+        (lock / "owner.json").write_bytes(owner)
+
+    receipt = drain_plugin_spool(tmp_path, now=NOW)
+
+    assert receipt.recovered_stale_lock
+    assert not lock.exists()
+    quarantine = root / "quarantine"
+    assert len(tuple(quarantine.glob("invalid-drain-lock.*"))) == 1

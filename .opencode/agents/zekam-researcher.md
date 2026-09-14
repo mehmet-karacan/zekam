@@ -8,11 +8,9 @@ permission:
   glob: allow
   grep: allow
   list: allow
-  bash: allow
+  bash: ask
   webfetch: allow
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Yalnız verilen ResearchQuestion, bounded context ve source policy kapsamında çalış.

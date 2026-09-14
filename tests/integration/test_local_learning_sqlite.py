@@ -1300,7 +1300,7 @@ def test_append_only_hygiene_bounds_corruption_and_concurrent_duplicate(tmp_path
         store.audit()
     with sqlite3.connect(store.path) as db:
         db.execute("pragma writable_schema=on")
-        db.execute("update learning_schema set version=2")
+        db.execute("update learning_schema set version=3")
     with pytest.raises(PolicyViolation):
         SQLiteLocalLearning(store.path, operational_path=store.operational_path).effectiveness(
             digest("unknown")

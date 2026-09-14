@@ -429,12 +429,20 @@ def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str]:
     if not lock.is_dir() or _is_link_or_reparse(lock):
         raise ConfigurationError("OpenCode drain lock regular directory olmali")
     try:
-        document = json.loads((lock / "owner.json").read_text(encoding="utf-8"))
+        raw_owner = (lock / "owner.json").read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
+    except OSError as exc:
+        raise ConfigurationError("OpenCode drain lock owner okunamiyor") from exc
+    try:
+        document = json.loads(raw_owner)
         pid = int(document["pid"])
         expires_at = dt.datetime.fromisoformat(str(document["expiresAt"]).replace("Z", "+00:00"))
         token = str(UUID(str(document["ownerToken"])))
-    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
-        raise ConfigurationError("OpenCode drain lock owner gecersiz") from exc
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
     return pid, expires_at, token
 
 
@@ -463,10 +471,14 @@ def drain_plugin_spool(
     recovered = False
     lock = root / _LOCK_NAME
     if lock.exists():
-        pid, expires_at, _ = _lock_owner(lock)
-        if _process_alive(pid) or expires_at > observed_at:
-            raise PolicyViolation("OpenCode drain lock halen aktif")
-        lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
+        try:
+            pid, expires_at, _ = _lock_owner(lock)
+        except ValidationFailed:
+            lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
+        else:
+            if _process_alive(pid) or expires_at > observed_at:
+                raise PolicyViolation("OpenCode drain lock halen aktif")
+            lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
         recovered = True
 
     owner_token = str(uuid4())

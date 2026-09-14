@@ -117,6 +117,26 @@ zekam project odi-bind <alias> <export-root> --plan-digest <digest> --uygula --j
 
 Export kapsamı ve güvenlik sınırı: [`docs/ODI11G_EXPORT_VE_LINEAGE.md`](docs/ODI11G_EXPORT_VE_LINEAGE.md).
 
+## Kişisel skill yaşam döngüsü
+
+Provider-free katalog, güvenli Agent Skills paketi ve yönetilen istemci projection yüzeyi:
+
+```bash
+zekam skill status --project-root <proje-koku>
+zekam skill list --scope-kind project --scope-ref <proje>
+zekam skill explain "<istek>" --scope-kind project --scope-ref <proje>
+zekam skill inspect <revision-digest> --scope-kind project --scope-ref <proje>
+zekam skill propose <paket-koku> --trigger <terim>
+zekam skill evaluate <revision-digest>
+zekam skill export <paket-koku> --project-root <proje-koku>
+```
+
+`propose`, `evaluate` ve `export` varsayılan olarak yalnız digest-bağlı plan üretir. Apply
+adımları yeni provider, ağ veya araç yetkisi vermez. OpenCode ile Codex ortak `.agents/skills`
+kopyasını kullanır; Claude projection ayrı olsa da üçü de yalnız
+`instruction-distribution-only` olarak raporlanır. Bir paketin yüklenmesi doğrulanmış sonuç veya
+effect admission yerine geçmez.
+
 ## Olculu otonom evolution
 
 Kanonik aday/olcum/rollout kanitlari ve gercek kurulum durumu ayri raporlanir:

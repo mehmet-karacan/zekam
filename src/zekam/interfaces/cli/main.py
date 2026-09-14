@@ -67,6 +67,7 @@ from zekam.interfaces.cli import research as research_commands
 from zekam.interfaces.cli import route as route_commands
 from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
+from zekam.interfaces.cli import skill as skill_commands
 from zekam.interfaces.cli import surface as surface_commands
 from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
@@ -127,6 +128,7 @@ app.add_typer(surface_commands.app)
 app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
 app.add_typer(scheduler_commands.app)
+app.add_typer(skill_commands.app)
 
 
 def _version_callback(value: bool) -> None:

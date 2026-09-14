@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,7 +42,14 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert stored["default_agent"] == DEFAULT_AGENT
     assert stored["plugin"] == ["./plugins/zekam-lifecycle.js"]
     assert stored["provider"]["litellm"]["options"]["timeout"] == 60
-    assert stored["permission"] == {"edit": "ask", "bash": "allow"}
+    assert stored["permission"] == {
+        "*": "ask",
+        "edit": "ask",
+        "bash": "ask",
+        "webfetch": "ask",
+        "external_directory": {"*": "deny"},
+        "task": "ask",
+    }
     agents = user_home / ".config" / "opencode" / "agents"
     installed = {item.name for item in agents.iterdir()}
     assert {
@@ -57,21 +66,21 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         frontmatter = body.split("---", 2)[1]
         parsed = yaml.safe_load(frontmatter)
         assert isinstance(parsed, dict), agent_path.name
-        assert parsed["permission"]["bash"] == "allow", agent_path.name
+        assert parsed["permission"]["bash"] != "allow", agent_path.name
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     builder = (agents / "zekam-builder.md").read_text(encoding="utf-8")
     researcher = (agents / "zekam-researcher.md").read_text(encoding="utf-8")
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     runner = (agents / "zekam-research-runner.md").read_text(encoding="utf-8")
-    assert "webfetch: allow" in coordinator
-    assert '"*": allow' in coordinator
+    assert "webfetch: deny" in coordinator
+    assert '"*": deny' in coordinator
     assert "edit: deny" in coordinator
     assert "read: deny" in coordinator
-    assert "bash: allow" in coordinator
-    assert '"C:/innova/projeler/**": allow' in coordinator
+    assert "bash: ask" in coordinator
+    assert "external_directory: deny" in coordinator
     assert '"zekam-builder": allow' in coordinator
-    assert "Bash, PowerShell ve CMD komutlarinda onay istemez" in coordinator
+    assert "Bash, PowerShell ve CMD komutlarinda kullanici onayi ister" in coordinator
     assert "detached worktree veya gecici proje klonu olusturma" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in builder
@@ -109,14 +118,8 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "zekam project source-root" in coordinator
     assert "Tum inceleme, Git kaniti, test ve kod degisikliklerini" in coordinator
     model_agents = [name for name in installed if name.startswith("zekam-implementer-")]
-    assert model_agents
-    model_agent = (agents / model_agents[0]).read_text(encoding="utf-8")
-    assert "model: litellm/" in model_agent
-    assert "hidden: true" in model_agent
-    assert "canonical_model_id=" in model_agent
-    assert "edit: allow" in model_agent
-    assert '"C:/innova/projeler/**": allow' in model_agent
-    assert "bash: allow" in model_agent
+    assert model_agents == []
+    assert plan.catalog_scope_state == "not-configured"
     plugin = user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js"
     assert plugin.is_file()
     assert "tool.execute.before" in plugin.read_text(encoding="utf-8")
@@ -150,21 +153,26 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "yerel dayanikli kuyruga alindi" in plugin_body
     assert "continuity checkpoint kaydedildi" not in plugin_body
     assert "`zekam project resume`" not in verifier
-    assert "bash: allow" in verifier
+    assert "bash: ask" in verifier
     assert "mode: primary" in runner
     assert '"zekam-researcher": allow' in runner
     assert '"zekam-verifier": allow' in runner
-    assert '"C:/innova/projeler/**": allow' in verifier
-    assert '"C:/innova/projeler/**": allow' in researcher
+    assert "external_directory: deny" in verifier
+    assert "external_directory: deny" in researcher
     assert "kopya, mirror, clone" in researcher
     assert "bounded source fallback" in researcher
+    assert "bash: deny" in runner
     assert all(
         "bash: deny" not in path.read_text(encoding="utf-8")
-        and '"*": ask' not in path.read_text(encoding="utf-8")
+        for path in agents.glob("*.md")
+        if path.name != "zekam-research-runner.md"
+    )
+    assert all(
+        '"*": ask' not in path.read_text(encoding="utf-8")
         for path in agents.glob("*.md")
     )
     router = (agents / "zekam-router.md").read_text(encoding="utf-8")
-    assert "bash: allow" in router
+    assert '"zekam route preview *": allow' in router
     assert "model secimi degildir" in router
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
@@ -188,7 +196,77 @@ def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> No
     apply_opencode_agent_bootstrap(plan)
 
     upgraded = coordinator.read_text(encoding="utf-8")
-    assert "bash: allow" in upgraded
+    assert "bash: ask" in upgraded
+
+
+def test_model_agent_retirement_moves_outside_recursive_scan_tree(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    agents = user_home / ".config" / "opencode" / "agents"
+    agents.mkdir(parents=True)
+    stale = agents / "zekam-implementer-stale.md"
+    stale.write_text(
+        "---\n# zekam-managed-agent/v1\ndescription: stale\n---\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+    assert plan.agents_to_retire == (stale.name,)
+    apply_opencode_agent_bootstrap(plan)
+
+    retired = agents.parent / ".zekam-retired-agents" / stale.name
+    assert retired.is_file()
+    assert not stale.exists()
+    assert not (agents / ".zekam-retired").exists()
+    repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+    assert repeat.agents_to_retire == ()
+    assert repeat.legacy_retired_agents_to_migrate == ()
+
+
+def test_legacy_recursive_retirement_is_migrated_outside_agent_tree(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    agents = user_home / ".config" / "opencode" / "agents"
+    legacy = agents / ".zekam-retired"
+    legacy.mkdir(parents=True)
+    stale = legacy / "zekam-reviewer-stale.md"
+    stale.write_text(
+        "---\n# zekam-managed-agent/v1\ndescription: stale\n---\n",
+        encoding="utf-8",
+    )
+
+    plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+    assert plan.legacy_retired_agents_to_migrate == (stale.name,)
+    apply_opencode_agent_bootstrap(plan)
+
+    assert not legacy.exists()
+    assert (agents.parent / ".zekam-retired-agents" / stale.name).is_file()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction semantics")
+def test_retirement_rejects_existing_windows_junction_destination(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    agents = user_home / ".config" / "opencode" / "agents"
+    agents.mkdir(parents=True)
+    stale = agents / "zekam-implementer-stale.md"
+    stale.write_text(
+        "---\n# zekam-managed-agent/v1\ndescription: stale\n---\n",
+        encoding="utf-8",
+    )
+    external = tmp_path / "external"
+    external.mkdir()
+    retired = agents.parent / ".zekam-retired-agents"
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(retired), str(external)],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    with pytest.raises(ConfigurationError, match="regular directory"):
+        plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
+
+    assert stale.is_file()
+    assert not (external / stale.name).exists()
 
 
 def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
@@ -253,14 +331,16 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
         apply_opencode_agent_bootstrap(plan)
 
 
-def test_repository_policy_allows_all_shell_commands_without_prompts() -> None:
+def test_repository_policy_requires_confirmation_for_ambient_effects() -> None:
     root = Path(__file__).resolve().parents[2]
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
     permission = config["permission"]
-    assert permission["edit"] == "allow"
+    assert permission["*"] == "ask"
+    assert permission["edit"] == "ask"
     assert permission["external_directory"]["*"] == "deny"
-    assert permission["external_directory"]["C:/innova/projeler/**"] == "allow"
-    assert permission["bash"] == "allow"
+    assert permission["bash"] == "ask"
+    assert permission["webfetch"] == "ask"
+    assert permission["task"] == "ask"
 
     manifest = (root / "PROJE_MANIFESTI.yaml").read_text(encoding="utf-8")
     assert "mutation_workspace: exact-bound-real-source-root" in manifest

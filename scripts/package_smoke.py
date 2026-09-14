@@ -343,6 +343,7 @@ def accept_wheel(
                 ("artifact.resources", [str(python), "-I", "-c", import_check], frozenset({0})),
                 ("cli.version", [str(zekam), "--version"], frozenset({0})),
                 ("cli.help", [str(zekam), "--help"], frozenset({0})),
+                ("cli.skill-help", [str(zekam), "skill", "--help"], frozenset({0})),
                 (
                     "native.storage",
                     [str(python), "-I", "-c", _NATIVE_STORAGE_PROBE, str(work)],
@@ -370,6 +371,19 @@ def accept_wheel(
                         "sqlite",
                         "--home",
                         str(zekam_home),
+                    ],
+                    frozenset({0}),
+                ),
+                (
+                    "cli.skill-status",
+                    [
+                        str(zekam),
+                        "skill",
+                        "status",
+                        "--home",
+                        str(zekam_home),
+                        "--project-root",
+                        str(work),
                     ],
                     frozenset({0}),
                 ),

@@ -51,7 +51,12 @@ def install_command(
             "config_update_required": plan.config_update_required,
             "agents_to_create": list(plan.agents_to_create),
             "agents_to_update": list(plan.agents_to_update),
+            "agents_to_retire": list(plan.agents_to_retire),
+            "legacy_retired_agents_to_migrate": list(
+                plan.legacy_retired_agents_to_migrate
+            ),
             "conflicting_agents": list(plan.conflicting_agents),
+            "catalog_scope_state": plan.catalog_scope_state,
             "lifecycle_plugin_update_required": plan.lifecycle_plugin_to_create,
             "lifecycle_plugin_conflict": plan.lifecycle_plugin_conflict,
             "apply": apply,
@@ -179,7 +184,12 @@ def resume_command(
 ) -> None:
     """Model-bagimsiz OpenCode kesinti ozetini yazar."""
 
-    console.print_json(json.dumps(resume_projection(resolve_home(home)), ensure_ascii=False))
+    console.print_json(
+        json.dumps(
+            resume_projection(resolve_home(home), quarantine_invalid=False),
+            ensure_ascii=False,
+        )
+    )
 
 
 @app.command("pre-compact")

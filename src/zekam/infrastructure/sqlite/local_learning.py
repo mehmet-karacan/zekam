@@ -9,7 +9,9 @@ default composition and it never imports or migrates legacy PostgreSQL data.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
+import os
 import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
@@ -35,13 +37,14 @@ from zekam.domain.memory import MemoryCandidate
 from zekam.infrastructure.local_file_security import (
     private_directory,
     private_regular,
+    restrict_private_file,
     restrict_private_tree,
 )
 from zekam.infrastructure.local_runtime_effects import LocalJournalEffectExecutor
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 
-SCHEMA_VERSION = 1
-SCHEMA_DIGEST = "sha256:4d5d9f79cf576a2385179198045d0bd91972c86d9ab996d57cd68eb181d0f038"
+SCHEMA_VERSION = 2
+SCHEMA_V1_DIGEST = "sha256:4d5d9f79cf576a2385179198045d0bd91972c86d9ab996d57cd68eb181d0f038"
 MAX_BODY_BYTES = 32_768
 _SOURCE_KINDS = frozenset({"receipt", "test", "citation", "observation-summary"})
 _DAILY_SOURCES = {
@@ -57,6 +60,24 @@ _DAILY_SOURCES = {
     "skill_outcome": ("outcome_digest", "observed_at"),
     "hygiene_proposal": ("proposal_digest", "created_at"),
 }
+_V1_CONTENT_TABLES = (
+    "memory_candidate",
+    "memory_review",
+    "memory_revision",
+    "memory_relation",
+    "memory_head",
+    "failure_signature",
+    "failure_occurrence",
+    "failure_card",
+    "lesson",
+    "skill_manifest",
+    "skill_evaluation",
+    "skill_review",
+    "skill_activation",
+    "skill_usage",
+    "skill_outcome",
+    "hygiene_proposal",
+)
 
 _SCHEMA = r"""
 pragma foreign_keys=on;
@@ -205,11 +226,121 @@ for _table in (
     _SCHEMA += f"create trigger {_table}_no_update before update on {_table} begin select raise(abort,'append-only'); end;\n"
     _SCHEMA += f"create trigger {_table}_no_delete before delete on {_table} begin select raise(abort,'append-only'); end;\n"
 
+_SCHEMA_V1 = _SCHEMA
+_MIGRATION_V2 = r"""
+create table skill_revision_v2(
+ revision_digest text primary key,skill_id text not null,name text not null,
+ version integer not null check(version>0),scope_kind text not null,
+ scope_ref text not null,package_digest text not null,author_ref text not null,
+ state text not null check(state='candidate'),created_at text not null,body_json text not null,
+ unique(skill_id,version,scope_kind,scope_ref),
+ check(scope_kind in ('realm','project','user')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create table skill_origin_v2(
+ origin_digest text primary key,revision_digest text not null references skill_revision_v2,
+ origin_kind text not null,evidence_digest text not null,work_ref text not null,
+ run_ref text not null,artifact_revision_digest text,user_ref text,
+ observed_at text not null,body_json text not null,
+ unique(revision_digest,origin_kind,evidence_digest),
+ check(origin_kind in ('failure_lesson','verified_success','user_correction','user_request')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create table skill_evaluation_v2(
+ evaluation_digest text primary key,revision_digest text not null references skill_revision_v2,
+ plan_digest text not null,state text not null,trials integer not null check(trials>=0),
+ evaluator_ref text not null,verifier_ref text not null,created_at text not null,
+ body_json text not null,check(evaluator_ref<>verifier_ref),
+ check(state in ('improved','equal','regressed','blocked','failed','insufficient-evidence')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create table skill_review_v2(
+ review_digest text primary key,revision_digest text not null references skill_revision_v2,
+ evaluation_digest text not null references skill_evaluation_v2,reviewer_ref text not null,
+ approved integer not null check(approved in (0,1)),reason text not null,
+ created_at text not null,body_json text not null,
+ unique(revision_digest,evaluation_digest,reviewer_ref),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create table skill_activation_event_v2(
+ event_digest text primary key,revision_digest text not null references skill_revision_v2,
+ skill_id text not null,scope_kind text not null,scope_ref text not null,action text not null,
+ previous_event_digest text references skill_activation_event_v2,created_at text not null,
+ body_json text not null,
+ check(scope_kind in ('realm','project','user')),
+ check(action in ('active','deprecated','revoked','retired','superseded')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create unique index skill_activation_initial_v2 on skill_activation_event_v2(skill_id,scope_kind,scope_ref)
+ where previous_event_digest is null;
+create unique index skill_activation_successor_v2 on skill_activation_event_v2(previous_event_digest)
+ where previous_event_digest is not null;
+create table skill_invocation_v2(
+ invocation_digest text primary key,revision_digest text not null references skill_revision_v2,
+ package_digest text not null,work_ref text not null,run_ref text not null,
+ agent_ref text not null,client_id text not null,harness_digest text not null,state text not null,
+ previous_invocation_digest text references skill_invocation_v2,observed_at text not null,
+ body_json text not null,
+ check(state in ('discovered','selected','loaded','invoked','completed','blocked','cancelled','unverified')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+create unique index skill_invocation_initial_v2 on skill_invocation_v2(revision_digest,work_ref,run_ref,agent_ref)
+ where previous_invocation_digest is null;
+create unique index skill_invocation_successor_v2 on skill_invocation_v2(previous_invocation_digest)
+ where previous_invocation_digest is not null;
+create table skill_outcome_v2(
+ outcome_digest text primary key,invocation_digest text not null unique references skill_invocation_v2,
+ status text not null,grader_kind text not null,verifier_ref text not null,
+ evidence_digest text not null,observed_at text not null,body_json text not null,
+ check(status in ('verified-success','verified-failure','unverified')),
+ check(grader_kind in ('artifact','process','preference','efficiency','safety','human')),
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;
+"""
+for _table in (
+    "skill_revision_v2",
+    "skill_origin_v2",
+    "skill_evaluation_v2",
+    "skill_review_v2",
+    "skill_activation_event_v2",
+    "skill_invocation_v2",
+    "skill_outcome_v2",
+):
+    _MIGRATION_V2 += (
+        f"create trigger {_table}_no_update before update on {_table} "
+        "begin select raise(abort,'append-only'); end;\n"
+    )
+    _MIGRATION_V2 += (
+        f"create trigger {_table}_no_delete before delete on {_table} "
+        "begin select raise(abort,'append-only'); end;\n"
+    )
+_SCHEMA += _MIGRATION_V2
+
 
 def _time(value: dt.datetime) -> str:
     if type(value) is not dt.datetime or value.tzinfo is None:
         raise ValidationFailed("WP-09 timezone-aware datetime required")
     return value.astimezone(dt.UTC).replace(microsecond=0).isoformat()
+
+
+def _v1_content_digest(db: sqlite3.Connection) -> str:
+    """Stream a canonical logical digest of every pre-v2 learning row."""
+
+    hasher = hashlib.sha256()
+    for table in _V1_CONTENT_TABLES:
+        columns = tuple(
+            str(row[1]) for row in db.execute(f'pragma table_info("{table}")').fetchall()
+        )
+        if not columns:
+            raise PolicyViolation("Learning v1 content table missing")
+        projection = ",".join(f'"{column}"' for column in columns)
+        order = ",".join(f'"{column}"' for column in columns)
+        hasher.update(canonical_json({"table": table, "columns": columns}).encode("utf-8"))
+        hasher.update(b"\n")
+        for row in db.execute(f'select {projection} from "{table}" order by {order}'):
+            hasher.update(canonical_json(list(row)).encode("utf-8"))
+            hasher.update(b"\n")
+    return "sha256:" + hasher.hexdigest()
 
 
 def _parse_time(value: object) -> dt.datetime:
@@ -244,6 +375,54 @@ def _schema_digest(db: sqlite3.Connection) -> str:
         "order by type,name"
     ).fetchall()
     return digest([{"type": str(row[0]), "name": str(row[1]), "sql": str(row[2])} for row in rows])
+
+
+_REQUIRED_V2_INDEX_SQL = {
+    "skill_activation_initial_v2": (
+        "create unique index skill_activation_initial_v2 on "
+        "skill_activation_event_v2(skill_id,scope_kind,scope_ref) "
+        "where previous_event_digest is null"
+    ),
+    "skill_activation_successor_v2": (
+        "create unique index skill_activation_successor_v2 on "
+        "skill_activation_event_v2(previous_event_digest) "
+        "where previous_event_digest is not null"
+    ),
+    "skill_invocation_initial_v2": (
+        "create unique index skill_invocation_initial_v2 on "
+        "skill_invocation_v2(revision_digest,work_ref,run_ref,agent_ref) "
+        "where previous_invocation_digest is null"
+    ),
+    "skill_invocation_successor_v2": (
+        "create unique index skill_invocation_successor_v2 on "
+        "skill_invocation_v2(previous_invocation_digest) "
+        "where previous_invocation_digest is not null"
+    ),
+}
+
+
+def _required_v2_indexes_present(db: sqlite3.Connection) -> bool:
+    """Verify CAS/idempotency indexes omitted by the legacy schema digest."""
+
+    rows = db.execute(
+        "select name,sql from sqlite_master where type='index' and name in (?,?,?,?)",
+        tuple(_REQUIRED_V2_INDEX_SQL),
+    ).fetchall()
+    observed = {
+        str(name): " ".join(str(sql).split()).casefold() for name, sql in rows if sql is not None
+    }
+    expected = {
+        name: " ".join(sql.split()).casefold() for name, sql in _REQUIRED_V2_INDEX_SQL.items()
+    }
+    return observed == expected
+
+
+with closing(sqlite3.connect(":memory:")) as _schema_db:
+    _schema_db.executescript(_SCHEMA_V1)
+    if _schema_digest(_schema_db) != SCHEMA_V1_DIGEST:
+        raise RuntimeError("Local learning v1 schema digest drift")
+    _schema_db.executescript(_MIGRATION_V2)
+    SCHEMA_DIGEST = _schema_digest(_schema_db)
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,6 +719,182 @@ class SQLiteLocalLearning:
             )
             db.commit()
         self.path.chmod(0o600)
+
+    def migration_plan_v2(self, backup_path: Path) -> dict[str, object]:
+        """Build a provider-free, digest-bound v1-to-v2 migration plan."""
+
+        if (
+            type(backup_path) is not type(Path())
+            or not backup_path.is_absolute()
+            or backup_path == self.path
+            or backup_path.is_symlink()
+        ):
+            raise ValidationFailed("Learning v2 backup target exact absolute file olmali")
+        if backup_path.exists():
+            if not private_regular(backup_path):
+                raise PolicyViolation("Learning v2 existing backup identity invalid")
+            with closing(
+                sqlite3.connect(
+                    f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
+                )
+            ) as backup:
+                backup_row = backup.execute(
+                    "select version,schema_digest from learning_schema where singleton=1"
+                ).fetchone()
+                backup_digest = _schema_digest(backup)
+                backup_content_digest = _v1_content_digest(backup)
+            if backup_row is None or (
+                int(backup_row[0]), str(backup_row[1]), backup_digest
+            ) != (1, SCHEMA_V1_DIGEST, SCHEMA_V1_DIGEST):
+                raise PolicyViolation("Learning v2 existing backup fingerprint invalid")
+        else:
+            backup_content_digest = None
+        self._file_ok()
+        with closing(
+            sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)
+        ) as db:
+            db.execute("begin")
+            row = db.execute(
+                "select version,schema_digest from learning_schema where singleton=1"
+            ).fetchone()
+            observed = _schema_digest(db)
+            source_content_digest = _v1_content_digest(db)
+            db.rollback()
+        if row is None:
+            raise PolicyViolation("Learning migration schema metadata missing")
+        source = (int(row[0]), str(row[1]), observed)
+        if source not in {
+            (1, SCHEMA_V1_DIGEST, SCHEMA_V1_DIGEST),
+            (SCHEMA_VERSION, SCHEMA_DIGEST, SCHEMA_DIGEST),
+        }:
+            raise PolicyViolation("Learning migration unknown schema fingerprint")
+        if (
+            backup_content_digest is not None
+            and backup_content_digest != source_content_digest
+        ):
+            raise PolicyViolation("Learning v2 backup content does not match source")
+        body: dict[str, object] = {
+            "schema": "zekam-learning-migration-plan/v2",
+            "source_version": source[0],
+            "source_schema_digest": source[1],
+            "source_content_digest": source_content_digest,
+            "target_version": SCHEMA_VERSION,
+            "target_schema_digest": SCHEMA_DIGEST,
+            "migration_required": source[0] == 1,
+            "database_ref": "ZEKAM_HOME/state/learning.db",
+            "backup_ref": f"ZEKAM_HOME/backups/{backup_path.name}",
+            "database_identity_digest": digest(
+                os.path.normcase(str(self.path.resolve(strict=True)))
+            ),
+            "backup_target_identity_digest": digest(
+                os.path.normcase(str(backup_path.resolve(strict=False)))
+            ),
+            "backup_content_digest": backup_content_digest or source_content_digest,
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        }
+        return body | {"plan_digest": digest(body)}
+
+    def migrate_v1_to_v2(
+        self, backup_path: Path, *, authorized_plan_digest: str
+    ) -> dict[str, object]:
+        """Atomically extend the learning store after an online SQLite backup."""
+
+        plan = self.migration_plan_v2(backup_path)
+        replay = False
+        legacy_replay = False
+        if plan["migration_required"] is True:
+            if plan["plan_digest"] != authorized_plan_digest:
+                raise PolicyViolation("Learning migration exact plan digest ister")
+        else:
+            original_body = {
+                key: value
+                for key, value in plan.items()
+                if key != "plan_digest"
+            }
+            original_body.update(
+                {
+                    "source_version": 1,
+                    "source_schema_digest": SCHEMA_V1_DIGEST,
+                    "migration_required": True,
+                }
+            )
+            replay = backup_path.exists() and digest(original_body) == authorized_plan_digest
+            if not replay:
+                legacy_body = {
+                    key: value
+                    for key, value in original_body.items()
+                    if key not in {"source_content_digest", "backup_content_digest"}
+                }
+                legacy_replay = (
+                    backup_path.exists() and digest(legacy_body) == authorized_plan_digest
+                )
+                replay = legacy_replay
+            if not replay:
+                raise PolicyViolation("Learning migration source already current")
+        if not backup_path.exists():
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            restrict_private_tree(backup_path.parent)
+            source = sqlite3.connect(
+                f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
+            )
+            target = sqlite3.connect(backup_path)
+            try:
+                source.backup(target)
+                target.commit()
+            finally:
+                target.close()
+                source.close()
+            restrict_private_file(backup_path)
+        if not private_regular(backup_path):
+            raise PolicyViolation("Learning migration backup identity readback invalid")
+        with closing(
+            sqlite3.connect(
+                f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
+            )
+        ) as backup:
+            observed_backup_content_digest = _v1_content_digest(backup)
+        if observed_backup_content_digest != plan["backup_content_digest"]:
+            raise PolicyViolation("Learning migration backup content digest drift")
+        if not replay:
+            with closing(sqlite3.connect(self.path, timeout=5.0)) as db:
+                db.execute("pragma foreign_keys=on")
+                try:
+                    db.executescript("begin immediate;\n" + _MIGRATION_V2)
+                    db.execute(
+                        "update learning_schema set version=?,schema_digest=? where singleton=1",
+                        (SCHEMA_VERSION, SCHEMA_DIGEST),
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+        with closing(self._connect()) as verified:
+            integrity = str(verified.execute("pragma integrity_check").fetchone()[0])
+            foreign_key = verified.execute("pragma foreign_key_check").fetchone()
+        if integrity != "ok" or foreign_key is not None:
+            raise PolicyViolation("Learning migration terminal integrity readback failed")
+        receipt = {
+            "schema": "zekam-learning-migration-receipt/v2",
+            "plan_digest": authorized_plan_digest,
+            "source_schema_digest": SCHEMA_V1_DIGEST,
+            "target_schema_digest": SCHEMA_DIGEST,
+            "backup_ref": plan["backup_ref"],
+            "integrity": integrity,
+            "foreign_key_check": "ok",
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        }
+        if not legacy_replay:
+            receipt.update(
+                {
+                    "source_content_digest": plan["source_content_digest"],
+                    "backup_content_digest": observed_backup_content_digest,
+                }
+            )
+        return receipt | {"receipt_digest": digest(receipt)}
 
     def _file_ok(self) -> None:
         if not private_regular(self.path):

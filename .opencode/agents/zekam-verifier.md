@@ -4,15 +4,13 @@ description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash: ask
   webfetch: deny
   read: allow
   glob: allow
   grep: allow
   list: allow
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Builder execution identity'sinden farklı ol. Acceptance subject'lerini tek tek doğrula.

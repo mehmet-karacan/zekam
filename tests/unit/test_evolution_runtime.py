@@ -31,8 +31,8 @@ from zekam.infrastructure.sqlite.evolution_authority import EVOLUTION_AUTHORITY_
 
 
 def test_evolution_task_identities_are_distinct_and_canonical() -> None:
-    assert EVOLUTION_TASK_ID == "ZEKAM-AUTONOMOUS-EVOLUTION-001"
-    assert PREVIOUS_TASK_ID == "ZEKAM-LOCAL-INTELLIGENCE-PLANE-001"
+    assert EVOLUTION_TASK_ID == "ZEKAM-PERSONAL-SKILL-LIFECYCLE-001"
+    assert PREVIOUS_TASK_ID == "ZEKAM-AUTONOMOUS-EVOLUTION-001"
     assert EVOLUTION_TASK_ID != PREVIOUS_TASK_ID
 
 
@@ -58,14 +58,14 @@ def test_transition_journal_requires_one_receipt_gated_record(tmp_path: Path) ->
         _transition_journal(tmp_path)
 
 
-def test_transition_identity_bridges_only_the_exact_author_rewrite() -> None:
+def test_transition_identity_binds_exact_current_authority() -> None:
     rewritten = SimpleNamespace(
         source_digest="sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba",
         baseline_head="b59221a0891dc94d3702d042132254066dc089ed",
     )
     assert _transition_receipt_identity(rewritten) == (
-        "sha256:4788116aa01885aa8b884579f4f8ee1ce87b76ee54f55c8fe884aec7e33580b2",
-        "8761790e6034c5d2958476b9eb45af36da1b094a",
+        rewritten.source_digest,
+        rewritten.baseline_head,
     )
     other = SimpleNamespace(source_digest=digest("other"), baseline_head="a" * 40)
     assert _transition_receipt_identity(other) == (other.source_digest, other.baseline_head)
@@ -75,13 +75,13 @@ def _active_contract() -> ActiveTaskContract:
     return ActiveTaskContract.from_bytes(
         b"---\n"
         b"schema: zekam-active-task/v2\n"
-        b"task_id: ZEKAM-AUTONOMOUS-EVOLUTION-001\n"
+        b"task_id: ZEKAM-PERSONAL-SKILL-LIFECYCLE-001\n"
         b"status: APPROVED_ACTIVE_TASK\n"
-        b"title: Evolution\n"
-        b"created_at: 2026-09-06T15:18:10+03:00\n"
+        b"title: Personal Skill Lifecycle\n"
+        b"created_at: 2026-09-13T16:08:07+03:00\n"
         b"baseline_repository: mehmet-karacan/zekam\n"
         b"baseline_branch: main\n"
-        b"baseline_head: b59221a0891dc94d3702d042132254066dc089ed\n"
+        b"baseline_head: d273e543600176a1b7cfc39b6696994cf8fec5cf\n"
         b"legacy_postgresql_data_import: FORBIDDEN\n"
         b"postgresql_runtime_dependency: FORBIDDEN\n"
         b"docker_required_for_zekam_core: false\n"
@@ -96,9 +96,9 @@ def test_transition_binding_requires_exact_job_effect_journal_and_receipt_chain(
         "schema": "zekam-scope-transition/v1",
         "previous_task_id": PREVIOUS_TASK_ID,
         "previous_authority_digest": (
-            "sha256:ebd9ca00a5cc500a650984e3cdc7be22186b85b5a283d86a6f9d863237530629"
+            "sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba"
         ),
-        "previous_git_blob": "ce2980e819df68ccf2ac375c1f550b6d675ebeaa",
+        "previous_git_blob": "d976cc570cb993787842a2b1a857206db7173c4f",
         "new_task_id": EVOLUTION_TASK_ID,
         "new_authority_digest": active.source_digest,
         "source_head": active.baseline_head,

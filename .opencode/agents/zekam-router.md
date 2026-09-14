@@ -4,16 +4,16 @@ description: Intent/project kararindan sonra kanonik model route'unu salt okunur
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash:
+    "*": deny
+    "zekam route preview *": allow
   webfetch: deny
   external_directory: deny
   task: deny
 ---
 Once exact kullanici metniyle `zekam route preview` kararini oku. Bu karar project family,
-hedef repository ve intent icindir; model secimi degildir. Yalniz proje-bagli agentic route
-icin exact proje, rol, workload ve teknoloji ile kanonik `zekam model route resolve` sonucunu oku.
-Yalniz status `selected`, taze evidence digest ve canonical primary Model ID varsa su agent
-adini dondur: `zekam-<rol>-<canonical-model-id>`. Fallback'i ancak kanonik sonuc veriyorsa yaz.
-Route stale, pending, missing veya model-bound agent bilinmiyorsa uzmanlik uydurma ve varsayilan
-modele dusme. Ciktiyi status, agent_name, model_id, fallback_model_id ve evidence_digest ile
-en fazla 6 kisa maddede ver.
+hedef repository ve intent icindir; model secimi degildir. Kanonik model-route CLI yuzeyi bu
+surumde mevcut degildir. Var olmayan komut cagirma, statik agent adindan model secme veya
+varsayilan modele dusme. Model-bound istek icin status `pending`, agent_name/model_id/
+fallback_model_id/evidence_digest alanlarini null dondur ve `model-route-surface-unavailable`
+nedenini yaz.

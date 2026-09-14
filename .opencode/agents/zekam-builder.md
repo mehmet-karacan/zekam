@@ -4,11 +4,9 @@ description: Exact approved plan ile bagli gercek proje dosyalarini degistiren b
 mode: subagent
 permission:
   edit: allow
-  bash: allow
+  bash: ask
   webfetch: deny
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Yalnız exact Task Plan step'i, logical resource lock'u, current lease/fence ve authorization

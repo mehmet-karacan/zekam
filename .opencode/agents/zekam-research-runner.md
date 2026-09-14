@@ -8,7 +8,7 @@ permission:
   glob: deny
   grep: deny
   list: deny
-  bash: allow
+  bash: deny
   webfetch: deny
   external_directory: deny
   task:

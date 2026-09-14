@@ -615,6 +615,9 @@ def load_campaign_scope(path: Path | None = None) -> OpenCodeCampaignScope:
         canonical = row["canonical_model_ids"]
         if not isinstance(canonical, list) or any(not isinstance(item, str) for item in canonical):
             raise ConfigurationError("Campaign canonical model listesi gecersiz")
+        for flag in ("reviewed_duplicate_route", "reviewed_modality_conflict"):
+            if flag in row and type(row[flag]) is not bool:
+                raise ConfigurationError(f"Campaign {flag} exact bool olmali")
         targets.append(
             ScopeTarget(
                 configured_model_id=str(row["configured_model_id"]),
@@ -624,8 +627,8 @@ def load_campaign_scope(path: Path | None = None) -> OpenCodeCampaignScope:
                 excluded_reason=(
                     None if row.get("excluded_reason") is None else str(row["excluded_reason"])
                 ),
-                reviewed_duplicate_route=bool(row.get("reviewed_duplicate_route", False)),
-                reviewed_modality_conflict=bool(row.get("reviewed_modality_conflict", False)),
+                reviewed_duplicate_route=row.get("reviewed_duplicate_route", False),
+                reviewed_modality_conflict=row.get("reviewed_modality_conflict", False),
             )
         )
     return OpenCodeCampaignScope(

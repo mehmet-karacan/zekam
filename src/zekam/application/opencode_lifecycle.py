@@ -217,11 +217,35 @@ class OpenCodeForwardEvent:
     @classmethod
     def capture(cls, document: Mapping[str, Any]) -> OpenCodeForwardEvent:
         row = dict(document)
+        expected_keys = set(
+            OpenCodeLifecycleEvent(
+                event_id="shape-probe",
+                delivery_id=None,
+                event_type="session.created",
+                session_id="shape-probe",
+                parent_session_id=None,
+                agent=None,
+                model_ref=None,
+                tool=None,
+                resource=None,
+                status=None,
+                error_category=None,
+                completed_summary=None,
+                pending_summary=None,
+                next_action=None,
+                task_label=None,
+                occurred_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC),
+                sequence=1,
+                previous_digest=None,
+            ).document()
+        )
         event_digest = str(row.get("event_digest", ""))
         parse_digest(event_digest)
         body = {key: value for key, value in row.items() if key != "event_digest"}
         if digest(body) != event_digest:
             raise ValidationFailed("OpenCode forward event digest drift")
+        if set(row) != expected_keys:
+            raise ValidationFailed("OpenCode forward event exact fields required")
         if body.get("schema") != SCHEMA:
             raise ValidationFailed("OpenCode forward yalniz v2 event kabul eder")
         if (
@@ -556,7 +580,7 @@ def resume_projection(
     *,
     limit: int = 20,
     now: dt.datetime | None = None,
-    quarantine_invalid: bool = True,
+    quarantine_invalid: bool = False,
 ) -> dict[str, Any]:
     events = list(recent_events(home, limit=5000, quarantine_invalid=quarantine_invalid))
     events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))

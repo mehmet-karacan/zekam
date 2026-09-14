@@ -30,6 +30,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | Raporlar ve observatory | `partial` | `scheduler report/rebuild`, `ui serve` | Research rapor gövdesi show/refresh bağlı değil |
 | Model benchmark | `partial` | `model benchmark/decide/health/portable-inspect`, `model campaign plan/run/status/report` | Windows-native pipeline kampanyası hazır; portable import, gerçek provider, baseline ve release gate hâlâ kapalı |
 | Semantic memory | `partial` | İç domain/shadow mekanizmaları | inspect/search/review/promote/status kullanıcı yüzeyi eksik |
+| Kişisel skill yaşam döngüsü | `partial` | `skill prepare/status/list/inspect/explain/propose/evaluate/export`; v2 origin/eval/activation/invocation ledger; yönetilen istemci projection | Pilot adaydır ve aktif değildir; gerçek model/Claude/macOS kabulü ile evolution auto-activation yetkisi yoktur |
 | Jira | `partial` | Deterministik `jira resolve` | Issue fetch + kanıt kalıcılığı OpenCode MCP yoluna bağlı |
 
 ## “Nerede kaldık?” sözleşmesi

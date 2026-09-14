@@ -4,7 +4,7 @@ description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only su
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash: ask
   webfetch: deny
   external_directory: deny
   task: deny

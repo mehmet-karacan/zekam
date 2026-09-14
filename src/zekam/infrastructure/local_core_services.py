@@ -59,6 +59,7 @@ from zekam.infrastructure.sqlite.operational_schema import (
 )
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+from zekam.infrastructure.sqlite.skill_lifecycle import SQLiteSkillLifecycle
 
 
 def _schema_digest(connection: sqlite3.Connection) -> str:
@@ -211,6 +212,7 @@ class LocalCoreServices:
     analytics: LocalAnalyticsStore
     improvement: SQLiteLocalImprovementStore
     skill_runtime_signer: SkillRuntimeSigner
+    skills: SQLiteSkillLifecycle
 
     @classmethod
     def from_context(cls, context: ApplicationContext) -> LocalCoreServices:
@@ -243,6 +245,7 @@ class LocalCoreServices:
                 home / "state" / "improvement.db", learning_path, benchmark_path
             ),
             skill_runtime_signer=skill_runtime_signer,
+            skills=SQLiteSkillLifecycle(learning_path, operational_path),
         )
 
     def bootstrap_extensions(self) -> None:

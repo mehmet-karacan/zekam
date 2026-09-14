@@ -26,7 +26,7 @@ def test_native_campaign_plan_run_status_report_and_zero_call_replay(
         "zekam.application.model_benchmark_service._run_json_process",
         forbidden_adapter_process,
     )
-    plan_result = _invoke("plan", "--json")
+    plan_result = _invoke("plan", "--native-pipeline", "--json")
     assert plan_result.exit_code == 0, plan_result.output
     plan = json.loads(plan_result.output)
     assert plan["campaign_kind"] == "pipeline-acceptance"
@@ -121,8 +121,10 @@ def test_native_campaign_plan_is_digest_bound_to_portable_design_source(
     tmp_path: Path,
 ) -> None:
     portable_fixture(tmp_path)
-    plain_result = _invoke("plan", "--json")
-    bound_result = _invoke("plan", "--portable-root", str(tmp_path), "--json")
+    plain_result = _invoke("plan", "--native-pipeline", "--json")
+    bound_result = _invoke(
+        "plan", "--native-pipeline", "--portable-root", str(tmp_path), "--json"
+    )
     assert plain_result.exit_code == bound_result.exit_code == 0
     plain = json.loads(plain_result.output)
     bound = json.loads(bound_result.output)

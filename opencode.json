@@ -7,14 +7,13 @@
   ],
   "default_agent": "zekam-coordinator",
   "permission": {
-    "*": "allow",
-    "edit": "allow",
-    "bash": "allow",
-    "webfetch": "allow",
+    "*": "ask",
+    "edit": "ask",
+    "bash": "ask",
+    "webfetch": "ask",
     "external_directory": {
-      "*": "deny",
-      "C:/innova/projeler/**": "allow"
+      "*": "deny"
     },
-    "task": "allow"
+    "task": "ask"
   }
 }

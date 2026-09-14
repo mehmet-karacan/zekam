@@ -26,21 +26,13 @@ from zekam.infrastructure.sqlite.evolution_authority import evolution_authority_
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.windows_task_scheduler import WindowsTaskPlan, inspect_windows_task
 
-EVOLUTION_TASK_ID: Final = "ZEKAM-AUTONOMOUS-EVOLUTION-001"
-PREVIOUS_TASK_ID: Final = "ZEKAM-LOCAL-INTELLIGENCE-PLANE-001"
+EVOLUTION_TASK_ID: Final = "ZEKAM-PERSONAL-SKILL-LIFECYCLE-001"
+PREVIOUS_TASK_ID: Final = "ZEKAM-AUTONOMOUS-EVOLUTION-001"
 PREVIOUS_AUTHORITY_DIGEST: Final = (
-    "sha256:ebd9ca00a5cc500a650984e3cdc7be22186b85b5a283d86a6f9d863237530629"
-)
-PREVIOUS_GIT_BLOB: Final = "ce2980e819df68ccf2ac375c1f550b6d675ebeaa"
-TRANSITION_KEY: Final = "scope-transition:ebd9ca00:4788116a"
-_ORIGINAL_TASK_AUTHORITY_DIGEST: Final = (
-    "sha256:4788116aa01885aa8b884579f4f8ee1ce87b76ee54f55c8fe884aec7e33580b2"
-)
-_ORIGINAL_BASELINE_HEAD: Final = "8761790e6034c5d2958476b9eb45af36da1b094a"
-_AUTHOR_REWRITE_TASK_AUTHORITY_DIGEST: Final = (
     "sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba"
 )
-_AUTHOR_REWRITE_BASELINE_HEAD: Final = "b59221a0891dc94d3702d042132254066dc089ed"
+PREVIOUS_GIT_BLOB: Final = "d976cc570cb993787842a2b1a857206db7173c4f"
+TRANSITION_KEY: Final = "scope-transition:9408eff4:d490accb"
 _TASK_EVENT_LIMIT: Final = 16
 _TASK_EVENT_OUTPUT_LIMIT: Final = 128 * 1024
 
@@ -95,16 +87,9 @@ def _transition_journal(home: Path) -> tuple[str, str, dict[str, Any]] | None:
 
 
 def _transition_receipt_identity(active: ActiveTaskContract) -> tuple[str, str]:
-    """Bridge the exact author-only baseline rewrite to its immutable receipt."""
+    """Bind a new transition receipt to the exact living task bytes and baseline."""
 
-    current = (active.source_digest, active.baseline_head)
-    rewritten = (
-        _AUTHOR_REWRITE_TASK_AUTHORITY_DIGEST,
-        _AUTHOR_REWRITE_BASELINE_HEAD,
-    )
-    if current == rewritten:
-        return (_ORIGINAL_TASK_AUTHORITY_DIGEST, _ORIGINAL_BASELINE_HEAD)
-    return current
+    return active.source_digest, active.baseline_head
 
 
 def _transition_binding_ok(

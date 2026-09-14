@@ -1,12 +1,12 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-AUTONOMOUS-EVOLUTION-001
+task_id: ZEKAM-PERSONAL-SKILL-LIFECYCLE-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Sürekli Öğrenme ve Ölçümlü Otonom İyileştirme Entegrasyonu
-created_at: 2026-09-06T15:18:10+03:00
+title: Zekam Deneyimden Kişisel Skill Üretimi ve İstemciler Arası Güvenli Kullanım
+created_at: 2026-09-13T16:08:07+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: b59221a0891dc94d3702d042132254066dc089ed
+baseline_head: d273e543600176a1b7cfc39b6696994cf8fec5cf
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
@@ -15,610 +15,427 @@ push_authorized: false
 
 # AKTIF_GOREV.md
 
-> **Amaç:** Mehmet'in her oturumda “not al”, “hatalarından öğren”, “iyileştirmeyi başlat” demesine gerek bırakmadan; Zekam'ın deneyim toplaması, bilgiyi derlemesi, tekrar eden sorunları saptaması, iyileştirme üretmesi, sonuçlarını ölçmesi ve önceden yetkilendirilmiş güvenli değişiklikleri kendiliğinden uygulaması.
+> **Amaç:** Mehmet’in kabul ettiği gerçek çalışma yöntemlerinin, verdiği düzeltmelerin ve tekrarlanan ihtiyaçların Zekam tarafından kaynaklı skill adaylarına dönüştürülmesi; bağımsız değerlendirmeden geçen sürümlerin mevcut yetki sınırlarında OpenCode, Codex ve Claude Code üzerinden yeniden kullanılabilmesi.
 >
-> **Bu bir uygulama görevidir; tamamlanmış kurulum veya verilmiş canlı işletim yetkisi değildir.** Kullanıcının 6 Eylül 2026 tarihli araştırma ve yeni entegrasyon görevi talebine dayanır. `APPROVED_ACTIVE_TASK`, mevcut parser'ın beklediği görev statüsüdür; işletim sistemi servisi kurma, kalıcı uzaktan model kullanımı, dış veri aktarımı, kodu otomatik yayımlama veya push yetkisi üretmez. Bu etkiler aşağıdaki açık, sınırlandırılmış yetkilendirme akışına tabidir.
+> **Yeni platform veya ikinci öğrenme motoru kurulmayacak.** Mevcut learning, improvement, evolution, canonical knowledge, operational authority ve tool/harness bileşenleri tamamlanacak.
 >
-> **Yeni ürün, ikinci beyin deposu, ikinci scheduler veya ikinci approval sistemi kurma.** Mevcut Zekam bileşenlerini uçtan uca bağla. Avenox, Hermes veya araştırma projeleri tasarım kaynağıdır; Zekam'ın yerine geçirilmez.
+> Bu belge kullanıcının 13 Eylül 2026 tarihli araştırma ve uygulama planı talebini somutlaştırır. `APPROVED_ACTIVE_TASK` görev parser’ının statüsüdür; ürüne kurulum, native supervisor, provider çağrısı, dış veri aktarımı, bütün gelecek skill’leri etkinleştirme veya push yetkisi anlamına gelmez. Bu dosyanın hazırlanması ile ürünün uygulanması aynı şey değildir.
 
-## 1. Başlangıç ve kapsamın korunması
+## 1. İlk uygulayıcı için başlangıç
 
-### 1.1. İlk uygulayıcının yapacağı işler
+### 1.1. Mevcut görevden güvenli geçiş
 
-`AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `PROJE_MANIFESTI.yaml`, mevcut görev/projeksiyon ve ilgili kalite sözleşmelerini oku. Gerçek çalışma dizininde branch, HEAD, remote, son beş commit, tracked/untracked değişiklikler ve mevcut lease/recovery durumunu kaydet. Çalışma çıktısını kaynak ağacı dışındaki kullanıcı artifact alanına yaz.
+Önce gerçek çalışma dizinindeki `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `PROJE_MANIFESTI.yaml`, yaşayan `AKTIF_GOREV.md`, projection, DoD ve ilgili güvenlik sözleşmelerini oku. Bu teslim dosyası henüz dışarıdaysa mevcut aktif belgenin üstüne doğrudan yazma.
 
-Bu incelemenin GitHub referansı `b59221a0891dc94d3702d042132254066dc089ed` commit'idir. Uygulama sırasında daha yeni HEAD varsa bunu eski commit'e döndürme; ilgili değişiklikleri karşılaştır, etkilenen entegrasyon varsayımlarını yenile ve yeni başlangıç fingerprint'ini kaydet. Güncel GitHub görünümü, kullanıcının yerel çalışma ağacının temiz olduğunu kanıtlamaz.
+İncelenen önceki görev kimliği `ZEKAM-AUTONOMOUS-EVOLUTION-001` ve Git blob’u `d976cc570cb993787842a2b1a857206db7173c4f` idi. Git blob kimliği SHA-256 değildir. Kullanıcının yerel dosyası farklıysa gerçek bytes/digest’i esas al ve farkı kaydet. Önceki görevin bütün işlerini tamamlanmış varsayma.
 
-Remote ile hizalama gerekiyorsa önce durum ve ancestry kontrolü yap. Yetki varsa yalnız çakışmasız, temiz ve fast-forward uygulanabilir durumda ilerle. Dirty/diverged durumda kullanıcı değişikliklerini stash, reset, checkout, rebase veya force-push ile ortadan kaldırma. Engel yalnız ilgili mutation yolunu durdursun; salt okunur analiz ve bağımsız test tasarımı devam edebilsin.
+**Özel bağımlılık:** `src/zekam/application/evolution_runtime.py` içinde görev kimliği, transition anahtarı ve tarihsel digest bağları sabit. Yeni MD’nin devreye alınması bu bağımlılık çözülmeden evolution çalışıyor sayılmamalı. [R03–R05]
 
-`python scripts/paket_dogrula.py` ve mevcut projede tanımlı hedefli baseline testlerini çalıştır. Test komutlarını güncel `pyproject.toml`, CI ve kalite belgelerinden türet; eski test sayılarını yeni çalıştırma sonucu gibi kopyalama. Bu dosyayı hazırlayan inceleme oturumunda yerel testler, canlı modeller ve servis kurulumu çalıştırılmamıştır.
+İki aşamalı benimseme uygula:
 
-### 1.2. Önceki aktif görevin kaybolmaması
+1. Yeni belgeyi izinli artifact alanında incele. Eski MD/YAML ve operational açık iş/claim/lease/recovery durumunu exact kaydet. Çalışan iş varsa mevcut kontrollü pause/checkpoint yöntemini kullan; kullanıcı verisini değiştirmeyen analiz devam edebilir.
+2. Kullanıcının yeni görev talebine dayanan **yalnız görev benimseme kapsamındaki** geçiş planını hazırla: önceki/yeni task ve digest, eski work referansları, arşiv yeri, yeni projection, etkilenen validator ve yeniden doğrulanması gereken grant’ler. Mevcut protokolün izin verdiği transition yolunu kullan. Eski onayı genişleten veya doğrulayıcıyı atlayan bir bypass yazma.
+3. Mevcut runtime yeni kimliği kabul edemiyorsa bunu açık adoption blocker yap. Gereken sınırlı geçiş desteğini, bu yeni kullanıcı talebiyle yetkilendirilmiş değişiklik olarak ve normal kaynak-kök/tek-writer/test/verifier kuralları altında hazırla. Çalışan eski job’ların kimliğini geriye dönük dönüştürme.
+4. Tarihsel MD/YAML’yi `docs/archive/tasks/` altında referans olarak koru. Açık maddeler için carry-forward tablosu çıkar; yeni task altında aynı işi tekrar enqueue etme. Yeni görev ilgisiz bütün eski işleri üstlenmez; açık olanlar kendi kayıtlarında kalır.
+5. Yalnız güvenli transition tamamlandığında tek yaşayan `AKTIF_GOREV.md` bu belge olsun. YAML’yi mevcut generator ile exact bytes’tan üret; checksum/package manifestlerini mevcut araçlarla yenile.
+6. Yeni görev mevcut grant’leri otomatik geçerli veya kapsamı genişlemiş saymasın. Source/implementation/task digest değişiminin doğurduğu drift’i gerçek readback ile raporla. Eski immutable receipt’leri yeniden yazma.
 
-Önceki görev `ZEKAM-LOCAL-INTELLIGENCE-PLANE-001` kimliğindedir. İncelenen sürümde dosyanın Git blob kimliği `ce2980e819df68ccf2ac375c1f550b6d675ebeaa`dır. Bu kimlik dosyanın SHA-256'sı değildir.
+Bu başlangıç, “eski görevi tamamen yeniden uygula” veya yeni task kimliğini her yere metin değişikliğiyle yay talimatı değildir.
 
-Bu yeni dosyayı etkinleştirirken:
+### 1.2. Baseline ve yerel değişiklik güvenliği
 
-1. Eski aktif görev, projection ve tamamlanmamış work kayıtlarının exact içerik/digest'lerini koru. Dosya kullanıcı tarafından zaten değiştirilmişse parent içeriğini sabit Git referansından salt okunur edin; mümkün değilse kapsam geçişini kanıtlı blocker olarak işaretle.
-2. Eski sözleşmeyi tarihsel, salt okunur referans olarak arşivle. Bu görev kapsamında `docs/archive/tasks/` altında izlenebilir bir sözleşme arşivi oluşturmak yetkili belge değişikliğidir; geçici raporlar burada tutulmaz.
-3. Açık işler, kabul açıkları ve değişmeyen bağlayıcı kararlar için bir carry-forward tablosu üret. Eski işi yeni task kimliğiyle tekrar enqueue etme; eski receipt/claim zincirlerini yeniden yazma.
-4. Aktif lease/effect varken görev authority'sini sessizce değiştirme. Güvenli durak/checkpoint sonrası eski ve yeni digest'i bağlayan scope-transition kaydı kullan.
-5. Tek yaşayan `AKTIF_GOREV.md` kalsın. Arşiv bağımsız aktif talimat değildir. `AKTIF_GOREV.yaml`, mevcut generator ile yalnız bu yaşayan belgenin exact byte digest'inden üretilsin.
-6. Paket manifesti ve checksum'ları mevcut araçlarla yenile. Parser'ın kabul etmediği yeni frontmatter alanları ekleme; ek işletim metadata'sı sürümlü operational sözleşmelerinde bulunsun.
+Branch, HEAD, origin, son beş commit, tracked/untracked durum, kayıtlı gerçek kaynak kökü ve tek-writer/recovery bilgilerini kaydet. GitHub baseline’ı yukarıdaki SHA’dır. Daha yeni HEAD varsa eskiye dönme; bu görevle ilgili değişiklikleri karşılaştır ve başlangıç fingerprint’ini güncelle.
 
-Bu görev önceki yerel mimariyi yeniden başlatmaz; mevcut yerel veriler korunur. Eski görevin “temiz bootstrap” kararı, çalışan yeni SQLite/knowledge/analytics verilerini tekrar silmek için kullanılamaz.
+Remote hizalama yalnız mevcut yetki içinde temiz, çakışmasız fast-forward olarak yapılabilir. Dirty/diverged durumda reset, zorla checkout, otomatik stash, rebase veya force-push yapma. Engel yalnız etkilenen mutation yolunu durdursun.
 
-### 1.3. Değişmeden kalan sınırlar
+`python scripts/paket_dogrula.py` ile mevcut tanımlı hedefli testleri çalıştır. Test seçimini güncel kaynak/CI ve `pyproject.toml` üzerinden doğrula. Tarihsel test sayılarını yeni sonuç gibi kullanma. Araştırma oturumunda ürün testleri çalıştırılmadı. [R01, R02, R15, R16]
 
-- Legacy PostgreSQL'e bağlanma, veri okuma, export/import veya geri taşıma yapma. Zekam core için PostgreSQL/Docker bağımlılığı ekleme.
-- En fazla üç kalıcı motor sınıfı korunur: operational, knowledge index, analytics. Birden fazla mevcut SQLite dosyası bu sınıf sınırını ihlal ediyor diye yeniden mimari tasarlama.
-- Mac'te kayıtlı yerel BGE embedding rotası; Windows/OpenCode'da mevcut yetkili kurumsal embedding rotası korunur. Model seçimi ile storage seçimi birbirine bağlanmaz.
-- Kurulu bir CLI'ı yerel model sayma. Sahte embedding üretme; gerektiğinde `lexical-only-degraded` bildir.
-- Work state, approval, claim ve receipt; Markdown, vektör, LLM çıktısı veya haricî bellekten authority kazanmaz.
-- Kod mutation'i yalnız registry'deki exact gerçek source root'ta, tek-writer korumasıyla yapılır. Proje kopyası, mirror, detached worktree veya geçici geliştirme klonu oluşturulmaz.
-- Kullanıcının kaynak kodu, proje dosyaları, notları, görev geçmişi ve kişisel içeriği korunur. Otomatik temizlik yalnız sahipliği kanıtlı, yeniden üretilebilir Zekam çıktıları için tanımlı politika kapsamındadır.
-- Secret değerleri prompt, log, artifact, vector, rapor veya Git'e girmez. Mutlak cihaz yolları portable kayda sızdırılmaz.
-- Push yetkisi yoktur. Bu entegrasyon uygulamasında ayrıca talep edilmedikçe commit de oluşturma. Gelecekteki unattended işletimde commit/push ayrı izin sınıflarıdır.
+### 1.3. Değişmeyen sınırlar
 
-## 2. İncelenen durum ve somut entegrasyon açıkları
+- PostgreSQL legacy bağlantısı/importu veya core için Docker zorunluluğu ekleme. Mevcut yerel operational/knowledge/analytics sınıflarını koru.
+- Yeni `skills.db`, ikinci registry/approval/scheduler veya ayrı self-improving-agent ürünü kurma.
+- Mac/Windows model ve embedding rotalarını cihaz düzeyinde koru. Bir cihazdaki local model tercihini taşınabilir skill veya global Git config’ine sabitleme.
+- Modelleri videodaki ad/rank beyanına göre zorunlu kılma. Yetkili model kimliklerini olduğu gibi kullan; sağlayıcı prefix’lerini düşürme.
+- Kaynak kod mutation’i yalnız registry’de bağlı gerçek kökte, tek writer ile yapılır. Geçici geliştirme klonu, mirror veya detached worktree açma.
+- Kullanıcının kaynak kodu, notları, proje/görev geçmişi ve yerel verisi korunur. Geçici rapor/test çıktıları kaynak ağacı dışında tutulur.
+- Secret, kurumsal endpoint değeri ve mutlak kişisel cihaz yolu skill/rapor/vector/Git’e sızmaz.
+- Skill içeriği Work state, approval, grant, claim veya receipt authority’si değildir.
+- Bu görev için ayrıca istenmedikçe commit oluşturma; push yapma. Servis kurma, haricî model kampanyası ve veri paylaşımı ayrıca exact kapsam ister.
 
-Aşağıdaki tablo **6 Eylül 2026 GitHub snapshot'ının statik incelemesidir**. “Kodda var” ile “bu cihazda canlı çalışması doğrulandı” aynı şey değildir. Kaynak referansları Bölüm 17'dedir.
+## 2. Hedef deneyim ve kapsam
 
-| Bulgu | İncelenen kanıt | Sonuç ve yapılacak iş |
+Kullanıcı bir işi birlikte iyi hale getirdikten sonra aynı kuralları her seferinde anlatmak zorunda kalmamalı. Sistem başarı, hata ve düzeltme kaynaklarını kullanarak uygun yöntemi bulmalı; gerekliyse yeni aday veya mevcut skill’in yeni revision’ını üretmeli. Uygun iş geldiğinde doğru scope’ta skill’i seçmeli ve kabul edilmiş kaliteyi yeni oturumda yeniden üretebilmelidir.
+
+**Kapsam içinde:** deneyim/provenance, paket formatı köprüsü, scope ve etkin revision seçimi, kademeli bağlam, talimat ağırlıklı skill kullanımı, üç istemciye yönetilen dağıtım, bağımsız değerlendirme, mevcut evolution ile kontrollü iyileştirme, regression/recovery ve kullanıcı gözlemlenebilirliği.
+
+**Kapsam dışında:** WhatsApp/Obsidian entegrasyonu, yeni UI tasarım projesi, başka depoların geliştirilmesi, yeni model hosting altyapısı, genel video/medya üretim sistemi, kaynak kodun sınırsız kendi kendini değiştirmesi ve bütün internet skill kataloglarının topluca kurulması.
+
+İlk çalışan dikey dilim bir pilotla tamamlanacak: `zekam-arastirma-uygulama`. İkinci/üçüncü pilot aynı altyapıda ancak ilk kabul sonrasında ele alınabilir; ilk teslimi katalog büyüklüğüne bağlama.
+
+## 3. Mevcut koddan bağlayıcı başlangıç bulguları
+
+| Bulgu | Mevcut kaynak | Uygulama sonucu |
 |---|---|---|
-| Son commit Windows ACL ve RAG tekrar döngüsünü düzeltiyor | `b59221a…`, 6 Eylül 2026 11:53:12 UTC / 14:53:12 Türkiye | Bu davranışlar yeni sistemin regresyon senaryolarına alınacak. |
-| Yerel operational, learning, registry, benchmark, routing, analytics ve improvement bileşimi var | `infrastructure/local_core_services.py` | Yeni veri motoru veya paralel store tasarlamak yerine bu composition genişletilecek. |
-| Worker gerçek kalıcı kuyruk kullanıyor, fakat mevcut CLI composition journal executor'a bağlı | `interfaces/cli/local_runtime.py::_service`, `worker.py` | Sadece worker'ı zamanlamak yetmez. Öğrenme ve iyileştirme için tipli handler dispatch'i gerçekten bağlanacak. |
-| Scheduler sürekli çalışan bir servis değil | `interfaces/cli/scheduler.py`; README | Mevcut bakım komutlarına OS yaşam döngüsü ve zamanlı enqueue/recovery eklenecek. |
-| OpenCode resume ve compaction bağlamı mevcut | README; yetkinlik envanteri | Korunacak; diğer istemciler aynı canonical paket/olay protokolüne bağlanacak. |
-| Semantik özetin kalitesi hâlâ agent'ın checkpoint yazmasına bağlı | Yetkinlik envanterindeki continuity açığı | Otomatik, artımlı capture + özetleme + doğrulama yolu tamamlanacak. |
-| Memory/failure/lesson/skill lifecycle tabloları var | `sqlite/local_learning.py` | Bir daha yazılmayacak; gerçek olaylardan doldurulup retrieval ve skill kullanımına bağlanacak. |
-| Improvement aday, deney, shadow/canary, activation/rollback ve feedback kayıtları var | `sqlite/local_improvement.py` | Ledger varlığını canlı öz-iyileştirme sayma. Gerçek executor, tetikleme ve sonuç doğrulaması eklenecek. |
-| Fikir üretme scaffold, semantic memory kullanıcı yüzeyi partial | Yetkinlik envanteri | Bu görevle ilgili inspect/propose/evaluate/status yüzeyleri tamamlanacak; ilgisiz ürün kapsamı açılmayacak. |
-| Model benchmark'ın bazı yüzeyleri provider-free mock kabulü | Yetkinlik envanteri | Bu kanıt, canlı model kalifikasyonu veya gerçek iyileşme olarak kullanılmayacak. |
-| Sürüm/DoD belgeleri birbirinden farklı dönemi anlatıyor | `SURUM_RAPORU.md`: 22 Ağustos/PG/82-83; `GLOBAL_DOD_DURUM.md`: 5 Eylül/local-first/83 pending | Güncellik/authority ayrımı yapılacak. Eski rapor tarihsel işaretlenecek; yeni kanıt yokken hiçbir sayı otomatik passed yapılmayacak. |
+| Başarı-only skill origin’i hata kartı zincirine sığmıyor | `local_learning.py`: lesson/manifest FK ve propose/extract yöntemleri | Hata zincirini bozmadan tipli başarı/düzeltme origin’i ekle. |
+| Çalıştırıcı yalnız bounded journal profili | `application/skill_runtime.py` | Bu fixture’ı koru; genel instruction skill için ayrı sonuç sözleşmesi bağla. |
+| Exact trigger, en çok 256 aktivasyon taraması | `local_learning.py::select_active_skills` | Doğal dil keşfi ve filtreli bounded katalog ekle; limit büyütmekle geçiştirme. |
+| Seçicide açık scope/retirement filtresi görünmüyor | Aynı yöntem | Metadata görünürlüğünden önce scope ve etkin revision çöz. |
+| Değerlendirme salt success_rate > baseline | `domain/learning.py::SkillEvaluation` | Sürümlü çok boyutlu kabul; başarısız/eşit ölçümü mevcut deney deposunda sakla. |
+| Rollout local fixture olarak sınıflanmış | `domain/evolution_rollout.py` | Model/agent deneyini bu fixture kanıtıyla karıştırma; gerekli sözleşmeyi sürümle. |
+| Görev transition kimlikleri sabit | `application/evolution_runtime.py` | WP-00 adoption kapısını çözmeden yeni task live sayılmaz. |
+| Bazı tarihsel modüller wheel dışında | `pyproject.toml` | Üretim composition ve temiz wheel testi zorunlu. |
 
-**Teşhis:** Eksik olan ikinci bir “beyin” değil; mevcut parçaları çalıştıran, sonucu ölçen ve güvenli etkisini uygulayan kapalı döngüdür. Bu teşhis tüm repository için kapsamlı hata taraması yapıldığı anlamına gelmez.
+Bu bulgular [R04–R11, R15] kaynaklarına dayanır. İncelenmeyen yardımcıları tarayıp eşdeğer çalışan bir parça bulursan yeniden yazma; exact test/çağrı kanıtıyla yeniden kullanım kararını kaydet.
 
-## 3. Ek metin ve Avenox ile karşılaştırma
+## 4. Mimari kararlar
 
-### 3.1. Kaynakların anlamı
+### 4.1. Üç farklı nesne
 
-Kullanıcının `Pasted text(2).txt` dosyası bir video anlatımıdır. Otomatik günlük kayıt, derlenmiş bilgi, geçmiş kararlar, skill üretimi ve modelden bağımsız ikinci beyin hedefini anlatır. Anlatıcının yaklaşık 130 gün müdahale etmediği yönündeki beyanı, Zekam için doğrulanmış performans veya güvenilirlik kanıtı değildir.
+**SkillPackage:** Taşınabilir yöntem metni ve kaynakları. Okunabilirlik/dağıtım nesnesidir; onay veya yetki taşımaz.
 
-`https://avenox.lol/beyin.md` doğrudan okuma denemesinde `application/octet-stream` içerik türü nedeniyle araç tarafından açılamadı. Bunun yerine resmî `avenoxai/avenoxbeyin` deposunda aynı adresi kaynak gösteren `docs/beyin-v2.md`, README ve ilgili hook/derleyici kodu incelendi. İncelenen upstream ref `2e074cc44df5966543b4c21432cb5a895d141211`dir. Sunulan URL ile repo dosyasının byte-byte aynı olduğu doğrulanmadı; bu eşitlik iddia edilmeyecek.
+**SkillRevision / Activation:** Mevcut learning/improvement içinde paket digest’i, scope, origin, değerlendirme, review ve etkin sürüm bağları. Otorite mevcut kanonik kayıtlardadır; istemci kopyaları türetilmiştir.
 
-### 3.2. Alınacak ve alınmayacak parçalar
+**SkillInvocation / Outcome:** Belirli iş/oturum/istemci/harness içinde hangi sürümün kullanıldığı ve gerçek sonucun nasıl doğrulandığı. Paket yükleme olayı araç etkisi veya kaliteli sonuç yerine geçmez.
 
-| Metin / upstream yaklaşımı | Zekam kararı |
-|---|---|
-| Oturum sonunda ve compaction öncesinde otomatik kayıt | Al. Yalnız kapanış hook'una güvenme; artımlı checkpoint, teslim teyidi ve recovery ekle. |
-| Günlüklerin kalıcı bilgiye derlenmesi | Al. Kaynak kanıtı, scope, çelişki ve insan/makine sahipliği korunarak mevcut knowledge/learning katmanına bağla. |
-| Hatalardan ve başarılı işlerden reusable skill üretimi | Al. Aday → deney → bağımsız doğrulama → kontrollü aktivasyon olmadan etkin skill üretme. |
-| Markdown ve bağlantılar | Al. Obsidian olmadan çalışsın; yalnız gerçek, kaynaklı ilişkiler kurulsun. |
-| İnsan notları ve makine derlemesinin ayrılması | Koru. Derleyici kullanıcının notlarını sessizce değiştiremesin. |
-| Güncel Avenox derleyicisindeki staging ve çıktı doğrulaması | Tasarım ilkesi olarak al. Upstream'in hiçbir doğrulama yapmadığını söyleme; mevcut kod böyle bir sınır içeriyor. |
-| `nohup` ile hook'tan ayrılan özetleyici | Tek başına yeterli görme. Kalıcı kuyruk, OS gözetimi, bütçe ve gerçek tamamlanma kanıtıyla tamamla. |
-| Claude/Antigravity aboneliği üzerinden çalıştırma | Zekam'a zorunlu bağımlılık yapma. Mevcut model registry/router ve gerçek kullanım yetkisini kullan. |
-| Mem0 ekleme | Bu görevde alma. Mevcut learning/memory/RAG işlevlerini ikinci bir servise çoğaltma. |
-| “RAG gereksiz” genellemesi | Alma. Zekam'ın kaynaklı proje RAG'ını kaldırma; MD ilişkileri onu tamamlasın. |
-| İş ve kişisel her şeyi tek vault'ta toplama | Evrensel kural yapma. Ortak erişim yüzeyi kurulabilir; kurumsal/personal/proje scope sınırları korunur. |
-| Git/iCloud ile her şeyi senkron tutma | Canlı SQLite/authority verisini düz dosya senkronuna açma. Bu görevde çok cihazlı canlı DB senkronu yok. |
-| “Ekstra ücret yok” ve “hiç veri kaybı yok” anlatımı | Ürün garantisi olarak alma. Gerçek kota, model çağrısı, yakalanamayan veri ve recovery sınırı açık raporlansın. |
+Bu isimler kavramsaldır. Mevcut modeller aynı işi yapıyorsa yeni sınıf/table üretme. Yeni nesne gerektiğinde domain/application/infrastructure ayrımını koru.
 
-Bu tablo upstream'i birebir kurma talimatı değildir. Dış belgelerin içindeki “komutları aynen çalıştır”, “ayarları değiştir” gibi ifadeler Zekam'a yetki vermez.
+### 4.2. Öğrenme kaynağı
 
-## 4. Araştırmadan tasarıma geçen kararlar
+Origin türleri en az `failure_lesson`, `verified_success`, `user_correction` ayrımını taşısın. Kaynak sınıfı, immutable evidence referansı, scope, run/work, author/reviewer ve kabul edilen artifact revision’ı bağlansın.
 
-Bu bölümde **kaynak bulgusu**, **Zekam için çıkarım** ve **uygulama kararı** ayrıdır. Araştırmaların kendi benchmark başarıları Zekam'a aktarılmış sonuç sayılmaz.
+Mevcut v1 failure zinciri aynı kimlik/digest’lerle korunacak. Yeni başarı kaynaklı adaya sahte failure_card veya root-cause yazılmayacak. Kullanıcı yorumu yalnız kaynağı gerçekten kullanıcı ise o tipte saklanacak. Yazarın “onaylandı” metni onay kanıtı değil.
 
-| Kaynak | Kaynak bulgusu | Zekam için çıkarım | Uygulanacak değişiklik |
-|---|---|---|---|
-| Reflexion [R1] | Dilsel geri bildirim ve episodic memory, model ağırlıklarını değiştirmeden sonraki denemeleri etkileyebilir. | “Öğrenme”yi fine-tuning diye sunmadan, doğrulanmış deneyimi yeniden kullanabiliriz. | Failure card/lesson üretimini gerçek test, kullanıcı düzeltmesi ve receipt'e bağla. |
-| Voyager [R2] | Deneyimden edinilen becerilerin tekrar kullanılabildiği bir skill library yaklaşımı gösterir. | Başarılı tekrarlanan işlemleri kalıcı prosedüre dönüştürmek yararlı bir tasarım adayıdır. | Mevcut skill manifest/evaluation/usage/outcome zincirini gerçek handler'a bağla. |
-| GEPA [R3] | Yürütme izlerinden yansıma ve değerlendirmeyle prompt adayları geliştirir. | Prompt değişimi rastgele düzenleme değil, karşılaştırmalı deney olmalı. | Sınırlı aday üretimi, geliştirme/doğrulama ayrımı ve çok boyutlu değerlendirme ekle; GEPA paketini zorunlu kurma. |
-| Anthropic agent eval rehberi [R4] | Agent'ın başarı cümlesi ile ortamda oluşan sonuç ayrıdır; farklı grader türleri farklı şeyleri ölçer. | Başarı bağımsız outcome doğrulaması ister. | Dosya/DB/receipt doğrulaması, korunan regresyon testleri ve gerektiğinde ayrı model reviewer kullan. |
-| Hermes cron [R5] | Kalıcı zamanlı işler, pause/resume, modelsiz işler ve model/provider drift koruması sunar. | Süreklilik, pahalı agent'ı durmadan açık tutmak değildir. | OS zamanlaması + mevcut queue; modelsiz bakım; sabitlenen model ve ayrı bütçe. Hermes bağımlılığı ekleme. |
-| Claude/Codex/OpenCode resmî hook belgeleri [R6–R8] | Olay isimleri, lifecycle ve timeout/teslim davranışları istemciye göre değişir. | Ortak arayüz gerekir, tek tip hook varsayımı değil. | Kurulu sürüm capability probe'u ve platforma özgü ince adapter. |
-| OWASP [R9] | Dış metin ve talimatı ayırmak, yetkiyi sınırlamak ve çıktıyı doğrulamak birlikte gerekir. | Hafızaya girmiş metin de güvenlik politikasına dönüşemez. | Provenance, izinli alanlar, bağımsız policy/executor sınırı ve veri kaynaklı yönlendirme testleri. |
-| Apple / Microsoft [R10–R11] | İşletim sistemi, kullanıcı işleri ve kaçırılan zamanlamalar için gözetim mekanizmaları sağlar. | Yeni daemon framework'ü yerine yerel OS araçları kullanılabilir. | Mac LaunchAgent, Windows Task Scheduler; gerçek kurulmuş durumun geri okunması. |
-| SQLite backup API [R12] | Çalışan veritabanının tutarlı kopyasını almak için özel API bulunur. | Etkin DB dosyalarının sıradan kopyası, doğrulanmış backup yerine konamaz. | Mevcut backup/recovery'yi kullan; consistency ve restore provası ekle. |
+Varsayılan otomatik adaylık önerisi: aynı yöntemin en az iki bağımsız deneyimde görülmesi veya açık “bunu skill yap” talebi. Bu adaylık eşiğidir; aktivasyon eşiği değildir. Olayın yeniden işlenmesi ikinci gözlem sayılmaz. Benzerlik/dedupe mevcut skill’in yeni revision’ını önermeyi öncelemeli.
 
-**Mimari karar:** Zekam içindeki model seçimi, hafıza ve çalışma düzeni gelişir; bu görev temel model ağırlıklarını eğitmez. “Daha fazla not var” tek başına iyileşme metriği değildir.
+### 4.3. Skill mi, not mu, tercih mi, kod mu?
 
-## 5. Hedef akış ve kullanıcı deneyimi
+Sınıflandırma kapısı koy:
 
-### 5.1. Tek kapalı döngü
+- Tekil olgu/karar → knowledge/semantic memory.
+- Kullanıcının kalıcı biçim tercihi → scope’lu preference.
+- Doğrulanmış yazılım kusuru → kod düzeltmesi ve regresyon testi; skill ile üstünü örtme.
+- Yeniden uygulanabilir çok adımlı yöntem → skill adayı.
+
+İlk sürüm bu kararı anlaşılır gerekçeyle kaydedebilir; yeni model çağrısı zorunlu değildir. Model kararı kullanılıyorsa model yetkisi ve veri kapsamı mevcut gateway’den gelmelidir.
+
+### 4.4. Paket biçimi ve güvenli içe alma
+
+Ortak çekirdek standart `SKILL.md` ve göreli referanslardır. İsim/açıklama ve diğer alanları güncel standartla doğrula. `references/`, `assets/`, `scripts/` zorunlu klasör değildir. İlk pilot script içermeyecek. İstemciye özel davranış ortak yönteme gömülmeyecek. [S01]
+
+Paket dosya manifesti; normalize edilmiş göreli yol, boyut, content digest, dosya türü, provenance/lisans ve ortak paket digest’i taşısın. Bilinmeyen/tehlikeli yol, duplicate canonical path, büyük arşiv, link kaçışı ve secret şüphesinde fail-closed davran.
+
+İçe alma yalnız inceleme/staging/candidate oluşturur. Script/hook/dinamik shell çalıştırmaz; paket yöneticisi otomatik kurmaz; dış URL’leri izleyip kaynak indirmez. Dış bağımlılık gerekli ise ayrı plan/güvenlik incelemesi üretir.
+
+İzin genişleten istemci alanları ortak paketten sessizce geçirilmeyecek. Export sırasında kayıp veya değişmiş semantik varsa capability raporunda görünür olacak. Byte-stable canonical manifest ile istemci artifact digest’i ayrı tutulacak.
+
+### 4.5. Tek etkin sürüm ve scope
+
+Her scope+skill kimliği için en fazla bir etkin revision seçilsin. Activation geçmişi append-only kalsın; etkin görünüm existing selector veya türetilmiş read model üzerinden çözülsün. Yeni ikinci authority registry’si kurulmasın.
+
+Scope çözümü realm → project → izinli kullanıcı-genel bağlamı dikkate almalı; proje kuralı yetkisiz şekilde globalleşmemeli. Yetkisiz paketin adı ve açıklaması dahi ilk metadata listesine girmemeli. Legacy scope belirsizliği “global” diye doldurulmasın; gerekirse legacy-unbound olarak görünür blocker olsun.
+
+Her invocation exact paket/revision digest’ine sabitlensin. Rollback/revoke sonrası daha önce yüklenmiş içerikten gelen yeni araç etkisi de admission kontrolüne tabi olsun.
+
+### 4.6. Kademeli yükleme ve seçim
+
+Exact programatik trigger yolunu koru. Genel discovery hizmeti metadata ile başlasın; body yalnız seçilince, referanslar ihtiyaç halinde yüklensin. Ölçülmüş token sayısı yoksa byte/karakter proxy’si açıkça etiketlensin; token diye sunulmasın.
+
+İlk sürümde deterministik/lexical filtre ve açıklanabilir sıralama yeterli olabilir. Semantik router mevcut yetkili model/embedding üzerinden opsiyonel olarak devreye alınabilir; model yoksa seçim mekanizması sahte embedding üretmez. Seçmeme, açıklama istemeden güvenli varsayımla devam etme veya açık seçim isteme durumları risk bazında tanımlansın.
+
+Yanlış pozitifleri azaltmak için kullanım dışı örnekler, gerekli araçlar, scope ve görev türü değerlendirmeye girsin. Belirli skor veya top-k eşiğini evrensel sabit kabul etme; konfigürasyonu evaluation ile gerekçelendir. Mevcut 256 sınırı indeksli filtre/pagination tasarımıyla çözülmeden büyüyen katalog hazır sayılmaz.
+
+### 4.7. Yürütme ve kanıt
+
+Önerilen gözlem durumları: `discovered`, `selected`, `loaded`, `invoked`, `completed`, `verified-success`, `verified-failure`; ayrıca `blocked`, `cancelled`, `unverified`. Bunları mevcut operasyonel enum’lara zorla eklemek yerine anlamları mevcut job/result olaylarıyla eşleştir. Domain geçişlerini sürümle.
+
+`loaded` için paket okunma kanıtı yeterlidir; `invoked` için işe bağlı kullanım kaydı; `completed` için terminal çalışma kanıtı; `verified-*` için bağımsız sonuç gerekir. Bir dosyanın varlığı semantik kaliteyi doğrulamaz. Kullanıcı değerlendirmesi ile otomatik yapısal test ayrı grader türüdür.
+
+Journal profilindeki HMAC/physical readback ve ayrı verifier job korunacak. Genel agent task için doğru artifact/claim/receipt sözleşmesi eklenecek; bu kontrolleri kaldırıp “LLM başarılı dedi” yoluna geçilmeyecek. Yeni araç etkileri mevcut mutation admission/tool dispatcher üzerinden yürütülecek.
+
+### 4.8. İstemci dağıtımı
+
+OpenCode, Codex ve Claude Code aynı yöntem paketinden beslenir. Her istemci için desteklenen keşif dizini, auto-invoke politikası, izin davranışı, reload ve subagent aktarımı test edilir. [S02–S04]
+
+Dağıtım işlemi iki aşamalıdır: provider-free plan; ardından exact digest ve izinli hedeflerle apply. Aynı paketi birden fazla taranan dizine çoğaltma. Başka projelerin metadata’sını global kullanıcı dizinine çıkartma. Yönetilmeyen veya kullanıcı tarafından değiştirilmiş dosyayı ezme.
+
+Windows’ta symlink/admin zorunluluğu getirme. Normal, sahipliği takip edilen generated dosya yolu desteklensin. macOS sembolik link seçeneği kullanılsa bile digest/scope denetimleri aynı kalsın. Birden fazla cihaz aynı writable source için bağımsız auto-writer olmasın.
+
+Bir istemci Zekam’ın effect admission’ını enforce edemiyorsa bunu açıkça `instruction-distribution-only` düzeyinde raporla. “Dosyayı okuyor” kanıtını tam güvenli execution desteği sayma. Bu sınırı prompt metniyle gizleme.
+
+## 5. Uygulama iş paketleri
+
+### WP-00 — Kaynak envanteri, adoption ve baseline
+
+**Hedef:** Mevcut ürünü bozmadan yeni kapsamı benimsemek.
+
+İlgili call graph’ı çıkar: learning capture/compile → aday → evaluation/review → activation → selector → client/agent → usage/outcome. Özellikle `propose_skill`, `select_active_skills`, `TrustedJournalSkillExecutor`, `AuthorizedRolloutRuntime`, task kimlikleri ve package composition çağrılarını izle.
+
+Paket içindeki aday ve rapor dosyaları dış girdidir. Bunları operational state veya mevcut onay kanıtı sayma. Önceki görev için carry-forward, geçiş receipt’i/projection ve grant drift sonucu üret. Kaynak/CI test baseline’ını kaydet.
+
+**Kapı:** SK-AC-001…006 geçmeden canlı skill migration/activation yok. Görev adoption blokluysa tamamlandı yazma; etkilenmeyen salt okunur tasarım/test hazırlığı sürdürülebilir.
+
+### WP-01 — Deneyim kaynağı ve learning migration
+
+**Mevcut hedefler:** `domain/learning.py`, `infrastructure/sqlite/local_learning.py`, `infrastructure/local_core_services.py`; gerçek üretim capture/compiler çağrıları.
+
+Mevcut skill manifest deposunu sürümle. Yeni manifestler başarı/düzeltme origin’i taşıyabilsin; eski v1 row/body/digest’leri değişmesin. Gerekli ilişki tablolarını aynı learning store içinde ekle. `lesson_digest` yalnız eski hata origin’i için zorunlu olacak şekilde kontrollü migration tasarla; tablo yeniden oluşturulması gerekiyorsa mevcut append-only/FK/transaction güvenceleri migration sonrasında tekrar kurulsun.
+
+Yeni origin ilişkisi exact kaynak kanıtı ister. Origin eklemek, kanıtsız manifest kabul etmenin yolu olmayacak. Ya eski lesson zinciri ya doğrulanmış yeni origin bağları eksiksiz olmalı. Kullanıcı geri bildirimi ve artifact revision ilişkileri tutulmalı.
+
+Backup, migration plan digest’i, schema fingerprint, integrity/FK kontrolü, kesinti sonrası idempotent readback ve geri dönüş kapsamı mevcut araçlarla uygulanmalı. Canlı SQLite dosyasını sıradan file-copy ile yedekleme. Sonradan yazılan kullanıcı verisini geri dönüşte kaybetme. Schema v1 kabulü/upgrade politikasını açıkça sürümle; belirsiz fingerprint’i sessizce kabul etme.
+
+**Kapı:** Eski fixture’lar ve eski kayıt digest’leri korunur; başarı/düzeltme adayı sahte failure olmadan üretilebilir; replay tek olayı iki saymaz.
+
+### WP-02 — Paket köprüsü ve kaynak güvenliği
+
+**Mevcut hedefler:** skill manifest, mevcut knowledge-file/object-store ve secret/source-security yardımcıları. **Gerekirse yeni küçük modül önerileri:** `domain/skill_package.py`, `application/skill_packages.py`. İsimler mevcut düzenle çakışıyorsa mevcut servisi genişlet.
+
+Standart paket parse/validate/import/export, dosya digest manifesti, ortak semantik hash ve istemci projection bağlantısını kur. `SKILL.md` kaynak adları ile canonical skill kimliğinin birebir/namespace kurallarını belirt. Bozuk içerik import sırasında candidate bile olmadan reddedilebilsin; güvenli ama ölçülmemiş içerik quarantine/candidate kalsın.
+
+İçeriğin referans bağlantıları kök dışına kaçamaz. İçe alma ve inspect ağ veya script çalıştırmaz. Lisans bilinmiyorsa otomatik yayınlama kapalı kalır. Büyük kaynaklar sınırsız context’e kopyalanmaz.
+
+**Kapı:** SK-AC-013…018, parse/export round-trip, değişen asset’in eski eval’ı geçersiz kılması, kullanıcı dosyası koruma.
+
+### WP-03 — Scope’lu discovery ve etkin revision
+
+**Mevcut hedef:** `SQLiteLocalLearning.select_active_skills`; gerçek çağıranlar ve mevcut context compiler/ranking servisleri. **Gerekirse yeni application hizmeti:** `skill_discovery.py`.
+
+Mevcut exact trigger profilinin davranışını geriye uyumlu koru. Genel kişisel katalog için scope+effective-state filtreli sorgu ekle. Aktivasyon geçmişinden en yeni kaydı körlemesine almak yerine kanonik etkin revision ve revocation/supersession çözümünü kullan.
+
+Metadata listesi, explicit selection ve implicit routing aynı güvenlik filtresini kullansın. Pagination/bounded query ve açıklanabilir seçim gerekçesi üret. “Çok skill olunca ilk 256’yı al” davranışı kabul edilmez. Kaynak görünürlüğü ve sonucu üretme maliyeti ayrı gözlemlensin.
+
+**Kapı:** SK-AC-019…024; >256 aktivasyon, çakışan aynı isim, eski revision, TR/EN ve near-negative örnekleri.
+
+### WP-04 — Instruction skill’in gerçek kullanımı ve kullanıcı yüzeyi
+
+**Mevcut hedefler:** `application/skill_runtime.py`, güncel agent/tool dispatch, local runtime admission, doğru üretim composition; `interfaces/cli` komut kayıtları.
+
+Talimat paketini gerçek işe/agent assignment’a exact digest ile bağla. Koordinatör ve alt ajan aynı revision’ı kullanabilsin; alt ajan yalnız kendi izinli bounded context’ini alsın. Genel skill use kaydı journal outcome’u zorunlu kılan eski profile zorla sokulmasın; onun yanında doğru tipli sonuç kanalı bağlansın.
+
+Aşağıdaki kullanıcı sözleşmesini mevcut komutlara çakışmadan uygula. **Bu komutlar hedef tasarımdır; araştırma sırasında mevcut oldukları doğrulanmadı.**
+
+| Önerilen yüzey | İşlev | Varsayılan etki |
+|---|---|---|
+| `zekam skill list / inspect / explain` | Scope’lu katalog, kaynak ve seçim gerekçesi | Read-only, provider-free |
+| `zekam skill propose` | İzinli evidence’den yeni aday veya revision planı | Plan; semantic model gerekiyorsa ayrı izin |
+| `zekam skill evaluate` | Exact eval planı ve sonuç bağlantısı | Plan; apply ile mevcut evaluation job yolu |
+| `zekam skill export` | İstemci/kapsam hedefleri ve artifact farkı | Plan; apply yönetilen hedefe yazar |
+| `zekam skill status` | Etkin sürüm, dağıtım, kullanım ve açık kabul | Read-only, provider-free |
+
+Yeni `skill activate` komutuyla ikinci activation yolu açma; mevcut evolution/approval yüzeyine bağlan. Kısa komut adları mevcut CLI ile farklıysa aynı sözleşmeyi mevcut isimlerle gerçekleştir, belgeyi güncelle; synonym komut çoğaltma.
+
+**Kapı:** Paket load ile outcome ayrıdır; mock başarı yoktur; model/tool yokluğu doğru durumdur; tekrar çalışma dış etki çoğaltmaz.
+
+### WP-05 — İstemci adapter’ları ve yönetilen dağıtım
+
+**Mevcut hedefler:** aktif OpenCode lifecycle/bootstrap, mevcut istemci hook/instruction yönetimi ve local file security. Tarihsel wheel dışı modüllere yeni üretim bağımlılığı kurma. **Gerekirse yeni application hizmeti:** `skill_client_projection.py`.
+
+Bir ortak paket için OpenCode/Codex/Claude projection planı üret. Kurulu sürümü ve gerçek keşif yolunu çöz; doğru dosyaları ownership manifestiyle atomik/geri alınabilir yaz. İstemci yeniden yükleme gerekiyorsa açıkça bildir ve kanıtla. Aynı skill’in farklı taranan dizinlerde çoğalmasını engelle.
+
+İstemci alanlarını ve politika farklarını diff’te göster. `allowed-tools` veya dinamik shell ortak paketten sürüklenmesin. İstemcinin bağımsız tool erişimi Zekam admission dışındaysa enforced execution iddiası üretme.
+
+**Kapı:** SK-AC-031…036; üç istemcinin contract testleri, mevcut kullanıcının dosyalarını koruma, native testlerin doğru platformda yapılması.
+
+### WP-06 — Soğuk oturum değerlendirmesi ve kişiselleştirme
+
+**Mevcut hedefler:** `SkillEvaluation`, improvement deney kayıtları, model registry/benchmark ve mevcut bağımsız verifier.
+
+Outcome/process/preference/efficiency/safety grader’larını ayır. Baseline ve aday aynı model/harness/tool/bütçe koşullarında çalışsın. Eski sohbetin başarıyı taşımasını engellemek için yeni oturum başlat; implicit testlerde skill adı kullanıcı prompt’una elle eklenmesin. Explicit test ayrı ölçülsün.
+
+Yazarın gördüğü örnekler geliştirme setidir. Paketteki 20 smoke vakası yalnız başlangıç materyalidir; gizli holdout değildir. Bağımsız verifier yeni acceptance setini ayrı izinli artifact alanında oluşturup digest’ini dondursun; aday yazarına oracle/cevap anahtarı olarak vermesin.
+
+Başarısız, eşit, blocked ve regressed sonuçları da mevcut deney deposunda sakla. Minimum beş denemeyi korumak tek başına yeterli kabul değildir. Eşikler, örnek sayısı, non-inferiority toleransı, birincil iyileşme metriği ve bütçe deney planında önceden kayıtlı olsun. Mevcut v1 salt-success kuralını sessizce değiştirerek eski evaluation kanıtlarının anlamını değiştirme; yeni sözleşmeyi sürümle.
+
+Yüzde yüz baseline senaryosunda daha düşük kaynak maliyetinin nasıl değerlendirileceği açık olsun. Kalite/safety düştüğünde ucuzluk aktivasyon gerekçesi olmasın. Küçük örnek belirsizliği raporlansın; yetersiz kanıt `ready` yapmasın.
+
+Canlı provider/istemci deneyi için kullanılan veri, model kimliği, azami request/token/maliyet, retry ve concurrency exact planla yetkili olmalı. Mevcut sıfır-provider standing grant bu aşamayı otomatik yetkilendirmez.
+
+**Kapı:** SK-AC-037…042 ve pilot acceptance. Grader çıktısı gerçek artifact/readback’e bağlıdır; bağımsız verifier yalnız farklı isim taşıyan aynı öz onay değildir.
+
+### WP-07 — Evolution bağlantısı, bakım, recovery ve teslim
+
+**Mevcut hedefler:** evolution capture/queue/compiler, `AuthorizedRolloutRuntime`, rollout domain, capability/status/report ve backup/recovery.
+
+Öğrenme adayını mevcut kalıcı kuyruğa bağla; yeni scheduler kurma. Olay replay, dedupe, bounded retry ve maliyet sınırı korunsun. Sürekli çalışma ancak mevcut canlı kurulum/grant readback’i doğrulanmışsa yapılabilir. Bunun yokluğu skill katalog inspect’i veya provider-free kontrolleri engellemesin.
+
+Shadow/local canary önce çalışır; fixture sonucu model üretim başarısı diye etiketlenmez. Gerekli yeni workload sözleşmesini sürümle. Düşük riskli, geri alınabilir instruction revision ancak uygun standing grant ve bağımsız değerlendirme ile aktive olabilir. Yeni tool, ağ/veri kapsamı veya kullanıcı dosyası değişikliği bu otomatik kapsamın dışındadır.
+
+Aktivasyon atomik/CAS olmalı. Effect sonrası receipt öncesi kesinti, lost response, tekrar apply, revoke, paralel writer ve external pointer drift testleri çalışmalı. Rollback yalnız yönetilen revision/selector içindir; oluşmuş dış etkilerin geri alındığını iddia etmez. Kullanıcı içeriği silinmez.
+
+Envanterde `skill catalog`, `skill learning`, `client distribution`, `verified execution` ve `native acceptance` ayrı görünür olsun. UI yeni tasarım istemez; mevcut report/status yüzeylerini beslemek yeterlidir. Kaynak eskiyse/stale ise durum bunu söylesin.
+
+**Kapı:** SK-AC-043…048, regression baseline ve gerçek teslim raporu.
+
+## 6. Test, kalite ve canlı kabul
+
+### 6.1. Mevcut regresyon dayanakları
+
+İncelenen depoda aşağıdaki integration test yolları var. Bunlar yeni çalıştırma sonucu değil, başlangıç hedefleridir. Uygulayıcı kaynak/fixture ve güvenlik koşullarını okuyup gerçek ortamda çalıştırır:
 
 ```text
-İzinli oturum / work / test / kullanıcı düzeltmesi / kaynak değişikliği
-  → artımlı, mahremiyeti korunmuş evidence olayı
-  → mevcut kalıcı queue + claim + resource lease
-  → günlük özet / bilgi derleme / tekrar örüntüsü
-  → memory, lesson, skill veya improvement adayı
-  → tipli değişiklik planı + bütçe rezervasyonu + yetki kontrolü
-  → baseline karşılaştırması + bağımsız verifier
-  → yalnız ilgili değişiklik sınıfı için gereken rollout kapıları
-  → güvenli aktivasyon veya gerekçeli ret / onay bekleme
-  → gerçek kullanım sonucu + regresyon izleme + gerektiğinde rollback
-  → sonraki oturumun bounded context'inde doğrulanmış yeniden kullanım
+python scripts/paket_dogrula.py
+python -m pytest tests/integration/test_local_learning_sqlite.py -q
+python -m pytest tests/integration/test_authorized_rollout_runtime.py -q
+python -m pytest tests/integration/test_local_improvement.py -q
 ```
 
-Ham bir gözlem için ağır shadow/canary kampanyası çalıştırma. Yeniden üretilebilir index onarımında eşdeğerlik/sağlık kapısı; semantik skill veya prompt değişiminde kalite/rollout kapısı kullan. Mevcut zorunlu güvenlik kapılarını performans bahanesiyle kaldırma.
+Yeni kod için unit/security/integration/e2e testleri ekle. Ruff/mypy ve proje DoD kapılarını mevcut yapılandırmadan türet. Testlerin kullanıcı ZEKAM_HOME’una veya canlı provider’a varsayılan bağlanmaması zorunludur. Test verisi fixture’dır; gerçek kurumsal veri yayına alınmaz.
 
-### 5.2. Mehmet'in rutin olarak yapmayacağı işler
+Özellikle schema migration, parser/import/export, scope filtre, origin provenance, discovery sınırı, gerçek usage/outcome ayrımı, external package policy, client projection drift ve crash recovery testleri ayrı görünür olsun.
 
-Servis ve sınırlı yetki ilk kurulumda etkinleştirildikten sonra, her oturum için tekrar “hafızaya yaz”, her gün “derleyiciyi çalıştır”, her tekrar eden hata için “skill çıkar” veya her güvenli bakım işi için “onaylıyorum” isteme. Yeni oturumda ilgili özet ve açık işler otomatik gelsin; normal başarılar sessizce kaydedilsin.
+### 6.2. Platform ve paketleme matrisi
 
-Yalnız gerçek kapsam/bütçe değişikliği, kritik karar, belirsiz dış etki, onarım başarısızlığı veya güvenlik engelinde kullanıcıya tekilleştirilmiş bildirim ver. Her tick'te aynı blocker'ı tekrar sorma.
-
-### 5.3. Somut örnekler
-
-- Bir RAG sorusunda aynı yetersiz sorgu tekrar ediyorsa signature oluştur; sorgu/bağlam stratejisi adayı üret; sabit testlerde karşılaştır; daha kötü citation veya cevap doğruluğu varsa etkinleştirme.
-- Bir oturum düzgün kapanmasa da son teslim edilmiş checkpoint'ten devam et. Yakalanmamış son parçayı tahmin ederek tamamlanmış iş üretme.
-- Aynı kaynaklı raporlama işlemi tekrar tekrar başarıyla yapıldıysa taşınabilir skill adayı oluştur. Skill gerçekten çalıştırıldığında usage/outcome kaydı üret; dosya oluşmasını kullanım sayma.
-- Kaynak HEAD veya mimari dönem değiştiğinde önceki “82/83 passed” raporunu güncel başarıya yükseltme. İlgili belgeyi tarihsel/uyuşmaz olarak işaretle; gereken yeni doğrulamayı aday işe dönüştür.
-- Gerçekten yeniden üretilebilir bir index bozulduğunda, mevcut onarım politikasının izin verdiği işlemi otomatik uygula ve tekrar sorguyla doğrula. Kullanıcı verisini silerek onarım yapma.
-
-## 6. Yetki modeli: sürekli onay istemeden sınırlı özerklik
-
-### 6.1. Mevcut sınıfları koru
-
-`ImprovementChangeClass` yeniden icat edilmeyecek. Yeni davranış aşağıdaki yorumla mevcut policy/admission ve ledger'a bağlanacak:
-
-| Sınıf | Bu görevdeki davranış |
-|---|---|
-| `AUTO_SAFE` | Sahipliği kanıtlı cache/index/projection/report gibi yerel, geri üretilebilir etkiler; geçerli dar kapsamlı işletim yetkisiyle otomatik çalışabilir. Bir kaynak adı listededir diye tüm içeriğine sınırsız yetki doğmaz. |
-| `REVIEW_REQUIRED` | Skill/prompt/routing/relation adayları önce değerlendirilir. Rutin insan müdahalesi yerine, kullanıcının bir defa yetkilendirdiği sürümlü auto-review politikası ve bağımsız doğrulayıcı kullanılabilir. **Doğrudan aktivasyon hâlâ yasaktır.** |
-| `HUMAN_APPROVAL_REQUIRED` | Root instruction, schema, security/approval, retention, secret politikası, dış etkiler ve kontrol düzlemi değişiklikleri exact insan onayı ister. |
-| `PROHIBITED_AUTONOMOUS` | Approval bypass, secret export, receipt silme, force-push ve history rewrite gibi işlemler otonom yapılamaz. |
-
-Otomatik özetin “gözlem adayı” olarak kaydedilmesi, otomatik kalıcı tercih kabulü değildir. Kullanıcının düzeltmesinin scope'u belirsizse global preference haline getirme. Mevcut sınıfa göre review gerekiyorsa bu review atlanamaz.
-
-### 6.2. Sürekli fakat sınırlı işletim yetkisi
-
-Yeni bir paralel güvenlik sistemi kurmadan mevcut authorization katmanına **standing grant** desteği ekle. Grant, tek bir büyük `allow-all` bayrağı olmayacak. Şunları bağlayacak:
-
-- kullanıcı/owner, cihaz/realm, project scope ve logical source binding;
-- izinli operation/handler sürümleri, değişiklik sınıfları, okunabilir/yazılabilir logical kaynaklar;
-- görev scope digest'i, policy/verifier/validator sürümleri ve kontrollü source lineage;
-- izinli exact model ve provider identity; yerel/uzak niteliği, veri sınıfı ve dış ağ kapsamı;
-- çağrı, token, süre, maliyet/kota, disk ve eşzamanlılık sınırları;
-- geçerlilik süresi veya kullanıcı tarafından açık seçilmiş iptale-kadar kapsam; iptal ve gözden geçirme koşulları;
-- rollout, rollback ve bildirim kuralları.
-
-Her çalıştırmada grant'ten otomatik olarak **exact run plan** türet; plan/candidate/source/fixture/budget digest'lerini child authorization'a bağla. Model grant, child yetki veya review sonucunu kendi çıktısıyla üretemesin. Deterministik admission, hakkı ve kalan bütçeyi transaction içinde kontrol etsin.
-
-Görev dosyasının bu talebi, gerçek cihaz grant'i değildir. Kurulum sonunda etkinleştirme planı tek sefer gösterilir. İlgili yetki mevcutsa yeniden istenmez; yoksa yalnız gerekli ilk bootstrap onayı alınır. Sonraki rutin işler bu kapsamda kendiliğinden çalışır.
-
-Mevcut benchmark için ayrı plan/tek-kullanımlık yetki kuralları korunur. Sürekli öğrenme grant'i, tam model benchmark kampanyası başlatma izni değildir.
-
-### 6.3. Drift ve iptal
-
-Korunan policy/verifier/evaluator, provider, kapsam veya source binding değişirse yeni effect'ten önce dur. İzinli bir canary/activation sonucu değişen generated artifact digest'i ise, doğrulanmış activation receipt'i üzerinden kontrollü lineage ilerlemesiyle bağlansın; kendi başarılı her küçük değişikliği için tekrar insan onayı zorunlu hale getirme.
-
-Grant iptali yeni claim'leri hemen engeller. Çalışan iş için bir sonraki effect sınırında tekrar kontrol yapılır. Daha önce kabul edilmiş değişikliği geri alma yetkisi activation sırasında dar kapsamlı recovery capability olarak saklanabilir; bu capability yeni iyileştirme yapamaz. Durdurma ve rollback farklı eylemlerdir; kullanıcı rollback'i de durdurduysa buna uyulur.
-
-### 6.4. Kodun kendisini geliştirmesi
-
-Bu görev “sadece günlük yaz” düzeyinde kalmayacak. Zekam kendi davranışındaki sorun için kaynak değişikliği adayı, regresyon testi ve patch de üretebilecek. Ancak kontrol düzlemini otonom biçimde yeniden yazmak ile izinli bir yardımcı modülü düzeltmek ayrılacak.
-
-- İlk otomatik aktivasyon alanı: mevcut generated skill/prompt/context recipe/izinli routing ayarı ve geri üretilebilir bakım işlemleri.
-- Non-critical kaynak kodu için **ayrı code-maintenance standing grant** hazırlanabilir. İzinli dosyalar bağımlılık analiziyle exact seçilir; `src/**` gibi sınırsız glob yeterli değildir. Bu grant yoksa patch taslağı üretilebilir, kaynak mutation'i yapılamaz.
-- Scheduler, authorization, security, secret/retention, evaluator/holdout, receipt ve rollback yürütücüsü bu kod grant'inden dışlanır. Bu yolları dolaylı etkileyen import/dependency veya executable skill değişimi de yüksek riskli sayılır.
-- Uygun kaynak değişikliğinde agent dışarıda patch artifact'i hazırlasın. Mutation yalnız gerçek source root'ta, maintenance window + exact base fingerprint + writer lease + öncesi/sonrası journal ile yapılsın.
-- Kaynak kopyası/worktree yasağı korunur. Test izolasyonu, kaynak ağacını kopyalayıp ayrı proje açarak değil; sınırlı süreç/işletim sistemi yetkileri ve ayrı geçici test verisiyle sağlanır. Bu güvenli execution boundary kanıtlanamıyorsa kaynak kodu otomatik çalıştırma/uygulama kapalı kalır; deklaratif ve modelsiz güvenli yollar bundan bağımsız çalışır.
-- Executable skill de koddur. `.md` içinde sunulmuş olması, içerdiği script'e düşük risk kazandırmaz.
-- Active code sürümünü çalışan worker'ın altından değiştirme. Drain, doğrulanmış paket/manifest kontrolü, kontrollü yeniden başlatma, health check ve rollback sırası uygula.
-- Kullanıcının devam eden edit'i veya başka bir writer görülürse patch'i zorlayarak uygulama. Exact taban değiştiyse yeniden planla; rollback sırasında kullanıcının yeni edit'ini silme.
-
-Bu seçenek gerçekten uygulanabilir bir kapı ve testlere sahip olacak; “ileride yapılabilir” metniyle geçiştirilmeyecek. Buna rağmen yetkisi veya izolasyon kanıtı bulunmayan cihaz için `active` yazılmayacak.
-
-## 7. Olay yakalama, privacy ve oturum devamı
-
-### 7.1. Ortak olay sözleşmesi
-
-Mevcut lifecycle bridge/spool/continuity modüllerini genişlet. En az şu bilgiler tipli, boyutu sınırlı event envelope içinde bulunsun:
-
-`event_id`, `event_type`, `schema_version`, `device_id`, `client_id`, `client_version`, `session_id`, `project_scope`, `work_ref`, `run_ref`, `source_revision`, `occurred_at`, `received_at`, `sequence_or_cursor`, `idempotency_key`, `parent_run_ref`, `origin`, `payload_digest`, `privacy_class`, `evidence_refs`.
-
-Mevcut sözleşmeler aynı alanı sağlıyorsa yeniden adlandırma veya paralel kimlik üretme. Field eşleme tablosuyla yeniden kullan. Zamanlar UTC saklanır; günlük planlama ve görünüm `Europe/Istanbul` üzerinden sunulur.
-
-### 7.2. Capture, modelin hatırlamasına bağlı olmayacak
-
-Hook'un senkron işi kısa ve deterministik olacak: yetkili kaynağı doğrula, bounded olayı/checkpoint'i yerel spool/queue'ya dayanıklı biçimde teslim et, teslim sonucunu kaydet. Hook içinde uzun LLM çağrısı veya tam bilgi tabanı derlemesi yapma.
-
-Desteklenen istemci API/olayından, agent'ın “not yazmayı hatırlaması” gerekmeden artımlı semantik girdi elde et. Kanıt, karar, kullanıcı düzeltmesi ve açık kalan iş ayrı alanlardır. Ham geçmişe ihtiyaç varsa yalnız kullanıcı tarafından onaylı mevcut istemci kaynağını, sınırlandırılmış pencere ve ephemeral işlemeyle oku; tüm home/session dizinini süpürme.
-
-Raw prompt/response ve transcript ikinci kez kalıcı lifecycle ledger'a kopyalanmaz. Kalıcı kayda yalnız güvenli yapılandırılmış özet, kaynak referansı ve izinli kanıt girer. Redaksiyon yeterliliği kanıtlanamıyorsa veri dış modele gönderilmez. Salt hash kullanmak hassas değeri güvenli yapıyor varsayımı kurulmaz.
-
-Ani process kill veya elektrik kesilmesinde son olayın yakalanması garanti edilemez. Tasarım, son **teslim edilmiş** cursor'dan recovery ve mümkün olduğunda onaylı source replay sağlar. Kaynak artık yoksa `capture-gap` kaydı üretir; kayıp bölümü LLM ile uydurmaz.
-
-### 7.3. İstemci uyumluluğu
-
-- **OpenCode:** mevcut managed plugin, `resume` ve compaction bağlamı korunur; kendi event API'si kullanılır. `session.idle` oturum sonu sayılmaz. Ön-compaction ile sonrasını karıştırma.
-- **Claude Code:** kurulu sürümde desteklenen SessionStart/SessionEnd/PreCompact ve ilgili olayları probe et. Kapanış timeout'u içinde yalnız spool teslimi hedefle.
-- **Codex:** güncel resmî belge SessionStart/SessionEnd ve turn olaylarını ayrı tanımlar; kurulu sürümde gerçekten desteklendiğini sınamadan config yazma. `Stop` ile session sonunu eşitleme. Background hook'un oturum sonrasında mutlaka bitmesini varsayma.
-- **Diğer CLI'lar:** aynı versioned event adapter ve explicit checkpoint protokolünü kullan. Yerel hook yoksa bunu `unsupported` veya `capture-degraded` raporla; instruction dosyası kuruldu diye otomatik capture kanıtı üretme.
-
-İstemci config'ine managed bölüm olarak ekleme yap; kullanıcının hook'larını ezme. Content hash/trust review gereken istemcide kullanıcı adına trust dosyası veya onay uydurma. Aynı core skill/policy'nin bağımsız üç kopyasını oluşturma; istemci dosyaları ince projection/adapter olsun.
-
-Yeni oturuma verilen context mevcut 16 KiB sınırını aşmasın. Seçili proje, güncel work/checkpoint, ilgili lesson/skill ve kaynakları önceliklendir. Context paketinin bilgi taşıması, içindeki metnin policy yetkisi kazanması değildir.
-
-## 8. Gerçek worker ve zamanlayıcı entegrasyonu
-
-### 8.1. Journal'dan tipli dispatch'e
-
-Mevcut `LocalRuntimeService`, SQLite queue/outbox, process incarnation, claim ve recovery mekanizmaları korunur. `LocalJournalEffectExecutor` mevcut journal işlemleri için kalır; yanına allowlist tabanlı operation dispatch eklenir.
-
-Aşağıdaki adlar **yeni handler sorumluluklarıdır; bugün mevcut API oldukları iddia edilmez**:
-
-| İş ailesi | Gerçek çıktı |
-|---|---|
-| `continuity.capture / summarize` | Kaynaklı özet/checkpoint, capture receipt ve cursor |
-| `knowledge.compile / reconcile` | Yeni veya revize knowledge çıktısı, relation adayları ve publish receipt |
-| `learning.reflect` | Tekilleştirilmiş failure/lesson veya doğrulanmış başarı örüntüsü |
-| `skill.propose / evaluate` | Candidate manifest, gerçek trial sonuçları ve bağımsız review |
-| `improvement.plan / evaluate` | Exact bounded plan, baseline/after karşılaştırması |
-| `improvement.shadow / canary / activate / rollback` | Gerçek uygulama/readback sonucu ve mevcut ledger'a bağlı receipt |
-| `maintenance.reconcile` | İzinli derived kaynak onarımı ve yeniden doğrulama |
-| `sources.refresh` | İzinli public kaynağın version/digest farkı; kurulum değil araştırma adayı |
-| `report.daily` | Kanonik kanıttan üretilmiş, mahremiyeti korunmuş özet |
-
-Job payload serbest shell komutu taşıyamaz. Handler sürümü, giriş/çıkış şeması, izinli resource ve idempotency davranışı kayıtlı olsun. Aynı handler, CLI'dan ve scheduler'dan farklı güvenlik yolu kullanmasın.
-
-### 8.2. Teslim ve hata semantiği
-
-En az bir kez teslim + idempotent effect tasarla; tüm dış sistemler için “exactly once” garantisi yazma. Effect öncesi claim, atomik bütçe rezervasyonu ve güncel authorization kontrolü; effect sonrası bağımsız readback ve terminal receipt zorunludur.
-
-Queue SQLite'ı ile learning/improvement gibi ayrı dosyalara yazım tek transaction sanılmayacak. Her store sınırı için outbox/idempotency/digest bağını kullan; process kill'lerin iki commit arasına düşmesini test et. Receipt kaydı olmadan gerçekleşmiş olabilecek dış etkiler körlemesine yeniden denenmez.
-
-Dead-letter, bounded exponential backoff + jitter, lease renewal, dead process recovery ve attempt sınırı olsun. Aynı hata/candidate başka cümleyle tekrar üretilip yeni bütçe elde edemesin. Causal origin bilgisi, kendi report/compile çıktısını durmaksızın yeni öğrenme olayı saymayı engellesin; origin alanı güvenlik yetkisi değildir.
-
-### 8.3. OS gözetimi
-
-Ayrı bir scheduling ürünü ekleme. Mevcut scheduler'a durable due-job planlama ekle; işletim sistemi yalnız bunun bounded tick'ini tetiklesin.
-
-- Windows: kullanıcı düzeyinde Task Scheduler kurulumu. Geçerli principal/logon türü, kaçırılan tetik davranışı ve aynı işin paralel başlamaması geri okunarak doğrulanır. Açık terminale bağımlı olmamalı; kullanıcı logoff sonrası çalışıp çalışmadığı ayrı raporlanmalı.
-- macOS: kullanıcı düzeyinde LaunchAgent. CLI kapalıyken çalışması, kullanıcı oturumu açık olması ve cihazın uyanık olması farklı koşullardır; destek iddiası bunları açık yazmalı.
-- Linux: ortamda destek varsa user service/timer adapter'ı; bu görev Windows ve macOS kabulünü önceliklendirir. Test edilmemiş platform `unverified` kalır.
-
-Install planı service adı, executable/environment fingerprint'i, config yolları, schedule, izinler, ağ kapsamı ve uninstall/rollback etkilerini göstersin. Plan gösterilmeden ve yetki olmadan servis kurulmasın. Install idempotent olsun; başka uygulamanın servisine dokunmasın. Kullanıcı yönetim politikasını veya kurumsal MDM kısıtını atlamasın.
-
-Durum kontrolü yalnız “config dosyası yazıldı” demesin: OS kaydı, çalıştırılabilir dosya sürümü, son tick receipt'i, heartbeat ve due-job watermark birlikte doğrulansın. Servis eski binary çalıştırıyorsa bunu görünür versiyon drift'i say.
-
-### 8.4. Uyku, yoğunluk ve catch-up
-
-Makine kapalıyken yerel iş çalışamaz. Uyanışta/yeniden açılışta birikmiş aynı iş pencerelerini birleştir; her kaçırılmış dakikaya yeni model çağrısı üretme. Zaman geriye alınırsa aynı günlük işi ikinci kez çalıştırma. Grant expiry ve lease için uygun monoton zaman kontrolü ile UTC audit zamanını ayrı ele al.
-
-Aktif kullanıcı işi, düşük pil, bellek baskısı veya model yokluğu varsa pahalı işleri ertele; modelsiz hafif durum/queue işi devam edebilir. Watcher olmayan ortamda bounded fingerprint reconciliation fallback'i kullan; her tick'te bütün repository'yi hash etme.
-
-## 9. Bilgi derleme ve beceri birikimi
-
-### 9.1. Kaynaklı bilgi
-
-Mevcut `knowledge` komutları ve `SQLiteLocalLearning` lifecycle'ı kullanılacak. Günlük özet tek bilgi authority'si haline gelmeyecek; çıkarılan iddia mümkün olduğunda özgün receipt/test/citation'a geri bağlanacak.
-
-Her derlenmiş birim için mevcut şemaya uyarlanan şu bilgiler tutulacak: owner/scope, source refs/digests, observed/verified zamanları, üretici sürümü, epistemic durum, önceki revizyon, çelişki/supersession ilişkisi. Kullanıcının sözü, araç gözlemi, haricî makale iddiası ve agent çıkarımı ayırt edilecek.
-
-İnsan yazımı içerik ile generated alan ayrımı mevcut ownership kuralları üzerinden uygulanacak. Generated dosyada kullanıcı edit'i görülürse otomatik üzerine yazmak yerine conflict oluştur. Wikilink oluşturmak için en az iki ilişki uydurma; bulunamıyorsa daha az veya sıfır ilişki doğru sonuçtur.
-
-Kaynak değişirse ilgili bilgiyi `stale` yap ve hedefli yeniden incele. Eski bilgi sırf yeni özet içinde tekrar geçti diye güncel doğrulanmış sayılmayacak. Derleme, eski rapordaki yanlış/güncelliğini yitirmiş authority iddiasını “kalıcı kural” yapamaz.
-
-### 9.2. Hata, ders ve başarı örüntüsü
-
-`failure_signature`, `failure_occurrence`, `failure_card`, `lesson` tablolarını mevcut validation kurallarıyla kullan. Tek hata olayının tekrarlı teslimini yeni failure sayma. Benzer hataları grupla, fakat farklı nedenleri tek signature altında ezme. Düzeltmenin işe yaradığını test/receipt veya açık kullanıcı doğrulaması göstermeden lesson'ı başarı diye sunma.
-
-Doğrulanmış başarıları da incele: tekrarlanan adımların genellenebilir kısmını çıkar; hardcoded kullanıcı verisi, secret veya tek proje için geçerli kuralı global skill'e taşıma. Kullanıcının bir defalık talebini kalıcı tercih olarak otomatik kabul etme.
-
-### 9.3. Skill üretimi ve gerçek kullanım
-
-Skill manifest'i tek canonical kaynakta dursun; metadata, kapsam, girdiler/çıktılar, önkoşullar, araç izinleri, kaynaklar, test bağlantıları ve sürüm içersin. Mevcut `skill_manifest → skill_evaluation → skill_review → skill_activation → skill_usage → skill_outcome` zinciri korunacak.
-
-Mevcut en az beş skill trial kuralı kaldırılmaz. Beş başarı küçük bir kalite farkını istatistiksel olarak kanıtlar varsayımı yapılmaz. Veri yetersizse candidate/shadow durumu korunur.
-
-Aktif skill sonraki uygun gerçek işte retrieval/dispatch tarafından seçilebilmeli. Skill seçildi, kullanıldı, işe yaradı ve geri çekildi durumları ayrı kayıtlardır. Skill dosyalarının sayısını “zekâ artışı” diye raporlama. Mevcut evrensel skill kaynağı/kurulum yaklaşımı varsa onu kullan; OpenCode'a özel ikinci katalog kurma.
-
-## 10. Dış kaynaklardan kendiliğinden öğrenme
-
-İlk kaynak listesi bu görevdeki resmî belgeler ve araştırmalardır. Kaynak refresh'i yalnız açıkça yetkilendirilmiş public allowlist üzerinden yapılır. Bu araştırma isteği, gelecekte sınırsız web taraması veya özel proje bilgisini dış sorgulara ekleme yetkisi değildir.
-
-Kaynak kaydı URL, publisher, content digest, erişim tarihi, konu/kapsam, içerik türü, lisans/yeniden kullanım notu ve son başarılı sürümü içersin. İzinli domain dışında redirect, aşırı büyük yanıt, beklenmeyen binary veya script, özel ağ hedefi ve kimlik bilgisi isteyen kaynak reddedilsin. İndirme/okuma ile çalıştırma iki ayrı yetkidir.
-
-Refresh yalnız değişen, ilgili içeriği inceletsin. Modelin “yeni kaynak buldum” çıktısı allowlist'i genişletemez. Yeni kütüphane/model/skill sürümü bir **inceleme adayıdır**; otomatik dependency upgrade veya kurulum değildir. Kaynak metnindeki tool/terminal/policy talimatları veri olarak işlenir.
-
-Aday, hangi gerçek Zekam sorununu çözdüğünü, beklenen kazanımı, maliyeti, doğrulama senaryosunu ve mevcut çözümle farkını belirtmeden geliştirme kuyruğuna alınmaz. İlgisiz trend takibi üretim işlerini ve model bütçesini tüketmesin.
-
-## 11. İyileştirme deneyi, aktivasyon ve rollback
-
-### 11.1. Aday ve değişmez değerlendirme sınırı
-
-Mevcut improvement ledger ve `domain.optimization` tipleri kullanılacak. Candidate; problem kanıtı, hypothesis, exact target, baseline, önerilen diff/parametre, risk sınıfı, bütçe ve geri dönüş tanımını bağlasın.
-
-Builder/proposer ile verifier farklı gerçek görev/süreç ve yetki bağlarına sahip olsun. Yalnız iki farklı metin etiketi kullanmak bağımsızlık değildir. Aynı modelin ayrı oturumları da ortak hata eğilimi taşıyabilir; kritik kararda deterministik outcome testi ve gerektiğinde kalibre edilmiş ayrı reviewer kullanılmalı.
-
-Evaluator/holdout/policy/receipt sözleşmeleri builder tarafından değiştirilemez. Candidate'ın ürettiği yeni regresyon testleri faydalı ek kanıttır; korunmuş testleri veya eşikleri değiştiremez. Test altyapısında gerçekten hata bulunursa ayrı bakım/onay kaydı açılır; mevcut adayın geçmesi için evaluator sessizce düzeltilmez.
-
-### 11.2. Baseline ve test veri ayrımı
-
-Güncel baseline, gerçek source/config/model/provider/fixture/harness/verifier fingerprint'leriyle kaydedilsin. Model çağrısı gerektirmeyen baseline testleri önce çalıştırılabilir. Canlı kalite baseline'ı için geçerli model yetkisi yoksa bunu `blocked` kaydet; mock sonuçlarını onun yerine koyma.
-
-Başlangıç setini mevcut gerçek hata/iş örnekleriyle kur: en az 20 bağımsız vaka hedefle; yeterli gerçek vaka yoksa eldeki sayı ve eklenmiş sentetik vakalar ayrı raporlansın. Kalibrasyon, candidate geliştirme ve holdout kayıtları karışmasın. Aynı transcript'in parçalarını farklı bağımsız vaka diye sayma. Her aday baseline ve candidate üzerinde eşlenik koşullarda denensin.
-
-Otonom kod/skill çalıştırma testleri production home, secret ve yetki dosyalarına erişemeyen bir execution boundary ister. Salt “temp klasörde çalıştırdım” sandbox kanıtı değildir. Kaynak kopyalama yasağına uyumlu izolasyon sağlanamıyorsa ilgili executable aday sınıfı bloke edilir.
-
-### 11.3. Metrikler ve kabul kuralı
-
-Bütün iyileştirmelere tek toplam skor uygulama. Mevcut metrikler kullanılır; bakım ve bilgi görevleri için typed metric profile eklemek gerekiyorsa sürümlü ve testli ekleme yap. Zorunlu model benchmark alanlarını uydurma sıfırlar veya sahte sonuçlarla doldurma; `not_applicable` ancak şemanın ve görev profilinin açık kuralıyla kullanılabilir.
-
-| Boyut | Ölçüm |
-|---|---|
-| Doğruluk | Referans/outcome doğrulaması; bilmediği alanda uydurmama |
-| Kaynak ve scope | Citation geçerliliği, güncellik, doğru proje/realm, desteklenmeyen iddia |
-| Öğrenme değeri | Bağımsız sonraki vakalarda hata tekrar oranı; skill transferi; kullanıcı düzeltme yükü |
-| Süreklilik | Teslim edilmiş olaydan özet gecikmesi; capture gap; resume doğruluğu |
-| Güvenilirlik | Tekrarlı denemede sonuç, retry/recovery, yinelenen effect |
-| Verim | Aynı doğruluk düzeyinde token, çağrı, latency ve gerçek maliyet/kota |
-| Güvenlik | Yetkisiz etki, korunan dosya değişimi, veri sızıntısı veya evaluator değişimi |
-
-Aktivasyon için kaynak/plan güncel olmalı, gereken testler geçmeli, bağımsız verifier kabul etmeli, risk sınıfının review/authorization koşulu sağlanmalı ve bütçe yeterli olmalı. Önceden tanımlanmış kalite kazanımı veya eşdeğer kalitede operasyonel kazanım olmadan değişiklik “improved” sayılmaz. Güvenlik ve correctness kaybı daha az token harcanarak telafi edilemez.
-
-İstatistiksel belirsizlik veya çok az örnek varsa `insufficient-evidence` gerekçesi ile candidate/shadow'da kal. Çok sayıda aday deneyip holdout'a aşırı uyum sağlama; aday ve değerlendirme bütçesini birlikte sınırla. Testlerde sıfır ihlal görülmesini “gerçek dünyada hiç ihlal olmayacak” garantisi olarak yazma.
-
-### 11.4. Gerçek rollout
-
-Shadow, candidate çıktısının production seçimini değiştirmeden karşılaştırılmasıdır. Canary, yetkili sınırlı iş diliminde gerçek candidate sürümünü kullanır. Activation, doğrulanmış sürümün ilgili registry/pointer/manifest üzerinden gerçekten seçilmesidir. Her aşamada before/after readback ve sürüm bağı kanıtlanır.
-
-Yalnız database'e `shadow=completed` veya `activation=completed` yazan bir handler kabul edilmez. Gerçek iş üretmeyen metadata değişikliği, öz-iyileştirme değildir.
-
-Canary yalnız izinli yerel/düşük etkili işlerde başlasın. Gerçek örnek sayısı ve minimum gözlem koşulu sağlanmıyorsa sessizce üretim kabulü verme; sentetik prova ile gerçek canary'yi ayrı tut. Haricî form gönderme, ödeme, mail gönderme veya proje deployment'ı bu görevde canary aracı değildir.
-
-### 11.5. Geri dönüş
-
-Aktivasyon öncesinde last-known-good sürüm, affected resource listesi, before digest, backup/journal ve recovery planı kayıtlı olsun. Aktivasyondan sonra kalite/sağlık düşerse yeni iş dağıtımını durdur, yalnız ilgili değişikliği geri al, readback yap ve sonucu ledger'a yaz.
-
-Tüm home'u eski tarihe döndürerek arada oluşmuş kullanıcı verisini kaybetme. Rollback exact hedefte compare-and-swap kontrolü yapar; beklenmeyen kullanıcı değişimi varsa `recovery-required` olur. Kendisi başarısız olan rollback sonsuz denenmez; circuit breaker ve tekilleştirilmiş bildirim üretir.
-
-## 12. Kaynak ve maliyet bütçesi
-
-Aşağıdakiler **kurulum planı için önerilen başlangıç sınırlarıdır; ölçülmüş performans veya verilmiş harcama izni değildir**. Mevcut daha sıkı sınır varsa korunur. Kullanıcı, ilk etkinleştirmede actual cihaz/modelle üretilen exact planı görür.
-
-| Alan | Başlangıç önerisi |
-|---|---|
-| Scheduler tick | 60 saniyede bir hafif, modelsiz due-job kontrolü; idle durumda kaynak taraması yok |
-| Eşzamanlı ağır iş | Cihaz başına 1; aynı logical resource için 1 writer |
-| Tek tick | En çok 5 bounded modelsiz iş; model işleri ayrı global rezervasyonla |
-| Özetleme debounce | Yeni teslim edilmiş anlamlı olay sonrası 5 dakika; normal kapanışta kuyruğa hemen al |
-| Bilgi derleme | Değişiklik varsa günde 1 kez, Europe/Istanbul 21:00 sonrası uygun idle penceresinde; kaçırıldıysa birleşik catch-up |
-| Dış kaynak refresh | Allowlist başına günde en çok 1 planlı tur; değişmeyen içerikte model çağrısı yok |
-| İyileştirme araması | Günde en çok 1 yeni candidate; candidate başına en çok 3 değerlendirilmiş varyant |
-| Başarısız teknik retry | En çok 3; yan etkisi belirsiz işte otomatik retry yok |
-| Model bütçesi | Yetki verilmeden 0 uzak çağrı. Bootstrap planında cihaz/iş/model başına pozitif call/token/kota/maliyet tavanları exact gösterilir. |
-| Bildirim | Normalde günde 1 yerel özet; acil güvenlik/rollback istisnası ayrıca |
-
-Token/call bütçeleri aday üretimi, judge, retry, özetleme ve alt agent'lar arasında ortak tüketilir; her alt iş yeni bütçe kazanmaz. Çağrıdan önce en kötü izinli kullanım rezervasyonu yapılır, sonunda gerçek usage ile uzlaştırılır. Fiyat bilinmiyorsa gerçek maliyet `unknown` yazılır; 0 kabul edilmez. Fiyat/kota yeterince sınırlandırılamıyorsa para bazlı grant'in koşulu sağlanmaz.
-
-“Ucuz model” sabit model adı değildir; yalnız izinli ve ilgili görevde yeterliliği doğrulanmış model seçilir. Yerel BGE bir embedding modelidir; konuşma özetleyici yerine kullanılamaz. Semantik model yoksa modelsiz capture/repair çalışır, özetleme işi `model-unavailable` kalır; lexical çıktıyı semantik öğrenme diye sunma.
-
-Çalışan grant'te model/provider sabitlensin; sohbet varsayılanı değişti diye unattended işler başka sağlayıcıya geçmesin. Mac'in yerel config'i Windows kurumsal endpoint ayarını ezmesin; secret ve endpoint erişim bilgileri Git'e taşınmasın.
-
-## 13. Veri düzeni ve çok cihaz sınırı
-
-Mevcut home ve path sözleşmeleri esas alınır. Yeni runtime çıktılarını source tree'ye yazma. Gerekli yeni generated alanları aşağıdaki **mantıksal rollerle** mevcut dizinlere eşleştir; eşdeğer dizin varsa yenisini oluşturma:
-
-- güvenli olay/checkpoint spool'u;
-- generated günlük/knowledge projection'ı;
-- skill ve improvement aday artifact'leri;
-- deney/baseline/rollout raporları;
-- dar kapsamlı rollback journal ve backup manifest'leri.
-
-Queue/progress/authorization/receipt operational katmanda; learning/review kendi mevcut canonical lifecycle'ında; retrieval index yeniden üretilebilir; analitik raporlar derived kalır. Markdown iki sistem arasında yetki veya aktif state senkronizasyon aracı olmaz.
-
-Windows ve Mac aynı mantıksal projeyi tanıyabilir ama aynı kaynakta bağımsız, koordine edilmemiş iki auto-writer olamaz. İlk sürüm her writable proje/iyileştirme alanı için atanmış tek cihaz yürütücüsü kullanır. Diğer cihaz aynı alan için salt okunur veya kendi ayrık scope'unda çalışır. İki yerel SQLite lease, dağıtık kilit sayılmaz.
-
-Git source sürümlemesi ile özel bilgi yedeği ayrıdır. Zekam public repository'sine kişisel günlük, kurumsal çıktı, model cevabı, ham transcript veya home DB eklenmez. Canlı SQLite/WAL dosyaları Git/iCloud ile senkronize edilmez. Backup mevcut doğrulanmış araçla, scope/ownership korunarak yapılır. Senkron özellikleri bu görev kapsamında başka bir ürün haline getirilmez.
-
-## 14. Kullanıcı yüzeyi ve durumların doğruluğu
-
-Yeni yüzey için **`zekam evolve`** komut grubu önerilir. Bu komutlar şu an repository'de çalışıyor diye sunulmaz. Güncel codebase'de eşdeğer bir yüzey bulunursa onu genişlet; aynı iş için ikinci komut ailesi üretme.
-
-| Yeni yüzey | Davranış |
-|---|---|
-| `zekam evolve plan --json` | Provider çağrısı yapmadan kurulum/işletim kapsamı, eksikler, izinli modeller, kaynaklar ve bütçe planı |
-| `zekam evolve enable --plan-digest … --uygula --json` | Exact plan ve mevcut kullanıcı yetkisiyle OS bağlantısı/standing grant aktivasyonu; eksik onayı kendisi üretmez |
-| `zekam evolve status --json` | Gerçek service/queue/handler/grant/model/heartbeat/last-effect durumu |
-| `zekam evolve run-once --uygula --json` | Aynı policy ve handler'larla bounded tek çevrim; kontrol kapılarını atlayan debug yolu değil |
-| `zekam evolve candidates --json` | Aday, kaynak, risk, değerlendirme ve engel görünümü |
-| `zekam evolve report --json` | Önce/sonra metrikler, gerçek kullanım, geri alınan/reddedilen işler, maliyet ve capture gaps |
-| `zekam evolve pause --uygula --json` | Yeni claim/effect admission'ını durdur; çalışan işleri safe checkpoint'e taşı |
-| `zekam evolve resume --uygula --json` | Grant, drift ve recovery doğrulaması sonrası devam; otomatik yetki genişlemesi yok |
-| `zekam evolve disable --uygula --json` | Yalnız managed servis/bağlantıyı kaldır veya devreden çıkar; kullanıcı bilgisi/receipt silinmez |
-
-Teklif edilen komut imzalarını implementation sırasında mevcut CLI standartlarına uyumlu hale getir; kesinleşen isimleri test, help ve runbook'ta birlikte güncelle.
-
-Durumlar en az `disabled`, `setup-required`, `observing`, `running`, `paused`, `blocked`, `degraded`, `recovery-required` ayrımı taşısın. `ready` yazmak için çalışan yüzey, geçerli authorization ve o cihazdaki gerçek kabul kanıtı gereksinimi tanımlansın. Bir bileşen `ready`, bütün ürün `ready` anlamına gelmez.
-
-Günlük rapor: hangi yeni kanıttan ne öğrenildi, nerede yeniden kullanıldı, ne otomatik değişti, ne ölçüldü, ne reddedildi/geri alındı, hangi veri yakalanamadı, bütçe ne oldu, insan aksiyonu gerekli mi? Rapor kaynağı modelin hatırladığı başarı değil kanonik kayıtlardır.
-
-`docs/ZEKAM_YETKINLIK_ENVANTERI.md`, `capabilities`, doctor, resume, README ve observatory durumları bu yeni yüzeyi dürüstçe göstersin. Sürüm raporundaki eski PostgreSQL kabulü tarihsel işaretlensin. `GLOBAL_DOD_DURUM.md` ve release gate gerçek kanıtla uzlaştırılmadan global passed sayıları değiştirilmesin.
-
-## 15. Uygulama iş paketleri
-
-Paketler aynı görevin bağımlılık sırasıdır; “ilk kısmı yaptım, gerisi sonraki projeye” şeklinde kapanış nedeni değildir. Gerçek ortam/yetki engeli varsa ilgili kabul açık kalır; engel olmayan geliştirme ve testler tamamlanır.
-
-| Paket | İş | Çıkış kanıtı | Bağımlılık |
-|---|---|---|---|
-| OE-00 | Mevcut repo/authority/lease envanteri, önceki görevi koruma, hedefli baseline ve reuse haritası | Source/config fingerprint, scope transition planı, baseline sonucu, gerçek blocker listesi | — |
-| OE-01 | Standing grant, protected resources, typed operation ve bütçe rezervasyonu | Yetki negatif testleri; değişmez reviewer/effect sınırı | OE-00 |
-| OE-02 | Artımlı capture, sanitized source replay ve OpenCode/Claude/Codex adapter'ları | Destek matrisi, duplicate/compaction/kill testleri, gerçek capture receipt | OE-01 |
-| OE-03 | Gerçek handler dispatch ve OS scheduler kurulumu | CLI kapalıyken OS tick → job → gerçek effect → receipt kanıtı | OE-01 |
-| OE-04 | Günlük/knowledge compiler ve failure/success→lesson→skill entegrasyonu | Kaynaklı revizyonlar, conflict davranışı, gerçek skill usage/outcome | OE-02, OE-03 |
-| OE-05 | Baseline/holdout, bağımsız verifier, typed eval profilleri ve kaynak refresh | Eşlenik eval raporu; dış kaynaktan yalnız aday oluştuğunun kanıtı | OE-04 |
-| OE-06 | Shadow/canary/activation/rollback; opsiyonel exact kaynak bakım kapısı | Gerçek before/after readback; başarısız rollout'un geri alınması | OE-05 |
-| OE-07 | CLI/doctor/capability/observatory, güncellik reconciliation ve runbook | Tutarlı durum yüzeyleri; eski rapor güncel başarı sayılamıyor | OE-03–06 |
-| OE-08 | Native kabul, chaos/recovery, paket kalite kapıları ve devir | Bölüm 16 matrisi; uygulanmış/kanıtlanmış/bloklu ayrımı | OE-07 |
-
-Kod entegrasyonunun ilk bakılacak yolları: `application/client_lifecycle_*`, `client_hook_bootstrap.py`, `context_*`, `local_runtime_service.py`, `memory_service.py`, `mutation_admission.py`, `infrastructure/local_core_services.py`, `infrastructure/sqlite/local_runtime.py`, `local_learning.py`, `local_improvement.py`, `local_model_benchmark.py`, `local_evidence_routing.py` ve mevcut CLI modülleri. Bunların gerçekten ilgili olanlarını okuyup değiştir; dosya adına bakarak kapsamlı yeniden yazma yapma.
-
-Yeni modüller sorumlulukları ayrıştırmak için eklenebilir; klasör sayısını artırmak tek başına mimari kazanım değildir. Mevcut prototype/dormant/legacy parçaları silmeden önce çağrı, sahiplik ve test kanıtı çıkar. Kullanılmıyor görünen kullanıcı dosyalarını silme.
-
-En az bir gerçek subagent araştırma veya bağımsız doğrulama yapacak. Aynı source resource üzerinde tek builder olacak; coordinator verifier diye kendi sonucunu onaylamayacak. Uygulama ortamında subagent yoksa bunu gerçek kısıt olarak raporla, sahte alt ajan kayıtları üretme.
-
-### 15.1. Kalıcı teslimler
-
-Mevcut kaynak/test/schema değişikliklerine ek olarak bu görev şu belgeleri oluşturur veya mevcut eşdeğerlerini genişletir:
-
-- Tek yaşayan `AKTIF_GOREV.md` ve ondan üretilen `AKTIF_GOREV.yaml`.
-- Otonom işletim sözleşmesi: yetki, handler, bütçe, drift, recovery ve protected-resource kuralları.
-- Kurulum/işletim runbook'u: Windows ve Mac, enable/pause/disable, ilk onay, model yokluğu, rollback ve backup.
-- Araştırma/karar kaydı: kaynak → bulgu → çıkarım → uygulanan değişiklik → test/receipt.
-- Güncel yetkinlik matrisi, changelog, package manifest/checksum ve gerçek kabul raporu.
-
-İnceleme/deney çıktıları source root dışında tutulur; repository'de yalnız gerekli, sanitize edilmiş, açıkça yetkili kalıcı teknik belgeler bulunur. Aynı içeriği çok sayıda farklı MD dosyasına kopyalama.
-
-## 16. Kabul testleri ve kapanış kapıları
-
-### 16.1. Davranış matrisi
-
-Aşağıdaki testler mevcut test düzenine eklenir. Network/model gerekmeyenler normal test suite'inde çalışır; canlı/native kanıtlar ayrıca işaretlenir. Bir testin kodda bulunması, çalıştırılmış olması değildir.
-
-| ID | Senaryo | Beklenen gözlenebilir sonuç |
+| Ortam | Zorunlu doğrulama | Yetersiz kanıt örneği |
 |---|---|---|
-| A01 | Önceki aktif görev ve açık işler varken geçiş | Eski içerik ve receipt'ler korunur; aynı iş ikinci kez açılmaz. |
-| A02 | Dirty/diverged kaynak, kullanıcı edit'i | Otomatik reset/stash/overwrite olmaz; etkilenmeyen işler devam eder. |
-| A03 | Kurulum planı, onay yok | OS kaydı, grant, uzak çağrı ve source mutation oluşmaz. |
-| A04 | İdempotent ikinci enable/install | İkinci servis, hook veya schedule çoğalmaz. |
-| A05 | Tüm CLI pencereleri kapalı, uygun OS oturumu/cihaz açık | Scheduler gerçek işi çalıştırır; gerçek effect ve receipt oluşur. |
-| A06 | Servis restart / makine wake | Due işler bounded catch-up ile devam eder; çağrı fırtınası olmaz. |
-| A07 | İki tick / iki worker yarışı | Aynı resource için tek claim/effect; bütçe çifte kullanılamaz. |
-| A08 | Effect öncesi ve sonrası process kill | Receipt veya recovery-required ayrımı doğru; belirsiz effect kör tekrarlanmaz. |
-| A09 | Operational ile learning/improvement yazımı arasında kill | Cross-store uzlaştırma idempotent; olmayan sonuç başarılı sayılmaz. |
-| A10 | Event tekrar teslimi / sıra değişimi | Cursor ve idempotency ile duplicate knowledge/failure oluşmaz. |
-| A11 | PreCompact ardından SessionEnd aynı içerik | Tek anlamlı capture; aynı içerik iki öğrenme örneği sayılmaz. |
-| A12 | Hard kill, teslim edilmemiş son parça | Onaylı kaynak uygunsa replay; değilse capture-gap; tahminle doldurma yok. |
-| A13 | Agent manuel checkpoint yazmayı unutuyor | Adapter'ın desteklediği veri için otomatik capture/summary çalışır. |
-| A14 | Desteklenmeyen CLI/sürüm/olay | Dürüst unsupported/degraded; kurulu config başarı kanıtı sayılmaz. |
-| A15 | OpenCode idle / Codex Stop olayı | Turn/idle ile session sonu karıştırılmaz. |
-| A16 | İstemcinin kendi trust onayı verilmemiş | Trust bypass yok; kurulum kısmi/blocked görünür. |
-| A17 | Çok uzun veya hatalı event/input | Boyut/schema sınırı; secret/log sızıntısı yok; süreç kontrollü hata verir. |
-| A18 | Input'ta hassas veri veya haricî talimat görünümü | Yetkisiz aktarım/policy değişimi olmaz; veri kabul kuralı uygulanır. |
-| A19 | Proje A kanıtının proje B context'ine girmesi | Scope kontrolü reddeder; paylaşıma yalnız izinli global kaynak girer. |
-| A20 | Kullanıcı notu veya generated dosyada kullanıcı edit'i | Sessiz overwrite yok; conflict/ownership durumu görünür. |
-| A21 | İki kaynak birbiriyle çelişiyor | Explicit conflict/supersedes ilişkisi; rastgele biri gerçek ilan edilmez. |
-| A22 | Agent'ın kendi raporu tekrar ingestion'a giriyor | Kendini doğrulayan evidence döngüsü ve sonsuz candidate üretimi olmaz. |
-| A23 | Aynı hata farklı cümlelerle tekrar sunuluyor | Tekilleştirme/novelty kontrolü; yeni bütçe açılmaz. |
-| A24 | Skill manifest yazılmış ama hiç kullanılmamış | Learned-use başarısı sayılmaz; usage/outcome boşluğu görünür. |
-| A25 | Candidate baseline'dan daha kötü | Reddedilir; active sürüm değişmez. |
-| A26 | Token azalıyor, correctness/citation düşüyor | Kazanç sayılmaz; correctness guardrail engeller. |
-| A27 | Candidate test, threshold veya verifier'ı değiştiriyor | Protected-resource sınırı engeller; bağımsız review başarısız olur. |
-| A28 | İki farklı reviewer adı aynı yürütücüye bağlı | Sadece isim farkıyla bağımsızlık kabul edilmez. |
-| A29 | Mock benchmark sonucu canlı kalite diye sunuluyor | Kanıt tipi uyuşmazlığı engeller. |
-| A30 | Holdout için az/bağımlı örnek, belirsiz kazanım | Candidate/shadow ve insufficient-evidence; otomatik passed yok. |
-| A31 | Shadow/canary yalnız metadata yazıyor | Gerçek effect/readback olmadığı için kabul edilmez. |
-| A32 | Canary gerçek kullanımı bozuyor | Dağıtım kesilir; ilgili sürüm kontrollü geri alınır; receipt üretilir. |
-| A33 | Rollback hedefi kullanıcı tarafından değiştirilmiş | Yeni kullanıcı içeriği korunur; recovery-required. |
-| A34 | Grant çalışma sırasında iptal | Yeni effect sınırında durur; dar recovery kuralı ayrıca doğrulanır. |
-| A35 | Model/provider/default config değişiyor | Sessiz uzak sağlayıcı geçişi yok; drift engeli. |
-| A36 | Budget concurrency, retry, subagent tüketimi | Ortak tavan aşılmaz; actual kullanım ayrı kaydedilir. |
-| A37 | Ağ/model/kimlik erişimi yok | Hafif yerel işler çalışabilir; ilgili model işi dürüstçe bloke/degraded olur. |
-| A38 | Özetleme için yalnız embedding modeli mevcut | Sahte özet/LLM başarısı üretilmez. |
-| A39 | Kaynak refresh aynı içerik / redirect / büyük dosya | Gereksiz model çağrısı yok; izin sınırı dışında fetch/execute yok. |
-| A40 | Dış kaynak dependency upgrade talimatı içeriyor | Yalnız inceleme adayı; otomatik paket yükleme yok. |
-| A41 | Non-critical code grant yok / korunan core dosya hedefleniyor | Patch önerisi ile mutation ayrılır; korunan değişiklik yapılmaz. |
-| A42 | Güvenli executable test boundary yok | Otonom executable kod yolu blocked; güvenli diğer yollar açık. |
-| A43 | Kaynak bakım window'u var ve exact yetki geçerli | Gerçek source root'ta tek-writer patch/test/readback; kaynak kopyası yok. |
-| A44 | Windows ACL, Unicode/spaced path, macOS izin/symlink farkı | Yerel güvenlik kuralı bozulmaz; mevcut son commit regresyonu yok. |
-| A45 | Eski PG dönemli sürüm raporu retrieval'a geliyor | Tarihsel/güncel ayrımı yapılır; 82/83 güncel başarı sayılmaz. |
-| A46 | İki cihaz aynı writable scope için auto-writer olmak istiyor | Atanmış owner dışında mutation engellenir; yerel kilit dağıtık kilit sanılmaz. |
-| A47 | Backup/restore ve yeni kullanıcı verisi | Tutarlı snapshot doğrulanır; scoped restore kullanıcı yeni verisini kaybettirmez. |
-| A48 | Pause / disable / grant expiry | Yeni işler durur; kaynak/veri/receipt korunur; sonsuz otomatik yeniden enable yok. |
-| A49 | Yeni oturumda önceki kabul edilmiş ders/skill relevant | Aynı canonical resume/context üzerinden kullanılır; 16 KiB sınırı korunur. |
-| A50 | Arka arkaya iki gerçek otomatik çevrim | İkinci çevrim yeniden manuel start istemeden çalışır; ilk çevrimden yararlı kanıtı yeniden kullanır. |
+| Provider-free fixture | Parse, migration, güvenlik, receipt/CAS, mock contract | Modelin doğru skill seçtiği iddiası |
+| Windows native | Gerçek path/ACL/reparse, kurulu CLI keşfi, yönetilen export/readback | Linux üzerinde Windows path string testi |
+| macOS native | Gerçek izin/path/link ve kurulu istemci keşfi | Windows testlerinin geçmiş olması |
+| Temiz wheel | Kaynak checkout olmadan import/CLI/resource erişimi | Yalnız editable install |
+| Onaylı model + istemci | Soğuk oturum seçim/çıktı/düzeltme ve maliyet | Fixture canary veya modelin kendi başarı beyanı |
 
-### 16.2. Küçük ama gerçek uçtan uca kabul
+Yapılamayan kombinasyon `not_run`, `not_configured`, `blocked` veya `not_supported` olarak gerekçeli kaydedilir. Üç istemcide API/contract desteği ayrı, native kabul ayrı değerlendirilir. Eksik native kabul varken evrensel taşınabilirlik garantisi verilmez.
 
-İlk native kabul düşük maliyetli ve sınırlı olacak. Basit bir test evreninde şu zincir çalıştırılır:
+### 6.3. Kabul senaryoları
 
-1. Gerçek adapter üzerinden bir oturum olayı teslim edilir; kullanıcı “hafızaya yaz” demez.
-2. Ana CLI kapatılır; OS tetikleyicisi mevcut kuyruktaki işi alır.
-3. Gerçek izinli model varsa kaynaklı özet/lesson üretilir ve bağımsız doğrulanır. Model yoksa yalnız deterministik capture/handler kabulü yapılır; semantik kabul eksik bırakılır.
-4. Bilinen, düşük riskli bir tekrar problemi için candidate üretilir ve gerçek baseline ile karşılaştırılır.
-5. Yetkisi ve kanıtı yeterli aday ilgili rollout kapılarıyla etkinleştirilir; yetersiz aday doğru biçimde reddedilir. Veri elverişsizken sırf demo için iyileşme uydurulmaz.
-6. Kontrollü bir kötü aday/failure fixture ile rollback veya aktivasyon engeli kanıtlanır.
-7. Yeni oturum açıldığında önceki kabul edilmiş bilgi doğru scope'ta otomatik gelir.
-8. İkinci planlı çevrim manuel komut olmadan çalışır; idempotency, bütçe ve süreç devamlılığı gösterilir.
+Aşağıdaki 48 senaryo `KABUL_TEST_PLANI.json` ile aynı kimlikleri kullanır. Tümü yeni uygulama kabul girdisidir; başlangıçta çalıştırılmamıştır. P0 maddeleri release blocker’dır; P1 maddeleri hedef ürün davranışıdır. P1 atlanırsa tam kapsam tamamlandı denmez.
+| Kimlik | Öncelik | Senaryo | Beklenen kanıt |
+|---|---|---|---|
+| SK-AC-001 | P0 | Dirty çalışma ağacında dosyalar korunur | Yerel değişiklikler reset/stash/checkout ile kaybolmaz; mutation bekler. |
+| SK-AC-002 | P0 | Aktif lease varken scope değişmez | Güvenli checkpoint/transition olmadan MD authority veya grant yeniden bağlanmaz. |
+| SK-AC-003 | P0 | Eski açık iş devredilir | Aynı iş/claim yeniden oluşturulmaz; eski receipt zinciri korunur. |
+| SK-AC-004 | P0 | Yeni görev kimliği evolution ile tutarlıdır | Sabit eski kimliğe bağımlılık kaldırılır veya sürümlü transition ile uzlaştırılır; fail-closed testleri geçer. |
+| SK-AC-005 | P0 | Frontmatter ve projection exact eşleşir | Eksik/fazla alan ve byte digest farkı reddedilir. |
+| SK-AC-006 | P0 | Grant kapsamı genişlemez | Task değişimi yeni provider veya otomatik yayın yetkisi üretmez. |
+| SK-AC-007 | P0 | Başarıdan aday üretilir | Gerçek başarı kanıtı failure_card uydurmadan origin olarak saklanır. |
+| SK-AC-008 | P0 | Düzeltmeden aday üretilir | Önceki çıktı, düzeltme ve kabul edilen revizyon ayrı kaynaklara bağlıdır. |
+| SK-AC-009 | P0 | Geri bildirim yetki vermez | Onaylanan metin, aktivasyon veya araç yetkisi yerine geçmez. |
+| SK-AC-010 | P0 | Tekrarlanan olay tek sayılır | Aynı olayın hook, resume ve compiler tekrarları aday sayısını artırmaz. |
+| SK-AC-011 | P1 | Mevcut skill güncellenir | Aynı yöntem için gereksiz yeni kimlik yerine yeni revision üretilir. |
+| SK-AC-012 | P0 | Scope çelişkisi korunur | Proje kuralı kullanıcının global tercihini sessizce değiştirmez. |
+| SK-AC-013 | P0 | Standart metadata doğrulanır | Eksik/duplicate name-description, yanlış klasör adı ve bozuk UTF-8 reddedilir. |
+| SK-AC-014 | P0 | Yollar güvenlidir | Traversal, mutlak yol, symlink/junction kaçışı ve Windows ADS girişi reddedilir. |
+| SK-AC-015 | P0 | Dış paket karantinaya alınır | İçe alma hiçbir script, dinamik shell veya hook çalıştırmaz. |
+| SK-AC-016 | P0 | İzinli araç alanı authority olmaz | allowed-tools ve istemci uzantıları güvenilir grant üretmez. |
+| SK-AC-017 | P0 | Paket digest değişimi fark edilir | Referans veya asset tek byte değişirse eski eval/install bağı geçersiz olur. |
+| SK-AC-018 | P1 | Round-trip anlamı korur | Export → parse → canonical manifest/asset digest eşitliği sağlanır. |
+| SK-AC-019 | P0 | ACL metadata öncesinde uygulanır | Yetkisiz projenin adı, açıklaması ve örnekleri katalogda görünmez. |
+| SK-AC-020 | P0 | Pasif sürüm seçilmez | Deprecated/revoked/retired veya eski revision etkin seçimde yer almaz. |
+| SK-AC-021 | P1 | İlgili olmayan istekte abstain | Benzer kelime geçen ama farklı amaçlı istek skill çalıştırmaz. |
+| SK-AC-022 | P1 | TR/EN tetikleme sınanır | Türkçe doğal istek ve eşdeğer İngilizce istek beklenen adaylara gider. |
+| SK-AC-023 | P0 | Katalog sınırı kontrollüdür | 256+ kayıt sessiz eksilme yaratmaz; filtreli bounded sorgu/pagination veya açık durum vardır. |
+| SK-AC-024 | P1 | Bağlam bütçesi görünürdür | Metadata, body ve referans maliyetleri ayrı raporlanır; body ihtiyaç öncesi yüklenmez. |
+| SK-AC-025 | P0 | Yüklemek başarı sayılmaz | Discovered/loaded/invoked/completed/verified birbirinden ayrıdır. |
+| SK-AC-026 | P0 | Genel skill sahte journal üretmez | Araştırma çıktısı journal append sonucu ile başarılandırılmaz. |
+| SK-AC-027 | P0 | Araç etkisi mevcut admission yolundadır | Grant, claim, receipt ve terminal doğrulama atlanamaz. |
+| SK-AC-028 | P0 | Alt ajan aynı sürümü kullanır | Bounded context skill/package/harness digest ve child scope taşır. |
+| SK-AC-029 | P0 | Eksik yetenekte dürüst durur | Model/tool yoksa blocked/degraded; hayali çıktı veya test sonucu yoktur. |
+| SK-AC-030 | P0 | Retried çalışma idempotenttir | Aynı iş yeni dış etki veya mükerrer usage üretmez. |
+| SK-AC-031 | P0 | OpenCode tek yönetilen kopyayı görür | Birden fazla keşif yolunda aynı skill çoğaltılmaz; bilinmeyen alan güvenlik sağlamaz. |
+| SK-AC-032 | P0 | Codex export doğru kapsamdadır | İzin verilmiş .agents/skills hedefi kullanılır; kişisel/global sızıntı yoktur. |
+| SK-AC-033 | P0 | Claude export izin genişletmez | Dinamik shell ve allowed-tools varsayılan exporta taşınmaz; desteklenmeyen politika açıkça bildirilir. |
+| SK-AC-034 | P0 | Kullanıcı dosyası ezilmez | Managed hedefin yerel değişikliği drift sayılır; karşılaştırmasız overwrite yoktur. |
+| SK-AC-035 | P0 | Windows ve macOS native kanıtı ayrıdır | Bir işletim sistemi testi diğerinin canlı kabulü sayılamaz. |
+| SK-AC-036 | P1 | Wheel kurulumunda erişilir | Üretim composition yalnız checkout/tarihsel dışlanmış modüllere dayanmaz. |
+| SK-AC-037 | P0 | Soğuk oturum deneyi ayrıdır | Yeni model contextinde eski örnek veya elle skill adı ipucu olmadan implicit seçim sınanır. |
+| SK-AC-038 | P0 | Bağımsız holdout kullanılır | Yazarın gördüğü paket örnekleri gizli holdout olarak sunulmaz. |
+| SK-AC-039 | P0 | Başarısız ölçüm de saklanır | Failed/blocked/equal/regressed trial kanıtı silinmez veya geçer duruma çevrilmez. |
+| SK-AC-040 | P1 | Tavan başarıda verimlilik değerlendirilebilir | %100 baseline için kalite korunup önceden seçilmiş maliyet metriği iyileşebilir; sessiz eşik gevşetme yoktur. |
+| SK-AC-041 | P0 | Belirsizlik ve örnek sayısı raporlanır | Beş deneme evrensel güvenilirlik veya anlamlı iyileşme kanıtı sayılmaz. |
+| SK-AC-042 | P0 | Gerçek verifier ayrıdır | Yalnız farklı rol etiketi taşıyan aynı doğrulamasız yazar sonucu kabul edilmez. |
+| SK-AC-043 | P0 | Shadow aktif pointer değiştirmez | Çıktı/eval üretilse de etkin tüketim değişmez. |
+| SK-AC-044 | P0 | Yerel canary canlı başarı sayılmaz | local-deterministic-fixture ve production_traffic=false korunur. |
+| SK-AC-045 | P0 | CAS ve crash recovery çalışır | Etki/receipt arasında kesintide tekrar yan etki yapılmaz; readback ile uzlaştırılır. |
+| SK-AC-046 | P0 | Revocation sonraki kullanımı durdurur | Yüklü eski context de yeni effect admission aşamasında engellenir. |
+| SK-AC-047 | P0 | Geri dönüş kullanıcı verisini korur | Yalnız yönetilen sürüm/selector geri alınır; kullanıcı dosyası veya sonradan üretilen veri silinmez. |
+| SK-AC-048 | P0 | Sonuç matrisi dürüsttür | Kod/test/kurulum/native/provider kabulü ayrı; çalışmayan aşama passed yazılmaz. |
 
-Native smoke, Windows ve macOS için ayrı kaydedilir. Diğer makineye erişim yoksa test çalışmış gibi raporlanmaz. Bir kısa testin geçmesi, haftalarca gözetimsiz güvenilir işletim kanıtı değildir; kurulumdan sonraki gözlem penceresi ayrı işletim metriğiyle izlenir. Uzun gözlemi bu oturumda tamamlanmış gibi sunma veya gelecekte teslim sözü verme.
+## 7. Rollback, durdurma ve ilerleme koşulları
 
-### 16.3. Kapanış dili
+Her WP sonunda diff, gerçek test sonucu, risk ve sonraki güvenli adım checkpoint’i üret. Kapsam içi, geri alınabilir ve yetkili işlemlerde tekrar tekrar kullanıcı onayı isteme. Gerçek yetki/bütçe eksikliği veya kullanıcı değişikliği çakışması varsa yalnız ilgili etkiyi durdur; sonuç uydurma.
 
-Teslim raporu en az şu ayrımı yapacak: kodu yazıldı, unit/integration çalıştı, native servis kuruldu, model gerçek çağrıldı, semantik iyileşme ölçüldü, auto-activation doğrulandı, rollback doğrulandı, çok cihazlı kabul durumu. Hepsini tek `done=true` altında gizleme.
+Tetiklenen bir güvenlik ihlali, scope sızıntısı, sahte kabul, onay atlama veya schema bozulması bütün otomatik aktivasyonları durdurur. Erişim veya model yokluğu tüm ürünü durdurmak zorunda değildir; yalnız o yeteneğin durumunu düşürür.
 
-Global DoD'nin ilgisiz açık maddeleri taşınır; bu görev onları test etmeden kapatmaz. Bu görevin yerel kabulü ile tüm ürünün global release kabulü ayrı sonuçlardır. Erişim/onay gerektiren dar blocker, yapılabilen geliştirmeleri durdurmak için bahane değildir; fakat blocker varken o yolu aktif/başarılı gösterme.
+Rollback planı migration öncesi hazırlanır. Migration sonrasında yeni kayıtlar yazıldıysa eski yedeğe dönüp bunları kaybetmek rollback kabul edilmez; mevcut kurtarma protokolüne göre forward repair veya veri-koruyan uzlaştırma yapılır. Selector drift varken CAS zorlanmaz. Kullanıcının düzenlediği generated dosya ayrıca korunur.
 
-**Nihai kabul cümlesi:** “Zekam yalnız bir iyileştirme dosyası üretmiyor; yetkili bir olaydan başlayan işi kendi zamanlayıcısıyla çalıştırıyor, gerçek sonucu doğruluyor, uygun değişikliği güvenli biçimde seçiyor ve sonraki oturumda kullanıyor.” Bu cümlenin her fiili bir test veya gerçek receipt ile desteklenmeli.
+## 8. Bağımsız ajan ve doğrulama düzeni
 
-## 17. Kaynak ve provenance kayıtları
+Gerçek uygulamada en az bir gerçek subagent kullan; koordinatörü bu sayıya dahil etme. Builder ve verifier farklı assignment/context ve gerekli yerde farklı process boundary taşır. Tek yazılabilir logical resource’ta aynı anda bir builder olsun.
 
-### 17.1. Kullanıcı girdisi
+Verifier yalnız builder’ın özetini değil; gerçek diff, kaynak kanıtı, test sonucu ve çıktı artifact’lerini inceler. Bir işin yazarı kendi skill’ini kendi beyanıyla aktive edemez. Model judge bağımsız kanıtın yerine geçmez; kritik güvenlik kuralları deterministik kontrol ister.
 
-- Dosya: `Pasted text(2).txt`.
-- Boyut: 31.986 byte.
-- SHA-256: `b8364bb45fd04a3f58153c42933c56d9dcc0fdfaf5b31b813734d98449aeed4d`.
-- Tür: Kullanıcı tarafından sağlanan video transkripti; anlatımdaki performans iddiaları bağımsız doğrulama değildir.
+Bu araştırma paketinin hazırlanmasında gerçek ürün builder/verifier süreci çalıştırılmadı. Paket biçim kontrolü bağımsız ürün kabulü olarak kullanılmayacak.
 
-### 17.2. Zekam sabit referansları
+## 9. Tamamlanma tanımı ve teslim
 
-İnceleme tarihi 6 Eylül 2026; aşağıdaki bütün dosyalar aynı commit'e sabittir. Başlıklar, araştırmada gerçekten bakılan ilgili yolları gösterir; repository'nin tamamı çalıştırılmış veya test edilmiş değildir.
+Aşağıdaki sonuçlar kanıtlı olmadan görev kapatılamaz:
 
-- [Z1 — Başlangıç ve yetki kuralları: AGENTS.md](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/AGENTS.md)
-- [Z2 — Başlangıç protokolü](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/00_BASLA.md)
-- [Z3 — README / mevcut CLI ve daemon sınırı](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/README.md)
-- [Z4 — Yetkinlik envanteri](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/docs/ZEKAM_YETKINLIK_ENVANTERI.md)
-- [Z5 — Önceki aktif görev, özellikle ilk 135 satırdaki K kararları](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/AKTIF_GOREV.md)
-- [Z6 — Worker CLI](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/interfaces/cli/worker.py)
-- [Z7 — Runtime composition, özellikle _service](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/interfaces/cli/local_runtime.py)
-- [Z8 — Run-once scheduler](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/interfaces/cli/scheduler.py)
-- [Z9 — Yerel bileşenler ve store yolları](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/infrastructure/local_core_services.py)
-- [Z10 — Improvement ledger, ilk 235 satırdaki sınıflar/şema](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/infrastructure/sqlite/local_improvement.py)
-- [Z11 — Learning lifecycle, ilk 165 satırdaki şema](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/infrastructure/sqlite/local_learning.py)
-- [Z12 — Yeni Global DoD durum raporu](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/GLOBAL_DOD_DURUM.md)
-- [Z13 — Tarihsel sürüm/devir raporu](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/SURUM_RAPORU.md)
-- [Z14 — Active-task parser'ın kabul ettiği metadata alanları](https://github.com/mehmet-karacan/zekam/blob/b59221a0891dc94d3702d042132254066dc089ed/src/zekam/application/active_task_contract.py)
-- [Z15 — İncelenen son commit](https://github.com/mehmet-karacan/zekam/commit/b59221a0891dc94d3702d042132254066dc089ed)
+- Başarılı iş ve gerçek kullanıcı düzeltmesinden, sahte hata kartı olmadan kaynaklı aday/revision oluşur.
+- Mevcut skill yeniden kullanılır; gereksiz katalog çoğalması ve scope dışı metadata görünürlüğü engellenir.
+- Standart paket ile kanonik kayıt/etkin revision/istemci artifact’i arasında digest zinciri vardır.
+- Fresh-session kullanımında doğru seçim ve kabul edilen çıktı ölçülür; load ile quality/effect başarıları ayrıdır.
+- Üç istemci için destek durumu gerçek kanıtla raporlanır; desteklenmeyen policy enforce edilmiş sayılmaz.
+- Eski journal profili, eski learning verisi ve evolution/recovery güvenlik kapıları korunur.
+- Standart regression/quality, yeni 48 kabul senaryosu ve gerekçeli platform/provider matrisi raporlanır.
+- Kullanıcı verisi korunmuş, görev geçişi/projection/manifestler tutarlı ve açık işler doğru devredilmiştir.
 
-Commit mesajındaki veya belgelerdeki geçmiş test sayıları bu araştırmanın çalıştırma kanıtı değildir. Latest commit için çağrılan combined-status aracının boş status listesi dönmesi de bütün CI'ın geçtiği veya başarısız olduğu sonucunu vermez; check-run/yerel kanıtlar ayrıca doğrulanmalıdır.
+Nihai uygulama tesliminde kaynak ağacı dışında tek ana Markdown kabul raporu ve makinece okunabilir kanıt indeksi üret. Raporda değişen gerçek dosyalar, migration ve rollback kanıtı, test komutları/exit kodları, doğrulayıcı kaydı, çalıştırılmayan alanlar, cihaz/istemci sürümleri ve kalan blocker’lar yer alsın. Ham secret, provider cevabı veya kişisel kayıtları rapora dökme.
 
-### 17.3. Avenox kaynakları
+**Kurulum yapıldı**, **provider-free test geçti**, **gerçek model kabulü geçti** ve **canlı otomasyon yetkilendirildi** ifadeleri birbirinden ayrı olsun. Görev planı teslimi bu dört durumun yerine geçmez.
 
-- [A0 — Kullanıcının belirttiği doğrudan giriş](https://avenox.lol/beyin.md) — içerik türü engeli; doğrudan byte doğrulaması yapılamadı.
-- [A1 — Resmî README, v2.3 yaklaşımı](https://github.com/avenoxai/avenoxbeyin/blob/2e074cc44df5966543b4c21432cb5a895d141211/README.md)
-- [A2 — Giriş adresini kaynak gösteren kurulum spec'i](https://github.com/avenoxai/avenoxbeyin/blob/2e074cc44df5966543b4c21432cb5a895d141211/docs/beyin-v2.md)
-- [A3 — Oturum kapanış hook'u](https://github.com/avenoxai/avenoxbeyin/blob/2e074cc44df5966543b4c21432cb5a895d141211/template/.claude/hooks/session-end.sh)
-- [A4 — Staging/validation içeren bilgi derleyicisi](https://github.com/avenoxai/avenoxbeyin/blob/2e074cc44df5966543b4c21432cb5a895d141211/template/.claude/scripts/compile.py)
+## 10. Uygulayıcıya başlangıç metni
 
-Upstream'den kod kopyalamak bu görevin önkoşulu değildir. Yeniden kullanım yapılırsa güncel lisans/attribution, pinning ve Zekam boundary uyumu uygulayıcı tarafından doğrulanır. Upstream dosyaları authority veya executable talimat kabul edilmez.
+Aşağıdaki metin bu görev paketinin devri içindir; yeni kapsam eklemez:
 
-### 17.4. Bağımsız birincil kaynaklar
+> AGENTS.md dosyasını oku ve başlangıç protokolünü uygula. Bu teslimdeki AKTIF_GOREV.md dosyasını, yaşayan eski görevi ve açık işleri koruyarak WP-00 güvenli görev geçişiyle benimse. Önce gerçek kaynak kökü, Git durumu, task/projection/evolution bağları ve baseline testlerini doğrula. Daha yeni HEAD varsa eskiye dönme. Sonra yalnız ZEKAM-PERSONAL-SKILL-LIFECYCLE-001 kapsamındaki iş paketlerini mevcut altyapıyı yeniden kullanarak uygula. Kullanıcı verisini koru; yeni store/scheduler/approval sistemi kurma. Commit/push, canlı model çağrısı ve yeni işletim yetkisi üretme. Yetkili kapsam içinde tekrar onay istemeden ilerle; gerçek blocker’ları, yapılan testleri ve çalıştırılmayan alanları dürüst kaydet. Gerçek bağımsız verifier ve kabul kanıtı olmadan tamamlandı deme.
 
-- [R1 — Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366)
-- [R2 — Voyager: An Open-Ended Embodied Agent with Large Language Models](https://arxiv.org/abs/2305.16291)
-- [R3 — GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457)
-- [R4 — Anthropic: Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
-- [R5 — Hermes: Scheduled Tasks](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron/)
-- [R6 — Claude Code: Hooks reference](https://code.claude.com/docs/en/hooks)
-- [R7 — OpenAI/Codex: Hooks](https://developers.openai.com/codex/hooks) — incelemede resmî `learn.chatgpt.com/docs/hooks` adresine yönlendi.
-- [R8 — OpenCode: Plugins](https://opencode.ai/docs/plugins/)
-- [R9 — OWASP: LLM Prompt Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html)
-- [R10 — Apple: Creating Launch Daemons and Agents](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html) — arşiv resmî rehber; güncel hedef OS davranışı native test ister.
-- [R11a — Microsoft: TaskSettings.StartWhenAvailable](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-startwhenavailable)
-- [R11b — Microsoft: MultipleInstancesPolicy](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-multipleinstancespolicy-settingstype-element)
-- [R12 — SQLite Online Backup API](https://sqlite.org/backup.html)
+## 11. Kaynaklar
 
-Kaynak erişim tarihi: 6 Eylül 2026. Canlı doküman ve istemci API'leri uygulama anında değişmiş olabilir; mevcut sürümle capability probe ve sözleşme testi yapılır. Araştırma kaynakları bu dosyanın mühendislik kararlarına dayanak sağlar; hiçbirinin Zekam'da ölçülmemiş kazancı garanti ettiği iddia edilmez.
-
-## 18. Uygulayıcı için kapanış talimatı
-
-Yalnız bu görevin kapsamındaki entegrasyonu ve taşınması gereken önceki bağlayıcı kararları uygula. İlgisiz feature, yeni ürün veya altyapı dönüşümü ekleme. Önce mevcut kodu yeniden kullan; teknik olarak gerekli yeni parçayı kanıtıyla ekle. Her paket sonunda test, değişen dosyalar, effect/receipt, gerçek blocker ve sonraki exact safe action kaydı tut.
-
-Bu görevi yalnız tasarım raporu, yeni prompt veya `SKILL.md` yazarak tamamlandı sayma. Hedef, gerçek işletim döngüsüdür. Kullanıcının sistemi kendi kendine işler hale getirme talebi; veri kaybı, sınırsız maliyet, yetki genişletme veya kanıtsız başarı için gerekçe olamaz.
+Bu görev, yanında gelen `ZEKAM_SKILL_ARASTIRMA_RAPORU.md` ve `KAYNAKLAR.json` ile izlenebilir. Esas depo revizyonu frontmatter’da sabittir. Temel kaynaklar aşağıdadır; dosyaların bazıları yalnız ilgili aralıklarıyla incelenmiştir.
+- **[R01] AGENTS.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/AGENTS.md
+  İnceleme: tam dosya.
+- **[R02] 00_BASLA.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/00_BASLA.md
+  İnceleme: tam dosya.
+- **[R03] AKTIF_GOREV.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/AKTIF_GOREV.md
+  İnceleme: başlangıç ve kapsam bölümleri; tüm maddelerin tamamlanma durumu doğrulanmadı.
+- **[R04] src/zekam/application/active_task_contract.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/application/active_task_contract.py
+  İnceleme: 1–180.
+- **[R05] src/zekam/application/evolution_runtime.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/application/evolution_runtime.py
+  İnceleme: 1–180.
+- **[R06] src/zekam/infrastructure/sqlite/local_learning.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/infrastructure/sqlite/local_learning.py
+  İnceleme: 1–400, 850–1340, 1460–dosya sonu; seçili bölümler.
+- **[R07] src/zekam/application/skill_runtime.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/application/skill_runtime.py
+  İnceleme: 1–240.
+- **[R08] src/zekam/domain/learning.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/domain/learning.py
+  İnceleme: Skill/SkillEvaluation ve ilgili domain bölümleri.
+- **[R09] src/zekam/infrastructure/local_core_services.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/infrastructure/local_core_services.py
+  İnceleme: 1–230.
+- **[R10] src/zekam/application/rollout_runtime.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/application/rollout_runtime.py
+  İnceleme: 1–220.
+- **[R11] src/zekam/domain/evolution_rollout.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/src/zekam/domain/evolution_rollout.py
+  İnceleme: 1–200.
+- **[R12] docs/OTONOM_EVOLUTION_RUNBOOK.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/docs/OTONOM_EVOLUTION_RUNBOOK.md
+  İnceleme: tam dosya.
+- **[R13] docs/ZEKAM_YETKINLIK_ENVANTERI.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/docs/ZEKAM_YETKINLIK_ENVANTERI.md
+  İnceleme: tam dosya.
+- **[R14] README.md** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/README.md
+  İnceleme: tam dosya.
+- **[R15] pyproject.toml** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/pyproject.toml
+  İnceleme: tam dosya.
+- **[R16] tests/integration/test_local_learning_sqlite.py** — https://github.com/mehmet-karacan/zekam/blob/d273e543600176a1b7cfc39b6696994cf8fec5cf/tests/integration/test_local_learning_sqlite.py
+  İnceleme: 1–160; testler çalıştırılmadı.
+- **[S01] Agent Skills specification** — https://agentskills.io/specification
+  İnceleme: SKILL.md ortak biçimi ve kademeli yükleme.
+- **[S02] OpenCode Agent Skills** — https://opencode.ai/docs/skills/
+  İnceleme: Keşif yolları ve skill yükleme izinleri.
+- **[S03] OpenAI Build skills** — https://learn.chatgpt.com/docs/build-skills
+  İnceleme: Codex yerel keşif ve instruction-only yaklaşımı; developers.openai.com/codex/skills yönlendirmesi.
+- **[S04] Claude Code skills** — https://code.claude.com/docs/en/skills
+  İnceleme: İstemciye özel alanlar, tool izinlerinin ve bağlam maliyetinin sınırları.
+- **[S05] Agent Skills: Evaluating skill output quality** — https://agentskills.io/skill-creation/evaluating-skills
+  İnceleme: Çıktı kalitesinin ölçülmesi.
+- **[S06] OpenAI: Testing Agent Skills Systematically with Evals** — https://developers.openai.com/blog/eval-skills
+  İnceleme: Çıktı, süreç, stil ve verimlilik değerlendirmesi.
+- **[S07] Claude Platform: Agent Skills** — https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
+  İnceleme: Skill mimarisi ve güvenlik değerlendirmesi.
+- **[U01] Kullanıcının sağladığı video transkripti** — https://www.youtube.com/watch?v=PUtaB4uYvvA
+  İnceleme: Bu konuşmada sağlanan transkript okundu; video bağımsız izlenmedi.

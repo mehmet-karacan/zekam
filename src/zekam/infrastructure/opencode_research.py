@@ -307,7 +307,6 @@ class OpenCodeResearchAdapter:
                     "zekam-research-runner",
                     "--format",
                     "json",
-                    "--auto",
                     "--title",
                     "Zekam bounded research",
                     prompt,

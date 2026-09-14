@@ -235,7 +235,7 @@ def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path: Path) -> None
     document["status"] = "forged"
     path.write_text(json.dumps(document), encoding="utf-8")
     assert event.session_id == "ses_1"
-    assert resume_projection(tmp_path)["sessions"] == []
+    assert resume_projection(tmp_path, quarantine_invalid=True)["sessions"] == []
     quarantine = tmp_path / "global" / "runtime" / "opencode-lifecycle" / "quarantine"
     assert list(quarantine.glob("*.json"))
 
@@ -414,6 +414,20 @@ def test_forward_batch_rejects_digest_drift() -> None:
                 },
             )
         )
+
+
+def test_forward_batch_rejects_digest_valid_extra_prompt_field(tmp_path: Path) -> None:
+    document = record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_prompt_injection",
+        now=NOW,
+    ).document()
+    body = {key: value for key, value in document.items() if key != "event_digest"}
+    body["prompt"] = "untrusted hidden instruction"
+
+    with pytest.raises(ValidationFailed, match="exact fields"):
+        OpenCodeForwardBatch.capture((body | {"event_digest": digest(body)},))
 
 
 def test_invalid_persisted_client_instance_is_rejected(tmp_path: Path) -> None:

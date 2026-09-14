@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -35,6 +36,16 @@ _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti",
     "description: Proje ve rol icin kanonik model route'unu salt okunur cozen router subagenti",
 )
+
+
+def _require_regular_directory(path: Path, label: str) -> None:
+    metadata = path.lstat()
+    is_reparse = bool(
+        int(getattr(metadata, "st_file_attributes", 0))
+        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode) or is_reparse:
+        raise ConfigurationError(f"{label} regular directory olmali")
 
 _LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v2
 import { tool } from "@opencode-ai/plugin"
@@ -97,14 +108,24 @@ export const ZekamLifecycle = async ({ directory }) => {
     return { path, deliveryArgs }
   }
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+  const waitChild = async (child, milliseconds = 5_000) => {
+    const timer = setTimeout(() => { try { child.kill() } catch {} }, milliseconds)
+    try { return await child.exited } finally { clearTimeout(timer) }
+  }
   const processAlive = (pid) => {
     if (!Number.isInteger(pid) || pid <= 0) return false
     try { process.kill(pid, 0); return true } catch (error) { return error?.code === "EPERM" }
   }
   const inspectLock = async (lockPath) => {
+    let metadata
     try {
-      const metadata = await lstat(lockPath)
-      if (!metadata.isDirectory()) return { state: "invalid" }
+      metadata = await lstat(lockPath)
+    } catch (error) {
+      if (error?.code === "ENOENT") return { state: "absent" }
+      return { state: "unreadable", error }
+    }
+    if (!metadata.isDirectory()) return { state: "invalid" }
+    try {
       const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"))
       if (
         !Number.isInteger(owner?.pid) || owner.pid <= 0 ||
@@ -112,7 +133,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       ) return { state: "invalid" }
       return { state: "owned", owner, alive: processAlive(owner.pid) }
     } catch (error) {
-      if (error?.code === "ENOENT") return { state: "absent" }
+      if (error?.code === "ENOENT" || error instanceof SyntaxError) return { state: "invalid" }
       return { state: "unreadable", error }
     }
   }
@@ -142,6 +163,17 @@ export const ZekamLifecycle = async ({ directory }) => {
           if (current.state === "absent") {
             await sleep(10 * (attempt + 1))
             continue
+          }
+          if (current.state === "invalid") {
+            try {
+              await rename(lockPath, join(quarantine, `.drain.lock.${crypto.randomUUID()}`))
+              continue
+            } catch (takeoverError) {
+              const winner = await inspectLock(lockPath)
+              if (winner.state === "absent") continue
+              if (winner.state === "owned") return undefined
+              throw takeoverError
+            }
           }
           if (current.state !== "owned") {
             if (error?.code === "EPERM") throw error
@@ -202,7 +234,7 @@ export const ZekamLifecycle = async ({ directory }) => {
               stdout: "ignore",
               stderr: "ignore",
             })
-            const exitCode = await child.exited
+            const exitCode = await waitChild(child)
             if (exitCode === 0) {
               await unlink(path)
               progressed = true
@@ -274,6 +306,7 @@ export const ZekamLifecycle = async ({ directory }) => {
           cmd: [zekamExecutable, ...queued.deliveryArgs],
           stdout: "ignore",
           stderr: "ignore",
+          timeout: 5_000,
         })
         if (child.exitCode === 0) {
           unlinkSync(queued.path)
@@ -290,7 +323,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       [zekamExecutable, "opencode", "pre-compact", "--session", session],
       { stdout: "ignore", stderr: "ignore" },
     )
-    const exitCode = await process.exited
+    const exitCode = await waitChild(process)
     if (exitCode !== 0) {
       throw new Error("Zekam canonical pre-compact checkpoint ACK failed")
     }
@@ -302,6 +335,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       cmd,
       stdout: "pipe",
       stderr: "ignore",
+      timeout: 5_000,
     })
     if (child.exitCode !== 0) return undefined
     const body = new TextDecoder().decode(child.stdout).trim()
@@ -319,6 +353,17 @@ export const ZekamLifecycle = async ({ directory }) => {
           next_action: tool.schema.string().max(500),
         },
         async execute(args, context) {
+          const unsafe = (value) => {
+            const text = value.trim()
+            return (
+              !text || text !== value || /[\r\n]/.test(text) ||
+              /(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+/i.test(text) ||
+              /(?:[A-Za-z]:[\\/]|(?:^|\s)\/(?:Users|home|root|etc|var)\/)/.test(text)
+            )
+          }
+          if ([args.completed, args.pending, args.next_action].some(unsafe)) {
+            throw new Error("Zekam checkpoint summary content-free safety validation failed")
+          }
           await emit("session.checkpoint", {
             sessionID: context.sessionID,
             agent: context.agent,
@@ -382,11 +427,9 @@ description: Exact approved plan ile bagli gercek proje dosyalarini degistiren b
 mode: subagent
 permission:
   edit: allow
-  bash: allow
+  bash: ask
   webfetch: deny
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Yalnız exact Task Plan step'i, logical resource lock'u, current lease/fence ve authorization
@@ -404,17 +447,15 @@ verme. En fazla 6 kisa maddeyle durum, degisenler, kanit, risk ve sonraki adimi 
 description: Zekam kanonik durumu, DAG'i, subagentlari ve final fan-in'i yoneten ana ajan
 mode: primary
 permission:
-  "*": allow
+  "*": deny
   edit: deny
   read: deny
   glob: deny
   grep: deny
   list: deny
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
-  bash: allow
-  webfetch: allow
+  external_directory: deny
+  bash: ask
+  webfetch: deny
   task:
     "*": deny
     "zekam-builder": allow
@@ -429,8 +470,9 @@ permission:
   question: allow
 ---
 Görevin:
-- Shell permission katmani Bash, PowerShell ve CMD komutlarinda onay istemez. Dogrudan edit ve
-  kaynak okuma/tarama yasaktir; Git commit ve push ancak kullanicinin exact goreviyle yapilir.
+- Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi ister.
+  Dogrudan edit ve kaynak okuma/tarama yasaktir; Git commit ve push ancak kullanicinin exact
+  goreviyle yapilir.
 - Agentic mutation, kaynak fallback'i veya cok-kaynakli research isteginde kapsamına uygun
   researcher, builder veya verifier subagent ata. `retrieval.state=answered` olan tek-projeli
   salt-okunur bilgi sorusu, pinned citation ile dogrudan cevaplanir; subagent zorunlu degildir.
@@ -541,7 +583,7 @@ description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only su
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash: ask
   webfetch: deny
   external_directory: deny
   task: deny
@@ -563,11 +605,9 @@ permission:
   glob: allow
   grep: allow
   list: allow
-  bash: allow
+  bash: ask
   webfetch: allow
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Yalnız verilen ResearchQuestion, bounded context ve source policy kapsamında çalış.
@@ -605,15 +645,13 @@ description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash: ask
   webfetch: deny
   read: allow
   glob: allow
   grep: allow
   list: allow
-  external_directory:
-    "*": deny
-    "C:/innova/projeler/**": allow
+  external_directory: deny
   task: deny
 ---
 Builder execution identity'sinden farklı ol. Acceptance subject'lerini tek tek doğrula.
@@ -634,19 +672,19 @@ description: Intent/project kararindan sonra kanonik model route'unu salt okunur
 mode: subagent
 permission:
   edit: deny
-  bash: allow
+  bash:
+    "*": deny
+    "zekam route preview *": allow
   webfetch: deny
   external_directory: deny
   task: deny
 ---
 Once exact kullanici metniyle `zekam route preview` kararini oku. Bu karar project family,
-hedef repository ve intent icindir; model secimi degildir. Yalniz proje-bagli agentic route
-icin exact proje, rol, workload ve teknoloji ile kanonik `zekam model route resolve` sonucunu oku.
-Yalniz status `selected`, taze evidence digest ve canonical primary Model ID varsa su agent
-adini dondur: `zekam-<rol>-<canonical-model-id>`. Fallback'i ancak kanonik sonuc veriyorsa yaz.
-Route stale, pending, missing veya model-bound agent bilinmiyorsa uzmanlik uydurma ve varsayilan
-modele dusme. Ciktiyi status, agent_name, model_id, fallback_model_id ve evidence_digest ile
-en fazla 6 kisa maddede ver.
+hedef repository ve intent icindir; model secimi degildir. Kanonik model-route CLI yuzeyi bu
+surumde mevcut degildir. Var olmayan komut cagirma, statik agent adindan model secme veya
+varsayilan modele dusme. Model-bound istek icin status `pending`, agent_name/model_id/
+fallback_model_id/evidence_digest alanlarini null dondur ve `model-route-surface-unavailable`
+nedenini yaz.
 """,
     "zekam-research-runner.md": """---
 description: Bounded evidence paketini researcher ve bagimsiz verifier ile fan-in eden primary
@@ -657,7 +695,7 @@ permission:
   glob: deny
   grep: deny
   list: deny
-  bash: allow
+  bash: deny
   webfetch: deny
   external_directory: deny
   task:
@@ -759,7 +797,10 @@ class OpenCodeAgentBootstrapPlan:
     config_update_required: bool
     agents_to_create: tuple[str, ...]
     agents_to_update: tuple[str, ...]
+    agents_to_retire: tuple[str, ...]
+    legacy_retired_agents_to_migrate: tuple[str, ...]
     conflicting_agents: tuple[str, ...]
+    catalog_scope_state: str
     lifecycle_plugin_to_create: bool
     lifecycle_plugin_conflict: bool
 
@@ -775,6 +816,7 @@ def plan_opencode_agent_bootstrap(
 
     config_path = user_home / _CONFIG_RELATIVE
     agents_path = user_home / _AGENTS_RELATIVE
+    retired_path = agents_path.parent / ".zekam-retired-agents"
     if executable is None:
         return OpenCodeAgentBootstrapPlan(
             executable=None,
@@ -785,14 +827,37 @@ def plan_opencode_agent_bootstrap(
             config_update_required=False,
             agents_to_create=(),
             agents_to_update=(),
+            agents_to_retire=(),
+            legacy_retired_agents_to_migrate=(),
             conflicting_agents=(),
+            catalog_scope_state="unavailable",
             lifecycle_plugin_to_create=False,
             lifecycle_plugin_conflict=False,
         )
     if not executable.is_absolute() or not executable.is_file():
         raise ConfigurationError("OpenCode executable dogrulanamadi")
+    if retired_path.exists():
+        _require_regular_directory(retired_path, "OpenCode retired agent hedefi")
 
     document = _load_config(config_path)
+    reviewed_scope = load_campaign_scope()
+    catalog_scope_state = "not-configured"
+    raw_providers = document.get("provider")
+    if isinstance(raw_providers, Mapping):
+        raw_provider = raw_providers.get(reviewed_scope.provider_id)
+        if isinstance(raw_provider, Mapping) and "models" in raw_provider:
+            raw_models = raw_provider["models"]
+            if not isinstance(raw_models, Mapping) or any(
+                not isinstance(model_id, str) for model_id in raw_models
+            ):
+                raise ConfigurationError("OpenCode configured model catalog gecersiz")
+            configured_ids = set(raw_models)
+            reviewed_ids = {
+                target.configured_model_id for target in reviewed_scope.targets
+            }
+            catalog_scope_state = (
+                "matched" if configured_ids == reviewed_ids else "drifted"
+            )
     updated = dict(document)
     configured_plugins = updated.get("plugin", [])
     if not isinstance(configured_plugins, list) or any(
@@ -807,12 +872,20 @@ def plan_opencode_agent_bootstrap(
     if not isinstance(configured_permission, Mapping):
         raise ConfigurationError("OpenCode permission config nesnesi gecersiz")
     permission = dict(configured_permission)
-    bash_permission_missing = permission.get("bash") != "allow"
-    permission["bash"] = "allow"
+    permission.update(
+        {
+            "*": "ask",
+            "edit": "ask",
+            "bash": "ask",
+            "webfetch": "ask",
+            "external_directory": {"*": "deny"},
+            "task": "ask",
+        }
+    )
     config_update_required = (
         updated.get("default_agent") != DEFAULT_AGENT
         or plugin_config_missing
-        or bash_permission_missing
+        or permission != configured_permission
     )
     updated["default_agent"] = DEFAULT_AGENT
     updated["plugin"] = plugins
@@ -820,8 +893,13 @@ def plan_opencode_agent_bootstrap(
 
     create: list[str] = []
     update: list[str] = []
+    retire: list[str] = []
+    migrate_legacy_retired: list[str] = []
     conflict: list[str] = []
-    for name, body in _AGENT_TEMPLATES.items():
+    selected_templates = (
+        _AGENT_TEMPLATES if catalog_scope_state == "matched" else _BASE_AGENT_TEMPLATES
+    )
+    for name, body in selected_templates.items():
         candidate = agents_path / name
         if not candidate.exists():
             create.append(name)
@@ -837,6 +915,32 @@ def plan_opencode_agent_bootstrap(
                     update.append(name)
                 else:
                     conflict.append(name)
+    if agents_path.is_dir():
+        for candidate in agents_path.glob("zekam-*.md"):
+            if candidate.name in selected_templates or not candidate.is_file():
+                continue
+            existing = candidate.read_text(encoding="utf-8")
+            if _MANAGED_AGENT_MARKER in existing:
+                retire.append(candidate.name)
+    legacy_retired = agents_path / ".zekam-retired"
+    if legacy_retired.exists():
+        _require_regular_directory(legacy_retired, "OpenCode legacy retired agent dizini")
+        for candidate in legacy_retired.iterdir():
+            candidate_metadata = candidate.lstat()
+            candidate_reparse = bool(
+                int(getattr(candidate_metadata, "st_file_attributes", 0))
+                & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+            )
+            if (
+                not stat.S_ISREG(candidate_metadata.st_mode)
+                or candidate_reparse
+                or not candidate.name.startswith("zekam-")
+                or candidate.suffix != ".md"
+                or _MANAGED_AGENT_MARKER
+                not in candidate.read_text(encoding="utf-8")
+            ):
+                raise ConfigurationError("OpenCode legacy retired agent icerigi gecersiz")
+            migrate_legacy_retired.append(candidate.name)
     plugins_path = user_home / _PLUGINS_RELATIVE
     plugin_path = plugins_path / "zekam-lifecycle.js"
     plugin_exists = plugin_path.exists()
@@ -856,7 +960,10 @@ def plan_opencode_agent_bootstrap(
         config_update_required=config_update_required,
         agents_to_create=tuple(create),
         agents_to_update=tuple(update),
+        agents_to_retire=tuple(sorted(retire)),
+        legacy_retired_agents_to_migrate=tuple(sorted(migrate_legacy_retired)),
         conflicting_agents=tuple(conflict),
+        catalog_scope_state=catalog_scope_state,
         lifecycle_plugin_to_create=plugin_to_create,
         lifecycle_plugin_conflict=plugin_conflict,
     )
@@ -874,6 +981,34 @@ def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
     plan.agents_path.mkdir(parents=True, exist_ok=True)
     for name in (*plan.agents_to_create, *plan.agents_to_update):
         _atomic_write(plan.agents_path / name, _AGENT_TEMPLATES[name])
+    if plan.agents_to_retire or plan.legacy_retired_agents_to_migrate:
+        retired = plan.agents_path.parent / ".zekam-retired-agents"
+        retired.mkdir(parents=True, exist_ok=True)
+        _require_regular_directory(retired, "OpenCode retired agent hedefi")
+        moves = (
+            *((plan.agents_path / name, name) for name in plan.agents_to_retire),
+            *((plan.agents_path / ".zekam-retired" / name, name)
+              for name in plan.legacy_retired_agents_to_migrate),
+        )
+        for _, name in moves:
+            target = retired / name
+            if target.exists():
+                raise ConfigurationError("OpenCode retired agent hedefi cakisiyor")
+        completed: list[tuple[Path, Path]] = []
+        try:
+            for source, name in moves:
+                _require_regular_directory(retired, "OpenCode retired agent hedefi")
+                target = retired / name
+                source.replace(target)
+                completed.append((source, target))
+        except BaseException:
+            for source, target in reversed(completed):
+                if target.exists() and not source.exists():
+                    target.replace(source)
+            raise
+        legacy_retired = plan.agents_path / ".zekam-retired"
+        if legacy_retired.is_dir() and not any(legacy_retired.iterdir()):
+            legacy_retired.rmdir()
     if plan.lifecycle_plugin_to_create:
         _atomic_write(plan.plugins_path / "zekam-lifecycle.js", _LIFECYCLE_PLUGIN)
     if plan.config_update_required:

@@ -48,7 +48,7 @@ from zekam.application.opencode_benchmark_campaign import (
     prepare_campaign_manifest,
 )
 from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.model_capability_benchmark import (
     CapabilityCohortPlan,
     CapabilityEpisodeResult,
@@ -534,6 +534,20 @@ def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
         "temperature": 0,
         "max_tokens": first.output_cap,
     }
+
+
+def test_campaign_scope_rejects_quoted_boolean_authority_flag(tmp_path: Path) -> None:
+    scope_file = tmp_path / "scope.yaml"
+    source = (ROOT / "config" / "opencode_benchmark_scope.yaml").read_text(
+        encoding="utf-8"
+    )
+    scope_file.write_text(
+        source.replace("reviewed_duplicate_route: true", 'reviewed_duplicate_route: "false"'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="exact bool"):
+        load_campaign_scope(scope_file)
 
 
 def test_parallel_runner_starts_each_model_in_same_task_wave() -> None:

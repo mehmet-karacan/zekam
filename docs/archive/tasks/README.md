@@ -33,3 +33,27 @@ Yeni projection yalniz yeni yasayan Markdown'in exact byte digest'inden uretildi
   gelistirmesini durdurmaz, fakat global cross-platform kabulunu kapatmaz.
 - Canli provider, OS scheduler kurulumu, standing grant aktivasyonu, commit ve push bu
   gecisten yetki kazanmaz.
+
+## 13 Eylul 2026 kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-AUTONOMOUS-EVOLUTION-001` | `ZEKAM-PERSONAL-SKILL-LIFECYCLE-001` |
+| Icerik SHA-256 | `9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba` | `d490accbc01e49da44050987e39a514102a6f7eea8c2ee4b3791fc02ebbb7cd6` |
+| Onceki Git blob | `d976cc570cb993787842a2b1a857206db7173c4f` | Uygulanmaz |
+| Baseline HEAD | `b59221a0891dc94d3702d042132254066dc089ed` | `d273e543600176a1b7cfc39b6696994cf8fec5cf` |
+
+Gecis oncesi evolution admission kontrollu olarak duraklatildi. Operational okumada acik
+Work Item, calisan lease, recovery case veya bekleyen outbox yoktu; current standing grant
+sayisi sifirdi. Onceki sozlesmenin exact MD/YAML byte'lari bu dizinde tarihsel referans
+olarak korundu. Yeni projection yalniz yasayan Markdown'in exact byte digest'inden uretildi.
+
+### Carry-forward
+
+- Onceki evolution receipt, claim, store, scheduler ve verileri geriye donuk degistirilmez.
+- Eski kapsamdan canli provider, native supervisor, standing grant, commit veya push yetkisi
+  devralinmaz; yeni task digest'i butun eski grant'leri drifted yapar.
+- Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
+- Operational authority, approval, claim ve receipt Markdown, skill paketi, retrieval veya
+  model ciktisindan turetilmez.
+- Global DoD ve onceki acik kabul maddeleri yeni kanit olmadan tamamlanmis sayilmaz.

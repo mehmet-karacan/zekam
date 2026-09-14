@@ -15,8 +15,16 @@ from zekam.application.native_benchmark_campaign import (
     build_native_campaign,
     run_native_campaign,
 )
+from zekam.application.opencode_benchmark_campaign import (
+    discover_campaign,
+    load_campaign_scope,
+)
+from zekam.application.opencode_embedding import (
+    default_opencode_config_file,
+    load_opencode_aihub_catalog,
+)
 from zekam.application.portable_benchmark import inspect_portable_benchmark
-from zekam.domain.canonical import parse_digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ZekamError
 from zekam.infrastructure.sqlite.local_model_benchmark import SQLiteLocalBenchmarkLab
 
@@ -122,14 +130,70 @@ def portable_inspect_command(
 def campaign_plan_command(
     repetitions: Annotated[int, typer.Option("--repetitions", min=5, max=100)] = 5,
     portable_root: Annotated[Path | None, typer.Option("--portable-root")] = None,
+    native_pipeline: Annotated[bool, typer.Option("--native-pipeline")] = False,
     output_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Build an exact provider-free pipeline acceptance plan without mutation."""
+    """Plan the reviewed OpenCode campaign; native pipeline is an explicit alternate."""
 
     try:
-        document = build_native_campaign(
-            repetitions=repetitions, portable_root=portable_root
-        ).plan_document()
+        if native_pipeline:
+            document = build_native_campaign(
+                repetitions=repetitions, portable_root=portable_root
+            ).plan_document()
+        else:
+            if portable_root is not None or repetitions != 5:
+                raise ZekamError(
+                    "OpenCode reviewed campaign fixes repetitions=5 and has no portable root"
+                )
+            scope = load_campaign_scope()
+            config_file = default_opencode_config_file()
+            catalog = load_opencode_aihub_catalog(
+                config_file, provider_id=scope.provider_id
+            )
+            reviewed_ids = {target.configured_model_id for target in scope.targets}
+            configured_ids = set(catalog.configured_model_ids)
+            base: dict[str, object] = {
+                "schema": "zekam-opencode-benchmark-plan-preflight/v1",
+                "campaign_kind": "reviewed-opencode-aihub",
+                "configured_model_count": len(configured_ids),
+                "reviewed_model_count": len(scope.targets),
+                "canonical_target_count": sum(
+                    len(target.canonical_model_ids) for target in scope.targets
+                ),
+                "audio_excluded_count": sum(
+                    len(target.canonical_model_ids)
+                    for target in scope.targets
+                    if target.excluded_reason is not None
+                ),
+                "config_only_model_ids": sorted(configured_ids - reviewed_ids),
+                "scope_only_model_ids": sorted(reviewed_ids - configured_ids),
+                "provider_calls": 0,
+                "network_calls": 0,
+                "apply": False,
+                "grants_authority": False,
+            }
+            if configured_ids != reviewed_ids:
+                document = base | {
+                    "state": "blocked-catalog-scope-drift",
+                    "exact_call_budget": None,
+                    "authorization_ready": False,
+                    "plan_digest": None,
+                    "preflight_digest": digest(base),
+                }
+            else:
+                discovery = discover_campaign(
+                    config_file=config_file,
+                    verifier_provenance_digest=digest(
+                        "zekam-reviewed-opencode-campaign-verifier-v1"
+                    ),
+                )
+                plan_body = base | {
+                    "state": "planned",
+                    "exact_call_budget": discovery.provider_call_budget,
+                    "authorization_ready": True,
+                    "discovery": discovery.as_dict(),
+                }
+                document = plan_body | {"plan_digest": digest(plan_body)}
     except ZekamError as exc:
         error_console.print(f"Hata: {exc}")
         raise typer.Exit(70) from exc
@@ -137,7 +201,7 @@ def campaign_plan_command(
         document,
         output_json=output_json,
         summary=(
-            f"plan={document['plan_digest']} trials={document['trial_count']} "
+            f"state={document.get('state', 'planned')} plan={document.get('plan_digest')} "
             f"calls={document['exact_call_budget']} provider_calls=0"
         ),
     )
