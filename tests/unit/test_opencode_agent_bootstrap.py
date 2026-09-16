@@ -13,13 +13,43 @@ from zekam.application.opencode_agent_bootstrap import (
     apply_opencode_agent_bootstrap,
     plan_opencode_agent_bootstrap,
 )
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.errors import ConfigurationError, PolicyViolation
 
 
 def _executable(tmp_path: Path) -> Path:
     value = tmp_path / "opencode.exe"
     value.write_text("stub", encoding="utf-8")
     return value
+
+
+def test_disabled_policy_makes_bootstrap_side_effect_free(tmp_path: Path) -> None:
+    user_home = tmp_path / "never-created"
+    plan = plan_opencode_agent_bootstrap(
+        executable=_executable(tmp_path),
+        user_home=user_home,
+        enabled=False,
+    )
+
+    assert plan.integration_enabled is False
+    assert plan.catalog_scope_state == "disabled-by-policy"
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
+    assert not user_home.exists()
+
+
+def test_apply_rejects_plan_digest_and_native_input_drift(tmp_path: Path) -> None:
+    user_home = tmp_path / "user"
+    executable = _executable(tmp_path)
+    plan = plan_opencode_agent_bootstrap(executable=executable, user_home=user_home)
+
+    with pytest.raises(PolicyViolation, match="exact plan digest"):
+        apply_opencode_agent_bootstrap(plan, authorized_plan_digest="sha256:" + "0" * 64)
+
+    config = user_home / ".config" / "opencode" / "opencode.json"
+    config.parent.mkdir(parents=True)
+    config.write_text('{"user_setting": true}\n', encoding="utf-8")
+    with pytest.raises(PolicyViolation, match="input changed"):
+        apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
+    assert json.loads(config.read_text(encoding="utf-8")) == {"user_setting": True}
 
 
 def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_path: Path) -> None:
@@ -36,7 +66,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     )
 
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     stored = json.loads(config.read_text(encoding="utf-8"))
     assert stored["default_agent"] == DEFAULT_AGENT
@@ -98,7 +128,11 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "yalniz temel `zekam-researcher` agent'ini cagir" in coordinator
     assert "--authorize-remote-query" in coordinator
     assert "subagent zorunlu degildir" in coordinator
-    assert "en fazla ilk uc `used_chunk_ids`" in coordinator
+    assert "en fazla ilk uc" in coordinator
+    assert "`used_chunk_ids` degerini" in coordinator
+    assert "`lexical-only-degraded`" in coordinator
+    assert "`snapshot_only=true`" in coordinator
+    assert "son indekslenmis" in coordinator
     assert "capabilities, help veya ikinci query cagirma" in coordinator
     assert "resolve/source-root zinciri calistirma" in coordinator
     assert "`zekam-router` bir shell/CLI komutu" in coordinator
@@ -167,10 +201,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         for path in agents.glob("*.md")
         if path.name != "zekam-research-runner.md"
     )
-    assert all(
-        '"*": ask' not in path.read_text(encoding="utf-8")
-        for path in agents.glob("*.md")
-    )
+    assert all('"*": ask' not in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
     router = (agents / "zekam-router.md").read_text(encoding="utf-8")
     assert '"zekam route preview *": allow' in router
     assert "model secimi degildir" in router
@@ -193,7 +224,7 @@ def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> No
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert "zekam-coordinator.md" in plan.agents_to_update
     assert plan.conflicting_agents == ()
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     upgraded = coordinator.read_text(encoding="utf-8")
     assert "bash: ask" in upgraded
@@ -211,7 +242,7 @@ def test_model_agent_retirement_moves_outside_recursive_scan_tree(tmp_path: Path
 
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert plan.agents_to_retire == (stale.name,)
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     retired = agents.parent / ".zekam-retired-agents" / stale.name
     assert retired.is_file()
@@ -235,7 +266,7 @@ def test_legacy_recursive_retirement_is_migrated_outside_agent_tree(tmp_path: Pa
 
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert plan.legacy_retired_agents_to_migrate == (stale.name,)
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     assert not legacy.exists()
     assert (agents.parent / ".zekam-retired-agents" / stale.name).is_file()
@@ -284,7 +315,7 @@ def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert plan.lifecycle_plugin_to_create
     assert not plan.lifecycle_plugin_conflict
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     body = plugin.read_text(encoding="utf-8")
     assert body.startswith("// zekam-managed-plugin/v2")
@@ -307,13 +338,13 @@ def test_unmanaged_plugin_that_looks_similar_is_preserved(tmp_path: Path) -> Non
     assert plan.lifecycle_plugin_conflict
     assert not plan.lifecycle_plugin_to_create
     with pytest.raises(ConfigurationError, match="cakisiyor"):
-        apply_opencode_agent_bootstrap(plan)
+        apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
     assert plugin.read_text(encoding="utf-8") == custom
 
 
 def test_missing_opencode_has_no_global_side_effect_plan(tmp_path: Path) -> None:
     plan = plan_opencode_agent_bootstrap(executable=None, user_home=tmp_path / "user")
-    apply_opencode_agent_bootstrap(plan)
+    apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
     assert not plan.available
     assert not plan.config_path.exists()
     assert not plan.lifecycle_plugin_to_create
@@ -328,7 +359,7 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
     plan = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert plan.conflicting_agents == ("zekam-coordinator.md",)
     with pytest.raises(ConfigurationError, match="cakisiyor"):
-        apply_opencode_agent_bootstrap(plan)
+        apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
 
 def test_repository_policy_requires_confirmation_for_ambient_effects() -> None:

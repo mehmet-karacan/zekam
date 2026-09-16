@@ -20,3 +20,15 @@ Windows üzerinde `bin` yerine `Scripts` kullanılır. Testler geçici dizinlerd
 
 Kalıcı kullanıcı kökü yalnız açıkça verilen `--home` veya `ZEKAM_HOME` ile seçilir.
 Varsayılan ağ politikası kapalıdır; dış sağlayıcı denemeleri ayrı ve açık izin ister.
+
+CLI entegrasyon default'u OpenCode-only'dir. Geliştirme fixture'ında Codex veya Claude lifecycle
+hook'u gerçekten sınanacaksa geçici home içindeki `config.yaml` dosyasında ilgili kimlik açıkça
+`true` yapılmalıdır. Policy ve dosya envanteri salt-okunur görülebilir:
+
+```bash
+.venv/bin/zekam integration status --home /tmp/zekam-home --json
+.venv/bin/zekam config explain cli.integrations.codex --home /tmp/zekam-home --json
+```
+
+`integration sync` testleri yalnız geçici native-user ve ZEKAM_HOME köklerinde çalıştırılır.
+Gerçek kullanıcı dizininde apply için dry-run digest'i ayrı bir adımda incelenmelidir.

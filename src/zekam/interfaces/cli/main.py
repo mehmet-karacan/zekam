@@ -22,7 +22,7 @@ from zekam import __version__
 from zekam.application.active_task_contract import ActiveTaskContract
 from zekam.application.capability_inventory import capability_inventory
 from zekam.application.composition import ApplicationContext, build_context, build_doctor
-from zekam.application.config import USER_CONFIG_FILE, EmbeddingRoute, PersistenceBackend
+from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
 from zekam.application.fresh_bootstrap import apply_fresh_bootstrap, plan_fresh_bootstrap
 from zekam.application.home import resolve_home
@@ -32,7 +32,6 @@ from zekam.application.mutation_admission import (
 )
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
-    project_embedding_route,
     query_registered_project,
     resolve_question_project,
     resolve_registered_project,
@@ -55,10 +54,12 @@ from zekam.interfaces.cli import configuration as configuration_commands
 from zekam.interfaces.cli import continuity as continuity_commands
 from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import evolve as evolve_commands
+from zekam.interfaces.cli import integration as integration_commands
 from zekam.interfaces.cli import jira as jira_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
 from zekam.interfaces.cli import local_core as local_core_commands
 from zekam.interfaces.cli import local_runtime as local_runtime_commands
+from zekam.interfaces.cli import mcp as mcp_commands
 from zekam.interfaces.cli import model as model_commands
 from zekam.interfaces.cli import opencode as opencode_commands
 from zekam.interfaces.cli import project as project_commands
@@ -72,7 +73,7 @@ from zekam.interfaces.cli import surface as surface_commands
 from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
-from zekam.interfaces.cli.session import REALM_HELP
+from zekam.interfaces.cli.session import REALM_HELP, fail_from
 
 #: Toplam duruma karsilik gelen kararli cikis kodlari.
 EXIT_CODES: dict[OverallStatus, int] = {
@@ -129,6 +130,8 @@ app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
 app.add_typer(scheduler_commands.app)
 app.add_typer(skill_commands.app)
+app.add_typer(integration_commands.app)
+app.add_typer(mcp_commands.app)
 
 
 def _version_callback(value: bool) -> None:
@@ -217,12 +220,6 @@ def ask(
 
     try:
         resolved_home = resolve_home(home).resolve(strict=True)
-        route = project_embedding_route(resolved_home)
-        if route is EmbeddingRoute.REMOTE and not authorize_remote_query:
-            error_console.print(
-                "[red]Hata:[/red] Remote query embedding explicit --authorize-remote-query ister"
-            )
-            raise typer.Exit(77)
         selected_project = (
             resolve_registered_project(resolved_home, project)
             if project is not None
@@ -236,8 +233,7 @@ def ask(
             authorize_remote_query=authorize_remote_query,
         )
     except ZekamError as exc:
-        error_console.print(f"[red]Hata:[/red] {exc}")
-        raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
+        raise fail_from(exc) from exc
     result = {
         "schema": "zekam-ask-result/v1",
         "project_ref": selected_project,

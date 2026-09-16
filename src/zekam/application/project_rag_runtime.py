@@ -43,6 +43,7 @@ from zekam.application.odi11g_smart_export import (
     OdiSanitizedPlan,
     build_sanitized_odi_plan,
     load_smart_binding,
+    smart_binding_source_current,
 )
 from zekam.application.opencode_embedding import (
     default_opencode_config_file,
@@ -68,7 +69,7 @@ from zekam.application.request_routing import (
 )
 from zekam.application.source_discovery import DiscoveryReport, discover
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
-from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.retrieval import Chunk
 from zekam.domain.security import (
@@ -384,6 +385,43 @@ class _EmbeddingBinding:
     route: EmbeddingRoute
     remote_provider_used: bool
     probe_call_count: int
+
+
+class _DenseDisabledProvider:
+    """Sentinel provider for exact/lexical-only reads; every call is a defect."""
+
+
+def _lexical_only_binding(
+    provider_profile_digest: str,
+    route: EmbeddingRoute,
+    reason: str,
+) -> _EmbeddingBinding:
+    evidence = digest(
+        {
+            "schema": "zekam-project-query-dense-disabled/v1",
+            "provider_profile_digest": provider_profile_digest,
+            "route": route.value,
+            "reason": reason,
+        }
+    )
+    return _EmbeddingBinding(
+        provider=cast(EmbeddingProvider, _DenseDisabledProvider()),
+        policy=EmbeddingPolicy(DataClassification.INTERNAL, provider_profile_digest),
+        ledger={
+            "schema": "zekam-local-provider-ledger-summary/v1",
+            "provider_calls": 0,
+            "durable_remote_effects": 0,
+        },
+        probe={
+            "profile_digest": provider_profile_digest,
+            "probe_evidence_digest": evidence,
+            "route": route.value,
+            "degraded_reason": reason,
+        },
+        route=route,
+        remote_provider_used=False,
+        probe_call_count=0,
+    )
 
 
 def project_embedding_route(home: Path) -> EmbeddingRoute:
@@ -789,6 +827,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "provider_readiness": "unknown",
             "query_verified_at": None,
             "query_ready": False,
+            "query_available": False,
         }
     if not _rag_scope_is_private(paths):
         return {
@@ -800,6 +839,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "provider_readiness": "unknown",
             "query_verified_at": None,
             "query_ready": False,
+            "query_available": False,
             "blocked_reason": "knowledge-scope-acl-drift",
             "retryable": False,
             "provider_calls": 0,
@@ -812,10 +852,14 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
         raise PolicyViolation("Project RAG state/generation drift")
     index_readable = integrity.get("status") == "passed"
     current_knowledge = load_settings(home=paths["home"]).knowledge
-    _assert_canonical_knowledge_profile(current_knowledge)
-    profile_binding_current = state.get(
-        "knowledge_binding_digest"
-    ) == _knowledge_binding_digest(current_knowledge)
+    try:
+        _assert_canonical_knowledge_profile(current_knowledge)
+    except ConfigurationError:
+        profile_binding_current = False
+    else:
+        profile_binding_current = state.get(
+            "knowledge_binding_digest"
+        ) == _knowledge_binding_digest(current_knowledge)
     return {
         "schema": "zekam-project-rag-status/v1",
         "project_id": str(project_id),
@@ -835,6 +879,8 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
         "provider_readiness": "unknown",
         "query_verified_at": state.get("query_verified_at"),
         "query_ready": False,
+        "query_available": index_readable,
+        "query_mode": "current-or-snapshot" if index_readable else "blocked",
         "generation_digest": generation.generation_digest,
         "chunk_count": generation.chunk_count,
         "source_chunk_count": state.get("source_chunk_count"),
@@ -1379,7 +1425,7 @@ def _index(
 
 
 def _query(
-    source_root: Path,
+    source_root: Path | None,
     home: Path,
     project_id: UUID,
     project_slug: str,
@@ -1396,46 +1442,114 @@ def _query(
     state = json.loads(paths["state"].read_text(encoding="utf-8"))
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
-    current_revision = _git_source_state(source_root)[2]
-    current_tree = discover(source_root).tree_digest
-    if (
-        state.get("repository_source_revision") != current_revision
-        or state.get("repository_tree_digest") != current_tree
-    ):
-        raise PolicyViolation("Project source degisti; yeniden index gerekli")
-    odi_binding = load_smart_binding(home, project_slug)
+    stale_reasons: list[str] = []
+    if source_root is None:
+        stale_reasons.append("project-source-binding-unavailable")
+    else:
+        try:
+            current_revision = _git_source_state(source_root)[2]
+            current_tree = discover(source_root).tree_digest
+        except (OSError, subprocess.SubprocessError, ZekamError):
+            stale_reasons.append("project-source-freshness-unavailable")
+        else:
+            if state.get("repository_source_revision") != current_revision:
+                stale_reasons.append("project-source-revision-stale")
+            if state.get("repository_tree_digest") != current_tree:
+                stale_reasons.append("project-source-tree-stale")
+    odi_binding = load_smart_binding(home, project_slug, verify_source=False)
     current_odi_digest = odi_binding.get("source_digest") if odi_binding else None
     if state.get("odi_source_digest") != current_odi_digest:
-        raise PolicyViolation("ODI Smart Export binding degisti; yeniden index gerekli")
+        stale_reasons.append("odi-smart-export-stale")
+    elif odi_binding is not None and not smart_binding_source_current(odi_binding):
+        stale_reasons.append("odi-smart-export-source-stale")
     knowledge = load_settings(home=paths["home"]).knowledge
-    _assert_canonical_knowledge_profile(knowledge)
-    if state.get("knowledge_binding_digest") != _knowledge_binding_digest(knowledge):
-        raise PolicyViolation("Project embedding profile/route degisti; yeniden index gerekli")
-    _, query_plan = _project_plan(
-        source_root,
-        project_id=project_id,
-        project_slug=project_slug,
-        knowledge=knowledge,
+    canonical_profile = True
+    try:
+        _assert_canonical_knowledge_profile(knowledge)
+    except ConfigurationError:
+        canonical_profile = False
+        stale_reasons.append("embedding-config-unsupported")
+    profile_binding_current = (
+        canonical_profile
+        and state.get("knowledge_binding_digest") == _knowledge_binding_digest(knowledge)
     )
-    binding = _provider(
-        paths["home"],
-        paths["ledger"],
-        config_file,
-        project_id,
-        query_plan.chunks,
-        knowledge,
-        remote_authorized=authorize_remote_query,
-    )
+    if not profile_binding_current and "embedding-config-unsupported" not in stale_reasons:
+        stale_reasons.append("embedding-config-stale")
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+        generation = index.generation(str(project_id))
+        if (
+            state.get("generation_digest") != generation.generation_digest
+            or state.get("source_revision") != generation.source_revision
+            or state.get("tree_digest") != generation.tree_digest
+        ):
+            raise PolicyViolation("Project RAG state/index generation binding drift")
+        dense_disabled_reason: str | None = None
+        if not profile_binding_current:
+            dense_disabled_reason = "embedding-config-stale"
+            binding = _lexical_only_binding(
+                generation.provider_profile_digest,
+                knowledge.embedding_route,
+                dense_disabled_reason,
+            )
+        elif knowledge.embedding_route is EmbeddingRoute.REMOTE and not authorize_remote_query:
+            if not stale_reasons:
+                raise PolicyViolation("Remote query embedding explicit authorization ister")
+            dense_disabled_reason = "remote-query-not-authorized"
+            binding = _lexical_only_binding(
+                generation.provider_profile_digest,
+                knowledge.embedding_route,
+                dense_disabled_reason,
+            )
+        else:
+            try:
+                query_chunks: tuple[Chunk, ...] = ()
+                if knowledge.embedding_route is EmbeddingRoute.LOCAL and source_root is not None:
+                    _, query_plan = _project_plan(
+                        source_root,
+                        project_id=project_id,
+                        project_slug=project_slug,
+                        knowledge=knowledge,
+                    )
+                    query_chunks = query_plan.chunks
+                binding = _provider(
+                    paths["home"],
+                    paths["ledger"],
+                    config_file,
+                    project_id,
+                    query_chunks,
+                    knowledge,
+                    remote_authorized=authorize_remote_query,
+                )
+            except (OSError, subprocess.SubprocessError, ZekamError) as exc:
+                dense_disabled_reason = f"embedding-provider-unavailable:{type(exc).__name__}"
+                binding = _lexical_only_binding(
+                    generation.provider_profile_digest,
+                    knowledge.embedding_route,
+                    dense_disabled_reason,
+                )
         result = EmbeddedProjectRAG(index, binding.provider, binding.policy).query(
             query,
             project_id=str(project_id),
             expected_source_revision=str(state["source_revision"]),
             expected_tree_digest=str(state["tree_digest"]),
+            dense_disabled_reason=dense_disabled_reason,
         )
-    provider_profile_digest = binding.provider.describe().profile_digest
+    stale_reasons = list(dict.fromkeys([*result.get("stale_reasons", ()), *stale_reasons]))
+    result["index_freshness"] = "stale" if stale_reasons else "current"
+    result["stale_reasons"] = stale_reasons
+    result["reindex_recommended"] = bool(stale_reasons)
+    result["retrieval_digest"] = digest(
+        {key: value for key, value in result.items() if key != "retrieval_digest"}
+    )
+    provider_profile_digest = (
+        generation.provider_profile_digest
+        if dense_disabled_reason is not None
+        else binding.provider.describe().profile_digest
+    )
     query_contract_verified = (
-        "dense" in result.get("searched_channels", ())
+        not stale_reasons
+        and dense_disabled_reason is None
+        and "dense" in result.get("searched_channels", ())
         and result.get("degraded_reason") is None
         and result.get("provider_profile_digest") == provider_profile_digest
         and result.get("generation_digest") == state.get("generation_digest")
@@ -1460,6 +1574,7 @@ def _query(
         "database_freshness": (
             "disabled" if state.get("database_access") == "disabled" else "last-indexed-snapshot"
         ),
+        "snapshot_only": bool(stale_reasons),
         "source_access": "read-only",
         "row_data_included": False,
         "secret_values_recorded": False,
@@ -1477,13 +1592,21 @@ def query_registered_project(
     """Query a registered project through its validated local binding and active index."""
 
     slug = validate_slug(project_slug)
-    root = resolve_project_source(home, slug)
     project_id = _registered_project(home, slug)
     resolved_home = home.resolve(strict=True)
-    route = project_embedding_route(resolved_home)
+    source_binding = _existing_runtime_paths(resolved_home, slug)["project_root"] / (
+        "baglantilar/source.json"
+    )
+    if not source_binding.exists() and not source_binding.is_symlink():
+        root = None
+    else:
+        try:
+            root = resolve_project_source(resolved_home, slug)
+        except FileNotFoundError:
+            root = None
     config_file = (
-        (opencode_config or default_opencode_config_file()).resolve(strict=True)
-        if route is EmbeddingRoute.REMOTE
+        (opencode_config or default_opencode_config_file()).resolve(strict=False)
+        if authorize_remote_query
         else None
     )
     return _query(
@@ -1611,16 +1734,14 @@ def main() -> int:
         )
     else:
         route = project_embedding_route(home)
-        if route is EmbeddingRoute.REMOTE and not args.authorize_remote_query:
-            raise PolicyViolation("Remote query embedding explicit authorization ister")
         result = _query(
             source_root,
             home,
             project_id,
             project_slug,
             (
-                args.opencode_config.resolve(strict=True)
-                if route is EmbeddingRoute.REMOTE
+                args.opencode_config.resolve(strict=False)
+                if route is EmbeddingRoute.REMOTE and args.authorize_remote_query
                 else None
             ),
             args.question,

@@ -33,7 +33,7 @@ REQUIRED_FILES = [
     "PROJE_MANIFESTI.yaml",
     "AKTIF_GOREV.yaml",
     "AGENTS.md",
-    "CLAUDE.md",
+    "config/client-templates/claude-code/CLAUDE.md",
     "opencode.json",
     ".ai/repository-context.json",
     "mimari/ANA_MIMARI.md",

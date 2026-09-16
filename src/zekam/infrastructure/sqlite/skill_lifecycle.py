@@ -9,6 +9,7 @@ import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
+from typing import Any, cast
 
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
@@ -96,6 +97,8 @@ def evaluation_evidence_effect_digest(
                 evaluation, f"{role}_execution_identity"
             ),
             "evidence_digest": getattr(evaluation, f"{role}_evidence_digest"),
+            "metrics": evaluation.metrics,
+            "uncertainty": evaluation.uncertainty,
         }
     )
 
@@ -108,6 +111,7 @@ def review_evidence_effect_digest(
     reviewer_execution_identity: str,
     reviewer_evidence_digest: str,
     approved: bool,
+    reason: str = "",
 ) -> str:
     """Bind independent review evidence to one exact evaluation decision."""
 
@@ -120,6 +124,7 @@ def review_evidence_effect_digest(
             "reviewer_execution_identity": reviewer_execution_identity,
             "reviewer_evidence_digest": reviewer_evidence_digest,
             "approved": approved,
+            "reason": reason,
         }
     )
 
@@ -141,6 +146,32 @@ def _body(value: Mapping[str, object]) -> tuple[str, str]:
     if len(raw.encode("utf-8")) > 32_768:
         raise ValidationFailed("Personal skill canonical body too large")
     return raw, digest(value)
+
+
+def _evaluation_from_body(body: Mapping[str, object]) -> SkillEvaluationV2:
+    """Rebuild and validate the exact persisted evaluation used by a review."""
+
+    metrics = body.get("metrics")
+    uncertainty = body.get("uncertainty")
+    if not isinstance(metrics, dict) or not isinstance(uncertainty, dict):
+        raise PolicyViolation("Skill evaluation stored metrics malformed")
+    try:
+        return SkillEvaluationV2(
+            revision_digest=str(body["revision_digest"]),
+            plan_digest=str(body["plan_digest"]),
+            state=str(body["state"]),
+            trials=int(cast(Any, body["trials"])),
+            evaluator_ref=str(body["evaluator_ref"]),
+            verifier_ref=str(body["verifier_ref"]),
+            evaluator_evidence_digest=str(body["evaluator_evidence_digest"]),
+            verifier_evidence_digest=str(body["verifier_evidence_digest"]),
+            evaluator_execution_identity=str(body["evaluator_execution_identity"]),
+            verifier_execution_identity=str(body["verifier_execution_identity"]),
+            metrics=cast(dict[str, dict[str, float | str | int | bool]], metrics),
+            uncertainty=cast(dict[str, float | int | str], uncertainty),
+        )
+    except (KeyError, TypeError, ValueError, ValidationFailed) as exc:
+        raise PolicyViolation("Skill evaluation stored body malformed") from exc
 
 
 class SQLiteSkillLifecycle:
@@ -192,7 +223,7 @@ class SQLiteSkillLifecycle:
         *,
         operation: str | None = None,
         effect_digest: str | None = None,
-    ) -> None:
+    ) -> str:
         if not private_regular(self.operational_path):
             raise PolicyViolation("Personal skill operational evidence identity invalid")
         observed = operational_status(self.operational_path)
@@ -203,21 +234,23 @@ class SQLiteSkillLifecycle:
                 f"{self.operational_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
             )
         ) as db:
-            row = db.execute(
-                "select j.state,r.status,c.operation,c.effect_digest "
+            rows = db.execute(
+                "select j.id,j.state,r.status,c.operation,c.effect_digest "
                 "from local_job j join local_effect_claim c "
                 "on c.job_id=j.id join local_effect_receipt r on r.claim_id=c.id "
-                "where j.id=? and j.terminal_evidence_digest=? "
+                "where (j.id=? or j.idempotency_key=?) "
+                "and j.terminal_evidence_digest=? "
                 "and r.evidence_digest=?",
-                (run_ref, evidence_digest, evidence_digest),
+                (run_ref, run_ref, evidence_digest, evidence_digest),
             ).fetchall()
         if (
-            len(row) != 1
-            or tuple(row[0])[:2] != ("completed", "completed")
-            or (operation is not None and str(row[0][2]) != operation)
-            or (effect_digest is not None and str(row[0][3]) != effect_digest)
+            len(rows) != 1
+            or tuple(rows[0])[1:3] != ("completed", "completed")
+            or (operation is not None and str(rows[0][3]) != operation)
+            or (effect_digest is not None and str(rows[0][4]) != effect_digest)
         ):
             raise PolicyViolation("Personal skill exact completed terminal receipt required")
+        return str(rows[0][0])
 
     def _canonical_project_scope(self, reference: str) -> str:
         _text(reference, "project scope ref")
@@ -526,28 +559,52 @@ class SQLiteSkillLifecycle:
         if type(evaluation) is not SkillEvaluationV2:
             raise ValidationFailed("Exact skill evaluation v2 required")
         evaluation.__post_init__()
+        operational_jobs: list[str] = []
         for role in ("evaluator", "verifier"):
             execution_identity = str(
                 getattr(evaluation, f"{role}_execution_identity")
             )
             evidence_digest = str(getattr(evaluation, f"{role}_evidence_digest"))
-            self._completed_terminal_evidence(
-                execution_identity,
-                evidence_digest,
-                operation=f"skill.evaluation.{role}-v2",
-                effect_digest=evaluation_evidence_effect_digest(
-                    evaluation, role=role
-                ),
+            operational_jobs.append(
+                self._completed_terminal_evidence(
+                    execution_identity,
+                    evidence_digest,
+                    operation=f"skill.evaluation.{role}-v2",
+                    effect_digest=evaluation_evidence_effect_digest(
+                        evaluation, role=role
+                    ),
+                )
             )
+        if len(set(operational_jobs)) != 2:
+            raise PolicyViolation("Skill evaluation independent operational jobs required")
         body = evaluation.body() | {"created_at": _time(now)}
         raw, value = _body(body)
         with closing(self._connect()) as db:
+            db.execute("begin immediate")
             exists = db.execute(
                 "select 1 from skill_revision_v2 where revision_digest=?",
                 (evaluation.revision_digest,),
             ).fetchone()
             if exists is None:
                 raise PolicyViolation("Skill evaluation needs persisted revision")
+            replay = db.execute(
+                "select evaluation_digest,body_json from skill_evaluation_v2 "
+                "where revision_digest=? and plan_digest=?",
+                (evaluation.revision_digest, evaluation.plan_digest),
+            ).fetchall()
+            if len(replay) > 1:
+                raise PolicyViolation("Skill evaluation replay identity ambiguous")
+            if replay:
+                try:
+                    stored = json.loads(str(replay[0]["body_json"]))
+                except json.JSONDecodeError as exc:
+                    raise PolicyViolation("Skill evaluation stored body malformed") from exc
+                if isinstance(stored, dict):
+                    stored.pop("created_at", None)
+                if canonical_json(stored) != canonical_json(evaluation.body()):
+                    raise PolicyViolation("Skill evaluation exact replay drift")
+                db.rollback()
+                return str(replay[0]["evaluation_digest"])
             db.execute(
                 "insert into skill_evaluation_v2 values(?,?,?,?,?,?,?,?,?)",
                 (
@@ -585,7 +642,7 @@ class SQLiteSkillLifecycle:
         _text(reason, "review reason", 2048)
         if type(approved) is not bool:
             raise ValidationFailed("Skill review approval must be bool")
-        self._completed_terminal_evidence(
+        reviewer_job_id = self._completed_terminal_evidence(
             reviewer_execution_identity,
             reviewer_evidence_digest,
             operation="skill.review.verify-v2",
@@ -596,9 +653,11 @@ class SQLiteSkillLifecycle:
                 reviewer_execution_identity=reviewer_execution_identity,
                 reviewer_evidence_digest=reviewer_evidence_digest,
                 approved=approved,
+                reason=reason,
             ),
         )
         with closing(self._connect()) as db:
+            db.execute("begin immediate")
             row = db.execute(
                 "select r.author_ref,e.evaluator_ref,e.verifier_ref,e.body_json "
                 "from skill_revision_v2 r "
@@ -625,6 +684,25 @@ class SQLiteSkillLifecycle:
                 }
             ):
                 raise PolicyViolation("Skill v2 review execution evidence must be independent")
+            persisted_evaluation = _evaluation_from_body(evaluation_body)
+            evaluator_job_id = self._completed_terminal_evidence(
+                str(evaluation_body["evaluator_execution_identity"]),
+                str(evaluation_body["evaluator_evidence_digest"]),
+                operation="skill.evaluation.evaluator-v2",
+                effect_digest=evaluation_evidence_effect_digest(
+                    persisted_evaluation, role="evaluator"
+                ),
+            )
+            verifier_job_id = self._completed_terminal_evidence(
+                str(evaluation_body["verifier_execution_identity"]),
+                str(evaluation_body["verifier_evidence_digest"]),
+                operation="skill.evaluation.verifier-v2",
+                effect_digest=evaluation_evidence_effect_digest(
+                    persisted_evaluation, role="verifier"
+                ),
+            )
+            if reviewer_job_id in {evaluator_job_id, verifier_job_id}:
+                raise PolicyViolation("Skill v2 review operational job must be independent")
             body = {
                 "schema": "zekam-personal-skill-review/v2",
                 "revision_digest": revision_digest,
@@ -638,6 +716,25 @@ class SQLiteSkillLifecycle:
                 "grants_authority": False,
             }
             raw, value = _body(body)
+            replay = db.execute(
+                "select review_digest,body_json from skill_review_v2 "
+                "where revision_digest=? and evaluation_digest=? and reviewer_ref=?",
+                (revision_digest, evaluation_digest, reviewer_ref),
+            ).fetchall()
+            if len(replay) > 1:
+                raise PolicyViolation("Skill review replay identity ambiguous")
+            if replay:
+                try:
+                    stored = json.loads(str(replay[0]["body_json"]))
+                except json.JSONDecodeError as exc:
+                    raise PolicyViolation("Skill review stored body malformed") from exc
+                stored.pop("created_at", None)
+                expected = dict(body)
+                expected.pop("created_at", None)
+                if canonical_json(stored) != canonical_json(expected):
+                    raise PolicyViolation("Skill review exact replay drift")
+                db.rollback()
+                return str(replay[0]["review_digest"])
             db.execute(
                 "insert into skill_review_v2 values(?,?,?,?,?,?,?,?)",
                 (

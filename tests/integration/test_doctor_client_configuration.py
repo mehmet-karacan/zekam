@@ -31,6 +31,11 @@ def test_registered_local_client_reaches_doctor(tmp_path: Path) -> None:
     assert result.status is CheckStatus.PASSED
     assert result.evidence == {
         "configured": 1,
-        "clients": ["opencode"],
+        "clients": ["claude-code", "codex", "opencode"],
+        "supported": ["claude-code", "codex", "opencode"],
+        "enabled": ["opencode"],
+        "disabled": ["claude-code", "codex"],
+        "installed": ["codex", "opencode"],
         "missing": [],
+        "healthy": ["opencode"],
     }

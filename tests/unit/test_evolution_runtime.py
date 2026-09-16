@@ -31,8 +31,8 @@ from zekam.infrastructure.sqlite.evolution_authority import EVOLUTION_AUTHORITY_
 
 
 def test_evolution_task_identities_are_distinct_and_canonical() -> None:
-    assert EVOLUTION_TASK_ID == "ZEKAM-PERSONAL-SKILL-LIFECYCLE-001"
-    assert PREVIOUS_TASK_ID == "ZEKAM-AUTONOMOUS-EVOLUTION-001"
+    assert EVOLUTION_TASK_ID == "ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001"
+    assert PREVIOUS_TASK_ID == "ZEKAM-CLI-INTEGRATION-POLICY-001"
     assert EVOLUTION_TASK_ID != PREVIOUS_TASK_ID
 
 
@@ -75,13 +75,13 @@ def _active_contract() -> ActiveTaskContract:
     return ActiveTaskContract.from_bytes(
         b"---\n"
         b"schema: zekam-active-task/v2\n"
-        b"task_id: ZEKAM-PERSONAL-SKILL-LIFECYCLE-001\n"
+        b"task_id: ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001\n"
         b"status: APPROVED_ACTIVE_TASK\n"
-        b"title: Personal Skill Lifecycle\n"
-        b"created_at: 2026-09-13T16:08:07+03:00\n"
+        b"title: CLI Integration Policy\n"
+        b"created_at: 2026-09-15T00:00:00+03:00\n"
         b"baseline_repository: mehmet-karacan/zekam\n"
         b"baseline_branch: main\n"
-        b"baseline_head: d273e543600176a1b7cfc39b6696994cf8fec5cf\n"
+        b"baseline_head: 638b6b703226b0888c031d3e38f919779d4b4865\n"
         b"legacy_postgresql_data_import: FORBIDDEN\n"
         b"postgresql_runtime_dependency: FORBIDDEN\n"
         b"docker_required_for_zekam_core: false\n"
@@ -96,9 +96,9 @@ def test_transition_binding_requires_exact_job_effect_journal_and_receipt_chain(
         "schema": "zekam-scope-transition/v1",
         "previous_task_id": PREVIOUS_TASK_ID,
         "previous_authority_digest": (
-            "sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba"
+            "sha256:2c4029e9a9e1b123445502fa9cb3c973e55ccc3dc6c765896f49bc1b81089758"
         ),
-        "previous_git_blob": "d976cc570cb993787842a2b1a857206db7173c4f",
+        "previous_git_blob": "5f5db911e785005840547313bc4d91bb53339dd9",
         "new_task_id": EVOLUTION_TASK_ID,
         "new_authority_digest": active.source_digest,
         "source_head": active.baseline_head,

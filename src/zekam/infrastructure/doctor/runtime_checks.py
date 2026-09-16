@@ -244,14 +244,14 @@ class QueueCheck:
 
 @dataclass(frozen=True, slots=True)
 class ClientsCheck:
-    """Kayitli istemci calistirilabilir dosyalarinin varligini dogrular."""
+    """Integration policy ile executable sagligini birbirinden ayirir."""
 
-    executables: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    integrations: tuple[tuple[str, str | None, bool, bool], ...] = field(default_factory=tuple)
     check_id: str = "runtime.clients"
     category: str = CATEGORY
 
     def run(self) -> CheckResult:
-        if not self.executables:
+        if not self.integrations:
             return CheckResult(
                 check_id=self.check_id,
                 category=self.category,
@@ -259,13 +259,29 @@ class ClientsCheck:
                 summary="Yapilandirilmis istemci yok",
                 evidence={"configured": 0},
             )
-        missing = tuple(
-            name for name, path in self.executables if not Path(path).expanduser().exists()
+        installed = tuple(
+            name
+            for name, path, _enabled, _configured in self.integrations
+            if path is not None and Path(path).expanduser().is_file()
         )
+        enabled = tuple(
+            name for name, _path, selected, _configured in self.integrations if selected
+        )
+        disabled = tuple(
+            name for name, _path, selected, _configured in self.integrations if not selected
+        )
+        missing = tuple(name for name in enabled if name not in installed)
         evidence = {
-            "configured": len(self.executables),
-            "clients": sorted(name for name, _ in self.executables),
+            "configured": sum(
+                1 for _name, _path, _enabled, configured in self.integrations if configured
+            ),
+            "clients": sorted(name for name, _path, _enabled, _configured in self.integrations),
+            "supported": sorted(name for name, _path, _enabled, _configured in self.integrations),
+            "enabled": sorted(enabled),
+            "disabled": sorted(disabled),
+            "installed": sorted(installed),
             "missing": list(missing),
+            "healthy": sorted(name for name in enabled if name in installed),
         }
         if missing:
             return CheckResult(
@@ -278,8 +294,10 @@ class ClientsCheck:
                         code="runtime.client-missing",
                         severity=Severity.WARNING,
                         title=f"Eksik istemci: {', '.join(missing)}",
-                        detail="Beyan edilen calistirilabilir dosya diskte yok",
-                        next_action="Yolu duzeltin veya istemciyi yapilandirmadan kaldirin",
+                        detail=(
+                            "Etkin istemcinin calistirilabilir dosyasi kayitli veya mevcut degil"
+                        ),
+                        next_action="Executable yolunu kaydedin ya da entegrasyonu kapatin",
                     ),
                 ),
                 evidence=evidence,
@@ -288,7 +306,7 @@ class ClientsCheck:
             check_id=self.check_id,
             category=self.category,
             status=CheckStatus.PASSED,
-            summary=f"{len(self.executables)} istemci erisilebilir",
+            summary=f"{len(enabled)} etkin istemci erisilebilir",
             evidence=evidence,
         )
 
@@ -332,9 +350,7 @@ class EvolutionCheck:
             check_id=self.check_id,
             category=self.category,
             status=status,
-            summary=(
-                f"evolution {state}"
-            ),
+            summary=(f"evolution {state}"),
             findings=findings,
             evidence={
                 "state": state,

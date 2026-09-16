@@ -2,14 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:d490accbc01e49da44050987e39a514102a6f7eea8c2ee4b3791fc02ebbb7cd6
-task_id: ZEKAM-PERSONAL-SKILL-LIFECYCLE-001
+authority_digest: sha256:9de9fc54647d64e3be7f8b3463236c325a1be49fa3bc3064697a278b59516c67
+task_id: ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Deneyimden Kişisel Skill Üretimi ve İstemciler Arası Güvenli Kullanım
-created_at: '2026-09-13T16:08:07+03:00'
+title: Jira Muhendislik Iletisimi Skill Paketi
+created_at: '2026-09-16T00:00:00+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: d273e543600176a1b7cfc39b6696994cf8fec5cf
+baseline_head: 638b6b703226b0888c031d3e38f919779d4b4865
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false

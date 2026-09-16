@@ -8,8 +8,15 @@ import pytest
 
 import zekam.application.skill_packages as skill_packages
 from zekam.application.skill_packages import apply_projection_plan, build_projection_plan
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.skill_package import SkillPackage
+
+ALL_ENABLED = ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True)
+
+
+def _plan(project: Path, package: SkillPackage) -> skill_packages.SkillProjectionPlan:
+    return build_projection_plan(project, package, policy=ALL_ENABLED)
 
 
 def _files(*, allowed_tools: bool = False) -> dict[str, bytes]:
@@ -94,20 +101,25 @@ def test_managed_client_projection_is_shared_scoped_and_drift_safe(tmp_path: Pat
     project = (tmp_path / "project").resolve()
     project.mkdir()
     package = SkillPackage.parse("zekam-arastirma-uygulama", _files(allowed_tools=True))
-    plan = build_projection_plan(project, package)
+    plan = _plan(project, package)
 
     assert [target["relative_path"] for target in plan.targets] == [
+        ".opencode/skills/zekam-arastirma-uygulama",
         ".agents/skills/zekam-arastirma-uygulama",
         ".claude/skills/zekam-arastirma-uygulama",
     ]
-    assert plan.targets[0]["clients"] == ("codex", "opencode")
+    assert [target["clients"] for target in plan.targets] == [
+        ("opencode",),
+        ("codex",),
+        ("claude-code",),
+    ]
     with pytest.raises(PolicyViolation, match="authorization"):
         apply_projection_plan(plan, authorized_plan_digest="sha256:" + "0" * 64)
 
     receipt = apply_projection_plan(plan, authorized_plan_digest=plan.plan_digest)
     assert receipt["network_calls"] == 0
     assert receipt["grants_authority"] is False
-    current = build_projection_plan(project, package)
+    current = _plan(project, package)
     assert all(target["state"] == "current" for target in current.targets)
     for target in plan.targets:
         skill_md = project / str(target["relative_path"]) / "SKILL.md"
@@ -120,35 +132,48 @@ def test_managed_client_projection_is_shared_scoped_and_drift_safe(tmp_path: Pat
         "references/new.md": b"# New\n",
     }
     updated_package = SkillPackage.parse("zekam-arastirma-uygulama", updated_files)
-    update = build_projection_plan(project, updated_package)
+    update = _plan(project, updated_package)
     assert all(target["state"] == "managed-update" for target in update.targets)
     apply_projection_plan(update, authorized_plan_digest=update.plan_digest)
     assert all(
         target["state"] == "current"
-        for target in build_projection_plan(project, updated_package).targets
+        for target in _plan(project, updated_package).targets
     )
-
     changed = (
         project / ".agents" / "skills" / package.name / "references" / "checks.md"
     )
     changed.write_text("user change", encoding="utf-8")
-    drifted = build_projection_plan(project, updated_package)
-    assert drifted.targets[0]["state"] == "managed-drift"
+    drifted = _plan(project, updated_package)
+    assert drifted.targets[1]["state"] == "managed-drift"
     with pytest.raises(PolicyViolation, match="drifted"):
         apply_projection_plan(drifted, authorized_plan_digest=drifted.plan_digest)
 
+
+def test_default_projection_is_opencode_only(tmp_path: Path) -> None:
+    project = (tmp_path / "project").resolve()
+    project.mkdir()
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
+
+    plan = build_projection_plan(project, package)
+
+    states = {str(item["client"]): str(item["state"]) for item in plan.targets}
+    assert states == {"opencode": "new", "codex": "absent", "claude-code": "absent"}
+    apply_projection_plan(plan, authorized_plan_digest=plan.plan_digest)
+    assert (project / ".opencode" / "skills" / package.name).is_dir()
+    assert not (project / ".agents").exists()
+    assert not (project / ".claude").exists()
 
 def test_managed_update_rechecks_target_after_plan_authorization(tmp_path: Path) -> None:
     project = (tmp_path / "project").resolve()
     project.mkdir()
     original = SkillPackage.parse("zekam-arastirma-uygulama", _files())
-    original_plan = build_projection_plan(project, original)
+    original_plan = _plan(project, original)
     apply_projection_plan(original_plan, authorized_plan_digest=original_plan.plan_digest)
     updated = SkillPackage.parse(
         "zekam-arastirma-uygulama",
         _files() | {"references/new.md": b"# New\n"},
     )
-    update_plan = build_projection_plan(project, updated)
+    update_plan = _plan(project, updated)
     user_file = project / ".agents" / "skills" / original.name / "SKILL.md"
     user_file.write_text("user edit after plan", encoding="utf-8")
 
@@ -164,23 +189,23 @@ def test_projection_restores_user_edit_racing_with_atomic_swap(
     project = (tmp_path / "project").resolve()
     project.mkdir()
     original = SkillPackage.parse("zekam-arastirma-uygulama", _files())
-    original_plan = build_projection_plan(project, original)
+    original_plan = _plan(project, original)
     apply_projection_plan(original_plan, authorized_plan_digest=original_plan.plan_digest)
     updated = SkillPackage.parse(
         "zekam-arastirma-uygulama",
         _files() | {"references/new.md": b"# New\n"},
     )
-    update_plan = build_projection_plan(project, updated)
+    update_plan = _plan(project, updated)
     user_file = project / ".agents" / "skills" / original.name / "SKILL.md"
     real_build = skill_packages.build_projection_plan
     build_calls = 0
 
     def edit_after_final_check(
-        root: Path, package: SkillPackage
+        root: Path, package: SkillPackage, **kwargs: object
     ) -> skill_packages.SkillProjectionPlan:
         nonlocal build_calls
         build_calls += 1
-        result = real_build(root, package)
+        result = real_build(root, package, **kwargs)  # type: ignore[arg-type]
         if build_calls == 2:
             user_file.write_text("concurrent user edit", encoding="utf-8")
         return result
@@ -197,7 +222,7 @@ def test_management_metadata_tamper_is_not_accepted_as_current(tmp_path: Path) -
     project = (tmp_path / "project").resolve()
     project.mkdir()
     package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
-    plan = build_projection_plan(project, package)
+    plan = _plan(project, package)
     apply_projection_plan(plan, authorized_plan_digest=plan.plan_digest)
     ownership = project / ".agents" / "skills" / package.name / ".zekam-managed.json"
     body = ownership.read_text(encoding="utf-8").replace(
@@ -205,8 +230,8 @@ def test_management_metadata_tamper_is_not_accepted_as_current(tmp_path: Path) -
     )
     ownership.write_text(body, encoding="utf-8")
 
-    tampered = build_projection_plan(project, package)
-    assert tampered.targets[0]["state"] == "managed-metadata-invalid"
+    tampered = _plan(project, package)
+    assert tampered.targets[1]["state"] == "managed-metadata-invalid"
 
 
 def test_projection_rolls_back_first_target_when_second_swap_fails(
@@ -215,7 +240,7 @@ def test_projection_rolls_back_first_target_when_second_swap_fails(
     project = (tmp_path / "project").resolve()
     project.mkdir()
     original = SkillPackage.parse("zekam-arastirma-uygulama", _files())
-    first_plan = build_projection_plan(project, original)
+    first_plan = _plan(project, original)
     apply_projection_plan(first_plan, authorized_plan_digest=first_plan.plan_digest)
     original_bytes = {
         str(target["relative_path"]): (
@@ -230,7 +255,7 @@ def test_projection_rolls_back_first_target_when_second_swap_fails(
             "references/new.md": b"# New generation\n",
         },
     )
-    update_plan = build_projection_plan(project, updated)
+    update_plan = _plan(project, updated)
     real_replace = os.replace
     target_swaps = 0
 
@@ -258,13 +283,13 @@ def test_projection_keeps_recoverable_backup_when_rollback_restore_is_blocked(
     project = (tmp_path / "project").resolve()
     project.mkdir()
     original = SkillPackage.parse("zekam-arastirma-uygulama", _files())
-    first_plan = build_projection_plan(project, original)
+    first_plan = _plan(project, original)
     apply_projection_plan(first_plan, authorized_plan_digest=first_plan.plan_digest)
     updated = SkillPackage.parse(
         "zekam-arastirma-uygulama",
         _files() | {"references/new.md": b"# New generation\n"},
     )
-    update_plan = build_projection_plan(project, updated)
+    update_plan = _plan(project, updated)
     real_replace = os.replace
     replace_calls = 0
 

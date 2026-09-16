@@ -26,13 +26,13 @@ from zekam.infrastructure.sqlite.evolution_authority import evolution_authority_
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.windows_task_scheduler import WindowsTaskPlan, inspect_windows_task
 
-EVOLUTION_TASK_ID: Final = "ZEKAM-PERSONAL-SKILL-LIFECYCLE-001"
-PREVIOUS_TASK_ID: Final = "ZEKAM-AUTONOMOUS-EVOLUTION-001"
+EVOLUTION_TASK_ID: Final = "ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001"
+PREVIOUS_TASK_ID: Final = "ZEKAM-CLI-INTEGRATION-POLICY-001"
 PREVIOUS_AUTHORITY_DIGEST: Final = (
-    "sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba"
+    "sha256:2c4029e9a9e1b123445502fa9cb3c973e55ccc3dc6c765896f49bc1b81089758"
 )
-PREVIOUS_GIT_BLOB: Final = "d976cc570cb993787842a2b1a857206db7173c4f"
-TRANSITION_KEY: Final = "scope-transition:9408eff4:d490accb"
+PREVIOUS_GIT_BLOB: Final = "5f5db911e785005840547313bc4d91bb53339dd9"
+TRANSITION_KEY: Final = "scope-transition:2c4029e9:9de9fc54"
 _TASK_EVENT_LIMIT: Final = 16
 _TASK_EVENT_OUTPUT_LIMIT: Final = 128 * 1024
 

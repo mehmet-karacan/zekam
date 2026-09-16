@@ -11,13 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.errors import ConfigurationError
 
 _EVENTS = ("SessionStart", "PreCompact", "PostCompact", "Stop", "SessionEnd")
 _REPARSE_POINT = 0x400
 _COMMAND_MARKER = "-m zekam.interfaces.cli.client hook --client "
 _LEGACY_COMMAND_PREFIX = "python " + _COMMAND_MARKER
-_VERSIONS = {"codex": "0.153.1", "claude-code": "2.1.224"}
+_VERSIONS = {"codex": "0.154.0", "claude-code": "2.1.224"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,14 +88,43 @@ def _command(client_id: str, python_executable: Path) -> str:
     )
 
 
-def _managed_hook(group: Any, client_id: str) -> bool:
-    if not isinstance(group, dict):
+def _exact_managed_hook(group: Any, client_id: str, event: str) -> bool:
+    if not isinstance(group, dict) or set(group) != {"matcher", "hooks"}:
+        return False
+    if group.get("matcher") != "":
         return False
     hooks = group.get("hooks")
     if not isinstance(hooks, list) or len(hooks) != 1 or not isinstance(hooks[0], dict):
         return False
-    command = hooks[0].get("command")
-    return isinstance(command, str) and f"{_COMMAND_MARKER}{client_id} " in command
+    hook = hooks[0]
+    expected_keys = {"type", "command", "timeout"}
+    if client_id == "codex":
+        expected_keys.add("commandWindows")
+    if set(hook) != expected_keys or hook.get("type") != "command":
+        return False
+    if hook.get("timeout") != (3 if event == "SessionEnd" else 10):
+        return False
+    command = hook.get("command")
+    if not isinstance(command, str):
+        return False
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return False
+    expected_suffix = [
+        "-m",
+        "zekam.interfaces.cli.client",
+        "hook",
+        "--client",
+        client_id,
+        "--client-version",
+        _VERSIONS[client_id],
+    ]
+    if len(argv) != len(expected_suffix) + 1 or argv[1:] != expected_suffix:
+        return False
+    if not Path(argv[0]).is_absolute():
+        return False
+    return client_id != "codex" or hook.get("commandWindows") == subprocess.list2cmdline(argv)
 
 
 def _mentions_managed(group: Any, client_id: str) -> bool:
@@ -138,7 +168,11 @@ def _updated_document(
         groups = existing_hooks.get(event, [])
         if not isinstance(groups, list):
             raise ConfigurationError(f"Hook config {event} list olmali")
-        managed = [index for index, group in enumerate(groups) if _managed_hook(group, client_id)]
+        managed = [
+            index
+            for index, group in enumerate(groups)
+            if _exact_managed_hook(group, client_id, event)
+        ]
         broken = [
             index
             for index, group in enumerate(groups)
@@ -157,17 +191,64 @@ def _updated_document(
     return document
 
 
+def remove_managed_hook_entries(
+    source: dict[str, Any], *, client_id: str
+) -> tuple[dict[str, Any], int]:
+    """Remove only exact reviewed hook groups; preserve every unrelated value."""
+
+    if client_id not in _VERSIONS:
+        raise ConfigurationError("Desteklenmeyen hook integration kimligi")
+    document = dict(source)
+    existing_hooks = document.get("hooks", {})
+    if not isinstance(existing_hooks, dict):
+        raise ConfigurationError("Hook cleanup hooks object olmali")
+    updated_hooks = dict(existing_hooks)
+    removed = 0
+    for event in _EVENTS:
+        groups = existing_hooks.get(event, [])
+        if not isinstance(groups, list):
+            raise ConfigurationError(f"Hook cleanup {event} list olmali")
+        managed = [
+            index
+            for index, group in enumerate(groups)
+            if _exact_managed_hook(group, client_id, event)
+        ]
+        ambiguous = [
+            index
+            for index, group in enumerate(groups)
+            if _mentions_managed(group, client_id) and index not in managed
+        ]
+        if ambiguous or len(managed) > 1:
+            raise ConfigurationError(f"Hook cleanup {event} ownership conflict")
+        if managed:
+            updated_hooks[event] = [
+                group for index, group in enumerate(groups) if index != managed[0]
+            ]
+            removed += 1
+    if removed:
+        document["hooks"] = updated_hooks
+    return document, removed
+
+
 def plan_client_hook_bootstrap(
-    *, user_home: Path, python_executable: Path
+    *,
+    user_home: Path,
+    python_executable: Path,
+    policy: ClientIntegrationPolicy | None = None,
 ) -> ClientHookBootstrapPlan:
     """Plan managed Codex and Claude hook entries without writing files."""
 
     _assert_safe_home(user_home)
     if not python_executable.is_absolute() or not python_executable.is_file():
         raise ConfigurationError("Hook bootstrap exact Python executable ister")
-    targets = (
-        ("codex", user_home / ".codex" / "hooks.json"),
-        ("claude-code", user_home / ".claude" / "settings.json"),
+    effective_policy = ClientIntegrationPolicy() if policy is None else policy
+    targets = tuple(
+        (client_id, path)
+        for client_id, path in (
+            ("codex", user_home / ".codex" / "hooks.json"),
+            ("claude-code", user_home / ".claude" / "settings.json"),
+        )
+        if effective_policy.enabled(client_id)
     )
     files: list[ClientHookFilePlan] = []
     for client_id, path in targets:

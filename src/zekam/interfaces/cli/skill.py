@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import typer
 
+from zekam.application.client_integrations import integration_mutation_resource
 from zekam.application.composition import build_context
 from zekam.application.local_runtime_service import (
     LocalEffectDispatcher,
@@ -95,6 +96,7 @@ def _run_claimed_effect(
     idempotency_key: str,
     apply_effect: Callable[[], dict[str, object]],
     replay_effect: Callable[[], dict[str, object]],
+    logical_resources: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Run one bounded local mutation with a durable claim/receipt chain."""
 
@@ -145,6 +147,7 @@ def _run_claimed_effect(
             owner_token=str(uuid4()),
             lease_seconds=30,
             job_id=job.id,
+            resources=logical_resources,
         )
     elif job.state != "completed":
         raise PolicyViolation("Skill local effect existing runtime job needs recovery")
@@ -368,11 +371,7 @@ def status_command(
                 }
             )
             return
-        package_root = (
-            Path(__file__).resolve().parents[2]
-            / "skills"
-            / "zekam-arastirma-uygulama"
-        )
+        package_root = Path(__file__).resolve().parents[2] / "skills" / "zekam-arastirma-uygulama"
         distribution: dict[str, object] = {
             "support_level": "not_configured",
             "targets": (),
@@ -387,9 +386,9 @@ def status_command(
             activation: dict[str, str] | None = None
             try:
                 scopes = _cli_scope(lifecycle, resolved_home, scope_kind, scope_ref)
-                bound_root = resolve_project_source(
-                    resolved_home, scopes[0][1]
-                ).resolve(strict=True)
+                bound_root = resolve_project_source(resolved_home, scopes[0][1]).resolve(
+                    strict=True
+                )
                 if resolved_project.resolve(strict=True) != bound_root:
                     raise PolicyViolation(
                         "Skill status project root is not the registered source root"
@@ -445,9 +444,7 @@ def list_command(
         _learning, lifecycle, resolved_home = _paths(home)
         _emit(
             lifecycle.catalog(
-                allowed_scopes=_cli_scope(
-                    lifecycle, resolved_home, scope_kind, scope_ref
-                ),
+                allowed_scopes=_cli_scope(lifecycle, resolved_home, scope_kind, scope_ref),
                 maximum=maximum,
                 after=after,
             )
@@ -471,9 +468,7 @@ def inspect_command(
         _emit(
             lifecycle.inspect_revision(
                 revision_digest,
-                allowed_scopes=_cli_scope(
-                    lifecycle, resolved_home, scope_kind, scope_ref
-                ),
+                allowed_scopes=_cli_scope(lifecycle, resolved_home, scope_kind, scope_ref),
             )
         )
     except ZekamError as exc:
@@ -495,9 +490,7 @@ def explain_command(
         _emit(
             lifecycle.discover(
                 query,
-                allowed_scopes=_cli_scope(
-                    lifecycle, resolved_home, scope_kind, scope_ref
-                ),
+                allowed_scopes=_cli_scope(lifecycle, resolved_home, scope_kind, scope_ref),
             )
         )
     except ZekamError as exc:
@@ -649,10 +642,20 @@ def export_command(
         requested_root = project_root.resolve(strict=True)
         if requested_root != bound_root:
             raise PolicyViolation("Skill export requires exact registered project source root")
-        activation = lifecycle.require_active_package(
-            package.package_digest, allowed_scopes=scopes
+        activation = lifecycle.require_active_package(package.package_digest, allowed_scopes=scopes)
+        policy = build_context(home=home).settings.cli.integrations
+        quarantine_root = (
+            resolved_home
+            / "quarantine"
+            / "client-integrations"
+            / digest(os.path.normcase(str(requested_root))).removeprefix("sha256:")
         )
-        plan = build_projection_plan(requested_root, package)
+        plan = build_projection_plan(
+            requested_root,
+            package,
+            policy=policy,
+            quarantine_root=quarantine_root,
+        )
         if not apply:
             _emit(plan.as_dict() | {"active_revision": activation})
             return
@@ -673,8 +676,13 @@ def export_command(
                 apply_effect=lambda: apply_projection_plan(
                     plan, authorized_plan_digest=plan_digest
                 ),
-                replay_effect=lambda: projection_receipt(
-                    plan, authorized_plan_digest=plan_digest
+                replay_effect=lambda: projection_receipt(plan, authorized_plan_digest=plan_digest),
+                logical_resources=(
+                    integration_mutation_resource(
+                        scope="project",
+                        native_user_root=Path.home(),
+                        project_root=requested_root,
+                    ),
                 ),
             )
         )

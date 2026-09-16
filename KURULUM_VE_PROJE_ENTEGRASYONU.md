@@ -66,6 +66,24 @@ Bu paket komutların implementasyonunu tarif eder; paket tek başına henüz exe
 9. Entegrasyon test/verification geçince current olur.
 10. Source değişikliği incremental scan ve staleness üretir.
 
+## C.1. CLI entegrasyonu
+
+Yeni kurulumda yalnız OpenCode entegrasyonu etkindir. Codex veya Claude Code executable'ının
+kurulu ya da `clients` listesinde kayıtlı olması opt-in değildir. Kalıcı seçim örneği:
+
+```bash
+zekam integration sync --scope user --enable codex --json
+zekam integration sync --scope user --enable codex --plan-digest <digest> --uygula --json
+```
+
+İkinci komutta yalnız ilk komutun gösterdiği exact digest kullanılabilir. Ardından bağlı proje
+projection'ı ayrı planlanır. User-scope opt-in exact yönetilen instruction ve reviewed hook
+parçalarını üretir. Kapatılan istemcinin yalnız Zekam tarafından yönetildiği digest ile
+doğrulanmış artifact'ları karantinaya alınır veya paylaşılan config içinden exact parça ayrılır;
+kullanıcı CLI programı ve ayarları silinmez. Conflict varsa apply fail-closed kalır. Geri alma
+için apply receipt kimliğiyle önce
+`zekam integration rollback --receipt <id> --json` planı alınır.
+
 ## D. Mutation
 
 Kullanıcı projede geliştirme istediğinde:

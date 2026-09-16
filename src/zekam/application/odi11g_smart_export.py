@@ -21,7 +21,7 @@ from uuid import UUID
 
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk, ChunkProfile, estimate_tokens
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
@@ -408,7 +408,9 @@ def import_smart_export(
     }
 
 
-def load_smart_binding(home: Path, project_slug: str) -> dict[str, Any] | None:
+def load_smart_binding(
+    home: Path, project_slug: str, *, verify_source: bool = True
+) -> dict[str, Any] | None:
     path = home / "projeler" / project_slug / "baglantilar" / "odi11g-smart.json"
     if not path.exists():
         return None
@@ -417,10 +419,19 @@ def load_smart_binding(home: Path, project_slug: str) -> dict[str, Any] | None:
     )
     if binding.get("schema") != SMART_BINDING_SCHEMA or binding.get("project_slug") != project_slug:
         raise PolicyViolation("ODI Smart binding schema/project drift")
-    source = Path(str(binding["source_file"]))
-    if _sha256_file(_regular_file(source)[0]) != binding.get("source_digest"):
+    if verify_source and not smart_binding_source_current(binding):
         raise PolicyViolation("ODI Smart binding source digest drift")
     return binding
+
+
+def smart_binding_source_current(binding: dict[str, Any]) -> bool:
+    """Best-effort freshness check; binding identity validation remains separate."""
+
+    try:
+        source = Path(str(binding["source_file"]))
+        return _sha256_file(_regular_file(source)[0]) == binding.get("source_digest")
+    except (KeyError, OSError, ZekamError):
+        return False
 
 
 def _short_class(value: str) -> str:

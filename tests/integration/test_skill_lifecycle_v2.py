@@ -63,6 +63,7 @@ def _terminal_receipt(
     evidence_digest: str,
     operation: str = "skill.origin.observe",
     effect_digest: str | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     payload = canonical_json({"operation": operation, "run_ref": run_ref})
     with sqlite3.connect(path) as db:
@@ -71,7 +72,15 @@ def _terminal_receipt(
             "insert into local_job(id,idempotency_key,payload_json,state,max_attempts,"
             "available_at,terminal_evidence_digest,created_at,updated_at) "
             "values(?,?,?,'completed',1,?,?,?,?)",
-            (run_ref, f"key-{run_ref}", payload, NOW_TEXT, evidence_digest, NOW_TEXT, NOW_TEXT),
+            (
+                run_ref,
+                idempotency_key or f"key-{run_ref}",
+                payload,
+                NOW_TEXT,
+                evidence_digest,
+                NOW_TEXT,
+                NOW_TEXT,
+            ),
         )
         db.execute(
             "insert into local_effect_claim values(?,?,?,?,?,?,?,?)",
@@ -118,6 +127,7 @@ def _authorize_review(
     reviewer_evidence_digest: str,
     reviewer_execution_identity: str,
     approved: bool,
+    reason: str,
 ) -> None:
     _terminal_receipt(
         path,
@@ -131,6 +141,7 @@ def _authorize_review(
             reviewer_execution_identity=reviewer_execution_identity,
             reviewer_evidence_digest=reviewer_evidence_digest,
             approved=approved,
+            reason=reason,
         ),
     )
 def _revision(package_digest: str, *, scope_ref: str = "project-a") -> PersonalSkillRevision:
@@ -343,6 +354,10 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
     )
     _authorize_evaluation(operational, equal_evaluation)
     equal = lifecycle.record_evaluation(equal_evaluation, now=NOW)
+    assert (
+        lifecycle.record_evaluation(equal_evaluation, now=NOW + dt.timedelta(seconds=1))
+        == equal
+    )
     _authorize_review(
         operational,
         revision_digest,
@@ -351,8 +366,9 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
         reviewer_evidence_digest=digest("reviewer-a-evidence"),
         reviewer_execution_identity="reviewer-a-process",
         approved=True,
+        reason="Equal results are retained, not activated.",
     )
-    lifecycle.record_review(
+    equal_review = lifecycle.record_review(
         revision_digest,
         equal,
         reviewer_ref="reviewer-a",
@@ -361,6 +377,19 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
         approved=True,
         reason="Equal results are retained, not activated.",
         now=NOW,
+    )
+    assert (
+        lifecycle.record_review(
+            revision_digest,
+            equal,
+            reviewer_ref="reviewer-a",
+            reviewer_evidence_digest=digest("reviewer-a-evidence"),
+            reviewer_execution_identity="reviewer-a-process",
+            approved=True,
+            reason="Equal results are retained, not activated.",
+            now=NOW + dt.timedelta(seconds=1),
+        )
+        == equal_review
     )
     with pytest.raises(PolicyViolation, match="passing v2 evaluation"):
         lifecycle.append_activation(
@@ -395,6 +424,7 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
         reviewer_evidence_digest=digest("reviewer-b-evidence"),
         reviewer_execution_identity="reviewer-b-process",
         approved=True,
+        reason="Independent deterministic fixture review passed.",
     )
     review = lifecycle.record_review(
         revision_digest,
@@ -494,7 +524,6 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
             authorization_job_id=activation_job.id,
             now=NOW,
         )
-
     discovery = lifecycle.discover("Araştır ve research uygula", allowed_scopes=allowed)
     discovered_items = cast(list[dict[str, object]], discovery["items"])
     assert [item["revision_digest"] for item in discovered_items] == [revision_digest]
@@ -618,6 +647,71 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
             allowed_scopes=allowed,
             now=NOW,
         )
+
+
+def test_evaluation_execution_alias_resolves_to_one_canonical_job_and_rejects_ambiguity(
+    tmp_path: Path,
+) -> None:
+    operational = _operational(tmp_path / "operational.db")
+    learning = _learning(tmp_path, operational)
+    lifecycle = SQLiteSkillLifecycle(learning, operational)
+    revision_digest = lifecycle.propose_revision(
+        _revision(digest("alias-package")), _origins(operational), now=NOW
+    )
+    evaluation = SkillEvaluationV2(
+        revision_digest,
+        digest("alias-plan"),
+        "improved",
+        5,
+        "alias-evaluator",
+        "alias-verifier",
+        digest("alias-evaluator-evidence"),
+        digest("alias-verifier-evidence"),
+        "alias-evaluator-execution",
+        "alias-verifier-execution",
+        {"quality": {"baseline": 0.0, "candidate": 1.0}},
+        {"method": "exact", "sample_size": 5},
+    )
+    for role, job_id in (("evaluator", "alias-job-a"), ("verifier", "alias-job-b")):
+        _terminal_receipt(
+            operational,
+            run_ref=job_id,
+            idempotency_key=str(getattr(evaluation, f"{role}_execution_identity")),
+            evidence_digest=str(getattr(evaluation, f"{role}_evidence_digest")),
+            operation=f"skill.evaluation.{role}-v2",
+            effect_digest=evaluation_evidence_effect_digest(evaluation, role=role),
+        )
+    assert lifecycle.record_evaluation(evaluation, now=NOW).startswith("sha256:")
+
+    ambiguous = SkillEvaluationV2(
+        revision_digest,
+        digest("ambiguous-plan"),
+        "improved",
+        5,
+        "ambiguous-evaluator",
+        "ambiguous-verifier",
+        digest("ambiguous-evaluator-evidence"),
+        digest("ambiguous-verifier-evidence"),
+        "ambiguous-job-ref",
+        "unambiguous-verifier-ref",
+        {"quality": {"baseline": 0.0, "candidate": 1.0}},
+        {"method": "exact", "sample_size": 5},
+    )
+    evaluator_effect = evaluation_evidence_effect_digest(ambiguous, role="evaluator")
+    for job_id, key in (
+        ("ambiguous-job-ref", "unrelated-key"),
+        ("different-job-id", "ambiguous-job-ref"),
+    ):
+        _terminal_receipt(
+            operational,
+            run_ref=job_id,
+            idempotency_key=key,
+            evidence_digest=ambiguous.evaluator_evidence_digest,
+            operation="skill.evaluation.evaluator-v2",
+            effect_digest=evaluator_effect,
+        )
+    with pytest.raises(PolicyViolation, match="exact completed terminal receipt"):
+        lifecycle.record_evaluation(ambiguous, now=NOW)
 
 
 def test_explicit_user_request_can_create_candidate_without_fake_effect_receipt(

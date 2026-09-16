@@ -20,9 +20,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml.nodes import MappingNode
 
 from zekam.application.environment import environment_value
 from zekam.domain.canonical import digest
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.config_provenance import (
     ConfigLayer,
     ConfigProvenanceGraph,
@@ -159,11 +161,20 @@ class DiagnosticTraceSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class CliSettings:
+    """Native CLI integration choice, independent from executable inventory."""
+
+    integrations: ClientIntegrationPolicy = field(default_factory=ClientIntegrationPolicy)
+
+
+@dataclass(frozen=True, slots=True)
 class ClientSettings:
     """Yerel istemcinin secret-free executable kaydi."""
 
     name: str
     executable: Path
+    require_present: bool = field(default=True, repr=False, compare=False)
+    executable_present: bool = field(init=False)
 
     def __post_init__(self) -> None:
         if not self.name or self.name != self.name.strip():
@@ -171,12 +182,16 @@ class ClientSettings:
         if not self.executable.is_absolute():
             raise ConfigurationError("Istemci executable yolu absolute olmali")
         try:
-            resolved = self.executable.resolve(strict=True)
+            resolved = self.executable.resolve(strict=self.require_present)
         except OSError:
             raise ConfigurationError("Istemci executable dosyasi bulunamadi") from None
-        if not resolved.is_file():
+        present = resolved.is_file()
+        if self.require_present and not present:
+            raise ConfigurationError("Istemci executable yolu regular file olmali")
+        if resolved.exists() and not present:
             raise ConfigurationError("Istemci executable yolu regular file olmali")
         object.__setattr__(self, "executable", resolved)
+        object.__setattr__(self, "executable_present", present)
 
     def sanitized(self) -> dict[str, str]:
         """Yalniz istemci adi ve exact executable metadata'sini verir."""
@@ -192,6 +207,7 @@ class Settings:
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
     knowledge: KnowledgeSettings = field(default_factory=KnowledgeSettings)
     diagnostic_trace: DiagnosticTraceSettings = field(default_factory=DiagnosticTraceSettings)
+    cli: CliSettings = field(default_factory=CliSettings)
     clients: tuple[ClientSettings, ...] = ()
     object_store_relative: str = "artifacts/sha256"
     sources: tuple[str, ...] = ()
@@ -226,6 +242,7 @@ class Settings:
                 "export_allowed": self.diagnostic_trace.export_allowed,
                 "redaction_profile": self.diagnostic_trace.redaction_profile,
             },
+            "cli": {"integrations": self.cli.integrations.body()},
             "clients": [client.sanitized() for client in self.clients],
             "object_store_relative": self.object_store_relative,
             "sources": list(self.sources),
@@ -276,7 +293,9 @@ def _assert_no_secret_keys(document: Mapping[str, Any], path: str = "") -> None:
                     _assert_no_secret_keys(item, f"{location}[{index}]")
 
 
-def _parse_clients(document: Mapping[str, Any]) -> tuple[ClientSettings, ...]:
+def _parse_clients(
+    document: Mapping[str, Any], policy: ClientIntegrationPolicy
+) -> tuple[ClientSettings, ...]:
     if "clients" not in document:
         return ()
     rows = document["clients"]
@@ -292,7 +311,12 @@ def _parse_clients(document: Mapping[str, Any]) -> tuple[ClientSettings, ...]:
         executable = row["executable"]
         if not isinstance(name, str) or not isinstance(executable, str) or not executable:
             raise ConfigurationError("Client name ve executable metin olmali")
-        client = ClientSettings(name=name, executable=Path(executable))
+        require_present = name in policy.body() and policy.enabled(name)
+        client = ClientSettings(
+            name=name,
+            executable=Path(executable),
+            require_present=require_present,
+        )
         name_key = client.name.casefold()
         executable_key = os.path.normcase(str(client.executable))
         if name_key in names or executable_key in executables:
@@ -303,14 +327,46 @@ def _parse_clients(document: Mapping[str, Any]) -> tuple[ClientSettings, ...]:
     return tuple(clients)
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate keys at every mapping depth."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeyLoader, node: MappingNode, deep: bool = False
+) -> dict[object, object]:
+    loader.flatten_mapping(node)
+    result: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in result
+        except TypeError as exc:
+            raise ConfigurationError("Yapilandirma mapping key scalar olmali") from exc
+        if duplicate:
+            raise ConfigurationError(f"Duplicate YAML key yasak: {key}")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:  # pragma: no cover - hata metni sanitize edilir
         raise ConfigurationError(f"Yapilandirma dosyasi okunamadi: {path.name}") from exc
     return _validate_document(loaded, path)
+
+
+def load_config_document(path: Path) -> dict[str, Any]:
+    """Read one strict, secret-free config document without resolving layers."""
+
+    return _load_yaml(path)
 
 
 def _validate_document(loaded: object, path: Path) -> dict[str, Any]:
@@ -447,6 +503,10 @@ def load_settings(
 
     if session_overrides:
         _assert_no_secret_keys(session_overrides)
+        if "cli" in session_overrides:
+            raise ConfigurationError(
+                "Session override kalici CLI integration tercihini degistiremez"
+            )
         sources.append("session")
         layers.append(ConfigLayer("session", 50, dict(session_overrides)))
 
@@ -556,9 +616,19 @@ def load_settings(
     except (PolicyViolation, ValidationFailed) as exc:
         raise ConfigurationError("Diagnostic trace ayarlari gecersiz") from exc
 
+    raw_cli = document.get("cli") or {}
+    if not isinstance(raw_cli, Mapping):
+        raise ConfigurationError("cli yapilandirmasi mapping olmali")
+    unsupported_cli_keys = set(raw_cli) - {"integrations"}
+    if unsupported_cli_keys:
+        raise ConfigurationError("CLI yapilandirmasi desteklenmeyen alan iceriyor")
+    cli = CliSettings(
+        integrations=ClientIntegrationPolicy.from_mapping(raw_cli.get("integrations", {}))
+    )
+
     storage_document = dict(document.get("storage") or {})
     object_store_relative = str(storage_document.get("object_store_relative", "artifacts/sha256"))
-    clients = _parse_clients(document)
+    clients = _parse_clients(document, cli.integrations)
 
     return Settings(
         home=home,
@@ -566,6 +636,7 @@ def load_settings(
         runtime=runtime,
         knowledge=knowledge,
         diagnostic_trace=diagnostic_trace,
+        cli=cli,
         clients=clients,
         object_store_relative=object_store_relative,
         sources=tuple(sources),

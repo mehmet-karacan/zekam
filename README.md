@@ -68,12 +68,12 @@ zekam capabilities --json
 ```
 
 Managed OpenCode yaşam döngüsü eklentisi bu paketi her yeni oturumun sistem bağlamına ve
-compaction bağlamına otomatik ekler. Kurulum veya güncelleme önce planlanabilir, sonra açık
-bir apply bayrağıyla yapılır:
+compaction bağlamına otomatik ekler. Kurulum veya güncelleme önce planlanır, sonra gösterilen
+exact plan digest'iyle claim/receipt kapısından uygulanır:
 
 ```bash
 zekam opencode install
-zekam opencode install --uygula
+zekam opencode install --plan-digest <digest> --uygula
 ```
 
 Paket salt okunurdur ve yetki taşımaz. Semantik checkpoint yoksa Zekam tamamlanan işi
@@ -132,10 +132,31 @@ zekam skill export <paket-koku> --project-root <proje-koku>
 ```
 
 `propose`, `evaluate` ve `export` varsayılan olarak yalnız digest-bağlı plan üretir. Apply
-adımları yeni provider, ağ veya araç yetkisi vermez. OpenCode ile Codex ortak `.agents/skills`
-kopyasını kullanır; Claude projection ayrı olsa da üçü de yalnız
+adımları yeni provider, ağ veya araç yetkisi vermez. Varsayılan policy yalnız OpenCode'u açar ve
+skill'i `.opencode/skills` altına dağıtır. Codex `.agents/skills`, Claude Code ise
+`.claude/skills` projection'ını ancak açık kullanıcı seçimiyle alır; üçü de yalnız
 `instruction-distribution-only` olarak raporlanır. Bir paketin yüklenmesi doğrulanmış sonuç veya
 effect admission yerine geçmez.
+
+## CLI entegrasyon politikası
+
+OpenCode varsayılan olarak etkin; Codex ve Claude Code opt-in'dir. Kurulu executable envanteri
+bu tercihi kendiliğinden değiştirmez. Durum ve provider-free reconcile planı şöyle görülür:
+
+```bash
+zekam integration status --json
+zekam integration sync --scope user --enable codex --json
+zekam integration sync --scope user --enable codex --plan-digest <digest> --uygula --json
+zekam integration sync --scope project --project-root <exact-kok> --json
+zekam integration rollback --receipt <receipt-id> --json
+```
+
+`sync` varsayılan olarak salt-okunur dry-run'dır. Apply yalnız gösterilmiş exact digest ile
+çalışır; doğrulanmış Zekam artifact'larını keşif ağaçlarının dışındaki karantinaya taşır.
+Opt-in edilen Codex/Claude Code için exact yönetilen instruction ve reviewed lifecycle hook
+parçaları oluşturulur. Kullanıcı dosyası, drift veya belirsiz sahiplik korunur ve conflict
+olarak raporlanır. Ayrıntılı sözleşme:
+[docs/CLI_ENTEGRASYON_POLITIKASI.md](docs/CLI_ENTEGRASYON_POLITIKASI.md).
 
 ## Olculu otonom evolution
 

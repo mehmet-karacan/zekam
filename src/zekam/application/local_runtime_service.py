@@ -208,12 +208,14 @@ class LocalRuntimeService:
         owner_token: str,
         lease_seconds: int = 30,
         job_id: str | None = None,
+        resources: tuple[str, ...] = (),
     ) -> LocalClaimedWork | None:
         work = self._store.claim_next(
             owner_id=owner_id,
             owner_pid=owner_pid,
             owner_token=owner_token,
             lease_seconds=lease_seconds,
+            resources=resources,
             supported_operations=self._supported_operations,
             job_id=job_id,
         )

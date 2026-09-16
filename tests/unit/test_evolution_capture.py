@@ -46,7 +46,7 @@ SESSION_ID = "018f0000-0000-7000-8000-0000000000aa"
 
 def _contract() -> LifecycleClientContract:
     evidence = load_codex_contract_evidence(
-        Path(__file__).parents[2] / "config/client-lifecycle/codex-0.153.1.json"
+        Path(__file__).parents[2] / "config/client-lifecycle/codex-0.154.0.json"
     )
     return LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
@@ -212,7 +212,7 @@ def test_capture_projection_maps_existing_canonical_identities_without_raw_conte
     )
     envelope = capture.as_dict()
 
-    assert envelope["client_version"] == "0.153.1"
+    assert envelope["client_version"] == "0.154.0"
     assert envelope["event_type"] == "session_start"
     assert envelope["privacy_class"] == "internal"
     assert envelope["sequence_or_cursor"] == 1

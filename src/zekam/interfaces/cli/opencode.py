@@ -15,11 +15,14 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from zekam.application.composition import build_context
 from zekam.application.home import resolve_home
 from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.application.opencode_agent_bootstrap import (
     apply_opencode_agent_bootstrap,
+    opencode_agent_bootstrap_receipt,
     plan_opencode_agent_bootstrap,
+    replay_opencode_agent_bootstrap_receipt,
 )
 from zekam.application.opencode_lifecycle import record_event, resume_projection
 from zekam.application.opencode_spool import (
@@ -30,6 +33,7 @@ from zekam.application.opencode_spool import (
 )
 from zekam.domain.errors import ConfigurationError, ZekamError
 from zekam.interfaces.cli.session import HOME_HELP, fail_from
+from zekam.interfaces.cli.skill import _paths, _run_claimed_effect
 
 app = typer.Typer(name="opencode", help="OpenCode lifecycle ve continuity koprusu")
 console = Console()
@@ -38,32 +42,52 @@ console = Console()
 @app.command("install")
 def install_command(
     apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
     """Managed OpenCode agents and lifecycle plugin installation plan/apply."""
 
     try:
         discovered = shutil.which("opencode")
         executable = Path(discovered).resolve(strict=True) if discovered else None
-        plan = plan_opencode_agent_bootstrap(executable=executable, user_home=Path.home())
-        document = {
-            "schema": "zekam-opencode-install/v1",
-            "available": plan.available,
-            "config_update_required": plan.config_update_required,
-            "agents_to_create": list(plan.agents_to_create),
-            "agents_to_update": list(plan.agents_to_update),
-            "agents_to_retire": list(plan.agents_to_retire),
-            "legacy_retired_agents_to_migrate": list(
-                plan.legacy_retired_agents_to_migrate
-            ),
-            "conflicting_agents": list(plan.conflicting_agents),
-            "catalog_scope_state": plan.catalog_scope_state,
-            "lifecycle_plugin_update_required": plan.lifecycle_plugin_to_create,
-            "lifecycle_plugin_conflict": plan.lifecycle_plugin_conflict,
-            "apply": apply,
-            "grants_authority": False,
-        }
+        enabled = build_context(home=home).settings.cli.integrations.opencode
+        plan = plan_opencode_agent_bootstrap(
+            executable=executable,
+            user_home=Path.home(),
+            enabled=enabled,
+        )
+        document = plan.as_dict()
         if apply:
-            apply_opencode_agent_bootstrap(plan)
+            if plan_digest is None:
+                raise ConfigurationError("OpenCode install --plan-digest ister")
+            _learning, lifecycle, resolved_home = _paths(home)
+            document = _run_claimed_effect(
+                lifecycle,
+                resolved_home,
+                operation="opencode.install-v1",
+                effect={
+                    "schema": "zekam-opencode-install-effect/v1",
+                    "plan_digest": plan_digest,
+                    "native_user_root_identity_digest": plan.body[
+                        "native_user_root_identity_digest"
+                    ],
+                },
+                idempotency_key=f"opencode-install-v1:{plan_digest}",
+                apply_effect=lambda: apply_opencode_agent_bootstrap(
+                    plan, authorized_plan_digest=plan_digest
+                ),
+                replay_effect=lambda: (
+                    opencode_agent_bootstrap_receipt(plan, authorized_plan_digest=plan_digest)
+                    if plan.plan_digest == plan_digest
+                    else replay_opencode_agent_bootstrap_receipt(
+                        plan, completed_plan_digest=plan_digest
+                    )
+                ),
+                logical_resources=(
+                    "client-integrations:native:"
+                    + str(plan.body["native_user_root_identity_digest"]),
+                ),
+            )
     except OSError as exc:
         raise fail_from(ConfigurationError("OpenCode executable cozumlenemedi")) from exc
     except ZekamError as exc:
@@ -143,6 +167,18 @@ def event_command(
 ) -> None:
     """Sanitize edilmis lifecycle olayini atomik yerel ledgera yazar."""
 
+    if not build_context(home=home).settings.cli.integrations.opencode:
+        console.print_json(
+            json.dumps(
+                {
+                    "schema": "zekam-opencode-disabled-callback/v1",
+                    "status": "disabled-noop",
+                    "durable_ack": False,
+                    "grants_authority": False,
+                }
+            )
+        )
+        return
     assert_local_effect_admission(("opencode", "event"))
     try:
         event = record_event(
@@ -200,6 +236,18 @@ def pre_compact_command(
 ) -> None:
     """Compaction oncesi content-free yerel durable ACK uretir."""
 
+    if not build_context(home=home).settings.cli.integrations.opencode:
+        console.print_json(
+            json.dumps(
+                {
+                    "schema": "zekam-opencode-disabled-callback/v1",
+                    "status": "disabled-noop",
+                    "durable_ack": False,
+                    "grants_authority": False,
+                }
+            )
+        )
+        return
     assert_local_effect_admission(("opencode", "pre-compact"))
     try:
         event = record_event(

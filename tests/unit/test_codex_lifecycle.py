@@ -34,6 +34,7 @@ from zekam.application.client_lifecycle_spool import (
     drain_to_postgres,
     replay_pending,
 )
+from zekam.application.config import CONFIG_SCHEMA, USER_CONFIG_FILE
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.hook_runtime import HookEventType
@@ -51,6 +52,14 @@ from zekam.infrastructure.clients.codex_lifecycle import (
     parse_codex_version_output,
 )
 from zekam.interfaces.cli.client import app as client_app
+
+
+def _enable_codex(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    (home / USER_CONFIG_FILE).write_text(
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n",
+        encoding="utf-8",
+    )
 
 pytestmark = pytest.mark.unit
 NOW = dt.datetime(2026, 8, 28, 9, 0, tzinfo=dt.UTC)
@@ -75,7 +84,7 @@ EFFECT_DIGEST = digest("codex-governed-drain-effect")
 def test_reviewed_camelcase_mapping_binds_exact_tracked_contract_digest() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     evidence = load_codex_contract_evidence(
-        repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
+        repository_root / "config" / "client-lifecycle" / "codex-0.154.0.json"
     )
     contract = LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),
@@ -355,11 +364,11 @@ def test_unknown_or_drifted_codex_contract_fails_closed() -> None:
 def test_exact_version_descriptor_and_tracked_evidence() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     evidence = load_codex_contract_evidence(
-        repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
+        repository_root / "config" / "client-lifecycle" / "codex-0.154.0.json"
     )
     descriptor = codex_lifecycle_descriptor(
         "codex",
-        installed_version=parse_codex_version_output("codex-cli 0.153.1"),
+        installed_version=parse_codex_version_output("codex-cli 0.154.0"),
     )
 
     assert descriptor.version == CODEX_REVIEWED_VERSION
@@ -662,7 +671,7 @@ def test_tracked_contract_rejects_durability_semantic_drift(
     drifted: object,
 ) -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    source = repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
+    source = repository_root / "config" / "client-lifecycle" / "codex-0.154.0.json"
     document = json.loads(source.read_text(encoding="utf-8"))
     document["durability"][field] = drifted
     candidate = tmp_path / "codex-contract.json"
@@ -690,7 +699,7 @@ def test_tracked_contract_rejects_critical_remote_and_hook_drift(
     drifted: object,
 ) -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    source = repository_root / "config" / "client-lifecycle" / "codex-0.153.1.json"
+    source = repository_root / "config" / "client-lifecycle" / "codex-0.154.0.json"
     document = json.loads(source.read_text(encoding="utf-8"))
     document[section][field] = drifted
     candidate = tmp_path / "codex-critical-contract.json"
@@ -1397,6 +1406,8 @@ def test_corrupted_spool_chain_is_never_silently_replayed(tmp_path: Path) -> Non
 def test_hook_cli_spools_empty_json_and_version_drift_rejects(tmp_path: Path) -> None:
     runner = CliRunner()
     payload = json.dumps(_session_start())
+    _enable_codex(tmp_path / "home")
+    _enable_codex(tmp_path / "drift-home")
     success = runner.invoke(
         client_app,
         [
@@ -1427,10 +1438,13 @@ def test_hook_cli_spools_empty_json_and_version_drift_rejects(tmp_path: Path) ->
     assert success.exit_code == 0, success.output
     assert json.loads(success.stdout) == {}
     assert drift.exit_code == 2
-    assert not (tmp_path / "drift-home").exists()
+    assert not (
+        tmp_path / "drift-home" / "global" / "runtime" / "client-lifecycle"
+    ).exists()
 
 
 def test_precompact_hook_failure_returns_documented_fail_closed_output(tmp_path: Path) -> None:
+    _enable_codex(tmp_path / "home")
     result = CliRunner().invoke(
         client_app,
         ["hook", "--home", str(tmp_path / "home")],
@@ -1445,4 +1459,17 @@ def test_precompact_hook_failure_returns_documented_fail_closed_output(tmp_path:
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {"continue": False}
-    assert not (tmp_path / "home").exists()
+    assert not (tmp_path / "home" / "global" / "runtime" / "client-lifecycle").exists()
+
+
+def test_disabled_hook_is_native_noop_without_reading_or_creating_spool(tmp_path: Path) -> None:
+    home = tmp_path / "never-created"
+    result = CliRunner().invoke(
+        client_app,
+        ["hook", "--client", "codex", "--home", str(home)],
+        input="not-json-and-must-not-be-read",
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {}
+    assert not home.exists()

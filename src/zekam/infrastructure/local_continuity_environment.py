@@ -202,7 +202,14 @@ def _environment() -> dict[str, str]:
 def _config_shape(document: dict[str, Any]) -> None:
     if document.get("schema") != CONFIG_SCHEMA:
         raise _reject("explicit config schema required")
-    for section in ("database", "runtime", "storage", "knowledge", "diagnostic_trace"):
+    for section in (
+        "database",
+        "runtime",
+        "storage",
+        "knowledge",
+        "diagnostic_trace",
+        "cli",
+    ):
         if section in document and not isinstance(document[section], dict):
             raise _reject("config section must be a mapping")
     for section, fields in (
@@ -240,6 +247,18 @@ def _config_shape(document: dict[str, Any]) -> None:
         trace = document.get("diagnostic_trace", {})
         if field in trace and type(trace[field]) is not bool:
             raise _reject("config boolean has wrong type")
+    cli = document.get("cli", {})
+    if set(cli) - {"integrations"}:
+        raise _reject("cli config field unsupported")
+    integrations = cli.get("integrations", {})
+    if not isinstance(integrations, dict) or set(integrations) - {
+        "opencode",
+        "codex",
+        "claude-code",
+    }:
+        raise _reject("cli integration mapping invalid")
+    if any(type(value) is not bool for value in integrations.values()):
+        raise _reject("cli integration value must be boolean")
     clients = document.get("clients", [])
     if not isinstance(clients, list) or len(clients) > MAX_CLIENTS:
         raise _reject("client metadata bound exceeded")

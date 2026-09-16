@@ -7,6 +7,7 @@ kendi urun kurallarini tanimlamaz.
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,7 +87,7 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
     )
     checks.extend(
         (
-            runtime_checks.ClientsCheck(executables=_client_executables(context)),
+            runtime_checks.ClientsCheck(integrations=_client_integrations(context)),
             runtime_checks.OpenCodeSpoolCheck(home=context.home),
             runtime_checks.EvolutionCheck(context=context),
             runtime_checks.CommandSurfaceCheck(),
@@ -95,14 +96,27 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
     return tuple(checks)
 
 
-def _client_executables(context: ApplicationContext) -> tuple[tuple[str, str], ...]:
-    """Yapilandirilmis istemci calistirilabilir dosyalari.
+def _client_integrations(
+    context: ApplicationContext,
+) -> tuple[tuple[str, str | None, bool, bool], ...]:
+    """Destekli istemci policy ve executable durumlari.
 
     Yapilandirma yoksa bos doner ve ilgili kontrol `skipped` olur; var olmayan
     bir yetenek icin sahte `passed` uretilmez.
     """
 
-    return tuple((client.name, str(client.executable)) for client in context.settings.clients)
+    executable = {client.name: str(client.executable) for client in context.settings.clients}
+    commands = {"opencode": "opencode", "codex": "codex", "claude-code": "claude"}
+    policy = context.settings.cli.integrations
+    return tuple(
+        (
+            name,
+            executable.get(name) or shutil.which(commands[name]),
+            enabled,
+            name in executable,
+        )
+        for name, enabled in policy.body().items()
+    )
 
 
 def build_doctor(context: ApplicationContext) -> DoctorService:

@@ -14,6 +14,7 @@ from zekam.application.client_lifecycle_spool import (
     MAX_PENDING_BATCH,
     ClientLifecycleSpool,
 )
+from zekam.application.composition import build_context
 from zekam.application.home import resolve_home
 from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import PolicyViolation, ZekamError
@@ -79,6 +80,15 @@ def hook_command(
 ) -> None:
     """Codex command-hook stdin'ini content-free immutable outbox'a yazar."""
 
+    try:
+        enabled = build_context(home=home).settings.cli.integrations.enabled(client)
+    except ZekamError as exc:
+        raise _fail_from(exc) from exc
+    if not enabled:
+        # Empty JSON is the reviewed native no-op response. It is deliberately
+        # not a durable ACK and no spool/config/database path is created.
+        console.print_json("{}")
+        return
     assert_local_effect_admission(("client", "hook"))
     event_name: str | None = None
     try:

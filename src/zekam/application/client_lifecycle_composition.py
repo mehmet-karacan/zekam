@@ -494,7 +494,7 @@ def compose_codex_lifecycle_handler(
         hook_store,
     )
     evidence = load_codex_contract_evidence(
-        Path(__file__).resolve().parents[3] / "config" / "client-lifecycle" / "codex-0.153.1.json"
+        Path(__file__).resolve().parents[3] / "config" / "client-lifecycle" / "codex-0.154.0.json"
     )
     contract = LifecycleClientContract.verified(
         descriptor=codex_lifecycle_descriptor("codex", installed_version=CODEX_REVIEWED_VERSION),

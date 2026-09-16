@@ -214,6 +214,7 @@ class EmbeddedProjectRAG:
         expected_source_revision: str,
         expected_tree_digest: str,
         token_budget: int = 1200,
+        dense_disabled_reason: str | None = None,
     ) -> dict[str, Any]:
         if (
             not isinstance(query, str)
@@ -225,27 +226,34 @@ class EmbeddedProjectRAG:
             generation = self.index.generation(project_id)
         except ValidationFailed:
             return self._stale_result(query, project_id=project_id, reason="generation-missing")
-        if (
-            generation.state != "ready"
-            or generation.source_revision != expected_source_revision
-            or generation.tree_digest != expected_tree_digest
-        ):
-            return self._stale_result(query, project_id=project_id, reason="source-stale")
-        if generation.provider_profile_digest != self.embedding_policy.expected_profile_digest:
-            return self._stale_result(query, project_id=project_id, reason="profile-stale")
+        if generation.state != "ready":
+            return self._stale_result(query, project_id=project_id, reason="generation-not-ready")
+        if generation.source_revision != expected_source_revision:
+            raise PolicyViolation("RAG generation source revision binding drift")
+        if generation.tree_digest != expected_tree_digest:
+            raise PolicyViolation("RAG generation source tree binding drift")
+        stale_reasons: list[str] = []
         provider_available = False
-        provider_failure_reason = "provider-unavailable"
-        try:
-            profile = self.embedding_provider.describe()
-            if profile.profile_digest != generation.provider_profile_digest:
-                return self._stale_result(query, project_id=project_id, reason="profile-stale")
-            profile.assert_policy(self.embedding_policy)
-            health = self.embedding_provider.health()
-            provider_available = health.healthy and health.profile_digest == profile.profile_digest
-            if not provider_available:
-                provider_failure_reason = "provider-health-unavailable"
-        except Exception as exc:
-            provider_failure_reason = f"provider-probe-failed:{type(exc).__name__}"
+        provider_failure_reason = dense_disabled_reason or "provider-unavailable"
+        if generation.provider_profile_digest != self.embedding_policy.expected_profile_digest:
+            provider_failure_reason = "provider-profile-stale"
+            stale_reasons.append("embedding-profile-stale")
+        elif dense_disabled_reason is None:
+            try:
+                profile = self.embedding_provider.describe()
+                if profile.profile_digest != generation.provider_profile_digest:
+                    provider_failure_reason = "provider-profile-stale"
+                    stale_reasons.append("embedding-profile-stale")
+                else:
+                    profile.assert_policy(self.embedding_policy)
+                    health = self.embedding_provider.health()
+                    provider_available = (
+                        health.healthy and health.profile_digest == profile.profile_digest
+                    )
+                    if not provider_available:
+                        provider_failure_reason = "provider-health-unavailable"
+            except Exception as exc:
+                provider_failure_reason = f"provider-probe-failed:{type(exc).__name__}"
 
         backend = EmbeddedProjectSearchBackend(
             self.index,
@@ -390,7 +398,7 @@ class EmbeddedProjectRAG:
             ):
                 state = "lexical-only-degraded"
             else:
-                state = "abstained-index-unavailable"
+                state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
                 citations = []
         result: dict[str, Any] = {
             "schema": "zekam-embedded-rag-result/v1",
@@ -416,6 +424,10 @@ class EmbeddedProjectRAG:
             "dense_top_2_margin": dense_margin,
             "evidence_sufficient": enough_evidence,
             "degraded_reason": backend.dense_failure_reason,
+            "index_freshness": "stale" if stale_reasons else "current",
+            "stale_reasons": stale_reasons,
+            "snapshot_only": bool(stale_reasons),
+            "reindex_recommended": bool(stale_reasons),
             "citations": citations,
             "used_chunk_ids": list(answer.used_chunk_ids),
             "tokens_used": answer.tokens_used,

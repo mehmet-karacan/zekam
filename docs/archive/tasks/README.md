@@ -57,3 +57,56 @@ olarak korundu. Yeni projection yalniz yasayan Markdown'in exact byte digest'ind
 - Operational authority, approval, claim ve receipt Markdown, skill paketi, retrieval veya
   model ciktisindan turetilmez.
 - Global DoD ve onceki acik kabul maddeleri yeni kanit olmadan tamamlanmis sayilmaz.
+
+## 15 Eylul 2026 CLI entegrasyon politikasi kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-PERSONAL-SKILL-LIFECYCLE-001` | `ZEKAM-CLI-INTEGRATION-POLICY-001` |
+| Icerik SHA-256 | `d490accbc01e49da44050987e39a514102a6f7eea8c2ee4b3791fc02ebbb7cd6` | `2c4029e9a9e1b123445502fa9cb3c973e55ccc3dc6c765896f49bc1b81089758` |
+| Onceki Git blob | `6b33333fd1033b05e42e432c6fb3e920c44c89af` | Uygulanmaz |
+| Baseline HEAD | `d273e543600176a1b7cfc39b6696994cf8fec5cf` | `638b6b703226b0888c031d3e38f919779d4b4865` |
+
+Gecis oncesi operational okumada acik Work Item, calisan lease, recovery case veya bekleyen
+outbox yoktu; evolution `owner-pause` durumundaydi ve aktif standing grant sayisi sifirdi.
+Onceki MD/YAML exact byte'lari bu dizinde korundu. Yeni projection yalniz yasayan Markdown'in
+exact byte digest'inden uretildi. Scope transition local runtime claim, effect, terminal receipt
+ve journal readback zinciriyle kaydedildi; provider veya network cagrisi yapilmadi.
+
+### Carry-forward
+
+- Onceki skill lifecycle kapsamindaki aktivasyon, evaluation, production wiring ve native
+  istemci kabul aciklari tamamlanmis sayilmaz; yeni gorev altinda duplicate enqueue edilmez.
+- Canonical skill paketleri, activation/outcome gecmisi, eski receipt ve grant kayitlari
+  korunur. CLI cleanup skill revoke veya gecmis veri temizligi degildir.
+- Yeni task digest'i onceki task-scope grant'lerini genisletmez; canli provider, native
+  supervisor, commit veya push yetkisi devralinmaz.
+- Global DoD ve onceki kabul maddeleri yalniz yeni kanitla kapanabilir.
+
+## 16 Eylul 2026 Jira iletisim skill'i kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-CLI-INTEGRATION-POLICY-001` | `ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001` |
+| Icerik SHA-256 | `2c4029e9a9e1b123445502fa9cb3c973e55ccc3dc6c765896f49bc1b81089758` | `9de9fc54647d64e3be7f8b3463236c325a1be49fa3bc3064697a278b59516c67` |
+| Onceki Git blob | `5f5db911e785005840547313bc4d91bb53339dd9` | Uygulanmaz |
+| Baseline HEAD | `638b6b703226b0888c031d3e38f919779d4b4865` | `638b6b703226b0888c031d3e38f919779d4b4865` |
+
+Gecis kullanicinin acik onayi ile yapildi. Operational okumada acik Work Item, calisan
+lease, recovery case veya bekleyen outbox yoktu. Onceki MD/YAML exact byte'lari bu dizinde
+korundu; yeni projection yalniz yeni yasayan Markdown'in exact byte digest'inden uretildi.
+
+### Carry-forward
+
+- Onceki CLI entegrasyon gorevinin dirty source degisiklikleri silinmedi, stash/reset
+  edilmedi ve tamamlanmis sayilmadi. Bu degisiklikler yeni Jira skill'inin istemci
+  projection altyapisi olarak korunur.
+- Onceki targeted baseline'da 212 test gecti, 6 test platform nedeniyle atlandi. Tasima
+  sirasinda acik kalan Codex `0.154.0` native lifecycle riski; exact Windows binary hash'i,
+  resmi hook sozlesmesi ve gercek loopback lifecycle E2E kaniti ile kapatildi. Instruction
+  projection hazirligi ile lifecycle kabulü yine ayri kanitlar olarak korunur.
+- Skill activation, evaluation/review, native renderer kabulü ve gercek Jira yazma kaniti
+  yeni kanit olmadan tamamlanmis sayilmaz.
+- Canli Jira yazma, durum/atama/worklog degisikligi, provider cagrisi, commit ve push bu
+  gecisten yetki kazanmaz.
+- Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.

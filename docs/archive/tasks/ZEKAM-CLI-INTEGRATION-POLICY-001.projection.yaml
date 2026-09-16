@@ -1,0 +1,21 @@
+schema: zekam-active-task-projection/v1
+generator_version: active-task-contract/v1
+generated: true
+authority_ref: AKTIF_GOREV.md
+authority_digest: sha256:2c4029e9a9e1b123445502fa9cb3c973e55ccc3dc6c765896f49bc1b81089758
+task_id: ZEKAM-CLI-INTEGRATION-POLICY-001
+status: APPROVED_ACTIVE_TASK
+title: OpenCode Varsayılanlı CLI Entegrasyon Politikası ve Mevcut Entegrasyonların
+  Güvenli Temizlenmesi
+created_at: '2026-09-15T00:00:00+03:00'
+baseline_repository: mehmet-karacan/zekam
+baseline_branch: main
+baseline_head: 638b6b703226b0888c031d3e38f919779d4b4865
+legacy_postgresql_data_import: FORBIDDEN
+postgresql_runtime_dependency: FORBIDDEN
+docker_required_for_zekam_core: false
+push_authorized: false
+read_only: true
+grants_authority: false
+approval_inherited: false
+

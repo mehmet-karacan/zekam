@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrationPolicy
 from zekam.domain.errors import ConfigurationError
 
 _START = "<!-- zekam-managed-client-instructions/v1:start -->"
@@ -96,6 +97,8 @@ def _render(existing: str) -> tuple[str, str]:
     if starts == 1:
         begin = existing.index(_START)
         finish = existing.index(_END, begin) + len(_END)
+        if existing[begin:finish] != _MANAGED_BODY.rstrip("\n"):
+            raise ConfigurationError("Zekam managed instruction section ownership drift")
         rendered = existing[:begin] + _MANAGED_BODY.rstrip("\n") + existing[finish:]
         action = "unchanged" if rendered == existing else "update"
         return rendered, action
@@ -103,21 +106,50 @@ def _render(existing: str) -> tuple[str, str]:
     return existing + separator + _MANAGED_BODY, "create" if not existing else "update"
 
 
-def plan_client_instruction_bootstrap(*, user_home: Path) -> ClientInstructionBootstrapPlan:
+def remove_managed_instruction_section(existing: str) -> tuple[str, bool]:
+    """Remove only the exact reviewed managed section, preserving user text."""
+
+    starts = existing.count(_START)
+    ends = existing.count(_END)
+    if starts != ends or starts > 1:
+        raise ConfigurationError("Zekam managed instruction section bozuk veya duplicate")
+    if starts == 0:
+        return existing, False
+    begin = existing.index(_START)
+    finish = existing.index(_END, begin) + len(_END)
+    if existing[begin:finish] != _MANAGED_BODY.rstrip("\n"):
+        raise ConfigurationError("Zekam managed instruction section ownership drift")
+    prefix = existing[:begin]
+    suffix = existing[finish:]
+    if prefix.endswith("\n\n"):
+        prefix = prefix[:-1]
+    if suffix.startswith("\n"):
+        suffix = suffix[1:]
+    return prefix + suffix, True
+
+
+def plan_client_instruction_bootstrap(
+    *,
+    user_home: Path,
+    integration_policy: ClientIntegrationPolicy | None = None,
+) -> ClientInstructionBootstrapPlan:
     """Plan idempotent managed sections without changing client files."""
 
     _assert_safe_home(user_home)
+    policy = integration_policy or ClientIntegrationPolicy()
     targets = (
-        ("codex", user_home / ".codex" / "AGENTS.md"),
-        ("claude", user_home / ".claude" / "CLAUDE.md"),
-        ("opencode", user_home / ".config" / "opencode" / "AGENTS.md"),
+        (ClientIntegrationId.CODEX, user_home / ".codex" / "AGENTS.md"),
+        (ClientIntegrationId.CLAUDE_CODE, user_home / ".claude" / "CLAUDE.md"),
+        (ClientIntegrationId.OPENCODE, user_home / ".config" / "opencode" / "AGENTS.md"),
     )
     planned: list[ClientInstructionFilePlan] = []
     for client_id, path in targets:
+        if not policy.enabled(client_id):
+            continue
         _assert_safe_path(user_home, path)
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
         content, action = _render(existing)
-        planned.append(ClientInstructionFilePlan(client_id, path, content, action))
+        planned.append(ClientInstructionFilePlan(client_id.value, path, content, action))
     return ClientInstructionBootstrapPlan(tuple(planned))
 
 
@@ -126,7 +158,13 @@ def apply_client_instruction_bootstrap(plan: ClientInstructionBootstrapPlan) -> 
 
     for item in plan.files:
         user_home = (
-            item.path.parents[1] if item.client_id in {"codex", "claude"} else item.path.parents[2]
+            item.path.parents[1]
+            if item.client_id
+            in {
+                ClientIntegrationId.CODEX.value,
+                ClientIntegrationId.CLAUDE_CODE.value,
+            }
+            else item.path.parents[2]
         )
         _assert_safe_home(user_home)
         _assert_safe_path(user_home, item.path)

@@ -42,6 +42,11 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     assert settings.knowledge.embedding_distance == "cosine"
     assert settings.diagnostic_trace.enabled is False
     assert settings.diagnostic_trace.encryption_key_ref is None
+    assert settings.cli.integrations.body() == {
+        "opencode": True,
+        "codex": False,
+        "claude-code": False,
+    }
 
 
 def test_diagnostic_trace_requires_explicit_key_ref_when_enabled(home_root: Path) -> None:
@@ -170,6 +175,15 @@ def test_safe_session_override_is_provenance_visible(home_root: Path) -> None:
     assert settings.config_provenance.explain("runtime.log_level").origin == "session"
 
 
+def test_session_override_cannot_enable_cli_integration(home_root: Path) -> None:
+    with pytest.raises(ConfigurationError, match="Session override"):
+        load_settings(
+            home=home_root,
+            environ={},
+            session_overrides={"cli": {"integrations": {"codex": True}}},
+        )
+
+
 def test_invalid_environment_value_is_rejected(home_root: Path) -> None:
     with pytest.raises(ConfigurationError):
         load_settings(home=home_root, environ={"ZEKAM_DATABASE_BACKEND": "remote"})
@@ -292,6 +306,72 @@ def test_missing_or_directory_client_executable_fails_closed(home_root: Path) ->
         )
         with pytest.raises(ConfigurationError):
             load_settings(home=home_root, environ={})
+
+
+def test_disabled_client_missing_executable_does_not_block_policy_or_cleanup(
+    home_root: Path,
+) -> None:
+    home_root.mkdir(parents=True)
+    missing = home_root / "missing-codex.exe"
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\nclients:\n"
+        f"  - name: codex\n    executable: '{missing}'\n",
+    )
+
+    settings = load_settings(home=home_root, environ={})
+
+    assert settings.cli.integrations.codex is False
+    assert settings.clients[0].executable == missing.resolve()
+    assert settings.clients[0].executable_present is False
+
+
+def test_cli_integration_partial_override_and_all_disabled_are_exact(home_root: Path) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n",
+    )
+    enabled = load_settings(home=home_root, environ={})
+    assert enabled.cli.integrations.body() == {
+        "opencode": True,
+        "codex": True,
+        "claude-code": False,
+    }
+
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n"
+        "    opencode: false\n    codex: false\n    claude-code: false\n",
+    )
+    disabled = load_settings(home=home_root, environ={})
+    assert not any(disabled.cli.integrations.body().values())
+
+
+@pytest.mark.parametrize("invalid", ["'false'", "0", "null", "[]", "''"])
+def test_cli_integration_rejects_non_boolean_values(home_root: Path, invalid: str) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: {invalid}\n",
+    )
+    with pytest.raises(ConfigurationError, match="gercek boolean"):
+        load_settings(home=home_root, environ={})
+
+
+def test_cli_integration_rejects_unknown_fields_and_duplicate_yaml_keys(home_root: Path) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    gemini: true\n",
+    )
+    with pytest.raises(ConfigurationError, match="Desteklenmeyen"):
+        load_settings(home=home_root, environ={})
+
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n"
+        "    codex: true\n    codex: false\n",
+    )
+    with pytest.raises(ConfigurationError, match="Duplicate YAML key"):
+        load_settings(home=home_root, environ={})
 
 
 @pytest.mark.parametrize("duplicate", ["name", "executable"])

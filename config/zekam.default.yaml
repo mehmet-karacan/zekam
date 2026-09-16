@@ -37,5 +37,13 @@ diagnostic_trace:
   export_allowed: false
   redaction_profile: strict-v1
 
+# Entegrasyon tercihi executable envanterinden ayridir. OpenCode varsayilandir;
+# Codex ve Claude Code yalniz acik kullanici secimiyle etkinlesir.
+cli:
+  integrations:
+    opencode: true
+    codex: false
+    claude-code: false
+
 # Yerel istemciler yalniz ad ve mevcut absolute executable path metadata'si tasir.
 clients: []

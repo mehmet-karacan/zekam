@@ -11,6 +11,7 @@ from zekam.application.client_hook_bootstrap import (
     apply_client_hook_bootstrap,
     plan_client_hook_bootstrap,
 )
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.errors import ConfigurationError
 
 
@@ -21,7 +22,24 @@ def _home(tmp_path: Path) -> Path:
 
 
 def _plan(home: Path):  # type: ignore[no-untyped-def]
-    return plan_client_hook_bootstrap(user_home=home, python_executable=Path(sys.executable))
+    return plan_client_hook_bootstrap(
+        user_home=home,
+        python_executable=Path(sys.executable),
+        policy=ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True),
+    )
+
+
+def test_default_policy_does_not_generate_codex_or_claude_hooks(tmp_path: Path) -> None:
+    home = _home(tmp_path)
+    plan = plan_client_hook_bootstrap(
+        user_home=home,
+        python_executable=Path(sys.executable),
+    )
+
+    assert plan.files == ()
+    apply_client_hook_bootstrap(plan)
+    assert not (home / ".codex").exists()
+    assert not (home / ".claude").exists()
 
 
 def test_create_real_client_hook_files_and_repeat_is_idempotent(tmp_path: Path) -> None:
@@ -40,12 +58,12 @@ def test_create_real_client_hook_files_and_repeat_is_idempotent(tmp_path: Path) 
         assert codex_hook["commandWindows"]
         assert str(Path(sys.executable)) in codex_hook["command"]
         assert str(Path(sys.executable)) in claude_hook["command"]
-        assert "--client codex --client-version 0.153.1" in codex_hook["command"]
+        assert "--client codex --client-version 0.154.0" in codex_hook["command"]
         assert "commandWindows" not in claude_hook
         assert "--client claude-code --client-version 2.1.224" in claude_hook["command"]
 
 
-def test_preserves_user_settings_and_hooks_while_updating_managed_entry(tmp_path: Path) -> None:
+def test_modified_legacy_hook_is_conflict_and_user_settings_are_preserved(tmp_path: Path) -> None:
     home = _home(tmp_path)
     target = home / ".claude" / "settings.json"
     target.parent.mkdir()
@@ -71,13 +89,10 @@ def test_preserves_user_settings_and_hooks_while_updating_managed_entry(tmp_path
         ),
         encoding="utf-8",
     )
-    apply_client_hook_bootstrap(_plan(home))
-
-    stored = json.loads(target.read_text(encoding="utf-8"))
-    assert stored["theme"] == "dark"
-    assert stored["hooks"]["Stop"][0]["hooks"][0]["command"] == "mine"
-    assert len(stored["hooks"]["Stop"]) == 2
-    assert "2.1.224" in stored["hooks"]["Stop"][1]["hooks"][0]["command"]
+    before = target.read_bytes()
+    with pytest.raises(ConfigurationError, match="bozuk"):
+        _plan(home)
+    assert target.read_bytes() == before
 
 
 def test_duplicate_or_broken_managed_entries_fail_closed(tmp_path: Path) -> None:

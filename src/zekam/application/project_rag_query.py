@@ -92,6 +92,9 @@ def query_project_knowledge(
 
     if (embedding_provider is None) != (embedding_policy is None):
         raise PolicyViolation("Embedding provider/policy birlikte verilmelidir")
+    stale_reasons: list[str] = []
+    if integration_stage is not IntegrationStage.CURRENT or index_state != "ready":
+        stale_reasons.append(f"integration-{integration_stage.value}-index-{index_state}")
     dense_enabled = embedding_provider is not None
     if embedding_provider is not None and embedding_policy is not None:
         provider_profile = embedding_provider.describe()
@@ -106,7 +109,10 @@ def query_project_knowledge(
             or expected_index_profile_digest != profile["profile_digest"]
             or expected_provider_digest != provider_profile.profile_digest
         ):
-            raise PolicyViolation("Project index/provider profile drift; rebuild required")
+            dense_enabled = False
+            embedding_provider = None
+            embedding_policy = None
+            stale_reasons.append("embedding-profile-stale")
     backend = ProjectRetrievalBackend(
         repository=repository,
         profile_id=profile["profile_id"],
@@ -134,19 +140,12 @@ def query_project_knowledge(
             "degraded_state": (
                 None if dense_enabled else EmbeddingDegradedState.LEXICAL_ONLY.value
             ),
+            "index_freshness": "stale" if stale_reasons else "current",
+            "stale_reasons": stale_reasons,
+            "snapshot_only": bool(stale_reasons),
+            "reindex_recommended": bool(stale_reasons),
         }
     )
-
-    index_ready = integration_stage is IntegrationStage.CURRENT and index_state == "ready"
-    if not index_ready:
-        document = dict(
-            base,
-            state="stale",
-            reason=f"integration-{integration_stage.value}-index-{index_state}",
-            citations=[],
-        )
-        document["retrieval_digest"] = digest(document)
-        return document
 
     state = {
         AnswerState.ANSWERED: "answered",
@@ -156,7 +155,11 @@ def query_project_knowledge(
     document = dict(
         base,
         state=state,
-        reason=None if answer.is_answered else str(answer.state),
+        reason=(
+            stale_reasons[0]
+            if stale_reasons
+            else None if answer.is_answered else str(answer.state)
+        ),
         citations=[citation.as_dict() for citation in answer.citations],
         fallback_allowed=not answer.is_answered,
         fallback_kind=None if answer.is_answered else "bounded-source-researcher",

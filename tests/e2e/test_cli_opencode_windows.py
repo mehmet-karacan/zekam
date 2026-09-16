@@ -139,18 +139,47 @@ def test_opencode_install_supports_read_only_plan_and_explicit_apply(
     executable.write_text("stub", encoding="utf-8")
     monkeypatch.setattr(opencode_commands.shutil, "which", lambda _name: str(executable))
     monkeypatch.setattr(opencode_commands.Path, "home", lambda: user_home)
+    zekam_home = tmp_path / "zekam-home"
+    initialized = runner.invoke(app, ["init", "--home", str(zekam_home)])
+    assert initialized.exit_code == 0, initialized.output
 
-    planned = runner.invoke(app, ["opencode", "install"])
+    planned = runner.invoke(app, ["opencode", "install", "--home", str(zekam_home)])
     assert planned.exit_code == 0, planned.output
     plan = json.loads(planned.output)
     assert plan["available"] is True
     assert plan["apply"] is False
     assert not (user_home / ".config" / "opencode" / "opencode.json").exists()
 
-    applied = runner.invoke(app, ["opencode", "install", "--uygula"])
+    applied = runner.invoke(
+        app,
+        [
+            "opencode",
+            "install",
+            "--plan-digest",
+            plan["plan_digest"],
+            "--uygula",
+            "--home",
+            str(zekam_home),
+        ],
+    )
     assert applied.exit_code == 0, applied.output
     receipt = json.loads(applied.output)
-    assert receipt["apply"] is True
+    assert receipt["state"] == "installed-and-read-back"
     assert receipt["grants_authority"] is False
     assert (user_home / ".config" / "opencode" / "opencode.json").is_file()
     assert (user_home / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js").is_file()
+
+    replayed = runner.invoke(
+        app,
+        [
+            "opencode",
+            "install",
+            "--plan-digest",
+            plan["plan_digest"],
+            "--uygula",
+            "--home",
+            str(zekam_home),
+        ],
+    )
+    assert replayed.exit_code == 0, replayed.output
+    assert json.loads(replayed.output)["plan_digest"] == plan["plan_digest"]

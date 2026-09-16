@@ -163,11 +163,14 @@ def test_client_and_spool_checks_cover_missing_present_and_sanitized_failure(
     assert empty.status.value == "skipped"
     executable = tmp_path / "codex"
     executable.write_bytes(b"bounded")
-    present = ClientsCheck((("codex", str(executable)),)).run()
+    present = ClientsCheck((("codex", str(executable), True, True),)).run()
     assert present.status.value == "passed"
-    missing = ClientsCheck((("codex", str(tmp_path / "missing")),)).run()
+    missing = ClientsCheck((("codex", str(tmp_path / "missing"), True, True),)).run()
     assert missing.status.value == "degraded"
     assert missing.evidence["missing"] == ["codex"]
+    disabled = ClientsCheck((("codex", str(tmp_path / "missing"), False, True),)).run()
+    assert disabled.status.value == "passed"
+    assert disabled.evidence["missing"] == []
 
     status = SimpleNamespace(
         queued=2,

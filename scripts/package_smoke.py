@@ -345,6 +345,11 @@ def accept_wheel(
                 ("cli.help", [str(zekam), "--help"], frozenset({0})),
                 ("cli.skill-help", [str(zekam), "skill", "--help"], frozenset({0})),
                 (
+                    "cli.integration-help",
+                    [str(zekam), "integration", "--help"],
+                    frozenset({0}),
+                ),
+                (
                     "native.storage",
                     [str(python), "-I", "-c", _NATIVE_STORAGE_PROBE, str(work)],
                     frozenset({0}),
@@ -395,6 +400,47 @@ def accept_wheel(
                 (
                     "cli.db-status",
                     [str(zekam), "db", "status", "--json", "--home", str(zekam_home)],
+                    frozenset({0}),
+                ),
+                (
+                    "cli.integration-status",
+                    [
+                        str(zekam),
+                        "integration",
+                        "status",
+                        "--json",
+                        "--home",
+                        str(zekam_home),
+                    ],
+                    frozenset({0}),
+                ),
+                (
+                    "cli.integration-sync-dry-run",
+                    [
+                        str(zekam),
+                        "integration",
+                        "sync",
+                        "--scope",
+                        "user",
+                        "--enable",
+                        "codex",
+                        "--json",
+                        "--home",
+                        str(zekam_home),
+                    ],
+                    frozenset({0}),
+                ),
+                (
+                    "cli.integration-config-explain",
+                    [
+                        str(zekam),
+                        "config",
+                        "explain",
+                        "cli.integrations.codex",
+                        "--json",
+                        "--home",
+                        str(zekam_home),
+                    ],
                     frozenset({0}),
                 ),
                 (

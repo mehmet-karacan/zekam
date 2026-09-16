@@ -14,6 +14,7 @@ from uuid import uuid4
 import pytest
 
 from zekam.domain.canonical import digest
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.clients import (
     CanonicalDispatchPermit,
     ClientDescriptor,
@@ -135,7 +136,10 @@ def test_argv_satir_sonu_tasiyamaz() -> None:
 
 
 def test_kayitli_olmayan_istemci_turetilmez() -> None:
-    registry = ClientRegistry((codex_adapter("codex.exe"),))
+    registry = ClientRegistry(
+        (codex_adapter("codex.exe"),),
+        policy=ClientIntegrationPolicy(codex=True),
+    )
     assert registry.get("codex").descriptor.kind is ClientKind.CODEX
     with pytest.raises(PolicyViolation):
         registry.get("bilinmeyen-istemci")
@@ -147,12 +151,19 @@ def test_yetenek_sorgusu_gercek_beyana_dayanir() -> None:
             codex_adapter("codex.exe"),
             claude_code_adapter("claude.exe"),
             opencode_adapter("opencode.exe"),
-        )
+        ),
+        policy=ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True),
     )
     parallel = registry.with_capability("parallel-dispatch")
     assert [item.descriptor.client_id for item in parallel] == ["claude-code", "opencode"]
     selection = registry.with_capability("model-selection")
     assert [item.descriptor.client_id for item in selection] == ["opencode"]
+
+
+def test_default_registry_policy_rejects_disabled_dispatch() -> None:
+    registry = ClientRegistry((codex_adapter("codex.exe"),))
+    with pytest.raises(PolicyViolation, match="integration policy"):
+        registry.get("codex")
 
 
 def test_structured_result_beyani_olmadan_dispatch_reddedilir(tmp_path: Path) -> None:

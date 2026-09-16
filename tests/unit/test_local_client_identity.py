@@ -96,9 +96,9 @@ def test_additive_pins_leave_historical_windows_contracts_unchanged() -> None:
     )
 
     assert CLAUDE_REVIEWED_VERSION == "2.1.224"
-    assert CODEX_REVIEWED_VERSION == "0.153.1"
+    assert CODEX_REVIEWED_VERSION == "0.154.0"
     assert CODEX_REVIEWED_WINDOWS_SHA256 == (
-        "921b3df53973e3ec80e9c27b0fb6f5dfec463be44333007f93e60b20caef4f41"
+        "be96b992178b1e467c225800da0d65f2c86d5eba1ef0b14632f65db381cbdfde"
     )
     assert CODEX_HISTORICAL_WINDOWS_CONTRACT == (
         "0.150.1",

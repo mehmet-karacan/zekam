@@ -151,7 +151,12 @@ def _write_config(home: Path) -> Path:
         "storage:\n"
         "  object_store_relative: artifacts/sha256\n"
         "runtime:\n"
-        "  network_default: deny\n",
+        "  network_default: deny\n"
+        "cli:\n"
+        "  integrations:\n"
+        "    opencode: true\n"
+        "    codex: false\n"
+        "    claude-code: false\n",
         encoding="utf-8",
         newline="\n",
     )

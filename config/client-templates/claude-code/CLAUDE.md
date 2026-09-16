@@ -1,12 +1,12 @@
-# Zekam Claude Code Başlangıcı
+# Zekam Claude Code Başlangıç Şablonu
 
-Bu dosya ayrı ürün kuralları tanımlamaz. Şu sırayı uygula:
+Bu opt-in şablonu ayrı ürün kuralları tanımlamaz. Etkinleştirildiğinde şu sırayı uygula:
 
 @00_BASLA.md
+@AGENTS.md
 @DEVAM_PROTOKOLU.md
-@NIHAI_UYGULAMA_PROMPTU.md
 @PROJE_MANIFESTI.yaml
-@AKTIF_GOREV.yaml
+@AKTIF_GOREV.md
 
 Claude Code capability/permission ayarları Zekam'nin policy, authorization, logical lock,
 sandbox, claim ve receipt sınırlarının yerine geçmez.

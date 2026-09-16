@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.opencode_benchmark_campaign import load_campaign_scope
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.canonical import digest, digest_of_bytes
+from zekam.domain.errors import ConfigurationError, PolicyViolation
 from zekam.domain.model_inventory import Modality
 
 DEFAULT_AGENT = "zekam-coordinator"
@@ -46,6 +47,7 @@ def _require_regular_directory(path: Path, label: str) -> None:
     )
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode) or is_reparse:
         raise ConfigurationError(f"{label} regular directory olmali")
+
 
 _LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v2
 import { tool } from "@opencode-ai/plugin"
@@ -526,13 +528,17 @@ RAG-first bilgi protokolu:
   `project resolve/show/source-root` zincirine veya tekrar sorguya gecme.
 - Sonraki `zekam project resolve/source-root` komutlarina kullanici sorusunu degil,
   `zekam ask` ciktisindaki exact top-level `project_ref` degerini ver.
-- `retrieval.searched_channels` exact/lexical/dense icermeden ve `retrieval_digest` olmadan
+- `retrieval.searched_channels` exact ve lexical icermeden ve `retrieval_digest` olmadan
   read, glob, grep, list, genel shell, source-root veya child source erisimi baslatma.
-- `retrieval.state=answered` ise en fazla ilk uc `used_chunk_ids` degerini
+- `retrieval.state=answered` veya `lexical-only-degraded` ise en fazla ilk uc
+  `used_chunk_ids` degerini
   `zekam project citation <project_ref> <chunk_id> --generation-digest <generation_digest>
   --json` ile pinned indeksten dogrula ve cevabi dogrudan sentezle. Bu bounded citation komutu
   source agacini okumak degildir ve researcher gerektirmez. Basarili `ask` sonrasinda
   `project resolve/source-root`, capabilities, help veya ikinci query cagirma.
+  `index_freshness=stale` veya `snapshot_only=true` ise cevabi engelleme; bunun son indekslenmis
+  snapshot'a dayandigini, `stale_reasons` degerlerini ve yeniden indeks onerildigini acikca yaz.
+  Bu sonucu guncel source, Work authority veya mutation yetkisi gibi sunma.
   `locator_type=database-object` citation'i repo dosyasi degildir: kanonik kanit, aktif indeks
   jenerasyonundaki source/content digest, source revision, object locator ve exact-match izidir.
   Citation govdesi yetersiz veya celiskiliyse ancak o zaman ilk citation'i researcher'a ver.
@@ -540,7 +546,7 @@ RAG-first bilgi protokolu:
   agacinda fiziksel dosya arama, `knowledge explain/show` veya ikinci `ask` cagirma; dosya
   yoklugunu abstain sebebi yapma. Verified citation govdesi cevap icin yeterli kanittir.
   `locator_type=project-file` icin ise yalniz citation'daki bounded relative path'i dogrula.
-  `no-hit`, `low-evidence`, `stale` veya `unavailable` ise retrieval digest'ini child'a verip
+  `no-hit`, `low-evidence` veya `unavailable` ise retrieval digest'ini child'a verip
   exact source rootunda bounded researcher fallback baslat. Baska durumda abstain et.
 - Coordinator kaynak agacini kendisi okuyamaz veya recursive shell ile tarayamaz. Bu yasak,
   kullanici onayi ya da child talimatiyla kaldirilamaz.
@@ -790,6 +796,7 @@ class OpenCodeAgentBootstrapPlan:
     """Yalniz plan: uygulama disinda dosya degistirmez."""
 
     executable: Path | None
+    integration_enabled: bool
     config_path: Path
     agents_path: Path
     plugins_path: Path
@@ -803,23 +810,76 @@ class OpenCodeAgentBootstrapPlan:
     catalog_scope_state: str
     lifecycle_plugin_to_create: bool
     lifecycle_plugin_conflict: bool
+    input_digests: Mapping[str, str | None]
 
     @property
     def available(self) -> bool:
         return self.executable is not None
 
+    @property
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-opencode-agent-bootstrap-plan/v1",
+            "integration_enabled": self.integration_enabled,
+            "available": self.available,
+            "native_user_root_identity_digest": digest(
+                os.path.normcase(str(self.config_path.parents[2].resolve(strict=False)))
+            ),
+            "executable_identity_digest": (
+                None if self.executable is None else digest(os.path.normcase(str(self.executable)))
+            ),
+            "config_document_digest": digest(self.config_document),
+            "config_update_required": self.config_update_required,
+            "agents_to_create": list(self.agents_to_create),
+            "agents_to_update": list(self.agents_to_update),
+            "agents_to_retire": list(self.agents_to_retire),
+            "legacy_retired_agents_to_migrate": list(self.legacy_retired_agents_to_migrate),
+            "conflicting_agents": list(self.conflicting_agents),
+            "catalog_scope_state": self.catalog_scope_state,
+            "lifecycle_plugin_update_required": self.lifecycle_plugin_to_create,
+            "lifecycle_plugin_conflict": self.lifecycle_plugin_conflict,
+            "input_digests": dict(sorted(self.input_digests.items())),
+            "apply": False,
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        }
+
+    @property
+    def plan_digest(self) -> str:
+        return digest(self.body)
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.body | {"plan_digest": self.plan_digest}
+
+
+def _bootstrap_input_digest(path: Path) -> str | None:
+    if not path.exists() and not path.is_symlink():
+        return None
+    if not path.is_file() or path.is_symlink():
+        return "non-regular"
+    return digest_of_bytes(path.read_bytes())
+
+
+def _bootstrap_input_digests(user_home: Path, paths: set[Path]) -> dict[str, str | None]:
+    return {
+        path.relative_to(user_home).as_posix(): _bootstrap_input_digest(path)
+        for path in sorted(paths, key=lambda item: item.as_posix().casefold())
+    }
+
 
 def plan_opencode_agent_bootstrap(
-    *, executable: Path | None, user_home: Path
+    *, executable: Path | None, user_home: Path, enabled: bool = True
 ) -> OpenCodeAgentBootstrapPlan:
     """OpenCode varsa global agent yerlesimini fail-closed planlar."""
 
     config_path = user_home / _CONFIG_RELATIVE
     agents_path = user_home / _AGENTS_RELATIVE
     retired_path = agents_path.parent / ".zekam-retired-agents"
-    if executable is None:
+    if executable is None or not enabled:
         return OpenCodeAgentBootstrapPlan(
-            executable=None,
+            executable=executable,
+            integration_enabled=enabled,
             config_path=config_path,
             agents_path=agents_path,
             plugins_path=user_home / _PLUGINS_RELATIVE,
@@ -830,9 +890,10 @@ def plan_opencode_agent_bootstrap(
             agents_to_retire=(),
             legacy_retired_agents_to_migrate=(),
             conflicting_agents=(),
-            catalog_scope_state="unavailable",
+            catalog_scope_state="unavailable" if enabled else "disabled-by-policy",
             lifecycle_plugin_to_create=False,
             lifecycle_plugin_conflict=False,
+            input_digests={},
         )
     if not executable.is_absolute() or not executable.is_file():
         raise ConfigurationError("OpenCode executable dogrulanamadi")
@@ -852,12 +913,8 @@ def plan_opencode_agent_bootstrap(
             ):
                 raise ConfigurationError("OpenCode configured model catalog gecersiz")
             configured_ids = set(raw_models)
-            reviewed_ids = {
-                target.configured_model_id for target in reviewed_scope.targets
-            }
-            catalog_scope_state = (
-                "matched" if configured_ids == reviewed_ids else "drifted"
-            )
+            reviewed_ids = {target.configured_model_id for target in reviewed_scope.targets}
+            catalog_scope_state = "matched" if configured_ids == reviewed_ids else "drifted"
     updated = dict(document)
     configured_plugins = updated.get("plugin", [])
     if not isinstance(configured_plugins, list) or any(
@@ -936,8 +993,7 @@ def plan_opencode_agent_bootstrap(
                 or candidate_reparse
                 or not candidate.name.startswith("zekam-")
                 or candidate.suffix != ".md"
-                or _MANAGED_AGENT_MARKER
-                not in candidate.read_text(encoding="utf-8")
+                or _MANAGED_AGENT_MARKER not in candidate.read_text(encoding="utf-8")
             ):
                 raise ConfigurationError("OpenCode legacy retired agent icerigi gecersiz")
             migrate_legacy_retired.append(candidate.name)
@@ -951,8 +1007,19 @@ def plan_opencode_agent_bootstrap(
     plugin_conflict = plugin_exists and (
         not plugin_path.is_file() or (not plugin_matches and not plugin_managed)
     )
+    watched = {
+        config_path,
+        plugin_path,
+        *(agents_path / name for name in selected_templates),
+    }
+    if agents_path.is_dir():
+        watched.update(agents_path.glob("zekam-*.md"))
+    legacy_retired = agents_path / ".zekam-retired"
+    if legacy_retired.is_dir():
+        watched.update(legacy_retired.iterdir())
     return OpenCodeAgentBootstrapPlan(
         executable=executable,
+        integration_enabled=True,
         config_path=config_path,
         agents_path=agents_path,
         plugins_path=plugins_path,
@@ -966,14 +1033,104 @@ def plan_opencode_agent_bootstrap(
         catalog_scope_state=catalog_scope_state,
         lifecycle_plugin_to_create=plugin_to_create,
         lifecycle_plugin_conflict=plugin_conflict,
+        input_digests=_bootstrap_input_digests(user_home, watched),
     )
 
 
-def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
+def opencode_agent_bootstrap_receipt(
+    plan: OpenCodeAgentBootstrapPlan, *, authorized_plan_digest: str
+) -> dict[str, Any]:
+    """Verify terminal managed artifacts without exposing native config values."""
+
+    if authorized_plan_digest != plan.plan_digest:
+        raise PolicyViolation("OpenCode bootstrap exact plan digest ister")
+    if not plan.integration_enabled or not plan.available:
+        body: dict[str, Any] = {
+            "schema": "zekam-opencode-agent-bootstrap-receipt/v1",
+            "plan_digest": plan.plan_digest,
+            "state": "disabled-noop" if not plan.integration_enabled else "unavailable-noop",
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        }
+        return body | {"receipt_digest": digest(body)}
+    user_home = plan.config_path.parents[2]
+    fresh = plan_opencode_agent_bootstrap(
+        executable=plan.executable,
+        user_home=user_home,
+        enabled=plan.integration_enabled,
+    )
+    if (
+        fresh.config_update_required
+        or fresh.agents_to_create
+        or fresh.agents_to_update
+        or fresh.agents_to_retire
+        or fresh.legacy_retired_agents_to_migrate
+        or fresh.conflicting_agents
+        or fresh.lifecycle_plugin_to_create
+        or fresh.lifecycle_plugin_conflict
+    ):
+        raise PolicyViolation("OpenCode bootstrap terminal readback incomplete")
+    body = {
+        "schema": "zekam-opencode-agent-bootstrap-receipt/v1",
+        "plan_digest": plan.plan_digest,
+        "state": "installed-and-read-back",
+        "native_user_root_identity_digest": plan.body["native_user_root_identity_digest"],
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"receipt_digest": digest(body)}
+
+
+def replay_opencode_agent_bootstrap_receipt(
+    current_plan: OpenCodeAgentBootstrapPlan, *, completed_plan_digest: str
+) -> dict[str, Any]:
+    """Read back a completed older plan after its native inputs reached terminal state."""
+
+    if not completed_plan_digest.startswith("sha256:") or len(completed_plan_digest) != 71:
+        raise PolicyViolation("OpenCode bootstrap completed plan digest invalid")
+    if not current_plan.integration_enabled or not current_plan.available:
+        raise PolicyViolation("OpenCode bootstrap replay current policy/executable drift")
+    if (
+        current_plan.config_update_required
+        or current_plan.agents_to_create
+        or current_plan.agents_to_update
+        or current_plan.agents_to_retire
+        or current_plan.legacy_retired_agents_to_migrate
+        or current_plan.conflicting_agents
+        or current_plan.lifecycle_plugin_to_create
+        or current_plan.lifecycle_plugin_conflict
+    ):
+        raise PolicyViolation("OpenCode bootstrap replay terminal readback incomplete")
+    body: dict[str, Any] = {
+        "schema": "zekam-opencode-agent-bootstrap-receipt/v1",
+        "plan_digest": completed_plan_digest,
+        "state": "installed-and-read-back",
+        "native_user_root_identity_digest": current_plan.body["native_user_root_identity_digest"],
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"receipt_digest": digest(body)}
+
+
+def apply_opencode_agent_bootstrap(
+    plan: OpenCodeAgentBootstrapPlan, *, authorized_plan_digest: str
+) -> dict[str, Any]:
     """Planlanan genel ajanlari ve varsayilan coordinator ayarini atomik yazar."""
 
-    if not plan.available:
-        return
+    if authorized_plan_digest != plan.plan_digest:
+        raise PolicyViolation("OpenCode bootstrap exact plan digest ister")
+    if not plan.integration_enabled or not plan.available:
+        return opencode_agent_bootstrap_receipt(plan, authorized_plan_digest=authorized_plan_digest)
+    fresh = plan_opencode_agent_bootstrap(
+        executable=plan.executable,
+        user_home=plan.config_path.parents[2],
+        enabled=plan.integration_enabled,
+    )
+    if fresh.plan_digest != plan.plan_digest:
+        raise PolicyViolation("OpenCode bootstrap input changed before apply")
     if plan.conflicting_agents or plan.lifecycle_plugin_conflict:
         joined = ", ".join(plan.conflicting_agents)
         detail = joined or "zekam-lifecycle.js"
@@ -987,8 +1144,10 @@ def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
         _require_regular_directory(retired, "OpenCode retired agent hedefi")
         moves = (
             *((plan.agents_path / name, name) for name in plan.agents_to_retire),
-            *((plan.agents_path / ".zekam-retired" / name, name)
-              for name in plan.legacy_retired_agents_to_migrate),
+            *(
+                (plan.agents_path / ".zekam-retired" / name, name)
+                for name in plan.legacy_retired_agents_to_migrate
+            ),
         )
         for _, name in moves:
             target = retired / name
@@ -1014,6 +1173,7 @@ def apply_opencode_agent_bootstrap(plan: OpenCodeAgentBootstrapPlan) -> None:
     if plan.config_update_required:
         rendered = json.dumps(plan.config_document, ensure_ascii=False, indent=2) + "\n"
         _atomic_write(plan.config_path, rendered)
+    return opencode_agent_bootstrap_receipt(plan, authorized_plan_digest=authorized_plan_digest)
 
 
 def _load_config(path: Path) -> Mapping[str, Any]:

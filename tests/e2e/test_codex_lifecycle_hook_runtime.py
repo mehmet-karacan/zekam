@@ -363,6 +363,11 @@ def test_real_codex_command_hooks_spool_content_free_loopback_lifecycle(
 
     codex_home = tmp_path / "codex-home"
     zekam_home = tmp_path / "zekam-home"
+    zekam_home.mkdir()
+    (zekam_home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    codex: true\n",
+        encoding="utf-8",
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     with _server(_ResponsesHandler) as responses, _server(_DenyProxyHandler) as deny_proxy:

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.clients import (
     CanonicalDispatchPermit,
     ClientCapabilityManifest,
@@ -250,16 +251,22 @@ class ClientRegistry:
     """Kayitli adapter'lar. Bilinmeyen istemci sessizce turetilmez."""
 
     adapters: tuple[SubprocessClientAdapter, ...]
+    policy: ClientIntegrationPolicy = field(default_factory=ClientIntegrationPolicy)
 
     def get(self, client_id: str) -> SubprocessClientAdapter:
         for adapter in self.adapters:
             if adapter.descriptor.client_id == client_id:
+                if not self.policy.enabled(client_id):
+                    raise PolicyViolation(f"istemci integration policy ile kapali: {client_id}")
                 return adapter
         raise PolicyViolation(f"kayitli olmayan istemci: {client_id}")
 
     def with_capability(self, capability: str) -> tuple[SubprocessClientAdapter, ...]:
         return tuple(
-            adapter for adapter in self.adapters if adapter.descriptor.supports(capability)
+            adapter
+            for adapter in self.adapters
+            if self.policy.enabled(adapter.descriptor.client_id)
+            and adapter.descriptor.supports(capability)
         )
 
     def as_dict(self) -> dict[str, Any]:

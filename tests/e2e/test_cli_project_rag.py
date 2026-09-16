@@ -9,15 +9,46 @@ import pytest
 from typer.testing import CliRunner
 
 from zekam.application.config import EmbeddingRoute
+from zekam.domain.errors import PolicyViolation
 from zekam.interfaces.cli import main as cli
 
 
-def test_ask_requires_explicit_remote_query_authorization(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(cli, "project_embedding_route", lambda _home: EmbeddingRoute.REMOTE)
-    result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?"])
+def test_ask_can_return_stale_lexical_snapshot_without_remote_call(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
+    monkeypatch.setattr(
+        cli,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "lexical-only-degraded",
+            "answer_excerpt": "son indekslenmis bilgi",
+            "index_freshness": "stale",
+            "stale_reasons": ["project-source-revision-stale"],
+            "remote_provider_used": False,
+        },
+    )
+
+    result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?", "--json"])
+
+    assert result.exit_code == 0, result.output
+    retrieval = json.loads(result.output)["retrieval"]
+    assert retrieval["index_freshness"] == "stale"
+    assert retrieval["remote_provider_used"] is False
+
+
+def test_ask_preserves_remote_query_authorization_exit_code(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
+    monkeypatch.setattr(
+        cli,
+        "query_registered_project",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            PolicyViolation("Remote query embedding explicit authorization ister")
+        ),
+    )
+
+    result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?", "--json"])
 
     assert result.exit_code == 77
-    assert "authorize-remote-query" in result.output
+    assert "Remote query embedding explicit authorization ister" in result.output
 
 
 def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -42,7 +73,6 @@ def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # 
         }
 
     monkeypatch.setattr(cli, "resolve_question_project", lambda _home, _question: "gpu-fusion")
-    monkeypatch.setattr(cli, "project_embedding_route", lambda _home: EmbeddingRoute.REMOTE)
     monkeypatch.setattr(cli, "query_registered_project", fake_query)
     result = CliRunner().invoke(
         cli.app,

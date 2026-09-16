@@ -297,7 +297,7 @@ def test_unhealthy_provider_skips_dense_call_and_unsupported_query_abstains(
         assert supported["state"] == "lexical-only-degraded"
         assert supported["searched_channels"] == ["exact", "lexical"]
         unsupported = _query(rag, "kuantum muz sulama protokolu")
-        assert unsupported["state"] == "abstained-index-unavailable"
+        assert unsupported["state"] == "abstained-low-evidence"
         assert unsupported["citations"] == []
         assert unsupported["answer_excerpt"] is None
         assert provider.query_calls == 0
@@ -316,15 +316,41 @@ def test_invalid_query_types_and_bounds_are_rejected(tmp_path: Path, query: Any)
         index.close()
 
 
-def test_profile_mismatch_is_stale_and_never_searches(tmp_path: Path) -> None:
+def test_profile_mismatch_keeps_lexical_snapshot_search(tmp_path: Path) -> None:
     provider = QueryProvider()
     index, rag = _rag(tmp_path, provider)
     try:
         provider.profile = replace(provider.profile, device_scope="other-device")
         result = _query(rag, "ADR-0006")
-        assert result["state"] == "abstained-index-unavailable"
-        assert result["reason"] == "profile-stale"
-        assert result["citations"] == []
+        assert result["state"] == "lexical-only-degraded"
+        assert result["index_freshness"] == "stale"
+        assert result["stale_reasons"] == ["embedding-profile-stale"]
+        assert result["citations"][0]["source_ref"] == PATH
+        assert provider.query_calls == 0
+    finally:
+        index.close()
+
+
+@pytest.mark.parametrize(
+    ("expected_revision", "expected_tree", "message"),
+    [
+        ("newer-revision", TREE, "source revision binding drift"),
+        (REVISION, digest("newer-tree"), "source tree binding drift"),
+    ],
+)
+def test_generation_identity_mismatch_fails_closed(
+    tmp_path: Path, expected_revision: str, expected_tree: str, message: str
+) -> None:
+    provider = QueryProvider()
+    index, rag = _rag(tmp_path, provider)
+    try:
+        with pytest.raises(PolicyViolation, match=message):
+            rag.query(
+                "ADR-0006",
+                project_id=PROJECT,
+                expected_source_revision=expected_revision,
+                expected_tree_digest=expected_tree,
+            )
         assert provider.query_calls == 0
     finally:
         index.close()

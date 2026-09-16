@@ -496,9 +496,6 @@ def query_command(
 
     try:
         resolved_home = resolve_home(home)
-        route = project_embedding_route(resolved_home)
-        if route is EmbeddingRoute.REMOTE and not authorize_remote_query:
-            raise fail("Remote query embedding explicit --authorize-remote-query ister", 77)
         result = query_registered_project(
             resolved_home,
             _canonical_slug(project, home=home),

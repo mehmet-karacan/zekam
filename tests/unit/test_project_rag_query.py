@@ -180,13 +180,14 @@ def test_ready_project_with_matching_provider_runs_dense_channel() -> None:
     assert result["channel_counts"]["dense"] == 1
 
 
-def test_pending_or_stale_index_discards_candidates_and_allows_bounded_fallback() -> None:
+def test_pending_or_stale_index_keeps_snapshot_candidates_and_citations() -> None:
     result = _query(stage=IntegrationStage.CURRENT, index_state="pending")
-    assert result["state"] == "stale"
+    assert result["state"] == "answered"
     assert result["candidate_count"] == 1
-    assert result["citations"] == []
-    assert result["fallback_allowed"] is True
-    assert result["fallback_kind"] == "bounded-source-researcher"
+    assert result["citations"][0]["locator"]["relative_path"] == "src/GpuService.java"
+    assert result["fallback_allowed"] is False
+    assert result["snapshot_only"] is True
+    assert result["reindex_recommended"] is True
 
 
 def test_partial_provider_policy_binding_is_rejected() -> None:
@@ -208,23 +209,26 @@ def test_partial_provider_policy_binding_is_rejected() -> None:
         )
 
 
-def test_stored_index_profile_drift_is_rejected_before_dense_query() -> None:
+def test_stored_index_profile_drift_degrades_to_lexical_snapshot() -> None:
     provider = FakeSemanticProvider()
-    with pytest.raises(PolicyViolation, match="rebuild required"):
-        project_rag_query.query_project_knowledge(
-            repository=FakeProjectRepository(provider.profile.profile_digest),
-            project_ref="gpu-fusion",
-            query="hangi class?",
-            integration_stage=IntegrationStage.CURRENT,
-            integration_detail={
-                "knowledge_index": {
-                    "state": "ready",
-                    "provider_profile_digest": provider.profile.profile_digest,
-                    "embedding_profile_digest": digest("different-index-profile"),
-                }
-            },
-            embedding_provider=provider,
-            embedding_policy=EmbeddingPolicy(
-                DataClassification.PUBLIC, provider.profile.profile_digest
-            ),
-        )
+    result = project_rag_query.query_project_knowledge(
+        repository=FakeProjectRepository(provider.profile.profile_digest),
+        project_ref="gpu-fusion",
+        query="hangi class?",
+        integration_stage=IntegrationStage.CURRENT,
+        integration_detail={
+            "knowledge_index": {
+                "state": "ready",
+                "provider_profile_digest": provider.profile.profile_digest,
+                "embedding_profile_digest": digest("different-index-profile"),
+            }
+        },
+        embedding_provider=provider,
+        embedding_policy=EmbeddingPolicy(
+            DataClassification.PUBLIC, provider.profile.profile_digest
+        ),
+    )
+
+    assert result["state"] == "answered"
+    assert result["searched_channels"] == ["exact", "lexical"]
+    assert result["stale_reasons"] == ["embedding-profile-stale"]

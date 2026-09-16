@@ -13,9 +13,9 @@
       "cli": "zekam"
     },
     "active_task_authority": {
-      "task_id": "ZEKAM-PERSONAL-SKILL-LIFECYCLE-001",
+      "task_id": "ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001",
       "authority_ref": "AKTIF_GOREV.md",
-      "authority_digest": "sha256:d490accbc01e49da44050987e39a514102a6f7eea8c2ee4b3791fc02ebbb7cd6",
+      "authority_digest": "sha256:9de9fc54647d64e3be7f8b3463236c325a1be49fa3bc3064697a278b59516c67",
       "yaml_generated_projection": true,
       "grants_authority": false,
       "legacy_postgresql_data_import": "FORBIDDEN",
@@ -65,16 +65,16 @@
       "schema": "zekam-git-security-report/v1",
       "repository": "zekam",
       "findings": [],
-      "tracked_blob_count": 1749,
-      "worktree_file_count": 47,
-      "history_blob_count": 3548,
+      "tracked_blob_count": 1760,
+      "worktree_file_count": 115,
+      "history_blob_count": 3643,
       "history_complete": true,
       "reviewed_allowance_count": 54,
       "allowlist_digest": "sha256:128f8606767e26d75a39e280b79bbe795221ac6a0b44fcf4d5e9f78e9015359f",
       "passed": true,
       "requires_revoke_or_rotate": false,
       "grants_authority": false,
-      "report_digest": "sha256:3390fac9594b476efc271a7667ced3fbaead7f16c817b2bb3addc7cff20f4472"
+      "report_digest": "sha256:b271f8e0e7b3f5af8d07dcda19c6b0dc147b3642f6abd4d9dd4b607c9b2c515b"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

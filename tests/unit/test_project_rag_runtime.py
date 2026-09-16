@@ -232,7 +232,7 @@ def test_successful_query_persists_scoped_verification_timestamp(
     }
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
-    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_: None)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
     knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
     monkeypatch.setattr(
         runtime,
@@ -261,6 +261,14 @@ def test_successful_query_persists_scoped_verification_timestamp(
 
         def __exit__(self, *_args) -> None:  # type: ignore[no-untyped-def]
             pass
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest=state["generation_digest"],
+                source_revision=state["source_revision"],
+                tree_digest=state["tree_digest"],
+                provider_profile_digest=digest("provider-profile"),
+            )
 
     monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
     monkeypatch.setattr(
@@ -291,7 +299,7 @@ def test_successful_query_persists_scoped_verification_timestamp(
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
     assert result["query_verified_at"].endswith("Z")
     assert persisted["query_verified_at"] == result["query_verified_at"]
-    assert persisted["query_verification"]["retrieval_digest"] == digest("retrieval")
+    assert persisted["query_verification"]["retrieval_digest"] == result["retrieval_digest"]
     assert result["query_verification_recorded"] is True
 
 
@@ -338,7 +346,7 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
     }
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
-    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_: None)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
     monkeypatch.setattr(
         runtime, "load_settings", lambda **_kwargs: SimpleNamespace(knowledge=knowledge)
     )
@@ -364,6 +372,14 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
 
         def __exit__(self, *_args) -> None:  # type: ignore[no-untyped-def]
             pass
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest=state["generation_digest"],
+                source_revision=state["source_revision"],
+                tree_digest=state["tree_digest"],
+                provider_profile_digest=digest("provider-profile"),
+            )
 
     monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
     monkeypatch.setattr(
@@ -395,6 +411,212 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
     assert persisted == state
     assert result["query_verified_at"] == old_verified_at
     assert result["query_verification_recorded"] is False
+
+
+def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "source.md").write_text("new source", encoding="utf-8")
+    home = tmp_path / "home"
+    home.mkdir()
+    project_id = uuid4()
+    project_root = home / "project"
+    state_path = project_root / "runtime" / "rag-state.json"
+    index_path = home / "index" / "knowledge.sqlite3"
+    state_path.parent.mkdir(parents=True)
+    index_path.parent.mkdir()
+    index_path.write_bytes(b"")
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    state_path.write_text(
+        json.dumps(
+            {
+                "project_id": str(project_id),
+                "repository_source_revision": "older-revision",
+                "repository_tree_digest": digest("older-tree"),
+                "odi_source_digest": None,
+                "knowledge_binding_digest": runtime._knowledge_binding_digest(knowledge),
+                "generation_digest": digest("generation"),
+                "source_revision": digest("indexed-source"),
+                "tree_digest": digest("indexed-tree"),
+                "database_access": "disabled",
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths = {
+        "home": home,
+        "project_root": project_root,
+        "index_root": index_path.parent,
+        "manifest_root": home / "manifest",
+        "state": state_path,
+        "index": index_path,
+        "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
+    }
+    monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
+    monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
+    monkeypatch.setattr(
+        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_provider",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("remote provider must not be called")
+        ),
+    )
+
+    class _Index:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> _Index:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest=digest("generation"),
+                source_revision=digest("indexed-source"),
+                tree_digest=digest("indexed-tree"),
+                provider_profile_digest=digest("provider-profile"),
+            )
+
+    observed: dict[str, object] = {}
+
+    class _RAG:
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        def query(self, *_args: object, **kwargs: object) -> dict[str, object]:
+            observed.update(kwargs)
+            return {
+                "state": "lexical-only-degraded",
+                "searched_channels": ["exact", "lexical"],
+                "degraded_reason": "remote-query-not-authorized",
+                "generation_digest": digest("generation"),
+                "provider_profile_digest": digest("provider-profile"),
+                "stale_reasons": [],
+            }
+
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
+    monkeypatch.setattr(runtime, "EmbeddedProjectRAG", _RAG)
+
+    result = runtime._query(
+        source,
+        home,
+        project_id,
+        "stale-project",
+        None,
+        "where?",
+        authorize_remote_query=False,
+    )
+
+    assert result["state"] == "lexical-only-degraded"
+    assert result["index_freshness"] == "stale"
+    assert result["snapshot_only"] is True
+    assert result["remote_provider_used"] is False
+    assert set(result["stale_reasons"]) == {
+        "project-source-revision-stale",
+        "project-source-tree-stale",
+    }
+    assert observed["dense_disabled_reason"] == "remote-query-not-authorized"
+
+
+@pytest.mark.parametrize(
+    "drifted_field",
+    ["generation_digest", "source_revision", "tree_digest"],
+)
+def test_query_rejects_state_generation_identity_drift_before_provider_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, drifted_field: str
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "source.md").write_text("indexed source", encoding="utf-8")
+    home = tmp_path / "home"
+    home.mkdir()
+    project_id = uuid4()
+    project_root = home / "project"
+    state_path = project_root / "runtime" / "rag-state.json"
+    index_path = home / "index" / "knowledge.sqlite3"
+    state_path.parent.mkdir(parents=True)
+    index_path.parent.mkdir()
+    index_path.write_bytes(b"")
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    generation_identity = {
+        "generation_digest": digest("generation"),
+        "source_revision": digest("indexed-source"),
+        "tree_digest": digest("indexed-tree"),
+    }
+    state_identity = generation_identity | {drifted_field: digest("tampered")}
+    state_path.write_text(
+        json.dumps(
+            {
+                "project_id": str(project_id),
+                "repository_source_revision": runtime._git_source_state(source)[2],
+                "repository_tree_digest": runtime.discover(source).tree_digest,
+                "odi_source_digest": None,
+                "knowledge_binding_digest": runtime._knowledge_binding_digest(knowledge),
+                **state_identity,
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths = {
+        "home": home,
+        "project_root": project_root,
+        "index_root": index_path.parent,
+        "manifest_root": home / "manifest",
+        "state": state_path,
+        "index": index_path,
+        "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
+    }
+    monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
+    monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
+    monkeypatch.setattr(
+        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_provider",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("provider must not be called on binding drift")
+        ),
+    )
+
+    class _Index:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> _Index:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                **generation_identity,
+                provider_profile_digest=digest("provider-profile"),
+            )
+
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
+
+    with pytest.raises(PolicyViolation, match="state/index generation binding drift"):
+        runtime._query(
+            source,
+            home,
+            project_id,
+            "bound-project",
+            None,
+            "where?",
+            authorize_remote_query=True,
+        )
 
 
 def test_generation_bound_chunk_id_changes_with_combined_source_revision() -> None:
@@ -617,6 +839,7 @@ def test_project_status_reports_scoped_acl_block_before_claiming_query_ready(
         "provider_readiness": "unknown",
         "query_verified_at": None,
         "query_ready": False,
+        "query_available": False,
         "blocked_reason": "knowledge-scope-acl-drift",
         "retryable": False,
         "provider_calls": 0,
