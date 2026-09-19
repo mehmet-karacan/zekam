@@ -32,6 +32,63 @@ class _TransientProvider:
         return self.result
 
 
+def test_generation_chunk_scope_changes_when_provider_profile_changes() -> None:
+    common = {
+        "project_id": "project-1",
+        "source_revision": digest("source-revision"),
+        "tree_digest": digest("tree-digest"),
+        "source_manifest_digest": digest("source-manifest"),
+        "embedding_profile_digest": digest("embedding-profile"),
+        "chunk_fingerprints": (
+            ("logical-chunk", digest("content"), digest("vector")),
+        ),
+    }
+
+    first_scope = runtime._generation_chunk_scope_digest(
+        **common,
+        provider_profile_digest=digest("provider-profile-a"),
+    )
+    second_scope = runtime._generation_chunk_scope_digest(
+        **common,
+        provider_profile_digest=digest("provider-profile-b"),
+    )
+
+    assert first_scope != second_scope
+    assert runtime._generation_chunk_id("logical-chunk", first_scope) != (
+        runtime._generation_chunk_id("logical-chunk", second_scope)
+    )
+    assert first_scope == runtime._generation_chunk_scope_digest(
+        **common,
+        provider_profile_digest=digest("provider-profile-a"),
+    )
+
+
+def test_generation_chunk_scope_changes_when_vector_changes() -> None:
+    common = {
+        "project_id": "project-1",
+        "source_revision": digest("source-revision"),
+        "tree_digest": digest("tree-digest"),
+        "source_manifest_digest": digest("source-manifest"),
+        "embedding_profile_digest": digest("embedding-profile"),
+        "provider_profile_digest": digest("provider-profile"),
+    }
+
+    first_scope = runtime._generation_chunk_scope_digest(
+        **common,
+        chunk_fingerprints=(
+            ("logical-chunk", digest("content"), digest("vector-a")),
+        ),
+    )
+    second_scope = runtime._generation_chunk_scope_digest(
+        **common,
+        chunk_fingerprints=(
+            ("logical-chunk", digest("content"), digest("vector-b")),
+        ),
+    )
+
+    assert first_scope != second_scope
+
+
 def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
     discovery = SimpleNamespace(file_count=2, secrets=(), truncated=False)
     plan = SimpleNamespace(

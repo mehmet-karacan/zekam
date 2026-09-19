@@ -980,6 +980,7 @@ def _oracle_source_records(
     plan: OracleMetadataIndexPlan,
     *,
     source_revision: str,
+    generation_scope_digest: str,
     start_order: int,
     vectors: dict[str, tuple[float, ...]],
 ) -> tuple[KnowledgeIndexRecord, ...]:
@@ -996,7 +997,7 @@ def _oracle_source_records(
         source_path = f"oracle/{item.object_type.casefold().replace(' ', '-')}/{item.object_name}"
         records.append(
             KnowledgeIndexRecord(
-                chunk_id=_generation_chunk_id(chunk.chunk_id, source_revision),
+                chunk_id=_generation_chunk_id(chunk.chunk_id, generation_scope_digest),
                 project_id=str(plan.project_id),
                 source_revision=source_revision,
                 source_path=source_path,
@@ -1011,10 +1012,43 @@ def _oracle_source_records(
     return tuple(records)
 
 
-def _generation_chunk_id(chunk_id: str, source_revision: str) -> str:
+def _generation_chunk_scope_digest(
+    *,
+    project_id: str,
+    source_revision: str,
+    tree_digest: str,
+    source_manifest_digest: str,
+    embedding_profile_digest: str,
+    provider_profile_digest: str,
+    chunk_fingerprints: tuple[tuple[str, str, str], ...],
+) -> str:
+    """Bind globally unique chunk ids to every input that can create a generation."""
+
+    return digest(
+        {
+            "schema": "zekam-project-chunk-generation-scope/v1",
+            "project_id": project_id,
+            "source_revision": source_revision,
+            "tree_digest": tree_digest,
+            "source_manifest_digest": source_manifest_digest,
+            "embedding_profile_digest": embedding_profile_digest,
+            "provider_profile_digest": provider_profile_digest,
+            "chunks": [
+                {
+                    "id": chunk_id,
+                    "content_digest": content_digest,
+                    "vector_digest": vector_digest,
+                }
+                for chunk_id, content_digest, vector_digest in chunk_fingerprints
+            ],
+        }
+    )
+
+
+def _generation_chunk_id(chunk_id: str, generation_scope_digest: str) -> str:
     """Keep immutable generations from reusing a globally unique SQLite row id."""
 
-    return f"{chunk_id}-g{source_revision.removeprefix('sha256:')[-16:]}"
+    return f"{chunk_id}-g{generation_scope_digest.removeprefix('sha256:')[-16:]}"
 
 
 def _collect_oracle_with_receipt(
@@ -1297,12 +1331,29 @@ def _index(
             "secret_values_recorded": False,
         }
     ).encode("utf-8")
+    combined_manifest_digest = digest_of_bytes(combined_manifest)
+    generation_chunk_scope_digest = _generation_chunk_scope_digest(
+        project_id=str(project_id),
+        source_revision=combined_revision,
+        tree_digest=combined_tree_digest,
+        source_manifest_digest=combined_manifest_digest,
+        embedding_profile_digest=bound_plan.embedding_profile.profile_digest,
+        provider_profile_digest=profile.profile_digest,
+        chunk_fingerprints=tuple(
+            (
+                chunk.chunk_id,
+                digest_of_bytes(chunk.text.encode("utf-8")),
+                digest_of_bytes(_vector_blob(vectors[chunk.chunk_id])),
+            )
+            for chunk in chunks
+        ),
+    )
     source_digests = {
         item.relative_path: item.content_digest for item in bound_plan.discovery.files
     }
     source_records = tuple(
         KnowledgeIndexRecord(
-            chunk_id=_generation_chunk_id(chunk.chunk_id, combined_revision),
+            chunk_id=_generation_chunk_id(chunk.chunk_id, generation_chunk_scope_digest),
             project_id=str(project_id),
             source_revision=combined_revision,
             source_path=str(chunk.locator.relative_path),
@@ -1319,6 +1370,7 @@ def _index(
         _oracle_source_records(
             bound_oracle_plan,
             source_revision=combined_revision,
+            generation_scope_digest=generation_chunk_scope_digest,
             start_order=len(source_records),
             vectors=vectors,
         )
@@ -1328,7 +1380,7 @@ def _index(
     odi_source_digest = odi_plan.source_digest if odi_plan is not None else ""
     odi_records = tuple(
         KnowledgeIndexRecord(
-            chunk_id=_generation_chunk_id(chunk.chunk_id, combined_revision),
+            chunk_id=_generation_chunk_id(chunk.chunk_id, generation_chunk_scope_digest),
             project_id=str(project_id),
             source_revision=combined_revision,
             source_path=str(chunk.locator.relative_path),
@@ -1348,7 +1400,7 @@ def _index(
             project_id=str(project_id),
             source_revision=combined_revision,
             tree_digest=combined_tree_digest,
-            source_manifest_digest=digest_of_bytes(combined_manifest),
+            source_manifest_digest=combined_manifest_digest,
             embedding_profile_digest=bound_plan.embedding_profile.profile_digest,
             provider_profile_digest=profile.profile_digest,
             created_at=dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z"),
