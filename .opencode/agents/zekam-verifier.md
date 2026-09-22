@@ -4,7 +4,7 @@ description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti
 mode: subagent
 permission:
   edit: deny
-  bash: ask
+  bash: allow
   webfetch: deny
   read: allow
   glob: allow

@@ -4,9 +4,7 @@ description: Intent/project kararindan sonra kanonik model route'unu salt okunur
 mode: subagent
 permission:
   edit: deny
-  bash:
-    "*": deny
-    "zekam route preview *": allow
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny

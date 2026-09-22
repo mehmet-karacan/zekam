@@ -4,7 +4,7 @@ description: Exact approved plan ile bagli gercek proje dosyalarini degistiren b
 mode: subagent
 permission:
   edit: allow
-  bash: ask
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny

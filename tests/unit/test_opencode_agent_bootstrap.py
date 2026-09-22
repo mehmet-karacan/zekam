@@ -11,6 +11,7 @@ import yaml
 from zekam.application.opencode_agent_bootstrap import (
     DEFAULT_AGENT,
     apply_opencode_agent_bootstrap,
+    opencode_template_bundle,
     plan_opencode_agent_bootstrap,
 )
 from zekam.domain.errors import ConfigurationError, PolicyViolation
@@ -75,7 +76,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert stored["permission"] == {
         "*": "ask",
         "edit": "ask",
-        "bash": "ask",
+        "bash": "allow",
         "webfetch": "ask",
         "external_directory": {"*": "deny"},
         "task": "ask",
@@ -96,7 +97,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         frontmatter = body.split("---", 2)[1]
         parsed = yaml.safe_load(frontmatter)
         assert isinstance(parsed, dict), agent_path.name
-        assert parsed["permission"]["bash"] != "allow", agent_path.name
+        assert parsed["permission"]["bash"] == "allow", agent_path.name
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     builder = (agents / "zekam-builder.md").read_text(encoding="utf-8")
@@ -107,10 +108,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert '"*": deny' in coordinator
     assert "edit: deny" in coordinator
     assert "read: deny" in coordinator
-    assert "bash: ask" in coordinator
+    assert "bash: allow" in coordinator
     assert "external_directory: deny" in coordinator
     assert '"zekam-builder": allow' in coordinator
-    assert "Bash, PowerShell ve CMD komutlarinda kullanici onayi ister" in coordinator
+    assert "Bash, PowerShell ve CMD komutlarinda kullanici onayi istemez" in coordinator
     assert "detached worktree veya gecici proje klonu olusturma" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in builder
@@ -187,7 +188,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "yerel dayanikli kuyruga alindi" in plugin_body
     assert "continuity checkpoint kaydedildi" not in plugin_body
     assert "`zekam project resume`" not in verifier
-    assert "bash: ask" in verifier
+    assert "bash: allow" in verifier
     assert "mode: primary" in runner
     assert '"zekam-researcher": allow' in runner
     assert '"zekam-verifier": allow' in runner
@@ -195,20 +196,42 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "external_directory: deny" in researcher
     assert "kopya, mirror, clone" in researcher
     assert "bounded source fallback" in researcher
-    assert "bash: deny" in runner
-    assert all(
-        "bash: deny" not in path.read_text(encoding="utf-8")
-        for path in agents.glob("*.md")
-        if path.name != "zekam-research-runner.md"
-    )
+    assert "bash: allow" in runner
+    assert all("bash: allow" in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
     assert all('"*": ask' not in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
     router = (agents / "zekam-router.md").read_text(encoding="utf-8")
-    assert '"zekam route preview *": allow' in router
+    assert "bash: allow" in router
     assert "model secimi degildir" in router
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
     assert repeat.agents_to_update == ()
     assert not repeat.config_update_required
+
+
+def test_repository_managed_agents_never_prompt_for_shell() -> None:
+    agents = Path(__file__).parents[2] / ".opencode" / "agents"
+    paths = sorted(agents.glob("zekam-*.md"))
+
+    assert len(paths) == 7
+    for path in paths:
+        frontmatter = path.read_text(encoding="utf-8").split("---", 2)[1]
+        parsed = yaml.safe_load(frontmatter)
+        assert isinstance(parsed, dict), path.name
+        assert parsed["permission"]["bash"] == "allow", path.name
+
+
+def test_every_generated_agent_template_allows_shell_without_prompt() -> None:
+    agent_templates = {
+        name: body
+        for name, body in opencode_template_bundle().items()
+        if name.startswith("agents/")
+    }
+
+    assert len(agent_templates) == 51
+    for name, body in agent_templates.items():
+        parsed = yaml.safe_load(body.split("---", 2)[1])
+        assert isinstance(parsed, dict), name
+        assert parsed["permission"]["bash"] == "allow", name
 
 
 def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> None:
@@ -227,7 +250,7 @@ def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> No
     apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     upgraded = coordinator.read_text(encoding="utf-8")
-    assert "bash: ask" in upgraded
+    assert "bash: allow" in upgraded
 
 
 def test_model_agent_retirement_moves_outside_recursive_scan_tree(tmp_path: Path) -> None:
@@ -362,14 +385,14 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
         apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
 
-def test_repository_policy_requires_confirmation_for_ambient_effects() -> None:
+def test_repository_policy_allows_shell_without_widening_other_effects() -> None:
     root = Path(__file__).resolve().parents[2]
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
     permission = config["permission"]
     assert permission["*"] == "ask"
     assert permission["edit"] == "ask"
     assert permission["external_directory"]["*"] == "deny"
-    assert permission["bash"] == "ask"
+    assert permission["bash"] == "allow"
     assert permission["webfetch"] == "ask"
     assert permission["task"] == "ask"
 

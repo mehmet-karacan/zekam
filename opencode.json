@@ -9,7 +9,7 @@
   "permission": {
     "*": "ask",
     "edit": "ask",
-    "bash": "ask",
+    "bash": "allow",
     "webfetch": "ask",
     "external_directory": {
       "*": "deny"

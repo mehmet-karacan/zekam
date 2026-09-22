@@ -10,7 +10,7 @@ permission:
   grep: deny
   list: deny
   external_directory: deny
-  bash: ask
+  bash: allow
   webfetch: deny
   task:
     "*": deny
@@ -26,7 +26,7 @@ permission:
   question: allow
 ---
 Görevin:
-- Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi ister.
+- Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi istemez.
   Dogrudan edit ve kaynak okuma/tarama yasaktir; Git commit ve push ancak kullanicinin exact
   goreviyle yapilir.
 - Agentic mutation, kaynak fallback'i veya cok-kaynakli research isteginde kapsamına uygun

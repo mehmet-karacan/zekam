@@ -429,7 +429,7 @@ description: Exact approved plan ile bagli gercek proje dosyalarini degistiren b
 mode: subagent
 permission:
   edit: allow
-  bash: ask
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny
@@ -456,7 +456,7 @@ permission:
   grep: deny
   list: deny
   external_directory: deny
-  bash: ask
+  bash: allow
   webfetch: deny
   task:
     "*": deny
@@ -472,7 +472,7 @@ permission:
   question: allow
 ---
 Görevin:
-- Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi ister.
+- Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi istemez.
   Dogrudan edit ve kaynak okuma/tarama yasaktir; Git commit ve push ancak kullanicinin exact
   goreviyle yapilir.
 - Agentic mutation, kaynak fallback'i veya cok-kaynakli research isteginde kapsamına uygun
@@ -589,7 +589,7 @@ description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only su
 mode: subagent
 permission:
   edit: deny
-  bash: ask
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny
@@ -611,7 +611,7 @@ permission:
   glob: allow
   grep: allow
   list: allow
-  bash: ask
+  bash: allow
   webfetch: allow
   external_directory: deny
   task: deny
@@ -651,7 +651,7 @@ description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti
 mode: subagent
 permission:
   edit: deny
-  bash: ask
+  bash: allow
   webfetch: deny
   read: allow
   glob: allow
@@ -678,9 +678,7 @@ description: Intent/project kararindan sonra kanonik model route'unu salt okunur
 mode: subagent
 permission:
   edit: deny
-  bash:
-    "*": deny
-    "zekam route preview *": allow
+  bash: allow
   webfetch: deny
   external_directory: deny
   task: deny
@@ -701,7 +699,7 @@ permission:
   glob: deny
   grep: deny
   list: deny
-  bash: deny
+  bash: allow
   webfetch: deny
   external_directory: deny
   task:
@@ -933,7 +931,7 @@ def plan_opencode_agent_bootstrap(
         {
             "*": "ask",
             "edit": "ask",
-            "bash": "ask",
+            "bash": "allow",
             "webfetch": "ask",
             "external_directory": {"*": "deny"},
             "task": "ask",
