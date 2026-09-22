@@ -13,9 +13,9 @@
       "cli": "zekam"
     },
     "active_task_authority": {
-      "task_id": "ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001",
+      "task_id": "ZEKAM-UI-REMOVAL-001",
       "authority_ref": "AKTIF_GOREV.md",
-      "authority_digest": "sha256:9de9fc54647d64e3be7f8b3463236c325a1be49fa3bc3064697a278b59516c67",
+      "authority_digest": "sha256:11da41d242289f35560b66362ea1f8531ea19e55d6386a946f8694ba19449394",
       "yaml_generated_projection": true,
       "grants_authority": false,
       "legacy_postgresql_data_import": "FORBIDDEN",
@@ -66,15 +66,15 @@
       "repository": "zekam",
       "findings": [],
       "tracked_blob_count": 1807,
-      "worktree_file_count": 22,
-      "history_blob_count": 3671,
+      "worktree_file_count": 23,
+      "history_blob_count": 3687,
       "history_complete": true,
       "reviewed_allowance_count": 54,
       "allowlist_digest": "sha256:128f8606767e26d75a39e280b79bbe795221ac6a0b44fcf4d5e9f78e9015359f",
       "passed": true,
       "requires_revoke_or_rotate": false,
       "grants_authority": false,
-      "report_digest": "sha256:9364b5d1ea5c81cdcf50e2e71947ced2913acf91b24bb041ae39ee66038052ed"
+      "report_digest": "sha256:0ae7bd0bed4e09e0b88fc18ea068c50f99b07ed5b689a060050d48bfe1df815e"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

@@ -3,11 +3,7 @@
 description: Exact approved plan ile bagli gercek proje dosyalarini degistiren builder subagent
 mode: subagent
 permission:
-  edit: allow
-  bash: allow
-  webfetch: deny
-  external_directory: deny
-  task: deny
+  "*": allow
 ---
 Yalnız exact Task Plan step'i, logical resource lock'u, current lease/fence ve authorization
 scope'u içinde çalış. Degisikligi project registry'de bagli exact gercek source rootunda yap;

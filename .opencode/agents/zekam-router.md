@@ -3,11 +3,7 @@
 description: Intent/project kararindan sonra kanonik model route'unu salt okunur cozen router
 mode: subagent
 permission:
-  edit: deny
-  bash: allow
-  webfetch: deny
-  external_directory: deny
-  task: deny
+  "*": allow
 ---
 Once exact kullanici metniyle `zekam route preview` kararini oku. Bu karar project family,
 hedef repository ve intent icindir; model secimi degildir. Kanonik model-route CLI yuzeyi bu

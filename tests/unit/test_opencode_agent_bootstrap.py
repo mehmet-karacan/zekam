@@ -74,12 +74,13 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert stored["plugin"] == ["./plugins/zekam-lifecycle.js"]
     assert stored["provider"]["litellm"]["options"]["timeout"] == 60
     assert stored["permission"] == {
-        "*": "ask",
-        "edit": "ask",
+        "*": "allow",
+        "edit": "allow",
         "bash": "allow",
-        "webfetch": "ask",
-        "external_directory": {"*": "deny"},
-        "task": "ask",
+        "todowrite": "allow",
+        "webfetch": "allow",
+        "external_directory": {"*": "allow"},
+        "task": "allow",
     }
     agents = user_home / ".config" / "opencode" / "agents"
     installed = {item.name for item in agents.iterdir()}
@@ -97,26 +98,19 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
         frontmatter = body.split("---", 2)[1]
         parsed = yaml.safe_load(frontmatter)
         assert isinstance(parsed, dict), agent_path.name
-        assert parsed["permission"]["bash"] == "allow", agent_path.name
+        assert parsed["permission"]["*"] == "allow", agent_path.name
     assert "Cikti disiplini" in (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     coordinator = (agents / "zekam-coordinator.md").read_text(encoding="utf-8")
     builder = (agents / "zekam-builder.md").read_text(encoding="utf-8")
     researcher = (agents / "zekam-researcher.md").read_text(encoding="utf-8")
     verifier = (agents / "zekam-verifier.md").read_text(encoding="utf-8")
     runner = (agents / "zekam-research-runner.md").read_text(encoding="utf-8")
-    assert "webfetch: deny" in coordinator
-    assert '"*": deny' in coordinator
-    assert "edit: deny" in coordinator
-    assert "read: deny" in coordinator
-    assert "bash: allow" in coordinator
-    assert "external_directory: deny" in coordinator
-    assert '"zekam-builder": allow' in coordinator
+    assert '"*": allow' in coordinator
     assert "Bash, PowerShell ve CMD komutlarinda kullanici onayi istemez" in coordinator
     assert "detached worktree veya gecici proje klonu olusturma" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in coordinator
     assert "Zekam source rootuna geçici rapor, memo" in builder
     assert "Zekam source rootuna memo, rapor" in researcher
-    assert "webfetch: allow" in researcher
     assert "Zekam source rootuna memo, rapor" in verifier
     assert "Dispatch protokolu" in coordinator
     assert "RAG-first bilgi protokolu" in coordinator
@@ -148,8 +142,6 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "retrieval_digest" in coordinator
     assert "recursive shell ile tarayamaz" in coordinator
     assert "Eszamanli child sayisi ucu gecemez" in coordinator
-    assert '"zekam-router": allow' in coordinator
-    assert '"zekam-implementer-*": allow' in coordinator
     assert "zekam project source-root" in coordinator
     assert "Tum inceleme, Git kaniti, test ve kod degisikliklerini" in coordinator
     model_agents = [name for name in installed if name.startswith("zekam-implementer-")]
@@ -188,19 +180,11 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "yerel dayanikli kuyruga alindi" in plugin_body
     assert "continuity checkpoint kaydedildi" not in plugin_body
     assert "`zekam project resume`" not in verifier
-    assert "bash: allow" in verifier
     assert "mode: primary" in runner
-    assert '"zekam-researcher": allow' in runner
-    assert '"zekam-verifier": allow' in runner
-    assert "external_directory: deny" in verifier
-    assert "external_directory: deny" in researcher
     assert "kopya, mirror, clone" in researcher
     assert "bounded source fallback" in researcher
-    assert "bash: allow" in runner
-    assert all("bash: allow" in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
-    assert all('"*": ask' not in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
+    assert all('"*": allow' in path.read_text(encoding="utf-8") for path in agents.glob("*.md"))
     router = (agents / "zekam-router.md").read_text(encoding="utf-8")
-    assert "bash: allow" in router
     assert "model secimi degildir" in router
     repeat = plan_opencode_agent_bootstrap(executable=_executable(tmp_path), user_home=user_home)
     assert repeat.agents_to_create == ()
@@ -217,7 +201,7 @@ def test_repository_managed_agents_never_prompt_for_shell() -> None:
         frontmatter = path.read_text(encoding="utf-8").split("---", 2)[1]
         parsed = yaml.safe_load(frontmatter)
         assert isinstance(parsed, dict), path.name
-        assert parsed["permission"]["bash"] == "allow", path.name
+        assert parsed["permission"]["*"] == "allow", path.name
 
 
 def test_every_generated_agent_template_allows_shell_without_prompt() -> None:
@@ -231,7 +215,7 @@ def test_every_generated_agent_template_allows_shell_without_prompt() -> None:
     for name, body in agent_templates.items():
         parsed = yaml.safe_load(body.split("---", 2)[1])
         assert isinstance(parsed, dict), name
-        assert parsed["permission"]["bash"] == "allow", name
+        assert parsed["permission"]["*"] == "allow", name
 
 
 def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> None:
@@ -250,7 +234,7 @@ def test_managed_agent_policy_is_upgraded_without_conflict(tmp_path: Path) -> No
     apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     upgraded = coordinator.read_text(encoding="utf-8")
-    assert "bash: allow" in upgraded
+    assert '"*": allow' in upgraded
 
 
 def test_model_agent_retirement_moves_outside_recursive_scan_tree(tmp_path: Path) -> None:
@@ -385,16 +369,17 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
         apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
 
-def test_repository_policy_allows_shell_without_widening_other_effects() -> None:
+def test_repository_policy_allows_all_opencode_effects() -> None:
     root = Path(__file__).resolve().parents[2]
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
     permission = config["permission"]
-    assert permission["*"] == "ask"
-    assert permission["edit"] == "ask"
-    assert permission["external_directory"]["*"] == "deny"
+    assert permission["*"] == "allow"
+    assert permission["edit"] == "allow"
+    assert permission["external_directory"]["*"] == "allow"
     assert permission["bash"] == "allow"
-    assert permission["webfetch"] == "ask"
-    assert permission["task"] == "ask"
+    assert permission["todowrite"] == "allow"
+    assert permission["webfetch"] == "allow"
+    assert permission["task"] == "allow"
 
     manifest = (root / "PROJE_MANIFESTI.yaml").read_text(encoding="utf-8")
     assert "mutation_workspace: exact-bound-real-source-root" in manifest

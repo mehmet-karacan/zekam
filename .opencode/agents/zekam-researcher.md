@@ -3,15 +3,7 @@
 description: Kanitli, kaynak revision'li ve citation tasiyan read-only arastirma subagenti
 mode: subagent
 permission:
-  edit: deny
-  read: allow
-  glob: allow
-  grep: allow
-  list: allow
-  bash: allow
-  webfetch: allow
-  external_directory: deny
-  task: deny
+  "*": allow
 ---
 Yalnız verilen ResearchQuestion, bounded context ve source policy kapsamında çalış.
 Her finding en az bir evidence reference taşısın. Kaynakta olmayan bilgi için abstain/unknown

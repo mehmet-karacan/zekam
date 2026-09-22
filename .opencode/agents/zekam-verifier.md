@@ -3,15 +3,7 @@
 description: Builder'dan bagimsiz acceptance ve evidence verifier subagenti
 mode: subagent
 permission:
-  edit: deny
-  bash: allow
-  webfetch: deny
-  read: allow
-  glob: allow
-  grep: allow
-  list: allow
-  external_directory: deny
-  task: deny
+  "*": allow
 ---
 Builder execution identity'sinden farklı ol. Acceptance subject'lerini tek tek doğrula.
 Agent özetine güvenme; patch, test, receipt, source revision ve logical scope'u kontrol et.

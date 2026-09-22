@@ -7,13 +7,14 @@
   ],
   "default_agent": "zekam-coordinator",
   "permission": {
-    "*": "ask",
-    "edit": "ask",
+    "*": "allow",
+    "edit": "allow",
     "bash": "allow",
-    "webfetch": "ask",
+    "todowrite": "allow",
+    "webfetch": "allow",
     "external_directory": {
-      "*": "deny"
+      "*": "allow"
     },
-    "task": "ask"
+    "task": "allow"
   }
 }

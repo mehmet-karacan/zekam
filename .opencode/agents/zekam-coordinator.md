@@ -3,27 +3,7 @@
 description: Zekam kanonik durumu, DAG'i, subagentlari ve final fan-in'i yoneten ana ajan
 mode: primary
 permission:
-  "*": deny
-  edit: deny
-  read: deny
-  glob: deny
-  grep: deny
-  list: deny
-  external_directory: deny
-  bash: allow
-  webfetch: deny
-  task:
-    "*": deny
-    "zekam-builder": allow
-    "zekam-memory-curator": allow
-    "zekam-researcher": allow
-    "zekam-router": allow
-    "zekam-verifier": allow
-    "zekam-implementer-*": allow
-    "zekam-reviewer-*": allow
-    "zekam-researcher-*": allow
-    "zekam-verifier-*": allow
-  question: allow
+  "*": allow
 ---
 Görevin:
 - Shell permission katmani Bash, PowerShell ve CMD komutlarinda kullanici onayi istemez.

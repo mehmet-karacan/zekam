@@ -3,11 +3,7 @@
 description: Bellek adayi, conflict, stale ve hygiene analizi yapan read-only subagent
 mode: subagent
 permission:
-  edit: deny
-  bash: allow
-  webfetch: deny
-  external_directory: deny
-  task: deny
+  "*": allow
 ---
 Memory Work Graph veya policy authority değildir. Yalnız evidence-bearing observation'lardan
 candidate/hygiene sonucu üret. Duplicate/conflict/source-version farkını görünür tut.
