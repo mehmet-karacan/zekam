@@ -2,11 +2,11 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:11da41d242289f35560b66362ea1f8531ea19e55d6386a946f8694ba19449394
-task_id: ZEKAM-UI-REMOVAL-001
+authority_digest: sha256:be5dd176c3875826956147a42642f91938326abdf4030317188ea923788f4908
+task_id: ZEKAM-CONTEXT-GRAPH-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam UI ve Dashboard Yuzeylerinin Tamamen Kaldirilmasi
-created_at: '2026-09-22T11:17:00+03:00'
+title: Zekam Context Graph ve Graph-Aware Retrieval Entegrasyonu
+created_at: '2026-09-21T23:13:00+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
 baseline_head: 68b4833ff959185e5155a28680658ccbd96dd997

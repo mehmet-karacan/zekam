@@ -1,626 +1,580 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-UI-REMOVAL-001
+task_id: ZEKAM-CONTEXT-GRAPH-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam UI ve Dashboard Yuzeylerinin Tamamen Kaldirilmasi
-created_at: 2026-09-22T11:17:00+03:00
+title: Zekam Context Graph ve Graph-Aware Retrieval Entegrasyonu
+created_at: 2026-09-21T23:13:00+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
 baseline_head: 68b4833ff959185e5155a28680658ccbd96dd997
+push_authorized: false
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
-push_authorized: false
 ---
 
-# AKTIF_GOREV.md
+# Zekam Context Graph ve Graph-Aware Retrieval Entegrasyonu
 
-## 1. Görev özeti
+## 1. Hedef
 
-Bu görevde Zekam ürünündeki **kullanıcı arayüzü (UI), dashboard ve Canlı Yürütme Gözleme Merkezi / Neuro Observatory yüzeyleri tamamen kaldırılacaktır**.
+Zekam’ın mevcut project RAG sistemine, Graft projesindeki başarılı context-graph prensiplerinden yararlanan ancak Zekam’ın kendi güvenlik, generation, SQLite, provenance ve rollback kurallarına uyan yerli bir **Context Graph Engine** ekle.
 
-Kullanıcı kararı kesindir:
+Bu görev Graft paketini dependency olarak kurmaz ve Graft’ın file-based graph cache’ini authority yapmaz.
 
-> Zekam'da UI olmayacak. UI ile ilgili çalışan kod, komut, web yüzeyi, statik asset, UI'ye özel API, UI'ye özel projection/model/schema, test, paket bağımlılığı, dokümantasyon, manifest kaydı veya legacy-preserved kopya bırakılmayacak.
-
-Hedef ürün **CLI + agent/client entegrasyonları + scheduler/worker + knowledge/memory/runtime servisleri + gerekli makine-okunur protokoller** üzerinden çalışacaktır. Yeni bir UI, TUI, browser paneli, dashboard, local web ekranı veya benzeri bir görsel yönetim yüzeyi bu görevin yerine ikame edilmeyecektir.
-
-Bu dosya kullanıcı tarafından onaylanmış yeni aktif görevdir. Uygulamaya başlanırken repository içindeki mevcut `AKTIF_GOREV.md` yaşayan authority olarak bu dosyayla değiştirilir; `AKTIF_GOREV.yaml` elle tasarlanmaz, exact Markdown bytes üzerinden mevcut `ActiveTaskContract` projeksiyon mekanizmasıyla yeniden üretilir.
-
-Push yetkisi yoktur. Commit ancak repo kuralları, testler ve bağımsız verifier geçtikten sonra yapılabilir; push için ayrıca açık kullanıcı onayı gerekir.
-
----
-
-## 2. Doğrulanmış başlangıç baseline'ı
-
-Araştırma sırasında GitHub `main` dalı şu revision'da doğrulandı:
+Hedef sonuç:
 
 ```text
-repository : mehmet-karacan/zekam
-branch     : main
-HEAD       : 68b4833ff959185e5155a28680658ccbd96dd997
-commit     : duzeltme: bilgi indeksi chunk kimligi cakismasini gider
-commit_at  : 2026-09-19T15:58:11Z
+Exact + FTS5 + sqlite-vec
+        |
+        v
+       RRF
+        |
+        v
+Graph-aware structural reranker
+        |
+        v
+Distinct-file context selection
+        |
+        v
+Bounded context pack
 ```
 
-Bu görev uygulanırken önce `00_BASLA.md`, `AGENTS.md`, `DEVAM_PROTOKOLU.md` ve `GLOBAL_DEFINITION_OF_DONE.md` okunacak; local checkout HEAD'i bu baseline'dan ilerlemişse görev iptal edilmeyecek, fakat **stale plan** kabul edilerek güncel HEAD üzerinde yeniden discovery yapılacaktır.
+Ayrıca:
 
-Repository başlangıç protokolü gereği:
+- code outline,
+- blast radius,
+- repo map,
+- graph freshness
 
-- gerçek source root bulunacak,
-- `git status --short`, branch, HEAD ve son commitler okunacak,
-- `python scripts/paket_dogrula.py` çalıştırılacak,
-- aktif Work/lease/recovery durumu doğrulanacak,
-- agentic uygulamada koordinatör dışında en az bir gerçek subagent kullanılacak,
-- mutation yalnız bağlı gerçek source rootunda yapılacak,
-- kopya/mirror/detached worktree oluşturulmayacak.
+yüzeyleri oluşturulur.
 
----
+## 2. Değişmez Tasarım Kararları
 
-## 3. Ana hedef invariant'ları
+1. Mevcut knowledge index ve RAG baseline çalışmaya devam edecek.
+2. Graph ayrı ve rebuildable bir SQLite projection olacak.
+3. `knowledge.sqlite3` ilk sürümde graph tablolarıyla migrate edilmeyecek.
+4. Graph authority değildir.
+5. Graph provider-free oluşturulabilmelidir.
+6. İlk extractor Python stdlib `ast` olacaktır.
+7. İlk sürüm yeni runtime Tree-sitter dependency eklemeyecektir.
+8. Tree-sitter daha sonra adapter olarak eklenebilir.
+9. İlk sürümde `RetrievalChannel` enum’una `GRAPH` ekleme.
+10. Mevcut `RetrievalService.reranker` extension point’ini kullan.
+11. Graph stale/unavailable/corrupt ise baseline RAG davranışı korunmalıdır.
+12. Exact identifier sonucu graph nedeniyle düşürülemez.
+13. `contains` dependency traversal veya PageRank edge setine giremez.
+14. Line number kalıcı symbol identity olamaz.
+15. Human annotation generated içerikten ayrı tutulmalıdır.
+16. Naive one-hop expansion varsayılan kapalıdır.
+17. Benchmark iyileşme göstermeden graph reranker default-on olamaz.
+18. Push yapılmayacak.
 
-Uygulama tamamlandığında aşağıdaki şartların **tamamı** doğru olmalıdır:
+## 3. Ön Koşullar
 
-1. `zekam ui` veya `zekam ui serve` diye bir CLI komutu yoktur.
-2. Zekam browser'da açılan bir ürün ekranı sunmaz.
-3. HTML/CSS/JavaScript tabanlı Zekam UI asset'i yoktur.
-4. `/api/observatory/*`, UI snapshot, UI SSE/EventSource veya UI asset endpoint'i yoktur.
-5. "Canlı Yürütme Gözleme Merkezi", "Neuro Observatory" veya dashboard ürünü yoktur.
-6. UI'ye özel application/domain/infrastructure projection katmanı yoktur.
-7. UI'ye özel JSON schema yoktur.
-8. UI'ye özel E2E/unit/integration/security testi yoktur.
-9. UI için eklenen dependency veya optional extra yalnız başka bağımsız ürün yeteneği tarafından gerçekten kullanılmıyorsa kaldırılmıştır.
-10. README, Global DoD, operasyon dokümanları ve manifestler UI/dashboard'u mevcut veya hedef özellik olarak anlatmaz.
-11. `legacy-preserved` dahil **güncel repository tree** içinde UI'yi korumak amacıyla bırakılmış kopya bulunmaz.
-12. Paket manifesti, checksum ve generated active-task projection yeni ağaçla tutarlıdır.
-13. UI kaldırılması CLI, scheduler, worker, knowledge, memory, project, research, Jira skill, integration ve diğer non-UI yetenekleri bozmaz.
-14. Git geçmişi yeniden yazılmaz; hedef güncel source tree'dir.
+Uygulamadan önce:
 
----
+1. `00_BASLA.md` protokolünü uygula.
+2. Repository HEAD’in baseline’dan ilerlediğini görürsen stale plan üret ve kapsamı yeniden bağla.
+3. `python scripts/paket_dogrula.py` çalıştır.
+4. Mevcut project RAG baseline testlerini belirle.
+5. Graph ile değişecek logical resource setini çıkar.
+6. Uygulama planı, test planı ve rollback planı üret.
+7. İş agentic ise gerçek subagent kullan.
 
-## 4. Çok önemli sınır: UI ile observability/API aynı şey değildir
+## 4. Yeni Dosyalar
 
-Bu görev **"UI var diye bütün observability'yi sil"** görevi değildir.
+### Domain
 
-Aşağıdakiler UI'den bağımsız oldukları kanıtlanırsa korunabilir:
+`src/zekam/domain/code_graph.py`
 
-- structured telemetry,
-- machine-readable health/status çıktıları,
-- CLI `--json` raporları,
-- scheduler/worker metrikleri,
-- memory health/observability servisleri,
-- agent/client protocol contract'ları,
-- App Server domain/application protocol'ü,
-- MCP veya başka headless entegrasyon yüzeyleri,
-- UI göstermeyen, bağımsız ve gerçekten kullanılan bir API transport'u.
+Aşağıdaki immutable contract’ları tanımla:
 
-Ancak bir katman sadece UI/dashboard'u beslemek için varsa **"ileride lazım olur" gerekçesiyle tutulamaz**.
+- `GraphNodeKind`
+- `GraphRelation`
+- `GraphConfidence`
+- `GraphFile`
+- `GraphSymbol`
+- `GraphEdge`
+- `GraphGeneration`
+- `GraphImpactHit`
 
-Özellikle App Server için şu karar ağacı uygulanacaktır:
+V1 relation set:
+
+- contains
+- imports
+- calls
+- references
+- extends
+
+### Application
+
+`src/zekam/application/code_graph.py`
+
+- `CodeGraphPort`
+- `CodeGraphExtractor`
+- `CodeGraphBuildPlan`
+- graph generation/build orchestration
+
+`src/zekam/application/code_graph_python.py`
+
+- Python AST extractor
+- file/symbol/raw-edge üretimi
+- deterministic qualified names
+- body digest
+
+`src/zekam/application/code_graph_ranking.py`
+
+- graph seed mapping
+- Personalized PageRank
+- dependency edge allowlist
+- distinct-file selection
+- graph reranker
+
+`src/zekam/application/code_graph_query.py`
+
+- find
+- outline
+- impact
+- map
+- freshness
+
+### Infrastructure
+
+`src/zekam/infrastructure/sqlite/code_graph.py`
+
+SQLite schema ve repository:
+
+- metadata
+- graph_generation
+- current_graph_generation
+- graph_file
+- graph_symbol
+- graph_edge
+- graph_file_fts
+- graph_chunk_link
+- graph_annotation
+
+Aynı security posture mevcut `SQLiteKnowledgeIndex` ile uyumlu olmalı:
+
+- absolute private path,
+- symlink rejection,
+- single writer,
+- read-only immutable mode,
+- integrity checks,
+- atomic generation publication.
+
+## 5. Graph Store Konumu
+
+Aşağıdaki logical layout kullan:
 
 ```text
-App Server domain/application contract bağımsız kullanılıyor mu?
-  evet -> koru.
-
-FastAPI/WebSocket transport bağımsız, desteklenen bir headless entrypoint'e sahip mi?
-  evet -> UI hostundan ayır; observatory/static bağımlılığı olmadan koru.
-  hayır -> dead transport olarak kaldır.
-
-SQLiteLocalProjectionStore App Server tarafından gerçekten gerekiyorsa?
-  evet -> UI/observatory isimlendirmesinden çıkar, nötr bir modüle taşı.
-  hayır -> UI projection ile birlikte kaldır.
+ZEKAM_HOME/
+  knowledge-index/
+    graph/
+      <project-slug>/
+        code-graph.sqlite3
 ```
 
-Bu ayrım yapılmadan `src/zekam/interfaces/api/`, FastAPI veya App Server topluca silinmeyecektir.
+Absolute path kanonik kayda yazılmayacak.
 
----
+## 6. Generation Contract
 
-## 5. Baseline'da doğrulanmış UI izi
+Graph generation en az şunlara bağlıdır:
 
-Aşağıdaki alanlar `main@68b4833...` üzerinde doğrudan doğrulanmıştır ve uygulama sırasında ilk inceleme kümesidir.
+- project_id
+- source_revision
+- tree_digest
+- source_manifest_digest
+- extractor_profile_digest
+- deterministic graph content
 
-### 5.1 Doğrudan UI yüzeyi
+State:
 
-- `src/zekam/interfaces/cli/ui.py`
-- `src/zekam/interfaces/api/observatory.py`
-- `src/zekam/interfaces/api/static/index.html`
-- `src/zekam/interfaces/api/static/styles.css`
-- `src/zekam/interfaces/api/static/app.js`
-- `src/zekam/application/observatory.py`
-- `schemas/observatory_snapshot.schema.json`
+- building
+- ready
+- superseded
 
-### 5.2 UI wiring ve ürün sözleşmesi
+Yeni generation tamamen doğrulanmadan `current_graph_generation` pointer’ı değiştirilmez.
 
-- `src/zekam/interfaces/cli/main.py`
-  - `ui_commands` importu
-  - `app.add_typer(ui_commands.app)` kaydı
-- `src/zekam/domain/observability.py`
-  - `ui serve` canonical command kaydı
-  - dashboard/graph'a özel domain modelleri varsa bunların reachability'si
-- `pyproject.toml`
-  - `[project.optional-dependencies].api`
-  - `fastapi`, `uvicorn`, `psutil` bağımlılıklarının gerçek non-UI kullanım durumu
-- `README.md`
-  - geliştirme kurulumundaki `.[api,dev]`
-  - `Zekam Canlı Yürütme Gözleme Merkezi` bölümü
-  - `zekam ui serve` örnekleri
-- `GLOBAL_DEFINITION_OF_DONE.md`
-  - `Scheduler, rapor ve dashboard` başlığı
-  - Dashboard zorunlulukları
-  - Obsidian/sinaps benzeri graph görünümü zorunluluğu
-- `PROJE_MANIFESTI.yaml`
-  - `dashboard_is_authority`
-  - `api` process kaydının UI'den bağımsız olup olmadığı
-- `operasyon/OBSERVABILITY_DASHBOARD_RAPORLAMA.md`
-- `PACKAGE_MANIFEST.json`
-- `SHA256SUMS.txt`
+## 7. Python AST Extraction
 
-### 5.3 UI testleri
+V1’de destekle:
 
-En az:
+- module
+- class
+- function
+- async function
+- method
+- nested function
+- import
+- from import
+- inheritance
+- local resolvable call
+- references
 
-- `tests/e2e/test_ui_live_observatory.py`
-- `tests/unit/test_observatory.py`
-- `tests/unit/test_observatory_assets.py`
-- `tests/security/test_observatory_security.py`
-- `tests/integration/test_local_observatory_sqlite.py`
+Confidence:
 
-Bunlar yalnız başlangıç listesidir. İsimleri farklı olup UI contract'ını test eden başka testler discovery sırasında bulunursa onlar da kaldırılmalı veya non-UI davranışı test edecek şekilde ayrıştırılmalıdır.
+- extracted
+- inferred
+- external
+- unresolved
 
-### 5.4 İncelenecek ortak / sınır modüller
+Parser syntax error durumunda bütün graph generation sessizce başarılı sayılmayacak. Dosya parse state ve hata sayısı kaydedilecek; acceptance policy’ye göre generation fail veya degraded olabilir.
 
-Aşağıdaki dosyalar körlemesine silinmeyecek; önce UI-dışı reachability analizi yapılacaktır:
+## 8. Incremental Reuse
 
-- `src/zekam/infrastructure/sqlite/local_observatory.py`
-- `src/zekam/domain/observability.py`
-- `src/zekam/application/loop_observatory.py`
-- `src/zekam/application/memory_observability.py`
-- `src/zekam/interfaces/api/app_server.py`
-- `src/zekam/application/app_server.py`
-- `src/zekam/domain/app_server_protocol.py`
-- `schemas/app-server-protocol-v1.schema.json`
-- `tests/unit/test_app_server_transport.py`
-
-Karar kuralı: **UI olmadan anlamlı ve desteklenen bir kullanım yolu varsa koru/refactor et; yalnız UI'nin taşıdığı ölü kod ise sil.**
-
-### 5.5 Legacy-preserved içindeki doğrulanmış UI kalıntıları
-
-Güncel tree'de en az şu UI kalıntıları vardır:
-
-- `legacy-preserved/active-docs-postgresql/docs/UI_NEURO_OBSERVATORY_MIMARISI.md`
-- `legacy-preserved/active-importer-preimages/src/zekam/interfaces/api/observatory.py`
-- `legacy-preserved/src-postgres/observatory_projection.py`
-
-Bu görev kullanıcının açık UI kaldırma kararı olduğu için bunlar "legacy korunmalı" bahanesiyle current tree'de tutulmayacaktır. Tarihsel bilgi Git geçmişinde zaten mevcuttur; history rewrite yapılmaz.
-
----
-
-## 6. Kapsam
-
-### Kapsam dahil
-
-- UI CLI komutlarının kaldırılması.
-- UI web server/route/static asset katmanının kaldırılması.
-- UI'ye özel application servisleri ve projection modellerinin kaldırılması.
-- UI'ye özel SQLite/read model adapter'larının kaldırılması veya shared kısımlarının nötr modüle ayrıştırılması.
-- UI'ye özel schema'ların kaldırılması.
-- UI'ye özel testlerin kaldırılması.
-- UI için var olan dependency/extra'ların reachability sonucuna göre kaldırılması.
-- README ve kurulum komutlarının güncellenmesi.
-- Global DoD'daki dashboard/graph UI gereksinimlerinin kaldırılması.
-- Operasyon dokümanlarının UI'siz observability/reporting modeline çevrilmesi veya gereksizse silinmesi.
-- `PROJE_MANIFESTI.yaml` içindeki UI/dashboard sözleşmelerinin kaldırılması.
-- current tree'deki legacy-preserved UI artifact'larının kaldırılması.
-- package manifest/checksum/generated projection yenilenmesi.
-- dead-code ve import cleanup.
-
-### Kapsam dışı
-
-- Yeni web UI yapmak.
-- TUI/curses/Textual benzeri terminal UI yapmak.
-- Dashboard yerine başka görsel panel yapmak.
-- Electron/desktop/mobile UI yapmak.
-- Git geçmişini rewrite/filter-repo ile temizlemek.
-- UI kaldırma bahanesiyle unrelated business logic'i yeniden tasarlamak.
-- PostgreSQL'i geri getirmek.
-- Docker'ı core dependency yapmak.
-- Push yapmak.
-
----
-
-## 7. Zorunlu discovery — mutation öncesi
-
-Mutation başlamadan önce gerçek source rootunda repo-wide tarama yapılacaktır.
-
-En az aşağıdaki kavramlar için path + content taraması yap:
+File cache identity:
 
 ```text
-ui
-ui serve
-Canlı Yürütme Gözleme Merkezi
-Neuro Observatory
-observatory
-observatory_snapshot
-/api/observatory
-EventSource
-/assets/
-dashboard
-UI_NEURO_OBSERVATORY_MIMARISI
-fastapi
-uvicorn
-StaticFiles
-FileResponse
-StreamingResponse
-zekam-dashboard
-zekam-observatory
+relative_path + content_digest + extractor_profile_digest
 ```
 
-Tek başına `ui` substring'iyle toplu silme yapılmayacak; `build`, `suite` vb. yanlış eşleşmeler filtrelenecektir.
+Aynıysa tekrar parse etme.
 
-Her bulunan öğe şu sınıflardan birine atanmalıdır:
-
-- `DELETE_UI_ONLY`
-- `REFACTOR_SHARED_UI_COUPLING`
-- `KEEP_NON_UI_PROVEN`
-- `DOC_CONTRACT_REMOVE`
-- `LEGACY_TREE_REMOVE`
-
-Mutation planında her dosyanın sınıfı ve gerekçesi bulunmalıdır.
-
-Ayrıca import/reachability analizi yapılmalıdır:
-
-- hangi modül kimi import ediyor,
-- CLI'dan hangi entrypoint gerçekten erişilebilir,
-- wheel içine hangi dosyalar giriyor,
-- optional dependency'leri kim kullanıyor,
-- App Server transport'un UI dışında gerçek entrypoint'i var mı,
-- `psutil` başka non-UI süreç gözleminde kullanılıyor mu,
-- dashboard/graph domain tipleri başka machine-readable akışlarda gerçekten kullanılıyor mu.
-
----
-
-## 8. Uygulama fazları
-
-### Faz A — Baseline ve güvenli plan
-
-1. Başlangıç protokolünü çalıştır.
-2. Exact HEAD ve dirty state'i kaydet.
-3. Existing active Work/lease/recovery durumunu doğrula.
-4. En az bir gerçek subagent ile bağımsız UI footprint discovery yaptır.
-5. Ana agent ve subagent sonuçlarını birleştirerek dosya bazlı deletion/refactor matrisi oluştur.
-6. Değişiklik öncesi mevcut test baseline'ını kaydet.
-
-### Faz B — Ürün yüzeyini kaldır
-
-Kesin olarak:
-
-- `zekam ui` komut ağacını kaldır.
-- `src/zekam/interfaces/cli/ui.py` dosyasını kaldır.
-- CLI main wiring'ini temizle.
-- `ui serve` canonical command kaydını kaldır.
-- browser UI hostunu kaldır.
-- `/` HTML route'unu kaldır.
-- `/assets/*` mount'unu kaldır.
-- `/api/observatory/*` endpoint'lerini kaldır.
-- observatory SSE/EventSource stream'ini kaldır.
-- static HTML/CSS/JS asset dizinini kaldır.
-
-Başka bir komut altında aynı UI'yi yeniden sunma.
-
-### Faz C — UI projection/application katmanını temizle
-
-- `src/zekam/application/observatory.py` UI-only ise tamamen kaldır.
-- `schemas/observatory_snapshot.schema.json` kaldır.
-- `zekam-observatory-*`, `zekam-dashboard-*`, UI graph snapshot sözleşmelerini kullanan kodu temizle.
-- `src/zekam/infrastructure/sqlite/local_observatory.py` içindeki UI runtime projection reader'ı kaldır.
-- Aynı dosyadaki App Server için gerekli store bağımsız kullanılıyorsa nötr isimli bir modüle taşı; UI/observatory import zinciri kalmasın.
-- `src/zekam/domain/observability.py` içindeki generic telemetry/command contract korunabilir; UI/dashboard/graph'a özel sınıf ve sabitlerin kullanımını kanıtla. Ölü olanları kaldır.
-- `loop_observatory.py` ve `memory_observability.py` sadece isim benzerliği nedeniyle silinmez. Headless çalışma/doctor/CLI raporlamasında kullanılıyorsa kalır. UI'den miras kalan yanlış adlandırma varsa davranış değiştirmeden daha nötr isimlendirme değerlendirilebilir.
-
-### Faz D — App Server / API ayrıştırması
-
-`src/zekam/interfaces/api/observatory.py` bugün App Server route'larını da kuruyor. UI kaldırılırken App Server'ın kaderi açıkça belirlenmelidir.
-
-1. `AppServerConnection` ve `app_server_protocol` UI'den bağımsız domain/application contract ise korunur.
-2. FastAPI `install_app_server_routes` transport'u UI dışında desteklenen gerçek bir server entrypoint'e sahipse o entrypoint UI'siz hale getirilir.
-3. Transport'un tek host'u `zekam ui serve` ise yeni gereksiz server ürünü icat etme; transport dead code olarak kaldırılabilir, fakat domain protocol ancak ayrıca dead olduğu kanıtlanırsa kaldırılır.
-4. Eğer bağımsız headless API gerçekten korunuyorsa:
-   - HTML/static route bulunmayacak,
-   - dashboard/observatory endpoint'i bulunmayacak,
-   - adı ve kurulum metni UI çağrıştırmayacak,
-   - testleri yalnız machine protocol davranışını doğrulayacak.
-
-### Faz E — Dependency ve packaging cleanup
-
-`pyproject.toml` için reachability bazlı karar ver:
-
-- `fastapi`: yalnız kalan bağımsız headless transport gerektiriyorsa kalsın.
-- `uvicorn`: gerçekten desteklenen server entrypoint'i varsa kalsın; yalnız UI serve içinse sil.
-- `psutil`: non-UI process observation gerçekten kullanıyorsa kalsın; yalnız UI agent paneli içinse sil.
-- `[project.optional-dependencies].api`: içerik tamamen boşalırsa kaldır. Headless API kalırsa ad ve amaç UI'siz olacak şekilde korunabilir.
-- README kurulum komutu buna göre `.[dev]`, `.[server,dev]` veya gerçek kalan extra ile güncellenir. Olmayan extra yazılmaz.
-
-Wheel/package-data içinde statik UI asset kalmadığını doğrula.
-
-### Faz F — Dokümantasyon ve sözleşme cleanup
-
-Aşağıdakiler güncellenecektir:
-
-- `README.md`: UI bölümü ve `zekam ui serve` örnekleri kaldırılacak.
-- `GLOBAL_DEFINITION_OF_DONE.md`:
-  - Bölüm I dashboard merkezli olmaktan çıkarılacak.
-  - Dashboard gösterim şartı kaldırılacak.
-  - Obsidian/sinaps graph görünümü UI şartı kaldırılacak.
-  - scheduler, telemetry ve insan/machine-readable rapor gereksinimleri korunabilir.
-- `PROJE_MANIFESTI.yaml`:
-  - `dashboard_is_authority` kaldırılacak.
-  - `api` process yalnız bağımsız headless API kanıtlanıyorsa kalacak.
-- `operasyon/OBSERVABILITY_DASHBOARD_RAPORLAMA.md`:
-  - dashboard ürünü anlatımı silinecek.
-  - dosya gerekli telemetry/reporting içeriği taşıyorsa `OBSERVABILITY_VE_RAPORLAMA.md` benzeri UI'siz bir adla taşınacak ve içerik sadeleştirilecek.
-  - UI'ye özgü minimum sayfalar, click-through, görsel graph vb. kaldırılacak.
-- UI mimarisini anlatan başka docs/referanslar kaldırılacak.
-- UI future roadmap veya TODO olarak da bırakılmayacak.
-
-### Faz G — Test cleanup ve regression kanıtı
-
-UI varlığını doğrulayan testler silinecek:
-
-- live UI HTTP E2E,
-- static asset içerik testleri,
-- UI LAN binding testleri,
-- observatory web security-header testleri,
-- observatory snapshot schema/UI projection testleri,
-- UI-only SQLite projection testleri.
-
-Ancak shared non-UI logic UI testlerinden ayrılıyorsa ilgili testler nötr test dosyasına taşınacaktır.
-
-Yeni/uyarlanmış negatif kabul testleri en az şunları doğrulamalıdır:
-
-- CLI help'te `ui` command yok.
-- `zekam ui` çağrısı desteklenmiyor.
-- package içinde `interfaces/cli/ui.py` yok.
-- package içinde `interfaces/api/static/` yok.
-- `observatory_snapshot.schema.json` yok.
-- source tree'de `/api/observatory` route'u yok.
-- README UI çalıştırma talimatı içermiyor.
-- package manifest UI artifact'i içermiyor.
-
-### Faz H — Legacy-preserved cleanup
-
-Current tree'deki UI legacy dosyaları kaldırılacaktır. En az doğrulanmış üç dosya bölüm 5.5'te listelenmiştir.
-
-`legacy-preserved` altında başka `observatory`, dashboard veya UI preimage bulunduysa ve yalnız kaldırılan UI'yi koruyorsa o da silinir.
-
-Bu işlem Git geçmişini değiştirmez. Kullanıcı source tree'de UI kalmamasını istemiştir; geçmiş commitler bu görevin kapsamı değildir.
-
-### Faz I — Manifest, checksum ve projection
-
-Tüm değişikliklerden sonra:
-
-1. `PACKAGE_MANIFEST.json` repository'nin mevcut generator/validator yöntemiyle güncellenecek.
-2. `SHA256SUMS.txt` aynı kanonik yöntemle güncellenecek.
-3. `AKTIF_GOREV.yaml`, yeni `AKTIF_GOREV.md` exact digest'inden deterministik üretilecek.
-4. Generated projection'a bağımsız scope/state/yetki yazılmayacak.
-5. `python scripts/paket_dogrula.py` PASS vermeli.
-
-Generator yoksa mevcut formatı elle taklit etmeden önce repository contract'ı incelenecek; deterministic mevcut mekanizma tercih edilecek.
-
----
-
-## 9. Kabul kriterleri
-
-Görev yalnız aşağıdaki kapıların tamamı geçerse tamamlanmıştır.
-
-### AC-01 — CLI yüzeyi
+Symbol semantic reuse:
 
 ```text
-zekam --help
+stable_symbol_identity + body_digest + semantic_profile_digest
 ```
 
-çıktısında `ui` komutu yoktur.
+Aynıysa summary/crux yeniden üretme.
 
-`zekam ui` artık ürün özelliği değildir ve başarılı server başlatamaz.
+V1 structural graph LLM çağırmayacak.
 
-### AC-02 — Web UI asset yok
+## 9. Retrieval Entegrasyonu
 
-Aşağıdaki path'ler current tree'de yoktur:
+Mevcut `RetrievalService` protocol’ünü kırma.
+
+`ProjectGraphReranker` oluştur.
+
+Kullanım şartı:
+
+- graph project_id == knowledge project_id
+- source_revision eşit
+- tree_digest eşit
+- graph state ready
+
+Şart sağlanmıyorsa:
+
+- reranker devre dışı,
+- baseline sonucu korunur,
+- trace graph state’i bildirir.
+
+## 10. PageRank
+
+Personalized PageRank dependency edge seti:
+
+- calls
+- references
+- imports
+- extends
+
+`contains` hariç.
+
+Başlangıç parametreleri config/constant olabilir:
+
+- alpha: 0.25
+- iterations: 25
+
+Ancak default-on kabulü benchmark ile verilecek; parametreleri mutlak doğru varsayma.
+
+## 11. Distinct-file Selection
+
+Bounded context’te aynı dosyanın sibling hit’leri diğer relevant dosyaları boğmamalı.
+
+Kural:
+
+1. original top hit korunur,
+2. distinct-file leader’lar önce gelir,
+3. sibling hit’ler sonraki turlarda gelir,
+4. exact-match hit düşürülemez.
+
+## 12. Whole-file Lexical Prior
+
+`graph_file_fts` ile file path + symbols + body için FTS5 index kur.
+
+İlk sürümde bu sinyal benchmark flag arkasında tutulabilir.
+
+Chunk FTS’nin yerine geçmez.
+
+## 13. One-hop Expansion
+
+İlk release default kapalı.
+
+Yalnız benchmark:
+
+- Recall@10 iyileştiriyor,
+- MRR/nDCG gerilemiyor,
+- token budget kabul sınırında,
+- false-positive inflation kontrollü
+
+ise açılabilir.
+
+## 14. CLI
+
+`project` komut grubu altında ekle:
 
 ```text
-src/zekam/interfaces/cli/ui.py
-src/zekam/interfaces/api/observatory.py
-src/zekam/interfaces/api/static/
-schemas/observatory_snapshot.schema.json
+zekam project graph plan <alias> --json
+zekam project graph build <alias> --plan-digest <digest> --uygula --json
+zekam project graph status <alias> --json
+zekam project graph check <alias> --json
+zekam project graph find <alias> "<query>" --json
+zekam project graph outline <alias> <relative-file> --json
+zekam project graph impact <alias> <symbol> --json
+zekam project graph map <alias> --json
 ```
 
-### AC-03 — UI route yok
+`plan` mutation yapmaz.
 
-Executable source içinde aşağıdakiler yoktur:
+`build` exact plan digest ister.
 
-```text
-/api/observatory
-observatory-assets
-StaticFiles(... UI asset ...)
-index.html UI serving
-EventSource tabanli UI stream
-Zekam Canli Yurutme Gozleme Merkezi
-Neuro Observatory
-```
+## 15. MCP / Agent Tool Set
 
-### AC-04 — UI product contract yok
+En fazla şu beş graph tool’u expose et:
 
-`CANONICAL_COMMANDS`, Global DoD, README, project manifest ve operasyon belgeleri UI/dashboard'u ürün capability'si veya hedefi olarak göstermiyor.
+- `zekam_code_find`
+- `zekam_code_outline`
+- `zekam_code_impact`
+- `zekam_code_map`
+- `zekam_code_freshness`
 
-### AC-05 — UI-only backend yok
+Tool sayısını gereksiz büyütme.
 
-UI snapshot/graph/dashboard için yazılmış ve başka kanıtlı consumer'ı olmayan application/domain/infrastructure kodu kaldırılmıştır.
+## 16. Mevcut Dosya Entegrasyonları
 
-### AC-06 — Shared backend güvenli
+### `src/zekam/application/embedded_project_rag.py`
 
-Observability, App Server veya process observation'dan korunan her parça için non-UI consumer/test kanıtı vardır. "Belki ileride kullanılır" kabul edilmez.
+- optional graph reranker composition
+- stale/unavailable graph trace
+- baseline fallback
 
-### AC-07 — Dependency temizliği
+### `src/zekam/application/project_rag_query.py`
 
-FastAPI/uvicorn/psutil ve `api` extra için dosya bazlı reachability kararı kayıtlıdır. UI-only dependency kalmamıştır.
+- searched graph state
+- graph freshness
+- reranker used flag
+- fallback reason
 
-### AC-08 — Test temizliği
+### `src/zekam/application/retrieval_service.py`
 
-UI'yi ayağa kaldıran veya UI assetlerini doğrulayan test yoktur. Kalan test suite yeni UI'siz ürünü doğrular.
+İlk sürümde protocol kırma.
 
-### AC-09 — Legacy current tree temizliği
+Gerekirse yalnız backward-compatible trace metadata ekle.
 
-`legacy-preserved` altında kaldırılan UI'nin source/doc kopyaları bulunmaz.
+### `src/zekam/application/project_knowledge_index.py`
 
-### AC-10 — Paket bütünlüğü
+Aynı verified source discovery’den graph planın güvenli yararlanabilmesini sağla.
 
-En az:
+Knowledge indexing behavior’ını değiştirme.
 
-```text
-python scripts/paket_dogrula.py
-pytest
-ruff check
-mypy
-```
+### `src/zekam/interfaces/cli/project.py`
 
-repo standardındaki gerçek komutlarla geçer. Komut isimleri repo tooling'inde farklıysa mevcut canonical quality scriptleri kullanılır ve exit code'lar kaydedilir.
+Graph subcommand registration.
 
-### AC-11 — Dead code
+### `src/zekam/interfaces/cli/mcp.py`
 
-Mevcut dead-code/reachability kontrolü geçer. UI kaldırıldıktan sonra import edilemeyen, kullanılmayan veya yalnız eski testlere bağlı modül kalmaz.
+Bounded tool exposure.
 
-### AC-12 — Final residue scan
+### `docs/ZEKAM_YETKINLIK_ENVANTERI.md`
 
-Final scan exact product/UI terimleri için çalıştırılır. UI özelliğini ifade eden eşleşme kalmamalıdır.
+İlk durumda:
 
-Generic teknik kelimeler (`Surface.API`, `observability`, rapor, telemetry vb.) ancak gerçekten non-UI anlamda kullanılıyorsa kalabilir.
+`Project Code/Context Graph = partial`
 
----
+olarak ekle.
 
-## 10. Final residue scan standardı
+`ready` ancak benchmark + end-to-end agent kabulünden sonra.
 
-Finalde en az şu taramalar veya platform eşdeğerleri uygulanacaktır:
+### `README.md`
 
-```bash
-git grep -n -I -E 'zekam ui|ui serve|Canl[iı] Y[uü]r[uü]tme G[oö]zleme Merkezi|Neuro Observatory|/api/observatory|zekam-observatory|zekam-dashboard|observatory_snapshot|observatory-assets|UI_NEURO_OBSERVATORY_MIMARISI'
+Kısa graph kullanımı.
 
-git ls-files | grep -Ei '(^|/)(ui)([._/-]|$)|observatory|dashboard|interfaces/api/static'
-```
+## 17. Benchmark
 
-Beklenen sonuç otomatik olarak "mutlak sıfır eşleşme" değildir; çünkü örneğin bu yaşayan `AKTIF_GOREV.md` görevin neyi kaldırdığını açıklamak zorundadır ve generic `memory_observability.py` non-UI olabilir.
+Baseline’ı değiştirmeden önce ölç.
 
-Bu nedenle final verifier her eşleşmeyi sınıflandırmalıdır:
+Varyantlar:
 
-- aktif ürün UI kalıntısı → **FAIL**
-- test/docs içinde UI'yi mevcut özellik olarak anlatan kalıntı → **FAIL**
-- legacy-preserved UI kopyası → **FAIL**
-- bu aktif görevin tarihsel/kapsam açıklaması → izinli
-- gerçekten non-UI observability/telemetry → kanıtla izinli
+1. Exact + FTS
+2. Exact + FTS + Vector
+3. Baseline + file diversity
+4. Baseline + graph rerank
+5. Baseline + graph rerank + file FTS
+6. Baseline + graph rerank + bounded one-hop
 
-Verifier raporunda izin verilen her eşleşmenin path + gerekçesi bulunmalıdır.
+Metrikler:
 
----
+- Recall@1
+- Recall@5
+- Recall@10
+- MRR
+- nDCG@10
+- distinct-file coverage
+- tokens/context
+- p50/p95 query latency
+- cold graph build
+- one-file-change rebuild
+- exact-match preservation
 
-## 11. Geri dönüş / güvenlik yaklaşımı
+Acceptance:
 
-Bu görev ağırlıklı olarak deletion/refactor işidir.
+- exact behavior regression yok,
+- kritik retrieval metriği gerilemiyor,
+- en az bir kalite metriğinde gerçek iyileşme,
+- p95 kabul sınırı içinde,
+- token budget kötüleşmiyor veya ölçülmüş net fayda var.
 
-Kurallar:
+## 18. Zorunlu Testler
 
-- Deletion öncesi exact baseline commit ve changed-file listesi kaydedilir.
-- Unrelated kullanıcı dosyaları silinmez.
-- Secret/config içeriği artifact'e taşınmaz.
-- UI kaldırma sırasında data migration yapılmaz.
-- Yerel operational SQLite authority kayıtları UI kaldırıldığı için silinmez.
-- UI projection için ayrı türetilmiş data dosyası varsa ve runtime tarafından yeniden üretilebiliyorsa cleanup mevcut güvenli lifecycle'a göre yapılır; kullanıcı datası olduğu belirsiz dosya otomatik silinmez.
-- Rollback kodu eski UI'yi ayrı legacy klasöre kopyalamak değildir; Git source revision geri dönüş noktasıdır.
+Yeni unit test aileleri:
 
----
+- code graph domain
+- Python extractor
+- SQLite graph store
+- graph generation atomicity
+- incremental reuse
+- PageRank
+- file diversity
+- impact traversal
+- graph/knowledge generation binding
+- stale fallback
+- CLI plan/apply
+- MCP tools
 
-## 12. Bağımsız verifier görevi
+Negatif testler:
 
-Ana builder'dan ayrı gerçek subagent/verifier şu sorulara cevap vermelidir:
+- corrupt graph
+- source tree drift
+- same-size file edit
+- symlink path
+- duplicate symbol
+- cyclic graph
+- unresolved call
+- concurrent writer
+- stale plan digest
+- wrong project graph
+- knowledge generation mismatch
 
-1. Current tree'de çalışan veya dokümante edilmiş herhangi bir UI kaldı mı?
-2. `zekam ui` tamamen kalktı mı?
-3. HTML/CSS/JS UI asset'i kaldı mı?
-4. `/api/observatory` veya SSE UI route'u kaldı mı?
-5. Dashboard/UI requirement'ı Global DoD veya manifestte kaldı mı?
-6. UI-only projection/schema/test kaldı mı?
-7. Legacy-preserved içinde UI kopyası kaldı mı?
-8. Korunan observability/App Server parçalarının non-UI consumer kanıtı var mı?
-9. UI kaldırılması unrelated CLI/runtime/knowledge/memory işlevlerini bozdu mu?
-10. Package/manifest/checksum/projection tutarlı mı?
+## 19. Rollback
 
-Bu verifier PASS vermeden Work Item terminal success olamaz.
+Graph entegrasyonu mevcut RAG’den bağımsız olmalı.
 
----
+Rollback:
 
-## 13. Tamamlandı sayılmayacak durumlar
+1. graph reranker kapat,
+2. graph MCP tools kaldır,
+3. baseline project RAG’e dön,
+4. derived `code-graph.sqlite3` silinebilir,
+5. knowledge/operational DB değişmeden kalır.
 
-Aşağıdakilerden biri varsa görev tamamlanmamıştır:
+Rollback için source migration veya data restore gerekmesi tasarım hatası sayılır.
 
-- sadece HTML/CSS/JS silinmiş ama `zekam ui` duruyorsa,
-- CLI kaldırılmış ama observatory API/routes duruyorsa,
-- source silinmiş ama UI schema/test/docs duruyorsa,
-- README temizlenmiş ama Global DoD dashboard istiyorsa,
-- current legacy-preserved içinde UI kopyaları tutuluyorsa,
-- `api` extra yalnız artık olmayan UI için dependency taşıyorsa,
-- App Server ile UI coupling'i çözülmemişse,
-- package manifest/checksum eski dosyaları referanslıyorsa,
-- full regression suite başarısızsa,
-- verifier yalnız dosya adına bakıp reachability incelememişse,
-- yeni bir TUI/dashboard ile eski UI'nin yerine başka UI konmuşsa.
+## 20. Tree-sitter Fazı
 
----
+V1 tamamlanmadan Tree-sitter dependency ekleme.
 
-## 14. Son çıktı standardı
+V2 adapter sonrası:
 
-Uygulayan model final raporunda kısa ve kanıta dayalı olarak şunları vermelidir:
+- Python parity
+- TS/JS/Java/Go
+- parser version fingerprint
+- optional dependency group
 
-- başlangıç ve bitiş HEAD,
-- silinen UI dosyaları,
-- refactor edilen shared dosyalar,
-- korunan observability/App Server parçaları ve nedenleri,
-- kaldırılan dependency/extra'lar,
-- güncellenen docs/contracts/manifestler,
-- final residue scan sonucu,
-- çalıştırılan test/quality komutları ve exit code'ları,
-- bağımsız verifier sonucu,
-- commit yapıldıysa commit SHA,
-- push yapılmadığı.
+değerlendir.
 
-UI'nin ekran görüntüsü, yeni tasarım önerisi veya alternatif UI sunulmayacaktır.
+## 21. Oracle PL/SQL Fazı
 
----
+PL/SQL desteği ayrı acceptance campaign’idir.
 
-## 15. Nihai hedef
+Aşağıdaki relation’ları hedefle:
 
-Bu görevden sonra Zekam için beklenen ürün modeli:
+- contains
+- calls_procedure
+- calls_function
+- reads_table
+- writes_table
+- uses_sequence
+- uses_synonym
+- trigger_on
+- depends_on_package
+- executes_dynamic_sql
 
-```text
-human / agent
-    |
-    +--> CLI
-    +--> MCP / client integrations
-    +--> headless machine protocols (yalniz gercekten gerekli olanlar)
-    +--> scheduler / worker
-            |
-            +--> application services
-                    |
-                    +--> canonical local stores
-                    +--> knowledge / memory / research / runtime
-                    +--> structured telemetry / reports
+Grammar production-ready sayılmadan önce gerçek kullanıcı corpus’unda error-rate ve edge correctness ölç.
 
-NO browser UI
-NO dashboard
-NO static web assets
-NO UI server command
-NO UI-only API
-NO UI-only projection layer
-```
+Dynamic SQL’den kesin dependency uydurma.
 
-Başarı ölçütü "UI varsayılan kapalı" değildir.
+## 22. Concept Graph ve Semantic Enrichment
 
-Başarı ölçütü:
+Bu görevde structural foundation tamamlandıktan sonra uygulanabilir.
 
-> **UI ürünün içinde artık mevcut değildir.**
+Semantic alanlar:
+
+- summary
+- crux
+- summary_state
+- semantic_profile_digest
+
+Provider çağrısı structural graph için zorunlu olamaz.
+
+Human annotation generated summary’den ayrı tutulur.
+
+## 23. Global Definition of Done Ek Kapıları
+
+Bu görev tamamlandı denebilmesi için:
+
+- mevcut project RAG testleri geçer,
+- yeni graph testleri geçer,
+- ruff geçer,
+- strict mypy geçer,
+- package validation geçer,
+- security/secret checks geçer,
+- benchmark raporu üretilir,
+- graph-off baseline regression testi geçer,
+- independent verifier sonucu bağlanır,
+- push yapılmaz.
+
+## 24. Kapsam Dışı
+
+- Graft npm dependency kurulumu
+- Trail Brain cloud entegrasyonu
+- Graft telemetry
+- Graft viewer/UI
+- Neo4j veya server graph DB
+- existing knowledge DB’yi graph authority yapmak
+- embedding’i kaldırmak
+- graph’tan authorization üretmek
+- PL/SQL’i corpus doğrulaması olmadan ready ilan etmek
+- mevcut Jira aktif görevinin çıktısını bu işle karıştırmak
+
+## 25. Kaynak Araştırma Referansı
+
+Bu aktif görev şu araştırmanın teknik kararlarını uygular:
+
+`ZEKAM_GRAFT_ENTEGRASYON_RAPORU.md`
+
+Araştırma referansları:
+
+- Graft README
+- Graft issue #117
+- Graft issue #186
+- Graft issue #257
+- Graft graph types/traverse/graphrank/MCP kaynakları
+- Tree-sitter incremental parsing dokümantasyonu
+- SQLite FTS5/BM25 dokümantasyonu
+- SQLite recursive CTE dokümantasyonu
+- Oracle PL/SQL Tree-sitter grammar araştırması
+
+## 26. İlk Safe Action
+
+Repository protokolünü çalıştır; baseline HEAD ve active task projection durumunu doğrula; ardından yalnız G0/G1 için exact plan üret.
+
+İlk mutation:
+
+`domain + application contracts + SQLite graph schema + tests`
+
+olmalıdır.
+
+Retrieval davranışını aynı commit/adımda değiştirme.
+
+Structural graph acceptance geçtikten sonra ayrı step’te graph reranker’ı bağla.

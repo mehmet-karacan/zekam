@@ -69,6 +69,11 @@ class RetrievalTrace:
     reranker_failed: bool
     source_type: str = "knowledge"
     dropped_for_budget: tuple[str, ...] = field(default_factory=tuple)
+    # Optional graph-reranker trace metadata (G2). Defaults preserve the exact
+    # protocol for callers that never compose a graph reranker.
+    graph_used: bool = False
+    graph_state: str | None = None
+    graph_bypass: str | None = None
 
     def as_lines(self) -> tuple[str, ...]:
         lines = [
@@ -82,6 +87,11 @@ class RetrievalTrace:
             lines.append("reranker basarisiz; fusion sirasina geri donuldu")
         elif self.reranker_used:
             lines.append("reranker uygulandi")
+        if self.graph_used:
+            if self.graph_bypass:
+                lines.append(f"graph reranker bypass: {self.graph_bypass}")
+            else:
+                lines.append(f"graph reranker uygulandi (state={self.graph_state or '-'})")
         if self.dropped_for_budget:
             lines.append(f"token butcesi nedeniyle disarida: {', '.join(self.dropped_for_budget)}")
         return tuple(lines)
@@ -95,6 +105,9 @@ class RetrievalTrace:
             "after_dedupe": self.after_dedupe,
             "reranker_used": self.reranker_used,
             "reranker_failed": self.reranker_failed,
+            "graph_used": self.graph_used,
+            "graph_state": self.graph_state,
+            "graph_bypass": self.graph_bypass,
             "dropped_for_budget": list(self.dropped_for_budget),
         }
 
@@ -121,6 +134,14 @@ class RetrievalService:
         fused = reciprocal_rank_fusion(channels, exact_ids=exact_ids)
 
         reranked, used, failed = self._rerank(query, fused)
+        graph_used = False
+        graph_state: str | None = None
+        graph_bypass: str | None = None
+        last_state = getattr(self.reranker, "last_state", None)
+        if last_state is not None:
+            graph_used = True
+            graph_state = getattr(last_state, "graph_state", None)
+            graph_bypass = getattr(last_state, "bypass", None)
         trace = RetrievalTrace(
             identifiers=identifiers,
             source_type=str(getattr(self.backend, "source_type", "knowledge")),
@@ -129,6 +150,9 @@ class RetrievalService:
             after_dedupe=len(reranked),
             reranker_used=used,
             reranker_failed=failed,
+            graph_used=graph_used,
+            graph_state=graph_state,
+            graph_bypass=graph_bypass,
         )
         return reranked, trace
 
@@ -214,6 +238,9 @@ class RetrievalService:
             after_dedupe=len(unique),
             reranker_used=trace.reranker_used,
             reranker_failed=trace.reranker_failed,
+            graph_used=trace.graph_used,
+            graph_state=trace.graph_state,
+            graph_bypass=trace.graph_bypass,
             dropped_for_budget=tuple(dropped),
         ).as_lines()
 

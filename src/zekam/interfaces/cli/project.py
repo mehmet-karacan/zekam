@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import subprocess
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -10,6 +12,19 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from zekam.application.code_graph import (
+    CodeGraphBuildPlan,
+    apply_graph_build,
+    graph_store_path,
+    plan_graph_build,
+)
+from zekam.application.code_graph_python import PythonAstExtractor
+from zekam.application.code_graph_query import (
+    graph_find,
+    graph_impact,
+    graph_map,
+    graph_outline,
+)
 from zekam.application.config import EmbeddingRoute
 from zekam.application.home import resolve_home
 from zekam.application.odi11g_export import (
@@ -37,6 +52,7 @@ from zekam.application.project_rag_runtime import (
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identifiers import normalize_slug, validate_slug
 from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 from zekam.interfaces.cli.session import (
     HOME_HELP,
     REALM_HELP,
@@ -553,3 +569,356 @@ def index_command(
         console.print(
             f"[green]Aktif:[/green] {result['generation_digest']} chunks={result['chunk_count']}"
         )
+
+
+# --- Context Graph Engine (G0/G1): graph plan|build|status|check ------------
+
+graph_app = typer.Typer(
+    name="graph",
+    help="Proje structural code graph (rebuildable, tied to plan)",
+    no_args_is_help=True,
+)
+_GRAPH_EXTRACTOR = PythonAstExtractor()
+
+
+def _source_revision(source_root: Path) -> str:
+    """Best-effort git HEAD label; fallback to a stable local label."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(source_root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if completed.returncode == 0:
+            head = completed.stdout.strip()
+            if len(head) == 40:
+                return head
+    except OSError:
+        pass
+    return "working"
+
+
+def _graph_plan(
+    project_ref: str,
+    *,
+    source_root: Path,
+    resolved: dict[str, object],
+    created_at: str,
+) -> CodeGraphBuildPlan:
+    return plan_graph_build(
+        source_root,
+        project_id=str(resolved["id"]),
+        project_slug=str(resolved["slug"]),
+        source_revision=_source_revision(source_root),
+        extractor=_GRAPH_EXTRACTOR,
+        created_at=created_at,
+    )
+
+
+@graph_app.command("plan")
+def graph_plan_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Mutation yapmadan exact graph build planini uretir."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        source_root = resolve_project_source(resolve_home(home), str(resolved["slug"]))
+        plan = _graph_plan(project, source_root=source_root, resolved=resolved,
+                           created_at=dt.datetime.now(dt.UTC).isoformat())
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(
+            {
+                "schema": "zekam-project-graph-plan/v1",
+                "project": str(resolved["slug"]),
+                "plan_digest": plan.plan_digest,
+                "project_id": plan.project_id,
+                "source_revision": plan.source_revision,
+                "tree_digest": plan.tree_digest,
+                "source_manifest_digest": plan.source_manifest_digest,
+                "extractor_profile_digest": plan.extractor_profile_digest,
+                "file_count": len(plan.file_manifests),
+                "apply": False,
+            }
+        )
+    else:
+        console.print(
+            f"[green]Graph plan:[/green] {resolved['slug']} files={len(plan.file_manifests)}"
+        )
+        console.print(f"Plan digest: {plan.plan_digest}")
+
+
+@graph_app.command("build")
+def graph_build_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Digest-bound graph generation build; varsayilan dry-run'dir."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        source_root = resolve_project_source(resolved_home, str(resolved["slug"]))
+        plan = _graph_plan(project, source_root=source_root, resolved=resolved,
+                           created_at=dt.datetime.now(dt.UTC).isoformat())
+        if not apply:
+            document = {
+                "schema": "zekam-project-graph-plan/v1",
+                "project": str(resolved["slug"]),
+                "plan_digest": plan.plan_digest,
+                "file_count": len(plan.file_manifests),
+                "apply": False,
+                "build_dry_run": True,
+            }
+        else:
+            if plan_digest is None:
+                raise PolicyViolation("Graph build --uygula exact --plan-digest ister")
+            if plan_digest != plan.plan_digest:
+                raise PolicyViolation("Graph build stale/yanlis plan digest")
+            store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+            with SQLiteCodeGraphStore(store_path, create=True) as store:
+                generation = apply_graph_build(store, _GRAPH_EXTRACTOR, source_root, plan)
+                document = {
+                    "schema": "zekam-project-graph-build/v1",
+                    "project": str(resolved["slug"]),
+                    "plan_digest": plan.plan_digest,
+                    "generation_digest": generation.generation_digest,
+                    "project_id": generation.project_id,
+                    "source_revision": generation.source_revision,
+                    "file_count": generation.file_count,
+                    "symbol_count": generation.symbol_count,
+                    "edge_count": generation.edge_count,
+                    "error_count": generation.error_count,
+                    "state": generation.state,
+                    "store_path": store_path.as_posix(),
+                    "apply": True,
+                }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"[green]Graph build:[/green] {resolved['slug']} "
+            f"{document['file_count']} files plan={document['plan_digest']}"
+        )
+        if not apply:
+            console.print(
+                "[yellow]Dry-run. Uygulamak icin --uygula ve exact --plan-digest verin.[/yellow]"
+            )
+
+
+@graph_app.command("status")
+def graph_status_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Aktif graph generation durumunu yazar (mutation yapmaz)."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-status/v1",
+            "project": str(resolved["slug"]),
+        }
+        if not store_path.is_file():
+            document["state"] = "unavailable"
+        else:
+            with SQLiteCodeGraphStore(store_path) as store:
+                document.update(store.status(str(resolved["id"])))
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(f"{document['project']}\t{document['state']}")
+
+
+@graph_app.command("check")
+def graph_check_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Graph store butunlugunu (quick_check + FK + gen count) raporlar."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-check/v1",
+            "project": str(resolved["slug"]),
+        }
+        if not store_path.is_file():
+            document["status"] = "unavailable"
+        else:
+            with SQLiteCodeGraphStore(store_path) as store:
+                document.update(store.integrity())
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(f"{document['project']}\t{document['status']}")
+
+
+# --- Context Graph Query (G3): find|outline|impact|map (read-only) -----------
+
+
+def _graph_read_store(store_path: Path) -> SQLiteCodeGraphStore:
+    """Open the graph store in immutable read-only mode for query commands."""
+    return SQLiteCodeGraphStore(store_path, read_only=True)
+
+
+@graph_app.command("find")
+def graph_find_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    query: Annotated[str, typer.Argument(help="Symbol veya dosya adi")],
+    limit: Annotated[int, typer.Option("--limit")] = 50,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Salt-okunur exact + lexical symbol/file eslesmesi."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-find/v1",
+            "project": str(resolved["slug"]),
+            "query": query,
+        }
+        if not store_path.is_file():
+            document["state"] = "unavailable"
+            document["matches"] = []
+        else:
+            with _graph_read_store(store_path) as store:
+                matches = graph_find(store, str(resolved["id"]), query, limit=limit)
+                document["state"] = "ready"
+                document["count"] = len(matches)
+                document["matches"] = matches
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"{document['project']}\t{document['state']} count={document.get('count', 0)}"
+        )
+
+
+@graph_app.command("outline")
+def graph_outline_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    file: Annotated[str, typer.Argument(help="Proje-relative dosya yolu")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Salt-okunur dosya hiyerarsik outline'i (module->class->function/method)."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-outline/v1",
+            "project": str(resolved["slug"]),
+            "relative_path": file,
+        }
+        if not store_path.is_file():
+            document["state"] = "unavailable"
+            document["outline"] = []
+        else:
+            with _graph_read_store(store_path) as store:
+                outline = graph_outline(store, str(resolved["id"]), file)
+                document["state"] = "ready"
+                document["count"] = len(outline)
+                document["outline"] = outline
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"{document['project']}\t{document['state']} count={document.get('count', 0)}"
+        )
+
+
+@graph_app.command("impact")
+def graph_impact_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    symbol: Annotated[str, typer.Argument(help="Nitelikli symbol adi")],
+    max_depth: Annotated[int, typer.Option("--max-depth")] = 100,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Salt-okunur symbol blast radius'i (dependency edges, contains haric)."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-impact/v1",
+            "project": str(resolved["slug"]),
+            "symbol": symbol,
+        }
+        if not store_path.is_file():
+            document["state"] = "unavailable"
+        else:
+            with _graph_read_store(store_path) as store:
+                impact = graph_impact(
+                    store, str(resolved["id"]), symbol, max_depth=max_depth
+                )
+                document["state"] = "ready" if impact.get("found") else "not-found"
+                document.update(impact)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(f"{document['project']}\t{document['state']}")
+
+
+@graph_app.command("map")
+def graph_map_command(
+    project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Salt-okunur repository map (per-file aggregation)."""
+    try:
+        resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
+        resolved_home = resolve_home(home)
+        store_path = graph_store_path(resolved_home, str(resolved["slug"]))
+        document: dict[str, object] = {
+            "schema": "zekam-project-graph-map/v1",
+            "project": str(resolved["slug"]),
+        }
+        if not store_path.is_file():
+            document["state"] = "unavailable"
+            document["files"] = []
+        else:
+            with _graph_read_store(store_path) as store:
+                files = graph_map(store, str(resolved["id"]))
+                document["state"] = "ready"
+                document["count"] = len(files)
+                document["files"] = files
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"{document['project']}\t{document['state']} files={document.get('count', 0)}"
+        )
+
+
+app.add_typer(graph_app)

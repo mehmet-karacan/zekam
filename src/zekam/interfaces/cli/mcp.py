@@ -10,6 +10,7 @@ from typing import Annotated
 import typer
 
 from zekam.application.atlassian_mcp_server import serve as serve_atlassian
+from zekam.application.code_graph_mcp_server import serve as serve_code_graph
 from zekam.application.composition import build_context
 from zekam.application.local_effects import run_claimed_local_effect
 from zekam.application.mcp_integrations import (
@@ -248,6 +249,12 @@ def rollback_command(
 
 @app.command("serve", hidden=True)
 def serve_command(server: Annotated[str, typer.Argument()]) -> None:
+    if server == "code-graph":
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stdin.reconfigure(encoding="utf-8")
+        serve_code_graph()
+        return
     if server != "innova-atlassian":
         typer.echo("Hata: bilinmeyen built-in MCP server", err=True)
         raise typer.Exit(64)

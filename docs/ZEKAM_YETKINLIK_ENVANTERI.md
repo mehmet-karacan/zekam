@@ -32,6 +32,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | Semantic memory | `partial` | İç domain/shadow mekanizmaları | inspect/search/review/promote/status kullanıcı yüzeyi eksik |
 | Kişisel skill yaşam döngüsü | `partial` | `skill prepare/status/list/inspect/explain/propose/evaluate/export`; v2 origin/eval/activation/invocation ledger; yönetilen istemci projection | Pilot adaydır ve aktif değildir; gerçek model/Claude/macOS kabulü ile evolution auto-activation yetkisi yoktur |
 | Jira | `partial` | Deterministik `jira resolve` | Issue fetch + kanıt kalıcılığı OpenCode MCP yoluna bağlı |
+| Context Graph Engine | `partial` | `project graph plan/build/status/check` | Structural Python AST extractor + atomic SQLite graph store hazır; WP-08 golden corpus (20 sorgu, chunk-id tabanlı) + varyant-matris runner (metrik omurgası recall/mrr/ndcg) kuruldu; provider çağrılı tam run ve end-to-end agent kabulü ayrı onay bekler |
 
 ## “Nerede kaldık?” sözleşmesi
 

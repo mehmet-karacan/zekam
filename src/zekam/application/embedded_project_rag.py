@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
+from zekam.application.code_graph_ranking import (
+    GraphRankingConfig,
+    GraphReadPort,
+    ProjectGraphReranker,
+)
 from zekam.application.embedding_provider import EmbeddingPolicy, EmbeddingProvider
 from zekam.application.knowledge_index import (
     KnowledgeGeneration,
@@ -28,6 +34,38 @@ DEFAULT_LEXICAL_COVERAGE_THRESHOLD = 0.50
 
 def _tokens(value: str) -> frozenset[str]:
     return frozenset(item.casefold() for item in _TOKEN.findall(value) if len(item) > 1)
+
+
+def compose_graph_reranker(
+    graph: GraphReadPort,
+    *,
+    project_id: str,
+    source_revision: str,
+    tree_digest: str,
+    chunk_file: Callable[[str], str | None],
+    enabled: bool = False,
+    config: GraphRankingConfig | None = None,
+) -> Reranker | None:
+    """Compose an optional graph reranker.
+
+    Default-off (task #17): unless ``enabled`` is true, ``None`` is returned so
+    ``EmbeddedProjectRAG.reranker`` stays unchanged and the baseline RAG path is
+    preserved byte-for-byte.  All binding identity checks run inside the
+    reranker per query; a binding mismatch simply bypasses it at runtime.
+    """
+    if not enabled:
+        return None
+    try:
+        return ProjectGraphReranker(
+            graph,
+            project_id=project_id,
+            source_revision=source_revision,
+            tree_digest=tree_digest,
+            chunk_file=chunk_file,
+            config=config,
+        )
+    except Exception:
+        return None
 
 
 def _supports_all_identifiers(text: str, identifiers: tuple[str, ...]) -> bool:
@@ -336,6 +374,9 @@ class EmbeddedProjectRAG:
                 reranker_used=trace.reranker_used,
                 reranker_failed=trace.reranker_failed,
                 source_type=trace.source_type,
+                graph_used=trace.graph_used,
+                graph_state=trace.graph_state,
+                graph_bypass=trace.graph_bypass,
             ),
             views=views,
             token_budget=token_budget,
@@ -414,6 +455,15 @@ class EmbeddedProjectRAG:
                 ["exact", "lexical", "dense"] if provider_available else ["exact", "lexical"]
             ),
             "channel_counts": trace.per_channel,
+            "graph_reranker": (
+                {
+                    "used": trace.graph_used,
+                    "state": trace.graph_state,
+                    "bypass": trace.graph_bypass,
+                }
+                if trace.graph_used
+                else None
+            ),
             "candidate_count": len(candidate_ids),
             "lexical_coverage": lexical_coverage,
             "identifier_count": len(identifiers),
