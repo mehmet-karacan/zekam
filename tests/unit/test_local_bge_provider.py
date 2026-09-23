@@ -171,7 +171,7 @@ def test_probe_profile_batch_query_policy_and_health(tmp_path: Path) -> None:
         )
 
 
-def test_profile_identity_is_restart_stable_but_cross_device_and_remote_namespaced(
+def test_profile_identity_is_restart_stable_and_ignores_benign_runtime_fields(
     tmp_path: Path,
 ) -> None:
     provider = _provider(tmp_path, FakeInfinityTransport())
@@ -179,8 +179,22 @@ def test_profile_identity_is_restart_stable_but_cross_device_and_remote_namespac
     second = provider.probe(_fixture()).profile
     assert first.profile_digest == second.profile_digest
 
-    other_device = replace(first, device_scope="windows-amd64:remote")
-    assert other_device.profile_digest != first.profile_digest
+    # Benign calisma-zamani alanlari kimlik digest'ini DEGISTIRMEZ; ayni makine
+    # + model + revision + dimension + prefix icin index/query digest'i stabil.
+    benign_device = replace(first, device_scope="windows-amd64:remote")
+    assert benign_device.profile_digest == first.profile_digest
+    benign_batch = replace(first, batch_policy_digest=digest("other-batch"))
+    assert benign_batch.profile_digest == first.profile_digest
+
+    # Gercek model kimlik alanlari digest'i DEGISTIRIR (guvenlik/flavor korunur).
+    for mutated in (
+        replace(first, model_revision_fingerprint=digest("other-revision")),
+        replace(first, exact_model_id="other/model"),
+        replace(first, query_prefix="q:"),
+        replace(first, passage_prefix="p:"),
+        replace(first, dimension=512),
+    ):
+        assert mutated.profile_digest != first.profile_digest
 
     remote = replace(
         first,
@@ -191,7 +205,7 @@ def test_profile_identity_is_restart_stable_but_cross_device_and_remote_namespac
         data_classification_allowlist=(DataClassification.PUBLIC,),
     )
     assert remote.exact_model_id == first.exact_model_id
-    assert remote.profile_digest not in {first.profile_digest, other_device.profile_digest}
+    assert remote.profile_digest not in {first.profile_digest, benign_device.profile_digest}
     with pytest.raises(PolicyViolation, match="remote-disclosure-not-authorized"):
         remote.assert_policy(EmbeddingPolicy(DataClassification.PUBLIC, remote.profile_digest))
     remote.assert_policy(

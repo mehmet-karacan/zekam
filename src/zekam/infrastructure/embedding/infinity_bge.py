@@ -286,7 +286,6 @@ def discover_local_bge(
             "model_revision_fingerprint": model_revision_fingerprint,
             "backend": model["backend"],
             "compute_dtype": configuration.compute_dtype,
-            "device_scope": device_scope,
         }
     )
     runtime_evidence_digest = digest(
@@ -475,7 +474,6 @@ class LocalInfinityBGEProvider:
             batch_policy_digest=digest(
                 {
                     "max_batch_size": self._configuration.max_batch_size,
-                    "runtime_batch_size": self._discovery.batch_size,
                     "timeout_seconds": self._configuration.timeout_seconds,
                 }
             ),

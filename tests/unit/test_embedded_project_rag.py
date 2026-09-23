@@ -320,7 +320,7 @@ def test_profile_mismatch_keeps_lexical_snapshot_search(tmp_path: Path) -> None:
     provider = QueryProvider()
     index, rag = _rag(tmp_path, provider)
     try:
-        provider.profile = replace(provider.profile, device_scope="other-device")
+        provider.profile = replace(provider.profile, model_revision_fingerprint=digest("other-revision"))
         result = _query(rag, "ADR-0006")
         assert result["state"] == "lexical-only-degraded"
         assert result["index_freshness"] == "stale"

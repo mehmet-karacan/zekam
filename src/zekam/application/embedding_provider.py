@@ -113,6 +113,12 @@ class EmbeddingProfile:
         return digest(self.identity_dict())
 
     def identity_dict(self) -> dict[str, object]:
+        # Identity digest yalniz semantik/kimlik alanlarini tasir. Benign
+        # calisma-zamani alanlari (device_scope, batch_policy_digest) digest'e
+        # dahil edilmez; aksi halde index ve query aninda ayni makine + model +
+        # revision + dimension + prefix icin digest drift uretir ve dense
+        # lexical-only-degraded'a duser. Gercek kimlik degisikligi (exact_model_id,
+        # model_revision_fingerprint, dimension, prefix, ...) digest'i degistirir.
         return {
             "profile_id": self.profile_id,
             "provider_kind": self.provider_kind.value,
@@ -127,8 +133,6 @@ class EmbeddingProfile:
             "passage_prefix": self.passage_prefix,
             "preprocessor_digest": self.preprocessor_digest,
             "tokenizer_digest": self.tokenizer_digest,
-            "batch_policy_digest": self.batch_policy_digest,
-            "device_scope": self.device_scope,
             "data_classification_allowlist": [
                 item.value for item in self.data_classification_allowlist
             ],
@@ -137,6 +141,8 @@ class EmbeddingProfile:
     def as_dict(self) -> dict[str, object]:
         return self.identity_dict() | {
             "display_name": self.display_name,
+            "batch_policy_digest": self.batch_policy_digest,
+            "device_scope": self.device_scope,
             "verified_at": self.verified_at,
             "probe_evidence_digest": self.probe_evidence_digest,
         }
