@@ -52,6 +52,32 @@ _IBAN_CANDIDATE = re.compile(r"(?i)(?<![A-Z0-9])TR[0-9A-Z]{24}(?![A-Z0-9])")
 _CARD_CANDIDATE = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 _MAX_NOTE_BYTES = 2 * 1024 * 1024
 
+# Phone PII match is a false positive when it is a contiguous hex segment embedded in a
+# larger hex token (e.g. a numeric substring inside a `sha256:<hex>` digest). Only the
+# phone rule (#1) needs this guard: SECRET_RULES / TCKN / IBAN / Luhn stay untouched.
+_HEX_ALPHABET = frozenset("0123456789abcdefABCDEF")
+_HEX_ONLY = re.compile(r"^[0-9a-fA-F]+$")
+_PHONE_RULE_INDEX = 1
+
+
+def _phone_match_is_hex_digest_embedded(text: str, start: int, end: int) -> bool:
+    """True when the phone-like match is part of a hex-dense token (digest substring)."""
+    if not _HEX_ONLY.match(text[start:end]):
+        return False
+    left = text[start - 1] if start > 0 else ""
+    right = text[end] if end < len(text) else ""
+    return (left and left in _HEX_ALPHABET) or (right and right in _HEX_ALPHABET)
+
+
+def _has_public_pii(text: str) -> bool:
+    if _PUBLIC_PII_RULES[0].search(text) or _PUBLIC_PII_RULES[2].search(text):
+        return True
+    phone = _PUBLIC_PII_RULES[_PHONE_RULE_INDEX]
+    return any(
+        not _phone_match_is_hex_digest_embedded(text, m.start(), m.end())
+        for m in phone.finditer(text)
+    )
+
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
     pass
@@ -629,7 +655,7 @@ def assert_public_safe_projection(payload: bytes, *, relative_path: str) -> str:
     )
     if (
         contains_secret
-        or any(rule.search(text) for rule in _PUBLIC_PII_RULES)
+        or _has_public_pii(text)
         or _contains_sensitive_number(text)
     ):
         raise PolicyViolation("Public-safe projection secret/PII taramasini gecemedi")
