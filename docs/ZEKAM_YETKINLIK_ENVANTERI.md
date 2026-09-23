@@ -27,7 +27,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | ODI 11g lineage | `partial` | `project odi-preflight/odi-bind`; digest-bound local-only export bağlantısı | Gerçek GPU/SKY exportuyla object-aware sanitizer ve exact lineage graph doğrulanmadan embedding kapalı |
 | Project Researcher | `ready` | Digest-bound `research run/status/report`; OpenCode researcher + bağımsız verifier | — |
 | Fikir üretme ve geliştirme | `scaffold` | Intake türleri ve storage kökleri | generate/review/save/promote akışı eksik |
-| Raporlar ve observatory | `partial` | `scheduler report/rebuild`, `ui serve` | Research rapor gövdesi show/refresh bağlı değil |
+| Raporlama | `partial` | `scheduler report/rebuild` | Machine-readable rapor yüzeyi var; gösterim show/refresh ayrı değil |
 | Model benchmark | `partial` | `model benchmark/decide/health/portable-inspect`, `model campaign plan/run/status/report` | Windows-native pipeline kampanyası hazır; portable import, gerçek provider, baseline ve release gate hâlâ kapalı |
 | Semantic memory | `partial` | İç domain/shadow mekanizmaları | inspect/search/review/promote/status kullanıcı yüzeyi eksik |
 | Kişisel skill yaşam döngüsü | `partial` | `skill prepare/status/list/inspect/explain/propose/evaluate/export`; v2 origin/eval/activation/invocation ledger; yönetilen istemci projection | Pilot adaydır ve aktif değildir; gerçek model/Claude/macOS kabulü ile evolution auto-activation yetkisi yoktur |

@@ -15,7 +15,6 @@ from rich.table import Table
 
 from zekam.domain.observability import (
     CANONICAL_COMMANDS,
-    REQUIRED_TILES,
     missing_commands,
 )
 
@@ -80,7 +79,6 @@ def check_command(
         "registered_count": len(available),
         "contract_count": len(CANONICAL_COMMANDS),
         "missing": list(missing),
-        "required_tiles": list(REQUIRED_TILES),
     }
     if as_json:
         console.print_json(json.dumps(payload, ensure_ascii=False))

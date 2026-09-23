@@ -36,7 +36,7 @@ if sys.platform != "darwin":
         "unit/test_wp16_macos_authority_final_exact_coverage.py",
         "unit/test_wp16_macos_lifecycle_coverage.py",
         "unit/test_wp16_macos_remaining_coverage_wp05.py",
-        "unit/test_wp16_orchestrator_benchmark_observatory_wp05.py",
+        "unit/test_wp16_orchestrator_benchmark_runtime.py",
         "unit/test_wp16_v4_remaining_coverage.py",
         "unit/test_wp16_v4_sqlite_remaining_batch.py",
     ]

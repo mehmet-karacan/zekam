@@ -127,15 +127,13 @@ ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 - [ ] Network, secret, mutation, DB write, push ve destructive effect exact one-shot authorization gerektirir.
 - [ ] Yetkilendirilmiş planın child step'leri drift yoksa anlamsız ikinci onay istemez.
 
-## I. Scheduler, rapor ve dashboard
+## I. Scheduler ve raporlama
 
 - [ ] `gelen-belgeler` watcher idempotent ingestion/research job üretir.
 - [ ] Gece model health, project scan, memory hygiene, recovery ve araştırma işleri çalışır.
 - [ ] Sabah genel ve proje bazlı rapor oluşur.
 - [ ] Rapor model, kaynak, agent, token, cost, quota, failure, contradiction ve next action içerir.
-- [ ] Dashboard Work Graph, queue, model, retrieval, memory ve scheduler projection'larını gösterir.
-- [ ] Dashboard veya OpenTelemetry kanonik state olmaz.
-- [ ] Obsidian/sinaps benzeri graph görünümü güvenli derived projection olarak sağlanır.
+- [ ] Gözlem/reporting projection'ları kanonik state olmaz.
 
 ## J. Kalite, dokümantasyon ve release
 

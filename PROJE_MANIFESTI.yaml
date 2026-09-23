@@ -14,7 +14,6 @@ authority:
   execution_truth: run-step-claim-receipt-ledger
   retrieval_is_authority: false
   memory_is_authority: false
-  dashboard_is_authority: false
 architecture:
   style: modular-monolith-with-separate-processes
   processes:

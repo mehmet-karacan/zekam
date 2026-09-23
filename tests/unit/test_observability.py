@@ -1,4 +1,4 @@
-"""P16-T01..T06 komut sozlesmesi, telemetri ve projeksiyon testleri."""
+"""P16 komut sozlesmesi, telemetri, causal projeksiyon ve MCP testleri."""
 
 from __future__ import annotations
 
@@ -10,19 +10,13 @@ from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.observability import (
     CANONICAL_COMMANDS,
-    REQUIRED_TILES,
     CausalEdge,
     CausalNode,
     CausalOrphan,
     CausalProjection,
     CommandContract,
-    DerivedGraph,
-    GraphEdge,
-    GraphNode,
     McpCapability,
     McpNegotiation,
-    OperationsDashboard,
-    ProjectionTile,
     SpanKind,
     Surface,
     TelemetryAttribute,
@@ -152,91 +146,6 @@ def test_span_ciktisi_icerik_tasimaz() -> None:
     assert set(document["attributes"]) == {"unit_count"}
     assert "content" not in document
     assert "prompt" not in document
-
-
-# -- T05: dashboard -----------------------------------------------------------
-
-
-def _tiles() -> tuple[ProjectionTile, ...]:
-    return tuple(
-        ProjectionTile(
-            key=name,
-            title=name.title(),
-            value=index,
-            drill_down=f"zekam {name} list",
-        )
-        for index, name in enumerate(REQUIRED_TILES)
-    )
-
-
-def test_dashboard_zorunlu_projeksiyonlari_ister() -> None:
-    eksik = tuple(item for item in _tiles() if item.key != "memory")
-    with pytest.raises(ValidationFailed) as error:
-        OperationsDashboard(generated_at=NOW, tiles=eksik)
-    assert "memory" in str(error.value)
-
-
-def test_dashboard_salt_okunur_ve_authority_uretmez() -> None:
-    with pytest.raises(PolicyViolation):
-        OperationsDashboard(generated_at=NOW, tiles=_tiles(), read_only=False)
-    with pytest.raises(PolicyViolation):
-        OperationsDashboard(generated_at=NOW, tiles=_tiles(), grants_authority=True)
-    dashboard = OperationsDashboard(generated_at=NOW, tiles=_tiles())
-    assert dashboard.as_dict()["grants_authority"] is False
-    assert dashboard.as_dict()["read_only"] is True
-
-
-def test_her_kare_drill_down_baglantisi_tasir() -> None:
-    with pytest.raises(ValidationFailed):
-        ProjectionTile(key="work", title="Work", value=1, drill_down="  ")
-    dashboard = OperationsDashboard(generated_at=NOW, tiles=_tiles())
-    assert all(item["drill_down"] for item in dashboard.as_dict()["tiles"])
-
-
-# -- T06: derived graph -------------------------------------------------------
-
-
-def _graph(**kwargs: object) -> DerivedGraph:
-    nodes = (
-        GraphNode("w1", "work", "Is 1", "zekam work show w1"),
-        GraphNode("r1", "run", "Run 1", "zekam run status r1"),
-    )
-    defaults: dict[str, object] = {
-        "nodes": nodes,
-        "edges": (GraphEdge("w1", "r1", "executed-by"),),
-        "source_digest": digest("kaynak"),
-    }
-    defaults.update(kwargs)
-    return DerivedGraph(**defaults)  # type: ignore[arg-type]
-
-
-def test_graph_derived_ve_authority_uretmez() -> None:
-    with pytest.raises(PolicyViolation):
-        _graph(derived=False)
-    with pytest.raises(PolicyViolation):
-        _graph(grants_authority=True)
-    assert _graph().as_dict()["derived"] is True
-
-
-def test_graph_kanonik_kayda_drill_down_saglar() -> None:
-    assert _graph().drill_down("w1") == "zekam work show w1"
-    with pytest.raises(ValidationFailed):
-        _graph().drill_down("yok")
-
-
-def test_kenar_bilinmeyen_dugume_baglanamaz() -> None:
-    with pytest.raises(ValidationFailed):
-        _graph(edges=(GraphEdge("w1", "bilinmeyen", "x"),))
-
-
-def test_dugum_kanonik_referans_ister() -> None:
-    with pytest.raises(ValidationFailed):
-        GraphNode("w1", "work", "Is", "  ")
-
-
-def test_kenar_kendine_baglanamaz() -> None:
-    with pytest.raises(ValidationFailed):
-        GraphEdge("w1", "w1", "self")
 
 
 def test_causal_projection_bounded_authoritysiz_ve_exact_baglidir() -> None:

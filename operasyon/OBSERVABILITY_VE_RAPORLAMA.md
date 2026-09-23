@@ -1,9 +1,9 @@
-# Observability, Dashboard ve Raporlama
+# Observability ve Raporlama
 
 ## Telemetry vs state
 
 Telemetry kanonik Work/Run/Receipt değildir. OpenTelemetry trace/metric/log kaybı ürün state'ini
-kaybettirmez. Dashboard derived query/projection kullanır.
+kaybettirmez. Gözlem/reporting projection'ları kanonik state değildir.
 
 ## Correlation
 
@@ -79,33 +79,6 @@ uygun olanları taşır. Secret/raw source/model output loglanmaz.
 
 Structured JSON, sanitized error category/digest. Local secure diagnostics ayrı access control.
 Full prompt/source/credential default log yok.
-
-## Dashboard minimum sayfaları
-
-1. Genel sağlık
-2. Projeler
-3. Bugünkü işler / Work Graph
-4. Runs/DAG/agents/queue/locks/recovery
-5. Modeller/health/benchmark/quota/routing
-6. Knowledge sources/index/retrieval/eval
-7. Memory/learning/skills/hygiene
-8. Scheduler/gece işleri/raporlar
-9. Security/authorization/outbound
-10. Backup/release.
-
-İlk sürüm read-only. Mutation action dashboard'dan yapılırsa aynı application service exact
-plan/approval gate'ini kullanır.
-
-## Sinaps/graph görünümü
-
-Derived graph:
-- project/work/decision/source/citation/memory/model/agent ilişkileri,
-- authority ve freshness styling,
-- active runtime ownership ayrı,
-- click-through canonical record.
-
-Graph DB zorunlu değildir; PostgreSQL relation/projection ile başlanır. Graph'ta edge olması
-authority kanıtı değildir.
 
 ## İnsan raporları
 

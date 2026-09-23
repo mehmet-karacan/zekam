@@ -2,14 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:9de9fc54647d64e3be7f8b3463236c325a1be49fa3bc3064697a278b59516c67
-task_id: ZEKAM-JIRA-ENGINEERING-COMMUNICATION-001
+authority_digest: sha256:11da41d242289f35560b66362ea1f8531ea19e55d6386a946f8694ba19449394
+task_id: ZEKAM-UI-REMOVAL-001
 status: APPROVED_ACTIVE_TASK
-title: Jira Muhendislik Iletisimi Skill Paketi
-created_at: '2026-09-16T00:00:00+03:00'
+title: Zekam UI ve Dashboard Yuzeylerinin Tamamen Kaldirilmasi
+created_at: '2026-09-22T11:17:00+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: 638b6b703226b0888c031d3e38f919779d4b4865
+baseline_head: 68b4833ff959185e5155a28680658ccbd96dd997
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false

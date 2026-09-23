@@ -33,7 +33,6 @@ oracle = [
 ]
 api = [
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
     "psutil>=6,<8",
 ]
 knowledge-docs = [

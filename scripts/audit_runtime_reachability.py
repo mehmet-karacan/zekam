@@ -47,7 +47,6 @@ PUBLIC_RUNTIME_ROOTS = (
     "zekam.interfaces.cli.scheduler",
     "zekam.interfaces.api.health",
     "zekam.interfaces.api.app_server",
-    "zekam.interfaces.api.observatory",
 )
 
 FORBIDDEN_RUNTIME_MODULES = frozenset(

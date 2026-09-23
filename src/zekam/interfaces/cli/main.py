@@ -70,7 +70,6 @@ from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import skill as skill_commands
 from zekam.interfaces.cli import surface as surface_commands
-from zekam.interfaces.cli import ui as ui_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
 from zekam.interfaces.cli.session import REALM_HELP, fail_from
@@ -102,6 +101,8 @@ def _print_json(document: object) -> None:
     """Emit machine JSON independently of the active Windows code page."""
 
     typer.echo(json.dumps(document, ensure_ascii=True, sort_keys=True, default=str))
+
+
 _OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
 _DEFAULT_OPENCODE_CONFIG_FILE = default_opencode_config_file()
 
@@ -126,7 +127,6 @@ app.add_typer(jira_commands.app)
 app.add_typer(route_commands.app)
 app.add_typer(research_commands.app)
 app.add_typer(surface_commands.app)
-app.add_typer(ui_commands.app)
 app.add_typer(worker_commands.app)
 app.add_typer(scheduler_commands.app)
 app.add_typer(skill_commands.app)

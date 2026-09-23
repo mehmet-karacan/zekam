@@ -192,21 +192,6 @@ python -m venv .venv
 .venv/Scripts/zekam doctor
 ```
 
-## Zekam Canlı Yürütme Gözleme Merkezi (read-only)
-
-Bu cihazda gerçekten açık OpenCode, Codex, Claude ve Zekam CLI süreçlerini; güvenli
-session bağlarını ve kanonik runtime zincirini izlemek için:
-
-```bash
-.venv/Scripts/zekam ui serve
-.venv/Scripts/zekam ui serve --realm-id <REALM_UUID>
-```
-
-Varsayılan yüzey yalnız loopback adresine bağlanır ve mutation endpoint'i açmaz. Realm
-verilmezse yerel process/session görünümü çalışır, uzak bir realm tahmin edilmez. Mimari,
-durum semantiği, kurulum ve mahremiyet sınırları:
-[`docs/UI_NEURO_OBSERVATORY_MIMARISI.md`](docs/UI_NEURO_OBSERVATORY_MIMARISI.md).
-
 ## Yerel işletim ve tam yedek
 
 Mac yerel çalışma kökü Docker veya PostgreSQL gerektirmez. `zekam worker status`,

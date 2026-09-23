@@ -14,7 +14,6 @@ import pytest
 
 from zekam.application import memory_continuity_orchestrator as memory
 from zekam.application import model_benchmark_service as benchmark
-from zekam.application import observatory
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.hook_runtime import HookEventType
@@ -29,7 +28,6 @@ from zekam.domain.model_benchmark import (
     VerifierIdentity,
     VerifierVerdict,
 )
-from zekam.domain.observability import CausalProjection, DerivedGraph, OperationsDashboard
 from zekam.domain.security import AuthorizationState
 from zekam.infrastructure.clients import codex_macos_0151_lifecycle as lifecycle
 
@@ -468,79 +466,6 @@ def test_benchmark_execute_retains_verdict_drift_and_invalid_aggregate() -> None
         service.aggregate(
             uuid4(), plan=plan, suite=suite, tested_model_id="model", verifier=identity
         )
-
-
-def test_observatory_value_helpers_and_snapshot_guards(tmp_path: Path) -> None:
-    tiles = observatory.EmptyRuntimeProjectionReader().read().tiles
-    with pytest.raises(ValueError, match="missing tiles"):
-        observatory.RuntimeProjection(NOW, tiles[:-1])
-    snapshot = observatory.ObservatorySnapshot(
-        NOW,
-        OperationsDashboard(NOW, tiles),
-        DerivedGraph((), (), digest("graph")),
-        (),
-        (),
-        (),
-        CausalProjection(),
-        observatory.CanonicalRuntimeProjection(),
-        False,
-        "test",
-    )
-    with pytest.raises(ValueError, match="read-only"):
-        replace(snapshot, read_only=False)
-    with pytest.raises(ValueError, match="authority"):
-        replace(snapshot, grants_authority=True)
-    with pytest.raises(ValueError):
-        observatory.ObservatoryService(tmp_path, repository_refresh_seconds=0)
-    assert observatory._safe_tool_name(None) is None
-    assert observatory._safe_tool_name("bad/path") is None
-    assert observatory._safe_tool_name("token:bad") is None
-    assert observatory._safe_tool_name("tool.ok") == "tool.ok"
-    assert observatory._safe_current_action("x", "tool") == "tool"
-    for state, expected in (
-        ("running", "executing"),
-        ("idle", "waiting"),
-        ("queued", "planning"),
-        ("x", "unknown"),
-    ):
-        assert observatory._safe_current_action(state, None) == expected
-    assert observatory._parse_timestamp("bad").tzinfo is not None
-    assert observatory._parse_timestamp("2026-09-05T12:00:00Z") == NOW
-    assert observatory._iso(None) is None
-    rendered = observatory._iso(NOW.replace(tzinfo=None))
-    assert rendered is not None and rendered.endswith("Z")
-
-
-def test_observatory_files_links_labels_and_cache_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "core"
-    root.mkdir()
-    source = root / "source.md"
-    target = root / "target.md"
-    source.write_text(
-        "# Source\n[target](target.md) [bad](https://x.md) [bin](x.bin)",
-        encoding="utf-8",
-    )
-    target.write_text("# Target", encoding="utf-8")
-    assert observatory._markdown_targets(source, source.read_text(), root) == (target,)
-    assert observatory.sanitize_observatory_label("", fallback="token=bad") == "Kayıt"
-    assert not observatory._is_safe_markdown(root / "missing.md", root)
-    secret = root / "token=bad.md"
-    secret.write_text("x", encoding="utf-8")
-    assert not observatory._is_safe_markdown(secret, root)
-    nested = root / "sessions"
-    nested.mkdir()
-    (nested / "a.jsonl").write_text("{}", encoding="utf-8")
-    (nested / "skip.txt").write_text("x", encoding="utf-8")
-    assert observatory._bounded_session_files(root, max_directories=10, max_candidates=1)
-    service = observatory.ObservatoryService(root)
-    first = service._repository_projection()
-    monkeypatch.setattr(
-        observatory, "scan_repository", lambda path: (_ for _ in ()).throw(OSError())
-    )
-    service._repository_cache_at = 0
-    assert service._repository_projection() == first
 
 
 def test_lifecycle_strict_json_bounds_and_scalar_guards() -> None:

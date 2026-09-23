@@ -132,13 +132,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         "Idea classification and storage roots exist; generation/review/save surfaces do not.",
     ),
     Capability(
-        "reports-observatory",
-        "Analytics reports and live read-only observatory",
+        "reports",
+        "Analytics reports and machine-readable reporting",
         "partial",
-        ("scheduler report", "scheduler rebuild", "ui serve"),
+        ("scheduler report", "scheduler rebuild"),
         ("zekam-verifier",),
-        ("tests/e2e/test_ui_live_observatory.py",),
-        "Research report body show/refresh is not connected to the observatory.",
+        (),
+        "Scheduler report/rebuild surfaces exist for machine-readable reporting.",
     ),
     Capability(
         "model-benchmark",
