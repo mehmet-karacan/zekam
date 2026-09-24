@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import unicodedata
 from pathlib import Path
@@ -7,10 +8,14 @@ from pathlib import Path
 import pytest
 
 import zekam.application.skill_packages as skill_packages
-from zekam.application.skill_packages import apply_projection_plan, build_projection_plan
+from zekam.application.skill_packages import (
+    apply_projection_plan,
+    build_projection_plan,
+    discover_skill_metadata,
+)
 from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.domain.skill_package import SkillPackage
+from zekam.domain.skill_package import SkillPackage, SkillPackageMetadata
 
 ALL_ENABLED = ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True)
 
@@ -163,6 +168,58 @@ def test_default_projection_is_opencode_only(tmp_path: Path) -> None:
     assert not (project / ".agents").exists()
     assert not (project / ".claude").exists()
 
+
+def test_cross_client_projection_single_canonical_revision_and_no_authority(
+    tmp_path: Path,
+) -> None:
+    project = (tmp_path / "project").resolve()
+    project.mkdir()
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
+
+    # single canonical revision projects to multiple clients via the same package
+    plan = build_projection_plan(project, package, policy=ALL_ENABLED)
+    assert {str(target["relative_path"]) for target in plan.targets} == {
+        ".opencode/skills/zekam-arastirma-uygulama",
+        ".agents/skills/zekam-arastirma-uygulama",
+        ".claude/skills/zekam-arastirma-uygulama",
+    }
+    # all targets bind the same canonical package digest (one revision)
+    assert len({target["artifact_digest"] for target in plan.targets}) == 1
+    receipt = apply_projection_plan(plan, authorized_plan_digest=plan.plan_digest)
+
+    # projection grants no authority at the plan, receipt or ownership layer
+    assert plan.body["grants_authority"] is False
+    assert receipt["grants_authority"] is False
+    for target in plan.targets:
+        ownership = json.loads(
+            (project / str(target["relative_path"]) / ".zekam-managed.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert ownership["grants_authority"] is False
+    # projection is instruction-distribution-only, never tool/exec authority
+    assert plan.body["provider_calls"] == 0
+    assert plan.body["network_calls"] == 0
+
+
+def test_cross_client_managed_default_and_opt_in_policy_preserved(tmp_path: Path) -> None:
+    project = (tmp_path / "project").resolve()
+    project.mkdir()
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
+
+    # OpenCode is the default managed projection; Codex/Claude are opt-in.
+    default = build_projection_plan(project, package)
+    assert default.targets[0]["client"] == "opencode"
+    assert default.targets[0]["enabled"] is True
+    assert default.targets[0]["state"] == "new"
+    assert default.targets[1]["enabled"] is False  # codex opt-in
+    assert default.targets[2]["enabled"] is False  # claude opt-in
+
+    # opt-in policy enables all three, keeping a single canonical revision.
+    opt_in = build_projection_plan(project, package, policy=ALL_ENABLED)
+    assert all(target["enabled"] for target in opt_in.targets)
+    assert len({target["artifact_digest"] for target in opt_in.targets}) == 1
+
 def test_managed_update_rechecks_target_after_plan_authorization(tmp_path: Path) -> None:
     project = (tmp_path / "project").resolve()
     project.mkdir()
@@ -309,3 +366,109 @@ def test_projection_keeps_recoverable_backup_when_rollback_restore_is_blocked(
     backups = list(project.rglob("*.zekam-backup-*"))
     assert len(backups) == 1
     assert (backups[0] / "SKILL.md").read_bytes() == _files()["SKILL.md"]
+
+
+# --- AC-06: metadata-first lazy progressive disclosure ----------------------
+
+
+def _disclosure_files() -> dict[str, bytes]:
+    return {
+        "SKILL.md": (
+            "---\n"
+            "name: zekam-arastirma-uygulama\n"
+            "description: Kanıtlı araştırmayı güvenli uygulamaya dönüştürür.\n"
+            "metadata:\n"
+            '  version: "1.2.3"\n'
+            "  evaluation.state: candidate\n"
+            "---\n"
+            "Kaynakları doğrula ve sonucu receipt ile bağla.\n"
+        ).encode(),
+        "references/checks.md": b"# Checks\n\nFail closed.\n",
+        "references/other.md": b"# Other reference\n",
+        "scripts/gen.py": b"print('generated')\n",
+        "assets/data.bin": b"\x00\x01binary asset\n",
+    }
+
+
+def test_metadata_first_progressive_disclosure_view_has_no_content() -> None:
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _disclosure_files())
+
+    view = package.metadata_view
+    assert type(view) is SkillPackageMetadata
+    assert view.name == "zekam-arastirma-uygulama"
+    assert view.version == "1.2.3"
+    assert view.evaluation_state == "candidate"
+    assert view.reference_count == 2
+    assert view.script_count == 1
+    assert view.asset_count == 1
+
+    body = view.as_dict()
+    assert body["content_loaded"] is False
+    # metadata view must not expose any instruction/reference/script payload
+    assert "instructions" not in body
+    assert "checks" not in str(body)
+    assert "generated" not in str(body)
+    assert body["grants_authority"] is False
+
+
+def test_load_operators_resolve_only_on_explicit_request() -> None:
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _disclosure_files())
+
+    # instruction is the canonical SKILL.md payload
+    assert b"Kaynaklar" in package.load_instruction()
+    # per-reference lazy load
+    assert package.load_reference("references/checks.md") == b"# Checks\n\nFail closed.\n"
+    assert package.load_reference("references/other.md") == b"# Other reference\n"
+    # script + asset metadata are digest-bound and content-free
+    script_meta = package.load_script_metadata("scripts/gen.py")
+    assert script_meta["name"] == "scripts/gen.py"
+    assert script_meta["grants_authority"] is False
+    asset_meta = package.load_asset_metadata("assets/data.bin")
+    assert asset_meta["path"] == "assets/data.bin"
+    assert asset_meta["grants_authority"] is False
+
+
+def test_lazy_load_operators_are_fail_closed_on_escape() -> None:
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _disclosure_files())
+
+    # reference must live under references/ and be markdown, no traversal
+    for bad in ("../escape.md", "SKILL.md", "references/../../etc/passwd", "scripts/x.py"):
+        with pytest.raises(PolicyViolation):
+            package.load_reference(bad)
+    # absent managed path rejected
+    with pytest.raises(PolicyViolation):
+        package.load_reference("references/absent.md")
+    # script and asset are string-only, canonical, and must be managed
+    with pytest.raises(PolicyViolation):
+        package.load_script_metadata("other.py")
+    with pytest.raises(PolicyViolation):
+        package.load_asset_metadata("scripts/gen.py")
+
+
+def test_metadata_requested_fields_are_bounded() -> None:
+    package = SkillPackage.parse("zekam-arastirma-uygulama", _disclosure_files())
+
+    selected = package.load_metadata(fields=("name", "description"))
+    assert set(selected) == {"schema", "name", "description"}
+    with pytest.raises(ValidationFailed):
+        package.load_metadata(fields=("name", "nope"))
+    with pytest.raises(ValidationFailed):
+        package.load_metadata(fields=())
+
+
+def test_discover_skill_metadata_is_metadata_only(tmp_path: Path) -> None:
+    root = (tmp_path / "zekam-arastirma-uygulama").resolve()
+    root.mkdir()
+    for relative, payload in _disclosure_files().items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+
+    view = discover_skill_metadata(root)
+    assert view.name == "zekam-arastirma-uygulama"
+    assert view.reference_count == 2
+    assert view.script_count == 1
+    assert view.asset_count == 1
+    assert view.as_dict()["content_loaded"] is False
+    with pytest.raises(PolicyViolation):
+        discover_skill_metadata(tmp_path / "no-such-dir")

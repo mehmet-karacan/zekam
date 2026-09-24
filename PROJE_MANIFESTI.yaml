@@ -124,6 +124,24 @@ security:
   claim_before_effect: true
   terminal_receipt_after_effect: true
   silent_retry_after_claim_without_receipt: false
+  authority_isolation: true
+  memory_skill_context_feedback_rag_recommendation_cannot_grant_authority: true
+resume:
+  schema: zekam-resume-packet/v1
+  navigation_fields:
+  - current_objective
+  - completed
+  - pending
+  - blocked
+  - next_safe_action
+  - relevant_decisions
+  - relevant_skill_refs
+  - relevant_knowledge_refs
+  - source_evidence
+  work_truth_from_transcript: deny
+surface:
+  visual_product_ui: deny
+  cli_json_machine_readable: allow
 commit_policy:
   language_meaning: Turkish
   characters: ASCII-only

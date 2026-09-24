@@ -15,7 +15,7 @@ from uuid import uuid4
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrationPolicy
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.domain.skill_package import SkillPackage
+from zekam.domain.skill_package import SkillPackage, SkillPackageMetadata
 
 
 def _real_directory(path: Path) -> bool:
@@ -23,6 +23,20 @@ def _real_directory(path: Path) -> bool:
         return False
     attributes = getattr(path.lstat(), "st_file_attributes", 0)
     return not bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def discover_skill_metadata(root: Path) -> SkillPackageMetadata:
+    """Metadata-only discovery scan.
+
+    Reuses the full canonical validation/digest pipeline so package identity and
+    secret scanning stay exact, but returns only the content-free metadata view.
+    Instruction/reference/script/asset content is not exposed; callers that need
+    an instruction payload must request an explicit load on the full package.
+    """
+    if not root.is_absolute() or not _real_directory(root):
+        raise PolicyViolation("Skill discovery exact real absolute directory required")
+    package = SkillPackage.read_directory(root)
+    return package.metadata_view
 
 
 def _assert_contained(root: Path, target: Path) -> None:

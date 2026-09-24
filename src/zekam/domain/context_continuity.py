@@ -59,6 +59,7 @@ class OmittedReason(StrEnum):
     CONFLICT = "conflict"
     ROLE_MISMATCH = "role-mismatch"
     LOW_RELEVANCE = "low-relevance"
+    LOAD_LEVEL = "load-level-deferred"
 
 
 class ContextCandidateKind(StrEnum):
@@ -82,6 +83,44 @@ class ContextCandidateKind(StrEnum):
     TEST_EVIDENCE = "test-evidence"
     CHECKPOINT = "checkpoint"
     LOOP_PROGRESS_PACKET = "loop-progress-packet"
+
+
+class ContextSourceKind(StrEnum):
+    """Context Plane kaynak tipi; progressive disclosure ve izleneBilirlik kapsami."""
+
+    WORK = "work"
+    CHECKPOINT = "checkpoint"
+    KNOWLEDGE = "knowledge"
+    MEMORY = "memory"
+    SKILL = "skill"
+    CAPABILITY = "capability"
+    DECISION = "decision"
+    FAILURE = "failure"
+
+
+class ContextLoadLevel(StrEnum):
+    """Progressive disclosure yukleme seviyeleri (metadata -> selected body -> full source)."""
+
+    L0 = "L0"
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+
+    @property
+    def rank(self) -> int:
+        return {"L0": 0, "L1": 1, "L2": 2, "L3": 3}[self.value]
+
+
+class ContextBudgetMode(StrEnum):
+    """Context budget modu; ECONOMY gavenlik denetimlerini asla azaltmaz."""
+
+    NORMAL = "normal"
+    ECONOMY = "economy"
+
+
+DEFAULT_LOAD_LEVEL = ContextLoadLevel.L2
+DEFAULT_SOURCE_KIND = ContextSourceKind.WORK
+DEFAULT_BUDGET_MODE = ContextBudgetMode.NORMAL
 
 
 def _safe_logical(value: str, label: str) -> None:
@@ -140,6 +179,11 @@ class ContextCandidate:
     conflict_refs: tuple[str, ...] = ()
     canonical_revision_id: str | None = None
     tokenizer_profile_digest: str = DEFAULT_TOKENIZER_PROFILE_DIGEST
+    # Context Plane EXTEND (wave1): progressive-disclosure ve budget-mode tasima.
+    # Default degerlerle backward-compatible; provenance/candidate digest etkilenmez.
+    load_level: ContextLoadLevel = DEFAULT_LOAD_LEVEL
+    source_kind: ContextSourceKind = DEFAULT_SOURCE_KIND
+    budget_mode_safe: bool = True
 
     def __post_init__(self) -> None:
         _safe_logical(self.candidate_id, "Context candidate")
@@ -169,6 +213,10 @@ class ContextCandidate:
             for value in values:
                 _safe_logical(value, label)
         parse_digest(self.tokenizer_profile_digest)
+        if not isinstance(self.load_level, ContextLoadLevel):
+            raise ValidationFailed("Context candidate load level registry disinda")
+        if not isinstance(self.source_kind, ContextSourceKind):
+            raise ValidationFailed("Context candidate source kind registry disinda")
         if self.canonical_revision_id is not None:
             try:
                 UUID(self.canonical_revision_id)
@@ -238,6 +286,10 @@ class ContextSelection:
     )
     authority: AuthorityLevel = AuthorityLevel.UNTRUSTED
     reason_codes: tuple[str, ...] = ()
+    # Context Plane EXTEND (wave1): selection trace progressive-disclosure/budget bilgisi.
+    load_level: ContextLoadLevel = DEFAULT_LOAD_LEVEL
+    source_kind: ContextSourceKind = DEFAULT_SOURCE_KIND
+    budget_mode: ContextBudgetMode = DEFAULT_BUDGET_MODE
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ContextCandidateKind):
@@ -249,6 +301,12 @@ class ContextSelection:
             raise ValidationFailed("Context selection authority registry disinda")
         if len(set(self.reason_codes)) != len(self.reason_codes):
             raise ValidationFailed("Context selection reason codes tekil olmali")
+        if not isinstance(self.load_level, ContextLoadLevel):
+            raise ValidationFailed("Context selection load level registry disinda")
+        if not isinstance(self.source_kind, ContextSourceKind):
+            raise ValidationFailed("Context selection source kind registry disinda")
+        if not isinstance(self.budget_mode, ContextBudgetMode):
+            raise ValidationFailed("Context selection budget mode registry disinda")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -263,6 +321,21 @@ class ContextSelection:
             "candidate_digest": self.candidate_digest,
             "authority": int(self.authority),
             "reason_codes": list(self.reason_codes),
+        }
+
+    def disclosure_trace(self) -> dict[str, Any]:
+        """Progressive-disclosure/budget-mode trace; `as_dict` digest'ini bozmaz."""
+        return {
+            "candidate_id": self.candidate_id,
+            "source_kind": self.source_kind.value,
+            "source_ref": self.source_ref,
+            "scope": self.source_ref,
+            "digest": self.candidate_digest,
+            "selection_reason": self.reason,
+            "load_level": self.load_level.value,
+            "bounded_size": self.token_count,
+            "authority": False,
+            "budget_mode": self.budget_mode.value,
         }
 
 

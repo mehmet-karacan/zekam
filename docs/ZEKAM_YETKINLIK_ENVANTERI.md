@@ -29,7 +29,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | Fikir üretme ve geliştirme | `scaffold` | Intake türleri ve storage kökleri | generate/review/save/promote akışı eksik |
 | Raporlama | `partial` | `scheduler report/rebuild` | Machine-readable rapor yüzeyi var; gösterim show/refresh ayrı değil |
 | Model benchmark | `partial` | `model benchmark/decide/health/portable-inspect`, `model campaign plan/run/status/report` | Windows-native pipeline kampanyası hazır; portable import, gerçek provider, baseline ve release gate hâlâ kapalı |
-| Semantic memory | `partial` | İç domain/shadow mekanizmaları | inspect/search/review/promote/status kullanıcı yüzeyi eksik |
+| Semantic memory | \partial\ | \memory status/inspect/search/candidates/hygiene\ | Read-only bellek yuzeyi mevcut; promote ve memory-sourced activation kapali |
 | Kişisel skill yaşam döngüsü | `partial` | `skill prepare/status/list/inspect/explain/propose/evaluate/export`; v2 origin/eval/activation/invocation ledger; yönetilen istemci projection | Pilot adaydır ve aktif değildir; gerçek model/Claude/macOS kabulü ile evolution auto-activation yetkisi yoktur |
 | Jira | `partial` | Deterministik `jira resolve` | Issue fetch + kanıt kalıcılığı OpenCode MCP yoluna bağlı |
 | Context Graph Engine | `partial` | `project graph plan/build/status/check` | Structural Python AST extractor + atomic SQLite graph store hazır; WP-08 golden corpus (20 sorgu, chunk-id tabanlı) + varyant-matris runner (metrik omurgası recall/mrr/ndcg) kuruldu; provider çağrılı tam run ve end-to-end agent kabulü ayrı onay bekler |
@@ -40,6 +40,10 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 
 - son semantik OpenCode checkpoint'i (`completed`, `pending`, `next_safe_action`),
 - açık, bloklu ve yakın zamanda tamamlanan Work Graph kayıtları,
+- `navigation` bloğu: `current_objective`, `completed`, `pending`, `blocked`,
+  `next_safe_action`, `relevant_decisions`, `relevant_skill_refs`,
+  `relevant_knowledge_refs` ve `source_evidence`; tümü Work/receipt/checkpoint
+  kaynak referanslarından türetilir (transcript'ten değil),
 - kayıtlı proje alias'ları ve hafif RAG indeks sağlık bilgisi,
 - yetkinliklerin `ready/partial/scaffold` özeti,
 - lifecycle oturum, kesinti ve hata sayıları.

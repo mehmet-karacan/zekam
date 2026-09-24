@@ -59,13 +59,19 @@ Herhangi bir desteklenen istemciyi bu dizinde aç ve yalnız şunu söyle:
 ## Modelden bağımsız kaldığın yer ve yetkinlikler
 
 Zekam, açık işleri, son semantik checkpoint'i, kayıtlı projeleri, RAG indeks durumlarını ve
-ürün yetkinlik özetini tek bir yerel pakette birleştirir:
+ürün yetkinlik özetini tek bir yerel pakette birleştirir. Paket, `navigation` bloğunda
+`current_objective`, `completed`, `pending`, `blocked`, `next_safe_action`,
+`relevant_decisions`, `relevant_skill_refs`, `relevant_knowledge_refs` ve `source_evidence`
+alanlarını Work/receipt/checkpoint kaynak referanslarından türetir (transcript'ten değil):
 
 ```bash
 zekam resume
 zekam resume --json
 zekam capabilities --json
 ```
+
+Zekam salt CLI/JSON/machine-readable bir yüzeydir; UI, dashboard, browser veya TUI gibi
+görsel ürün katmanı eklemez (`tests/architecture/test_no_ui_surface.py`).
 
 Managed OpenCode yaşam döngüsü eklentisi bu paketi her yeni oturumun sistem bağlamına ve
 compaction bağlamına otomatik ekler. Kurulum veya güncelleme önce planlanır, sonra gösterilen

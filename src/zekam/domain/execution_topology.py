@@ -51,6 +51,7 @@ class GraphNodeMode(StrEnum):
 
 class GraphNodeTerminalState(StrEnum):
     COMPLETED = "completed"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
     RECOVERY_REQUIRED = "recovery-required"
@@ -58,8 +59,26 @@ class GraphNodeTerminalState(StrEnum):
 
 class GraphTerminalState(StrEnum):
     COMPLETED = "completed"
+    PARTIAL = "partial"
     FAILED = "failed"
+    CONTRADICTION = "contradiction"
     RECOVERY_REQUIRED = "recovery-required"
+
+
+class FanInDisposition(StrEnum):
+    """Coordinator fan-in'inin acik disposition kategorisi.
+
+    PARTIAL      -> isleme alinabilir kismi sonuc; eksik child var.
+    CONTRADICTION -> ayni agreement key'de birden cok completed child
+                     birbirinden farkli sonuc uretti.
+    FAILED       -> en az bir child basarisiz; sonuc asla success olamaz.
+    CONSISTENT   -> butun child'lar completed ve celiski yok.
+    """
+
+    CONSISTENT = "consistent"
+    PARTIAL = "partial"
+    CONTRADICTION = "contradiction"
+    FAILED = "failed"
 
 
 def _non_negative(value: int, label: str) -> None:
@@ -310,11 +329,18 @@ class GraphExecutionReceipt:
     fan_in_result_digest: str
     terminal_state: GraphTerminalState
     topology_feedback: tuple[str, ...]
-    receipt_digest: str
+    fan_in_disposition: FanInDisposition = FanInDisposition.CONSISTENT
+    receipt_digest: str = ""
 
     def __post_init__(self) -> None:
         parse_digest(self.plan_digest)
         parse_digest(self.fan_in_result_digest)
+        if self.fan_in_disposition is FanInDisposition.FAILED and (
+            self.terminal_state is not GraphTerminalState.FAILED
+        ):
+            raise PolicyViolation(
+                "Worker failure fan-in disposition success olarak maskelenemez"
+            )
         if not self.node_receipts:
             raise ValidationFailed("Graph receipt node receipt ister")
         node_ids = tuple(item.step_id for item in self.node_receipts)
@@ -353,6 +379,7 @@ class GraphExecutionReceipt:
             "coordination_cost_micros": self.coordination_cost_micros,
             "coordination_message_count": self.coordination_message_count,
             "fan_in_result_digest": self.fan_in_result_digest,
+            "fan_in_disposition": self.fan_in_disposition.value,
             "terminal_state": self.terminal_state.value,
             "topology_feedback": list(self.topology_feedback),
             "grants_authority": False,
@@ -506,3 +533,145 @@ class TournamentPlan:
 
     def as_dict(self) -> dict[str, Any]:
         return self.body() | {"plan_digest": self.plan_digest}
+
+
+@dataclass(frozen=True, slots=True)
+class FanInNodeOutcome:
+    """Bir child/worker sonucunun fan-in girdisidir.
+
+    `result_digest` worker'in urettigi exact artifact sonucunu baglar;
+    `agreement_key` ayni isin farkli worker/child ciktilari arasinda
+    celiski/cokluluk tespiti icin canonical anahtardir.
+    """
+
+    child_id: str
+    state: GraphNodeTerminalState
+    result_digest: str
+    agreement_key: str | None = None
+
+    def __post_init__(self) -> None:
+        _nonblank(self.child_id, "Fan-in child")
+        parse_digest(self.result_digest)
+        if self.agreement_key is not None and not self.agreement_key.strip():
+            raise ValidationFailed("Fan-in agreement key bos olamaz")
+
+
+@dataclass(frozen=True, slots=True)
+class GraphFanInResult:
+    """Coordinator fan-in acik disposition ve evidence keten sonucu."""
+
+    disposition: FanInDisposition
+    outcomes: tuple[FanInNodeOutcome, ...]
+    fan_in_result_digest: str
+
+    def __post_init__(self) -> None:
+        if not self.outcomes:
+            raise ValidationFailed("Fan-in sonuc en az bir child ister")
+        child_ids = tuple(item.child_id for item in self.outcomes)
+        if len(child_ids) != len(set(child_ids)):
+            raise ValidationFailed("Fan-in child kimlikleri tekil olmali")
+        if self.fan_in_result_digest:
+            parse_digest(self.fan_in_result_digest)
+            if self.fan_in_result_digest != self.computed_digest:
+                raise PolicyViolation("Fan-in result digest mismatch")
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-graph-fan-in-result/v1",
+            "disposition": self.disposition.value,
+            "outcomes": [
+                {
+                    "child_id": item.child_id,
+                    "state": item.state.value,
+                    "result_digest": item.result_digest,
+                    "agreement_key": item.agreement_key,
+                }
+                for item in sorted(self.outcomes, key=lambda item: item.child_id)
+            ],
+            "grants_authority": False,
+        }
+
+    @property
+    def computed_digest(self) -> str:
+        return digest(self.body())
+
+    @classmethod
+    def create(cls, **values: Any) -> GraphFanInResult:
+        values["outcomes"] = tuple(
+            sorted(values["outcomes"], key=lambda item: item.child_id)
+        )
+        computed = cls(**{**values, "fan_in_result_digest": ""}).computed_digest
+        return cls(**{**values, "fan_in_result_digest": computed})
+
+
+def fan_in_disposition(outcomes: tuple[FanInNodeOutcome, ...]) -> FanInDisposition:
+    """Worker child sonuclarinin acik fan-in disposition'ini belirler.
+
+    Worker failure success olarak asla maskelenmez (FAILED). Bir veya daha
+    fazla child kismi (PARTIAL) sonucta GOVERN -> PARTIAL; ayni agreement
+    key'de farkli digest'ler CONTRADICTION uretir.
+    """
+    if not outcomes:
+        raise ValidationFailed("Fan-in sonuc en az bir child ister")
+    states = {item.state for item in outcomes}
+    if not states.issubset(
+        {GraphNodeTerminalState.COMPLETED, GraphNodeTerminalState.PARTIAL}
+    ):
+        # FAILED, CANCELLED, RECOVERY_REQUIRED -> asla basarili fan-in degil
+        return FanInDisposition.FAILED
+    completed = [item for item in outcomes if item.state is GraphNodeTerminalState.COMPLETED]
+    if GraphNodeTerminalState.PARTIAL in states:
+        return FanInDisposition.PARTIAL
+    # Celiski tespiti: ayni agreement key'de birden cok completed farkli result
+    by_key: dict[str, set[str]] = {}
+    for item in completed:
+        key = item.agreement_key
+        if key is None:
+            continue
+        by_key.setdefault(key, set()).add(item.result_digest)
+    if completed and any(len(digests) > 1 for digests in by_key.values()):
+        return FanInDisposition.CONTRADICTION
+    return FanInDisposition.CONSISTENT
+
+
+def aggregate_fan_in_result(
+    child_id: str,
+    outcomes: tuple[FanInNodeOutcome, ...],
+) -> GraphFanInResult:
+    """Fan-in disposition ve exact result digest'ini tek keten sonuc olarak baglar.
+
+    `plan_digest`, requests (writable scope) gibi ust seviye baglar
+    `GraphExecutionReceipt` duzeyinde fan_in_result_digest'e baglanir. Burasi
+    yalniz child outcome'larinin disposition ve digest'ini kapsar.
+    """
+    ordered = tuple(sorted(outcomes, key=lambda item: item.child_id))
+    disposition = fan_in_disposition(ordered)
+    return GraphFanInResult.create(disposition=disposition, outcomes=ordered)
+
+
+@dataclass(frozen=True, slots=True)
+class FanInScopeBinding:
+    """Fan-in sonucunun ust seviye baglari: plan/coordinator/scope."""
+
+    coordinator_child_id: str
+    plan_digest: str
+    fan_in_result_digest: str
+    requests: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        parse_digest(self.plan_digest)
+        parse_digest(self.fan_in_result_digest)
+        if not self.coordinator_child_id.strip():
+            raise ValidationFailed("Fan-in scope coordinator child bos olamaz")
+
+    def scope_digest(self) -> str:
+        return digest(
+            {
+                "schema": "zekam-graph-fan-in-scope/v1",
+                "coordinator_child_id": self.coordinator_child_id,
+                "plan_digest": self.plan_digest,
+                "fan_in_result_digest": self.fan_in_result_digest,
+                "requests": sorted(self.requests),
+                "grants_authority": False,
+            }
+        )

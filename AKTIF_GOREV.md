@@ -1,580 +1,1755 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-CONTEXT-GRAPH-001
+task_id: ZEKAM-COGNITIVE-ARCHITECTURE-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Context Graph ve Graph-Aware Retrieval Entegrasyonu
-created_at: 2026-09-21T23:13:00+03:00
+title: Zekam Context, Memory, Skills ve Agent Orkestrasyon Mimarisi Butunlestirmesi
+created_at: 2026-09-24T00:00:00+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: 68b4833ff959185e5155a28680658ccbd96dd997
-push_authorized: false
+baseline_head: 4629e9e58f8a74bbaad1e76e362893628837c823
+baseline_commit_subject: "bakim: paket dogrulama raporunu digest-bagli guncelle"
+baseline_is_fixed_revision: true
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
+ui_surface: FORBIDDEN
+push_authorized: false
+runtime_test_evidence_at_task_creation: NOT_EXECUTED
 ---
 
-# Zekam Context Graph ve Graph-Aware Retrieval Entegrasyonu
+# AKTIF_GOREV.md
 
-## 1. Hedef
+## Yönetici özeti
 
-Zekam’ın mevcut project RAG sistemine, Graft projesindeki başarılı context-graph prensiplerinden yararlanan ancak Zekam’ın kendi güvenlik, generation, SQLite, provenance ve rollback kurallarına uyan yerli bir **Context Graph Engine** ekle.
+Bu görev Zekam'a bağımsız bir "Second Brain", ikinci bir skill engine veya ikinci bir orchestration framework ekleme görevi değildir.
 
-Bu görev Graft paketini dependency olarak kurmaz ve Graft’ın file-based graph cache’ini authority yapmaz.
-
-Hedef sonuç:
+Amaç, repository'de var olan memory/knowledge, continuity/resume, Work Graph, personal skill lifecycle, evolution/learning, model routing, agent roles, policy, claim ve receipt mekanizmalarını tek bir uçtan uca bilişsel çalışma hattına bağlamaktır:
 
 ```text
-Exact + FTS5 + sqlite-vec
-        |
-        v
-       RRF
-        |
-        v
-Graph-aware structural reranker
-        |
-        v
-Distinct-file context selection
-        |
-        v
-Bounded context pack
+Context
+  -> Decomposition
+  -> Agent/Model Routing
+  -> Worker Execution
+  -> Fan-in
+  -> Independent Verification
+  -> Receipt/Result
+  -> Sanitized Feedback
+  -> Memory/Skill/System Improvement Candidate
 ```
 
-Ayrıca:
-
-- code outline,
-- blast radius,
-- repo map,
-- graph freshness
-
-yüzeyleri oluşturulur.
-
-## 2. Değişmez Tasarım Kararları
-
-1. Mevcut knowledge index ve RAG baseline çalışmaya devam edecek.
-2. Graph ayrı ve rebuildable bir SQLite projection olacak.
-3. `knowledge.sqlite3` ilk sürümde graph tablolarıyla migrate edilmeyecek.
-4. Graph authority değildir.
-5. Graph provider-free oluşturulabilmelidir.
-6. İlk extractor Python stdlib `ast` olacaktır.
-7. İlk sürüm yeni runtime Tree-sitter dependency eklemeyecektir.
-8. Tree-sitter daha sonra adapter olarak eklenebilir.
-9. İlk sürümde `RetrievalChannel` enum’una `GRAPH` ekleme.
-10. Mevcut `RetrievalService.reranker` extension point’ini kullan.
-11. Graph stale/unavailable/corrupt ise baseline RAG davranışı korunmalıdır.
-12. Exact identifier sonucu graph nedeniyle düşürülemez.
-13. `contains` dependency traversal veya PageRank edge setine giremez.
-14. Line number kalıcı symbol identity olamaz.
-15. Human annotation generated içerikten ayrı tutulmalıdır.
-16. Naive one-hop expansion varsayılan kapalıdır.
-17. Benchmark iyileşme göstermeden graph reranker default-on olamaz.
-18. Push yapılmayacak.
-
-## 3. Ön Koşullar
-
-Uygulamadan önce:
-
-1. `00_BASLA.md` protokolünü uygula.
-2. Repository HEAD’in baseline’dan ilerlediğini görürsen stale plan üret ve kapsamı yeniden bağla.
-3. `python scripts/paket_dogrula.py` çalıştır.
-4. Mevcut project RAG baseline testlerini belirle.
-5. Graph ile değişecek logical resource setini çıkar.
-6. Uygulama planı, test planı ve rollback planı üret.
-7. İş agentic ise gerçek subagent kullan.
-
-## 4. Yeni Dosyalar
-
-### Domain
-
-`src/zekam/domain/code_graph.py`
-
-Aşağıdaki immutable contract’ları tanımla:
-
-- `GraphNodeKind`
-- `GraphRelation`
-- `GraphConfidence`
-- `GraphFile`
-- `GraphSymbol`
-- `GraphEdge`
-- `GraphGeneration`
-- `GraphImpactHit`
-
-V1 relation set:
-
-- contains
-- imports
-- calls
-- references
-- extends
-
-### Application
-
-`src/zekam/application/code_graph.py`
-
-- `CodeGraphPort`
-- `CodeGraphExtractor`
-- `CodeGraphBuildPlan`
-- graph generation/build orchestration
-
-`src/zekam/application/code_graph_python.py`
-
-- Python AST extractor
-- file/symbol/raw-edge üretimi
-- deterministic qualified names
-- body digest
-
-`src/zekam/application/code_graph_ranking.py`
-
-- graph seed mapping
-- Personalized PageRank
-- dependency edge allowlist
-- distinct-file selection
-- graph reranker
-
-`src/zekam/application/code_graph_query.py`
-
-- find
-- outline
-- impact
-- map
-- freshness
-
-### Infrastructure
-
-`src/zekam/infrastructure/sqlite/code_graph.py`
-
-SQLite schema ve repository:
-
-- metadata
-- graph_generation
-- current_graph_generation
-- graph_file
-- graph_symbol
-- graph_edge
-- graph_file_fts
-- graph_chunk_link
-- graph_annotation
-
-Aynı security posture mevcut `SQLiteKnowledgeIndex` ile uyumlu olmalı:
-
-- absolute private path,
-- symlink rejection,
-- single writer,
-- read-only immutable mode,
-- integrity checks,
-- atomic generation publication.
-
-## 5. Graph Store Konumu
-
-Aşağıdaki logical layout kullan:
+Görev boyunca temel invariant şudur:
 
 ```text
-ZEKAM_HOME/
-  knowledge-index/
-    graph/
-      <project-slug>/
-        code-graph.sqlite3
+memory != authority
+skill != authority
+context != authority
+feedback != authority
+model recommendation != authority
 ```
 
-Absolute path kanonik kayda yazılmayacak.
+Uygulayıcı agent bu dosyayı gördüğünde ek görev istemeden çalışmaya başlamalıdır.
 
-## 6. Generation Contract
+Discovery tek başına teslim değildir.
 
-Graph generation en az şunlara bağlıdır:
+## Baseline ve revision politikası
 
-- project_id
-- source_revision
-- tree_digest
-- source_manifest_digest
-- extractor_profile_digest
-- deterministic graph content
-
-State:
-
-- building
-- ready
-- superseded
-
-Yeni generation tamamen doğrulanmadan `current_graph_generation` pointer’ı değiştirilmez.
-
-## 7. Python AST Extraction
-
-V1’de destekle:
-
-- module
-- class
-- function
-- async function
-- method
-- nested function
-- import
-- from import
-- inheritance
-- local resolvable call
-- references
-
-Confidence:
-
-- extracted
-- inferred
-- external
-- unresolved
-
-Parser syntax error durumunda bütün graph generation sessizce başarılı sayılmayacak. Dosya parse state ve hata sayısı kaydedilecek; acceptance policy’ye göre generation fail veya degraded olabilir.
-
-## 8. Incremental Reuse
-
-File cache identity:
+Bu görevin kanonik baseline revision'ı:
 
 ```text
-relative_path + content_digest + extractor_profile_digest
+repository = mehmet-karacan/zekam
+commit     = 4629e9e58f8a74bbaad1e76e362893628837c823
 ```
 
-Aynıysa tekrar parse etme.
+Araştırma sırasında `main` dalının bu committen daha ileri bir revision'a geçmiş olduğu gözlenmiştir.
 
-Symbol semantic reuse:
+Bu nedenle:
 
 ```text
-stable_symbol_identity + body_digest + semantic_profile_digest
+HEAD == baseline
+    -> doğrudan uygula
+
+HEAD != baseline ve baseline ancestor/current branch ilişkisi var
+    -> farkı ölç
+    -> bu görevin semantic hedeflerini koru
+    -> yeni code layout'a kontrollü port et
+    -> finalde baseline mismatch'i raporla
+
+HEAD ilgisiz/diverged
+    -> sessizce başka revision'a uygulama
+    -> exact baseline worktree/branch kullan
 ```
 
-Aynıysa summary/crux yeniden üretme.
+Baseline SHA hiçbir durumda sessizce değiştirilmez.
 
-V1 structural graph LLM çağırmayacak.
+Push yetkisi yoktur.
 
-## 9. Retrieval Entegrasyonu
+## Başlangıç protokolü
 
-Mevcut `RetrievalService` protocol’ünü kırma.
+İlk işlem sırası:
 
-`ProjectGraphReranker` oluştur.
+```bash
+git status --short
+git rev-parse HEAD
+git cat-file -e 4629e9e58f8a74bbaad1e76e362893628837c823^{commit}
+git show -s --format='%H%n%P%n%s%n%ci' \
+  4629e9e58f8a74bbaad1e76e362893628837c823
+```
 
-Kullanım şartı:
-
-- graph project_id == knowledge project_id
-- source_revision eşit
-- tree_digest eşit
-- graph state ready
-
-Şart sağlanmıyorsa:
-
-- reranker devre dışı,
-- baseline sonucu korunur,
-- trace graph state’i bildirir.
-
-## 10. PageRank
-
-Personalized PageRank dependency edge seti:
-
-- calls
-- references
-- imports
-- extends
-
-`contains` hariç.
-
-Başlangıç parametreleri config/constant olabilir:
-
-- alpha: 0.25
-- iterations: 25
-
-Ancak default-on kabulü benchmark ile verilecek; parametreleri mutlak doğru varsayma.
-
-## 11. Distinct-file Selection
-
-Bounded context’te aynı dosyanın sibling hit’leri diğer relevant dosyaları boğmamalı.
-
-Kural:
-
-1. original top hit korunur,
-2. distinct-file leader’lar önce gelir,
-3. sibling hit’ler sonraki turlarda gelir,
-4. exact-match hit düşürülemez.
-
-## 12. Whole-file Lexical Prior
-
-`graph_file_fts` ile file path + symbols + body için FTS5 index kur.
-
-İlk sürümde bu sinyal benchmark flag arkasında tutulabilir.
-
-Chunk FTS’nin yerine geçmez.
-
-## 13. One-hop Expansion
-
-İlk release default kapalı.
-
-Yalnız benchmark:
-
-- Recall@10 iyileştiriyor,
-- MRR/nDCG gerilemiyor,
-- token budget kabul sınırında,
-- false-positive inflation kontrollü
-
-ise açılabilir.
-
-## 14. CLI
-
-`project` komut grubu altında ekle:
+Sonra repository içindeki bootstrap authority dosyalarını mevcutsa oku:
 
 ```text
-zekam project graph plan <alias> --json
-zekam project graph build <alias> --plan-digest <digest> --uygula --json
-zekam project graph status <alias> --json
-zekam project graph check <alias> --json
-zekam project graph find <alias> "<query>" --json
-zekam project graph outline <alias> <relative-file> --json
-zekam project graph impact <alias> <symbol> --json
-zekam project graph map <alias> --json
+AGENTS.md
+00_BASLA.md
+DEVAM_PROTOKOLU.md
+GLOBAL_DEFINITION_OF_DONE.md
+PROJE_MANIFESTI.yaml
+AKTIF_GOREV.md
 ```
 
-`plan` mutation yapmaz.
+Repository'deki canonical kurallar bu görevle çelişmiyorsa korunur.
 
-`build` exact plan digest ister.
+Ardından:
 
-## 15. MCP / Agent Tool Set
+```bash
+python scripts/paket_dogrula.py
+```
 
-En fazla şu beş graph tool’u expose et:
+çalıştır.
 
-- `zekam_code_find`
-- `zekam_code_outline`
-- `zekam_code_impact`
-- `zekam_code_map`
-- `zekam_code_freshness`
+Başlangıç validator'ı başarısızsa:
 
-Tool sayısını gereksiz büyütme.
+- hatayı kaydet;
+- failure'ın bu görevin değişikliğinden önce mevcut olduğunu işaretle;
+- güvenli olduğu ölçüde göreve devam et;
+- final raporunda before/after ayrımını açıkça göster.
 
-## 16. Mevcut Dosya Entegrasyonları
+## Deterministic repository discovery
 
-### `src/zekam/application/embedded_project_rag.py`
+Kod yazmadan önce tek seferlik bounded discovery yap.
 
-- optional graph reranker composition
-- stale/unavailable graph trace
-- baseline fallback
+Exact baseline tree:
 
-### `src/zekam/application/project_rag_query.py`
+```bash
+BASELINE=4629e9e58f8a74bbaad1e76e362893628837c823
 
-- searched graph state
-- graph freshness
-- reranker used flag
-- fallback reason
+git ls-tree -r --name-only "$BASELINE" > /tmp/zekam-files.txt
 
-### `src/zekam/application/retrieval_service.py`
+grep -E \
+'workspace_resume|memory|knowledge|continuity|skill|model_routing|evolution|learning|doctor|capability|work' \
+/tmp/zekam-files.txt
+```
 
-İlk sürümde protocol kırma.
+Exact sembol discovery:
 
-Gerekirse yalnız backward-compatible trace metadata ekle.
+```bash
+git grep -nE \
+'SemanticMemory|MemoryCandidate|WorkspaceResume|Resume|SkillRuntime|PersonalSkill|SkillPackage|ModelRout|EvolutionCapture|Learning|WorkGraph|Doctor|CapabilityInventory' \
+"$BASELINE" -- 'src/**/*.py' 'tests/**/*.py' || true
+```
 
-### `src/zekam/application/project_knowledge_index.py`
+Aşağıdaki baseline path'leri özellikle doğrula:
 
-Aynı verified source discovery’den graph planın güvenli yararlanabilmesini sağla.
+```text
+src/zekam/application/workspace_resume.py
+src/zekam/application/evolution_capture.py
+src/zekam/application/learning_daily_compiler.py
+src/zekam/application/evolution_runtime.py
+src/zekam/application/skill_packages.py
+src/zekam/application/skill_runtime.py
 
-Knowledge indexing behavior’ını değiştirme.
+src/zekam/domain/personal_skill.py
+src/zekam/domain/skill_package.py
+src/zekam/domain/model_routing.py
 
-### `src/zekam/interfaces/cli/project.py`
+src/zekam/infrastructure/sqlite/local_learning.py
+src/zekam/infrastructure/sqlite/skill_lifecycle.py
 
-Graph subcommand registration.
+src/zekam/interfaces/cli/skill.py
+src/zekam/interfaces/cli/model.py
 
-### `src/zekam/interfaces/cli/mcp.py`
+src/zekam/application/capability_inventory.py
 
-Bounded tool exposure.
+.opencode/agents/
+src/zekam/skills/
+```
 
-### `docs/ZEKAM_YETKINLIK_ENVANTERI.md`
+Bir path yoksa:
 
-İlk durumda:
+```text
+path missing
+    != "özellik yok"
+```
 
-`Project Code/Context Graph = partial`
+Önce semantic equivalent ara.
 
-olarak ekle.
+Equivalent varsa mevcut implementation'ı EXTEND/CONNECT et.
 
-`ready` ancak benchmark + end-to-end agent kabulünden sonra.
+Equivalent yoksa bu görevde belirtilen minimal yeni modülü oluştur.
 
-### `README.md`
+Aynı capability için paralel framework oluşturma.
 
-Kısa graph kullanımı.
+## Fit-gap sınıflandırması
 
-## 17. Benchmark
+Discovery sonucu her alanı aşağıdakilerden biriyle sınıflandır:
 
-Baseline’ı değiştirmeden önce ölç.
+```text
+REUSE
+EXTEND
+CONNECT
+REPLACE
+REMOVE
+```
 
-Varyantlar:
+Kurallar:
 
-1. Exact + FTS
-2. Exact + FTS + Vector
-3. Baseline + file diversity
-4. Baseline + graph rerank
-5. Baseline + graph rerank + file FTS
-6. Baseline + graph rerank + bounded one-hop
+```text
+REUSE
+mevcut davranış hedefi zaten karşılıyor
 
-Metrikler:
+EXTEND
+mevcut doğru bounded context içinde eksik davranış var
 
-- Recall@1
-- Recall@5
-- Recall@10
-- MRR
-- nDCG@10
-- distinct-file coverage
-- tokens/context
-- p50/p95 query latency
-- cold graph build
-- one-file-change rebuild
-- exact-match preservation
+CONNECT
+iki mevcut capability var fakat birbirine bağlı değil
 
-Acceptance:
+REPLACE
+mevcut implementation hedef invariant ile yapısal olarak çelişiyor
 
-- exact behavior regression yok,
-- kritik retrieval metriği gerilemiyor,
-- en az bir kalite metriğinde gerçek iyileşme,
-- p95 kabul sınırı içinde,
-- token budget kötüleşmiyor veya ölçülmüş net fayda var.
+REMOVE
+duplicate/dead/unsafe implementation mevcut
+```
 
-## 18. Zorunlu Testler
+`REPLACE` ve `REMOVE` için code evidence zorunludur.
 
-Yeni unit test aileleri:
+"Yeni mimari daha temiz olur" gerekçesi yeterli değildir.
 
-- code graph domain
-- Python extractor
-- SQLite graph store
-- graph generation atomicity
-- incremental reuse
-- PageRank
-- file diversity
-- impact traversal
-- graph/knowledge generation binding
-- stale fallback
-- CLI plan/apply
-- MCP tools
+## Mimari invariantlar
 
-Negatif testler:
+### Memory authority değildir
 
-- corrupt graph
-- source tree drift
-- same-size file edit
-- symlink path
-- duplicate symbol
-- cyclic graph
-- unresolved call
-- concurrent writer
-- stale plan digest
-- wrong project graph
-- knowledge generation mismatch
+Memory, semantic memory, knowledge, Markdown note, RAG sonucu veya LLM context'i şunları oluşturamaz:
 
-## 19. Rollback
+```text
+Work truth
+authorization
+policy
+claim
+receipt
+approval
+execution success
+```
 
-Graph entegrasyonu mevcut RAG’den bağımsız olmalı.
+Memory yalnız context/evidence candidate sağlar.
 
-Rollback:
+### Skill authority değildir
 
-1. graph reranker kapat,
-2. graph MCP tools kaldır,
-3. baseline project RAG’e dön,
-4. derived `code-graph.sqlite3` silinebilir,
-5. knowledge/operational DB değişmeden kalır.
+Skill seçilmesi veya modele yüklenmesi:
 
-Rollback için source migration veya data restore gerekmesi tasarım hatası sayılır.
+```text
+filesystem mutation
+network
+provider
+tool
+push
+external write
+claim
+```
 
-## 20. Tree-sitter Fazı
+yetkisi vermez.
 
-V1 tamamlanmadan Tree-sitter dependency ekleme.
+Skill yöntem tarif eder.
 
-V2 adapter sonrası:
+Effect mevcut policy/claim/receipt zincirinden geçer.
 
-- Python parity
-- TS/JS/Java/Go
-- parser version fingerprint
-- optional dependency group
+### Feedback authority değildir
 
-değerlendir.
+Feedback:
 
-## 21. Oracle PL/SQL Fazı
+```text
+candidate oluşturabilir
+```
 
-PL/SQL desteği ayrı acceptance campaign’idir.
+ama:
 
-Aşağıdaki relation’ları hedefle:
+```text
+permission
+approval
+active skill
+code mutation authority
+```
 
-- contains
-- calls_procedure
-- calls_function
-- reads_table
-- writes_table
-- uses_sequence
-- uses_synonym
-- trigger_on
-- depends_on_package
-- executes_dynamic_sql
+oluşturamaz.
 
-Grammar production-ready sayılmadan önce gerçek kullanıcı corpus’unda error-rate ve edge correctness ölç.
+### Open loop memory'den uydurulmaz
 
-Dynamic SQL’den kesin dependency uydurma.
+"Nerede kaldık?" bilgisi öncelikle:
 
-## 22. Concept Graph ve Semantic Enrichment
+```text
+Work Graph
+checkpoint
+continuity packet
+run/step state
+terminal receipt
+```
 
-Bu görevde structural foundation tamamlandıktan sonra uygulanabilir.
+üzerinden üretilir.
 
-Semantic alanlar:
+Semantic memory yalnız ek context sağlar.
 
-- summary
-- crux
-- summary_state
-- semantic_profile_digest
+### Raw transcript durable memory değildir
 
-Provider çağrısı structural graph için zorunlu olamaz.
+Tüm sohbeti kalıcılaştırmak yasaktır.
 
-Human annotation generated summary’den ayrı tutulur.
+Kalıcılaştırılabilecek örnekler:
 
-## 23. Global Definition of Done Ek Kapıları
+```text
+explicit user preference
+verified decision
+verified reusable procedure
+verified success lesson
+verified failure lesson
+project knowledge
+explicit durable context
+```
 
-Bu görev tamamlandı denebilmesi için:
+### Progressive disclosure zorunludur
 
-- mevcut project RAG testleri geçer,
-- yeni graph testleri geçer,
-- ruff geçer,
-- strict mypy geçer,
-- package validation geçer,
-- security/secret checks geçer,
-- benchmark raporu üretilir,
-- graph-off baseline regression testi geçer,
-- independent verifier sonucu bağlanır,
-- push yapılmaz.
+Context loading seviyeleri:
 
-## 24. Kapsam Dışı
+```text
+L0 identity + metadata + indexes
+L1 candidate summaries
+L2 selected memory/note/SKILL.md
+L3 references/scripts/assets or full source only when required
+```
 
-- Graft npm dependency kurulumu
-- Trail Brain cloud entegrasyonu
-- Graft telemetry
-- Graft viewer/UI
-- Neo4j veya server graph DB
-- existing knowledge DB’yi graph authority yapmak
-- embedding’i kaldırmak
-- graph’tan authorization üretmek
-- PL/SQL’i corpus doğrulaması olmadan ready ilan etmek
-- mevcut Jira aktif görevinin çıktısını bu işle karıştırmak
+Default başlangıç context'i tüm memory/knowledge/skills corpus'u değildir.
 
-## 25. Kaynak Araştırma Referansı
+## Hedef Context Plane
 
-Bu aktif görev şu araştırmanın teknik kararlarını uygular:
+Context Plane aşağıdaki kaynakları bir araya getirir:
 
-`ZEKAM_GRAFT_ENTEGRASYON_RAPORU.md`
+```text
+identity/project
+active Work
+open loops
+continuity/checkpoint
+knowledge
+semantic memory
+skills
+capability evidence
+recent verified decisions
+recent verified failures
+```
 
-Araştırma referansları:
+Her selected item minimum şu metadata'yı taşır:
 
-- Graft README
-- Graft issue #117
-- Graft issue #186
-- Graft issue #257
-- Graft graph types/traverse/graphrank/MCP kaynakları
-- Tree-sitter incremental parsing dokümantasyonu
-- SQLite FTS5/BM25 dokümantasyonu
-- SQLite recursive CTE dokümantasyonu
-- Oracle PL/SQL Tree-sitter grammar araştırması
+```text
+source_kind
+source_ref
+scope
+digest_or_revision
+selection_reason
+freshness
+load_level
+bounded_size
+authority = false
+```
 
-## 26. İlk Safe Action
+### Önerilen domain contract
 
-Repository protokolünü çalıştır; baseline HEAD ve active task projection durumunu doğrula; ardından yalnız G0/G1 için exact plan üret.
+Repository'de equivalent yoksa:
 
-İlk mutation:
+```text
+src/zekam/domain/context_plane.py
+```
 
-`domain + application contracts + SQLite graph schema + tests`
+oluştur.
 
-olmalıdır.
+Minimum typed structures:
 
-Retrieval davranışını aynı commit/adımda değiştirme.
+```python
+ContextBudgetMode
+ContextSourceKind
+ContextLoadLevel
+ContextItem
+ContextSelectionTrace
+ContextAssemblyRequest
+ContextAssemblyResult
+```
 
-Structural graph acceptance geçtikten sonra ayrı step’te graph reranker’ı bağla.
+Equivalent mevcutsa yeni paralel DTO seti oluşturma; mevcut tipleri genişlet.
+
+### Context application service
+
+Equivalent yoksa:
+
+```text
+src/zekam/application/context_assembly.py
+```
+
+oluştur.
+
+Temel API semantiği:
+
+```python
+class ContextAssembler:
+    def assemble(self, request: ContextAssemblyRequest) -> ContextAssemblyResult:
+        ...
+```
+
+Implementation:
+
+```text
+collect metadata
+    -> rank/select
+    -> enforce scope
+    -> enforce budget
+    -> lazy-load selected sources
+    -> redact secrets
+    -> produce selection trace
+```
+
+LLM context selection tek başına authority olmamalıdır.
+
+Deterministic prefilter kullanılması mümkün olan yerlerde deterministic seçim tercih edilir.
+
+## Context budget
+
+En az:
+
+```text
+NORMAL
+ECONOMY
+```
+
+modları desteklenir.
+
+ECONOMY:
+
+```text
+daha az context
+daha az expensive expansion
+```
+
+demektir.
+
+Şunlar ekonomi modunda azalmaz:
+
+```text
+policy checks
+authority checks
+scope isolation
+secret redaction
+claim/receipt requirements
+verification requirements
+```
+
+Suggested deterministic priority:
+
+```text
+active Work/open loop
+safety/policy metadata
+project-specific verified context
+selected skill metadata
+relevant semantic memory
+historical context
+```
+
+## Continuity ve resume
+
+Mevcut:
+
+```text
+src/zekam/application/workspace_resume.py
+```
+
+veya semantic equivalent'i EXTEND et.
+
+Resume result minimum:
+
+```text
+current_objective
+completed
+pending
+blocked
+next_safe_action
+relevant_decisions
+relevant_skill_refs
+relevant_knowledge_refs
+source_evidence
+```
+
+Bu alanların Work/receipt/checkpoint source ref'leri bulunmalıdır.
+
+Transcript inference yalnız explicit `non_authoritative_hint` olabilir; Work truth olamaz.
+
+## Semantic memory surface
+
+Mevcut semantic-memory ve `local_learning` altyapısını kullan.
+
+Kullanıcıya headless olarak en az şu operation'ları sun:
+
+```text
+status
+inspect
+search
+candidates
+review
+promote
+hygiene
+```
+
+Repository CLI convention'ını koru.
+
+Existing memory CLI yoksa:
+
+```text
+src/zekam/interfaces/cli/memory.py
+```
+
+ekle ve canonical CLI root'a register et.
+
+Lifecycle:
+
+```text
+observation
+  -> candidate
+  -> evidence
+  -> review/verification
+  -> active memory
+```
+
+Tek LLM kararı doğrudan active durable memory yapmamalıdır.
+
+Hygiene:
+
+```text
+duplicate
+stale
+conflict
+supersession
+orphan candidate
+```
+
+tespit edebilmeli.
+
+Destructive automatic deletion yasaktır.
+
+## Cognitive Doctor
+
+Yeni bir UI veya bağımsız Brain Doctor ürünü yazma.
+
+Existing `zekam doctor` application/CLI implementation'ını bul ve EXTEND et.
+
+Kontroller:
+
+```text
+memory schema/store health
+orphan memory candidate
+duplicate memory
+conflicting active memory
+stale memory
+broken knowledge refs
+missing knowledge artifacts
+skill package integrity
+skill projection drift
+skill activation/evaluation consistency
+continuity/checkpoint freshness
+open-loop inconsistency
+context source digest drift
+learning/evolution backlog
+unverified feedback backlog
+```
+
+Default:
+
+```text
+read-only
+```
+
+Repair mevcut Zekam plan/digest/apply modeline uymalıdır.
+
+Doctor sessiz destructive cleanup yapamaz.
+
+## Skill progressive disclosure
+
+Mevcut:
+
+```text
+src/zekam/application/skill_packages.py
+src/zekam/application/skill_runtime.py
+src/zekam/domain/personal_skill.py
+src/zekam/domain/skill_package.py
+src/zekam/infrastructure/sqlite/skill_lifecycle.py
+```
+
+veya equivalent implementation'ları kullan.
+
+Canonical logical skill package:
+
+```text
+<skill>/
+    SKILL.md
+    references/
+    scripts/
+    assets/
+```
+
+Optional klasörler zorunlu değildir.
+
+Discovery sırasında yalnız:
+
+```text
+name
+description
+trigger
+scope
+version/revision
+evaluation state
+digest
+```
+
+yüklenmeli.
+
+Full `SKILL.md` yalnız selected skill için açılmalı.
+
+`references/`, `scripts/`, `assets/` yalnız explicit need olduğunda açılmalı.
+
+### Skill package API
+
+Mevcut runtime API'yi bozma.
+
+Equivalent yoksa şu semantic operations'ları ekle:
+
+```python
+load_metadata(...)
+load_instruction(...)
+load_reference(...)
+load_script_metadata(...)
+load_asset_metadata(...)
+```
+
+Path traversal, unmanaged absolute path ve package-root escape fail-closed olmalıdır.
+
+## Experience to skill
+
+Skill candidate kaynakları:
+
+```text
+verified success
+repeated verified success
+user correction
+verified failure lesson
+explicit user request
+```
+
+Flow:
+
+```text
+experience
+  -> evidence-backed candidate
+  -> skill package proposal
+  -> fresh/bounded-context evaluation
+  -> independent verification
+  -> approval/activation
+```
+
+Yasak:
+
+```text
+one event -> active skill
+LLM says useful -> active skill
+skill verifies itself -> active skill
+```
+
+`evolution_capture.py`, `learning_daily_compiler.py`, personal skill lifecycle ve existing outcome ledger birbirine CONNECT edilmelidir.
+
+## Fresh-context skill evaluation
+
+Evaluation mümkün olduğunca yeni ve bounded context ile yapılmalı.
+
+Aynı uzun konuşmadaki hidden context skill testinin başarı kanıtı sayılamaz.
+
+Minimum ölçümler:
+
+```text
+correct skill selected
+minimal prompt sufficient
+required sources loaded
+unnecessary sources not loaded
+workflow followed
+baseline improvement
+regression status
+authority boundary respected
+```
+
+Builder/evaluator/verifier kimlikleri evidence'a yazılmalıdır.
+
+Yüksek riskte evaluator ve verifier aynı actor olamaz.
+
+## Cross-client skill projection
+
+Kanonik revision tek olmalıdır:
+
+```text
+canonical skill
+   -> OpenCode projection
+   -> Codex projection
+   -> Claude projection
+```
+
+Mevcut projection policy korunmalı.
+
+Repository mevcut davranışını doğrula.
+
+Önceki baseline policy halen doğruysa:
+
+```text
+OpenCode = default managed projection
+Codex    = explicit opt-in
+Claude   = explicit opt-in
+```
+
+Bu davranış exact code/test evidence ile doğrulanmadan değiştirilmesin.
+
+Projection:
+
+```text
+permission değildir
+authority değildir
+```
+
+## Orchestration Plane
+
+Hedef flow:
+
+```mermaid
+flowchart TD
+    U[User Goal] --> C[Coordinator]
+    C --> CA[Context Assembler]
+
+    CA --> W[Work / Authority State]
+    CA --> M[Semantic Memory]
+    CA --> K[Knowledge / RAG]
+    CA --> S[Skills]
+
+    W --> D[Task Decomposition]
+    M --> D
+    K --> D
+    S --> D
+
+    D --> R[Evidence-based Model / Agent Router]
+
+    R --> WA[Worker A]
+    R --> WB[Worker B]
+    R --> WC[Worker C]
+
+    WA --> F[Fan-in]
+    WB --> F
+    WC --> F
+
+    F --> V[Independent Verifier]
+    V --> E[Claim / Receipt / Result]
+
+    E --> SF[Sanitized Feedback]
+    SF --> N[Normalize / Deduplicate / Cluster]
+
+    N --> MC[Memory Candidate]
+    N --> SC[Skill Candidate]
+    N --> IC[System Improvement Candidate]
+
+    MC --> RV[Review / Verification]
+    SC --> RV
+    IC --> RV
+```
+
+Coordinator her bounded işi kendisi yapmamalıdır.
+
+Independent work gerçek subagent/worker'a delegasyon için adaydır.
+
+## Agent rolleri
+
+Semantic roller:
+
+```text
+COORDINATOR
+goal + plan + integration
+
+PLANNER / REASONER
+high reasoning density
+
+WORKER
+bounded implementation/extraction/normalization
+
+RESEARCHER
+evidence collection
+
+VERIFIER
+independent validation
+```
+
+Existing `.opencode/agents/` definitions mümkün olduğunca REUSE edilir.
+
+Role semantics'i ikinci ayrı configuration tree'de duplicate etme.
+
+## Model routing
+
+Mevcut:
+
+```text
+src/zekam/domain/model_routing.py
+src/zekam/interfaces/cli/model.py
+src/zekam/application/capability_inventory.py
+```
+
+veya exact equivalents kullanılmalıdır.
+
+Route decision minimum şu evidence'ı değerlendirebilmelidir:
+
+```text
+required capability
+task complexity
+risk
+context requirement
+tool requirement
+structured-output requirement
+benchmark evidence
+health
+availability
+latency evidence
+cost evidence
+quota evidence
+independence requirement
+```
+
+Rules:
+
+```text
+caller-supplied arbitrary candidate list != authority
+model name != permanent role
+unknown quota != guessed quota
+unknown cost != guessed cost
+stale benchmark != current evidence
+```
+
+Model role hard-code etme:
+
+```text
+"model X manager'dır"
+"model Y worker'dır"
+```
+
+yerine capability/evidence kullan.
+
+Mevcut request/decision dataclass'ları varsa genişlet.
+
+Paralel ikinci routing DTO framework'ü ekleme.
+
+## Parallel worker fleet
+
+Task decomposition her subtask için en az şunu üretmeli:
+
+```text
+objective
+required capability
+read set
+write set
+risk
+dependencies
+expected artifact
+verification requirement
+```
+
+Parallelism:
+
+```text
+disjoint read/write resource
+    -> parallel allowed
+
+same writable logical resource
+    -> serialize or explicit ownership
+```
+
+Fan-in:
+
+```text
+duplicate
+contradiction
+worker failure
+partial result
+missing evidence
+```
+
+durumlarını explicit olarak işlemeli.
+
+Worker failure coordinator tarafından success olarak maskelenemez.
+
+## Feedback ve learning pipeline
+
+Mevcut:
+
+```text
+evolution_capture.py
+learning_daily_compiler.py
+evolution_runtime.py
+local_learning.py
+```
+
+ve equivalent stores CONNECT edilmeli.
+
+Pipeline:
+
+```text
+runtime evidence
+   -> sanitized capture
+   -> feedback candidate
+   -> deterministic normalization where possible
+   -> deduplicate
+   -> cluster
+   -> durable lesson
+   -> memory candidate
+      or skill candidate
+      or routing improvement candidate
+      or system improvement candidate
+```
+
+Capture örnekleri:
+
+```text
+repeated failure
+tool friction
+missing context
+bad routing
+user correction
+verification failure
+repeated manual workaround
+verified reusable procedure
+```
+
+Binlerce redundant feedback doğrudan expensive reasoner context'ine verilmez.
+
+Önce compact edilir.
+
+Raw prompt/response persistence default olmamalıdır.
+
+Secret hiçbir aşamada durable feedback'e sızmamalıdır.
+
+## Feedback mutation safety
+
+Şu zincir değişmez:
+
+```text
+feedback != authority
+candidate != approval
+plan != permission
+skill != permission
+memory != Work truth
+```
+
+Code/system mutation existing evolution/mutation admission chain'den geçmeli.
+
+Autonomous evolution safety gevşetilmez.
+
+## Memory / Skill / Work / Authority sınırı
+
+Typed tests ile şu ayrımı koru:
+
+```text
+MEMORY
+"Mehmet X formatını tercih ediyor."
+
+SKILL
+"X işi yapılırken A -> B -> C adımları uygulanır."
+
+WORK
+"Ticket Y için X işi yapılacak."
+
+AUTHORITY
+"External system üzerinde mutation yetkili/yetkisiz."
+```
+
+Bir katmanın verisini diğerinin authority'sine otomatik dönüştürme.
+
+## Context explainability
+
+Her önemli selected context item machine-readable trace üretir:
+
+```json
+{
+  "source_kind": "...",
+  "source_ref": "...",
+  "scope": "...",
+  "digest": "...",
+  "selection_reason": "...",
+  "freshness": "...",
+  "load_level": "L1|L2|L3",
+  "bounded_size": 0,
+  "authority": false
+}
+```
+
+Diagnostic output:
+
+```text
+secret içermez
+raw credential içermez
+gereksiz full memory body içermez
+```
+
+CLI/JSON artifact yeterlidir.
+
+UI yapılmaz.
+
+## SQLite migration
+
+Önce existing schema'yı incele.
+
+Equivalent table/column varsa onu kullan.
+
+Sadece eksik persistence semantics için migration ekle.
+
+Olası missing concepts:
+
+```text
+memory candidate review evidence
+skill fresh-evaluation evidence
+feedback cluster/dedup identity
+source revision/digest
+selection provenance when durable audit is actually required
+```
+
+Yeni table oluşturmadan önce mevcut:
+
+```text
+local_learning
+skill_lifecycle
+evolution
+continuity
+```
+
+schema'larını reuse etmeyi dene.
+
+Migration requirements:
+
+```text
+schema version bump
+idempotent migration
+backup before mutation
+upgrade readback
+existing-data preservation
+rollback/recovery path
+fresh-db test
+upgrade-from-previous-schema test
+```
+
+Forbidden:
+
+```text
+PostgreSQL runtime dependency
+legacy PostgreSQL import
+new mandatory vector database
+Docker dependency for Zekam core
+```
+
+## Test dosyaları
+
+Repository test convention'ı farklıysa aynı convention'a yerleştir; fakat aşağıdaki semantic test coverage mutlaka bulunmalı.
+
+Tercih edilen exact test paths:
+
+```text
+tests/unit/application/test_context_assembly.py
+tests/unit/application/test_context_budget.py
+tests/integration/test_open_loop_continuity.py
+
+tests/integration/test_memory_cli.py
+tests/integration/test_doctor_cognitive_health.py
+
+tests/unit/application/test_skill_progressive_disclosure.py
+tests/integration/test_experience_to_skill_candidate.py
+tests/integration/test_skill_fresh_context_evaluation.py
+tests/integration/test_skill_projection_cross_client.py
+
+tests/integration/test_model_routing_evidence.py
+tests/integration/test_orchestration_worker_fleet.py
+tests/integration/test_independent_verifier.py
+
+tests/integration/test_feedback_compaction.py
+tests/security/test_cognitive_authority_isolation.py
+tests/architecture/test_no_ui_surface.py
+```
+
+Mevcut equivalent test varsa duplicate test file yaratma; onu genişlet ve final artifact'te eşleşmeyi raporla.
+
+## Acceptance criteria
+
+### AC-01 Progressive context
+
+Assertion:
+
+```text
+new session does not eagerly load all memory/knowledge/skill bodies
+metadata/index first
+selected resources lazy-loaded
+```
+
+Proof command:
+
+```bash
+python -m pytest -q \
+  tests/unit/application/test_context_assembly.py \
+  -k progressive
+```
+
+Expected:
+
+```text
+exit 0
+```
+
+### AC-02 Economy mode
+
+Assertion:
+
+```text
+ECONOMY has lower/bounded context budget
+authority/policy/redaction checks are identical to NORMAL
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/unit/application/test_context_budget.py
+```
+
+Expected exit `0`.
+
+### AC-03 Open-loop correctness
+
+Assertion:
+
+```text
+objective/pending/blocked/next action comes from Work/checkpoint/continuity evidence
+memory cannot invent Work state
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_open_loop_continuity.py
+```
+
+Expected exit `0`.
+
+### AC-04 Semantic memory surface
+
+Assertion:
+
+```text
+status
+inspect
+search
+candidates
+review
+promote
+hygiene
+```
+
+are reachable headlessly and tested.
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_memory_cli.py
+```
+
+Expected exit `0`.
+
+### AC-05 Cognitive Doctor
+
+Assertion:
+
+```text
+doctor detects cognitive drift/hygiene issues
+default path is read-only
+no destructive implicit repair
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_doctor_cognitive_health.py
+```
+
+Expected exit `0`.
+
+### AC-06 Skill progressive disclosure
+
+Assertion:
+
+```text
+metadata discovery != full SKILL.md load
+SKILL.md lazy
+references/scripts/assets lazy and bounded
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/unit/application/test_skill_progressive_disclosure.py
+```
+
+Expected exit `0`.
+
+### AC-07 Experience to skill
+
+Assertion:
+
+```text
+verified success/correction/failure may create candidate
+candidate is not automatically active
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_experience_to_skill_candidate.py
+```
+
+Expected exit `0`.
+
+### AC-08 Fresh-context evaluation
+
+Assertion:
+
+```text
+activation requires bounded/fresh evaluation evidence
+critical verification is independent
+failed evaluation cannot activate skill
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_skill_fresh_context_evaluation.py
+```
+
+Expected exit `0`.
+
+### AC-09 Cross-client portability
+
+Assertion:
+
+```text
+one canonical revision projects without semantic fork
+managed/opt-in policy is preserved according to repository evidence
+projection does not grant authority
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_skill_projection_cross_client.py
+```
+
+Expected exit `0`.
+
+### AC-10 Evidence-based routing
+
+Assertion:
+
+```text
+route uses canonical capability/benchmark/health/policy evidence
+caller-supplied arbitrary candidates are not trusted authority
+unknown cost/quota is not fabricated
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_model_routing_evidence.py
+```
+
+Expected exit `0`.
+
+### AC-11 Worker orchestration
+
+Assertion:
+
+```text
+independent subtasks may run in parallel
+conflicting writable resources serialize
+fan-in represents partial/failure/contradiction states
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_orchestration_worker_fleet.py
+```
+
+Expected exit `0`.
+
+### AC-12 Independent verification
+
+Assertion:
+
+```text
+risk policy can require verifier != builder/worker
+verification evidence binds to exact artifact/result
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_independent_verifier.py
+```
+
+Expected exit `0`.
+
+### AC-13 Feedback compression
+
+Assertion:
+
+```text
+repeated feedback is normalized/deduplicated/clustered
+raw redundant events are not passed wholesale to expensive reasoning
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/integration/test_feedback_compaction.py
+```
+
+Expected exit `0`.
+
+### AC-14 Authority isolation
+
+Assertion:
+
+```text
+memory
+skill
+context
+feedback
+RAG
+model recommendation
+```
+
+cannot create authorization, claim, receipt or Work truth.
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/security/test_cognitive_authority_isolation.py
+```
+
+Expected exit `0`.
+
+### AC-15 No UI
+
+Assertion:
+
+```text
+no new browser dashboard
+no TUI dashboard
+no product HTML/CSS/JS surface
+no UI-only API/projection
+```
+
+Proof:
+
+```bash
+python -m pytest -q \
+  tests/architecture/test_no_ui_surface.py
+
+git diff \
+  4629e9e58f8a74bbaad1e76e362893628837c823...HEAD \
+  --name-only |
+  grep -Ei \
+  '(^|/)(ui|dashboard|frontend|webapp)(/|$)|\.(html|css|tsx|jsx)$'
+```
+
+The pytest command must exit `0`.
+
+The grep command must produce no prohibited newly-added product surface.
+A grep exit `1` caused by no matches is expected and must not be reported as test failure.
+
+### AC-16 Package integrity
+
+Proof:
+
+```bash
+python scripts/paket_dogrula.py
+python -m pytest -q
+python -m ruff check .
+python -m mypy src/zekam
+```
+
+All commands expected exit `0`.
+
+Run repository-native:
+
+```text
+secret scan
+dead-code/reachability validation
+security test suite
+package/release validation
+```
+
+as discovered from repository config/scripts.
+
+Do not invent PASS for a command not executed.
+
+## Additional regression gates
+
+Existing capabilities must not regress:
+
+```text
+RAG
+knowledge
+research
+Jira/external integrations where present
+continuity
+backup/recovery
+evolution
+scheduler
+Work Graph
+client integrations
+claim/receipt semantics
+```
+
+Discover current tests:
+
+```bash
+find tests -type f -name 'test_*.py' | sort
+
+grep -RniE \
+'RAG|knowledge|research|jira|continuity|backup|evolution|scheduler|WorkGraph|receipt|claim' \
+tests || true
+```
+
+Run all relevant existing tests plus full suite.
+
+## Security invariants
+
+Preserve:
+
+```text
+secret -> never prompt/log/memory/vector/artifact in raw form
+network -> existing authorization
+mutation -> claim-before-effect where required
+success -> terminal receipt
+project mutation -> exact bounded source root
+same writable resource -> no uncontrolled parallel builders
+push -> forbidden without explicit new authority
+```
+
+This task does not authorize push.
+
+## No-UI invariant
+
+Forbidden additions:
+
+```text
+zekam ui
+dashboard
+browser control panel
+TUI dashboard
+HTML/CSS/JS product surface
+visual graph product UI
+UI-only API
+UI-only projection
+```
+
+Graph/context information may be exposed as:
+
+```text
+CLI
+JSON
+machine-readable artifact
+test artifact
+```
+
+## No-Postgres invariant
+
+Do not add:
+
+```text
+psycopg runtime dependency
+PostgreSQL service requirement
+PostgreSQL migration requirement
+legacy PostgreSQL data import
+Docker-only database dependency
+```
+
+SQLite/local existing Zekam persistence remains canonical unless current repository contract explicitly provides another local bounded backend.
+
+## Capability inventory
+
+Update:
+
+```text
+src/zekam/application/capability_inventory.py
+docs/ZEKAM_YETKINLIK_ENVANTERI.md
+README.md
+```
+
+or exact current equivalents only after implementation/testing.
+
+Readiness rules:
+
+```text
+code exists != ready
+unit tests only != necessarily ready
+documented != ready
+```
+
+`ready` requires actual end-to-end evidence consistent with repository Definition of Done.
+
+## Documentation synchronization
+
+After implementation synchronize only relevant docs:
+
+```text
+README.md
+GLOBAL_DEFINITION_OF_DONE.md
+docs/ZEKAM_YETKINLIK_ENVANTERI.md
+memory/skill/evolution/model-routing docs
+PROJE_MANIFESTI.yaml when contract changes
+package/release manifest when repository process requires
+```
+
+Documentation must describe actual behavior, not aspirational implementation.
+
+## Active-task projection
+
+This Markdown is living task authority.
+
+`AKTIF_GOREV.yaml` must not be independently hand-maintained if repository has an existing `ActiveTaskContract`/projection mechanism.
+
+Flow:
+
+```text
+AKTIF_GOREV.md exact bytes
+  -> digest
+  -> canonical projection mechanism
+  -> AKTIF_GOREV.yaml
+  -> deterministic readback
+```
+
+If current repository uses a different exact mechanism, use that implementation.
+
+## Required implementation sequence
+
+Apply in this order unless code dependency proves another order necessary:
+
+```text
+baseline discovery
+  -> context domain/application contracts
+  -> continuity integration
+  -> semantic memory surface
+  -> cognitive doctor
+  -> skill progressive disclosure
+  -> experience-to-skill
+  -> fresh-context evaluation
+  -> projection validation
+  -> evidence-based model routing
+  -> worker orchestration
+  -> verifier integration
+  -> feedback compaction
+  -> authority-isolation tests
+  -> migrations
+  -> capability inventory/docs
+  -> full quality gates
+  -> independent verifier
+```
+
+Do not begin with documentation.
+
+Do not begin by rewriting existing subsystems.
+
+## Independent verifier
+
+At least one real verifier separate from primary builder must review exact resulting diff.
+
+Verifier questions:
+
+```text
+Were existing Zekam components unnecessarily rewritten?
+Can memory create authority?
+Can skill create permission?
+Can feedback create mutation authority?
+Does progressive disclosure actually prevent eager corpus loading?
+Does ECONOMY reduce safety?
+Does open-loop state come from canonical evidence?
+Is semantic memory surface actually usable?
+Is doctor read-only by default?
+Can one event directly activate a skill?
+Is evaluation fresh/bounded?
+Can the skill verify itself?
+Does routing use canonical evidence?
+Are model/provider roles hard-coded?
+Is unknown quota/cost fabricated?
+Does worker parallelism respect writable resource conflict?
+Is verifier independent where required?
+Can a worker failure be hidden as success?
+Is raw transcript unnecessarily persisted?
+Can secrets enter durable learning state?
+Was any UI added?
+Was any PostgreSQL runtime dependency added?
+Did existing RAG/continuity/evolution/Work/receipt behavior regress?
+Do docs and capability inventory match real evidence?
+```
+
+Any P0/P1 finding blocks terminal success.
+
+## Quality gates
+
+Run canonical repository commands discovered from source/config.
+
+Minimum required:
+
+```bash
+python scripts/paket_dogrula.py
+
+python -m pytest -q \
+  tests/unit/application/test_context_assembly.py \
+  tests/unit/application/test_context_budget.py \
+  tests/integration/test_open_loop_continuity.py \
+  tests/integration/test_memory_cli.py \
+  tests/integration/test_doctor_cognitive_health.py \
+  tests/unit/application/test_skill_progressive_disclosure.py \
+  tests/integration/test_experience_to_skill_candidate.py \
+  tests/integration/test_skill_fresh_context_evaluation.py \
+  tests/integration/test_skill_projection_cross_client.py \
+  tests/integration/test_model_routing_evidence.py \
+  tests/integration/test_orchestration_worker_fleet.py \
+  tests/integration/test_independent_verifier.py \
+  tests/integration/test_feedback_compaction.py \
+  tests/security/test_cognitive_authority_isolation.py \
+  tests/architecture/test_no_ui_surface.py
+
+python -m pytest -q
+python -m ruff check .
+python -m mypy src/zekam
+```
+
+If an exact preferred test path is merged into an existing equivalent test module during fit-gap, substitute the exact real path and record mapping in final report.
+
+Skip:
+
+```text
+!= PASS
+```
+
+Environment-induced skip/failure must be explicitly classified.
+
+## Required final report
+
+Terminal report must include:
+
+```text
+baseline SHA
+starting working HEAD
+ending local HEAD
+working tree state
+
+fit-gap matrix
+REUSE items
+EXTEND items
+CONNECT items
+REPLACE items
+REMOVE items
+
+exact changed files
+exact added files
+exact removed files
+
+schema version before/after
+migration result
+upgrade readback
+rollback/recovery result
+
+context progressive-disclosure evidence
+normal/economy evidence
+open-loop evidence
+memory lifecycle evidence
+doctor evidence
+skill lifecycle evidence
+fresh-context evaluation evidence
+cross-client projection evidence
+model-routing evidence
+worker/fan-in evidence
+independent-verifier evidence
+feedback-compaction evidence
+authority-isolation evidence
+
+each AC-01..AC-16:
+PASS / FAIL / BLOCKED
+proof command
+exit code
+artifact/test name
+
+package validator result
+pytest result
+ruff result
+mypy result
+secret-scan result
+dead/reachability result
+
+independent verifier identity/result
+P0 count
+P1 count
+
+commit SHA if a local commit was created
+push performed = false
+```
+
+Do not say "completed" solely because code was written.
+
+Every material completion claim requires deterministic test/readback/receipt/verifier evidence.
+
+## Definition of success
+
+Success is not:
+
+```text
+"Second Brain folder added"
+"more agents added"
+"more prompts added"
+"memory database added"
+```
+
+Success is:
+
+> Zekam'ın mevcut authority ve evidence mimarisini bozmadan, doğru context'i bounded biçimde seçebilen; kalıcı bilgiyi kontrollü memory lifecycle ile yönetebilen; tekrar kullanılabilir yöntemleri skill olarak progressive-disclosure ile yükleyebilen; işi kanıta dayalı olarak uygun agent/model'e dağıtabilen; paralel worker sonuçlarını doğrulayarak birleştirebilen; çalışma deneyiminden memory/skill/system-improvement candidate üretebilen; fakat hiçbir bilişsel katmanı permission veya Work authority'ye dönüştürmeyen headless bir sistem olmasıdır.
+
+Final invariant:
+
+```text
+memory != authority
+skill != authority
+context != authority
+feedback != authority
+model recommendation != authority
+
+Work/policy/claim/receipt
+remain canonical for execution truth and authority
+```
+```

@@ -148,3 +148,43 @@ def test_coordination_overrun_feeds_back_simpler_topology() -> None:
     )
     assert "simpler-topology-recommended" in receipt.topology_feedback
     assert "sequential-graph-observed" in receipt.topology_feedback
+
+
+def test_partial_node_yields_partial_fan_in_disposition() -> None:
+    plan = _plan(PlanStep("a", "A", EffectKind.NONE), PlanStep("b", "B", EffectKind.NONE))
+    partial = replace(_observation("b", 1, 2), terminal_state=GraphNodeTerminalState.PARTIAL)
+    receipt = GraphExecutionRecorder().build_receipt(
+        graph_root_id=uuid4(),
+        plan=plan,
+        observations=(_observation("a", 0, 1), partial),
+    )
+    assert receipt.terminal_state is GraphTerminalState.PARTIAL
+    assert receipt.fan_in_disposition.value == "partial"
+
+
+def test_failed_disposition_is_bound_and_never_success() -> None:
+    plan = _plan(PlanStep("a", "A", EffectKind.NONE), PlanStep("b", "B", EffectKind.NONE))
+    failed = replace(_observation("b", 1, 2), terminal_state=GraphNodeTerminalState.FAILED)
+    receipt = GraphExecutionRecorder().build_receipt(
+        graph_root_id=uuid4(),
+        plan=plan,
+        observations=(_observation("a", 0, 1), failed),
+    )
+    assert receipt.fan_in_disposition.value == "failed"
+    assert receipt.terminal_state is GraphTerminalState.FAILED
+
+
+def test_writer_conflict_forces_serialization_parallel_ceiling() -> None:
+    from zekam.domain.work import PlanStep
+
+    plan = _plan(
+        PlanStep("a", "A", EffectKind.FILE_WRITE, logical_resources=("path:x:same",)),
+        PlanStep("b", "B", EffectKind.FILE_WRITE, logical_resources=("path:x:same",)),
+    )
+    # Ayni writable resource'da gercek overlap olursa reddedilir -> serialize zorunlu.
+    with pytest.raises(PolicyViolation, match="Resource-conflicting"):
+        GraphExecutionRecorder().build_receipt(
+            graph_root_id=uuid4(),
+            plan=plan,
+            observations=(_observation("a", 0, 2), _observation("b", 1, 3)),
+        )

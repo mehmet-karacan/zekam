@@ -121,16 +121,121 @@ def _optional_text(values: Mapping[str, Any], field: str, maximum: int) -> str |
     return value
 
 
+def _lazy_payload(
+    files: Mapping[str, bytes], path: str, *, kind: str, maximum: int
+) -> bytes:
+    """Return the exact bounded payload for one managed path, fail-closed.
+
+    The caller keeps the path allow-list authoritative: this function only
+    re-validates the normalized parent prefix for the requested lazy resource
+    so a caller can never reach an unmanaged absolute path or package-root
+    escape through a lazy load operator.
+    """
+    canonical = _canonical_path(path)
+    if kind == "reference" and not canonical.startswith("references/"):
+        raise PolicyViolation("Skill package lazy load kind/path mismatch")
+    if kind == "script" and not canonical.startswith("scripts/"):
+        raise PolicyViolation("Skill package lazy load kind/path mismatch")
+    if canonical not in files:
+        raise PolicyViolation(f"Skill package {kind} path not in managed manifest")
+    payload = files[canonical]
+    if not isinstance(payload, bytes) or not payload or len(payload) > maximum:
+        raise PolicyViolation(f"Skill package {kind} payload out of bound")
+    return payload
+
+
+def _script_metadata(name: str, assets: Mapping[str, bytes]) -> dict[str, object]:
+    """Digest-bound, content-free metadata for a managed script + its assets."""
+    return {
+        "name": _canonical_path(name),
+        "digest": digest_of_bytes(assets.get(name, b"")),
+        "size": len(assets.get(name, b"")),
+        "asset_count": len(assets),
+        "assets": [
+            {
+                "path": _canonical_path(asset_path),
+                "digest": digest_of_bytes(payload),
+                "size": len(payload),
+            }
+            for asset_path, payload in sorted(assets.items())
+        ],
+        "grants_authority": False,
+    }
+
+
+def _asset_metadata(path: str, payload: bytes) -> dict[str, object]:
+    return {
+        "path": _canonical_path(path),
+        "digest": digest_of_bytes(payload),
+        "size": len(payload),
+        "grants_authority": False,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class SkillPackageMetadata:
+    """Metadata-only discovery view; carries no instruction/script/asset content."""
+
+    name: str
+    description: str
+    license: str | None
+    compatibility: str | None
+    metadata: Mapping[str, str]
+    declared_allowed_tools: str | None
+    version: str | None
+    revision: str | None
+    evaluation_state: str | None
+    package_digest: str
+    semantic_digest: str
+    reference_count: int
+    script_count: int
+    asset_count: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema": "zekam-skill-package-metadata/v1",
+            "name": self.name,
+            "description": self.description,
+            "license": self.license,
+            "compatibility": self.compatibility,
+            "metadata": dict(self.metadata),
+            "declared_allowed_tools": self.declared_allowed_tools,
+            "version": self.version,
+            "revision": self.revision,
+            "evaluation_state": self.evaluation_state,
+            "package_digest": self.package_digest,
+            "semantic_digest": self.semantic_digest,
+            "reference_count": self.reference_count,
+            "script_count": self.script_count,
+            "asset_count": self.asset_count,
+            "content_loaded": False,
+            "grants_authority": False,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class SkillPackage:
+    """Canonical instruction-only skill package.
+
+    Metadata is parsed eagerly and is exposed through ``metadata_view`` without
+    loading code/reference payloads.  Full instruction and per-reference/script/
+    asset content is resolved only through the explicit lazy-load operators
+    (``load_instruction``, ``load_reference``, ``load_script_metadata``,
+    ``load_asset_metadata``), each of which is fail-closed against package-root
+    escape.  Existing callers that read ``files``/``instructions`` directly keep
+    working because ``parse``/``read_directory`` still produce the full
+    canonical manifest.
+    """
+
     name: str
     description: str
     instructions: str
     files: Mapping[str, bytes]
-    license: str | None = None
-    compatibility: str | None = None
-    metadata: Mapping[str, str] = MappingProxyType({})
-    declared_allowed_tools: str | None = None
+    license: str | None
+    compatibility: str | None
+    metadata: Mapping[str, str]
+    declared_allowed_tools: str | None
+    _lazy_manifest: Mapping[str, bytes] = MappingProxyType({})
 
     @classmethod
     def parse(cls, directory_name: str, files: Mapping[str, bytes]) -> SkillPackage:
@@ -184,15 +289,17 @@ class SkillPackage:
         ):
             raise ValidationFailed("SKILL.md metadata must be bounded string pairs")
         allowed = _optional_text(values, "allowed-tools", 1024)
+        manifest = dict(sorted(normalized.items()))
         return cls(
             name=name,
             description=description,
             instructions=instructions,
-            files=MappingProxyType(dict(sorted(normalized.items()))),
+            files=MappingProxyType(manifest),
             license=_optional_text(values, "license", 1024),
             compatibility=_optional_text(values, "compatibility", 500),
             metadata=MappingProxyType(dict(sorted(metadata.items()))),
             declared_allowed_tools=allowed,
+            _lazy_manifest=MappingProxyType(manifest),
         )
 
     @classmethod
@@ -276,3 +383,114 @@ class SkillPackage:
             + self.instructions
         ).encode("utf-8")
         return {**self.files, "SKILL.md": rendered}
+
+    # -- metadata-first progressive disclosure load operators -----------------
+
+    @property
+    def metadata_view(self) -> SkillPackageMetadata:
+        """Metadata-only view; never touches reference/script/asset content."""
+        references = {
+            path for path in self._lazy_manifest if path.startswith("references/")
+        }
+        scripts = {path for path in self._lazy_manifest if path.startswith("scripts/")}
+        assets = {
+            path
+            for path in self._lazy_manifest
+            if path != "SKILL.md"
+            and not path.startswith("references/")
+            and not path.startswith("scripts/")
+        }
+        return SkillPackageMetadata(
+            name=self.name,
+            description=self.description,
+            license=self.license,
+            compatibility=self.compatibility,
+            metadata=self.metadata,
+            declared_allowed_tools=self.declared_allowed_tools,
+            version=self.metadata.get("version"),
+            revision=self.metadata.get("revision"),
+            evaluation_state=self.metadata.get("evaluation.state"),
+            package_digest=self.package_digest,
+            semantic_digest=self.semantic_digest,
+            reference_count=len(references),
+            script_count=len(scripts),
+            asset_count=len(assets),
+        )
+
+    def load_metadata(
+        self, *, fields: tuple[str, ...] = ("name", "description")
+    ) -> dict[str, object]:
+        """Return a bounded metadata projection requested by the caller."""
+        if not isinstance(fields, tuple) or not fields or len(fields) > 16 or len(
+            set(fields)
+        ) != len(fields):
+            raise ValidationFailed("Skill metadata requested fields invalid")
+        allowed = {
+            "name",
+            "description",
+            "license",
+            "compatibility",
+            "metadata",
+            "declared_allowed_tools",
+            "version",
+            "revision",
+            "evaluation_state",
+            "package_digest",
+            "semantic_digest",
+            "reference_count",
+            "script_count",
+            "asset_count",
+        }
+        unknown = [field for field in fields if field not in allowed]
+        if unknown:
+            raise ValidationFailed(f"Skill metadata unknown field: {unknown[0]}")
+        view = self.metadata_view.as_dict()
+        return {"schema": view["schema"], **{field: view[field] for field in fields}}
+
+    def load_instruction(self) -> bytes:
+        """Return the canonical SKILL.md instruction payload (fail-closed)."""
+        return _lazy_payload(
+            self._lazy_manifest, "SKILL.md", kind="instruction", maximum=MAX_SKILL_MD_BYTES
+        )
+
+    def load_reference(self, relative_path: str) -> bytes:
+        """Return one managed references/ payload; unmanaged path rejected."""
+        payload = _lazy_payload(
+            self._lazy_manifest,
+            relative_path,
+            kind="reference",
+            maximum=MAX_FILE_BYTES,
+        )
+        if not relative_path.endswith(".md"):
+            raise PolicyViolation("Skill reference must be a managed markdown file")
+        return payload
+
+    def load_script_metadata(self, relative_path: str) -> dict[str, object]:
+        """Digest-bound metadata for one managed scripts/ file; content lazy."""
+        script = _canonical_path(relative_path)
+        if not script.startswith("scripts/"):
+            raise PolicyViolation("Skill script must live under scripts/")
+        payload = _lazy_payload(
+            self._lazy_manifest, script, kind="script", maximum=MAX_FILE_BYTES
+        )
+        prefix = f"scripts/{script[len('scripts/'):].split('.')[0]}/"
+        assets: dict[str, bytes] = {
+            path: self._lazy_manifest[path]
+            for path in self._lazy_manifest
+            if path.startswith(prefix) and path != script
+        }
+        return _script_metadata(script, {script: payload, **assets})
+
+    def load_asset_metadata(self, relative_path: str) -> dict[str, object]:
+        """Digest-bound metadata for one managed asset outside references/scripts."""
+        canonical = _canonical_path(relative_path)
+        if (
+            canonical == "SKILL.md"
+            or canonical.startswith("references/")
+            or canonical.startswith("scripts/")
+        ):
+            raise PolicyViolation("Skill asset must be a managed non-instruction payload")
+        payload = _lazy_payload(
+            self._lazy_manifest, canonical, kind="asset", maximum=MAX_FILE_BYTES
+        )
+        return _asset_metadata(canonical, payload)

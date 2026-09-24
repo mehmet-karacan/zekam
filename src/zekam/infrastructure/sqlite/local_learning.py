@@ -18,7 +18,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
-from typing import final
+from typing import Any, final
 from zoneinfo import ZoneInfo
 
 from zekam.application.memory_service import ReviewDecision
@@ -341,6 +341,18 @@ def _v1_content_digest(db: sqlite3.Connection) -> str:
             hasher.update(canonical_json(list(row)).encode("utf-8"))
             hasher.update(b"\n")
     return "sha256:" + hasher.hexdigest()
+
+
+def _review_dict(row: sqlite3.Row) -> dict[str, object]:
+    """Salt okunur review kaydini sinirli gorsele donusturur."""
+    return {
+        "review_digest": str(row["review_digest"]),
+        "candidate_digest": str(row["candidate_digest"]),
+        "reviewer_ref": str(row["reviewer_ref"]),
+        "approved": bool(row["approved"]),
+        "reason": str(row["reason"]),
+        "created_at": str(row["created_at"]),
+    }
 
 
 def _parse_time(value: object) -> dt.datetime:
@@ -895,6 +907,298 @@ class SQLiteLocalLearning:
                 }
             )
         return receipt | {"receipt_digest": digest(receipt)}
+
+    # -- Salt okunur memory yuzeyi (Dalga 2) ------------------------------------
+    # Bu metodlar yalniz okur; hicbir kayit silinmez, guncellenmez ya da
+    # promote edilmez. Mutation yalniz propose/review/activate uzerinden gecer.
+
+    def _connect_readonly(self) -> sqlite3.Connection:
+        self._file_ok()
+        db = sqlite3.connect(
+            f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
+        )
+        db.row_factory = sqlite3.Row
+        db.execute("pragma foreign_keys=on")
+        db.execute("pragma query_only=on")
+        return db
+
+    def memory_status(self) -> dict[str, object]:
+        """Kayitli memory/candidate sayilarini ve store sagligini census eder."""
+        with closing(self._connect()) as db:
+            db.execute("pragma query_only=on")
+            if db.execute("pragma integrity_check").fetchone()[0] != "ok":
+                raise PolicyViolation("WP-09 SQLite memory integrity drift")
+        with closing(self._connect_readonly()) as db:
+            counts: dict[str, int] = {}
+            for table in (
+                "memory_candidate",
+                "memory_review",
+                "memory_revision",
+                "memory_relation",
+                "memory_head",
+            ):
+                counts[table] = int(
+                    db.execute(f"select count(*) from {table}").fetchone()[0]
+                )
+            by_state: dict[str, int] = {}
+            for row in db.execute(
+                "select state,count(*) as n from memory_revision group by state"
+            ).fetchall():
+                by_state[str(row["state"])] = int(row["n"])
+        return {"counts": counts, "revision_states": by_state}
+
+    def candidate_digest_by_id(self, candidate_id: str) -> str | None:
+        """Exact aday kimliginden candidate digest'i doner; yoksa None."""
+        if not candidate_id.strip() or candidate_id != candidate_id.strip():
+            raise ValidationFailed("Candidate id bos veya padded olamaz")
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select candidate_digest from memory_candidate where candidate_id=?",
+                (candidate_id,),
+            ).fetchone()
+        return str(row["candidate_digest"]) if row is not None else None
+
+    def list_candidates(self, *, maximum: int = 50) -> tuple[dict[str, object], ...]:
+        """Review bekleyen adaylarin koselerini (body icermez) listeler."""
+        if type(maximum) is not int or not 1 <= maximum <= 200:
+            raise ValidationFailed("Candidate list maximum 1..200 olmali")
+        with closing(self._connect_readonly()) as db:
+            reviewed = db.execute(
+                "select candidate_digest from memory_review group by candidate_digest"
+            ).fetchall()
+            reviewed_set = frozenset(
+                str(row["candidate_digest"]) for row in reviewed
+            )
+            rows = db.execute(
+                "select candidate_digest,candidate_id,memory_class,author_ref,"
+                "observed_at,body_json from memory_candidate order by observed_at desc limit ?",
+                (maximum + 1,),
+            ).fetchall()
+        result: list[dict[str, object]] = []
+        for row in rows:
+            if len(result) >= maximum:
+                break
+            body = json.loads(str(row["body_json"]))
+            result.append(
+                {
+                    "candidate_digest": str(row["candidate_digest"]),
+                    "candidate_id": str(row["candidate_id"]),
+                    "memory_class": str(row["memory_class"]),
+                    "author_ref": str(row["author_ref"]),
+                    "observed_at": str(row["observed_at"]),
+                    "reviewed": str(row["candidate_digest"]) in reviewed_set,
+                    "key": body.get("key"),
+                }
+            )
+        return tuple(result)
+
+    def inspect_candidate(self, candidate_digest: str) -> dict[str, object] | None:
+        """Tek adayin tam body'sini ve review durumunu doner."""
+        parse_digest(candidate_digest)
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select * from memory_candidate where candidate_digest=?",
+                (candidate_digest,),
+            ).fetchone()
+            if row is None:
+                return None
+            reviews = db.execute(
+                "select * from memory_review where candidate_digest=?",
+                (candidate_digest,),
+            ).fetchall()
+        body = json.loads(str(row["body_json"]))
+        return {
+            "candidate_digest": str(row["candidate_digest"]),
+            "candidate_id": str(row["candidate_id"]),
+            "memory_class": str(row["memory_class"]),
+            "source_kind": str(row["source_kind"]),
+            "author_ref": str(row["author_ref"]),
+            "observed_at": str(row["observed_at"]),
+            "body": body,
+            "reviews": [_review_dict(item) for item in reviews],
+        }
+
+    def list_records(self) -> tuple[dict[str, object], ...]:
+        """Aktif/superseded/revoked revision koklerini (body icerir) doner.
+
+        Revision body'leri memory yuzeyinin inspect/status isleri icin okunur;
+        opak body_json tam metni degil, gerekli sinirli gorsele donusturulur.
+        """
+        with closing(self._connect_readonly()) as db:
+            rows = db.execute(
+                "select r.revision_digest,r.memory_id,r.revision,r.state,"
+                "r.created_at,r.body_json,c.memory_class,c.author_ref "
+                "from memory_revision r join memory_candidate c "
+                "on c.candidate_digest=r.candidate_digest "
+                "order by r.memory_id,r.revision"
+            ).fetchall()
+        result: list[dict[str, object]] = []
+        for row in rows:
+            body = json.loads(str(row["body_json"]))
+            result.append(
+                {
+                    "revision_digest": str(row["revision_digest"]),
+                    "memory_id": str(row["memory_id"]),
+                    "revision": int(row["revision"]),
+                    "state": str(row["state"]),
+                    "created_at": str(row["created_at"]),
+                    "memory_class": str(row["memory_class"]),
+                    "author_ref": str(row["author_ref"]),
+                    "review_digest": body.get("review_digest"),
+                }
+            )
+        return tuple(result)
+
+    def record_by_memory_id(self, memory_id: str) -> dict[str, object] | None:
+        """Head revision'i memory_id ile doner; aday body'si dahildir."""
+        if not memory_id.strip() or memory_id != memory_id.strip():
+            raise ValidationFailed("Memory id bos veya padded olamaz")
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select r.revision_digest,r.memory_id,r.revision,r.state,"
+                "r.created_at,r.review_digest,c.memory_class,c.body_json "
+                "from memory_revision r "
+                "join memory_candidate c on c.candidate_digest=r.candidate_digest "
+                "where r.memory_id=? order by r.revision desc limit 1",
+                (memory_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            candidate_body = json.loads(str(row["body_json"]))
+        return {
+            "revision_digest": str(row["revision_digest"]),
+            "memory_id": str(row["memory_id"]),
+            "revision": int(row["revision"]),
+            "state": str(row["state"]),
+            "created_at": str(row["created_at"]),
+            "review_digest": str(row["review_digest"]),
+            "memory_class": str(row["memory_class"]),
+            "body": candidate_body,
+        }
+
+    def review_exists(self, candidate_digest: str, reviewer_ref: str) -> bool:
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select 1 from memory_review where candidate_digest=? and reviewer_ref=?",
+                (candidate_digest, reviewer_ref),
+            ).fetchone()
+        return row is not None
+
+    def review_by_digest(self, review_digest: str) -> dict[str, object] | None:
+        parse_digest(review_digest)
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select * from memory_review where review_digest=?", (review_digest,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "review_digest": str(row["review_digest"]),
+            "candidate_digest": str(row["candidate_digest"]),
+            "reviewer_ref": str(row["reviewer_ref"]),
+            "approved": bool(row["approved"]),
+            "reason": str(row["reason"]),
+            "created_at": str(row["created_at"]),
+        }
+
+    def approved_review_for(self, candidate_digest: str) -> dict[str, object] | None:
+        """Adayin onaylanmis review kaydini doner; yoksa None."""
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select * from memory_review where candidate_digest=? and approved=1 "
+                "order by created_at desc limit 1",
+                (candidate_digest,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "review_digest": str(row["review_digest"]),
+            "candidate_digest": str(row["candidate_digest"]),
+            "reviewer_ref": str(row["reviewer_ref"]),
+            "reason": str(row["reason"]),
+        }
+
+    def is_active(self, memory_id: str) -> bool:
+        with closing(self._connect_readonly()) as db:
+            row = db.execute(
+                "select 1 from memory_head where memory_id=?", (memory_id,)
+            ).fetchone()
+        return row is not None
+
+    def active_records(self) -> tuple[Any, ...]:
+        """Aktif head revision'lari ``MemoryRecord`` olarak yeniden kurar.
+
+        Okuma salt-okunurdur ve retrieval davranisini degistirmez; yalniz
+        ``NativeMemoryEngine``'in arama/yuzey kullanimi icin kanonik kayitlari
+        gorsele donusturur. Redactive olmayan alanlar canonical body'den
+        dogrulanir.
+        """
+        from zekam.domain.memory import (
+            MemoryClass,
+            MemoryEvidence,
+            MemoryKey,
+            MemoryRecord,
+            MemoryScope,
+            MemoryState,
+        )
+
+        with closing(self._connect_readonly()) as db:
+            rows = db.execute(
+                "select h.memory_id,r.revision,r.state,r.created_at,"
+                "c.memory_class,c.author_ref,c.body_json,c.observed_at,"
+                "rv.reviewer_ref "
+                "from memory_head h "
+                "join memory_revision r on r.revision_digest=h.revision_digest "
+                "join memory_candidate c on c.candidate_digest=r.candidate_digest "
+                "left join memory_review rv on rv.review_digest=r.review_digest"
+            ).fetchall()
+        records: list[MemoryRecord] = []
+        for row in rows:
+            body = json.loads(str(row["body_json"]))
+            key_doc = body.get("key")
+            if not isinstance(key_doc, dict):
+                continue
+            scope = MemoryScope(str(key_doc.get("scope")))
+            memory_key = MemoryKey(
+                scope=scope,
+                realm_ref=str(key_doc.get("realm_ref", "")),
+                project_ref=(
+                    str(key_doc["project_ref"]) if key_doc.get("project_ref") else None
+                ),
+                work_ref=str(key_doc["work_ref"]) if key_doc.get("work_ref") else None,
+                run_ref=str(key_doc["run_ref"]) if key_doc.get("run_ref") else None,
+                agent_ref=str(key_doc["agent_ref"]) if key_doc.get("agent_ref") else None,
+            )
+            evidence = tuple(
+                MemoryEvidence(
+                    kind=str(item["kind"]),
+                    reference=str(item["reference"]),
+                    digest_value=str(item["digest"]),
+                )
+                for item in body.get("evidence", ())
+                if isinstance(item, dict)
+            )
+            reviewed_by = (
+                str(row["reviewer_ref"]) if row["reviewer_ref"] is not None else None
+            )
+            records.append(
+                MemoryRecord(
+                    memory_id=str(row["memory_id"]),
+                    key=memory_key,
+                    memory_class=MemoryClass(str(row["memory_class"])),
+                    content=str(body["content"]),
+                    state=MemoryState.ACTIVE,
+                    revision=int(row["revision"]),
+                    created_at=_parse_time(str(row["created_at"])),
+                    evidence=evidence,
+                    valid_from=_parse_time(str(row["created_at"])),
+                    reviewed_by=reviewed_by,
+                    author_ref=(
+                        str(row["author_ref"]) if row["author_ref"] is not None else None
+                    ),
+                )
+            )
+        return tuple(records)
 
     def _file_ok(self) -> None:
         if not private_regular(self.path):

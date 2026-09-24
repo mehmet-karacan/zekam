@@ -232,3 +232,44 @@ def test_codex_child_bind_failure_is_terminalized_without_silent_retry(
     assert host.finish.call_args.kwargs["outcome"] is expected_outcome
     assert host.finish.call_args.kwargs["failure_category"] is expected_failure_category
     assert jobs.get.call_count == 2
+
+
+def test_failing_handler_is_never_terminalized_as_succeeded() -> None:
+    """AC-11: worker failure success olarak maskelenemez."""
+    settings = WorkerSettings(worker_label="queue", capabilities=("read",))
+    job_id = uuid4()
+    handler_key = "explode"
+    job = SimpleNamespace(
+        id=job_id,
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        plan_id=uuid4(),
+        step_id="step",
+        assignment_id=uuid4(),
+        run_id=uuid4(),
+        state=JobState.RUNNING,
+        kind=handler_key,
+    )
+    work = SimpleNamespace(job=job)
+    jobs = Mock()
+    jobs.get.return_value = job
+    ledger = Mock()
+    ledger.claims_for_job.return_value = ()
+    host = Mock(jobs=jobs, ledger=ledger)
+    host.finish.return_value = True
+
+    def boom(claimed: object) -> str:
+        raise RuntimeError("injected handler failure")
+
+    worker = Worker(
+        host=cast(ExecutionHost, host),
+        settings=settings,
+        handlers={handler_key: boom},
+    )
+    outcome = worker._process(work, now=NOW)
+
+    assert outcome is AttemptOutcome.FAILED
+    assert outcome is not AttemptOutcome.SUCCEEDED
+    host.finish.assert_called_once()
+    assert host.finish.call_args.kwargs["outcome"] is AttemptOutcome.FAILED
+    assert host.finish.call_args.kwargs["failure_category"] is FailureCategory.ADAPTER

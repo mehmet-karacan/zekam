@@ -112,7 +112,61 @@ def test_capabilities_expose_ready_partial_and_scaffold_without_claiming_authori
     assert any(item["gap"] for item in document["capabilities"] if item["status"] != "ready")
 
 
-def test_resume_prompt_projects_large_state_to_a_bounded_valid_packet() -> None:
+def test_resume_packet_exposes_navigation_fields_sourced_from_canonical_refs(
+    tmp_path: Path,
+) -> None:
+    """Resume packet, gorev kapsami ister: navigation alanlari kanonik kaynaklardan
+    turer; transcript'ten ya da bellek iceriginden work-truth URETMEZ."""
+    runner = CliRunner()
+    home = tmp_path / ".zekam"
+    source = tmp_path / "demo"
+    source.mkdir()
+
+    init = runner.invoke(app, ["init", "--home", str(home)])
+    assert init.exit_code == 0, init.output
+    added = runner.invoke(
+        app,
+        ["project", "add", str(source), "--slug", "demo", "--uygula", "--home", str(home)],
+    )
+    assert added.exit_code == 0, added.output
+    created = runner.invoke(
+        app,
+        [
+            "resume",
+            "--json",
+            "--session",
+            "session-z",
+            "--home",
+            str(home),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+
+    document = json.loads(created.output)
+    # navigation gorev alanlari her zaman mevcut olmali
+    assert "navigation" in document
+    nav = document["navigation"]
+    for field in (
+        "current_objective",
+        "completed",
+        "pending",
+        "blocked",
+        "next_safe_action",
+        "relevant_decisions",
+        "relevant_skill_refs",
+        "relevant_knowledge_refs",
+        "source_evidence",
+    ):
+        assert field in nav, f"navigation.{field} eksik"
+
+    # Work truth, bellek/skill/knowledge iceriginden degil, kanonik kaynaklardan gelir.
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False
+    assert document["approval_inherited"] is False
+    # Packet bir authorization/claim/receipt tasimaz.
+    for forbidden in ("authorization_digest", "claim_id", "receipt_id"):
+        assert forbidden not in document
+
     packet = {
         "schema": "zekam-resume-packet/v1",
         "semantic_state": "ready",

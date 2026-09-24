@@ -245,8 +245,10 @@ def test_removed_remote_commands_and_current_local_surfaces_are_advertised_corre
 ) -> None:
     result = _run("--help")
     assert result.exit_code == 0
-    for command in ("memory", "loop", "oracle", "trace"):
+    # memory Dalga 2 itibariyle gercek yerel CLI yuzeyidir; loop/oracle/trace kapali.
+    for command in ("loop", "oracle", "trace"):
         assert f" {command} " not in result.stdout
+    assert " memory " in result.stdout
     assert " model " in result.stdout
     assert " local-core " in result.stdout
     assert " opencode " in result.stdout

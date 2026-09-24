@@ -39,8 +39,23 @@ _TASK_FIELDS: Final = frozenset(
         "postgresql_runtime_dependency",
         "docker_required_for_zekam_core",
         "push_authorized",
+        "baseline_commit_subject",
+        "baseline_is_fixed_revision",
+        "ui_surface",
+        "runtime_test_evidence_at_task_creation",
     }
 )
+# Backward-compatible optional fields: legacy task headers that omit these still
+# load; the living task header carries them and they are projected when present.
+_TASK_FIELDS_OPTIONAL: Final = frozenset(
+    {
+        "baseline_commit_subject",
+        "baseline_is_fixed_revision",
+        "ui_surface",
+        "runtime_test_evidence_at_task_creation",
+    }
+)
+_TASK_FIELDS_REQUIRED: Final = _TASK_FIELDS - _TASK_FIELDS_OPTIONAL
 _TASK_ID = re.compile(r"[A-Z][A-Z0-9-]{7,127}\Z")
 _GIT_HEAD = re.compile(r"[0-9a-f]{40}\Z")
 
@@ -92,7 +107,7 @@ def _front_matter(document: str) -> dict[str, str]:
             value = value[1:-1]
         values[key] = value
     unknown = set(values) - _TASK_FIELDS
-    missing = _TASK_FIELDS - set(values)
+    missing = _TASK_FIELDS_REQUIRED - set(values)
     if unknown:
         raise ValidationFailed(f"Aktif gorev bilinmeyen alan iceriyor: {sorted(unknown)[0]}")
     if missing:
@@ -127,6 +142,10 @@ class ActiveTaskContract:
     postgresql_runtime_dependency: str
     docker_required_for_zekam_core: bool
     push_authorized: bool
+    baseline_commit_subject: str | None = None
+    baseline_is_fixed_revision: bool | None = None
+    ui_surface: str = "FORBIDDEN"
+    runtime_test_evidence_at_task_creation: str = "NOT_EXECUTED"
 
     @classmethod
     def load(cls, path: Path) -> ActiveTaskContract:
@@ -163,6 +182,28 @@ class ActiveTaskContract:
             raise ValidationFailed("Legacy PostgreSQL veri importu FORBIDDEN olmali")
         if values["postgresql_runtime_dependency"] != "FORBIDDEN":
             raise ValidationFailed("PostgreSQL runtime dependency FORBIDDEN olmali")
+        ui_surface = "FORBIDDEN"
+        runtime_evidence = "NOT_EXECUTED"
+        baseline_commit_subject: str | None = None
+        baseline_is_fixed_revision: bool | None = None
+        if "ui_surface" in values:
+            ui_surface = _required_text(values["ui_surface"], "ui_surface")
+        if "runtime_test_evidence_at_task_creation" in values:
+            runtime_evidence = _required_text(
+                values["runtime_test_evidence_at_task_creation"],
+                "runtime_test_evidence_at_task_creation",
+            )
+        if "baseline_commit_subject" in values:
+            baseline_commit_subject = _required_text(
+                values["baseline_commit_subject"], "baseline_commit_subject"
+            )
+        if "baseline_is_fixed_revision" in values:
+            raw_fixed = values["baseline_is_fixed_revision"]
+            if raw_fixed not in {"true", "false"}:
+                raise ValidationFailed(
+                    "Aktif gorev baseline_is_fixed_revision true/false olmali"
+                )
+            baseline_is_fixed_revision = raw_fixed == "true"
         return cls(
             task_id=values["task_id"],
             title=title,
@@ -177,10 +218,14 @@ class ActiveTaskContract:
                 values["docker_required_for_zekam_core"], "docker_required_for_zekam_core"
             ),
             push_authorized=_parse_false(values["push_authorized"], "push_authorized"),
+            baseline_commit_subject=baseline_commit_subject,
+            baseline_is_fixed_revision=baseline_is_fixed_revision,
+            ui_surface=ui_surface,
+            runtime_test_evidence_at_task_creation=runtime_evidence,
         )
 
     def projection(self) -> dict[str, Any]:
-        return {
+        projection = {
             "schema": PROJECTION_SCHEMA,
             "generator_version": GENERATOR_VERSION,
             "generated": True,
@@ -201,6 +246,19 @@ class ActiveTaskContract:
             "grants_authority": False,
             "approval_inherited": False,
         }
+        # Project optional metadata only when the living task actually carries it,
+        # keeping legacy task projections byte-stable and backward compatible.
+        if self.baseline_commit_subject is not None:
+            projection["baseline_commit_subject"] = self.baseline_commit_subject
+        if self.baseline_is_fixed_revision is not None:
+            projection["baseline_is_fixed_revision"] = self.baseline_is_fixed_revision
+        if self.ui_surface != "FORBIDDEN":
+            projection["ui_surface"] = self.ui_surface
+        if self.runtime_test_evidence_at_task_creation != "NOT_EXECUTED":
+            projection["runtime_test_evidence_at_task_creation"] = (
+                self.runtime_test_evidence_at_task_creation
+            )
+        return projection
 
     def render_projection(self) -> str:
         return yaml.safe_dump(

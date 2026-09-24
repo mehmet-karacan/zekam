@@ -10,11 +10,14 @@ from uuid import UUID
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.execution_topology import (
+    FanInDisposition,
+    FanInNodeOutcome,
     GraphExecutionReceipt,
     GraphNodeMode,
     GraphNodeReceipt,
     GraphNodeTerminalState,
     GraphTerminalState,
+    fan_in_disposition,
 )
 from zekam.domain.resources import conflicts, parse_requests
 from zekam.domain.work import EffectKind, PlanStep, TaskPlan
@@ -114,7 +117,7 @@ class GraphExecutionRecorder:
             efficiency = min(1_000_000, round(runtime_total * 1_000_000 / (wall_millis * maximum)))
 
         critical_path = self._critical_path(plan, tuple(receipts))
-        terminal = self._terminal_state(observations)
+        terminal, fan_in_disposition_value = self._terminal_state(observations)
         fan_in = digest(
             {
                 "plan_digest": plan.plan_digest,
@@ -127,6 +130,7 @@ class GraphExecutionRecorder:
                     for item in sorted(observations, key=lambda item: item.step_id)
                 ],
                 "terminal_state": terminal.value,
+                "fan_in_disposition": fan_in_disposition_value.value,
             }
         )
         coordination_cost = sum(item.coordination_cost_micros for item in observations)
@@ -156,6 +160,7 @@ class GraphExecutionRecorder:
                 item.coordination_message_count for item in observations
             ),
             fan_in_result_digest=fan_in,
+            fan_in_disposition=fan_in_disposition_value,
             terminal_state=terminal,
             topology_feedback=feedback,
         )
@@ -234,10 +239,27 @@ class GraphExecutionRecorder:
     @staticmethod
     def _terminal_state(
         observations: tuple[GraphNodeObservation, ...],
-    ) -> GraphTerminalState:
+    ) -> tuple[GraphTerminalState, FanInDisposition]:
         states = {item.terminal_state for item in observations}
         if GraphNodeTerminalState.RECOVERY_REQUIRED in states:
-            return GraphTerminalState.RECOVERY_REQUIRED
+            return GraphTerminalState.RECOVERY_REQUIRED, FanInDisposition.FAILED
+        if GraphNodeTerminalState.FAILED in states:
+            return GraphTerminalState.FAILED, FanInDisposition.FAILED
         if states != {GraphNodeTerminalState.COMPLETED}:
-            return GraphTerminalState.FAILED
-        return GraphTerminalState.COMPLETED
+            if GraphNodeTerminalState.PARTIAL in states:
+                return GraphTerminalState.PARTIAL, FanInDisposition.PARTIAL
+            return GraphTerminalState.FAILED, FanInDisposition.FAILED
+        # all completed -> contradiction detection on agreement keys
+        dispositions = fan_in_disposition(
+            tuple(
+                FanInNodeOutcome(
+                    child_id=item.step_id,
+                    state=item.terminal_state,
+                    result_digest=item.result_digest,
+                )
+                for item in observations
+            )
+        )
+        if dispositions is FanInDisposition.CONTRADICTION:
+            return GraphTerminalState.CONTRADICTION, FanInDisposition.CONTRADICTION
+        return GraphTerminalState.COMPLETED, FanInDisposition.CONSISTENT

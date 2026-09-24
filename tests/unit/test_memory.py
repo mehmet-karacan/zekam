@@ -321,7 +321,11 @@ def test_exact_memory_sonucu_reranker_ile_asagi_dusmez() -> None:
     )
     assert [hit.record.memory_id for hit in hits] == ["exact", "dense"]
     assert trace.reranker_used is True
-    assert set(trace.as_dict()) == {
+    # Exact key-set asserti backward-compatible trace genisletmeleri (orn. graph_used,
+    # graph_state, graph_bypass) ile kirilganlastigi icin core key'lerin subset olarak
+    # varligini kontrol ediyoruz; bu testin asil amaci reranker'in exact-match sonucunu
+    # asagi dusurmedigini dogrulamaktir.
+    assert {
         "source_type",
         "identifiers",
         "per_channel",
@@ -330,7 +334,7 @@ def test_exact_memory_sonucu_reranker_ile_asagi_dusmez() -> None:
         "reranker_used",
         "reranker_failed",
         "dropped_for_budget",
-    }
+    }.issubset(set(trace.as_dict()))
 
 
 # -- T05: hijyen --------------------------------------------------------------

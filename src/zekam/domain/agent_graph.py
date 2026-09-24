@@ -16,6 +16,7 @@ class ChildRuntimeStatus(StrEnum):
     RESERVED = "reserved"
     ACTIVE = "active"
     BLOCKED = "blocked"
+    PARTIAL = "partial"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

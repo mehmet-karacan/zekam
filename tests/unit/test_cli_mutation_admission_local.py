@@ -106,8 +106,10 @@ def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:
 def test_retired_provider_commands_are_not_advertised() -> None:
     help_result = CliRunner().invoke(app, ["--help"])
     assert help_result.exit_code == 0
-    for command in ("memory", "loop", "oracle", "trace"):
+    # memory Dalga 2 itibariyle gercek yerel CLI yuzeyidir; loop/oracle/trace kapali.
+    for command in ("loop", "oracle", "trace"):
         assert f" {command} " not in help_result.stdout
+    assert " memory " in help_result.stdout
     assert " model " in help_result.stdout
     assert " local-core " in help_result.stdout
     assert " opencode " in help_result.stdout

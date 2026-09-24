@@ -137,7 +137,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         "partial",
         ("scheduler report", "scheduler rebuild"),
         ("zekam-verifier",),
-        (),
+        ("tests/e2e/test_cli_local_worker_scheduler.py",),
         "Scheduler report/rebuild surfaces exist for machine-readable reporting.",
     ),
     Capability(
@@ -166,14 +166,22 @@ CAPABILITIES: tuple[Capability, ...] = (
         "semantic-memory",
         "Memory candidates, hygiene, promotion and retrieval",
         "partial",
-        (),
+        (
+            "memory status",
+            "memory inspect",
+            "memory search",
+            "memory candidates",
+            "memory hygiene",
+        ),
         ("zekam-memory-curator",),
         (
+            "tests/integration/test_memory_cli.py",
             "tests/unit/test_memory_continuity_contracts.py",
             "tests/unit/test_memory_continuity_orchestrator.py",
             "tests/e2e/test_cross_harness_memory_continuity.py",
         ),
-        "Current CLI has no memory inspect/search/review/promote/status surface.",
+        "Read-only status/inspect/search/candidates/hygiene yuzeyi mevcut; promote "
+        "ve memory-sourced recipe activation kapalıdır.",
     ),
     Capability(
         "jira",

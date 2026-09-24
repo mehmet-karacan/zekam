@@ -56,7 +56,9 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
     burada kontrol tanimlanmaz; boylece rapor sahte `passed` uretmez.
     """
     from zekam.infrastructure.doctor import (
+        cognitive_checks,
         core_checks,
+        memory_checks,
         runtime_checks,
         sqlite_checks,
         storage_checks,
@@ -91,6 +93,21 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
             runtime_checks.OpenCodeSpoolCheck(home=context.home),
             runtime_checks.EvolutionCheck(context=context),
             runtime_checks.CommandSurfaceCheck(),
+            memory_checks.MemoryContinuityCheck(
+                settings=context.settings.database,
+                core_path=context.core_path,
+                private_store_path=context.home / "private",
+            ),
+        )
+    )
+    checks.extend(
+        (
+            cognitive_checks.MemoryHygieneCheck(context=context),
+            cognitive_checks.KnowledgeHealthCheck(context=context),
+            cognitive_checks.SkillIntegrityCheck(context=context),
+            cognitive_checks.ContinuityFreshnessCheck(context=context),
+            cognitive_checks.SourceDigestCheck(context=context),
+            cognitive_checks.LearningBacklogCheck(context=context),
         )
     )
     return tuple(checks)

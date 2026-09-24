@@ -13,9 +13,9 @@
       "cli": "zekam"
     },
     "active_task_authority": {
-      "task_id": "ZEKAM-CONTEXT-GRAPH-001",
+      "task_id": "ZEKAM-COGNITIVE-ARCHITECTURE-001",
       "authority_ref": "AKTIF_GOREV.md",
-      "authority_digest": "sha256:be5dd176c3875826956147a42642f91938326abdf4030317188ea923788f4908",
+      "authority_digest": "sha256:c359bb22b3d86067e73de75a48ff74e771ad20cc9ccd3bb0032d34315d31a9ed",
       "yaml_generated_projection": true,
       "grants_authority": false,
       "legacy_postgresql_data_import": "FORBIDDEN",
@@ -66,15 +66,15 @@
       "repository": "zekam",
       "findings": [],
       "tracked_blob_count": 1807,
-      "worktree_file_count": 15,
-      "history_blob_count": 3807,
+      "worktree_file_count": 60,
+      "history_blob_count": 3808,
       "history_complete": true,
       "reviewed_allowance_count": 56,
       "allowlist_digest": "sha256:c60b7c179cff9be8c692b7c0a14e703c7ab3c8a9f4c2457ec87123d011f747a7",
       "passed": true,
       "requires_revoke_or_rotate": false,
       "grants_authority": false,
-      "report_digest": "sha256:829b95348868c900b17d3dd4bce0175eaaeae2bdc0c041fb5619e10be4959fa7"
+      "report_digest": "sha256:1169f562df7ba93e77e038a72bcb09dc63829c98638e56440ba3c143cbef84a9"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

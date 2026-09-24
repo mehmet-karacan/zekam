@@ -60,6 +60,7 @@ from zekam.interfaces.cli import knowledge as knowledge_commands
 from zekam.interfaces.cli import local_core as local_core_commands
 from zekam.interfaces.cli import local_runtime as local_runtime_commands
 from zekam.interfaces.cli import mcp as mcp_commands
+from zekam.interfaces.cli import memory as memory_commands
 from zekam.interfaces.cli import model as model_commands
 from zekam.interfaces.cli import opencode as opencode_commands
 from zekam.interfaces.cli import project as project_commands
@@ -132,6 +133,7 @@ app.add_typer(scheduler_commands.app)
 app.add_typer(skill_commands.app)
 app.add_typer(integration_commands.app)
 app.add_typer(mcp_commands.app)
+app.add_typer(memory_commands.app)
 
 
 def _version_callback(value: bool) -> None:

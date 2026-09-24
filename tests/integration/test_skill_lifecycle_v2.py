@@ -933,3 +933,79 @@ def test_skill_lifecycle_rejects_missing_unique_cas_index(tmp_path: Path) -> Non
     lifecycle = SQLiteSkillLifecycle(learning, operational)
     with pytest.raises(PolicyViolation, match="learning schema v2 required"):
         lifecycle.status()
+
+
+# --- AC-08: fresh/bounded evaluation evidence; failed eval cannot activate -----
+
+
+def test_failed_fresh_context_evaluation_cannot_activate(tmp_path: Path) -> None:
+    operational = _operational(tmp_path / "operational.db")
+    learning = _learning(tmp_path, operational)
+    lifecycle = SQLiteSkillLifecycle(learning, operational)
+    package_digest = digest("failed-fresh-eval-package")
+    revision_digest = lifecycle.propose_revision(
+        _revision(package_digest), _origins(operational), now=NOW
+    )
+
+    # A failed/insufficient fresh evaluation persists but is NOT activatable.
+    failed = SkillEvaluationV2(
+        revision_digest,
+        digest("failed-plan"),
+        "insufficient-evidence",
+        0,
+        "fresh-evaluator",
+        "fresh-verifier",
+        digest("fresh-evaluator-evidence"),
+        digest("fresh-verifier-evidence"),
+        "fresh-evaluator-process",
+        "fresh-verifier-process",
+        {},
+        {"reason": "not-enough-fresh-bounded-trials", "sample_size": 0},
+    )
+    assert failed.activatable is False
+    _authorize_evaluation(operational, failed)
+    lifecycle.record_evaluation(failed, now=NOW)
+    with pytest.raises(PolicyViolation, match="passing v2 evaluation and review"):
+        lifecycle.append_activation(
+            revision_digest,
+            action="active",
+            expected_previous_event_digest=None,
+            authorization_job_id="failed-eval-activation",
+            now=NOW,
+        )
+
+
+def test_evaluation_requires_independent_fresh_verifier_evidence() -> None:
+    # Reusing the same evaluator/verifier identity is rejected: a skill cannot
+    # verify itself; fresh/bounded evaluation needs independent actors.
+    with pytest.raises(PolicyViolation, match="independent verifier evidence"):
+        SkillEvaluationV2(
+            digest("rev"),
+            digest("plan"),
+            "improved",
+            5,
+            "same-actor",
+            "same-actor",
+            digest("e0"),
+            digest("e1"),
+            "process-a",
+            "process-a",
+            {"quality": {"baseline": 0.0, "candidate": 1.0}},
+            {"method": "exact", "sample_size": 5},
+        )
+    # identical evidence/execution identities are also rejected.
+    with pytest.raises(PolicyViolation, match="independent verifier evidence"):
+        SkillEvaluationV2(
+            digest("rev"),
+            digest("plan"),
+            "improved",
+            5,
+            "eva",
+            "ver",
+            digest("same-evidence"),
+            digest("same-evidence"),
+            "p-a",
+            "p-b",
+            {"quality": {"baseline": 0.0, "candidate": 1.0}},
+            {"method": "exact", "sample_size": 5},
+        )

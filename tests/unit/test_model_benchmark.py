@@ -326,6 +326,40 @@ def test_decision_digest_changes_with_gate_and_quota_evidence() -> None:
     assert len({first.evidence_digest, second.evidence_digest, third.evidence_digest}) == 3
 
 
+def test_stale_project_benchmark_gate_rejects_candidate() -> None:
+    """AC-10: project-benchmark-current-passed false ise aday gecemez."""
+    stale = _candidate("stale", QuotaPool.CODEX, **{"project-benchmark-current-passed": False})
+    good = _candidate("good", QuotaPool.CODEX)
+    decision = decide_model((stale, good), (), now=NOW)
+    assert decision.selected_model_id == "good"
+    assert "project-benchmark-current-passed" in decision.rejected["stale"]
+
+
+def test_verifier_independence_at_benchmark_verdict() -> None:
+    """AC-12: verifier != tested; evidence exact artifact digest'ine bagli."""
+    with pytest.raises(PolicyViolation, match="onaylayamaz"):
+        VerifierVerdict(
+            tested_model_id="m",
+            verifier_model_id="m",
+            execution_identity="exec",
+            tested_response_digest=DIGEST,
+            approved=True,
+            evidence_digest=DIGEST,
+        )
+    verdict = VerifierVerdict(
+        tested_model_id="m",
+        verifier_model_id="v",
+        execution_identity="exec",
+        tested_response_digest=DIGEST,
+        approved=True,
+        evidence_digest=DIGEST,
+    )
+    # Evidence, exact tested artifact'a bagli dogrulama kanitidir.
+    assert verdict.tested_response_digest == DIGEST
+    assert verdict.evidence_digest == DIGEST
+    assert verdict.tested_model_id != verdict.verifier_model_id
+
+
 def test_bounded_deliberation_keeps_contradiction_for_review() -> None:
     result = synthesize_deliberation(
         question_digest=DIGEST,

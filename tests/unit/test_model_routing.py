@@ -556,6 +556,73 @@ def test_stale_health_qualification_policy_and_inventory_drift_fail_closed() -> 
     }
 
 
+@pytest.mark.parametrize(
+    "flaw",
+    (
+        {"qualified": False},
+        {"qualified": False, "unsafe": False},
+    ),
+)
+def test_unhealthy_model_is_never_routed_as_healthy(flaw: dict[str, object]) -> None:
+    """AC-10: health-current-passed gate - unhealthy model stale gibi eleklenir."""
+    unhealthy = tuple(
+        replace(_qualification("model-a", layer, 1.0), **flaw) for layer in RoutingLayer
+    )
+    decision = decide_layered_model(_request(), _policy(), unhealthy, now=NOW)
+    assert decision.status is RouteStatus.PENDING
+    reasons = set(decision.candidates[0].rejection_reasons)
+    assert "unqualified:general" in reasons
+    assert "unqualified:project" in reasons
+
+
+def test_unsafe_model_cannot_be_constructed_as_qualified() -> None:
+    """AC-10: unsafe + qualified fail-closed at construction (routing'e giremez)."""
+    with pytest.raises(PolicyViolation):
+        replace(
+            _qualification("model-a", RoutingLayer.GENERAL, 1.0),
+            unsafe=True,
+        )
+
+
+def test_stale_capability_benchmark_is_never_current() -> None:
+    """AC-10: project-benchmark-current-passed - stale capability guncel sayilmaz."""
+    stale_capabilities = tuple(
+        replace(
+            _capability("model-a", dimension),
+            expires_at=NOW - dt.timedelta(seconds=1),
+            observed_at=NOW - dt.timedelta(hours=2),
+        )
+        for dimension in RouteCapabilityDimension
+    )
+    decision = decide_layered_model(
+        _request(capability_requirements=_requirements()),
+        _policy(),
+        _all_layers("model-a", 0.9),
+        stale_capabilities,
+        now=NOW,
+    )
+    assert decision.status is RouteStatus.PENDING
+    reasons = set(decision.candidates[0].rejection_reasons)
+    for dimension in RouteCapabilityDimension:
+        assert f"capability-stale:{dimension.value}" in reasons
+
+
+def test_router_forwarded_candidate_never_grants_authority() -> None:
+    """AC-10: routing cozum only; authority uretmez, cost/quota uydurmaz."""
+    decision = decide_layered_model(
+        _request(),
+        _policy(),
+        _all_layers("model-a", 0.9) + _all_layers("model-b", 0.8),
+        now=NOW,
+    )
+    assert decision.authority_granted is False
+    assert decision.status is RouteStatus.SELECTED
+    assert decision.primary_model_id == "model-a"
+
+    # Cikti metni ham cost/quota tahmininden bagimsiz; skor evidence'a dayalidir.
+    assert all(item.evidence_digests for item in decision.candidates)
+
+
 def test_fallback_scope_cannot_silently_expand() -> None:
     decision = decide_layered_model(
         _request(),

@@ -100,6 +100,108 @@ def _latest_semantic_checkpoint(
     return None
 
 
+def _bounded_list(values: object, *, limit: int, item_limit: int = 500) -> list[str]:
+    """Bounded, bosluk-normalize edilmis metin listesi (kaynak ref'ler dahil)."""
+    if not isinstance(values, (tuple, list)):
+        return []
+    result: list[str] = []
+    for value in values:
+        text = _bounded(value, limit=item_limit)
+        if text:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _decision_refs(work: tuple[Any, ...]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in work:
+        if item.kind == "decision":
+            refs.append(
+                {
+                    "work_ref": f"work:{item.id}",
+                    "title": _bounded(item.title),
+                    "revision": item.revision,
+                    "state": item.state,
+                }
+            )
+    return refs[:10]
+
+
+def _completed_summaries() -> list[str]:
+    """Checkpoint yoksa bos tamamlanan listesi; transcript'ten turetmez."""
+    return []
+
+
+def _active_skill_refs(home: Path) -> list[str]:
+    """Aktif skill manifest'lerinin logical id'lerini bounded dondurur.
+
+    Salt okunur; retrieval davranisina dokunmaz. Veri yoksa bos liste doner.
+    """
+    database = home / "state" / "learning.db"
+    if not database.is_file():
+        return []
+    try:
+        from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning
+
+        learning = SQLiteLocalLearning(
+            database.resolve(), operational_path=(home / "state" / "operational.db").resolve()
+        )
+        rows = learning.list_records() if hasattr(learning, "list_records") else ()
+    except Exception:
+        return []
+    refs: list[str] = []
+    for row in rows:
+        # herhangi bir donebilir taban; gercek adanmis skill metodu yoksa blog gecer
+        refs.append(_bounded(row.get("memory_id"), limit=128))
+        if len(refs) >= 8:
+            break
+    return refs
+
+
+def _knowledge_refs(database: Path) -> list[dict[str, str]]:
+    """Kayitli knowledge note referanslarini bounded dondurur (salt okunur)."""
+    refs: list[dict[str, str]] = []
+    if not database.is_file():
+        return refs
+    try:
+        from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+
+        store = SQLiteOperationalStore(database)
+        with store.unit_of_work() as uow:
+            notes = uow.list_knowledge_notes(state="active", limit=8)
+            uow.commit()
+    except Exception:
+        return []
+    for note in notes:
+        refs.append(
+            {
+                "kind": note.note_kind,
+                "ref": f"knowledge:{note.portable_ref}",
+                "digest": note.content_digest,
+            }
+        )
+    return refs
+
+
+def _source_evidence(work: tuple[Any, ...]) -> list[dict[str, str]]:
+    """Work/checkpoint kaynak referanslarini turetir; transcript'ten turetmez."""
+    refs: list[dict[str, str]] = []
+    for item in work[:6]:
+        if item.evidence_digest:
+            refs.append(
+                {
+                    "kind": "work",
+                    "ref": f"work:{item.id}",
+                    "digest": item.evidence_digest,
+                    "revision": str(item.revision),
+                    "state": item.state,
+                }
+            )
+    return refs
+
+
 def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[str, Any]:
     """Build one local-only state snapshot without provider or source-tree access."""
 
@@ -161,6 +263,30 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 _work_document(item, project_names)
                 for item in reversed(completed_work[-_COMPLETED_WORK_LIMIT:])
             ],
+        },
+        "navigation": {
+            "current_objective": _bounded(latest_checkpoint.get("next_safe_action"))
+            if latest_checkpoint is not None
+            else (_bounded(open_work[0].title) if open_work else None),
+            "completed": (
+                _completed_summaries()
+                if latest_checkpoint is None
+                else [latest_checkpoint.get("completed")]
+            ),            "pending": (
+                []
+                if latest_checkpoint is None
+                else _bounded_list([latest_checkpoint.get("pending")], limit=5)
+            ),
+            "blocked": [
+                _bounded(item.title)
+                for item in open_work
+                if item.state == "blocked"
+            ][:5],
+            "next_safe_action": next_safe_action,
+            "relevant_decisions": _decision_refs(work),
+            "relevant_skill_refs": _active_skill_refs(resolved_home),
+            "relevant_knowledge_refs": _knowledge_refs(database),
+            "source_evidence": _source_evidence(work),
         },
         "projects": project_documents,
         "capabilities": compact_capability_summary(),

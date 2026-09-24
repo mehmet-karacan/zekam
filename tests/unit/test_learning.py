@@ -6,6 +6,12 @@ import datetime as dt
 
 import pytest
 
+from zekam.application.experience_skill_bridge import (
+    ExperienceSource,
+    candidate_proposal_from_experience,
+    is_candidate_only,
+    proposal_origins,
+)
 from zekam.domain.canonical import digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.learning import (
@@ -413,3 +419,97 @@ def test_route_geri_bildirimi_metrik_uretir() -> None:
 def test_bos_geri_bildirim_reddedilir() -> None:
     with pytest.raises(ValidationFailed):
         RouteFeedback(samples=())
+
+
+# --- AC-07: experience -> skill candidate bridge ----------------------------
+
+
+def _daily_record(kind: str, evidence: str, *, status: str | None = None) -> dict[str, object]:
+    record: dict[str, object] = {
+        "kind": kind,
+        "record_digest": digest(evidence),
+        "source_ref": f"learning/{kind}/{evidence[:8]}",
+    }
+    if status is not None:
+        record["status"] = status
+    return record
+
+
+def test_experience_to_skill_candidate_produces_bounded_proposal() -> None:
+    records = (
+        _daily_record("skill_outcome", "vs1", status="verified-success"),
+        _daily_record("lesson", "fail1"),
+    )
+    proposal = candidate_proposal_from_experience(
+        skill_id="zekam-ornek",
+        name="zekam-ornek",
+        description="test",
+        trigger_terms=("ornek",),
+        records=records,
+        source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="bridge-run",
+        observed_at=NOW,
+    )
+
+    assert proposal["state"] == "candidate"
+    assert proposal["origin_count"] == 2
+    assert proposal["candidate_only"] is True
+    assert proposal["activatable"] is False
+    assert proposal["grants_authority"] is False
+    assert is_candidate_only(proposal)
+    origins = proposal_origins(proposal)
+    assert {origin.kind.value for origin in origins} == {
+        "verified_success",
+        "failure_lesson",
+    }
+
+
+def test_experience_candidate_never_auto_activates_on_insufficient_evidence() -> None:
+    # Only one candidacy-bearing record -> insufficient evidence, never active.
+    records = (
+        _daily_record("skill_outcome", "vs1", status="verified-success"),
+        _daily_record("memory_revision", "not-candidacy"),
+    )
+    proposal = candidate_proposal_from_experience(
+        skill_id="cek",
+        name="cek",
+        description="d",
+        trigger_terms=("t",),
+        records=records,
+        source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="bridge-run",
+        observed_at=NOW,
+    )
+    assert proposal["state"] == "insufficient-evidence"
+    assert proposal["activatable"] is False
+    assert proposal["candidate_only"] is True
+    assert is_candidate_only(proposal)
+
+
+def test_experience_candidate_proposal_origin_digest_deterministic() -> None:
+    records = (
+        _daily_record("skill_outcome", "vs1", status="verified-success"),
+        _daily_record("lesson", "fail1"),
+    )
+    first = candidate_proposal_from_experience(
+        skill_id="x", name="x", description="d", trigger_terms=("t",),
+        records=records, source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="r", observed_at=NOW,
+    )
+    second = candidate_proposal_from_experience(
+        skill_id="x", name="x", description="d", trigger_terms=("t",),
+        records=records, source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="r", observed_at=NOW,
+    )
+    assert first == second
+    assert first["proposal_digest"] == second["proposal_digest"]
+
+
+def test_experience_candidate_rejects_unbounded_inputs() -> None:
+    with pytest.raises(ValidationFailed):
+        candidate_proposal_from_experience(
+            skill_id="x", name="x", description="d", trigger_terms=(),
+            records=(_daily_record("lesson", "l1"),),
+            source_kind=ExperienceSource.LEARNING,
+            operational_run_ref="r", observed_at=NOW,
+        )

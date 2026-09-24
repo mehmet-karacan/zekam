@@ -12,12 +12,16 @@ from zekam.application.context_ranking import (
 )
 from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import (
+    DEFAULT_BUDGET_MODE,
     AuthorityLevel,
+    ContextBudgetMode,
     ContextCandidate,
     ContextCandidateKind,
+    ContextLoadLevel,
     ContextManifest,
     ContextOmission,
     ContextSelection,
+    ContextSourceKind,
     OmittedReason,
 )
 from zekam.domain.context_scoring import (
@@ -88,6 +92,36 @@ def _reason_codes(candidate: ContextCandidate, features: ContextRankFeatures) ->
     )
     reasons.extend(reason.value for enabled, reason in factors if enabled)
     return tuple(reasons)
+
+
+# Deterministic Context Plane priority (wave1): active Work/open loop first, then
+# safety/policy metadata, project verified context, selected skill metadata, relevant
+# semantic memory, historical context. Exposed as a stable global so the trace can
+# describe which priority tier was applied.
+CONTEXT_DETERMINISTIC_PRIORITY = (
+    ContextSourceKind.WORK,
+    ContextSourceKind.CHECKPOINT,
+    ContextSourceKind.CAPABILITY,
+    ContextSourceKind.DECISION,
+    ContextSourceKind.FAILURE,
+    ContextSourceKind.SKILL,
+    ContextSourceKind.MEMORY,
+    ContextSourceKind.KNOWLEDGE,
+)
+
+
+def _priority_tier(source_kind: ContextSourceKind) -> int:
+    try:
+        return CONTEXT_DETERMINISTIC_PRIORITY.index(source_kind)
+    except ValueError:
+        return len(CONTEXT_DETERMINISTIC_PRIORITY)
+
+
+def _disclosure_allowed(
+    load_level: ContextLoadLevel, max_load_level: ContextLoadLevel
+) -> bool:
+    """L0 metadata her zaman acik; secilen body/full source lazy ve max ile sinirli."""
+    return load_level.rank <= max_load_level.rank
 
 
 def _feature_rejection(
@@ -234,6 +268,220 @@ def compile_context_v2(
     selected_ids = {item.candidate_id for item in selected}
     if selected_ids & omission_ids or selected_ids | omission_ids != set(candidate_by_id):
         raise PolicyViolation("Context compiler v2 exact candidate partition drift")
+    sorted_omissions = tuple(sorted(omissions, key=lambda item: item.candidate_id))
+    input_tokens = sum(item.token_count for item in candidates)
+    selected_tokens = sum(item.token_count for item in selected)
+    omitted_tokens = sum(item.token_count for item in sorted_omissions)
+    duplicate_tokens = sum(
+        item.token_count for item in sorted_omissions if item.reason is OmittedReason.DUPLICATE
+    )
+    eligible_tokens = sum(item.token_count for item in eligible)
+    selected_relevance_units = sum(
+        (features[item.candidate_id].role_relevance + features[item.candidate_id].task_relevance)
+        * item.token_count
+        for item in selected
+    )
+    reason_counts = Counter(item.reason.value for item in sorted_omissions)
+    metrics = ContextCompilerMetricsV2(
+        input_count=len(candidates),
+        input_tokens=input_tokens,
+        eligible_count=len(eligible),
+        eligible_tokens=eligible_tokens,
+        selected_count=len(selected),
+        selected_tokens=selected_tokens,
+        omitted_count=len(sorted_omissions),
+        omitted_tokens=omitted_tokens,
+        required_total=sum(item.required for item in candidates),
+        required_selected=sum(candidate_by_id[item.candidate_id].required for item in selected),
+        duplicate_suppressed_count=reason_counts[OmittedReason.DUPLICATE.value],
+        duplicate_suppressed_tokens=duplicate_tokens,
+        token_budget=token_budget,
+        token_utilization_ppm=_ppm(selected_tokens, token_budget),
+        token_efficiency_ppm=_ppm(selected_relevance_units, selected_tokens * 8),
+        duplicate_token_ratio_ppm=_ppm(duplicate_tokens, eligible_tokens),
+        omission_counts=tuple(sorted(reason_counts.items())),
+    )
+    fingerprint = digest(
+        [item.candidate_digest for item in sorted(candidates, key=lambda row: row.candidate_id)]
+    )
+    return ContextManifest(
+        token_budget=token_budget,
+        selected=tuple(selected),
+        omitted=sorted_omissions,
+        candidate_fingerprint=fingerprint,
+        created_at=now,
+        recipe_id=recipe_id,
+        recipe_digest=recipe_digest,
+        target_role=target_role,
+        compiler_version=CONTEXT_SCORING_POLICY_VERSION,
+        scoring_policy_digest=CONTEXT_SCORING_POLICY_DIGEST,
+        compiler_metrics=metrics,
+        ranking_snapshot_digest=ranking_snapshot_digest,
+        candidate_set_digest=candidate_set_digest,
+    )
+
+
+def compile_context_plane_v2(
+    candidates: tuple[ContextCandidate, ...],
+    *,
+    ranking_request: ContextRankingRequest,
+    token_budget: int,
+    minimum_authority: AuthorityLevel,
+    now: dt.datetime,
+    recipe_id: str | None = None,
+    recipe_digest: str | None = None,
+    target_role: str | None = None,
+    pre_omitted: tuple[ContextOmission, ...] = (),
+    contents: Mapping[str, str],
+    ranking_snapshot_digest: str,
+    candidate_set_digest: str,
+    budget_mode: ContextBudgetMode = DEFAULT_BUDGET_MODE,
+    max_load_level: ContextLoadLevel = ContextLoadLevel.L2,
+) -> ContextManifest:
+    """Context Plane EXTEND (wave1): selection core'u REUSE eder ve budget/load seviyesi uygular.
+
+    - ``budget_mode``: ECONOMY daha az context ve daha az expensive expansion uretir, fakat
+      policy/authority/scope/secret-redaction/claim-receipt/verification gereksinimlerini
+      ASLA azaltmaz (gorev invariant). ECONOMY yalniz istege bagli expensive expansion'i
+      (L3 full source/reference/script/asset) L2 kapasitesine sinirlar ve bunlari
+      LOAD_LEVEL-backed deferred olarak omitted'a yazar; authority/policy/scope/redaction
+      denetimleri degismez.
+    - ``max_load_level``: L0 metadata her zaman acik; L2/L3 secilen body/full source lazy ve
+      max seviyenin otesi deferred (LOAD_LEVEL) olarak omitted gider.
+    - Deterministic priority: active Work/open loop > safety/policy metadata > project
+      verified context > selected skill metadata > relevant semantic memory > historical.
+    """
+    if token_budget < 1 or now.tzinfo is None:
+        raise ValidationFailed("Context Plane compiler budget ve timezone ister")
+    if len({item.candidate_id for item in candidates}) != len(candidates):
+        raise ValidationFailed("Context Plane compiler candidate kimlikleri tekil olmali")
+    if not isinstance(budget_mode, ContextBudgetMode):
+        raise ValidationFailed("Context Plane budget mode registry disinda")
+    if not isinstance(max_load_level, ContextLoadLevel):
+        raise ValidationFailed("Context Plane max load level registry disinda")
+    if target_role is not None and target_role != ranking_request.role:
+        raise PolicyViolation("Context Plane ranking request target role drift")
+    # ECONOMY, gorev invariant'i asla bozamaz: yalniz yuksek duzeyli disclosure
+    # (L3 full source/reference) ve historical/memory tier secimini daraltir.
+    if budget_mode is ContextBudgetMode.ECONOMY and max_load_level.rank > ContextLoadLevel.L2.rank:
+        max_load_level = ContextLoadLevel.L2
+    pre_omitted_ids = {item.candidate_id for item in pre_omitted}
+    if len(pre_omitted_ids) != len(pre_omitted):
+        raise ValidationFailed("Context Plane pre-omission kimlikleri tekil olmali")
+    candidate_by_id = {item.candidate_id: item for item in candidates}
+    if not pre_omitted_ids <= set(candidate_by_id):
+        raise PolicyViolation("Context Plane pre-omission input partition disinda")
+    features = ContextRankingFeatureBuilder(ranking_request).build_all(
+        candidates, contents, now=now
+    )
+    omissions = list(pre_omitted)
+    eligible: list[ContextCandidate] = []
+    for candidate in candidates:
+        if candidate.candidate_id in pre_omitted_ids:
+            continue
+        rejection = candidate.rejection(now, minimum_authority) or _feature_rejection(
+            candidate, features[candidate.candidate_id], ranking_request
+        )
+        if rejection is not None:
+            if candidate.required:
+                raise PolicyViolation(
+                    f"Required context candidate uygun degil: {candidate.candidate_id}"
+                    f" ({rejection.value})"
+                )
+            omissions.append(
+                ContextOmission(candidate.candidate_id, rejection, candidate.token_count)
+            )
+        else:
+            eligible.append(candidate)
+
+    groups: dict[str, list[ContextCandidate]] = {}
+    for candidate in eligible:
+        group = features[candidate.candidate_id].duplicate_group_digest
+        if group is not None:
+            groups.setdefault(group, []).append(candidate)
+    duplicate_ids: set[str] = set()
+    for group_digest, members in groups.items():
+        required = [item for item in members if item.required]
+        if len(required) > 1:
+            raise PolicyViolation("Required duplicate context fail-closed review ister")
+        representative = (
+            required[0]
+            if required
+            else sorted(
+                members, key=lambda item: _sort_key(_score(item, features[item.candidate_id]))
+            )[0]
+        )
+        for duplicate in members:
+            if duplicate.candidate_id == representative.candidate_id:
+                continue
+            duplicate_ids.add(duplicate.candidate_id)
+            omissions.append(
+                ContextOmission(
+                    duplicate.candidate_id,
+                    OmittedReason.DUPLICATE,
+                    duplicate.token_count,
+                    representative.candidate_id,
+                    group_digest,
+                )
+            )
+    ranked = [item for item in eligible if item.candidate_id not in duplicate_ids]
+
+    def _plane_sort_key(candidate: ContextCandidate) -> tuple[int | str, ...]:
+        # Deterministic priority once, sonra compiler score; required her zaman en onde.
+        score = _score(candidate, features[candidate.candidate_id])
+        if candidate.required:
+            return (-1, _priority_tier(candidate.source_kind), *_sort_key(score))
+        return (_priority_tier(candidate.source_kind), *_sort_key(score))
+
+    ranked.sort(key=_plane_sort_key)
+    required_tokens = sum(item.token_count for item in ranked if item.required)
+    if required_tokens > token_budget:
+        raise PolicyViolation("Required context token budget'e sigmiyor")
+    selected: list[ContextSelection] = []
+    remaining = token_budget
+    for candidate in ranked:
+        score = _score(candidate, features[candidate.candidate_id])
+        if not _disclosure_allowed(candidate.load_level, max_load_level):
+            if candidate.required:
+                raise PolicyViolation("Required context disclosure seviyesi kapali")
+            omissions.append(
+                ContextOmission(
+                    candidate.candidate_id,
+                    OmittedReason.LOAD_LEVEL,
+                    candidate.token_count,
+                )
+            )
+            continue
+        if candidate.token_count > remaining:
+            if candidate.required:
+                raise PolicyViolation("Required context token budget'e sigmiyor")
+            omissions.append(
+                ContextOmission(candidate.candidate_id, OmittedReason.BUDGET, candidate.token_count)
+            )
+            continue
+        selected.append(
+            ContextSelection(
+                candidate_id=candidate.candidate_id,
+                content_digest=candidate.content_digest,
+                token_count=candidate.token_count,
+                score=score.lexicographic,
+                reason="context-plane-v2",
+                kind=candidate.kind,
+                source_ref=candidate.source_ref,
+                source_revision=candidate.source_revision,
+                candidate_digest=candidate.candidate_digest,
+                authority=candidate.authority,
+                reason_codes=_reason_codes(candidate, features[candidate.candidate_id]),
+                load_level=candidate.load_level,
+                source_kind=candidate.source_kind,
+                budget_mode=budget_mode,
+            )
+        )
+        remaining -= candidate.token_count
+    omission_ids = {item.candidate_id for item in omissions}
+    selected_ids = {item.candidate_id for item in selected}
+    if selected_ids & omission_ids or selected_ids | omission_ids != set(candidate_by_id):
+        raise PolicyViolation("Context Plane compiler exact partition drift")
     sorted_omissions = tuple(sorted(omissions, key=lambda item: item.candidate_id))
     input_tokens = sum(item.token_count for item in candidates)
     selected_tokens = sum(item.token_count for item in selected)
