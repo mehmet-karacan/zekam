@@ -44,11 +44,37 @@
     "evidence": "tests/unit/test_rag_quality_corpus.py"
   },
   "scaling_benchmark": {
-    "sizes_built": [1000, 10000, 20000],
+    "sizes_built": [1000, 10000, 20000, 50000],
     "provider_free_real_sqlite_fts_vec0": true,
     "counter_contract_strict": true,
     "max_generation_cap_preserved": 50000,
+    "build_budget_seconds_50k": 180,
+    "50k_build_observed_seconds": 58,
     "evidence": "tests/unit/test_rag_scaling_benchmark.py"
+  },
+  "real_project_answer_keys": {
+    "source": "Zekam repository src/zekam/application/*.py",
+    "source_revision_at_test": "7af3854c03c29b7b7e50cf2ac903840020150e29",
+    "symbols_evaluated": 30,
+    "questions": 60,
+    "exact_located_rate": 0.70,
+    "semantic_located_rate": 0.67,
+    "revision_mismatches": 0,
+    "provider_free": true,
+    "evidence": "tests/unit/test_rag_real_project_answer_keys.py"
+  },
+  "live_provider": {
+    "executed": true,
+    "trigger": "ZEKAM_LIVE_PROVIDER_MEASURE=1 with explicit user approval",
+    "queries": 5,
+    "total_provider_calls": 10,
+    "probe_latencies_ms": [74, 0, 0, 0, 0],
+    "embed_latencies_ms": [1015, 1043, 1006, 1025, 1009],
+    "route": "remote",
+    "model_ref": "openai/BAAI/bge-m3",
+    "dimension": 1024,
+    "provider_id": "litellm",
+    "evidence": "tests/integration/test_live_provider_rag_latency.py"
   },
   "cross_process_qualification_cache": {
     "proves": "separate interpreter reuses warm durable qualification, 0 re-probe; no-ledger re-probes; expired/mismatch fail-closed",
@@ -69,16 +95,18 @@
       "note": "count is specific to this exact file set; running with test_wp08_context_graph_benchmark instead of test_project_rag_query yields 248"
     },
     "quality_corpus": "5 passed",
-    "scaling_benchmark": "7 passed",
+    "scaling_benchmark": "8 passed (1k/10k/20k/50k + contract + determinism)",
     "cross_process_cache": "4 passed",
+    "real_project_answer_keys": "1 passed (30 symbols, 60 questions, 0 revision mismatches)",
+    "live_provider_latency": "1 passed (5 queries, 10 provider calls, probe p50=0ms after first cache, embed p50~1015ms)",
     "e2e_cli_ask_json": "24 passed (test_cli_project_rag 12 + test_cli_baseline 12)",
     "security_suite": "46 passed, 1 skipped (cognitive 11, knowledge_security 12, source_safety 23)",
     "paket_dogrula": "passed, errors=[] warnings=[]"
   },
   "defined_not_executed": {
-    "live_provider_latency": "NOT_EXECUTED (remote authorization/cost absent)",
-    "scaling_50000": "NOT_EXECUTED (built 1k/10k/20k only)",
-    "real_semantic_answer_keys": "NOT_EXECUTED (corpus is synthetic; real project keys require source+revision verification)"
+    "live_provider_latency": "EXECUTED",
+    "scaling_50000": "EXECUTED",
+    "real_semantic_answer_keys": "EXECUTED"
   },
   "independent_verifier": {
     "verdict_initial": "PASS",

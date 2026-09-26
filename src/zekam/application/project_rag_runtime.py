@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import platform
 import sqlite3
 import struct
 import subprocess
@@ -35,6 +36,7 @@ from zekam.application.embedding_provider import (
     EmbeddingProbeFixture,
     EmbeddingProfile,
     EmbeddingProvider,
+    EmbeddingProviderKind,
 )
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.home import HomeLayout
@@ -1185,9 +1187,48 @@ def _provider(
     if isinstance(cached, _QualificationRecord):
         # Reconstruct the binding from the accepted, still-fresh evidence.  No new
         # probe and no new authorization: the acceptance is already proven.
+        # The provider object itself was created fresh above, so its internal
+        # profile is None; rebuild a minimal but complete profile from the cached
+        # identity so describe()/embed_query() work for the caller.
+        _cached_profile = EmbeddingProfile(
+            profile_id=(
+                "opencode-remote-"
+                f"{configuration.canonical_model_id[:12]}-"
+                f"{cached.model_revision_fingerprint[7:19]}"
+            ),
+            display_name="Windows OpenCode remote embedding",
+            provider_kind=EmbeddingProviderKind.REMOTE,
+            provider_identity_digest=cached.provider_identity_digest,
+            exact_model_id=cached.exact_model_id,
+            model_revision_fingerprint=cached.model_revision_fingerprint,
+            dimension=knowledge.embedding_dimension,
+            vector_dtype="float32",
+            normalized=True,
+            distance_metric=knowledge.embedding_distance,
+            query_prefix="",
+            passage_prefix="",
+            preprocessor_digest=digest({"provider-managed": True, "prefixes": "none"}),
+            tokenizer_digest=digest({"provider-managed": True, "tokenizer": "undisclosed"}),
+            batch_policy_digest=digest({"max_batch_size": MAX_BATCH_SIZE}),
+            device_scope=f"{platform.system().casefold()}-{platform.machine().casefold()}:opencode",
+            data_classification_allowlist=getattr(
+                provider,
+                "_allowlist",
+                (DataClassification.PUBLIC, DataClassification.INTERNAL),
+            ),
+            verified_at=(
+                dt.datetime.fromtimestamp(
+                    cached.qualified_at_ns / 1_000_000_000, tz=dt.UTC
+                )
+                .isoformat()
+                .replace("+00:00", "Z")
+            ),
+            probe_evidence_digest=cached.probe_evidence_digest,
+        )
+        provider._profile = _cached_profile
         policy = EmbeddingPolicy(
             DataClassification.INTERNAL,
-            cached.profile_digest,
+            _cached_profile.profile_digest,
             remote_disclosure_authorized=True,
         )
         return _EmbeddingBinding(

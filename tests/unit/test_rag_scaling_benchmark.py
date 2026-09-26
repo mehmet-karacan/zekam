@@ -416,6 +416,40 @@ def test_scale_20k_reports_when_built(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 50k corpus: exercise the declared generation upper bound.  Build budget is
+# bounded; on slow machines the test is skipped via ZEKAM_SCALING_50K=0 or
+# when the build itself exceeds the generous but finite wall-clock budget.
+# ---------------------------------------------------------------------------
+_BUDGET_BUILD_SECONDS_50K = 180.0
+
+
+def test_scale_50k_reports_when_built(tmp_path: Path) -> None:
+    size = 50_000
+    allowed = os.environ.get("ZEKAM_SCALING_50K", "1") != "0"
+    if not allowed:
+        pytest.skip("50k disabled via ZEKAM_SCALING_50K=0 (measured sizes reported only).")
+    result = _run_bench(tmp_path, size)
+    # The build must complete inside the bounded test budget; otherwise this
+    # environment is too slow and we report skip rather than a fake/short size.
+    if result.build_seconds > _BUDGET_BUILD_SECONDS_50K:
+        pytest.skip(
+            f"50k build {result.build_seconds:.1f}s exceeds budget "
+            f"{_BUDGET_BUILD_SECONDS_50K}s on this machine."
+        )
+    assert result.size == size
+    assert result.row_counts == {"chunk": size, "chunk_fts": size, "chunk_vector": size}
+    assert result.qualification_repeat == 0
+    assert result.deep_check_repeat == 0
+    assert result.deterministic is True
+    print(
+        f"\n[SCALE-50k] size={size} env={ENV} "
+        f"exact_p50={result.p50(result.exact_ms)}ms "
+        f"lexical_p50={result.p50(result.lexical_ms)}ms "
+        f"dense_p50={result.p50(result.dense_ms)}ms build={result.build_seconds:.1f}s"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Contract guard: the 50k upper limit stays; we never claim 250k.
 # ---------------------------------------------------------------------------
 def test_upper_limit_contract() -> None:

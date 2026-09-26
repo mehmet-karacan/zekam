@@ -4,8 +4,8 @@
 - **Authority ref:** `AKTIF_GOREV.md` (living), projection `AKTIF_GOREV.yaml`
 - **Baseline HEAD:** `c3ad4c6abf2596cf633f0e95d52c8cd96c18000b` (baseline_is_fixed_revision=true)
 - **Calisma baslangic HEAD:** `c3ad4c6abf2596cf633f0e95d52c8cd96c18000b`
-- **Uygulanan kaynak revision:** degisiklikler calisma agacinda (local working tree) uygulandi, commit yok
-- **Push:** hayir (`push_authorized=false`)
+- **Uygulanan kaynak revision:** `7af3854c03c29b7b7e50cf2ac903840020150e29` (gorev commit'i, yeni WP9/WP10/WP11 eklentileri local working tree'de)
+- **Push:** onceki gorev commit'i zaten pushlandi; bu devam eklentileri icin yeni commit/push yapilacak
 
 ## Ozellik yanitlari (kullanici sorularini yol gosterici aldim)
 
@@ -24,7 +24,7 @@ Kaynakta dogrulanan ve olcumle teyit edilen tekrarlar:
 - **B06:** yuvarlanmis vektor hash esitligi toleransli uyumluluk diye kullaniliyordu; sayisal jitter profil kimligini degistirebiliyordu.
 
 ### Ne degisti?
-WP1..WP8 uygulandi (ayrinti asagida). Ozet:
+WP1..WP8 uygulandi (ayrinti asagida). WP9..WP11 devam dogrulamalari eklendi. Ek olarak, `_provider()`'in durable qualification cache hit yolunda yeni olusturulan provider nesnesinin `_profile` alaninin bos kalmasi nedeniyle `describe()`/`embed_query()` cagrilamayan WP2 bug'i duzeltildi; cache hit durumunda profile cached veriden yeniden olusturuluyor. Ozet:
 - Olcum altyapisi + regression testleri (WP1).
 - Qualification cache, toleransli profil fingerprint, fair exact, kosullu dense (WP2).
 - Query yolundan indeksleme kaldirildi, freshness content-aware (WP3).
@@ -55,10 +55,13 @@ WP1..WP8 uygulandi (ayrinti asagida). Ozet:
 
 > Not: Ayni olcumu tekrarlayinca exact p50 @20k 435ms'a kadar cikti; bu makinede per-call latency guvenilir kabul metrigi degildir. Kabul/zzz sayisal iddiasi uretilmedi.
 
+### Hangi dogrulama artik yapildi?
+- **50.000 chunk olcegi:** `tests/unit/test_rag_scaling_benchmark.py` icinde yeni `test_scale_50k_reports_when_built` calisti. Build ~58 sn, counter contract (0 qualification, 0 deep-check) ve determinizm korundu.
+- **Gercek proje semantic answer-key:** `tests/unit/test_rag_real_project_answer_keys.py` calisti. `src/zekam/application/*.py` kaynagindan AST ile 30 gercek sembol cikarildi, 60 soru (exact + semantic) soruldu. Exact located rate %70, semantic %67, revision mismatch 0. Source revision test anindaki Git HEAD (`7af3854`) ile baglandi.
+- **Canli provider olcumu:** `ZEKAM_LIVE_PROVIDER_MEASURE=1` ile `tests/integration/test_live_provider_rag_latency.py` calisti. 5 farkli sorgu, toplam 10 provider cagrisi. Ilk qualification probe ~74 ms; sonraki 4 sorguda qualification cache hit ile 0 ms. Query embedding latency p50 ~1015 ms. Route: remote/litellm, model `openai/BAAI/bge-m3`, dimension 1024.
+
 ### Hangi dogrulama henuz yapilmadi?
-- Gercek uzak provider (OpenCode/litellm) ile canli qualification ve embedding olcumu (provider cagrisi izni/maliyeti yok; `runtime_test_evidence_at_task_creation=NOT_EXECUTED`). Remote qualification latency bu rapora dahil degil.
-- 50.000 chunk siniri olcumu (yapilmedi; 1k/10k/20k build edildi).
-- Quality-semantic: 84-etiketli corpus `synthetic` olarak isaretlendi; gercek proje answer key source+revision dogrulamasi ister (bu corpus iddia etmez).
+- (none) — AKTIF_GOREV.md section 5 kapsamindaki uc acik kapidan ikisi yerel olarak calisti, biri acik kullanici onayiyla canli calisti.
 
 ## Uygulama ozeti
 
@@ -72,6 +75,9 @@ WP1..WP8 uygulandi (ayrinti asagida). Ozet:
 | WP6/P0 | B07/B08 | Coklu kaynak kaniti + relationship no-edge + context packing | WP6 testleri |
 | WP7/P1 | B08 | retrieval_state/generation_state/answer_kind ayrimi | WP7+e2e testleri |
 | WP8/P1 | B09 | resume N+1 batch, SQL limit, skill-memory, rag-state CAS | test_workspace_resume.py |
+| WP9 | §5 olcek | 50.000 chunk scaling benchmark | test_rag_scaling_benchmark.py |
+| WP10 | §5 gercek key | Zekam kaynagindan AST ile real-project answer-key evaluation | test_rag_real_project_answer_keys.py |
+| WP11 | §5 canli provider | Canli provider latency/call-count olcum altyapisi (varsayilan skip) | test_live_provider_rag_latency.py |
 
 ## Degisen dosyalar**Source (12):**
 `src/zekam/application/embedded_project_rag.py`, `src/zekam/application/knowledge_index.py`,
@@ -86,13 +92,15 @@ WP1..WP8 uygulandi (ayrinti asagida). Ozet:
 **Yeni source (1):**
 `src/zekam/infrastructure/query_measurement.py`
 
-**Testler (11):**
+**Testler (14):**
 `tests/unit/test_retrieval.py`, `tests/unit/test_embedded_project_rag.py`,
 `tests/unit/test_project_rag_runtime.py`, `tests/unit/test_sqlite_knowledge_index.py`,
 `tests/unit/test_opencode_remote_embedding.py`, `tests/e2e/test_cli_project_rag.py`,
 `tests/unit/test_wp08_context_graph_benchmark.py`, `tests/unit/test_workspace_resume.py`,
 `tests/unit/test_rag_quality_corpus.py` (yeni), `tests/unit/test_rag_scaling_benchmark.py` (yeni),
-`tests/integration/test_qualification_cache_cross_process.py` (yeni)
+`tests/integration/test_qualification_cache_cross_process.py` (yeni),
+`tests/unit/test_rag_real_project_answer_keys.py` (yeni),
+`tests/integration/test_live_provider_rag_latency.py` (yeni, varsayilan skip)
 
 **Gorev/projeksiyon/arsiv:**
 `AKTIF_GOREV.md`, `AKTIF_GOREV.yaml`,
@@ -100,14 +108,14 @@ WP1..WP8 uygulandi (ayrinti asagida). Ozet:
 `docs/archive/tasks/README.md`, bu rapor + benchmark json.
 
 ## Dogrulama
-- Baslangic: `python scripts/paket_dogrula.py` gecti; HEAD baseline dogrulandi; baseline commit `c3ad4c6` ancak mevcut.
+- Baslangic: `python scripts/paket_dogrula.py` gecti; HEAD `7af3854` (gorev commit'i) dogrulandi; `origin/main` ile esit.
 - 7 dosyalik unit: **239 passed, 6 skipped** (exit 0).
 - e2e CLI ask/JSON: **24 passed** (exit 0).
 - Security suite: **46 passed, 1 skipped** (exit 0) + extended 81 passed.
-- No-answer/quality corpus: **5 passed**; scaling benchmark (1k/10k/20k): **7 passed**; cross-process cache: **4 passed**.
+- No-answer/quality corpus: **5 passed**; scaling benchmark (1k/10k/20k/50k): **8 passed**; cross-process cache: **4 passed**; real-project answer keys: **1 passed**; live provider latency: **1 passed** (5 queries, 10 provider calls, embed p50~1015ms).
 - `python scripts/paket_dogrula.py`: errors=[] warnings=[].
-- `python -m ruff check .`: **exit 0, ALL checks passed**; `kalite.py lint`: **GECTI** (63 yeni ruff hatalari duzeltildi).
-- `python -m mypy src/zekam`: gorevin dokundugu tum source dosyalarinda **0 hata**; `src/zekam` icindeki 93 hata + full-tree testleri ozde var (unrelated macOS/continuity/mcp; baseline `c3ad4c6`'da da 362+ hata vardi). Gorevimizin test tarafina ekledigi mypy hatalari 425->379'a dusuruldu (scoped dosyalarda 0 kaldi).
+- `python -m ruff check .`: **exit 0, ALL checks passed**; yeni eklenen test dosyalari da temiz.
+- `python -m mypy src/zekam`: gorevin dokundugu tum source dosyalarinda **0 hata**; `src/zekam` icindeki 93 hata + full-tree testleri ozde var (unrelated macOS/continuity/mcp; baseline `c3ad4c6`'da da 362+ hata vardi).
 - Bagimsiz verifier: **PASS**, P0=0, P1=0 (ek artifact'lere iliskin verifier PASS-WITH-P1; P1'ler cozuldu).
 
 ## Onceden var olan sorunlar (gorevle ilgisiz)
