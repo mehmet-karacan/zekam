@@ -1,0 +1,98 @@
+{
+  "schema": "zekam-rag-performance-benchmark/v1",
+  "task_id": "ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001",
+  "baseline_head": "c3ad4c6abf2596cf633f0e95d52c8cd96c18000b",
+  "measurement_kind": "before-after-counter-and-latency",
+  "note": "Per-call raw SQL latency was measured on the same real SQLiteKnowledgeIndex corpus at 10k and 20k, run once on the AFTER working tree and once on the clean baseline c3ad4c6 via reversible git stash (no clone/worktree). CAUTION: per-call exact/lexical/dense raw latency on this machine is NOT reliably reproducible (high run-to-run variance: exact p50 @10k measured 65-181ms across runs; 20k p50 165-435ms). Absolute latency figures should be read as indicative, not authoritative. The measured, reproducible wins are in ELIMINATED CALLS per query (target_counter_contract), which the deterministic regression tests prove; that is where the pathological-repetition latency-reduction target applies. LIVE provider calls were not executed (remote authorization/cost absent); remote qualification latency is NOT included.",
+  "provider_calls_executed": false,
+  "machine": "Windows-AMD64, Python 3.13.15, SQLite 3.50.4, sqlite-vec 0.1.9, dim 1024, Intel64 Raptor Lake",
+  "before_after_latency_p50_ms_not_reproducible_indicative_only": {
+    "size_10000_first_run": {
+      "before": {"exact_p50": 84.3, "exact_p95": 117.3, "lexical_p50": 1.8, "dense_p50": 71.2},
+      "after": {"exact_p50": 90.2, "exact_p95": 111.4, "lexical_p50": 2.4, "dense_p50": 85.9}
+    },
+    "size_20000_first_run": {
+      "before": {"exact_p50": 166.5, "exact_p95": 176.8, "lexical_p50": 1.6, "dense_p50": 145.1},
+      "after": {"exact_p50": 164.9, "exact_p95": 189.6, "lexical_p50": 2.0, "dense_p50": 136.3}
+    },
+    "reproducibility_check": {
+      "after_10k_rerun_exact_p50_ms": [90.2, 65.0],
+      "after_20k_rerun_range_p50_ms": "165-435 (independent verifier: 351-435; coordinator: 165)",
+      "conclusion": "Per-call raw latency not a reliable metric on this machine; use the deterministic call-count and counter contract as the primary evidence"
+    }
+  },
+  "latency_interpretation": "Per-call raw SQL latency is highly variable and NOT reliably reproducible on this machine, so no authoritative before/after latency delta or 'acceptance-met' claim is made. The raw exact() text-scan was intentionally not replaced by a posting index (deferred). The perceived slowness was sourced from repeated per-query work (qualification, deep-check-on-open, unconditional dense, N+1 hydration), which the call-count table shows is now eliminated.",
+  "target_counter_contract_reproducible": {
+    "warm_same_binding_qualification": {"before_per_query": 3, "after": 0, "evidence": "test_warm_query_does_not_repeat_provider_qualification_probe"},
+    "trusted_index_open_deep_check": {"before_per_open": "O(N) quick_check+fk_check", "after": 0, "evidence": "test_warm_read_only_open_does_not_repeat_deep_validation"},
+    "dense_channel_on_simple_exact": {"before": 1, "after": 0, "evidence": "test_exact_sufficient_evidence_skips_dense_channel"},
+    "dense_channel_on_explanation": {"after": 1, "evidence": "test_wp5 + bench explanation preserved"},
+    "resume_alias_queries": {"before": "N per project", "after": 1, "evidence": "test_workspace_resume WP8-A-1"},
+    "citation_hydration_queries": {"before": "N per citation", "after": 1, "evidence": "test_wp4_a1"}
+  },
+  "channel_contract_reproducible": {
+    "exact_single_object_lookup": {"dense_calls": 0, "channels_attempted": ["exact", "lexical"]},
+    "explanation_relationship_query": {"dense_calls": 1, "channels_attempted": ["exact", "lexical", "dense"]},
+    "intent_classification": ["single-object-exact", "semantic-explanation", "multi-object-comparison", "relationship-call-chain", "ambiguous-question"]
+  },
+  "quality_corpus": {
+    "case_count": 84,
+    "synthetic": true,
+    "categories": {"single_object_exact": 21, "semantic_trl_en": 21, "multi_source_relationship": 21, "no_answer_negative": 21},
+    "split": {"tune": 64, "holdout": 20},
+    "provider_free": true,
+    "evidence": "tests/unit/test_rag_quality_corpus.py"
+  },
+  "scaling_benchmark": {
+    "sizes_built": [1000, 10000, 20000],
+    "provider_free_real_sqlite_fts_vec0": true,
+    "counter_contract_strict": true,
+    "max_generation_cap_preserved": 50000,
+    "evidence": "tests/unit/test_rag_scaling_benchmark.py"
+  },
+  "cross_process_qualification_cache": {
+    "proves": "separate interpreter reuses warm durable qualification, 0 re-probe; no-ledger re-probes; expired/mismatch fail-closed",
+    "evidence": "tests/integration/test_qualification_cache_cross_process.py"
+  },
+  "test_evidence_per_file": {
+    "unit_rag_7_files": {
+      "result": "239 passed, 6 skipped",
+      "files_exact": [
+        "tests/unit/test_retrieval.py",
+        "tests/unit/test_embedded_project_rag.py",
+        "tests/unit/test_project_rag_runtime.py",
+        "tests/unit/test_project_rag_query.py",
+        "tests/unit/test_sqlite_knowledge_index.py",
+        "tests/unit/test_opencode_remote_embedding.py",
+        "tests/unit/test_workspace_resume.py"
+      ],
+      "note": "count is specific to this exact file set; running with test_wp08_context_graph_benchmark instead of test_project_rag_query yields 248"
+    },
+    "quality_corpus": "5 passed",
+    "scaling_benchmark": "7 passed",
+    "cross_process_cache": "4 passed",
+    "e2e_cli_ask_json": "24 passed (test_cli_project_rag 12 + test_cli_baseline 12)",
+    "security_suite": "46 passed, 1 skipped (cognitive 11, knowledge_security 12, source_safety 23)",
+    "paket_dogrula": "passed, errors=[] warnings=[]"
+  },
+  "defined_not_executed": {
+    "live_provider_latency": "NOT_EXECUTED (remote authorization/cost absent)",
+    "scaling_50000": "NOT_EXECUTED (built 1k/10k/20k only)",
+    "real_semantic_answer_keys": "NOT_EXECUTED (corpus is synthetic; real project keys require source+revision verification)"
+  },
+  "independent_verifier": {
+    "verdict_initial": "PASS",
+    "verdict_followup_eval_corpus_scaling_crossprocess": "PASS-WITH-P1 (P0=0, P1=2: unreproducible latency claim + evidence-count mismatch)",
+    "p0": 0,
+    "p1_resolved": "latency figures now marked not-reproducible/indicative; test_evidence corrected per-file"
+  },
+  "pre_existing_unrelated_failures": {
+    "files": [
+      "tests/unit/test_wp16_sqlite_writer_authority_coverage.py",
+      "tests/unit/test_wp16_sqlite_writer_current_source_final_wp05.py"
+    ],
+    "failed": 16,
+    "note": "disjoint local_continuity/v4_writer subsystem; fails identically on clean baseline (stash-verified); not a regression of this task"
+  },
+  "runtime_test_evidence_at_task_creation": "NOT_EXECUTED"
+}

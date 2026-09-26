@@ -151,6 +151,8 @@ def query_project_knowledge(
         AnswerState.ANSWERED: "answered",
         AnswerState.ABSTAINED_NO_HIT: "no-hit",
         AnswerState.ABSTAINED_LOW_EVIDENCE: "low-evidence",
+        AnswerState.DEGRADED_TIMEOUT: "timeout",
+        AnswerState.DEGRADED_PROVIDER_UNAVAILABLE: "unavailable",
     }[answer.state]
     document = dict(
         base,

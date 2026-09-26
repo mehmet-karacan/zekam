@@ -152,4 +152,12 @@ class KnowledgeIndexPort(Protocol):
         self, project_id: str, chunk_id: str, *, generation_digest: str
     ) -> dict[str, str]: ...
 
+    def source_identities(
+        self,
+        project_id: str,
+        chunk_refs: tuple[str, ...],
+        *,
+        generation_digest: str | None = None,
+    ) -> dict[str, dict[str, str]]: ...
+
     def integrity(self) -> dict[str, object]: ...

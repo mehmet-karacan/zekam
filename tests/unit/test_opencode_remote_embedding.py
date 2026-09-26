@@ -396,6 +396,57 @@ def test_remote_profile_identity_changes_when_probe_vectors_materially_change(
     )
 
 
+def test_rounding_boundary_jitter_does_not_change_profile_identity(
+    tmp_path: Path,
+) -> None:
+    """B06 WP1 regression: expected to FAIL on baseline, PASS after WP2.
+
+    The task's synthetic counter-example: two normalized vectors within numeric
+    tolerance (u=(0.00049, sqrt(1-0.00049^2), 0...), v=(0.00051,
+    sqrt(1-0.00051^2), 0...); max_delta<0.0005, cosine>0.99999) must NOT produce
+    a different profile_identity/digest.  On the current baseline the probe
+    compatibility fingerprint uses ``round(value*1000)`` which flips 0->1 across
+    the boundary, so two tolerance-accepted spaces hash to different identities
+    => FAILS.  WP2 must use a tolerance-aware compatibility comparison instead.
+    """
+    import math as _math
+
+    from zekam.domain.canonical import digest as _digest
+    from zekam.infrastructure.query_measurement import (
+        quantized_vector_fingerprint,
+        vectors_compatible,
+    )
+
+    u = (0.00049, _math.sqrt(1.0 - 0.00049**2), 0.0)
+    v = (0.00051, _math.sqrt(1.0 - 0.00051**2), 0.0)
+
+    max_delta = max(abs(a - b) for a, b in zip(u, v, strict=True))
+    cosine = sum(a * b for a, b in zip(u, v, strict=True))  # both unit-norm
+    assert max_delta < 0.0005
+    assert cosine > 0.99999
+
+    # The counter-example must be tolerance-compatible...
+    assert vectors_compatible(u, v, max_delta=0.0005, min_cosine=0.99999)
+
+    # The WP1 baseline used `round(value*1000)` inline, which flips 0.00049 -> 0
+    # and 0.00051 -> 1 across the midpoint, so two tolerance-accepted vectors
+    # hashed to *different* identities.  This is both mathematically unsatisfiable
+    # and contrary to task authority B06 #1 (do not use rounded-vector hash
+    # equality as tolerance compatibility).  WP2 uses the production
+    # tolerance-aware fingerprint; two tolerance-accepted vectors must yield the
+    # same identity digest.
+    quantized_u = quantized_vector_fingerprint(u)
+    quantized_v = quantized_vector_fingerprint(v)
+    # The tolerance-aware production fingerprint must be stable under jitter...
+    assert quantized_u == quantized_v
+    assert _digest({"v": quantized_u}) == _digest({"v": quantized_v})
+    # ...and the material-change path must still change identity (a real
+    # embedding-space shift moves a component across a bucket boundary).
+    shifted = quantized_vector_fingerprint((0.5, _math.sqrt(1.0 - 0.5**2), 0.0))
+    assert quantized_u != shifted
+
+
+
 @pytest.mark.parametrize("fault", ["partial", "nan", "dimension"])
 def test_remote_provider_rejects_invalid_or_partial_vectors(tmp_path: Path, fault: str) -> None:
     provider = OpenCodeRemoteEmbeddingProvider(

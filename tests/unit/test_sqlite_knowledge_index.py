@@ -20,6 +20,7 @@ from zekam.application.technology_bakeoff import assess_sqlite_wal_safety
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator
+from zekam.infrastructure.query_measurement import scope
 from zekam.infrastructure.sqlite.knowledge_index import (
     MAX_RECORDS_PER_GENERATION,
     VECTOR_DIMENSION,
@@ -631,9 +632,99 @@ def test_read_only_never_recovers_a_nonempty_rollback_journal(tmp_path: Path) ->
     assert _filesystem_snapshot(tmp_path) == before
 
 
+def test_source_identities_bulk_hydrates_same_shape_as_source_identity(
+    tmp_path: Path,
+) -> None:
+    """WP4-A-2: bulk source_identities returns byte/shape-identical identity dicts.
+
+    The per-chunk dict must carry exactly the same keys as the single-chunk
+    source_identity path: source_id, source_revision, source_ref, source_digest,
+    content_digest.  Only cited chunk_refs are read; the corpus is never
+    hydrated.
+    """
+    path = tmp_path / "knowledge.sqlite3"
+    records = (
+        _record("chunk-a", path="belgeler/kararlar/ADR-0006.md", text="dosya ice aktarma AES"),
+        _record(
+            "chunk-b",
+            path="belgeler/kararlar/ADR-0005.md",
+            text="dosya ice aktarma Decimal",
+            order=1,
+        ),
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        generation = _build(index, records)
+        bulk = index.source_identities(
+            "akilli-kasa",
+            ("chunk-a", "chunk-b"),
+            generation_digest=generation,
+        )
+        assert set(bulk) == {"chunk-a", "chunk-b"}
+        for chunk_id in ("chunk-a", "chunk-b"):
+            single = index.source_identity("akilli-kasa", chunk_id, generation_digest=generation)
+            assert bulk[chunk_id] == single
+            assert set(bulk[chunk_id]) == {
+                "source_id",
+                "source_revision",
+                "source_ref",
+                "source_digest",
+                "content_digest",
+            }
+    with SQLiteKnowledgeIndex(path, read_only=True) as reader:
+        # Empty/absent ref set is a no-op, not an error.
+        assert reader.source_identities("akilli-kasa", ()) == {}
+
+
+def test_source_identities_stale_chunk_still_raises_policy_violation(
+    tmp_path: Path,
+) -> None:
+    """WP4-A-3: the bulk hydration path preserves content-digest integrity.
+
+    A stale/corrupt chunk (body/content_digest mismatch) anywhere in the cited
+    set must still raise PolicyViolation, exactly like source_identity.  The
+    performance batching must never bypass integrity validation.
+    """
+    path = tmp_path / "knowledge.sqlite3"
+    records = (
+        _record("chunk-good", path="belgeler/kararlar/ADR-0006.md", text="dosya ice aktarma AES"),
+        _record(
+            "chunk-bad",
+            path="belgeler/kararlar/ADR-0005.md",
+            text="dosya ice aktarma Decimal",
+            order=1,
+        ),
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        generation = _build(index, records)
+        index._connection.execute(
+            "update chunk set body='TAMPERED UNSUPPORTED CLAIM' where id='chunk-bad'"
+        )
+        with pytest.raises(PolicyViolation, match="identity/content digest drift"):
+            index.source_identities(
+                "akilli-kasa",
+                ("chunk-good", "chunk-bad"),
+                generation_digest=generation,
+            )
+        with pytest.raises(PolicyViolation, match="identity/content digest drift"):
+            index.source_identities(
+                "akilli-kasa",
+                ("chunk-bad",),
+                generation_digest=generation,
+            )
+
+
 @pytest.mark.parametrize(
     "operation",
-    ["generation", "exact", "lexical", "dense", "views", "source_identity", "integrity"],
+    [
+        "generation",
+        "exact",
+        "lexical",
+        "dense",
+        "views",
+        "source_identity",
+        "source_identities",
+        "integrity",
+    ],
 )
 def test_read_only_every_public_query_rejects_source_drift(tmp_path: Path, operation: str) -> None:
     path = tmp_path / "index.db"
@@ -648,6 +739,9 @@ def test_read_only_every_public_query_rejects_source_drift(tmp_path: Path, opera
             "dense": lambda: reader.dense("akilli-kasa", _vector(0), limit=1),
             "views": lambda: reader.views("akilli-kasa", ("stable-id",)),
             "source_identity": lambda: reader.source_identity("akilli-kasa", "stable-id"),
+            "source_identities": lambda: reader.source_identities(
+                "akilli-kasa", ("stable-id",)
+            ),
             "integrity": reader.integrity,
         }
         with pytest.raises(PolicyViolation, match="source fingerprint drift"):
@@ -713,3 +807,84 @@ def test_read_only_constructor_drift_closes_the_failed_connection(
     assert len(connections) == 1
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connections[0].execute("select 1")
+
+
+def test_warm_read_only_open_does_not_repeat_deep_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B03 WP1 regression: expected to FAIL on baseline, PASS after WP2.
+
+    Opening an already-accepted/validated index in read-only mode for a query
+    must NOT re-run quick_check + foreign_key_check (O(N) deep validation) on
+    every open of the same trusted file identity.  On the current baseline
+    ``SQLiteKnowledgeIndex.__init__`` calls ``_validate_schema()`` which runs
+    both PRAGMAs on every open, including ``read_only=True``.  WP4 must keep
+    deep validation to first trusted acceptance / file-identity change.
+    """
+    from zekam.infrastructure.query_measurement import last_counters
+
+    path = tmp_path / "knowledge.sqlite3"
+    _offline_index(path)
+    # Capture the expected generation digest outside the counted scope.
+    with SQLiteKnowledgeIndex(path, read_only=True) as probe:
+        expected = probe.generation("akilli-kasa").generation_digest
+
+    with scope():
+        # First open: cold acceptance deep-validates once (2 PRAGMAs recorded).
+        with SQLiteKnowledgeIndex(path, read_only=True) as reader:
+            assert reader.generation("akilli-kasa").generation_digest == expected
+        # Second warm open over the same trusted file identity must NOT deep
+        # validate again.  Baseline deep-validates here too => FAILS.
+        with SQLiteKnowledgeIndex(path, read_only=True) as reader:
+            assert reader.generation("akilli-kasa").generation_digest == expected
+
+    snapshot = last_counters()
+    assert snapshot is not None
+    # At most one open (the cold one) may deep-validate; the warm open adds 0.
+    assert snapshot["index_deep_validate_count"] <= 2
+
+
+def test_exact_search_does_not_starve_later_identifier(
+    tmp_path: Path,
+) -> None:
+    """B04 WP1 regression: expected to FAIL on baseline, PASS after WP2.
+
+    ``SQLiteKnowledgeIndex.exact`` loops identifiers and returns as soon as
+    ``len(hits) == limit``, so a first identifier that alone saturates ``limit``
+    starves every later identifier.  When identifiers ``(A, B)`` are searched and
+    A already fills the limit, a B-only hit must still be returned after the fix.
+    On the current baseline ``exact(["A"], limit=1)`` returns A and returns, so
+    B's sole match is never reached => FAILS.
+    """
+    path = tmp_path / "knowledge.sqlite3"
+    # Identifier A matches many chunks (saturates the limit).
+    noisy_a = tuple(
+        _record(
+            f"a-hit-{index}",
+            path=f"mods/a-file-{index}.py",
+            text=f"GPU_A_TOKEN {index} exact A noised body",
+            order=index,
+        )
+        for index in range(25)
+    )
+    # Identifier B has exactly one match, which is the single object that
+    # uniquely represents B and must never be starved by A's early saturation.
+    b_only = _record(
+        "b-only",
+        path="unique/B_ONLY_OBJECT.py",
+        text="B_ONLY_OBJECT exact body",
+        order=10_000,
+        object_name="B_ONLY_OBJECT",
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        _build(index, (*noisy_a, b_only))
+        hits = index.exact(
+            "akilli-kasa",
+            ("GPU_A_TOKEN", "B_ONLY_OBJECT"),
+            limit=1,
+        )
+
+    # B's single hit must be present even though A alone would saturate limit.
+    # On baseline A fills limit=1 and exact() returns before ever reaching B,
+    # so B's unique hit is absent => FAILS.  WP2 must preserve B.
+    assert any(hit.chunk_id == "b-only" for hit in hits)

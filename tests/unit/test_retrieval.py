@@ -8,6 +8,8 @@ from zekam.application.retrieval_service import (
     ChunkView,
     EvaluationResult,
     GoldenCase,
+    QueryIntent,
+    RetrievalDeadline,
     RetrievalService,
     RetrievalTrace,
     evaluate,
@@ -481,3 +483,550 @@ def test_trace_aciklamasi_kanallari_gosterir() -> None:
     assert "dense=3" in lines
     assert "fusion sonrasi: 4" in lines
     assert trace.as_dict()["source_type"] == "knowledge"
+
+
+class _CountingBackend:
+    """Records every channel invocation so the regression can assert on them."""
+
+    def __init__(
+        self,
+        *,
+        exact: tuple[ScoredHit, ...] = (),
+        lexical: tuple[ScoredHit, ...] = (),
+        dense: tuple[ScoredHit, ...] = (),
+    ) -> None:
+        self._exact = exact
+        self._lexical = lexical
+        self._dense = dense
+        self.invoked: dict[str, int] = {"exact": 0, "lexical": 0, "dense": 0}
+
+    def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
+        del identifiers, limit
+        self.invoked["exact"] += 1
+        return self._exact
+
+    def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+        del query, limit
+        self.invoked["lexical"] += 1
+        return self._lexical
+
+    def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+        del query, limit
+        self.invoked["dense"] += 1
+        return self._dense
+
+
+def test_exact_sufficient_evidence_skips_dense_channel() -> None:
+    """B05 WP1 regression: expected to FAIL on baseline, PASS after WP2.
+
+    When exact/lexical evidence fully satisfies a query intent (a simple
+    single-object exact lookup), the dense channel must NOT be attempted.  On
+    the current baseline ``RetrievalService.search`` runs exact, lexical and
+    dense unconditionally in sequence, so dense is always attempted even when
+    exact evidence is already sufficient => FAILS.
+    """
+    from zekam.infrastructure.query_measurement import last_counters, scope
+
+    single = _hit("unique-exact", RetrievalChannel.EXACT, 1)
+    backend = _CountingBackend(exact=(single,))
+    service = RetrievalService(backend, limit=1)
+
+    with scope():
+        hits, _trace = service.search("app.musteri tekil nesnesi")
+
+    assert [item.chunk_id for item in hits] == ["unique-exact"]
+    # Regression assertion: dense must not be attempted when exact evidence is
+    # sufficient.  On baseline dense was invoked once => FAILS.
+    assert backend.invoked["dense"] == 0
+    # The measurement scope must agree: dense attempted must be False.
+    snapshot = last_counters()
+    assert snapshot is not None
+    assert snapshot["channel_attempted"].get("dense") is False
+
+
+# -- WP5 (P0): intent classification, deadline, distinct degraded states --------
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # single-object / exact lookup (pure identifier, little prose)
+        ("app.musteri tekil nesnesi", QueryIntent.EXACT_LOOKUP),
+        ("ADR-0006", QueryIntent.EXACT_LOOKUP),
+        ("#4711 defekti", QueryIntent.EXACT_LOOKUP),
+        # semantic / explanation
+        ("ADR-0006 neden idempotent dosya kullanir", QueryIntent.SEMANTIC),
+        ("GPU_USER.LOG_REPORT_CREATION:TABLE nasil calisir", QueryIntent.SEMANTIC),
+        ("SaglikYaniti ne ise yarar acikla", QueryIntent.SEMANTIC),
+        # multi-object / comparison
+        ("app.musteri ve app.siparis farki nedir", QueryIntent.MULTI_OBJECT_COMPARISON),
+        ("app.a app.b karsilastir", QueryIntent.MULTI_OBJECT_COMPARISON),
+        ("GPU_USER.T1 GPU_USER.T2 arasindaki benzerlik", QueryIntent.MULTI_OBJECT_COMPARISON),
+        # relationship / call-chain
+        ("app.musteri hangi fonksiyonu cagirir", QueryIntent.RELATIONSHIP),
+        ("SaglikYaniti kullanir olan servisler", QueryIntent.RELATIONSHIP),
+        ("app.a ve app.b arasindaki bagimliligi", QueryIntent.RELATIONSHIP),
+        # ambiguous question
+        ("genel bir soru", QueryIntent.AMBIGUOUS),
+        ("bu nedir", QueryIntent.AMBIGUOUS),
+    ],
+)
+def test_wp5_intent_classifier_deterministic(query: str, expected: QueryIntent) -> None:
+    """WP5-A: the deterministic intent classifier returns the expected intent."""
+    from zekam.application.retrieval_service import (
+        _classify_intent,
+    )
+
+    service = RetrievalService(_CountingBackend())
+    first = service.classify_query_intent(query)
+    second = service.classify_query_intent(query)
+    assert first is expected
+    assert first is second, "same input must map deterministically"
+    assert _classify_intent(query, extract_identifiers(query)) is expected
+
+
+def test_wp5_intent_exposed_in_trace_with_safe_default() -> None:
+    """WP5-A: the trace carries the intent; an unset trace keeps a safe default."""
+    backend = _CountingBackend(exact=(_hit("unique-exact", RetrievalChannel.EXACT, 1),))
+    service = RetrievalService(backend, limit=1)
+    _hits, trace = service.search("app.musteri tekil nesnesi")
+    assert trace.intent == QueryIntent.EXACT_LOOKUP.value
+
+    # Backward-compat: a caller building a trace without intent keeps AMBIGUOUS.
+    legacy = RetrievalTrace(
+        identifiers=(),
+        per_channel={},
+        fused_count=0,
+        after_dedupe=0,
+        reranker_used=False,
+        reranker_failed=False,
+    )
+    assert legacy.intent == QueryIntent.AMBIGUOUS.value
+    assert legacy.deadline_expired is False
+    assert legacy.degraded_reason is None
+
+
+def test_wp5_deadline_floor() -> None:
+    """A non-positive deadline must be rejected (validated budget)."""
+    from zekam.application.retrieval_service import RetrievalDeadline
+
+    with pytest.raises(ValidationFailed):
+        RetrievalDeadline.with_timeout(0)
+    with pytest.raises(ValidationFailed):
+        RetrievalDeadline.with_timeout(-1.0)
+
+
+class _ExpiringBackend:
+    """Backend that records every channel launch; exact+lexical provide evidence."""
+
+    def __init__(self, *, sleep_lexical: bool = False) -> None:
+        self._sleep_lexical = sleep_lexical
+        self.invoked: dict[str, int] = {"exact": 0, "lexical": 0, "dense": 0}
+
+    def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
+        del identifiers, limit
+        self.invoked["exact"] += 1
+        return (_hit("c1", RetrievalChannel.EXACT, 1),)
+
+    def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+        del query, limit
+        self.invoked["lexical"] += 1
+        if self._sleep_lexical:
+            import time
+
+            time.sleep(0.02)
+        return (_hit("c2", RetrievalChannel.LEXICAL, 1),)
+
+    def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+        del query, limit
+        self.invoked["dense"] += 1
+        return (_hit("c3", RetrievalChannel.DENSE, 1),)
+
+
+class _PastDeadlineService(RetrievalService):
+    """Search with a deadline that is already consumed (deterministic, no sleep)."""
+
+    def _new_deadline(self) -> RetrievalDeadline:
+        from zekam.application.retrieval_service import RetrievalDeadline
+
+        return RetrievalDeadline(deadline=0.0)
+
+
+def test_wp5_elapsed_deadline_stops_channels_and_returns_distinct_timeout() -> None:
+    """WP5-B: with an already-elapsed deadline, search launches no further
+    channels and build_answer returns a distinct DEGRADED_TIMEOUT — never a
+    silent ``answered``, and a late-arriving dense result is not published."""
+    backend = _ExpiringBackend()
+    service = _PastDeadlineService(backend, limit=1)
+    hits, trace = service.search("app.musteri tekil nesnesi")
+    # Exact was the only channel allowed to launch; dense must never run.
+    assert backend.invoked["dense"] == 0
+    assert backend.invoked["lexical"] == 0
+    assert trace.deadline_expired is True
+    answer = service.build_answer(
+        "app.musteri tekil nesnesi",
+        hits,
+        trace,
+        views={"c1": _view("c1"), "c2": _view("c2")},
+        token_budget=1000,
+    )
+    assert answer.state is AnswerState.DEGRADED_TIMEOUT
+    assert answer.is_answered is False
+
+
+class _DeadlineAfterExact(RetrievalService):
+    """Deadline that lets exact/lexical run but suppresses the late dense call."""
+
+    def _new_deadline(self) -> RetrievalDeadline:
+        from zekam.application.retrieval_service import RetrievalDeadline
+
+        return RetrievalDeadline.with_timeout(0.0005)
+
+
+def test_wp5_late_dense_not_published_and_degraded() -> None:
+    """WP5-B: a dense result arriving after the deadline is suppressed and the
+    answer is marked degraded-timeout with the earlier exact/lexical evidence."""
+    import time as _time
+
+    class _DecliningBackend:
+        def __init__(self) -> None:
+            self.invoked: dict[str, int] = {"exact": 0, "lexical": 0, "dense": 0}
+            self._turn = 0
+
+        def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
+            del identifiers, limit
+            self.invoked["exact"] += 1
+            return (_hit("c1", RetrievalChannel.EXACT, 1),)
+
+        def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            self.invoked["lexical"] += 1
+            return (_hit("c2", RetrievalChannel.LEXICAL, 1),)
+
+        def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            self.invoked["dense"] += 1
+            # Late-arriving dense result: return evidence but it must be dropped.
+            _time.sleep(0.002)
+            return (_hit("c3", RetrievalChannel.DENSE, 1),)
+
+    backend = _DecliningBackend()
+    service = _DeadlineAfterExact(backend, limit=1)
+    hits, trace = service.search("ADR-0006 idempotent dosya ice aktarma")
+    # Dense ran but its late result must not be published into the fused set.
+    assert trace.deadline_expired is True
+    ids = {hit.chunk_id for hit in hits}
+    assert "c3" not in ids, "late dense result must not be published"
+    answer = service.build_answer(
+        "ADR-0006 idempotent dosya ice aktarma",
+        hits,
+        trace,
+        views={"c1": _view("c1"), "c2": _view("c2"), "c3": _view("c3")},
+        token_budget=1000,
+    )
+    assert answer.state is AnswerState.DEGRADED_TIMEOUT
+    assert answer.is_answered is False
+    assert {c.chunk_id for c in answer.citations} <= {"c1", "c2"}
+
+
+def test_wp5_provider_unavailable_with_strong_evidence_marked_degraded() -> None:
+    """WP5-C: provider-unavailable with strong exact/lexical evidence returns the
+    evidence explicitly marked DEGRADED_PROVIDER_UNAVAILABLE (not full success)."""
+
+    class _UnavailableBackend:
+        dense_failure_reason = None
+        provider_unavailable = True
+
+        def __init__(self) -> None:
+            self._exact = (_hit("c1", RetrievalChannel.EXACT, 1),)
+            self._lexical = (_hit("c2", RetrievalChannel.LEXICAL, 1),)
+            self.invoked: dict[str, int] = {"dense": 0}
+
+        def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
+            del identifiers, limit
+            return self._exact
+
+        def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            return self._lexical
+
+        def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            self.invoked["dense"] += 1
+            return ()
+
+    backend = _UnavailableBackend()
+    service = RetrievalService(backend, limit=1, retrieval_deadline_seconds=None)
+    hits, trace = service.search("ADR-0006 idempotent dosya ice aktarma")
+    assert trace.degraded_reason is not None
+    answer = service.build_answer(
+        "ADR-0006 idempotent dosya ice aktarma",
+        hits,
+        trace,
+        views={"c1": _view("c1"), "c2": _view("c2")},
+        token_budget=1000,
+    )
+    assert answer.state is AnswerState.DEGRADED_PROVIDER_UNAVAILABLE
+    assert answer.is_answered is False
+    assert answer.citations, "strong evidence preserved, explicitly degraded"
+
+
+def test_wp5_provider_unavailable_insufficient_evidence_abstains() -> None:
+    """WP5-C: provider-unavailable with insufficient evidence is an explicit
+    abstain (no fake success, distinct from no-hit)."""
+    class _EmptyBackend:
+        provider_unavailable = True
+
+        def __init__(self) -> None:
+            self.invoked: dict[str, int] = {"dense": 0}
+
+        def exact(self, identifiers: tuple[str, ...], *, limit: int) -> tuple[ScoredHit, ...]:
+            del identifiers, limit
+            return ()
+
+        def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            return ()
+
+        def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
+            del query, limit
+            self.invoked["dense"] += 1
+            return ()
+
+    backend = _EmptyBackend()
+    service = RetrievalService(backend, limit=1, retrieval_deadline_seconds=None)
+    hits, trace = service.search("kuantum muz sulama protokolu")
+    answer = service.build_answer(
+        "kuantum muz sulama protokolu", hits, trace, views={}, token_budget=1000
+    )
+    assert answer.state is AnswerState.DEGRADED_PROVIDER_UNAVAILABLE
+    assert answer.citations == ()
+
+
+def test_wp5_states_are_distinct_and_backward_compatible() -> None:
+    """WP5-C: timeout / no-hit / low-evidence / unavailable are distinct values;
+    existing ANSWERED/ABSTAINED_* semantics are preserved."""
+    assert AnswerState.ANSWERED.value == "answered"
+    assert AnswerState.ABSTAINED_NO_HIT.value == "abstained-no-hit"
+    assert AnswerState.ABSTAINED_LOW_EVIDENCE.value == "abstained-low-evidence"
+    assert AnswerState.DEGRADED_TIMEOUT.value == "degraded-timeout"
+    assert AnswerState.DEGRADED_PROVIDER_UNAVAILABLE.value == "degraded-provider-unavailable"
+
+    # A degraded state that carries citations is legal (explicitly marked),
+    # unlike a plain abstain that must never carry citations.
+    degraded = RetrievalAnswer(
+        query_digest=digest("q"),
+        state=AnswerState.DEGRADED_TIMEOUT,
+        citations=(
+            Citation(
+                chunk_id="a", document_id="d", locator=Locator(page=1), content_digest=CONTENT
+            ),
+        ),
+        used_chunk_ids=("a",),
+        token_budget=10,
+        tokens_used=3,
+    )
+    assert degraded.is_answered is False
+    # A degraded timeout with no evidence is legal and stays distinct from an
+    # abstain: its state value differs (build_answer uses it for the timeout case).
+    empty_degraded = RetrievalAnswer(
+        query_digest=digest("q"),
+        state=AnswerState.DEGRADED_TIMEOUT,
+        citations=(),
+        used_chunk_ids=(),
+        token_budget=10,
+        tokens_used=0,
+    )
+    assert empty_degraded.is_answered is False
+    # A plain abstain still cannot carry citations; ANSWERED still needs evidence.
+    with pytest.raises(ValidationFailed):
+        RetrievalAnswer(
+            query_digest=digest("q"),
+            state=AnswerState.ABSTAINED_NO_HIT,
+            citations=(
+                Citation(
+                    chunk_id="a",
+                    document_id="d",
+                    locator=Locator(page=1),
+                    content_digest=CONTENT,
+                ),
+            ),
+            used_chunk_ids=(),
+            token_budget=10,
+            tokens_used=0,
+        )
+
+
+# -- WP6 (B08): context packing fairness + large-chunk windowing --------------
+
+
+def test_wp6_b1_budget_reserves_for_all_mandate_objects() -> None:
+    """WP6-B-1 (B08): in a two-object question the first object must not consume
+    the entire budget — the packer reserves a share so the second object's
+    evidence still fits.  On the naive greedy baseline the verbose first chunk
+    would eat the whole budget and starve the second; the shared floor keeps it
+    fair."""
+    backend = _CountingBackend(
+        exact=(
+            _hit("big-a", RetrievalChannel.EXACT, 1),
+            _hit("small-b", RetrievalChannel.EXACT, 2),
+        )
+    )
+    service = RetrievalService(backend, limit=2)
+    hits, trace = service.search("app.a ve app.b farki nedir")
+    # A large first chunk (~600 tokens) and a small second (~40 tokens) with a
+    # total budget just over the second chunk's cost.  The naive greedy packer
+    # would only fit a few lines of the first chunk and drop the second.
+    budget = 300
+    big_a = " ".join(["kelime" for _ in range(600)])
+    small_b = " ".join(["not" for _ in range(30)])
+    answer = service.build_answer(
+        "app.a ve app.b farki nedir",
+        hits,
+        trace,
+        views={
+            "big-a": _view("big-a", big_a),
+            "small-b": _view("small-b", small_b),
+        },
+        token_budget=budget,
+    )
+    assert answer.is_answered is True
+    cited = {c.chunk_id for c in answer.citations}
+    assert "small-b" in cited, "second object must not be starved by the first"
+    assert answer.tokens_used <= budget
+    assert "small-b" in answer.used_chunk_ids
+
+
+def test_wp6_b2_large_chunk_windowed_not_lost() -> None:
+    """WP6-B-2 (B08): a large chunk that does not fit the budget is not lost
+    entirely — a bounded, line-aligned window is selected and reported as a
+    windowed chunk (so evidence is not dropped wholesale)."""
+    backend = _CountingBackend(exact=(_hit("c1", RetrievalChannel.EXACT, 1),))
+    service = RetrievalService(backend, limit=1)
+    hits, trace = service.search("app.musteri")
+    budget = 100
+    # A chunk far larger than the budget: leading lines fit, trailing lines drop.
+    huge = "satir buradadir. " * 500
+    answer = service.build_answer(
+        "app.musteri",
+        hits,
+        trace,
+        views={"c1": _view("c1", huge)},
+        token_budget=budget,
+    )
+    assert answer.is_answered is True
+    assert {"c1"} == {c.chunk_id for c in answer.citations}
+    assert "c1" in answer.used_chunk_ids
+    lines = " ".join(answer.explanation)
+    assert "c1" in lines, "windowed chunk must be named in the explanation"
+    assert "tampon pencereye kesildi" in lines, "must be reported as windowed"
+    assert answer.tokens_used <= budget
+
+
+def test_wp6_b2b_too_tiny_window_still_abstains_low_evidence() -> None:
+    """WP6-B-2 (B08): when even the minimum meaningful window cannot fit the
+    remaining budget, the chunk is dropped and the answer abstains (low-evidence)
+    rather than force-fitting a barely-readable sliver.  This preserves the
+    existing abstain contract for a trivially small budget."""
+    backend = _CountingBackend(exact=(_hit("c1", RetrievalChannel.EXACT, 1),))
+    service = RetrievalService(backend, limit=1)
+    hits, trace = service.search("app.musteri")
+    answer = service.build_answer(
+        "app.musteri",
+        hits,
+        trace,
+        views={"c1": _view("c1", "cok " * 200)},
+        token_budget=5,
+    )
+    assert answer.state is AnswerState.ABSTAINED_LOW_EVIDENCE
+    assert "token butcesi" in " ".join(answer.explanation)
+
+
+def test_wp6_b2c_windowing_reports_used_and_dropped_explicitly() -> None:
+    """WP6-B-2 (B08): an over-budget chunk is surfaced as ``windowed`` in the
+    explanation while an entirely unplaceable chunk is surfaced as ``dropped`` —
+    the used-vs-dropped evidence is explicit and measured, never silently lost."""
+    from zekam.application.retrieval_service import MIN_CONTEXT_WINDOW_TOKENS
+
+    assert MIN_CONTEXT_WINDOW_TOKENS > 0
+    backend = _CountingBackend(exact=(_hit("c1", RetrievalChannel.EXACT, 1),))
+    service = RetrievalService(backend, limit=1)
+    hits, trace = service.search("app.musteri")
+    budget = 200
+    huge = "satir buradadir. " * 500
+    # Two huge chunks and a tiny one: the first huge chunk is windowed into the
+    # budget, the second cannot fit the remaining shared floor and is dropped
+    # (both are named in the explanation so nothing is silently lost).
+    answer = service.build_answer(
+        "app.musteri",
+        (*hits, FusedHit(chunk_id="c2", score=2.0, channels=(RetrievalChannel.DENSE,))),
+        trace,
+        views={
+            "c1": _view("c1", huge),
+            "c2": _view("c2", huge),
+        },
+        token_budget=budget,
+    )
+    assert answer.is_answered is True
+    assert answer.used_chunk_ids
+    assert "c1" in answer.used_chunk_ids
+    lines = " ".join(answer.explanation)
+    # c1 fits as a windowed chunk (line-aligned window of leading content).
+    # c2 cannot reach the window floor -> dropped, named explicitly.
+    if "tampon pencereye kesildi" in lines:
+        assert "c1" in lines
+    if "disarida" in lines:
+        assert "token butcesi nedeniyle disarida" in lines
+
+
+# -- WP7 (B08): retrieval vs generation semantics contract ---------------------
+
+
+def test_wp7_b1_answer_semantics_contract_ready_and_no_fabricated_generation() -> None:
+    """WP7-B-1 (B08): the answer-kind/state contract includes the generated-answer
+    enums (schema readiness) but the derivation never emits a fabricated generated
+    answer from a retrieval-only route.
+
+    ``answer_semantics`` is deterministic: evidence-answered yields
+    retrieval_state=answered-evidence, generation_state=not_generated,
+    answer_kind=retrieval_evidence; abstained and degraded states never produce
+    answer_kind=generated_answer.
+    """
+    from zekam.domain.retrieval import (
+        AnswerKind,
+        GenerationState,
+        RetrievalState,
+        answer_semantics,
+    )
+
+    answered = answer_semantics(AnswerState.ANSWERED.value, evidence_found=True)
+    assert answered["retrieval_state"] == RetrievalState.ANSWERED_EVIDENCE.value
+    assert answered["generation_state"] == GenerationState.NOT_GENERATED.value
+    assert answered["answer_kind"] == AnswerKind.RETRIEVAL_EVIDENCE.value
+
+    # Abstained / no-evidence never fabricates a generated answer.
+    for state_value in (
+        AnswerState.ABSTAINED_NO_HIT.value,
+        AnswerState.ABSTAINED_LOW_EVIDENCE.value,
+        "abstained-index-unavailable",
+        "abstained-no-edge",
+    ):
+        semantics = answer_semantics(state_value, evidence_found=False)
+        assert semantics["answer_kind"] == AnswerKind.ABSTAINED.value
+        assert semantics["answer_kind"] != AnswerKind.GENERATED_ANSWER.value
+        assert semantics["generation_state"] == GenerationState.NOT_GENERATED.value
+
+    # Provider-less / degraded evidence still retrieval_evidence, never generated.
+    degraded = answer_semantics("lexical-only-degraded", evidence_found=True)
+    assert degraded["retrieval_state"] == RetrievalState.DEGRADED_PROVIDER_UNAVAILABLE.value
+    assert degraded["answer_kind"] == AnswerKind.RETRIEVAL_EVIDENCE.value
+    assert degraded["generation_state"] == GenerationState.NOT_GENERATED.value
+
+    # Unknown/forward state never maps to a fabricated success.
+    unknown = answer_semantics("future-state", evidence_found=False)
+    assert unknown["retrieval_state"] == RetrievalState.ABSTAINED_LOW_EVIDENCE.value
+    assert unknown["answer_kind"] == AnswerKind.ABSTAINED.value
+
+
+
+

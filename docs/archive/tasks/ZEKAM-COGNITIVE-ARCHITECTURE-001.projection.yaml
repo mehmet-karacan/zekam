@@ -2,14 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:dc447591f3b7d52a5e623a3b8de1653c2e7eb60300501218775ca8957072df6b
-task_id: ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001
+authority_digest: sha256:c359bb22b3d86067e73de75a48ff74e771ad20cc9ccd3bb0032d34315d31a9ed
+task_id: ZEKAM-COGNITIVE-ARCHITECTURE-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam RAG Gecikmesi, Kanit Kalitesi ve Uctan Uca Yanit Hattinin Duzeltilmesi
-created_at: '2026-09-25T00:00:00+03:00'
+title: Zekam Context, Memory, Skills ve Agent Orkestrasyon Mimarisi Butunlestirmesi
+created_at: '2026-09-24T00:00:00+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: c3ad4c6abf2596cf633f0e95d52c8cd96c18000b
+baseline_head: 4629e9e58f8a74bbaad1e76e362893628837c823
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
@@ -17,5 +17,5 @@ push_authorized: false
 read_only: true
 grants_authority: false
 approval_inherited: false
-baseline_commit_subject: 'bakim: paket dogrulama raporunu commit sonrasi yenile'
+baseline_commit_subject: 'bakim: paket dogrulama raporunu digest-bagli guncelle'
 baseline_is_fixed_revision: true

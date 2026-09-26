@@ -20,10 +20,22 @@ from zekam.application.knowledge_index import (
     KnowledgeIndexRecord,
 )
 from zekam.application.project_knowledge_index import ProjectIndexPlan
-from zekam.application.retrieval_service import Reranker, RetrievalService, RetrievalTrace
+from zekam.application.retrieval_service import (
+    DEFAULT_RETRIEVAL_DEADLINE_SECONDS,
+    QueryIntent,
+    Reranker,
+    RetrievalService,
+    RetrievalTrace,
+    _classify_intent,
+)
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.domain.retrieval import AnswerState, ScoredHit, extract_identifiers
+from zekam.domain.retrieval import (
+    AnswerState,
+    ScoredHit,
+    answer_semantics,
+    extract_identifiers,
+)
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 MAX_QUERY_BYTES = 16 * 1024
@@ -31,9 +43,189 @@ DEFAULT_DENSE_EVIDENCE_THRESHOLD = 0.49
 DEFAULT_DENSE_MARGIN_THRESHOLD = 0.04
 DEFAULT_LEXICAL_COVERAGE_THRESHOLD = 0.50
 
+#: WP6 (B07): an evidence set is only "relationship-satisfying" when at least one
+#: of the gathered chunks carries genuine call-site / data-flow / dependency edge
+#: language.  Merely finding A and B separately is NOT an edge (no fabrication).
+_RELATIONSHIP_EDGE_SIGNALS = (
+    "calls",
+    "çağırır",
+    "cagirir",
+    "çağrı",
+    "cagri",
+    "call",
+    "bağımlı",
+    "bagimli",
+    "bağımlılık",
+    "bagimlilik",
+    "dependency",
+    "depends on",
+    "uses",
+    "import ",
+    "from ",
+    "->",
+    "-->",
+    "::",
+    "calls into",
+    "invokes",
+)
+
+#: WP6 (B08): maximum length (characters) of the answer excerpt that is taken
+#: from a single used chunk.  Kept bounded so the output contract stays small
+#: and model context/output reserve is respected.  The excerpt is chosen from
+#: the *used* chunks (evidence-selected), not a blind first-500 of the very
+#: first chunk.
+MAX_ANSWER_EXCERPT_CHARS = 500
+
+
+def _excerpt_window(text: str, max_chars: int) -> tuple[str, bool]:
+    """Return a bounded, line-aligned leading window of ``text`` for the excerpt.
+
+    WP6 (B08): the answer excerpt is an *evidence-selected* bounded window, not a
+    blind first-500-character slice of the first used chunk with no provenance.
+    The window is line-aligned and deterministic; when the whole chunk fits it is
+    returned unchanged.  The returned ``(window, truncated)`` flag tells the
+    caller whether the chunk was truncated, so the excerpt's derived digest and
+    locator relationship stay accurate.
+    """
+    if max_chars <= 0:
+        return "", text != ""
+    if len(text) <= max_chars:
+        return text, False
+    lines = text.splitlines(keepends=True)
+    accumulated: list[str] = []
+    total = 0
+    for line in lines:
+        if total + len(line) > max_chars:
+            if not accumulated:
+                return text[:max_chars], True
+            break
+        accumulated.append(line)
+        total += len(line)
+    return "".join(accumulated), True
+
+
+def _build_excerpt(answer: Any, views: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+    """Build the answer excerpt window and its additive provenance metadata.
+
+    WP6 (B08): ``answer_excerpt`` stays a **string** (backward-compatible with the
+    existing CLI/consumer contract), but is now the bounded, line-aligned window
+    of the first *used* chunk — an evidence-selected window rather than a blind
+    first-500-character slice.  The accurate digest/locator relationship is
+    carried in a separate additive ``answer_excerpt_meta`` field so the excerpt
+    digest is never mixed with the full source/chunk digest.
+
+    Returns ``(text_or_None, meta_or_None)``.
+    """
+    if not answer.used_chunk_ids or not answer.citations:
+        return None, None
+    chunk_id = answer.used_chunk_ids[0]
+    view = views.get(chunk_id)
+    if view is None:
+        return None, None
+    text, truncated = _excerpt_window(view.text, MAX_ANSWER_EXCERPT_CHARS)
+    meta: dict[str, Any] = {
+        "chunk_id": chunk_id,
+        "truncated": truncated,
+        # Derived digest of JUST the excerpt window — never confused with the
+        # full chunk content_digest (kept distinct and clearly labelled).
+        "excerpt_digest": digest_of_bytes(text.encode("utf-8")),
+        "content_digest": view.content_digest,
+        "locator": view.locator.as_dict() if view.locator else None,
+        "source_ref": view.locator.relative_path if view.locator else None,
+    }
+    return text, meta
+
 
 def _tokens(value: str) -> frozenset[str]:
     return frozenset(item.casefold() for item in _TOKEN.findall(value) if len(item) > 1)
+
+
+def _supports_identifier(text: str, identifier: str) -> bool:
+    """Require one answerable chunk to contain a single technical identity."""
+    text_tokens = _tokens(text)
+    return all(
+        part.casefold() in text_tokens
+        for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
+        if len(part) > 1
+    )
+
+
+def _supports_all_identifiers(text: str, identifiers: tuple[str, ...]) -> bool:
+    """Require one answerable chunk to contain every technical query identity.
+
+    This is the *single-object* contract: a single chunk must support the object
+    (kept strict for single-object questions).  For multi-object/comparison/
+    relationship questions this per-chunk requirement is intentionally NOT used —
+    coverage is collective across the evidence set (WP6 / B07).
+    """
+
+    if not identifiers:
+        return True
+    text_tokens = _tokens(text)
+    return all(
+        all(
+            part.casefold() in text_tokens
+            for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
+            if len(part) > 1
+        )
+        for identifier in identifiers
+    )
+
+
+def _collective_identifier_coverage(
+    views: dict[str, Any],
+    candidate_ids: tuple[str, ...],
+    identifiers: tuple[str, ...],
+) -> tuple[bool, frozenset[str]]:
+    """Return (covered, missing) — whether the evidence SET covers every identifier.
+
+    WP6 (B07): a verified evidence set collectively satisfies a multi-object or
+    comparison question when, across all candidate chunks, every required
+    identifier appears at least once.  Unlike ``_supports_all_identifiers`` this
+    does NOT demand a single chunk to hold every identifier; the objects may live
+    in different files/chunks.  Each identifier must be covered at least once so
+    none is starved (aligns with B04 fair exact).
+
+    Note this deliberately computes coverage from *candidate* texts regardless of
+    whether they were later dropped for the context budget.  The caller applies
+    budget filtering separately; evidence-gating (is there enough evidence at all)
+    and context-packing (which verified evidence fits the budget) stay distinct.
+    """
+    if not identifiers:
+        return True, frozenset()
+    text_tokens: dict[str, frozenset[str]] = {}
+    for chunk_id in candidate_ids:
+        view = views.get(chunk_id)
+        if view is not None:
+            text_tokens[chunk_id] = _tokens(view.text)
+    covered: set[str] = set()
+    for identifier in identifiers:
+        parts = [
+            part.casefold()
+            for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
+            if len(part) > 1
+        ]
+        if any(all(part in tokens for part in parts) for tokens in text_tokens.values()):
+            covered.add(identifier)
+    missing = frozenset(identifier for identifier in identifiers if identifier not in covered)
+    return not missing, missing
+
+
+def _relationship_edge_evidence(views: dict[str, Any], candidate_ids: tuple[str, ...]) -> bool:
+    """Return True only when at least one candidate chunk carries edge language.
+
+    WP6 (B07) relationship rule: finding A and B separately is NOT an edge.  A
+    relationship / call-chain / dependency assertion is only consider satisfied
+    when an actual call-site, data-flow or dependency reference exists in the
+    gathered source.  This keeps the system from fabricating an edge from mere
+    co-presence of names.
+    """
+    lowered = " ".join(
+        views[chunk_id].text.casefold()
+        for chunk_id in candidate_ids
+        if chunk_id in views
+    )
+    return any(signal in lowered for signal in _RELATIONSHIP_EDGE_SIGNALS)
 
 
 def compose_graph_reranker(
@@ -66,22 +258,6 @@ def compose_graph_reranker(
         )
     except Exception:
         return None
-
-
-def _supports_all_identifiers(text: str, identifiers: tuple[str, ...]) -> bool:
-    """Require one answerable chunk to contain every technical query identity."""
-
-    if not identifiers:
-        return True
-    text_tokens = _tokens(text)
-    return all(
-        all(
-            part.casefold() in text_tokens
-            for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
-            if len(part) > 1
-        )
-        for identifier in identifiers
-    )
 
 
 def build_embedded_project_generation(
@@ -229,11 +405,15 @@ class EmbeddedProjectRAG:
     dense_evidence_threshold: float = DEFAULT_DENSE_EVIDENCE_THRESHOLD
     dense_margin_threshold: float = DEFAULT_DENSE_MARGIN_THRESHOLD
     lexical_coverage_threshold: float = DEFAULT_LEXICAL_COVERAGE_THRESHOLD
+    # WP5 (P0): one monotonic end-to-end retrieval deadline shared across the
+    # discovery/qualification, channels, reranker and fallback; ``None`` disables.
+    retrieval_deadline_seconds: float | None = DEFAULT_RETRIEVAL_DEADLINE_SECONDS
 
     def _stale_result(self, query: str, *, project_id: str, reason: str) -> dict[str, Any]:
+        state_value = "abstained-index-unavailable"
         value = {
             "schema": "zekam-embedded-rag-result/v1",
-            "state": "abstained-index-unavailable",
+            "state": state_value,
             "project_id": project_id,
             "query_digest": digest({"query": query}),
             "reason": reason,
@@ -241,6 +421,10 @@ class EmbeddedProjectRAG:
             "searched_channels": [],
             "fallback_allowed": False,
         }
+        # WP7 / B08: the embedded contract carries the explicit retrieval-only
+        # semantics on every result, including fail-closed stale/index results.
+        value["evidence_found"] = False
+        value.update(answer_semantics(state_value, evidence_found=False))
         value["retrieval_digest"] = digest(value)
         return value
 
@@ -302,7 +486,11 @@ class EmbeddedProjectRAG:
             dense_enabled=provider_available,
             dense_failure_reason=None if provider_available else provider_failure_reason,
         )
-        service = RetrievalService(backend, reranker=self.reranker)
+        service = RetrievalService(
+            backend,
+            reranker=self.reranker,
+            retrieval_deadline_seconds=self.retrieval_deadline_seconds,
+        )
         hits, trace = service.search(query)
         candidate_ids = tuple(hit.chunk_id for hit in hits)
         views = self.index.views(
@@ -324,19 +512,64 @@ class EmbeddedProjectRAG:
         dense_margin = (
             top_dense - backend.last_dense[1].raw_score if len(backend.last_dense) > 1 else 0.0
         )
-        exact_identity_support = any(
+        # WP6 (B07): split the evidence contract by query intent instead of a
+        # blanket "one chunk must hold every identifier" requirement.
+        #   * single-object (EXACT_LOOKUP or one identifier): a single chunk must
+        #     genuinely support the object (strict verification preserved).
+        #   * multi-object / comparison (MULTI_OBJECT_COMPARISON or >=2 identifiers):
+        #     the verified evidence SET collectively covers all required objects
+        #     across chunks; no single-chunk-everything demand.
+        #   * relationship (RELATIONSHIP): the set must cover the objects AND an
+        #     actual call-site / dependency / data-flow edge must exist — mere
+        #     co-presence of A and B is NOT evidence of a relationship (no edge
+        #     fabrication).
+        intent = _classify_intent(query, identifiers)
+        single_object = (
+            intent.value == QueryIntent.EXACT_LOOKUP.value
+            or (
+                # A single-identifier relationship/comparison still targets one
+                # object (e.g. "X hangi fonksiyonu cagirir") — strict object
+                # support applies, the edge rule is separate.
+                len(identifiers) <= 1
+            )
+        )
+        # ``single_chunk_identifier_support`` stays a strict, honest report of
+        # whether ANY single chunk holds EVERY identifier (the pre-WP6 contract).
+        # It is intentionally NOT relaxed for multi-object questions: it remains
+        # a diagnostic even though the *gate* uses the collective contract below.
+        single_chunk_identifier_support = any(
             hit.chunk_id in views
             and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            for hit in (*backend.last_exact, *backend.last_lexical, *backend.last_dense[:2])
+        )
+        if single_object:
+            coverage_missing: frozenset[str] = frozenset()
+
+            def identity_support_for(text: str) -> bool:
+                return _supports_all_identifiers(text, identifiers)
+        else:
+            # Multi-object: the hits already represent verified candidates.  We
+            # require that the evidence SET collectively covers every identifier.
+            _, coverage_missing = _collective_identifier_coverage(
+                views, candidate_ids, identifiers
+            )
+
+            def identity_support_for(text: str) -> bool:
+                return True
+
+        exact_identity_support = any(
+            hit.chunk_id in views
+            and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_exact
         )
         lexical_identity_support = any(
             hit.chunk_id in views
-            and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_lexical
         )
         dense_identity_support = any(
             hit.chunk_id in views
-            and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+            and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_dense[:2]
         )
         enough_evidence = (
@@ -354,13 +587,44 @@ class EmbeddedProjectRAG:
                 )
             )
         )
-        if identifiers:
+        # Multi-object coverage must not starve any required identifier (B04 fair
+        # exact).  When an identifier is completely absent from the evidence set,
+        # there is not enough evidence to answer the multi-object question.
+        if not single_object and coverage_missing:
+            enough_evidence = False
+        # WP6 (B07) relationship rule: finding names A and B separately is not an
+        # edge.  For relationship/call-chain/dependency questions, enough_evidence
+        # additionally requires genuine edge language in the gathered source;
+        # otherwise the system abstains rather than fabricating a relationship.
+        if (
+            intent.value == QueryIntent.RELATIONSHIP.value
+            and identifiers
+            and not _relationship_edge_evidence(views, candidate_ids)
+        ):
+            enough_evidence = False
+            if identifiers and not coverage_missing:
+                # Names exist but no edge: explicit no-edge abstain state (never a
+                # confidently fabricated relationship answer).
+                relationship_state = "abstained-no-edge"
+            else:
+                relationship_state = None
+        else:
+            relationship_state = None
+
+        if identifiers and single_object:
+            # Single-object strictness: only hits whose single chunk supports the
+            # object are retained (preserved, not loosened).
             hits = tuple(
                 hit
                 for hit in hits
                 if hit.chunk_id in views
                 and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
             )
+        elif identifiers:
+            # Multi/relationship: no per-chunk-everything filter.  Keep hits that
+            # exist in the verified views; the collective set already proved
+            # coverage (deduped/counted in ``enough_evidence``/coverage_missing).
+            hits = tuple(hit for hit in hits if hit.chunk_id in views)
         if not enough_evidence:
             hits = ()
         answer = service.build_answer(
@@ -377,17 +641,30 @@ class EmbeddedProjectRAG:
                 graph_used=trace.graph_used,
                 graph_state=trace.graph_state,
                 graph_bypass=trace.graph_bypass,
+                intent=trace.intent,
+                deadline_expired=trace.deadline_expired,
+                degraded_reason=trace.degraded_reason,
             ),
             views=views,
             token_budget=token_budget,
         )
         citations: list[dict[str, Any]] = []
-        for citation in answer.citations:
-            identity = self.index.source_identity(
+        if answer.citations:
+            # WP4 (B04): bulk-hydrate the identity fields for every cited chunk
+            # in ONE bounded SQL read instead of one source_identity round-trip
+            # per citation (the N+1 pattern).  Same validation and output shape
+            # as the previous per-citation path; only the final citation chunk
+            # set is read.  source_identity is kept for any other callers.
+            citation_ids = tuple(citation.chunk_id for citation in answer.citations)
+            identities = self.index.source_identities(
                 project_id,
-                citation.chunk_id,
+                citation_ids,
                 generation_digest=generation.generation_digest,
             )
+        else:
+            identities = {}
+        for citation in answer.citations:
+            identity = identities[citation.chunk_id]
             view = views[citation.chunk_id]
             fused_hit = next(hit for hit in hits if hit.chunk_id == citation.chunk_id)
             fused_rank = next(
@@ -428,22 +705,44 @@ class EmbeddedProjectRAG:
                 }
             )
         state = answer.state.value
+        # WP6 (B07): explicit no-edge abstain for relationship questions where
+        # names exist but no call-site/dependency evidence was found.  This
+        # overrides even a generic answered state so the system never fabricates
+        # a relationship assertion from mere co-presence of A and B.
+        if relationship_state:
+            state = relationship_state
+            citations = []
         if not enough_evidence and state == AnswerState.ABSTAINED_NO_HIT.value:
             state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
         if backend.dense_failure_reason:
-            if state == AnswerState.ANSWERED.value and (
+            # WP5 (P0): provider/dependency unavailable.  Strong exact/lexical
+            # evidence gathered before the failure may still be returned, but it
+            # is marked explicitly degraded ("lexical-only-degraded") rather than
+            # a silent full success.  Without strong evidence the result
+            # explicitly abstains (never a fabricated "answered").
+            if state in (
+                AnswerState.ANSWERED.value,
+                AnswerState.DEGRADED_PROVIDER_UNAVAILABLE.value,
+            ) and (
                 exact_identity_support
                 or (
-                    lexical_coverage >= self.lexical_coverage_threshold and lexical_identity_support
+                    lexical_coverage >= self.lexical_coverage_threshold
+                    and lexical_identity_support
                 )
             ):
                 state = "lexical-only-degraded"
             else:
                 state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
                 citations = []
+        excerpt, excerpt_meta = _build_excerpt(answer, views)
+        # WP7 / B08: `evidence_found` is derived from actual citations carried by
+        # the result (never from the `state` string alone) so the retrieval
+        # outcome and the payload reality stay consistent.
+        evidence_found = bool(citations)
+        state_value = state
         result: dict[str, Any] = {
             "schema": "zekam-embedded-rag-result/v1",
-            "state": state,
+            "state": state_value,
             "project_id": project_id,
             "query_digest": answer.query_digest,
             "generation_digest": generation.generation_digest,
@@ -467,9 +766,10 @@ class EmbeddedProjectRAG:
             "candidate_count": len(candidate_ids),
             "lexical_coverage": lexical_coverage,
             "identifier_count": len(identifiers),
-            "single_chunk_identifier_support": (
-                exact_identity_support or lexical_identity_support or dense_identity_support
-            ),
+            "query_intent": intent.value,
+            "uncovered_identifiers": list(coverage_missing),
+            "relationship_state": relationship_state,
+            "single_chunk_identifier_support": single_chunk_identifier_support,
             "top_dense_similarity": top_dense,
             "dense_top_2_margin": dense_margin,
             "evidence_sufficient": enough_evidence,
@@ -482,10 +782,18 @@ class EmbeddedProjectRAG:
             "used_chunk_ids": list(answer.used_chunk_ids),
             "tokens_used": answer.tokens_used,
             "fallback_allowed": False,
-            "answer_excerpt": (
-                views[answer.used_chunk_ids[0]].text[:500] if answer.used_chunk_ids else None
-            ),
+            "answer_excerpt": excerpt,
+            "answer_excerpt_meta": excerpt_meta,
             "explanation": list(answer.explanation),
         }
+        # WP7 / B08: additive answer-semantics fields.  The legacy ``state`` and
+        # ``answer_excerpt`` keys above are preserved byte-for-byte for v1
+        # consumers; these NEW fields make explicit that this is a RETRIEVAL-ONLY
+        # evidence packet and that NO generated natural-language answer exists in
+        # this core route.  ``generation_state`` is always ``not_generated`` and
+        # ``answer_kind`` is never ``generated_answer`` here (provider-less and
+        # unauthorized states included) — no fabricated synthesis is ever claimed.
+        result["evidence_found"] = evidence_found
+        result.update(answer_semantics(state_value, evidence_found=evidence_found))
         result["retrieval_digest"] = digest(result)
         return result

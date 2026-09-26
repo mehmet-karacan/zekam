@@ -135,9 +135,12 @@ def _completed_summaries() -> list[str]:
 
 
 def _active_skill_refs(home: Path) -> list[str]:
-    """Aktif skill manifest'lerinin logical id'lerini bounded dondurur.
+    """Aktif skill manifest'lerinin canonical skill id'lerini bounded dondurur.
 
-    Salt okunur; retrieval davranisina dokunmaz. Veri yoksa bos liste doner.
+    Salt okunur; retrieval davranisina dokunmaz. Kanonik aktif-skill kaynagi
+    ``skill_activation -> skill_manifest`` join'idir; memory kayitlari skill ref
+    degildir, bu yuzden ham memory ID'leri burada skill olarak sunulmaz. Veri
+    yoksa bos liste doner.
     """
     database = home / "state" / "learning.db"
     if not database.is_file():
@@ -148,16 +151,14 @@ def _active_skill_refs(home: Path) -> list[str]:
         learning = SQLiteLocalLearning(
             database.resolve(), operational_path=(home / "state" / "operational.db").resolve()
         )
-        rows = learning.list_records() if hasattr(learning, "list_records") else ()
+        active_skill_refs = (
+            learning.active_skill_refs(maximum=8)
+            if hasattr(learning, "active_skill_refs")
+            else ()
+        )
     except Exception:
         return []
-    refs: list[str] = []
-    for row in rows:
-        # herhangi bir donebilir taban; gercek adanmis skill metodu yoksa blog gecer
-        refs.append(_bounded(row.get("memory_id"), limit=128))
-        if len(refs) >= 8:
-            break
-    return refs
+    return [_bounded(ref, limit=128) for ref in active_skill_refs]
 
 
 def _knowledge_refs(database: Path) -> list[dict[str, str]]:
@@ -216,13 +217,19 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
     if database.is_file():
         store = SQLiteOperationalStore(database)
         with store.unit_of_work() as uow:
-            projects = uow.list_projects(include_archived=False)
-            work = uow.list_work()
+            projects = uow.list_projects_limited(limit=_PROJECT_LIMIT, include_archived=False)
+            work = uow.list_work_limited(limit=_OPEN_WORK_LIMIT + _COMPLETED_WORK_LIMIT + 1)
             project_aliases = {
-                project.id: list(uow.list_project_aliases(project.id)) for project in projects
+                project_id: list(aliases)
+                for project_id, aliases in uow.list_project_aliases_batch(
+                    tuple(p.id for p in projects)
+                ).items()
             }
             uow.commit()
     project_names = {item.id: item.slug for item in projects}
+    # ``work`` is bounded newest-first (see list_work_limited DESC ordering), so
+    # recent/open selection and the recently_completed window stay correct without
+    # streaming the full work history.
     open_work = [item for item in work if item.state not in {"completed", "cancelled"}]
     completed_work = [item for item in work if item.state == "completed"]
     lifecycle = resume_projection(resolved_home, limit=100, quarantine_invalid=False)
@@ -239,7 +246,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 project_slug=project.slug,
             ),
         }
-        for project in projects[:_PROJECT_LIMIT]
+        for project in projects
     ]
     if latest_checkpoint is not None and latest_checkpoint["next_safe_action"]:
         next_safe_action = latest_checkpoint["next_safe_action"]
@@ -261,7 +268,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             "blocked_count": sum(item.state == "blocked" for item in open_work),
             "recently_completed": [
                 _work_document(item, project_names)
-                for item in reversed(completed_work[-_COMPLETED_WORK_LIMIT:])
+                for item in completed_work[:_COMPLETED_WORK_LIMIT]
             ],
         },
         "navigation": {

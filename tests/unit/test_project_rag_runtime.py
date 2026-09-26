@@ -360,6 +360,131 @@ def test_successful_query_persists_scoped_verification_timestamp(
     assert result["query_verification_recorded"] is True
 
 
+def test_wp7_query_runtime_propagates_retrieval_only_semantics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WP7-A-1 / C-1 (B08): ``_query`` passes the embedded retrieval-only answer
+    semantics through to the consumer unchanged — generation_state stays
+    not_generated and answer_kind stays retrieval_evidence, never a fabricated
+    generated answer — while the legacy ``state`` field is preserved."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "source.md").write_text("# verified query source", encoding="utf-8")
+    home = tmp_path / "home"
+    home.mkdir()
+    project_id = uuid4()
+    repository_revision = runtime._git_source_state(source)[2]
+    repository_tree = runtime.discover(source).tree_digest
+    project_root = home / "project"
+    state_path = project_root / "runtime" / "rag-state.json"
+    index_path = home / "index" / "knowledge.sqlite3"
+    state_path.parent.mkdir(parents=True)
+    index_path.parent.mkdir()
+    index_path.write_bytes(b"")
+    state = {
+        "project_id": str(project_id),
+        "repository_source_revision": repository_revision,
+        "repository_tree_digest": repository_tree,
+        "odi_source_digest": None,
+        "embedding_profile_id": "bge-m3-dense-v1",
+        "embedding_route": "remote",
+        "knowledge_binding_digest": runtime._knowledge_binding_digest(
+            KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+        ),
+        "generation_digest": digest("generation"),
+        "source_revision": digest("combined-revision"),
+        "tree_digest": digest("combined-tree"),
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    paths = {
+        "home": home,
+        "project_root": project_root,
+        "index_root": index_path.parent,
+        "manifest_root": home / "manifest",
+        "state": state_path,
+        "index": index_path,
+        "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
+    }
+    monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
+    monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    monkeypatch.setattr(
+        runtime,
+        "load_settings",
+        lambda **_kwargs: SimpleNamespace(knowledge=knowledge),
+    )
+    profile = SimpleNamespace(profile_digest=digest("provider-profile"))
+    provider = SimpleNamespace(describe=lambda: profile)
+    binding = runtime._EmbeddingBinding(
+        provider=cast(Any, provider),
+        policy=cast(Any, object()),
+        ledger={},
+        probe={"probe_evidence_digest": digest("probe")},
+        route=EmbeddingRoute.REMOTE,
+        remote_provider_used=True,
+        probe_call_count=2,
+    )
+    monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+
+    class _Index:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *_args) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest=state["generation_digest"],
+                source_revision=state["source_revision"],
+                tree_digest=state["tree_digest"],
+                provider_profile_digest=digest("provider-profile"),
+            )
+
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
+    monkeypatch.setattr(
+        runtime,
+        "EmbeddedProjectRAG",
+        lambda *_args: SimpleNamespace(
+            query=lambda *_args, **_kwargs: {
+                "state": "answered",
+                "retrieval_digest": digest("retrieval"),
+                "searched_channels": ["exact", "lexical", "dense"],
+                "degraded_reason": None,
+                "provider_profile_digest": digest("provider-profile"),
+                "generation_digest": digest("generation"),
+                # WP7 additive fields already present on the embedded result.
+                "evidence_found": True,
+                "retrieval_state": "answered-evidence",
+                "generation_state": "not_generated",
+                "answer_kind": "retrieval_evidence",
+            }
+        ),
+    )
+
+    result = runtime._query(
+        source,
+        home,
+        project_id,
+        "verified-project",
+        tmp_path / "opencode.json",
+        "where?",
+        authorize_remote_query=True,
+    )
+
+    # Legacy state preserved and WP7 additive fields pass through untouched.
+    assert result["state"] == "answered"
+    assert result["evidence_found"] is True
+    assert result["retrieval_state"] == "answered-evidence"
+    assert result["generation_state"] == "not_generated"
+    assert result["answer_kind"] == "retrieval_evidence"
+    assert result["answer_kind"] != "generated_answer"
+
+
 def test_degraded_query_does_not_overwrite_verified_receipt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1132,6 +1257,48 @@ def test_existing_paths_preserve_lexical_project_path_for_alias_detection(
     assert paths["project_root"] == tmp_path / "projeler" / "gpu-fusion"
 
 
+def test_runtime_paths_skips_rehardening_when_acl_already_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runtime.HomeLayout, "verify", lambda _self: [])
+    project_root = tmp_path / "projeler" / "slug"
+    monkeypatch.setattr(
+        runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root
+    )
+    restricted: list[Path] = []
+    monkeypatch.setattr(runtime, "restrict_private_tree", restricted.append)
+    monkeypatch.setattr(runtime, "private_directory", lambda _path: True)
+
+    paths = runtime._runtime_paths(tmp_path, "slug")
+
+    assert restricted == []
+    assert paths["project_root"] == project_root
+    assert paths["index_root"] == (
+        tmp_path / "knowledge-index" / "vector" / "opencode-bge-m3" / "slug"
+    )
+    assert (
+        paths["manifest_root"] == tmp_path / "knowledge-index" / "manifests" / "slug"
+    )
+
+
+def test_runtime_paths_still_hardens_and_raises_when_acl_not_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(runtime.HomeLayout, "verify", lambda _self: [])
+    project_root = tmp_path / "projeler" / "slug"
+    monkeypatch.setattr(
+        runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root
+    )
+    restricted: list[Path] = []
+    monkeypatch.setattr(runtime, "restrict_private_tree", restricted.append)
+    monkeypatch.setattr(runtime, "private_directory", lambda path: path != project_root)
+
+    with pytest.raises(PolicyViolation, match="private ACL"):
+        runtime._runtime_paths(tmp_path, "slug")
+
+    assert project_root in restricted
+
+
 def test_read_surfaces_reject_acl_drift_without_runtime_self_heal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1176,3 +1343,351 @@ def test_read_surfaces_reject_acl_drift_without_runtime_self_heal(
             tmp_path / "opencode.json",
             "question",
         )
+
+
+def test_warm_query_does_not_repeat_provider_qualification_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """B01 WP1 regression: expected to FAIL on baseline, PASS after WP2.
+
+    A warm, already-qualified provider identity must NOT re-run the probe for a
+    second authorized query.  On the current baseline ``_provider`` calls
+    ``provider.probe(fixture)`` unconditionally on every call, so a second warm
+    query probes again.  WP2 separates qualification from query use; after WP2
+    two warm ``_provider`` calls over the same accepted identity run the probe
+    exactly once.
+    """
+    import zekam.infrastructure.query_measurement as qm
+    from zekam.domain.security import DataClassification
+
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    probe_runs: list[int] = []
+
+    class _FakeRemoteProvider:
+        def __init__(self, configuration, executor, *, dimension, max_batch_size):
+            del executor, dimension, max_batch_size
+            self._configuration = configuration
+            self._profile_digest = digest("provider-profile")
+
+        def probe(self, _fixture):
+            probe_runs.append(1)
+            return SimpleNamespace(
+                profile=SimpleNamespace(
+                    profile_digest=self._profile_digest,
+                    model_revision_fingerprint=digest("revision"),
+                    provider_identity_digest=digest("provider"),
+                    exact_model_id=knowledge.embedding_model_ref,
+                    dimension=knowledge.embedding_dimension,
+                    vector_dtype="float32",
+                    normalized=True,
+                    distance_metric="cosine",
+                    query_prefix="",
+                    passage_prefix="",
+                    preprocessor_digest=digest("pre"),
+                    tokenizer_digest=digest("tok"),
+                    batch_policy_digest=digest("batch"),
+                    device_scope="windows:x64:opencode",
+                    data_classification_allowlist=(DataClassification.PUBLIC,),
+                    verified_at="2026-09-02T00:00:00Z",
+                    probe_evidence_digest=digest("probe"),
+                    validate_vector=lambda _vector: None,
+                ),
+                semantic_margin=0.4,
+                positive_score=0.7,
+                negative_score=0.3,
+                max_repeat_delta=0.0001,
+                max_batch_delta=0.0001,
+                batch_cosine=0.9999,
+                latency_ms=1,
+                evidence_digest=digest("probe"),
+                provider_call_count=2,
+            )
+
+    monkeypatch.setattr(runtime, "OpenCodeRemoteEmbeddingProvider", _FakeRemoteProvider)
+    monkeypatch.setattr(runtime, "ProcessIsolatedJsonProviderTransport", lambda *_: object())
+    monkeypatch.setattr(runtime, "LiveProcessClient", lambda *_a, **_k: object())
+    monkeypatch.setattr(runtime, "RuntimeOpenCodeEmbeddingExecutor", lambda _invocation: object())
+    monkeypatch.setattr(runtime, "RuntimeProviderContractRunner", lambda *a, **k: object())
+    monkeypatch.setattr(runtime, "load_inventory", lambda *_: object())
+
+    class _FakeHost:
+        def register(self, _work):
+            return None
+
+        def summary(self):
+            return {
+                "schema": "zekam-local-provider-ledger-summary/v1",
+                "provider_calls": 0,
+                "durable_remote_effects": 0,
+            }
+
+    monkeypatch.setattr(runtime, "SQLiteProviderLedgerHost", lambda *_a, **_k: _FakeHost())
+
+    def _load_config(*_args, **_kwargs):
+        return SimpleNamespace(
+            provider_id="litellm",
+            canonical_model_id="openai/BAAI/bge-m3",
+            selected_model_id=knowledge.embedding_model_ref,
+            credential_locator="OPENCODE_LITELLM_KEY",
+            embedding_endpoint="https://models.example.test/v1/embeddings",
+            endpoint_identity=SimpleNamespace(identity_digest=digest("endpoint")),
+        )
+
+    monkeypatch.setattr(runtime, "load_opencode_embedding_configuration", _load_config)
+
+    with qm.scope():
+        runtime._provider(
+            tmp_path,
+            tmp_path / "ledger.sqlite3",
+            tmp_path / "opencode.json",
+            uuid4(),
+            (),
+            knowledge,
+            remote_authorized=True,
+        )
+        # Second warm query over the same accepted provider identity.  A cached
+        # qualification must NOT probe again.
+        runtime._provider(
+            tmp_path,
+            tmp_path / "ledger2.sqlite3",
+            tmp_path / "opencode.json",
+            uuid4(),
+            (),
+            knowledge,
+            remote_authorized=True,
+        )
+
+    # Regression: the warm second query must not repeat the probe.  On baseline
+    # two probes ran (qualification ran twice); WP2 must make it exactly one.
+    assert len(probe_runs) == 1
+
+
+def _git_repo(root: Path, files: dict[str, str]) -> None:
+    """Initialise a committed Git repo at ``root`` with the given files."""
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "a@b.c"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "init"], check=True)
+
+
+def _indexed_state_for_git(root: Path, head_rev: str) -> dict[str, Any]:
+    """Build a state dict whose repository revision/head matches ``root`` and which
+    records per-file indexed content digests (content of current working files)."""
+    digests: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        relative = path.relative_to(root).as_posix()
+        digests[relative] = digest_of_bytes(path.read_bytes())
+    return {
+        "repository_source_revision": head_rev,
+        "repository_tree_digest": digest("indexed-tree"),
+        "source_files": [
+            {"path": path, "content_digest": content} for path, content in digests.items()
+        ],
+    }
+
+
+def test_wp3_same_status_changed_content_is_not_current(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WP3-B-1 regression: expected to FAIL on baseline, PASS after WP3.
+
+    Two states with the SAME ``git status --porcelain`` text but DIFFERENT dirty
+    file content must be detected as a content change and NOT reported current.
+    On the baseline the freshness keyed only on ``head:status:<status_digest>``,
+    hashing the status bytes (not the dirty file content), so identical status
+    text with different content collided and was treated as current.  WP3 hashes
+    the on-disk content of exactly the changed indexed paths and compares against
+    the indexed content digest, so the same status text with changed content must
+    surface ``project-source-content-stale``.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git_repo(root, {"f.md": "original-committed\n"})
+
+    # Indexed state corresponds to dirty content A (status text " M f.md").
+    (root / "f.md").write_text("content-A dirty\n", encoding="utf-8")
+    state = _indexed_state_for_git(root, runtime._git_source_state(root)[2])
+    status_a = runtime._git_source_state(root)[2]
+
+    # Baseline behaviour: only the status digest was compared against the recorded
+    # revision.  With " M f.md" the status digest was the recorded one already, so
+    # the result was "current" regardless of file content -- this is the collision.
+    baseline_reasons_at_a, _ = runtime._source_freshness_for_query(state, root)
+    # At the indexed content the query is current (no content change detected).
+    assert "project-source-content-stale" not in baseline_reasons_at_a
+
+    # Change the content WITHOUT changing the git status text (still " M f.md").
+    (root / "f.md").write_text("content-B dirty, same status text\n", encoding="utf-8")
+    status_b = runtime._git_source_state(root)[2]
+    # Identical status text => identical revision (this was the baseline collision).
+    assert status_b == status_a
+
+    reasons, _obs = runtime._source_freshness_for_query(state, root)
+    # WP3: identical status text but different content must NOT be "current".
+    assert "project-source-content-stale" in reasons
+    assert "project-source-freshness-unknown" not in reasons
+
+
+def test_wp3_warm_local_query_skips_corpus_plan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """WP3-A-1 regression: expected to FAIL on baseline, PASS after WP3.
+
+    A warm local-route answer query must NOT invoke ``_project_plan`` and must not
+    build/hand the whole corpus plan chunks to the provider for qualification.
+    On the baseline ``_query`` called ``_project_plan(source_root, ...)`` on every
+    local query to rebuild the corpus plan and pass ``query_chunks`` into
+    ``_provider``/``build_verified_mac_embedding``.  WP3 removes that: the local
+    route qualifies from the accepted bounded synthetic fixture only.
+    """
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "source.md").write_text("# warm local query source", encoding="utf-8")
+    home = tmp_path / "home"
+    home.mkdir()
+    project_id = uuid4()
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+    project_root = home / "project"
+    state_path = project_root / "runtime" / "rag-state.json"
+    index_path = home / "index" / "knowledge.sqlite3"
+    state_path.parent.mkdir(parents=True)
+    index_path.parent.mkdir()
+    index_path.write_bytes(b"")
+    state_path.write_text(
+        json.dumps(
+            {
+                "project_id": str(project_id),
+                "repository_source_revision": runtime._git_source_state(source)[2],
+                "repository_tree_digest": runtime.discover(source).tree_digest,
+                "odi_source_digest": None,
+                "knowledge_binding_digest": runtime._knowledge_binding_digest(knowledge),
+                "generation_digest": digest("generation"),
+                "source_revision": digest("indexed-source"),
+                "tree_digest": digest("indexed-tree"),
+                "database_access": "disabled",
+                "source_files": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths = {
+        "home": home,
+        "project_root": project_root,
+        "index_root": index_path.parent,
+        "manifest_root": home / "manifest",
+        "state": state_path,
+        "index": index_path,
+        "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
+    }
+    monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
+    monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
+    monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
+    monkeypatch.setattr(
+        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
+    )
+    monkeypatch.setattr(runtime, "_runtime_platform", lambda: "darwin")
+
+    class _LocalBinding:
+        provider = SimpleNamespace(
+            describe=lambda: SimpleNamespace(profile_digest=digest("local-profile"))
+        )
+        profile = SimpleNamespace(
+            exact_model_id="BAAI/bge-m3",
+            dimension=1024,
+            profile_digest=digest("local-profile"),
+            probe_evidence_digest=digest("local-probe"),
+        )
+        policy = object()
+
+    monkeypatch.setattr(runtime, "_build_local_query_embedding", lambda: _LocalBinding())
+
+    # The plan must NOT be built: make _project_plan fail loudly if called.
+    monkeypatch.setattr(
+        runtime,
+        "_project_plan",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("query path must not build the corpus plan (WP3-A)")
+        ),
+    )
+
+    class _Index:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *_args) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                generation_digest=digest("generation"),
+                source_revision=digest("indexed-source"),
+                tree_digest=digest("indexed-tree"),
+                provider_profile_digest=digest("provider-profile"),
+            )
+
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _Index)
+    monkeypatch.setattr(
+        runtime,
+        "EmbeddedProjectRAG",
+        lambda *_args: SimpleNamespace(
+            query=lambda *_args, **_kwargs: {
+                "state": "answered",
+                "retrieval_digest": digest("retrieval"),
+                "searched_channels": ["exact", "lexical", "dense"],
+                "degraded_reason": None,
+                "provider_profile_digest": digest("provider-profile"),
+                "generation_digest": digest("generation"),
+            }
+        ),
+    )
+
+    result = runtime._query(
+        source,
+        home,
+        project_id,
+        "warm-local",
+        None,
+        "where?",
+    )
+
+    assert result["index_freshness"] == "current"
+    assert result["embedding_route"] == "local"
+
+
+def test_wp3_deleted_source_is_freshness_unknown(
+    tmp_path: Path,
+) -> None:
+    """WP3-B-2 regression: expected to degrade like the baseline and PASS after WP3.
+
+    A deleted source must never be silently served as "current".  The query path
+    reports an explicit ``project-source-freshness-unknown`` state (never a silent
+    current) when an indexed path is deleted / inaccessible / symlink-junction.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git_repo(root, {"f.md": "original-committed\n"})
+    head_rev = runtime._git_source_state(root)[2]
+    state = _indexed_state_for_git(root, head_rev)
+
+    # Baseline "current" (unchanged).
+    reasons, _obs = runtime._source_freshness_for_query(state, root)
+    assert reasons == []
+
+    # Delete the indexed source file.
+    (root / "f.md").unlink()
+    reasons, obs = runtime._source_freshness_for_query(state, root)
+    assert "project-source-freshness-unknown" in reasons
+    assert obs.get("unknown") is True
+
+
+

@@ -81,6 +81,126 @@ class AnswerState(StrEnum):
     ANSWERED = "answered"
     ABSTAINED_NO_HIT = "abstained-no-hit"
     ABSTAINED_LOW_EVIDENCE = "abstained-low-evidence"
+    # WP5 (P0): distinct degraded states so no-hit / low-evidence / unavailable /
+    # timeout are never conflated.  A degraded state MAY carry partial strong
+    # exact/lexical evidence (explicitly marked degraded, never silent success),
+    # but it is not a full ``ANSWERED``.
+    DEGRADED_TIMEOUT = "degraded-timeout"
+    DEGRADED_PROVIDER_UNAVAILABLE = "degraded-provider-unavailable"
+
+
+class RetrievalState(StrEnum):
+    """WP7 / B08: retrieval/evidence outcome, independent of any generation.
+
+    This states ONLY whether retrieval gathered sufficient evidence.  It never
+    claims a natural-language answer was produced (see ``GenerationState`` and
+    ``AnswerKind``).  The values are derived from the legacy ``state`` field so
+    the existing v1 contract is preserved unchanged.
+    """
+
+    ANSWERED_EVIDENCE = "answered-evidence"
+    ABSTAINED_NO_HIT = "abstained-no-hit"
+    ABSTAINED_LOW_EVIDENCE = "abstained-low-evidence"
+    # Additive refinements of incomplete evidence (kept distinct from no-hit).
+    ABSTAINED_NO_EDGE = "abstained-no-edge"
+    ABSTAINED_INDEX_UNAVAILABLE = "abstained-index-unavailable"
+    DEGRADED_TIMEOUT = "degraded-timeout"
+    DEGRADED_PROVIDER_UNAVAILABLE = "degraded-provider-unavailable"
+
+
+class GenerationState(StrEnum):
+    """WP7 / B08: whether a model-generated answer was actually produced.
+
+    Core has NO synthesis path (no LLM call in this route); generation is never
+    silently claimed.  ``NOT_GENERATED`` / ``NOT_APPLICABLE`` are the only values
+    the core emits today; ``GENERATED`` / ``GENERATION_FAILED`` exist so any
+    future authorized synthesis path can mark itself distinctly (contract-ready,
+    never fabricated by this code).
+    """
+
+    NOT_GENERATED = "not_generated"
+    NOT_APPLICABLE = "not_applicable"
+    GENERATED = "generated"
+    GENERATION_FAILED = "generation-failed"
+
+
+class AnswerKind(StrEnum):
+    """WP7 / B08: the kind of payload the caller is handed.
+
+    ``RETRIEVAL_EVIDENCE`` for the retrieval-only path, ``ABSTAINED`` when no
+    evidence was returned, and ``GENERATED_ANSWER`` reserved for an authorized
+    synthesis path (never produced by core today).  A generated answer must
+    cite only provided evidence and never be fabricated without authorization.
+    """
+
+    RETRIEVAL_EVIDENCE = "retrieval_evidence"
+    ABSTAINED = "abstained"
+    GENERATED_ANSWER = "generated_answer"
+
+
+#: Retrieval states that carry NO usable evidence payload.
+_ABSTAIN_RETRIEVAL_STATES = frozenset(
+    {
+        RetrievalState.ABSTAINED_NO_HIT.value,
+        RetrievalState.ABSTAINED_LOW_EVIDENCE.value,
+        RetrievalState.ABSTAINED_NO_EDGE.value,
+        RetrievalState.ABSTAINED_INDEX_UNAVAILABLE.value,
+    }
+)
+
+#: Deterministic mapping from the legacy ``state`` string to the precise
+#: ``RetrievalState``.  Unknown/forward states map to low-evidence (never a
+#: fabricated success).
+_RETRIEVAL_STATE_BY_STATE = {
+    AnswerState.ANSWERED.value: RetrievalState.ANSWERED_EVIDENCE.value,
+    AnswerState.ABSTAINED_NO_HIT.value: RetrievalState.ABSTAINED_NO_HIT.value,
+    AnswerState.ABSTAINED_LOW_EVIDENCE.value: RetrievalState.ABSTAINED_LOW_EVIDENCE.value,
+    "abstained-no-edge": RetrievalState.ABSTAINED_NO_EDGE.value,
+    "abstained-index-unavailable": RetrievalState.ABSTAINED_INDEX_UNAVAILABLE.value,
+    AnswerState.DEGRADED_TIMEOUT.value: RetrievalState.DEGRADED_TIMEOUT.value,
+    AnswerState.DEGRADED_PROVIDER_UNAVAILABLE.value: (
+        RetrievalState.DEGRADED_PROVIDER_UNAVAILABLE.value
+    ),
+    # ``lexical-only-degraded`` is the same *retrieval* outcome as provider
+    # unavailable (exact/lexical evidence only, dense unavailable).
+    "lexical-only-degraded": RetrievalState.DEGRADED_PROVIDER_UNAVAILABLE.value,
+}
+
+
+def answer_semantics(state_value: str, *, evidence_found: bool) -> dict[str, Any]:
+    """Derive the WP7 additive answer-semantics fields from the legacy state.
+
+    Returns a mapping with ``retrieval_state``, ``generation_state`` and
+    ``answer_kind``.  Core never fabricates a generated answer: ``generation_state``
+    is always ``not_generated`` and ``answer_kind`` is never ``generated_answer``
+    from this retrieval-only route.
+
+    :param state_value: the legacy ``AnswerState``-derived string already in use.
+    :param evidence_found: whether the result carries actual evidence (citations).
+    """
+    retrieval_state = _RETRIEVAL_STATE_BY_STATE.get(
+        state_value, RetrievalState.ABSTAINED_LOW_EVIDENCE.value
+    )
+    generation_state = GenerationState.NOT_GENERATED.value
+    if retrieval_state in _ABSTAIN_RETRIEVAL_STATES:
+        answer_kind = AnswerKind.ABSTAINED.value
+    else:
+        answer_kind = AnswerKind.RETRIEVAL_EVIDENCE.value
+    return {
+        "retrieval_state": retrieval_state,
+        "generation_state": generation_state,
+        "answer_kind": answer_kind,
+    }
+
+#: States that require genuine evidence (citations) to be valid.
+_NEEDS_EVIDENCE = frozenset({AnswerState.ANSWERED})
+#: Abstain states where carrying citations is a defect (silent success).
+_FORBIDS_EVIDENCE = frozenset(
+    {
+        AnswerState.ABSTAINED_NO_HIT,
+        AnswerState.ABSTAINED_LOW_EVIDENCE,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,15 +590,18 @@ class RetrievalAnswer:
     def __post_init__(self) -> None:
         if self.grants_authority:
             raise PolicyViolation("retrieval sonucu authority veremez")
-        if self.state is AnswerState.ANSWERED and not self.citations:
+        if self.state in _NEEDS_EVIDENCE and not self.citations:
             raise ValidationFailed("kanitsiz cevap uretilemez")
-        if self.state is not AnswerState.ANSWERED and self.citations:
+        if self.state in _FORBIDS_EVIDENCE and self.citations:
             raise ValidationFailed("abstain eden cevap citation tasiyamaz")
         if self.tokens_used > self.token_budget:
             raise PolicyViolation("baglam token butcesini asiyor")
 
     @property
     def is_answered(self) -> bool:
+        # A degraded state carries at most *partial* marked evidence; it is never
+        # a full successful answer.  Callers that branch on ``is_answered`` keep
+        # the historical meaning (only genuine full success returns True).
         return self.state is AnswerState.ANSWERED
 
     def as_dict(self) -> dict[str, Any]:

@@ -329,3 +329,101 @@ def test_project_index_requires_database_authorization_only_when_configured() ->
 
     assert result.exit_code == 77
     assert "Database metadata" in result.output
+
+
+# -- WP7 (B08): retrieval-only vs generated-answer JSON contract ---------------
+
+
+def test_ask_json_is_single_valid_document_with_wp7_fields_and_backward_compat(
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """WP7-C-1 (B08): ``ask --json`` emits ONE valid JSON document carrying the
+    new WP7 additive fields while preserving the existing v1 consumer fields
+    (state, answer_excerpt, citations).  No progress/log is mixed into stdout."""
+    monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
+    monkeypatch.setattr(
+        cli,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "answer_excerpt": "CREATE TABLE LOG_REPORT_CREATION",
+            "citations": [
+                {
+                    "source_id": "sha256:" + "b" * 64,
+                    "project_scope": "gpu-fusion",
+                    "source_ref": "oracle/table/LOG_REPORT_CREATION",
+                    "source_revision": "rev-1",
+                    "source_digest": "sha256:" + "c" * 64,
+                    "content_digest": "sha256:" + "d" * 64,
+                    "chunk_id": "chunk-1",
+                    "locator_type": "database-object",
+                    "locator": {"object_name": "LOG_REPORT_CREATION:TABLE"},
+                    "retrieval_channels": ["exact"],
+                    "rank_trace": {"fused_rank": 1},
+                }
+            ],
+            "evidence_found": True,
+            "retrieval_state": "answered-evidence",
+            "generation_state": "not_generated",
+            "answer_kind": "retrieval_evidence",
+            "searched_channels": ["exact", "lexical", "dense"],
+        },
+    )
+
+    result = CliRunner().invoke(cli.app, ["ask", "LOG_REPORT_CREATION nedir?", "--json"])
+
+    assert result.exit_code == 0, result.output
+    # ONE valid JSON document, no stdout pollution.
+    document = json.loads(result.output)
+    assert isinstance(document, dict)
+    retrieval = document["retrieval"]
+    # Backward-compatible v1 fields still parse.
+    assert retrieval["state"] == "answered"
+    assert retrieval["answer_excerpt"] == "CREATE TABLE LOG_REPORT_CREATION"
+    assert retrieval["citations"][0]["source_ref"] == "oracle/table/LOG_REPORT_CREATION"
+    # New WP7 fields present and explicit that no generated answer was produced.
+    assert retrieval["evidence_found"] is True
+    assert retrieval["retrieval_state"] == "answered-evidence"
+    assert retrieval["generation_state"] == "not_generated"
+    assert retrieval["answer_kind"] == "retrieval_evidence"
+    assert retrieval["answer_kind"] != "generated_answer"
+
+
+def test_ask_json_providerless_never_claims_generated_answer(
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """WP7-C-2 (B08): in a provider-less / abstained / stale result the CLI JSON
+    contract reports generation_state=not_generated and answer_kind=abstained —
+    never a fabricated generated answer."""
+    monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
+    monkeypatch.setattr(
+        cli,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "abstained-low-evidence",
+            "answer_excerpt": None,
+            "citations": [],
+            "evidence_found": False,
+            "retrieval_state": "abstained-low-evidence",
+            "generation_state": "not_generated",
+            "answer_kind": "abstained",
+            "searched_channels": ["exact", "lexical"],
+            "degraded_reason": "provider-unavailable",
+            "index_freshness": "stale",
+        },
+    )
+
+    result = CliRunner().invoke(
+        cli.app, ["ask", "kuantum muz sulama protokolu", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    retrieval = json.loads(result.output)["retrieval"]
+    assert retrieval["state"] == "abstained-low-evidence"
+    assert retrieval["evidence_found"] is False
+    assert retrieval["generation_state"] == "not_generated"
+    assert retrieval["answer_kind"] == "abstained"
+    assert retrieval["answer_kind"] != "generated_answer"
+    assert retrieval["citations"] == []

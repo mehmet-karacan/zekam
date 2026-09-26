@@ -343,6 +343,34 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
+    def list_projects_limited(
+        self, *, limit: int, include_archived: bool = False
+    ) -> tuple[OperationalProjectRecord, ...]:
+        """Return at most ``limit`` projects with a SQL ``LIMIT`` so the database
+        never streams the full project table.
+
+        Salt okunur; sonuc listesini Python'da kesmek yerine sorgu katmaninda
+        sinirlar. Negatif veya tamsayi olmayan limit iste reddedilir.
+        """
+        if not isinstance(limit, int) or limit < 0:
+            raise ValidationFailed("Project limit pozitif tamsayi olmali")
+        rows = (
+            self._db()
+            .execute(
+                "select id, slug, display_name, status, revision from project"
+                + ("" if include_archived else " where status = 'active'")
+                + " order by slug, id limit ?",
+                (limit,),
+            )
+            .fetchall()
+        )
+        return tuple(
+            OperationalProjectRecord(
+                row["id"], row["slug"], row["display_name"], row["status"], row["revision"]
+            )
+            for row in rows
+        )
+
     def list_project_aliases(self, project_id: str) -> tuple[str, ...]:
         rows = (
             self._db()
@@ -353,6 +381,35 @@ class SQLiteOperationalUnitOfWork:
             .fetchall()
         )
         return tuple(str(row["alias"]) for row in rows)
+
+    def list_project_aliases_batch(
+        self, project_ids: tuple[str, ...]
+    ) -> dict[str, tuple[str, ...]]:
+        """Return every project's aliases in a single bounded query (avoids N+1).
+
+        Salt okunur; davranisi/state'i degistirmez, yalniz proje basina ayri bir
+        sorgu calistirmak yerine tek bir ``IN`` sorgusu yapar.
+        """
+        project_ids = tuple(
+            dict.fromkeys(project_id for project_id in project_ids if project_id)
+        )
+        if not project_ids:
+            return {}
+        placeholders = ",".join("?" for _ in project_ids)
+        rows = (
+            self._db()
+            .execute(
+                "select project_id, alias from project_alias where project_id in ("
+                + placeholders
+                + ") order by project_id, alias",
+                project_ids,
+            )
+            .fetchall()
+        )
+        grouped: dict[str, list[str]] = {project_id: [] for project_id in project_ids}
+        for row in rows:
+            grouped[str(row["project_id"])].append(str(row["alias"]))
+        return {project_id: tuple(aliases) for project_id, aliases in grouped.items()}
 
     def add_project_alias(self, *, project_id: str, alias: str) -> None:
         validate_slug(alias)
@@ -763,6 +820,41 @@ class SQLiteOperationalUnitOfWork:
                 + ("" if project_id is None else " where work_item.project_id = ?")
                 + " order by work_item.created_at, work_item.id",
                 parameters,
+            )
+            .fetchall()
+        )
+        return tuple(_row_work(row) for row in rows)
+
+    def list_work_limited(
+        self, *, limit: int, project_id: str | None = None
+    ) -> tuple[OperationalWorkRecord, ...]:
+        """Return at most ``limit`` most-recent work rows with a SQL ``LIMIT`` at the
+        repository layer so the database never streams the full ``work_item``/
+        ``work_revision`` join for a growing work history.
+
+        Rows are returned newest-first (``created_at`` desc).  This keeps the read
+        bounded for ``resume`` while callers that expect ascending order can reverse
+        the result.  Salt okunur; davranisi/state'i degistirmez, yalniz sorgu
+        katmaninda sinirlar.
+        """
+        if not isinstance(limit, int) or limit < 0:
+            raise ValidationFailed("Work limit pozitif tamsayi olmali")
+        parameters: list[object] = [limit]
+        project_clause = ""
+        if project_id is not None:
+            project_clause = " where work_item.project_id = ?"
+            parameters.insert(0, project_id)
+        rows = (
+            self._db()
+            .execute(
+                "select work_item.id, work_item.project_id, work_item.kind, work_item.title,"
+                " work_item.state, work_item.revision, work_item.evidence_digest,"
+                " work_item.external_number, work_revision.payload_json"
+                " from work_item join work_revision on work_revision.work_item_id = work_item.id"
+                " and work_revision.revision = work_item.revision"
+                + project_clause
+                + " order by work_item.created_at desc, work_item.id desc limit ?",
+                tuple(parameters),
             )
             .fetchall()
         )

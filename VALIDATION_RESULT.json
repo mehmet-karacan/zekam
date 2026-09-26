@@ -13,9 +13,9 @@
       "cli": "zekam"
     },
     "active_task_authority": {
-      "task_id": "ZEKAM-COGNITIVE-ARCHITECTURE-001",
+      "task_id": "ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001",
       "authority_ref": "AKTIF_GOREV.md",
-      "authority_digest": "sha256:c359bb22b3d86067e73de75a48ff74e771ad20cc9ccd3bb0032d34315d31a9ed",
+      "authority_digest": "sha256:dc447591f3b7d52a5e623a3b8de1653c2e7eb60300501218775ca8957072df6b",
       "yaml_generated_projection": true,
       "grants_authority": false,
       "legacy_postgresql_data_import": "FORBIDDEN",
@@ -65,16 +65,16 @@
       "schema": "zekam-git-security-report/v1",
       "repository": "zekam",
       "findings": [],
-      "tracked_blob_count": 1819,
-      "worktree_file_count": 16,
-      "history_blob_count": 3857,
+      "tracked_blob_count": 1828,
+      "worktree_file_count": 13,
+      "history_blob_count": 3879,
       "history_complete": true,
       "reviewed_allowance_count": 56,
       "allowlist_digest": "sha256:c60b7c179cff9be8c692b7c0a14e703c7ab3c8a9f4c2457ec87123d011f747a7",
       "passed": true,
       "requires_revoke_or_rotate": false,
       "grants_authority": false,
-      "report_digest": "sha256:908dd5841d31b6e70a94700e3c3b63ca228b9379d54224c31b3c54261027f4a1"
+      "report_digest": "sha256:da0b9ea7f7ecc702b64c34f5c7f795b97874b26b9edde90da515b74ff269b88b"
     },
     "commit_template_ascii": true,
     "forbidden_canonical_terms": [],

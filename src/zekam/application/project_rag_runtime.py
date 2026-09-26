@@ -18,7 +18,10 @@ import sqlite3
 import struct
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +33,7 @@ from zekam.application.embedding_provider import (
     EmbeddingBatch,
     EmbeddingPolicy,
     EmbeddingProbeFixture,
+    EmbeddingProfile,
     EmbeddingProvider,
 )
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
@@ -80,6 +84,10 @@ from zekam.domain.security import (
     SecretRef,
 )
 from zekam.domain.work import EffectKind
+from zekam.infrastructure.embedding.infinity_bge import (
+    build_local_bge_provider,
+    default_mac_bge_configuration,
+)
 from zekam.infrastructure.embedding.opencode_remote import (
     MAX_BATCH_SIZE,
     OpenCodeRemoteEmbeddingProvider,
@@ -99,6 +107,11 @@ from zekam.infrastructure.opencode_provider_ledger import (
     _work,
 )
 from zekam.infrastructure.process.capability_worker import ProcessIsolatedJsonProviderTransport
+from zekam.infrastructure.query_measurement import (
+    record_probe_latency,
+    record_qualification,
+    record_source_freshness_scan,
+)
 from zekam.infrastructure.sqlite.knowledge_index import SQLiteKnowledgeIndex
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -106,6 +119,257 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 MODEL_ID = "openai/BAAI/bge-m3"
 PROVIDER_ID = "litellm"
 VECTOR_DIMENSION = 1024
+
+# ----------------------------------------------------------------------
+# WP2 (B01): bounded provider qualification cache.
+#
+# A warm, already-accepted provider identity must NOT re-run the probe on a
+# second authorized query.  The cache key binds the full acceptance identity:
+# provider/endpoint identity, exact model id, reported model revision, dimension,
+# dtype/normalization, preprocessing/prefix/tokenizer contract, fixture version
+# and the relevant configuration/revision digest.  NO secret value is stored.
+#
+# Durability: the task requires warm behaviour across *separate CLI processes*.
+# This step stores the qualification record in the project's own provider-ledger
+# SQLite file (already a safe local state), so a later CLI process can reuse a
+# still-fresh acceptance.  An in-process LRU is layered on top to avoid re-reading
+# the ledger within one process.  (See B01 report: cross-process durability is
+# achieved via the ledger; direct file-level reuse is bounded by TTL + binding.)
+#
+# Single-flight: concurrent qualification for the same binding collapses into one
+# probe; waiters are bounded by the configured deadline.
+#
+# Invalidation: config/revision/policy change, TTL expiry, a differing binding
+# digest, or a corrupt/incompatible record re-validates with a bounded budget --
+# never unlimited wait and never silent auto-authorization.  Failure cache is
+# short, bounded, never hides auth errors, and avoids probe storms.
+# ----------------------------------------------------------------------
+QUALIFICATION_TTL_SECONDS = 5 * 60  # start-of-attempt; NOT a guaranteed value
+_QUALIFICATION_FAILURE_TTL_SECONDS = 30
+
+_qualification_lock = threading.Lock()
+# in-process identity -> _QualificationRecord (or failure marker); bounded LRU.
+_qualification_inprocess: dict[str, object] = {}
+_QUALIFICATION_INPROCESS_MAX = 32
+_qualification_singleflight: dict[str, threading.Event] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class _QualificationRecord:
+    """Secret-free durable qualification evidence for one provider binding."""
+
+    binding_digest: str
+    qualified_at_ns: int
+    expires_at_ns: int
+    ttl_seconds: int
+    profile_digest: str
+    probe_evidence_digest: str
+    semantic_margin: float
+    max_repeat_delta: float
+    max_batch_delta: float
+    latency_ms: int
+    provider_call_count: int
+    model_revision_fingerprint: str
+    provider_identity_digest: str
+    exact_model_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _QualificationFailure:
+    """Short-lived failure guard; never hides auth/authorization errors."""
+
+    binding_digest: str
+    recorded_at_ns: int
+    error_type: str
+
+
+def _qualification_key(
+    configuration: object,
+    knowledge: KnowledgeSettings,
+    *,
+    probe_revision: str,
+) -> str:
+    """Build the exact secret-free acceptance binding digest for the cache.
+
+    Binds provider/endpoint identity, exact model id, dimension, distance,
+    normalization/dtype, preprocessing/prefix/tokenizer contract, fixture
+    version and the configuration revision.  No secret value enters the digest.
+    """
+    config_identity = getattr(configuration, "endpoint_identity", None)
+    endpoint_digest = (
+        getattr(config_identity, "identity_digest", None)
+        if config_identity is not None
+        else None
+    )
+    provider_id = getattr(configuration, "provider_id", None)
+    selected_model = getattr(configuration, "selected_model_id", None)
+    canonical_model = getattr(configuration, "canonical_model_id", None)
+    body = {
+        "schema": "zekam-project-rag-qualification-binding/v1",
+        "provider_id": provider_id,
+        "endpoint_identity_digest": endpoint_digest,
+        "exact_model_id": selected_model,
+        "canonical_model_id": canonical_model,
+        "embedding_model_ref": knowledge.embedding_model_ref,
+        "embedding_dimension": knowledge.embedding_dimension,
+        "embedding_distance": knowledge.embedding_distance,
+        "vector_dtype": "float32",
+        "normalized": True,
+        "preprocessing_prefix": "none",
+        "tokenizer_contract": "provider-managed",
+        "probe_fixture_version": "v1",
+        "probe_revision": probe_revision,
+    }
+    return str(digest(body))
+
+
+def _probe_revision(knowledge: KnowledgeSettings) -> str:
+    """Version the probe fixture/contract so a fixture change invalidates easily."""
+    return str(knowledge.embedding_profile_id)
+
+
+def _now_ns() -> int:
+    return time.monotonic_ns()
+
+
+def _qualification_ledger_store() -> tuple[type, str]:
+    """Return the (already-imported) ledger host/factory contract."""
+    return SQLiteProviderLedgerHost, "provider-ledger"
+
+
+def _read_durable_qualification(
+    ledger_path: Path, binding_digest: str, *, now_ns: int
+) -> _QualificationRecord | None:
+    """Best-effort read of a still-fresh qualification from the durable ledger.
+
+    Uses only secret-free identity columns.  A corrupt/missing record returns
+    None so the caller re-validates with a bounded budget.  Never auto-approves.
+    """
+    try:
+        if not ledger_path.is_file() or not private_regular(ledger_path):
+            return None
+        import sqlite3 as _s3
+
+        connection = _s3.connect(f"{ledger_path.as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            connection.row_factory = _s3.Row
+            row = connection.execute(
+                "select binding_digest,qualified_at_ns,expires_at_ns,ttl_seconds,"
+                " profile_digest,probe_evidence_digest,semantic_margin,max_repeat_delta,"
+                " max_batch_delta,latency_ms,provider_call_count,model_revision_fingerprint,"
+                " provider_identity_digest,exact_model_id"
+                " from project_rag_qualification where binding_digest=?",
+                (binding_digest,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        expires = int(row["expires_at_ns"])
+        if expires <= now_ns:
+            return None
+        return _QualificationRecord(
+            binding_digest=str(row["binding_digest"]),
+            qualified_at_ns=int(row["qualified_at_ns"]),
+            expires_at_ns=expires,
+            ttl_seconds=int(row["ttl_seconds"]),
+            profile_digest=str(row["profile_digest"]),
+            probe_evidence_digest=str(row["probe_evidence_digest"]),
+            semantic_margin=float(row["semantic_margin"]),
+            max_repeat_delta=float(row["max_repeat_delta"]),
+            max_batch_delta=float(row["max_batch_delta"]),
+            latency_ms=int(row["latency_ms"]),
+            provider_call_count=int(row["provider_call_count"]),
+            model_revision_fingerprint=str(row["model_revision_fingerprint"]),
+            provider_identity_digest=str(row["provider_identity_digest"]),
+            exact_model_id=str(row["exact_model_id"]),
+        )
+    except Exception:
+        # Corrupt/unreadable ledger: never treat as valid; force bounded re-probe.
+        return None
+
+
+def _write_durable_qualification(ledger_path: Path, record: _QualificationRecord) -> None:
+    """Persist a fresh acceptance to the project ledger (best-effort)."""
+    try:
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        import sqlite3 as _s3
+
+        connection = _s3.connect(ledger_path, timeout=5)
+        try:
+            connection.execute(
+                "create table if not exists project_rag_qualification("
+                " binding_digest text primary key,"
+                " qualified_at_ns integer not null,"
+                " expires_at_ns integer not null,"
+                " ttl_seconds integer not null,"
+                " profile_digest text not null,"
+                " probe_evidence_digest text not null,"
+                " semantic_margin real not null,"
+                " max_repeat_delta real not null,"
+                " max_batch_delta real not null,"
+                " latency_ms integer not null,"
+                " provider_call_count integer not null,"
+                " model_revision_fingerprint text not null,"
+                " provider_identity_digest text not null,"
+                " exact_model_id text not null"
+                ") strict"
+            )
+            connection.execute(
+                "insert or replace into project_rag_qualification values("
+                "?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    record.binding_digest,
+                    record.qualified_at_ns,
+                    record.expires_at_ns,
+                    record.ttl_seconds,
+                    record.profile_digest,
+                    record.probe_evidence_digest,
+                    record.semantic_margin,
+                    record.max_repeat_delta,
+                    record.max_batch_delta,
+                    record.latency_ms,
+                    record.provider_call_count,
+                    record.model_revision_fingerprint,
+                    record.provider_identity_digest,
+                    record.exact_model_id,
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+    except Exception:
+        # Persistence is best-effort; an in-process record still holds for this run.
+        return
+
+
+def _inprocess_qualification(
+    binding_digest: str, *, now_ns: int
+) -> _QualificationRecord | _QualificationFailure | None:
+    with _qualification_lock:
+        entry = _qualification_inprocess.get(binding_digest)
+        if isinstance(entry, _QualificationRecord):
+            if entry.expires_at_ns > now_ns:
+                return entry
+            _qualification_inprocess.pop(binding_digest, None)
+        elif isinstance(entry, _QualificationFailure):
+            if now_ns - entry.recorded_at_ns < _QUALIFICATION_FAILURE_TTL_SECONDS * 1_000_000_000:
+                return entry
+            _qualification_inprocess.pop(binding_digest, None)
+        return None
+
+
+def _cache_inprocess_qualification(binding_digest: str, entry: object) -> None:
+    with _qualification_lock:
+        if len(_qualification_inprocess) >= _QUALIFICATION_INPROCESS_MAX:
+            _qualification_inprocess.pop(next(iter(_qualification_inprocess)), None)
+        _qualification_inprocess[binding_digest] = entry
+
+
+def _should_revalidate_from_failure(failure: _QualificationFailure, *, now_ns: int) -> bool:
+    return now_ns - failure.recorded_at_ns >= _QUALIFICATION_FAILURE_TTL_SECONDS * 1_000_000_000
+
+
 VECTOR_CACHE_SCHEMA = """
 pragma foreign_keys=on;
 create table if not exists vector_cache(
@@ -207,6 +471,242 @@ def _git_source_state(root: Path) -> tuple[str, str, str]:
         raise ValidationFailed("Project Git source HEAD kimligi gecersiz")
     status_digest = hashlib.sha256(status_result.stdout).hexdigest()
     return head, status_digest, f"{head}:status:{status_digest}"
+
+
+def _parse_git_modified_paths(status_output: bytes) -> tuple[tuple[str, str], ...]:
+    """Extract (path, change-kind) pairs from ``git status --porcelain=v1 -z`` bytes.
+
+    Git ``-z`` output uses NUL-delimited records ``XY <path>`` for rename/copy
+    records (``X<space>Y<space>old<space>new``) and ``XY path`` otherwise.  We only
+    care about *which* working-tree paths changed and whether the change is a
+    deletion, so a bounded, order-preserving parse suffices.  Malformed records are
+    ignored conservatively (an unparsed dirty path cannot make a false "current").
+    """
+    records: list[tuple[str, str]] = []
+    for raw in status_output.split(b"\x00"):
+        if not raw:
+            continue
+        try:
+            text = raw.decode("utf-8", errors="replace")
+        except Exception:
+            continue
+        x, y = text[:1], text[1:2]
+        rest = text[2:]
+        if rest.startswith(" "):
+            rest = rest[1:]
+        path = rest.strip()
+        if not path:
+            continue
+        if "\n" in path:
+            path = path.split("\n", 1)[0]
+        change = "deleted" if (x + y) in {"D ", " D", "DD", "AD"} else "changed"
+        records.append((path, change))
+    return tuple(records)
+
+
+def _git_source_freshness_signal(
+    root: Path,
+    *,
+    indexed_digests: dict[str, str],
+) -> dict[str, Any]:
+    """Bounded, content-aware source freshness for the query path (WP3-B).
+
+    This replaces the per-query ``discover().tree_digest`` full re-scan.  For a Git
+    root it reuses HEAD + ``git status --porcelain`` to learn *which* indexed paths
+    changed, then hashes the on-disk content of exactly those changed, still-present
+    files.  The returned dict carries ``head`` and, for every changed tracked/untracked
+    file that belongs to the indexed plan, the current content digest together with the
+    indexed content digest.  Callers compare them so two states sharing the same
+    ``git status`` text but different file content are NOT treated as identical.
+
+    Return value keys:
+    * ``head``                      current Git HEAD (when readable).
+    * ``changed_content_digests``   {relative_path: current_content_digest} for changed
+                                     indexed, present, non-symlink files.
+    * ``indexed_content_digests``   the same paths mapped to their indexed content digest.
+    * ``changed_paths``             the sub-list of changed indexed paths.
+    * ``clean``                     True when no indexed path changed (git status shows
+                                     none of the indexed paths dirty).
+    * ``unknown``                   True when we could NOT bound the signal and must NOT
+                                     claim "current" (watcher/journal gap, deleted /
+                                     permission-changed / symlink / junction source, or an
+                                     unbounded dirty set).
+    """
+    record_source_freshness_scan()
+    try:
+        head, _, _ = _git_source_state(root)
+    except (OSError, subprocess.SubprocessError, ZekamError):
+        return {"unknown": True}
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"unknown": True}
+    if status.returncode != 0:
+        return {"unknown": True}
+    changed = _parse_git_modified_paths(status.stdout)
+    if len(changed) > _MAX_DIRTY_FRESHNESS_PATHS:
+        return {"head": head, "unknown": True}
+    rooted = root.resolve(strict=True)
+    current_digests: dict[str, str] = {}
+    changed_paths: list[str] = []
+    for relative, _kind in sorted(changed):
+        if relative not in indexed_digests:
+            continue
+        changed_paths.append(relative)
+        candidate = rooted.joinpath(*relative.split("/")) if relative else rooted
+        try:
+            resolved = candidate.resolve(strict=True)
+            if resolved != candidate or candidate.is_symlink():
+                return {"head": head, "unknown": True}
+            candidate.relative_to(rooted)
+        except (OSError, ValueError):
+            return {"head": head, "unknown": True}
+        try:
+            payload = candidate.read_bytes()
+        except OSError:
+            return {"head": head, "unknown": True}
+        current_digests[relative] = digest_of_bytes(payload)
+    clean = not changed_paths
+    return {
+        "head": head,
+        "clean": clean,
+        "changed_paths": tuple(changed_paths),
+        "changed_content_digests": current_digests,
+    }
+
+
+def _indexed_source_paths(state: dict[str, Any]) -> frozenset[str]:
+    """Return the set of indexed source relative paths recorded at index time."""
+    paths = frozenset(_indexed_source_digests(state))
+    return paths
+
+
+def _indexed_source_digests(state: dict[str, Any]) -> dict[str, str]:
+    """Return {relative_path: content_digest} captured for the indexed plan."""
+    manifest = state.get("source_files")
+    if isinstance(manifest, list):
+        digests: dict[str, str] = {}
+        for item in manifest:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            content = item.get("content_digest")
+            if isinstance(path, str) and isinstance(content, str) and path:
+                digests[path] = content
+        if digests:
+            return digests
+    # No per-file record: freshness can only use a cheap HEAD+status comparison and
+    # can never claim per-file content equality.
+    return {}
+
+
+def _source_freshness_for_query(
+    state: dict[str, Any],
+    source_root: Path | None,
+) -> tuple[list[str], dict[str, Any]]:
+    """Evaluate query-path source freshness with explicit states (WP3-B).
+
+    Returns ``(stale_reasons, observations)``.  Content/unknown findings add stale
+    reasons so ``index_freshness`` is not declared current.  No TTL or size/mtime
+    equality is ever presented as cryptographic content equality.
+
+    For atomic Git roots the per-query full ``discover().tree_digest`` re-scan is
+    replaced by a bounded HEAD + ``git status`` content-aware check (see
+    ``_git_source_freshness_signal``).  For ordinary directory roots there is no
+    journal, so the recorded content-based ``directory:`` revision is compared to
+    the current one; a mismatch is a content change and never a silent "current".
+    """
+    if source_root is None:
+        return ["project-source-binding-unavailable"], {"source_freshness": "unavailable"}
+    try:
+        kind = classify_project_source(source_root)
+    except ZekamError:
+        return ["project-source-freshness-unknown"], {"source_freshness": "unknown"}
+    if kind == "git":
+        indexed_digests = _indexed_source_digests(state)
+        try:
+            observations = _git_source_freshness_signal(
+                source_root, indexed_digests=indexed_digests
+            )
+        except (OSError, subprocess.SubprocessError, ZekamError):
+            observations = {"unknown": True}
+        reasons: list[str] = []
+        if observations.get("unknown"):
+            reasons.append("project-source-freshness-unknown")
+        else:
+            declared_revision = state.get("repository_source_revision")
+            current_head = observations.get("head")
+            if current_head and declared_revision:
+                declared_head = str(declared_revision).split(":")[0]
+                if current_head != declared_head:
+                    reasons.append("project-source-revision-stale")
+            # Content-aware: a changed indexed file whose current digest differs
+            # from what was indexed is a content change even if the git status
+            # text is the same (the project-source-content-stale reason).
+            for path, current_digest in observations.get(
+                "changed_content_digests", {}
+            ).items():
+                indexed_digest = indexed_digests.get(path)
+                if indexed_digest is not None and current_digest != indexed_digest:
+                    reasons.append("project-source-content-stale")
+                    break
+        return reasons, observations
+    return _directory_freshness_for_query(state, source_root)
+
+
+def _directory_freshness_for_query(
+    state: dict[str, Any],
+    source_root: Path,
+) -> tuple[list[str], dict[str, Any]]:
+    """Freshness for ordinary (non-Git) directory roots.
+
+    A directory source has no commit/status journal, so the only content-correct
+    signal is the recorded ``directory:<tree_digest>`` revision vs the current
+    one.  ``_git_source_state`` on a non-git root returns this digests directly
+    (based on a full tree digest), which is content-based -- never TTL/size/mtime.
+    A mismatch is reported as stale.
+    """
+    record_source_freshness_scan()
+    try:
+        _, status_digest, current_revision = _git_source_state(source_root)
+    except (OSError, subprocess.SubprocessError, ZekamError):
+        return ["project-source-freshness-unknown"], {"source_freshness": "unknown"}
+    declared_revision = state.get("repository_source_revision")
+    declared_tree = state.get("repository_tree_digest")
+    reasons: list[str] = []
+    if declared_revision != current_revision:
+        reasons.append("project-source-revision-stale")
+    # For a directory root ``head`` is empty and the status digest carries the
+    # content-based tree digest; compare it against the recorded tree so a tree
+    # change is reported even when head is an empty string.
+    if status_digest:
+        current_tree = (
+            f"sha256:{status_digest}"
+            if not status_digest.startswith("sha256:")
+            else status_digest
+        )
+        if declared_tree and declared_tree != current_tree:
+            reasons.append("project-source-tree-stale")
+    return reasons, {"directory_revision": current_revision}
+
+
+_MAX_DIRTY_FRESHNESS_PATHS = 512
+
+
+_LOCAL_QUALIFICATION_FIXTURE = EmbeddingProbeFixture(
+    query="Which component validates a project source revision?",
+    positive_passage="The project index validates the source revision and tree digest.",
+    negative_passage="A recipe explains how to bake a chocolate cake.",
+    source_refs=("synthetic:project-index", "synthetic:recipe"),
+    source_digests=(digest("project-index"), digest("recipe")),
+    classification=DataClassification.PUBLIC,
+)
 
 
 def _registered_project(home: Path, project_slug: str) -> UUID:
@@ -311,7 +811,8 @@ def _runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
     manifest_root = root / "knowledge-index" / "manifests" / project_slug
     for directory in (project_root, index_root, manifest_root):
         directory.mkdir(parents=True, exist_ok=True)
-        restrict_private_tree(directory)
+        if not private_directory(directory):
+            restrict_private_tree(directory)
         if not private_directory(directory):
             raise PolicyViolation("Project RAG runtime private ACL ister")
     return {
@@ -387,6 +888,15 @@ class _EmbeddingBinding:
     probe_call_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class _LocalQueryBinding:
+    """Typed local-route query binding (provider, profile, policy)."""
+
+    provider: EmbeddingProvider
+    profile: EmbeddingProfile
+    policy: EmbeddingPolicy
+
+
 class _DenseDisabledProvider:
     """Sentinel provider for exact/lexical-only reads; every call is a defect."""
 
@@ -421,6 +931,81 @@ def _lexical_only_binding(
         route=route,
         remote_provider_used=False,
         probe_call_count=0,
+    )
+
+
+def _local_query_binding(
+    home: Path,
+    ledger_path: Path,
+    project_id: UUID,
+    knowledge: KnowledgeSettings,
+) -> _EmbeddingBinding:
+    """Local-route query binding WITHOUT full corpus plan chunking (WP3-A).
+
+    Previously the query path called ``_project_plan`` to build the whole corpus
+    plan/chunks and fed them into ``build_verified_mac_embedding`` for
+    qualification.  WP3 removes that: the accepted, bounded synthetic fixture
+    identity (same contract used by the remote canonical probe) is reused, so a
+    normal answer query does no corpus chunking / document embedding / indexing.
+    The local provider is rebuilt per query (no remote/external call; the Mac BGE
+    model runs loopback), and its fingerprint must still match the canonical
+    dimension so qualification stays exact.
+    """
+    if knowledge.embedding_route is not EmbeddingRoute.LOCAL:
+        raise ConfigurationError("Local query binding route drift")
+    _assert_canonical_knowledge_profile(knowledge)
+    if _runtime_platform() != "darwin":
+        raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
+    record_qualification()
+    del home, ledger_path, project_id
+    local = _build_local_query_embedding()
+    accepted_model_refs = {
+        local.profile.exact_model_id,
+        f"openai/{local.profile.exact_model_id}",
+    }
+    if (
+        knowledge.embedding_model_ref not in accepted_model_refs
+        or local.profile.dimension != knowledge.embedding_dimension
+    ):
+        raise ConfigurationError("Local provider canonical embedding profile drift")
+    return _EmbeddingBinding(
+        provider=local.provider,
+        policy=local.policy,
+        ledger={
+            "schema": "zekam-local-provider-ledger-summary/v1",
+            "provider_calls": 0,
+            "durable_remote_effects": 0,
+        },
+        probe={
+            "profile_digest": local.profile.profile_digest,
+            "probe_evidence_digest": local.profile.probe_evidence_digest,
+            "semantic_margin": "verified",
+            "route": "local",
+            "query_path": "fixture",
+        },
+        route=knowledge.embedding_route,
+        remote_provider_used=False,
+        probe_call_count=2,
+    )
+
+
+def _build_local_query_embedding() -> _LocalQueryBinding:
+    """Build and verify the local BGE binding from the bounded synthetic fixture.
+
+    Uses :data:`_LOCAL_QUALIFICATION_FIXTURE` (a fixed, project-independent source
+    probe pair) so the query path never needs real project chunks.  Mirrors the
+    verified local binding shape (provider, profile, policy).
+    """
+    provider = build_local_bge_provider(default_mac_bge_configuration())
+    result = provider.probe(_LOCAL_QUALIFICATION_FIXTURE)
+    policy = EmbeddingPolicy(DataClassification.LOCAL_ONLY, result.profile.profile_digest)
+    if not provider.health().healthy:
+        raise ValidationFailed("Verified local embedding provider health gecemedi")
+
+    return _LocalQueryBinding(
+        provider=provider,
+        profile=result.profile,
+        policy=policy,
     )
 
 
@@ -480,6 +1065,7 @@ def _provider(
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
         if _runtime_platform() != "darwin":
             raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
+        record_qualification()
         local = build_verified_mac_embedding(chunks)
         accepted_model_refs = {
             local.profile.exact_model_id,
@@ -561,12 +1147,6 @@ def _provider(
             "project-rag-runtime",
         )
 
-    provider = OpenCodeRemoteEmbeddingProvider(
-        configuration,
-        RuntimeOpenCodeEmbeddingExecutor(invocation),
-        dimension=knowledge.embedding_dimension,
-        max_batch_size=MAX_BATCH_SIZE,
-    )
     fixture = EmbeddingProbeFixture(
         query="Which component validates a project source revision?",
         positive_passage="The project index validates the source revision and tree digest.",
@@ -575,29 +1155,144 @@ def _provider(
         source_digests=(digest("project-index"), digest("recipe")),
         classification=DataClassification.PUBLIC,
     )
-    probe = provider.probe(fixture)
-    policy = EmbeddingPolicy(
-        DataClassification.INTERNAL,
-        probe.profile.profile_digest,
-        remote_disclosure_authorized=True,
+
+    provider = OpenCodeRemoteEmbeddingProvider(
+        configuration,
+        RuntimeOpenCodeEmbeddingExecutor(invocation),
+        dimension=knowledge.embedding_dimension,
+        max_batch_size=MAX_BATCH_SIZE,
     )
-    return _EmbeddingBinding(
-        provider=provider,
-        policy=policy,
-        ledger=host.summary(),
-        probe={
-            "profile_digest": probe.profile.profile_digest,
-            "probe_evidence_digest": probe.evidence_digest,
-            "semantic_margin": probe.semantic_margin,
-            "max_repeat_delta": probe.max_repeat_delta,
-            "max_batch_delta": probe.max_batch_delta,
-            "latency_ms": probe.latency_ms,
-            "route": "remote",
-        },
-        route=knowledge.embedding_route,
-        remote_provider_used=True,
-        probe_call_count=probe.provider_call_count,
+    # ----- WP2 (B01): bounded qualification cache -------------------------
+    # A warm, already-accepted provider identity must not re-run the probe.  The
+    # binding digest covers provider/endpoint identity, model, dimension, dtype/
+    # normalization, preprocessing/prefix/tokenizer contract, fixture version and
+    # the config revision; a config/revision/policy change invalidates it
+    # independently of TTL.
+    binding_digest = _qualification_key(
+        configuration,
+        knowledge,
+        probe_revision=_probe_revision(knowledge),
     )
+    now_ns = _now_ns()
+    cached: _QualificationRecord | _QualificationFailure | None = _inprocess_qualification(
+        binding_digest, now_ns=now_ns
+    )
+    if cached is None:
+        # Cross-process reuse: fall back to the durable project ledger.  A still
+        # -fresh, binding-matching record lets a separate CLI process reuse an
+        # acceptance without a new probe.
+        cached = _read_durable_qualification(ledger_path, binding_digest, now_ns=now_ns)
+    if isinstance(cached, _QualificationRecord):
+        # Reconstruct the binding from the accepted, still-fresh evidence.  No new
+        # probe and no new authorization: the acceptance is already proven.
+        policy = EmbeddingPolicy(
+            DataClassification.INTERNAL,
+            cached.profile_digest,
+            remote_disclosure_authorized=True,
+        )
+        return _EmbeddingBinding(
+            provider=provider,
+            policy=policy,
+            ledger=host.summary(),
+            probe={
+                "profile_digest": cached.profile_digest,
+                "probe_evidence_digest": cached.probe_evidence_digest,
+                "semantic_margin": cached.semantic_margin,
+                "max_repeat_delta": cached.max_repeat_delta,
+                "max_batch_delta": cached.max_batch_delta,
+                "latency_ms": cached.latency_ms,
+                "route": "remote",
+                "qualified_from_cache": True,
+            },
+            route=knowledge.embedding_route,
+            remote_provider_used=True,
+            probe_call_count=0,
+        )
+    if isinstance(cached, _QualificationFailure) and not _should_revalidate_from_failure(
+        cached, now_ns=now_ns
+    ):
+        # A short, bounded failure window prevents probe storms while never
+        # hiding the underlying auth/authorization error, which the caller
+        # still surfaces when it actually reaches this point.
+        raise PolicyViolation("Remote embedding qualification unavailable (recent failure)")
+
+    # Single-flight: concurrent qualification for the same binding collapses into
+    # one probe; waiters are bounded by the accepted deadline below.
+    event = _qualification_singleflight.get(binding_digest)
+    if event is not None:
+        deadline = time.monotonic() + QUALIFICATION_TTL_SECONDS
+        while not event.wait(0.5):
+            if time.monotonic() >= deadline:
+                raise PolicyViolation("Remote embedding qualification single-flight deadline asti")
+        return _provider(
+            home,
+            ledger_path,
+            config_file,
+            project_id,
+            chunks,
+            knowledge,
+            remote_authorized=True,
+        )
+    event = threading.Event()
+    _qualification_singleflight[binding_digest] = event
+    try:
+        probe = provider.probe(fixture)
+        # WP1 (B01): this probe (two remote _vectors calls + the later dense
+        # embed_query) re-ran on every authorized query before WP2.  The counter
+        # is diagnostic only and never enters a semantic/authority digest.
+        record_qualification()
+        record_probe_latency(probe.latency_ms)
+        record = _QualificationRecord(
+            binding_digest=binding_digest,
+            qualified_at_ns=_now_ns(),
+            expires_at_ns=_now_ns() + QUALIFICATION_TTL_SECONDS * 1_000_000_000,
+            ttl_seconds=QUALIFICATION_TTL_SECONDS,
+            profile_digest=probe.profile.profile_digest,
+            probe_evidence_digest=probe.evidence_digest,
+            semantic_margin=probe.semantic_margin,
+            max_repeat_delta=probe.max_repeat_delta,
+            max_batch_delta=probe.max_batch_delta,
+            latency_ms=probe.latency_ms,
+            provider_call_count=probe.provider_call_count,
+            model_revision_fingerprint=probe.profile.model_revision_fingerprint,
+            provider_identity_digest=probe.profile.provider_identity_digest,
+            exact_model_id=probe.profile.exact_model_id,
+        )
+        _write_durable_qualification(ledger_path, record)
+        _cache_inprocess_qualification(binding_digest, record)
+        policy = EmbeddingPolicy(
+            DataClassification.INTERNAL,
+            probe.profile.profile_digest,
+            remote_disclosure_authorized=True,
+        )
+        return _EmbeddingBinding(
+            provider=provider,
+            policy=policy,
+            ledger=host.summary(),
+            probe={
+                "profile_digest": probe.profile.profile_digest,
+                "probe_evidence_digest": probe.evidence_digest,
+                "semantic_margin": probe.semantic_margin,
+                "max_repeat_delta": probe.max_repeat_delta,
+                "max_batch_delta": probe.max_batch_delta,
+                "latency_ms": probe.latency_ms,
+                "route": "remote",
+            },
+            route=knowledge.embedding_route,
+            remote_provider_used=True,
+            probe_call_count=probe.provider_call_count,
+        )
+    except Exception as exc:
+        if not isinstance(exc, (PolicyViolation, ConfigurationError, ValidationFailed)):
+            failure = _QualificationFailure(
+                binding_digest=binding_digest,
+                recorded_at_ns=_now_ns(),
+                error_type=type(exc).__name__,
+            )
+            _cache_inprocess_qualification(binding_digest, failure)
+        raise
+    finally:
+        _qualification_singleflight.pop(binding_digest, None)
 
 
 def _cache(path: Path) -> sqlite3.Connection:
@@ -725,6 +1420,116 @@ def _write_private(path: Path, payload: bytes) -> None:
         restrict_private_file(path)
     finally:
         stage.unlink(missing_ok=True)
+
+
+def _state_cas_identity(state: dict[str, Any]) -> tuple[object, object, object]:
+    """The fields that pin a resume/query state to one authoritative index generation.
+
+    ``_index`` advances ``generation_digest``/``source_revision``/``tree_digest`` when
+    it publishes a newer generation.  A concurrent stale query writer that re-reads
+    state before a newer index publication must not clobber it; comparing exactly
+    these generation-pinning fields detects the concurrent advance.
+    """
+    return (
+        state.get("generation_digest"),
+        state.get("source_revision"),
+        state.get("tree_digest"),
+    )
+
+
+@contextmanager
+def _rag_state_write_lock(path: Path) -> Iterator[None]:
+    """Serialize rag-state.json writers with a private, non-following lock.
+
+    Both ``_index`` and ``_query`` write the same ``rag-state.json``.  The lock keeps
+    their read-modify-write sequences from interleaving in one process while the
+    compare-and-set still protects against a cross-process advance.
+    """
+    import importlib
+
+    lock_path = Path(str(path) + ".writer.lock")
+    if lock_path.is_symlink():
+        raise ConfigurationError("RAG state writer lock symlink olamaz")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(
+        lock_path,
+        os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    acquired = False
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"0")
+            os.fsync(descriptor)
+        restrict_private_file(lock_path)
+        identity = lock_path.lstat()
+        opened = os.fstat(descriptor)
+        if not private_regular(lock_path) or (identity.st_dev, identity.st_ino) != (
+            opened.st_dev,
+            opened.st_ino,
+        ):
+            raise ConfigurationError("RAG state writer lock identity/ACL drift")
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                if os.name == "nt":
+                    msvcrt = importlib.import_module("msvcrt")
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl = importlib.import_module("fcntl")
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise PolicyViolation(
+                        "RAG state writer already active; concurrent reindex in progress"
+                    ) from exc
+                time.sleep(0.01)
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            if os.name == "nt":
+                msvcrt = importlib.import_module("msvcrt")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl = importlib.import_module("fcntl")
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _write_rag_state_cas(
+    path: Path,
+    *,
+    expected_identity: tuple[object, object, object],
+    payload: bytes,
+) -> bool:
+    """Compare-and-set write of ``rag-state.json`` under a writer lock.
+
+    Re-reads the current on-disk state inside the lock and only commits if its
+    generation-pinning identity still matches ``expected_identity``.  If a
+    concurrent reindex advanced the generation before this write, the stale write
+    is skipped (returns ``False``) so the newer authoritative state is preserved.
+    Returns ``True`` when the write committed, ``False`` when skipped.
+    """
+    with _rag_state_write_lock(path):
+        try:
+            current_text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise PolicyViolation("RAG state CAS okuma hatasi") from exc
+        try:
+            current = json.loads(current_text)
+        except json.JSONDecodeError as exc:
+            raise PolicyViolation("RAG state CAS exact JSON olmali") from exc
+        if not isinstance(current, dict):
+            raise PolicyViolation("RAG state CAS nesne olmali")
+        if _state_cas_identity(current) != expected_identity:
+            # Concurrent generation advance: never clobber the newer state.
+            return False
+        _write_private(path, payload)
+        return True
 
 
 def build_project_source_binding_plan(
@@ -1442,6 +2247,10 @@ def _index(
         "repository_tree_digest": bound_plan.tree_digest,
         "source_revision": combined_revision,
         "tree_digest": combined_tree_digest,
+        "source_files": [
+            {"path": item.relative_path, "content_digest": item.content_digest}
+            for item in bound_plan.discovery.files
+        ],
         "combined_manifest_digest": digest_of_bytes(combined_manifest),
         "generation_digest": generation.generation_digest,
         "provider_profile_digest": profile.profile_digest,
@@ -1472,7 +2281,11 @@ def _index(
             "oracle_snapshot": bound_oracle_plan.snapshot.sanitized(),
             "oracle_effect": oracle_receipt,
         }
-    _write_private(paths["state"], (canonical_json(result) + "\n").encode("utf-8"))
+    # Authoritative index publish is serialized under the same writer lock that the
+    # query path's compare-and-set uses, so a concurrent query CAS can never
+    # interleave with (or clobber) this newer generation's state write.
+    with _rag_state_write_lock(paths["state"]):
+        _write_private(paths["state"], (canonical_json(result) + "\n").encode("utf-8"))
     return result
 
 
@@ -1495,19 +2308,19 @@ def _query(
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
     stale_reasons: list[str] = []
+    # WP3-B: content-aware freshness without a per-query full ``discover`` tree
+    # re-scan.  Uses HEAD + git status to bound *which* indexed paths changed and
+    # compares changed-file on-disk content against the indexed content digest, so
+    # same-status-different-content is caught and deleted/inaccessible/ambiguous
+    # sources produce an explicit unknown/stale state rather than a silent "current".
     if source_root is None:
         stale_reasons.append("project-source-binding-unavailable")
     else:
         try:
-            current_revision = _git_source_state(source_root)[2]
-            current_tree = discover(source_root).tree_digest
-        except (OSError, subprocess.SubprocessError, ZekamError):
-            stale_reasons.append("project-source-freshness-unavailable")
-        else:
-            if state.get("repository_source_revision") != current_revision:
-                stale_reasons.append("project-source-revision-stale")
-            if state.get("repository_tree_digest") != current_tree:
-                stale_reasons.append("project-source-tree-stale")
+            stale_reasons_, _ = _source_freshness_for_query(state, source_root)
+        except ZekamError:
+            stale_reasons_ = ["project-source-freshness-unavailable"]
+        stale_reasons.extend(stale_reasons_)
     odi_binding = load_smart_binding(home, project_slug, verify_source=False)
     current_odi_digest = odi_binding.get("source_digest") if odi_binding else None
     if state.get("odi_source_digest") != current_odi_digest:
@@ -1554,24 +2367,28 @@ def _query(
             )
         else:
             try:
-                query_chunks: tuple[Chunk, ...] = ()
-                if knowledge.embedding_route is EmbeddingRoute.LOCAL and source_root is not None:
-                    _, query_plan = _project_plan(
-                        source_root,
-                        project_id=project_id,
-                        project_slug=project_slug,
-                        knowledge=knowledge,
+                # WP3-A: the query path must NOT run full corpus plan chunking /
+                # document embedding / Oracle metadata / reindex.  Local-route
+                # qualification uses the accepted, bounded synthetic fixture
+                # identity (same contract as remote) and never asks the local
+                # provider to build a fresh corpus plan from source.
+                if knowledge.embedding_route is EmbeddingRoute.LOCAL:
+                    binding = _local_query_binding(
+                        paths["home"],
+                        paths["ledger"],
+                        project_id,
+                        knowledge,
                     )
-                    query_chunks = query_plan.chunks
-                binding = _provider(
-                    paths["home"],
-                    paths["ledger"],
-                    config_file,
-                    project_id,
-                    query_chunks,
-                    knowledge,
-                    remote_authorized=authorize_remote_query,
-                )
+                else:
+                    binding = _provider(
+                        paths["home"],
+                        paths["ledger"],
+                        config_file,
+                        project_id,
+                        (),
+                        knowledge,
+                        remote_authorized=authorize_remote_query,
+                    )
             except (OSError, subprocess.SubprocessError, ZekamError) as exc:
                 dense_disabled_reason = f"embedding-provider-unavailable:{type(exc).__name__}"
                 binding = _lexical_only_binding(
@@ -1616,7 +2433,17 @@ def _query(
             "source_revision": state["source_revision"],
             "retrieval_digest": result.get("retrieval_digest"),
         }
-        _write_private(paths["state"], (canonical_json(state) + "\n").encode("utf-8"))
+        # Revision-bound compare-and-set: only advance the observational
+        # query_verification fields if the on-disk state still pins the SAME index
+        # generation the query verified against.  A concurrent reindex that
+        # published a newer generation must not be clobbered by this stale query
+        # write.  A skipped write only loses an observational timestamp; the
+        # authoritative generation state is preserved.
+        _write_rag_state_cas(
+            paths["state"],
+            expected_identity=_state_cas_identity(state),
+            payload=(canonical_json(state) + "\n").encode("utf-8"),
+        )
     return result | {
         "probe_evidence_digest": binding.probe["probe_evidence_digest"],
         "embedding_route": binding.route.value,

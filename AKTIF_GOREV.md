@@ -1,13 +1,13 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-COGNITIVE-ARCHITECTURE-001
+task_id: ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Context, Memory, Skills ve Agent Orkestrasyon Mimarisi Butunlestirmesi
-created_at: 2026-09-24T00:00:00+03:00
+title: Zekam RAG Gecikmesi, Kanit Kalitesi ve Uctan Uca Yanit Hattinin Duzeltilmesi
+created_at: 2026-09-25T00:00:00+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: 4629e9e58f8a74bbaad1e76e362893628837c823
-baseline_commit_subject: "bakim: paket dogrulama raporunu digest-bagli guncelle"
+baseline_head: c3ad4c6abf2596cf633f0e95d52c8cd96c18000b
+baseline_commit_subject: "bakim: paket dogrulama raporunu commit sonrasi yenile"
 baseline_is_fixed_revision: true
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
@@ -19,1737 +19,423 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 
 # AKTIF_GOREV.md
 
-## Yönetici özeti
+## 1. Görev: rapor yazmakla kalma, çalışan düzeltmeyi uygula
 
-Bu görev Zekam'a bağımsız bir "Second Brain", ikinci bir skill engine veya ikinci bir orchestration framework ekleme görevi değildir.
+Zekam repository'sinde kıdemli performans mühendisi, retrieval mühendisi ve güvenilirlik odaklı uygulama geliştiricisi olarak çalış.
 
-Amaç, repository'de var olan memory/knowledge, continuity/resume, Work Graph, personal skill lifecycle, evolution/learning, model routing, agent roles, policy, claim ve receipt mekanizmalarını tek bir uçtan uca bilişsel çalışma hattına bağlamaktır:
+Kullanıcının problemi şudur: Sistem genel olarak yavaş hissediliyor; RAG bazen doğru bilgiyi bulmuyor, bazen çok geç dönüyor, bazen de beklenen nitelikte bir cevap vermiyor. Amaç yalnız birkaç ayarı değiştirmek değil; bu üç şikâyeti ayrı ayrı ölçmek, gerçek nedenlerini düzeltmek ve tekrar oluşmalarını testlerle engellemektir.
 
-```text
-Context
-  -> Decomposition
-  -> Agent/Model Routing
-  -> Worker Execution
-  -> Fan-in
-  -> Independent Verification
-  -> Receipt/Result
-  -> Sanitized Feedback
-  -> Memory/Skill/System Improvement Candidate
-```
-
-Görev boyunca temel invariant şudur:
-
-```text
-memory != authority
-skill != authority
-context != authority
-feedback != authority
-model recommendation != authority
-```
-
-Uygulayıcı agent bu dosyayı gördüğünde ek görev istemeden çalışmaya başlamalıdır.
-
-Discovery tek başına teslim değildir.
-
-## Baseline ve revision politikası
-
-Bu görevin kanonik baseline revision'ı:
-
-```text
-repository = mehmet-karacan/zekam
-commit     = 4629e9e58f8a74bbaad1e76e362893628837c823
-```
-
-Araştırma sırasında `main` dalının bu committen daha ileri bir revision'a geçmiş olduğu gözlenmiştir.
-
-Bu nedenle:
-
-```text
-HEAD == baseline
-    -> doğrudan uygula
-
-HEAD != baseline ve baseline ancestor/current branch ilişkisi var
-    -> farkı ölç
-    -> bu görevin semantic hedeflerini koru
-    -> yeni code layout'a kontrollü port et
-    -> finalde baseline mismatch'i raporla
-
-HEAD ilgisiz/diverged
-    -> sessizce başka revision'a uygulama
-    -> exact baseline worktree/branch kullan
-```
-
-Baseline SHA hiçbir durumda sessizce değiştirilmez.
-
-Push yetkisi yoktur.
-
-## Başlangıç protokolü
-
-İlk işlem sırası:
-
-```bash
-git status --short
-git rev-parse HEAD
-git cat-file -e 4629e9e58f8a74bbaad1e76e362893628837c823^{commit}
-git show -s --format='%H%n%P%n%s%n%ci' \
-  4629e9e58f8a74bbaad1e76e362893628837c823
-```
-
-Sonra repository içindeki bootstrap authority dosyalarını mevcutsa oku:
-
-```text
-AGENTS.md
-00_BASLA.md
-DEVAM_PROTOKOLU.md
-GLOBAL_DEFINITION_OF_DONE.md
-PROJE_MANIFESTI.yaml
-AKTIF_GOREV.md
-```
-
-Repository'deki canonical kurallar bu görevle çelişmiyorsa korunur.
-
-Ardından:
-
-```bash
-python scripts/paket_dogrula.py
-```
-
-çalıştır.
-
-Başlangıç validator'ı başarısızsa:
-
-- hatayı kaydet;
-- failure'ın bu görevin değişikliğinden önce mevcut olduğunu işaretle;
-- güvenli olduğu ölçüde göreve devam et;
-- final raporunda before/after ayrımını açıkça göster.
-
-## Deterministic repository discovery
-
-Kod yazmadan önce tek seferlik bounded discovery yap.
-
-Exact baseline tree:
-
-```bash
-BASELINE=4629e9e58f8a74bbaad1e76e362893628837c823
-
-git ls-tree -r --name-only "$BASELINE" > /tmp/zekam-files.txt
-
-grep -E \
-'workspace_resume|memory|knowledge|continuity|skill|model_routing|evolution|learning|doctor|capability|work' \
-/tmp/zekam-files.txt
-```
-
-Exact sembol discovery:
-
-```bash
-git grep -nE \
-'SemanticMemory|MemoryCandidate|WorkspaceResume|Resume|SkillRuntime|PersonalSkill|SkillPackage|ModelRout|EvolutionCapture|Learning|WorkGraph|Doctor|CapabilityInventory' \
-"$BASELINE" -- 'src/**/*.py' 'tests/**/*.py' || true
-```
-
-Aşağıdaki baseline path'leri özellikle doğrula:
-
-```text
-src/zekam/application/workspace_resume.py
-src/zekam/application/evolution_capture.py
-src/zekam/application/learning_daily_compiler.py
-src/zekam/application/evolution_runtime.py
-src/zekam/application/skill_packages.py
-src/zekam/application/skill_runtime.py
-
-src/zekam/domain/personal_skill.py
-src/zekam/domain/skill_package.py
-src/zekam/domain/model_routing.py
-
-src/zekam/infrastructure/sqlite/local_learning.py
-src/zekam/infrastructure/sqlite/skill_lifecycle.py
-
-src/zekam/interfaces/cli/skill.py
-src/zekam/interfaces/cli/model.py
-
-src/zekam/application/capability_inventory.py
-
-.opencode/agents/
-src/zekam/skills/
-```
-
-Bir path yoksa:
-
-```text
-path missing
-    != "özellik yok"
-```
-
-Önce semantic equivalent ara.
-
-Equivalent varsa mevcut implementation'ı EXTEND/CONNECT et.
-
-Equivalent yoksa bu görevde belirtilen minimal yeni modülü oluştur.
-
-Aynı capability için paralel framework oluşturma.
-
-## Fit-gap sınıflandırması
-
-Discovery sonucu her alanı aşağıdakilerden biriyle sınıflandır:
-
-```text
-REUSE
-EXTEND
-CONNECT
-REPLACE
-REMOVE
-```
-
-Kurallar:
-
-```text
-REUSE
-mevcut davranış hedefi zaten karşılıyor
-
-EXTEND
-mevcut doğru bounded context içinde eksik davranış var
-
-CONNECT
-iki mevcut capability var fakat birbirine bağlı değil
-
-REPLACE
-mevcut implementation hedef invariant ile yapısal olarak çelişiyor
-
-REMOVE
-duplicate/dead/unsafe implementation mevcut
-```
-
-`REPLACE` ve `REMOVE` için code evidence zorunludur.
-
-"Yeni mimari daha temiz olur" gerekçesi yeterli değildir.
-
-## Mimari invariantlar
-
-### Memory authority değildir
-
-Memory, semantic memory, knowledge, Markdown note, RAG sonucu veya LLM context'i şunları oluşturamaz:
-
-```text
-Work truth
-authorization
-policy
-claim
-receipt
-approval
-execution success
-```
-
-Memory yalnız context/evidence candidate sağlar.
-
-### Skill authority değildir
-
-Skill seçilmesi veya modele yüklenmesi:
-
-```text
-filesystem mutation
-network
-provider
-tool
-push
-external write
-claim
-```
-
-yetkisi vermez.
-
-Skill yöntem tarif eder.
-
-Effect mevcut policy/claim/receipt zincirinden geçer.
-
-### Feedback authority değildir
-
-Feedback:
-
-```text
-candidate oluşturabilir
-```
-
-ama:
-
-```text
-permission
-approval
-active skill
-code mutation authority
-```
-
-oluşturamaz.
-
-### Open loop memory'den uydurulmaz
-
-"Nerede kaldık?" bilgisi öncelikle:
-
-```text
-Work Graph
-checkpoint
-continuity packet
-run/step state
-terminal receipt
-```
-
-üzerinden üretilir.
-
-Semantic memory yalnız ek context sağlar.
-
-### Raw transcript durable memory değildir
-
-Tüm sohbeti kalıcılaştırmak yasaktır.
-
-Kalıcılaştırılabilecek örnekler:
-
-```text
-explicit user preference
-verified decision
-verified reusable procedure
-verified success lesson
-verified failure lesson
-project knowledge
-explicit durable context
-```
-
-### Progressive disclosure zorunludur
-
-Context loading seviyeleri:
-
-```text
-L0 identity + metadata + indexes
-L1 candidate summaries
-L2 selected memory/note/SKILL.md
-L3 references/scripts/assets or full source only when required
-```
-
-Default başlangıç context'i tüm memory/knowledge/skills corpus'u değildir.
-
-## Hedef Context Plane
-
-Context Plane aşağıdaki kaynakları bir araya getirir:
-
-```text
-identity/project
-active Work
-open loops
-continuity/checkpoint
-knowledge
-semantic memory
-skills
-capability evidence
-recent verified decisions
-recent verified failures
-```
-
-Her selected item minimum şu metadata'yı taşır:
-
-```text
-source_kind
-source_ref
-scope
-digest_or_revision
-selection_reason
-freshness
-load_level
-bounded_size
-authority = false
-```
-
-### Önerilen domain contract
-
-Repository'de equivalent yoksa:
-
-```text
-src/zekam/domain/context_plane.py
-```
-
-oluştur.
-
-Minimum typed structures:
-
-```python
-ContextBudgetMode
-ContextSourceKind
-ContextLoadLevel
-ContextItem
-ContextSelectionTrace
-ContextAssemblyRequest
-ContextAssemblyResult
-```
-
-Equivalent mevcutsa yeni paralel DTO seti oluşturma; mevcut tipleri genişlet.
-
-### Context application service
-
-Equivalent yoksa:
-
-```text
-src/zekam/application/context_assembly.py
-```
-
-oluştur.
-
-Temel API semantiği:
-
-```python
-class ContextAssembler:
-    def assemble(self, request: ContextAssemblyRequest) -> ContextAssemblyResult:
-        ...
-```
-
-Implementation:
-
-```text
-collect metadata
-    -> rank/select
-    -> enforce scope
-    -> enforce budget
-    -> lazy-load selected sources
-    -> redact secrets
-    -> produce selection trace
-```
-
-LLM context selection tek başına authority olmamalıdır.
-
-Deterministic prefilter kullanılması mümkün olan yerlerde deterministic seçim tercih edilir.
-
-## Context budget
-
-En az:
-
-```text
-NORMAL
-ECONOMY
-```
-
-modları desteklenir.
-
-ECONOMY:
-
-```text
-daha az context
-daha az expensive expansion
-```
-
-demektir.
-
-Şunlar ekonomi modunda azalmaz:
-
-```text
-policy checks
-authority checks
-scope isolation
-secret redaction
-claim/receipt requirements
-verification requirements
-```
-
-Suggested deterministic priority:
-
-```text
-active Work/open loop
-safety/policy metadata
-project-specific verified context
-selected skill metadata
-relevant semantic memory
-historical context
-```
-
-## Continuity ve resume
-
-Mevcut:
-
-```text
-src/zekam/application/workspace_resume.py
-```
-
-veya semantic equivalent'i EXTEND et.
-
-Resume result minimum:
-
-```text
-current_objective
-completed
-pending
-blocked
-next_safe_action
-relevant_decisions
-relevant_skill_refs
-relevant_knowledge_refs
-source_evidence
-```
-
-Bu alanların Work/receipt/checkpoint source ref'leri bulunmalıdır.
-
-Transcript inference yalnız explicit `non_authoritative_hint` olabilir; Work truth olamaz.
-
-## Semantic memory surface
-
-Mevcut semantic-memory ve `local_learning` altyapısını kullan.
-
-Kullanıcıya headless olarak en az şu operation'ları sun:
-
-```text
-status
-inspect
-search
-candidates
-review
-promote
-hygiene
-```
-
-Repository CLI convention'ını koru.
-
-Existing memory CLI yoksa:
-
-```text
-src/zekam/interfaces/cli/memory.py
-```
-
-ekle ve canonical CLI root'a register et.
-
-Lifecycle:
-
-```text
-observation
-  -> candidate
-  -> evidence
-  -> review/verification
-  -> active memory
-```
-
-Tek LLM kararı doğrudan active durable memory yapmamalıdır.
-
-Hygiene:
-
-```text
-duplicate
-stale
-conflict
-supersession
-orphan candidate
-```
-
-tespit edebilmeli.
-
-Destructive automatic deletion yasaktır.
-
-## Cognitive Doctor
-
-Yeni bir UI veya bağımsız Brain Doctor ürünü yazma.
-
-Existing `zekam doctor` application/CLI implementation'ını bul ve EXTEND et.
-
-Kontroller:
-
-```text
-memory schema/store health
-orphan memory candidate
-duplicate memory
-conflicting active memory
-stale memory
-broken knowledge refs
-missing knowledge artifacts
-skill package integrity
-skill projection drift
-skill activation/evaluation consistency
-continuity/checkpoint freshness
-open-loop inconsistency
-context source digest drift
-learning/evolution backlog
-unverified feedback backlog
-```
-
-Default:
-
-```text
-read-only
-```
-
-Repair mevcut Zekam plan/digest/apply modeline uymalıdır.
-
-Doctor sessiz destructive cleanup yapamaz.
-
-## Skill progressive disclosure
-
-Mevcut:
-
-```text
-src/zekam/application/skill_packages.py
-src/zekam/application/skill_runtime.py
-src/zekam/domain/personal_skill.py
-src/zekam/domain/skill_package.py
-src/zekam/infrastructure/sqlite/skill_lifecycle.py
-```
-
-veya equivalent implementation'ları kullan.
-
-Canonical logical skill package:
-
-```text
-<skill>/
-    SKILL.md
-    references/
-    scripts/
-    assets/
-```
-
-Optional klasörler zorunlu değildir.
-
-Discovery sırasında yalnız:
-
-```text
-name
-description
-trigger
-scope
-version/revision
-evaluation state
-digest
-```
-
-yüklenmeli.
-
-Full `SKILL.md` yalnız selected skill için açılmalı.
-
-`references/`, `scripts/`, `assets/` yalnız explicit need olduğunda açılmalı.
-
-### Skill package API
-
-Mevcut runtime API'yi bozma.
-
-Equivalent yoksa şu semantic operations'ları ekle:
-
-```python
-load_metadata(...)
-load_instruction(...)
-load_reference(...)
-load_script_metadata(...)
-load_asset_metadata(...)
-```
-
-Path traversal, unmanaged absolute path ve package-root escape fail-closed olmalıdır.
-
-## Experience to skill
-
-Skill candidate kaynakları:
-
-```text
-verified success
-repeated verified success
-user correction
-verified failure lesson
-explicit user request
-```
-
-Flow:
-
-```text
-experience
-  -> evidence-backed candidate
-  -> skill package proposal
-  -> fresh/bounded-context evaluation
-  -> independent verification
-  -> approval/activation
-```
-
-Yasak:
-
-```text
-one event -> active skill
-LLM says useful -> active skill
-skill verifies itself -> active skill
-```
-
-`evolution_capture.py`, `learning_daily_compiler.py`, personal skill lifecycle ve existing outcome ledger birbirine CONNECT edilmelidir.
-
-## Fresh-context skill evaluation
-
-Evaluation mümkün olduğunca yeni ve bounded context ile yapılmalı.
-
-Aynı uzun konuşmadaki hidden context skill testinin başarı kanıtı sayılamaz.
-
-Minimum ölçümler:
-
-```text
-correct skill selected
-minimal prompt sufficient
-required sources loaded
-unnecessary sources not loaded
-workflow followed
-baseline improvement
-regression status
-authority boundary respected
-```
-
-Builder/evaluator/verifier kimlikleri evidence'a yazılmalıdır.
-
-Yüksek riskte evaluator ve verifier aynı actor olamaz.
-
-## Cross-client skill projection
-
-Kanonik revision tek olmalıdır:
-
-```text
-canonical skill
-   -> OpenCode projection
-   -> Codex projection
-   -> Claude projection
-```
-
-Mevcut projection policy korunmalı.
-
-Repository mevcut davranışını doğrula.
-
-Önceki baseline policy halen doğruysa:
-
-```text
-OpenCode = default managed projection
-Codex    = explicit opt-in
-Claude   = explicit opt-in
-```
-
-Bu davranış exact code/test evidence ile doğrulanmadan değiştirilmesin.
-
-Projection:
-
-```text
-permission değildir
-authority değildir
-```
-
-## Orchestration Plane
-
-Hedef flow:
-
-```mermaid
-flowchart TD
-    U[User Goal] --> C[Coordinator]
-    C --> CA[Context Assembler]
-
-    CA --> W[Work / Authority State]
-    CA --> M[Semantic Memory]
-    CA --> K[Knowledge / RAG]
-    CA --> S[Skills]
-
-    W --> D[Task Decomposition]
-    M --> D
-    K --> D
-    S --> D
-
-    D --> R[Evidence-based Model / Agent Router]
-
-    R --> WA[Worker A]
-    R --> WB[Worker B]
-    R --> WC[Worker C]
-
-    WA --> F[Fan-in]
-    WB --> F
-    WC --> F
-
-    F --> V[Independent Verifier]
-    V --> E[Claim / Receipt / Result]
-
-    E --> SF[Sanitized Feedback]
-    SF --> N[Normalize / Deduplicate / Cluster]
-
-    N --> MC[Memory Candidate]
-    N --> SC[Skill Candidate]
-    N --> IC[System Improvement Candidate]
-
-    MC --> RV[Review / Verification]
-    SC --> RV
-    IC --> RV
-```
-
-Coordinator her bounded işi kendisi yapmamalıdır.
-
-Independent work gerçek subagent/worker'a delegasyon için adaydır.
-
-## Agent rolleri
-
-Semantic roller:
-
-```text
-COORDINATOR
-goal + plan + integration
-
-PLANNER / REASONER
-high reasoning density
-
-WORKER
-bounded implementation/extraction/normalization
-
-RESEARCHER
-evidence collection
-
-VERIFIER
-independent validation
-```
-
-Existing `.opencode/agents/` definitions mümkün olduğunca REUSE edilir.
-
-Role semantics'i ikinci ayrı configuration tree'de duplicate etme.
-
-## Model routing
-
-Mevcut:
-
-```text
-src/zekam/domain/model_routing.py
-src/zekam/interfaces/cli/model.py
-src/zekam/application/capability_inventory.py
-```
-
-veya exact equivalents kullanılmalıdır.
-
-Route decision minimum şu evidence'ı değerlendirebilmelidir:
-
-```text
-required capability
-task complexity
-risk
-context requirement
-tool requirement
-structured-output requirement
-benchmark evidence
-health
-availability
-latency evidence
-cost evidence
-quota evidence
-independence requirement
-```
-
-Rules:
-
-```text
-caller-supplied arbitrary candidate list != authority
-model name != permanent role
-unknown quota != guessed quota
-unknown cost != guessed cost
-stale benchmark != current evidence
-```
-
-Model role hard-code etme:
-
-```text
-"model X manager'dır"
-"model Y worker'dır"
-```
-
-yerine capability/evidence kullan.
-
-Mevcut request/decision dataclass'ları varsa genişlet.
-
-Paralel ikinci routing DTO framework'ü ekleme.
-
-## Parallel worker fleet
-
-Task decomposition her subtask için en az şunu üretmeli:
-
-```text
-objective
-required capability
-read set
-write set
-risk
-dependencies
-expected artifact
-verification requirement
-```
-
-Parallelism:
-
-```text
-disjoint read/write resource
-    -> parallel allowed
-
-same writable logical resource
-    -> serialize or explicit ownership
-```
-
-Fan-in:
-
-```text
-duplicate
-contradiction
-worker failure
-partial result
-missing evidence
-```
-
-durumlarını explicit olarak işlemeli.
-
-Worker failure coordinator tarafından success olarak maskelenemez.
-
-## Feedback ve learning pipeline
-
-Mevcut:
-
-```text
-evolution_capture.py
-learning_daily_compiler.py
-evolution_runtime.py
-local_learning.py
-```
-
-ve equivalent stores CONNECT edilmeli.
-
-Pipeline:
-
-```text
-runtime evidence
-   -> sanitized capture
-   -> feedback candidate
-   -> deterministic normalization where possible
-   -> deduplicate
-   -> cluster
-   -> durable lesson
-   -> memory candidate
-      or skill candidate
-      or routing improvement candidate
-      or system improvement candidate
-```
-
-Capture örnekleri:
-
-```text
-repeated failure
-tool friction
-missing context
-bad routing
-user correction
-verification failure
-repeated manual workaround
-verified reusable procedure
-```
-
-Binlerce redundant feedback doğrudan expensive reasoner context'ine verilmez.
-
-Önce compact edilir.
-
-Raw prompt/response persistence default olmamalıdır.
-
-Secret hiçbir aşamada durable feedback'e sızmamalıdır.
-
-## Feedback mutation safety
-
-Şu zincir değişmez:
-
-```text
-feedback != authority
-candidate != approval
-plan != permission
-skill != permission
-memory != Work truth
-```
-
-Code/system mutation existing evolution/mutation admission chain'den geçmeli.
-
-Autonomous evolution safety gevşetilmez.
-
-## Memory / Skill / Work / Authority sınırı
-
-Typed tests ile şu ayrımı koru:
-
-```text
-MEMORY
-"Mehmet X formatını tercih ediyor."
-
-SKILL
-"X işi yapılırken A -> B -> C adımları uygulanır."
-
-WORK
-"Ticket Y için X işi yapılacak."
-
-AUTHORITY
-"External system üzerinde mutation yetkili/yetkisiz."
-```
-
-Bir katmanın verisini diğerinin authority'sine otomatik dönüştürme.
-
-## Context explainability
-
-Her önemli selected context item machine-readable trace üretir:
-
-```json
-{
-  "source_kind": "...",
-  "source_ref": "...",
-  "scope": "...",
-  "digest": "...",
-  "selection_reason": "...",
-  "freshness": "...",
-  "load_level": "L1|L2|L3",
-  "bounded_size": 0,
-  "authority": false
-}
-```
-
-Diagnostic output:
+Bu dosya uygulanacak görev promptudur. Yalnız inceleme, öneri, mimari şema veya dokümantasyon üretmek tamamlanmış teslim değildir. Aşağıdaki kapsam içinde gerçek kod değişikliklerini, regresyon testlerini ve önce/sonra ölçümünü gerçekleştir. Mevcut çalışan özellikleri koru; ilgisiz bir yeniden yazım veya yeni platform kurma projesine dönüşme.
 
-```text
-secret içermez
-raw credential içermez
-gereksiz full memory body içermez
-```
-
-CLI/JSON artifact yeterlidir.
-
-UI yapılmaz.
-
-## SQLite migration
-
-Önce existing schema'yı incele.
-
-Equivalent table/column varsa onu kullan.
-
-Sadece eksik persistence semantics için migration ekle.
-
-Olası missing concepts:
-
-```text
-memory candidate review evidence
-skill fresh-evaluation evidence
-feedback cluster/dedup identity
-source revision/digest
-selection provenance when durable audit is actually required
-```
-
-Yeni table oluşturmadan önce mevcut:
-
-```text
-local_learning
-skill_lifecycle
-evolution
-continuity
-```
-
-schema'larını reuse etmeyi dene.
-
-Migration requirements:
-
-```text
-schema version bump
-idempotent migration
-backup before mutation
-upgrade readback
-existing-data preservation
-rollback/recovery path
-fresh-db test
-upgrade-from-previous-schema test
-```
-
-Forbidden:
-
-```text
-PostgreSQL runtime dependency
-legacy PostgreSQL import
-new mandatory vector database
-Docker dependency for Zekam core
-```
-
-## Test dosyaları
-
-Repository test convention'ı farklıysa aynı convention'a yerleştir; fakat aşağıdaki semantic test coverage mutlaka bulunmalı.
-
-Tercih edilen exact test paths:
-
-```text
-tests/unit/application/test_context_assembly.py
-tests/unit/application/test_context_budget.py
-tests/integration/test_open_loop_continuity.py
-
-tests/integration/test_memory_cli.py
-tests/integration/test_doctor_cognitive_health.py
-
-tests/unit/application/test_skill_progressive_disclosure.py
-tests/integration/test_experience_to_skill_candidate.py
-tests/integration/test_skill_fresh_context_evaluation.py
-tests/integration/test_skill_projection_cross_client.py
-
-tests/integration/test_model_routing_evidence.py
-tests/integration/test_orchestration_worker_fleet.py
-tests/integration/test_independent_verifier.py
-
-tests/integration/test_feedback_compaction.py
-tests/security/test_cognitive_authority_isolation.py
-tests/architecture/test_no_ui_surface.py
-```
+“Kusursuz” hedefini ölçülebilir olarak ele al: doğru proje ve revision'dan doğrulanabilir kanıt; kontrollü gecikme; açık hata/degraded durumu; veri ve yetki izolasyonu; kaynak tüketimi sınırları; testle korunan davranış. Ölçülmemiş bir sisteme “kusursuz”, “üretime hazır” veya “X kat hızlandı” deme.
 
-Mevcut equivalent test varsa duplicate test file yaratma; onu genişlet ve final artifact'te eşleşmeyi raporla.
+### İncelemenin sınırı
 
-## Acceptance criteria
+Bu görev 25 Eylül 2026 tarihinde GitHub üzerinden sabit revision'ın kaynak kodu incelenerek hazırlanmıştır. Kullanıcının çalışan kurulumunda profil, benchmark, gerçek provider çağrısı veya repository testleri bu hazırlık sırasında çalıştırılmamıştır. Aşağıdaki gecikme mekanizmaları kaynakta görülmüştür; kullanıcının toplam beklemesindeki payları henüz ölçülmemiştir.
 
-### AC-01 Progressive context
+Buna tek istisna, B06'daki yuvarlama davranışına ait küçük ve bağımsız sentetik aritmetik karşı örnektir. Bu örnek Zekam entegrasyon testi veya gerçek provider ölçümü değildir.
 
-Assertion:
+Son HEAD `c3ad4c6` yalnız `VALIDATION_RESULT.json` güncellemesidir. Hemen önceki `1dfd760` context/memory/skills/orchestration değişiklikleri içerir. Dolayısıyla bütün sorunları “son commit bozdu” diye etiketleme. Yeni değişikliklerin startup/context etkisini ve daha önceden var olan RAG sorgu hattını ayrı değerlendir. [K01, K02]
 
-```text
-new session does not eagerly load all memory/knowledge/skill bodies
-metadata/index first
-selected resources lazy-loaded
-```
-
-Proof command:
-
-```bash
-python -m pytest -q \
-  tests/unit/application/test_context_assembly.py \
-  -k progressive
-```
-
-Expected:
-
-```text
-exit 0
-```
-
-### AC-02 Economy mode
+## 2. Başlangıç ve yetki sınırları
 
-Assertion:
+Önce tek seferlik, bounded başlangıç kontrolü yap:
 
 ```text
-ECONOMY has lower/bounded context budget
-authority/policy/redaction checks are identical to NORMAL
-```
-
-Proof:
-
-```bash
-python -m pytest -q \
-  tests/unit/application/test_context_budget.py
+1. git status --short
+2. git rev-parse HEAD
+3. git show -s --format='%H%n%P%n%s%n%ci' HEAD
+4. git cat-file -e c3ad4c6abf2596cf633f0e95d52c8cd96c18000b^{commit}
+5. Mevcutsa AGENTS.md, ardından 00_BASLA.md, DEVAM_PROTOKOLU.md,
+   GLOBAL_DEFINITION_OF_DONE.md, PROJE_MANIFESTI.yaml ve bu AKTIF_GOREV.md.
+6. Mevcut görev/projection üretme ve doğrulama komutlarını repository'den doğrula.
+7. python scripts/paket_dogrula.py
 ```
-
-Expected exit `0`.
-
-### AC-03 Open-loop correctness
-
-Assertion:
 
-```text
-objective/pending/blocked/next action comes from Work/checkpoint/continuity evidence
-memory cannot invent Work state
-```
+Başlangıç doğrulamasının sonucunu ve önceden var olan hataları kaydet. Validator'ın ürettiği dosya değişikliklerini kullanıcı değişikliklerinden ayır. Eksik bağımlılık veya platform desteğini test başarısı gibi gösterme.
 
-Proof:
+HEAD baseline'ın ilerisine geçmişse ilgili farkları incele, bu görevi yeni yerleşime kontrollü taşı ve gerçek uygulama SHA'sını raporla. Baseline'ı sessizce değiştirme; kullanıcının branch'ini geri alma. İlgisiz/diverged geçmişte güvenli ilişki kurulamazsa mutasyon yapma, erişilebilen analiz ve uygulanabilir patch planını teslim et. Otomatik reset, checkout, stash, worktree veya proje kopyası üretme.
 
-```bash
-python -m pytest -q \
-  tests/integration/test_open_loop_continuity.py
-```
+`AKTIF_GOREV.md` tek aktif görev kaynağıdır. Önceki görevin tamamlanmış işlerini bozma veya yeniden başlatma. Eski görev metninin tarihçesini koru. `AKTIF_GOREV.yaml` türetilmiş projection'dır; elle sahte digest yazma, repository'nin mevcut üreticisini kullan. Bu dosyanın front matter alanları mevcut `ActiveTaskContract` şemasına göre seçilmiştir. [K18]
 
-Expected exit `0`.
+Değiştirilemez sınırlar:
 
-### AC-04 Semantic memory surface
+- Kullanıcının projeleri, kaynak dosyaları, belgeleri, görev kayıtları, yerel veritabanları ve kişisel içerikleri korunacak. “Performans temizliği” adıyla silme, truncate, eski veri importu veya tüm sistemi yeniden kurma yapılmayacak.
+- Memory, RAG, context, cache, skill, model önerisi ve telemetry yetki kaynağı değildir. Mevcut plan/authorization/claim/receipt, project/realm scope, source digest, SecretRef ve single-writer kontrolleri korunacak.
+- Bu görev kod geliştirme ve güvenli yerel test kapsamıdır. Uzak query embedding yetkisi, kaynakların indekslenmek üzere dışarı gönderilmesi veya model sentezi yetkisi yerine geçmez. Her işlem kendi mevcut açık yetkilendirmesini gerektirir.
+- Cache hit, geçmiş authorization'ı yeniden kullanma veya yeni uzak effect yetkisi verme gerekçesi olmayacak. Gerçek provider çağrısı hâlâ mevcut effect ve receipt sınırından geçecek.
+- SQLite + FTS5 + sqlite-vec ve mevcut Python/CLI mimarisi esas alınacak. Yeni PostgreSQL/Redis/Docker zorunluluğu, ikinci RAG framework'ü, kontrolsüz GraphRAG veya UI/dashboard/TUI eklenmeyecek.
+- Her sorguyu daha pahalı modele yönlendirme, token bütçesini sınırsız artırma, tüm aramaları aynı anda başlatma veya güvenlik eşiklerini topluca düşürme çözüm değildir.
+- Commit/push ve agent çalıştırmaları mevcut protokole tabidir. Push yetkisi yoktur. Bağımsız verifier kullanılacaksa mevcut yetkili agent/worker hattı ve tek-yazar ilkesi korunur; uzak agent yetkisi yoksa bağımsız yerel test/inceleme kanıtı kullanılır ve bu sınır raporlanır.
 
-Assertion:
+## 3. Kaynakta doğrulanmış bulgular
 
-```text
-status
-inspect
-search
-candidates
-review
-promote
-hygiene
-```
+Aşağıdaki bulguları mevcut HEAD'de yeniden doğrula. Bir davranış daha yeni revision'da düzelmişse tekrar uygulama; hangi testle doğrulandığını kaydet. Kanıt numaraları son bölümde sabit commitli kaynaklara bağlıdır.
 
-are reachable headlessly and tested.
+### B01 — Soru başına provider qualification tekrar ediliyor
 
-Proof:
+`project_rag_runtime._query()` provider bağını yeniden kuruyor. `_provider()` uzak yolda yeni `OpenCodeRemoteEmbeddingProvider` oluşturup koşulsuz `provider.probe(fixture)` çalıştırıyor. `probe()` iki ayrı `_vectors()` çağrısı yapıyor. Ardından asıl `embed_query()` bir çağrı daha yapıyor. Başarılı ve dense etkin uzak sorguda bu yol iki ön test + bir gerçek query embedding çağrısı demektir. [K03, K04, K05]
 
-```bash
-python -m pytest -q \
-  tests/integration/test_memory_cli.py
-```
+Her effect ayrıca mevcut ledger/claim/receipt ve process transport maliyetlerinden geçiyor. Sağlık kontrolünün kendisini yanlış teşhis etme: bu uzak adapter'ın `health()` metodu profile bakıyor; ek HTTP yapan asıl davranış burada `probe()`dur. [K05, K14]
 
-Expected exit `0`.
+### B02 — Sorgu yolunda proje taraması ve yerel yolda indeks planlama var
 
-### AC-05 Cognitive Doctor
+`_query()` canlı source revision ve `discover(source_root).tree_digest` hesaplıyor. Yerel embedding yolunda ayrıca `_project_plan()` çağırıp chunk planını oluşturuyor; o da Git/source discovery adımlarına giriyor. `_provider()` yerelde `build_verified_mac_embedding(chunks)` ile kaynak parçalarından yeniden qualification fixture hazırlıyor. [K03, K04, K06]
 
-Assertion:
+Bu, soruya cevap vermek için gerekli retrieval işinden ayrı bir maliyettir. Ancak freshness kontrolünü kaldırıp eski veriye “current” demek kabul edilmez.
 
-```text
-doctor detects cognitive drift/hygiene issues
-default path is read-only
-no destructive implicit repair
-```
+### B03 — Her indeks açılışında veri büyüklüğüne bağlı kontrol var
 
-Proof:
+Her `_query()` yeni `SQLiteKnowledgeIndex(..., read_only=True)` açıyor. Constructor `_validate_schema()` çağırıyor; burada `PRAGMA quick_check` ve `PRAGMA foreign_key_check` çalışıyor. İsimde “quick” geçmesi sabit maliyet anlamına gelmez: SQLite dokümantasyonu `quick_check` için O(N) davranışını belirtir. [K03, K07, E01]
 
-```bash
-python -m pytest -q \
-  tests/integration/test_doctor_cognitive_health.py
-```
+Bu kontrolleri basitçe silme. Güvenilir generation admission/bakım sınırına ve aynı doğrulanmış dosya kimliğinin yeniden kullanımına ayır.
 
-Expected exit `0`.
+### B04 — Exact aramada pahalı metin taraması; citation hydration'da tekrar var
 
-### AC-06 Skill progressive disclosure
+`SQLiteKnowledgeIndex.exact()` her identifier için `json_extract`, `lower`, `instr(lower(body), ...)` gibi ifadeler kullanıyor. Mevcut scope indeksi aday kapsamını sınırlar; identifier'ın kendisi için eşitlik/posting indeksi yerine generation içindeki metni değerlendirmek zorunda kalan bir yol var. İlk identifier `limit` kadar sonuç doldurursa daha sonraki identifier'lara geçmeden dönülebiliyor. Etkiyi gerçek sorgu planı ve SQL sayaçlarıyla ölç. [K08]
 
-Assertion:
+`EmbeddedProjectRAG.query()` önce `views()` alıyor, sonra her citation için ayrı `source_identity()` çağırıyor. Bu yol ek SQL, digest ve read-boundary kontrolleri üretiyor. Mevcut doğrulamayı koruyarak toplu hydrate etmek mümkündür. [K08, K09]
 
-```text
-metadata discovery != full SKILL.md load
-SKILL.md lazy
-references/scripts/assets lazy and bounded
-```
+Önemli karşı bulgu: dense arama zaten `vec0`, `embedding MATCH`, `k` ve project/generation partition filtreleri kullanıyor. “Vektör indeksi yok, önce vektör DB ekleyelim” teşhisi doğru değildir. [K07, K08, E02, E03]
 
-Proof:
+### B05 — Kanallar sırayla ve dense ihtiyaç değerlendirilmeden çalıştırılıyor
 
-```bash
-python -m pytest -q \
-  tests/unit/application/test_skill_progressive_disclosure.py
-```
+`RetrievalService.search()` sırasıyla exact, lexical ve dense çağırıyor. Kesin, yeterli kanıtın bulunduğu basit bir soruda dahi dense açık ise query embedding bekleniyor. Trace sayılar içeriyor ama bu sınıfta aşama süreleri ve ortak query deadline'ı yok. Alt process katmanında timeout/cancellation bulunması, uçtan uca bütçenin zaten yönetildiği anlamına gelmez. [K10, K14]
 
-Expected exit `0`.
+### B06 — Tolerans içinde kabul edilen vektör farkı profil kimliğini değiştirebilir
 
-### AC-07 Experience to skill
+Uzak `probe()` normalize vektörleri `round(value * 1000)` ile yuvarlayıp digest'e katıyor. Bu fingerprint, `model_revision_fingerprint` ve `profile_id` üzerinden kalıcı profile identity'ye giriyor. Mevcut profile identity zaten `verified_at` ve probe freshness metadata'sını dışarıda tutuyor; sorun timestamp değil, bu sayısal fingerprint'in süreksizliği. [K05, K11]
 
-Assertion:
+Sentetik karşı örnek:
 
 ```text
-verified success/correction/failure may create candidate
-candidate is not automatically active
+u = (0.00049, sqrt(1 - 0.00049²), 0, ..., 0)  # 1024 boyut, norm 1
+v = (0.00051, sqrt(1 - 0.00051²), 0, ..., 0)  # 1024 boyut, norm 1
+max_delta ≈ 0.00002 < 0.0005
+cosine ≈ 0.9999999998 > 0.99999
+round(u[0] * 1000) = 0
+round(v[0] * 1000) = 1
 ```
 
-Proof:
+Dolayısıyla sayısal toleransların içinde kalmak fingerprint eşitliğini garanti etmez. İki probe çalışması kendi içinde başarılı olsa bile birbirinden farklı profile identity üretebilir; generation ile profile karşılaştırması dense kanalını stale/degraded yoluna götürebilir. Bunun kullanıcının gerçek provider'ında gerçekleştiği henüz ölçülmedi. [K05, K09, K11]
 
-```bash
-python -m pytest -q \
-  tests/integration/test_experience_to_skill_candidate.py
-```
-
-Expected exit `0`.
+### B07 — Bütün teknik adların tek chunk'ta bulunması zorunlu
 
-### AC-08 Fresh-context evaluation
+`_supports_all_identifiers()` ve sonraki hit filtresi bütün technical identifier'ları aynı parçada arıyor. A nesnesini bir dosya, B nesnesini başka dosya açıklıyorsa; karşılaştırma, çağrı zinciri veya birden fazla kaynağa yayılan ilişki sorusu bu filtre yüzünden elenebilir. [K09]
 
-Assertion:
-
-```text
-activation requires bounded/fresh evaluation evidence
-critical verification is independent
-failed evaluation cannot activate skill
-```
+Çözüm global olarak identifier kontrolünü kaldırmak değildir. Tek nesne sorusu ile çoklu nesne/ilişki sorusunun kanıt sözleşmesi ayrılmalıdır.
 
-Proof:
+### B08 — Retrieval başarısı ile üretilmiş cevap birbirine karışıyor
 
-```bash
-python -m pytest -q \
-  tests/integration/test_skill_fresh_context_evaluation.py
-```
+İncelenen `ask` hattı `query_registered_project()` sonucunu döndürüyor. Normal CLI çıktısında `answer_excerpt` yazdırılıyor; bu alan ilk kullanılan chunk'ın ilk 500 karakteri. Bu akışta kaynakları sentezleyen bir LLM çağrısı yok. `answered` burada retrieval/evidence başarısını ifade ediyor; kullanıcıya tam bir üretilmiş cevap verildiğini kanıtlamıyor. Başka client/agent tüketicileri ayrıca sentez yapıyorsa onları ayrı izle. [K03, K09, K12]
 
-Expected exit `0`.
+Varsayılan 1200 token bütçesinde parçalar bütün hâlinde sığmıyorsa atılıyor. Uygun kanıtı taşımayan 500 karakterlik ilk kesit, diğer citation'ların içerikleri elde edilmiş olsa bile kullanıcıya yetersiz sonuç gösterebilir. [K09, K10]
 
-### AC-09 Cross-client portability
+### B09 — Genel yavaşlık için ayrıca doğrulanacak noktalar
 
-Assertion:
+`workspace_resume.build_resume_packet()` içinde `list_projects`, `list_work`, proje bazında alias okumaları ve sonradan uygulanan liste sınırları var. Yeni navigation alanları skill/knowledge erişimi ekliyor; `_active_skill_refs()` record listesini aldıktan sonra sınırlandırıyor. Alt repository metotlarının gerçek limitlerini, bağlantı yaşam döngüsünü ve bu çağrıların hook sıklığını ölçmeden bunları kesin darboğaz ilan etme. Memory ID'lerinin skill ref olarak kullanılmasının doğruluğunu da kontrol et. [K13]
 
-```text
-one canonical revision projects without semantic fork
-managed/opt-in policy is preserved according to repository evidence
-projection does not grant authority
-```
+CLI giriş modülü birçok alt komutu import ediyor. Import maliyeti, context'in tekrarlı enjekte edilmesi, ledger/ACL/disk maliyeti, provider cleanup beklemesi ve `rag-state.json` üzerindeki eşzamanlı yazımlar ayrı inceleme adaylarıdır; henüz kullanıcı ortamında kanıtlanmış nedenler değildir. [K03, K12, K13, K14]
 
-Proof:
+### B10 — Var olan sağlam parçaları yeniden icat etme
 
-```bash
-python -m pytest -q \
-  tests/integration/test_skill_projection_cross_client.py
-```
+Canonical indeksleme yolunda eksik chunk'ları işleyen durable vector cache, batch işleme, generation bağlama ve atomik aktivasyon zaten var. Bunları yok sayıp sıfırdan cache/index altyapısı yazma. Capability envanteri büyük ölçek performans doğrulamasını ayrıca açık bırakıyor; işlev testleri başarıyla geçse de hız/kalite kabulü ayrıca ölçülmeli. [K15, K16]
 
-Expected exit `0`.
+## 4. Uygulama iş paketleri
 
-### AC-10 Evidence-based routing
+### WP1 / P0 — Ölçüm ve yeniden üretim
 
-Assertion:
+Önce mevcut davranışa test ekle, sonra düzelt. Erişilebilen gerçek kurulum ve temiz geçici test HOME'u için şu yolları ayrı izle:
 
 ```text
-route uses canonical capability/benchmark/health/policy evidence
-caller-supplied arbitrary candidates are not trusted authority
-unknown cost/quota is not fabricated
-```
-
-Proof:
-
-```bash
-python -m pytest -q \
-  tests/integration/test_model_routing_evidence.py
+CLI process başlangıcı/import
+  -> project/realm/authorization çözümleme
+  -> source freshness
+  -> config ve provider binding / qualification
+  -> index open / validation
+  -> exact / lexical / query embedding / dense
+  -> fusion / evidence selection / hydration
+  -> context packing
+  -> client'e sonuç iletimi
+  -> varsa yetkili model sentezi / ilk token / son token
 ```
-
-Expected exit `0`.
-
-### AC-11 Worker orchestration
-
-Assertion:
 
-```text
-independent subtasks may run in parallel
-conflicting writable resources serialize
-fan-in represents partial/failure/contradiction states
-```
+Mevcut diagnostic trace altyapısını genişlet; ikinci bir observability framework'ü kurma. Monotonic clock ile en az şu alanları kaydet:
 
-Proof:
+- `request_id`, gerçek route, selected project, generation/profile kimlikleri ve her aşamanın süresi.
+- Qualification çağrıları, query embedding çağrıları ve synthesis çağrıları ayrı sayaçlar; cache hit/miss, single-flight beklemesi, provider queue/transport/process süreleri erişilebildiği ölçüde ayrı.
+- SQL sayısı, file traversal sayısı, indeks açılışı ve deep-validation sayısı, candidate/final citation sayısı, bütçe nedeniyle atılan kanıt sayısı, bytes/tokens ve peak memory.
+- Kanal başına `attempted/completed/skipped/failed/timeout`, fallback nedeni, freshness durumu ve cancellation sonucu. “Dense açık” ile “dense gerçekten başarıyla çalıştı” ayrılacak.
 
-```bash
-python -m pytest -q \
-  tests/integration/test_orchestration_worker_fleet.py
-```
+Ham query/source text, credentials, token'lar, bağlantı adreslerindeki secrets ve ham provider yanıtlarını loglama. Trace için güvenli kimlik/digest kullan. Süre/sayaç gibi değişken alanları semantic identity veya authority digest'e kazara katma; mevcut sözleşmeyi sürümlü ve uyumlu genişlet.
 
-Expected exit `0`.
+Provider'sız mock ölçümleriyle gerçek provider ölçümlerini aynı performans sayısı altında toplama. Model token süresini RAG retrieval süresi diye raporlama. Core hattında generation yoksa TTFT `not_applicable` olacak, sıfır milisaniye gibi gösterilmeyecek.
 
-### AC-12 Independent verification
+### WP2 / P0 — Qualification, profil kararlılığı ve query embedding cache
 
-Assertion:
+`_provider()` içindeki oluşturma/qualification ile sorgu kullanımını ayır. Aynı doğrulanmış provider kimliği için her soruda iki probe tekrarlanmasın.
 
-```text
-risk policy can require verifier != builder/worker
-verification evidence binds to exact artifact/result
-```
+Mevcut yerel storage/adapter yapısına uygun, bounded bir qualification kaydı tasarla. Kaydı en az provider/endpoint identity, exact model ID, gerçek bilinen model revision, boyut, dtype/normalization, preprocessing/prefix/tokenizer sözleşmesi, fixture/version, ilgili policy/config revision ve uygun scope'a bağla. Secret değeri saklama. Credential/izin değişimini secret'ın kendisini kaydetmeden mevcut version/identity mekanizmasıyla ele al.
 
-Proof:
+Qualification kanıtını yeni çağrının yetkisiyle karıştırma. Kabul edilmiş, süresi dolmamış kanıt ile provider nesnesini yeniden kurmak mümkün olmalı. CLI her çağrıda yeni process açtığından yalnız Python global dict/LRU ile çözüm tamamlanmış sayılmaz: ayrı CLI process'leri arasındaki sıcak davranışı da doğrula. Mevcut güvenli local state yeterliyse yeni daemon ekleme.
 
-```bash
-python -m pytest -q \
-  tests/integration/test_independent_verifier.py
-```
+Qualification TTL'si yapılandırılabilir olsun; başlangıç denemesi olarak 5 dakika değerlendirilebilir. Bu bir ölçülmüş doğru değer veya süresiz güven garantisi değildir. Config/revision/policy değişimi TTL'den bağımsız invalidation yapmalı. Süresi dolmuş kayıt, bozuk cache veya uyumsuz binding durumunda yeniden doğrulama bütçeye tabi olacak; süresiz bekleme veya otomatik authorization olmayacak. Qualification süresinin dolması ile indeksin semantik olarak uyumsuz olması ayrı durumlar olacak.
 
-Expected exit `0`.
+Aynı scope/provider için eşzamanlı qualification ihtiyacını tek uçuşta birleştir. Bekleyen çağrılar kendi deadline'ına tabi olsun. Başarısızlık cache'i kısa ve bounded olsun; auth hatası gizlenmesin, sürekli probe fırtınası oluşmasın.
 
-### AC-13 Feedback compression
+B06'yı kalıcı düzelt:
 
-Assertion:
+1. Yuvarlanmış vektör hash eşitliğini “toleranslı uyumluluk” yerine kullanma.
+2. Onaylı/indexte kullanılan profile'a bağlı sabit referans probe vektörleri ve sürümlü compatibility değerlendirmesi kullan; gerçek model revision bilgisi varsa onu esas al.
+3. Yeni probe'u yalnız kendi tekrarıyla değil kabul edilmiş referansla da karşılaştır. Referansı her kabulde kaydırarak kümülatif drift'i normalleştirme.
+4. Sayısal jitter ile gerçek model/embedding uzayı değişimini ayır. Uyumluluk kanıtlanmadan eski profile digest'ini yeni vektöre yapıştırma.
+5. Model, endpoint, boyut, prefix/tokenizer veya gerçek semantik uzay değişiminde güvenli reddet/reindex gereksinimini koru. Eski ve yeni uzayları aynı generation'da karıştırma.
+6. Mevcut indekslere geçişi açık migration/qualification planıyla yap; toplu kör reindex'i ön koşul hâline getirme.
 
-```text
-repeated feedback is normalized/deduplicated/clustered
-raw redundant events are not passed wholesale to expensive reasoning
-```
+Ayrı bir query embedding cache ekle/uyarla. Anahtarı query'nin güvenli fingerprint'i, embedding amacı (`query`), profile/space kimliği, preprocessing ve authorization/data scope'u kapsasın. Query embedding ile doküman embedding cache'ini amacı yok sayarak birleştirme. Sonuç cache'i kullanılacaksa ayrıca project, generation, freshness/evidence policy ve context bütçesi bağlanmalı; ilk aşamada sonuç cache'i zorunlu değildir.
 
-Proof:
+Hedef sayaç sözleşmesi: aynı kabul edilmiş sıcak binding'de qualification için 0 çağrı; benzersiz semantic query için en fazla 1 query embedding; geçerli query cache hit'inde 0 query embedding. Exact fast path güvenle yeterli ise uzak provider'a hiç gitmemeli. İlk cold qualification ayrı raporlanmalı.
 
-```bash
-python -m pytest -q \
-  tests/integration/test_feedback_compaction.py
-```
+### WP3 / P0 — Query yolundan indeksleme işini çıkar; freshness'ı doğru tut
 
-Expected exit `0`.
+Normal soru cevaplama `_project_plan`, bütün corpus'u chunk'lama, doküman embedding'i, Oracle metadata toplama, ODI parsing veya reindex çalıştırmayacak. Yerel query provider'ının qualification için bütün proje planını istemesini kaldır; kabul edilmiş bounded qualification fixture/kimliğini kullan.
 
-### AC-14 Authority isolation
+Freshness için kayıtlı source manifest, Git revision, mevcut change detection ve generation metadata'sını kullan. Git HEAD tek başına yeterli değildir: dirty/untracked dosyalar ve commit olmadan içerik değişiklikleri hesaba katılacak. Özellikle aynı `git status` metniyle dosya içeriğinin değişebileceğini test et.
 
-Assertion:
+Güvenilir incremental invalidation varsa yalnız değişen dosyaların digest'lerini yenile. Watcher/change journal yoksa ya da taşma/kesinti olduysa sessizce “current” üretme. Metadata-only karşılaştırmasının kanıtlayamadığı durumda `last-indexed-snapshot`, `freshness-unknown` veya mevcut eşdeğer açık durumu kullan; strict canlı doğrulama ihtiyacını ayrı ve bounded yola taşı.
 
-```text
-memory
-skill
-context
-feedback
-RAG
-model recommendation
-```
+Güncel kaynak hakkında iddia üretmeden önce kullanılan citation'ların gerekli source/content doğrulamasını gerçekleştir. TTL, sadece dosya boyutu veya mtime eşitliğini kriptografik içerik eşitliği gibi sunma. Silinmiş/izinleri değişmiş/symlink veya junction olmuş kaynağı eski cache üzerinden yetkisizce döndürme.
 
-cannot create authorization, claim, receipt or Work truth.
+Yeni generation yayınlanmasıyla cache invalidation tek bir tutarlı kimliğe bağlansın. Sorgu başında generation pinle; kanal aramaları ve hydration boyunca farklı generation'ları karıştırma. Sorgu, indeks güncelleme işi bitene kadar gereksiz kuyruğa girmesin; ama mevcut immutable/offline checkpoint ve single-writer sözleşmesi ihlal edilmesin.
 
-Proof:
+### WP4 / P0 — SQLite okuma yolu ve exact lookup
 
-```bash
-python -m pytest -q \
-  tests/security/test_cognitive_authority_isolation.py
-```
+Şema sürümü/scope kontrolü, güvenilir snapshot admission, deep integrity ve seçilen citation doğrulamasını farklı sorumluluklara ayır.
 
-Expected exit `0`.
+Aynı güvenilir dosya/generation kimliği için her sorguda `quick_check`/`foreign_key_check` tekrarı olmasın. Bunu yaparken mevcut file identity, ACL, sidecar ve read-boundary korumalarını koru. Deep check'i yeni generation yayınlama, ilk güvenilir kabul, dosya kimliği değişimi, recovery ve açık audit sınırlarında sürdür. Değişmiş/bozuk/kanıtsız dosyaya cache nedeniyle geçerli muamelesi yapma.
 
-### AC-15 No UI
+Sadece bir boolean `validated=True` veya dosya yolu anahtarlı süresiz cache yeterli değildir. Güvenilir generation/file identity, schema/engine version, verification evidence ve invalidation birbirine bağlı olacak. Böyle bir güvenli kabul kanıtı yoksa strict doğrulama yolu kalacak; güvenlik atlanarak hedef tutulmuş sayılmayacak.
 
-Assertion:
+`immutable=1` salt-okunur açılışını canlı mutasyon yapılan dosyaya körlemesine yayma. WAL/journal'ı okuyucu adına silme/checkpoint etme. Mevcut SQLite sürümü/journal safety politikasını koru; tüm veritabanlarına topluca WAL veya `synchronous=off` uygulama. [E01, E04]
 
-```text
-no new browser dashboard
-no TUI dashboard
-no product HTML/CSS/JS surface
-no UI-only API/projection
-```
+Exact arama için proje/generation scope'lu normalize identifier/object/path lookup veya posting indeksi kullan. Normal form şemasını indekslemede üret; her candidate body üzerinde tekrar `lower/json_extract/instr` çalıştırmayı ana yol olmaktan çıkar. Tam nesne eşleşmesi, path eşleşmesi ve metin içi mention farklı kanıt türleri olsun. Kısmi substring'i gerçek exact eşleşme diye puanlama.
 
-Proof:
+Birden fazla identifier varsa ilk adın limit'i tüketip diğerlerini aç bırakmasını engelle: bounded per-identifier aday bütçesi ve birleştirme uygula. Son sıralamada deterministik davranış ve toplam aday üst sınırı korunacak.
 
-```bash
-python -m pytest -q \
-  tests/architecture/test_no_ui_surface.py
+FTS expression ve tokenization sözleşmesini gözden geçir. Python `\w+`/casefold ile `unicode61` aynı davranışı garanti etmez. Türkçe İ/ı/ş/ğ, snake_case, CamelCase, qualified package/procedure adları, slash/dot içeren path'ler ve hata kodları için ortak ve test edilmiş normalizasyon uygula. Orijinal identifier'ı ve citation metnini değiştirme. Bütün kelimeleri OR'lamak yerine query intent/önemli terim ayrımını bounded biçimde iyileştir; gerçek recall ölçmeden bütün kelimeleri AND'e çevirme. [E05]
 
-git diff \
-  4629e9e58f8a74bbaad1e76e362893628837c823...HEAD \
-  --name-only |
-  grep -Ei \
-  '(^|/)(ui|dashboard|frontend|webapp)(/|$)|\.(html|css|tsx|jsx)$'
-```
+Dense tarafta var olan `vec0 MATCH + k + project/generation partition` yolunu koru. Scalar distance ile bütün vektörleri Python'a taşıyan bir yola gerileme. Vektör motoru veya quantization değişimini ancak bu katmanın gerçekten baskın olduğu ölçülür ve kalite korunursa ayrı sınırlı deney olarak değerlendir.
 
-The pytest command must exit `0`.
+Citation views + source identity + locator + content doğrulamasını toplu okuma içinde birleştir. Aynı metni aynı pinned request içinde gereksiz tekrar hash'leme; güvenli doğrulama sonucunu request-local kullan. Tüm corpus'u hydrate etme. SQLite connection'ını thread'ler arasında kontrolsüz paylaşma; snapshot ve connection yaşam döngüsü açık olsun.
 
-The grep command must produce no prohibited newly-added product surface.
-A grep exit `1` caused by no matches is expected and must not be reported as test failure.
+### WP5 / P0 — Sorgu bütçesi, kontrollü kanal seçimi ve hata davranışı
 
-### AC-16 Package integrity
+İlk sürümde pahalı bir LLM planner zorunlu kılmadan basit query intent ayrımı kur: tek nesne/exact lookup; semantic açıklama; çoklu nesne/karşılaştırma; ilişki/çağrı zinciri; belirsiz soru.
 
-Proof:
+Exact/lexical sonuç, o intent'in bütün kanıt ihtiyacını karşılıyorsa evidence gate'den sonra erken dön. Bir isim bulunmasını sorunun bütünü cevaplandı sanma. Açıklama/ilişki sorusunu yalnız exact hit var diye kısa kesme.
 
-```bash
-python scripts/paket_dogrula.py
-python -m pytest -q
-python -m ruff check .
-python -m mypy src/zekam
-```
+Semantic soru dense gerektiriyorsa query embedding ile bağımsız yerel lexical işi, güvenli connection/worker sınırlarında ve sınırlı concurrency ile örtüştürülebilir. Her şeyi sınırsız parallel yapma. Mevcut framework'e uygun minimum değişikliği tercih et.
 
-All commands expected exit `0`.
+Tek monotonic uçtan uca retrieval deadline'ı oluştur; discovery/binding, qualification, transport, SQL, reranker, fallback ve cancellation kalan bütçeyi paylaşsın. Her alt katmanın kendi süresini baştan başlatmasıyla toplam bekleme büyümesin. Alt worker'daki mevcut hard timeout, process-tree cleanup ve late-result suppression korunacak. 10 saniyelik cancellation grace'in retrieval tail latency'ye etkisini ayrıca ölç; kısaltma ancak cleanup güvenliği test edilerek yapılabilir. [K14]
 
-Run repository-native:
+Retry yalnız mevcut sınıflandırmanın izin verdiği geçici hatalarda, kalan deadline ve effect/receipt sözleşmesiyle bounded olsun. Auth/policy/dimension hatasını retry etme. Timeout sonrasında gelen sonucu yayınlama. İptal edilmiş görev process/connection/lock sızdırmasın.
 
-```text
-secret scan
-dead-code/reachability validation
-security test suite
-package/release validation
-```
+Degraded dönüş mevcut kanıt kalitesini düşürmeden yapılacak: provider yoksa güçlü exact/lexical kanıt dönebilir; kanıt yetersizse açık abstain. Boş cevap, “None”, sessiz genel model cevabı veya sahte başarı dönme. No-hit, low-evidence, unavailable, timeout, stale snapshot ve authorization denied anlamlarını karıştırma.
 
-as discovered from repository config/scripts.
+### WP6 / P0 — Çoklu kaynak kanıtı ve context kalitesi
 
-Do not invent PASS for a command not executed.
+Tek nesne sorularında mevcut sıkı identifier/source doğrulamasını koru. Çoklu nesne veya karşılaştırmada doğrulanmış kanıt kümesi, gerekli nesneleri birlikte kapsayabilsin; hepsinin tek chunk'ta bulunması şartı kalksın.
 
-## Additional regression gates
+İlişki iddiası için yalnız A ve B'nin ayrı ayrı bulunması yeterli değildir. Çağrı, veri akışı veya bağımlılık söyleniyorsa bunu destekleyen source/call-site/metadata edge kanıtı da bulunmalı. Sadece isim varlığından edge uydurma. Graph kullanılacaksa mevcut graph/source revision bağını kontrol et, yalnız ilgili intent'te bounded expansion uygula; varsayılan graph-off politikasını bütün sorular için açma.
 
-Existing capabilities must not regress:
+Dense top-2 margin'i yorumlamadan önce aynı içerik/near-duplicate adayların etkisini ölç. Sabit 0.49/0.04/0.50 eşiklerini keyfî değiştirme; ayrılmış değerlendirme kümesinde intent bazında kalibre et. Kaliteyi metrik uğruna no-answer davranışını gevşeterek artırma.
 
-```text
-RAG
-knowledge
-research
-Jira/external integrations where present
-continuity
-backup/recovery
-evolution
-scheduler
-Work Graph
-client integrations
-claim/receipt semantics
-```
+Context packing'de:
 
-Discover current tests:
+- En ilgili ve zorunlu kanıta bütçe ayır; iki nesneli soruda yalnız ilk nesne bütün bütçeyi tüketmesin.
+- Büyük chunk'ı bütçeye sığmıyor diye tamamen kaybetmek yerine yapı/satır/symbol sınırıyla ilgili pencere seç; gerektiğinde komşu parça/parent bilgisini bounded biçimde ekle.
+- Gösterilen excerpt'in locator ve digest ilişkisini doğru belirt. Tam kaynak digest'i ile türetilmiş excerpt digest'ini karıştırma; keyfî kesilmiş metne yanlış satır aralığı ekleme.
+- Model context kapasitesi, output rezervi ve güvenlik/authority bağlamı dikkate alınsın. 1200 token'ı körlemesine büyük sayıya yükseltmek yerine kullanılan/atılan kanıtı açık ölç.
+- Kaynak içerikleri untrusted data olarak paketlensin; dosya içindeki “önceki talimatları yok say” gibi metinlerin tool veya authorization üretmesine izin verme.
 
-```bash
-find tests -type f -name 'test_*.py' | sort
+### WP7 / P1 — Retrieval çıktısı ile model cevabını ayır
 
-grep -RniE \
-'RAG|knowledge|research|jira|continuity|backup|evolution|scheduler|WorkGraph|receipt|claim' \
-tests || true
-```
+Önce bütün gerçek tüketicileri takip et: CLI `ask`, project query komutu, ilgili client hook/MCP/agent context kullanımı. Var olmayan bir HTTP/UI katmanı uydurma. Retrieval çağrısından sonra client zaten bir model çalıştırıyorsa ikinci bir gizli model sentezi ekleme.
 
-Run all relevant existing tests plus full suite.
+İki açık çalışma biçimi sağla:
 
-## Security invariants
+**Retrieval-only / agent context:** Doğrulanmış, bounded evidence packet döndür. Seçilmiş parçaların kullanılabilir metinleri, citation kimlikleri, provenance, score/selection trace ve freshness bilgileri mevcut consumer'a ulaşsın. Yalnız ilk 500 karakteri “cevap” olarak sunma. Bu yol generation model çağrısı yapmaz ve bunu açık belirtir.
 
-Preserve:
+**Açıkça yetkilendirilmiş cevap üretimi:** CLI'da gerçekten sentez isteniyorsa mevcut model gateway/routing/authorization/claim/receipt hattıyla tek bounded synthesis çağrısı yap. Yeni doğrudan HTTP istemcisi ve ikinci credentials yönetimi ekleme. Bu yeni çalışma biçiminin option/şema adlarını mevcut CLI sözleşmesiyle uyumlu tasarla; bu dosyada önerilen adları zaten mevcut komutlar gibi kullanma. Sentez izni query embedding izninden ayrı ele alınacak.
 
-```text
-secret -> never prompt/log/memory/vector/artifact in raw form
-network -> existing authorization
-mutation -> claim-before-effect where required
-success -> terminal receipt
-project mutation -> exact bounded source root
-same writable resource -> no uncontrolled parallel builders
-push -> forbidden without explicit new authority
-```
+Üretilmiş cevap yalnız sağlanan kanıtlara dayanmalı; kullanılan kaynakları göstermeli, karşılaştırmada iki tarafın kanıtını taşımalı, kaynakta olmayan bilgiyi tamamlıyormuş gibi yazmamalı. Çelişkili/yetersiz kanıtta belirsizliği belirtmeli. Citation ID/locator doğruluğunu deterministik kontrol et; cümlelerin gerçekten desteklenmesini ayrı groundedness değerlendirmesiyle ölç. Sadece geçerli citation ID olması doğruluk kanıtı değildir.
 
-This task does not authorize push.
+`retrieval_state`, `generation_state`, `answer_kind`, `evidence_found` ve mevcut `answered` anlamı ayrılacak. V1 tüketicileri sessizce kırma; gerekli yeni contract için sürümlü/uyumlu geçiş ve test sağla. Provider'sız/izinsiz durumda üretilmiş cevap varmış gibi davranma.
 
-## No-UI invariant
+Normal `--json` çıktısı tek geçerli JSON document olarak kalacak. Streaming desteklenecekse yalnız açık opt-in, sürümlü JSONL/event sözleşmesiyle; stdout'a progress/log karıştırma. İlk evidence hazır olma, ilk token ve tamamlanma sürelerini ayrı ölç. Hız için yalnız cevabın ekrana parça parça yazılmasını iyileştirmek, yavaş retrieval'ı çözmüş sayılmaz.
 
-Forbidden additions:
+### WP8 / P1 — Genel uygulama gecikmesi, resume ve indeks bakım yolu
 
-```text
-zekam ui
-dashboard
-browser control panel
-TUI dashboard
-HTML/CSS/JS product surface
-visual graph product UI
-UI-only API
-UI-only projection
-```
+B09'daki noktaları profile et. `resume` ve yaygın hook'lar için SQL sınırlarının gerçekten repository katmanında uygulandığını doğrula; Python'da sonuçları sonradan kesmek tüm veri okunmasını engellemiyorsa bounded sorgu ekle. Alias/note/skill erişiminde N+1 ve gereksiz schema/DB açılışlarını azalt. Memory kayıtlarını skill kimliği diye sunan yanlış eşlemeyi varsa düzelt. Hataları sessizce yutup boş context verme yerine sanitised diagnostics üret.
 
-Graph/context information may be exposed as:
+CLI `--help`/`--version` ve basit sorgu komutlarının cold import maliyetini ölç. Ağır ve ilgisiz alt modülleri ancak ölçüm haklı çıkarıyorsa lazy composition ile ayır; help/command registration/authorization registry/Windows davranışını bozma. Örneğin mevcut interpreter ile `python -X importtime -c "import zekam.interfaces.cli.main"` kullanılabilir; tam uygulama import sonucunu provider latency ile karıştırma.
 
-```text
-CLI
-JSON
-machine-readable artifact
-test artifact
-```
+Session/context injection sayacını ekle. Aynı session'da aynı resume/context paketini her tool/hook turunda yeniden ekleme; değişen revision/checkpoint ve mevcut context bütçesiyle bağlı kullan. Doctor/full audit'in yanlışlıkla sık çağrılan yola girdiğini trace doğrularsa onu ayır; sadece dosya adı veya import gördüğün için çalıştığını varsayma.
 
-## No-Postgres invariant
+Canonical `_index` yolundaki durable vector cache'i koru. Cache anahtarındaki chunk identity'nin alakasız commit veya aynı içeriğin yeniden planlanması nedeniyle gereksiz misses üretip üretmediğini test et. Uyumlu embedding uzayında değişmemiş içerik gereksiz re-embed edilmesin; locator/generation kimlikleri ayrı ve doğru güncellensin. Batch limitleri ve provider kapasitesine bağlı bounded concurrency kullan; aynı SQLite yazıcısını paralel worker'lara kontrolsüz açma.
 
-Do not add:
+İndeks yayınlanırken mevcut generation çalışır kalmalı veya mevcut read contract güvenli ve açık unavailable davranışı vermeli; hiçbir sorgu kısmi build görmemeli. Rag state/generation/manifest güncellemelerinin crash ve race davranışını test et. `_query()` başarılı verification sonrası tüm `rag-state.json` belgesini yeniden yazıyorsa eşzamanlı reindex'in yeni state'ini ezmesini engelle: revision-bound compare-and-set veya ayrı observational kayıt kullan. Telemetry/counter yazımını authoritative generation güncellemesiyle karıştırma.
 
-```text
-psycopg runtime dependency
-PostgreSQL service requirement
-PostgreSQL migration requirement
-legacy PostgreSQL data import
-Docker-only database dependency
-```
+Disk büyümesini generation/cache retention ölçümüyle raporla. Bu görev, kullanıcı verisini veya eski generation'ları otomatik silme izni değildir; gerekiyorsa ayrı dry-run cleanup planı üret, varsayılan olarak çalıştırma.
 
-SQLite/local existing Zekam persistence remains canonical unless current repository contract explicitly provides another local bounded backend.
+## 5. Test ve ölçüm sözleşmesi
 
-## Capability inventory
+### Test verisi ve gerçekçilik
 
-Update:
+Mevcut testleri genişlet. Gerekirse en az 80 açık etiketli örnekten oluşan bir başlangıç corpus'u kur: tek nesne/exact, Türkçe/İngilizce semantic, çoklu kaynak/ilişki ve no-answer/çelişkili kanıt kategorilerinde en az 20'şer örnek. Tune ve holdout kümelerini ayır. Örnekler sentetikse bunu belirt; gerçek proje cevap anahtarını kaynak ve revision ile doğrula.
 
-```text
-src/zekam/application/capability_inventory.py
-docs/ZEKAM_YETKINLIK_ENVANTERI.md
-README.md
-```
+Mevcut `GoldenCase` boş relevant set kabul etmiyor. Negative/no-answer vakaları desteklemek için mevcut evaluator'a uyumlu ek tür veya ayrı evaluator ekle; olmayan nesne sorularını test dışına itme. [K10]
 
-or exact current equivalents only after implementation/testing.
+Performansı 1.000, 10.000, yaklaşık 20.000 ve 50.000 chunk ile veya mevcut ortamın belgelenmiş sınırlarına göre ölç. 50.000 mevcut generation üst sınırıdır; bu görev kapsamında 250.000 destekleniyor iddiası üretme. Kod yorumundaki yaklaşık 20,5 bin örneğini kullanıcının güncel ölçülmüş corpus büyüklüğü gibi sunma. [K07]
 
-Readiness rules:
+Cold CLI process, aynı process warm ve farklı CLI process'lerinde warm qualification/cache ayrı senaryolar olacak. Tekrarlanan ve benzersiz sorular; 1/4/8 eşzamanlı istek; query sırasında indeks yayını; provider slow/down; stale source ve büyük yerel work/memory geçmişi kapsanacak.
 
-```text
-code exists != ready
-unit tests only != necessarily ready
-documented != ready
-```
+Provider'sız performans testinde gerçek SQLite/FTS/vec0 yolunu kullan; embedding'i deterministik fixture ile değiştirmen semantik kalite kanıtı oluşturmaz. Gerçek semantic kalite için onaylı/cached gerçek embedding corpus'u veya izinli gerçek provider koşusu ayrı gerekir. Uzak çağrı bütçesi/izni yoksa bu koşuyu `NOT_EXECUTED` işaretle; mock sonucuyla yerini doldurma.
 
-`ready` requires actual end-to-end evidence consistent with repository Definition of Done.
+### Zorunlu regresyon matrisi
 
-## Documentation synchronization
+| Vaka | Beklenen kanıt |
+|---|---|
+| Yeterli tek-nesne exact cevap | Kanıt doğrulandıktan sonra 0 qualification / 0 query embedding; aynı doğru kaynak |
+| Warm benzersiz semantic query | 0 qualification, en fazla 1 query embedding; gerçek dense çalışması trace'de görülür |
+| Warm tekrar query | Geçerli embedding cache ile 0 query embedding; scope/profile/freshness kontrolleri korunur |
+| Ayrı CLI process'lerinden aynı binding | Qualification cache gerçekten yeniden kullanılır; process-local başarıyla sınırlı kalmaz |
+| Eşzamanlı cold binding | Tek qualification işi; bekleyenler bounded; authorization scope karışmaz |
+| Yuvarlama sınırındaki sayısal jitter | B06 karşı örneği kabul edilmiş uzay uyumluluğunu gereksiz stale yapmaz |
+| Gerçek model/endpoint/dimension/prefix değişimi | Yanlış eski vector cache kullanılmaz; açık incompatible/degraded sonuç |
+| İki farklı dosyadaki nesne karşılaştırması | Her nesne için doğru citation; tek chunk zorunluluğu nedeniyle yanlış abstain olmaz |
+| A ve B var ama ilişki kanıtı yok | Çağrı/bağımlılık ilişkisi uydurulmaz |
+| Corpus'ta olmayan teknik nesne | False exact/unsupported generated answer üretmez |
+| Büyük chunk ve küçük context bütçesi | Gerekli bölüm doğru locator ile seçilir veya açık low-evidence; yanlış tam cevap yok |
+| Provider timeout/cancel | Deadline, cleanup, late-result suppression; sızıntı ve sahte receipt yok |
+| Aynı dirty Git status altında dosya içeriği değişikliği | Eski kanıta yanlış current etiketi verilmez |
+| Watcher kaybı, metadata-only belirsizlik, kaynak silinmesi | Freshness-unknown/snapshot veya strict doğrulama; sessiz güncel kabul yok |
+| Bozuk indeks veya sidecar/file identity değişimi | Cache güvenliği bypass etmez; fail-closed davranış korunur |
+| Query ile reindex/state update yarışı | Pinned generation tutarlılığı; yeni state'in eski query tarafından ezilmemesi |
+| Aynı soru, farklı project/realm/izin | Cache ve citation sızıntısı yok; unauthorized provider çağrısı yok |
+| Türkçe harfler, underscore/dot/path/camel adları | Normalize arama ve exact identity sözleşmesi tutarlı |
+| Kaynak içine gömülü prompt injection | Retrieval data'sı authority, tool call veya uzak disclosure izni üretmez |
+| `ask --json`, resume ve mevcut tüketiciler | Geriye uyumlu parse; stdout temiz; retrieval/synthesis anlamı doğru |
+| Büyüyen work/memory geçmişi | Resume sorguları ve bağlantı sayısı bounded; sadece çıktı listesini kesme yok |
 
-After implementation synchronize only relevant docs:
+### Performans hedefleri: ölçülmüş sonuç değil, başlangıç kabul adayı
 
-```text
-README.md
-GLOBAL_DEFINITION_OF_DONE.md
-docs/ZEKAM_YETKINLIK_ENVANTERI.md
-memory/skill/evolution/model-routing docs
-PROJE_MANIFESTI.yaml when contract changes
-package/release manifest when repository process requires
-```
+Aşağıdaki eşikler önceden elde edilmiş başarı iddiası değildir. Referans makine/OS, disk, Python/SQLite/sqlite-vec sürümü, corpus, source freshness modu, kullanılan model/route ve örnek sayısını kaydet. Eşik değişecekse gerekçeyi önce/sonra ölçümüyle açık yaz; sessizce gevşetme.
 
-Documentation must describe actual behavior, not aspirational implementation.
+| Ölçüm | Başlangıç hedefi |
+|---|---|
+| ~20 bin chunk, warm yeterli exact/lexical core retrieval | p95 ≤ 300 ms; CLI cold import ve açık strict tam source audit hariç, bunlar ayrıca raporlanır |
+| ~20 bin chunk, warm hybrid yerel orchestration/storage maliyeti | Kritik yolda haricî embedding beklemesi dışında p95 ≤ 500 ms |
+| Warm semantic query | Qualification tekrarları 0; gerekli query embedding çağrısı ≤ 1 |
+| Warm query/cache path | Tam proje planı/chunking/document embedding 0; aynı güvenilir index identity için tekrarlı deep validation 0 |
+| Warm `resume` | Referans yerel iş/memory yükünde p95 ≤ 300 ms; gerçekten okunan satır/sorgu sayısıyla birlikte |
+| Patolojik tekrar giderilen senaryolar | Kalite/güvenlik gerilemeden p95'te anlamlı düşüş; başlangıç hedefi en az %50. Baseline zaten küçükse overhead/counter kanıtı kullan |
+| Tüm retrieval çağrıları | Yapılandırılmış ortak deadline + açık cleanup sınırı; gözlenen p99/timeout ayrı |
+| Curated exact/scope/citation integrity vakaları | %100 beklenen deterministik davranış; “tüm gerçek dünyada %100 doğruluk” anlamına gelmez |
+| Holdout retrieval kalitesi | Recall@10, MRR, nDCG@10 baseline'dan gerilemez; çoklu kaynak vakalarında belirlenen hata düzelir |
+| Curated no-answer ve güvenlik vakaları | Desteksiz başarı, uydurma citation ve çapraz scope sızıntısı 0 |
 
-## Active-task projection
+Haricî provider toplam süresi için erişim olmadan evrensel saniye garantisi koyma. Yerel overhead ile provider beklemesini trace kritik yolundan ayır; paralel aşamaların sürelerini toplayıp veya toplamdan körlemesine çıkarıp yanıltıcı sayı üretme. Synthesis varsa ilk evidence, TTFT, completion, output uzunluğu ve model maliyeti ayrı raporlanacak.
 
-This Markdown is living task authority.
+p50/p95 için yeterli örnek kullan; başlangıç olarak senaryo başına en az 100 ölçümlü istek ve ayrı warm-up uygula. Güvenilir p99 iddiası için en az 1.000 ölçümlü örnek veya açıkça daha düşük güvenli tahmin etiketi kullan. Küçük örneklemden anlamlıymış gibi p99 ilan etme. Canlı provider çağrılarını bu sayıya tamamlamak için izin/maliyet sınırını aşma. Timeout, hata ve abstain isteklerini latency dağılımından sessizce çıkarma; başarı oranıyla beraber göster.
 
-`AKTIF_GOREV.yaml` must not be independently hand-maintained if repository has an existing `ActiveTaskContract`/projection mechanism.
+## 6. Uygulama sırası ve değişiklik disiplini
 
-Flow:
+Önerilen sıra:
 
 ```text
-AKTIF_GOREV.md exact bytes
-  -> digest
-  -> canonical projection mechanism
-  -> AKTIF_GOREV.yaml
-  -> deterministic readback
+WP1 baseline + failing regression
+  -> WP2 qualification/cache/profile düzeltmesi
+  -> WP3 query/indexing ayrımı
+  -> WP4 storage/exact/hydration
+  -> WP5 deadline ve kanallar
+  -> WP6 evidence/context
+  -> WP7 tüketici sözleşmesi ve izinli synthesis
+  -> WP8 ölçülen startup/resume/index maintenance sorunları
+  -> karşılaştırmalı benchmark + bağımsız doğrulama + paket doğrulama
 ```
-
-If current repository uses a different exact mechanism, use that implementation.
 
-## Required implementation sequence
+Büyük tek patch yerine her iş paketinde sınırlı değişiklik ve odaklı test çalıştır. Mevcut test yollarını repository'den bul; hayalî komutları çalışmış gibi listeleme. Unit/integration/e2e/security/architecture ayrımını koru. Mümkünse hatayı düzelten testin baseline'da başarısız, yeni kodda başarılı olduğunu göster.
 
-Apply in this order unless code dependency proves another order necessary:
+İkinci bir serbest görev listesi veya kapsamı genişleten “bilişsel mimari v3” planı üretme. Bu dosyadaki performans, correctness ve cevap hattı kapsamı yeterlidir. Temel source/authorization semantics ile çelişen optimizasyonu uygulama; yerine aynı hedefe ulaşan güvenli dar çözümü seç.
 
-```text
-baseline discovery
-  -> context domain/application contracts
-  -> continuity integration
-  -> semantic memory surface
-  -> cognitive doctor
-  -> skill progressive disclosure
-  -> experience-to-skill
-  -> fresh-context evaluation
-  -> projection validation
-  -> evidence-based model routing
-  -> worker orchestration
-  -> verifier integration
-  -> feedback compaction
-  -> authority-isolation tests
-  -> migrations
-  -> capability inventory/docs
-  -> full quality gates
-  -> independent verifier
-```
-
-Do not begin with documentation.
-
-Do not begin by rewriting existing subsystems.
+Tamamlanamayan bir WP varsa nedeni ve kalan test/dış erişim ihtiyacını açık yaz; yapılan güvenli düzeltmeleri yine teslim et. Test ortamı yok diye ölçüm sonucu uydurma veya yalnız doküman değiştirip tamamlandı deme.
 
-## Independent verifier
+## 7. Tamamlanma kriterleri ve son teslim
 
-At least one real verifier separate from primary builder must review exact resulting diff.
+Görev ancak şu çıktılarla kapanabilir:
 
-Verifier questions:
+1. Her doğrulanmış bug için kod değişikliği veya “yeni HEAD'de zaten düzelmiş” test kanıtı; her hipotez için ölçülen sonuç veya açıkça doğrulanamadı notu.
+2. Kaynakta tarif edilen kritik üç gecikme tekrarı için sayaç kanıtı: soru başına qualification, query'de source planlama ve aynı index identity'de deep check.
+3. B06 ve B07 için deterministik regression; gerçek drift ve ilişki uydurma güvenliğinin korunduğu negatif testler.
+4. Retrieval-only ve üretilmiş cevap davranışının açık ayrımı; aktif consumer'a yeterli ve bounded kanıtın gerçekten ulaştığının uçtan uca testi.
+5. Aynı corpus/ortam altında önce/sonra latency, çağrı sayısı, kaynak tüketimi ve kalite tablosu. Synthetic/mock/live koşular birbirinden ayrı.
+6. Mevcut güvenlik, single-writer, authority isolation, read-only index, no-UI ve JSON consumer testlerinde regresyon olmaması.
+7. Geriye uyum/migration/config default'ları ile geri alma adımları. Rollback, kullanıcının kaynaklarını veya eski verilerini silmeye dayanmayacak.
+8. Repository'nin kanonik validation/projection/release digest akışıyla son doğrulama. Generated raporları elle “passed” yapma; değişen authority dosyasından projection'ı gerçek üreticiyle yeniden üret.
 
-```text
-Were existing Zekam components unnecessarily rewritten?
-Can memory create authority?
-Can skill create permission?
-Can feedback create mutation authority?
-Does progressive disclosure actually prevent eager corpus loading?
-Does ECONOMY reduce safety?
-Does open-loop state come from canonical evidence?
-Is semantic memory surface actually usable?
-Is doctor read-only by default?
-Can one event directly activate a skill?
-Is evaluation fresh/bounded?
-Can the skill verify itself?
-Does routing use canonical evidence?
-Are model/provider roles hard-coded?
-Is unknown quota/cost fabricated?
-Does worker parallelism respect writable resource conflict?
-Is verifier independent where required?
-Can a worker failure be hidden as success?
-Is raw transcript unnecessarily persisted?
-Can secrets enter durable learning state?
-Was any UI added?
-Was any PostgreSQL runtime dependency added?
-Did existing RAG/continuity/evolution/Work/receipt behavior regress?
-Do docs and capability inventory match real evidence?
-```
+Repository'nin mevcut doküman yerleşimine uygun tek sonuç raporu ve makine okunur benchmark kanıtı bırak. Yeni bir aktif görev adı kullanma; görev otoritesi `AKTIF_GOREV.md` olarak kalır. Çıktılarda en az gerçek HEAD, değişen dosyalar, çalıştırılan komut/exit code, before/after metrikler, maliyet/izin sınırları, kalan riskler ve rollback bulunmalı.
 
-Any P0/P1 finding blocks terminal success.
-
-## Quality gates
-
-Run canonical repository commands discovered from source/config.
-
-Minimum required:
-
-```bash
-python scripts/paket_dogrula.py
-
-python -m pytest -q \
-  tests/unit/application/test_context_assembly.py \
-  tests/unit/application/test_context_budget.py \
-  tests/integration/test_open_loop_continuity.py \
-  tests/integration/test_memory_cli.py \
-  tests/integration/test_doctor_cognitive_health.py \
-  tests/unit/application/test_skill_progressive_disclosure.py \
-  tests/integration/test_experience_to_skill_candidate.py \
-  tests/integration/test_skill_fresh_context_evaluation.py \
-  tests/integration/test_skill_projection_cross_client.py \
-  tests/integration/test_model_routing_evidence.py \
-  tests/integration/test_orchestration_worker_fleet.py \
-  tests/integration/test_independent_verifier.py \
-  tests/integration/test_feedback_compaction.py \
-  tests/security/test_cognitive_authority_isolation.py \
-  tests/architecture/test_no_ui_surface.py
-
-python -m pytest -q
-python -m ruff check .
-python -m mypy src/zekam
-```
+Son kullanıcı özetini şu sorulara cevap verecek biçimde yaz: “Neden yavaştı?”, “Neden bazen yanlış/eksik görünüyordu?”, “Ne değişti?”, “Ne kadar iyileşti ve nasıl ölçüldü?”, “Hangi doğrulama henüz yapılmadı?”.
 
-If an exact preferred test path is merged into an existing equivalent test module during fit-gap, substitute the exact real path and record mapping in final report.
+## 8. İnceleme kaynakları
 
-Skip:
+Koddaki bütün referanslar aksi belirtilmedikçe şu sabit revision içindir:
 
 ```text
-!= PASS
+https://github.com/mehmet-karacan/zekam/tree/c3ad4c6abf2596cf633f0e95d52c8cd96c18000b
 ```
 
-Environment-induced skip/failure must be explicitly classified.
+Kaynak referansındaki satırlar GitHub kaynak dosyasının satır aralığıdır; uygulayıcı güncel HEAD'de fonksiyon adını esas alarak karşılaştırmalıdır.
 
-## Required final report
+| Ref | İncelenen kaynak ve bölüm |
+|---|---|
+| K01 | `c3ad4c6abf2596cf633f0e95d52c8cd96c18000b` commit metadata/diff; yalnız `VALIDATION_RESULT.json`; 24.09.2026 23:43:57 UTC = 25.09.2026 02:43:57 İstanbul |
+| K02 | `4629e9e58f8a74bbaad1e76e362893628837c823...1dfd76059aa8492b74b09486b2649329ca4a1e79` compare dosya değişim listesi; `workspace_resume`, `context_compiler`, cognitive checks ve ilgili testler |
+| K03 | `src/zekam/application/project_rag_runtime.py`, satır 1500–son; `_query`, `query_registered_project`, query verification/state yazımı |
+| K04 | Aynı dosya, satır 1–270 ve 320–620; `_git_source_state`, `_project_plan`, `_provider`, binding/cache altyapısı |
+| K05 | `src/zekam/infrastructure/embedding/opencode_remote.py`, satır 290–son; `_vectors`, `probe`, `_embed`, `health` |
+| K06 | `src/zekam/application/local_embedding_composition.py`; source fixture seçimi ve `build_verified_mac_embedding` |
+| K07 | `src/zekam/infrastructure/sqlite/knowledge_index.py`, satır 1–270 ve 300–545; constructor, schema, `_validate_schema`, read-boundary ve generation limiti |
+| K08 | Aynı dosya, satır 600–960; `exact`, `lexical`, `dense`, `views`, `source_identity`, readiness |
+| K09 | `src/zekam/application/embedded_project_rag.py`, satır 1–260 ve 255–son; provider/evidence gate, tek-chunk identifier filtresi, citation ve excerpt çıktısı |
+| K10 | `src/zekam/application/retrieval_service.py`; sıralı search, build_answer, token budgeting, GoldenCase/evaluator |
+| K11 | `src/zekam/application/embedding_provider.py`, satır 1–270; profile identity, validation ve policy sözleşmesi |
+| K12 | `src/zekam/interfaces/cli/main.py`, satır 1–200 ve 210–355; eager import listesi, resume/ask ve CLI çıktı yolu |
+| K13 | `src/zekam/application/workspace_resume.py`, satır 1–310; bounded projection ve ek navigation erişimleri |
+| K14 | `src/zekam/infrastructure/process/capability_worker.py`, satır 1–270; deadline, cancellation grace ve process cleanup. `opencode_remote.py` satır 1–290: effect/receipt doğrulama |
+| K15 | `src/zekam/application/project_rag_runtime.py`, satır 1100–1420; canonical `_index`, durable vector cache, eksik batch'ler ve generation aktivasyonu |
+| K16 | `docs/ZEKAM_YETKINLIK_ENVANTERI.md`; readiness sınırları, RAG büyük ölçek performans kampanyası ve graph değerlendirmesi |
+| K17 | `README.md` ve baseline `AKTIF_GOREV.md` satır 1–135; CLI-only, aktif görev, authority ve güvenlik sınırları |
+| K18 | `src/zekam/application/active_task_contract.py`, satır 1–230; izin verilen front matter alanları ve task/projection sözleşmesi |
 
-Terminal report must include:
+Dış teknik doğrulama kaynakları, erişim tarihi 25.09.2026:
 
 ```text
-baseline SHA
-starting working HEAD
-ending local HEAD
-working tree state
-
-fit-gap matrix
-REUSE items
-EXTEND items
-CONNECT items
-REPLACE items
-REMOVE items
-
-exact changed files
-exact added files
-exact removed files
-
-schema version before/after
-migration result
-upgrade readback
-rollback/recovery result
-
-context progressive-disclosure evidence
-normal/economy evidence
-open-loop evidence
-memory lifecycle evidence
-doctor evidence
-skill lifecycle evidence
-fresh-context evaluation evidence
-cross-client projection evidence
-model-routing evidence
-worker/fan-in evidence
-independent-verifier evidence
-feedback-compaction evidence
-authority-isolation evidence
-
-each AC-01..AC-16:
-PASS / FAIL / BLOCKED
-proof command
-exit code
-artifact/test name
-
-package validator result
-pytest result
-ruff result
-mypy result
-secret-scan result
-dead/reachability result
-
-independent verifier identity/result
-P0 count
-P1 count
-
-commit SHA if a local commit was created
-push performed = false
-```
+E01 — SQLite PRAGMA quick_check / integrity / foreign_key_check
+https://www.sqlite.org/pragma.html#pragma_quick_check
 
-Do not say "completed" solely because code was written.
+E02 — sqlite-vec KNN MATCH + k ve distance metric sözleşmesi
+https://alexgarcia.xyz/sqlite-vec/features/knn.html
 
-Every material completion claim requires deterministic test/readback/receipt/verifier evidence.
+E03 — sqlite-vec partition key ve metadata filtreleri
+https://alexgarcia.xyz/sqlite-vec/features/vec0.html
 
-## Definition of success
+E04 — SQLite URI immutable davranışı ve dosya değişmezliği varsayımı
+https://www.sqlite.org/uri.html
 
-Success is not:
-
-```text
-"Second Brain folder added"
-"more agents added"
-"more prompts added"
-"memory database added"
+E05 — SQLite FTS5 unicode61 tokenizer davranışı
+https://www.sqlite.org/fts5.html
 ```
-
-Success is:
-
-> Zekam'ın mevcut authority ve evidence mimarisini bozmadan, doğru context'i bounded biçimde seçebilen; kalıcı bilgiyi kontrollü memory lifecycle ile yönetebilen; tekrar kullanılabilir yöntemleri skill olarak progressive-disclosure ile yükleyebilen; işi kanıta dayalı olarak uygun agent/model'e dağıtabilen; paralel worker sonuçlarını doğrulayarak birleştirebilen; çalışma deneyiminden memory/skill/system-improvement candidate üretebilen; fakat hiçbir bilişsel katmanı permission veya Work authority'ye dönüştürmeyen headless bir sistem olmasıdır.
 
-Final invariant:
-
-```text
-memory != authority
-skill != authority
-context != authority
-feedback != authority
-model recommendation != authority
-
-Work/policy/claim/receipt
-remain canonical for execution truth and authority
-```
-```
+Bu kaynaklardaki güncel API/özellikleri repository'nin kurulu sürümü desteklemeyebilir. Uygulama öncesi pyproject/lockfile ve çalışma zamanındaki sürümleri doğrula; mevcut bağımlılıkları gerekçesiz yükseltme.

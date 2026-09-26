@@ -40,9 +40,20 @@ from zekam.domain.errors import (
 from zekam.domain.knowledge import Locator
 from zekam.domain.retrieval import RetrievalChannel, ScoredHit
 from zekam.infrastructure.local_file_security import private_regular, restrict_private_file
+from zekam.infrastructure.query_measurement import record_deep_validate
 
 SCHEMA_VERSION = 2
 VECTOR_DIMENSION = KNOWLEDGE_VECTOR_DIMENSION
+# Bounded in-process evidence that a specific *file identity* (inode/size/
+# mtime/ctime of the main db and its offline sidecars) was already deep
+# validated against a *schema/engine version*.  Bound by file identity, never by
+# path alone, so a changed/corrupt/unproven file still fails closed.  Read-only
+# queries additionally re-verify the identity via ``_assert_stable_source``
+# before/after every query, so skipping the O(N) deep PRAGMAs on a genuinely
+# identical offline-validated file is safe.  Writable opens and identity changes
+# always re-run the deep check.  The cache is process-local (see B03 report).
+_DEEP_VALIDATED_READ_FILES: dict[tuple[Any, ...], tuple[int, str, int]] = {}
+_DEEP_VALIDATED_READ_FILES_MAX = 64
 # A real medium-sized repository can exceed 10k source chunks. Keep a hard
 # per-generation bound for memory/disk safety, but size it to the Windows
 # acceptance workload (sky-microservis currently produces about 20.5k chunks).
@@ -184,7 +195,7 @@ class SQLiteKnowledgeIndex:
                     connection.execute("pragma synchronous=full")
                     if create:
                         self._create_schema()
-            self._validate_schema()
+            self._validate_schema(_trusted_file_identity=self._source_identity_at_open)
             if not read_only:
                 os.chmod(path, 0o600)
         except (OSError, sqlite3.DatabaseError) as exc:
@@ -387,7 +398,7 @@ class SQLiteKnowledgeIndex:
         )
 
     @_stable_read
-    def _validate_schema(self) -> None:
+    def _validate_schema(self, *, _trusted_file_identity: _SourceIdentity | None = None) -> None:
         row = self._connection.execute(
             "select schema_version,engine,vector_dimension from metadata where singleton=1"
         ).fetchone()
@@ -397,11 +408,40 @@ class SQLiteKnowledgeIndex:
             VECTOR_DIMENSION,
         ):
             raise ConfigurationError("Knowledge index schema/engine drift")
+        # Deep integrity (quick_check + foreign_key_check, O(N)) is expensive.
+        # For a read-only open of a file identity that was already deep validated
+        # at first trusted acceptance against this schema/engine version, skip the
+        # repeated PRAGMAs.  The binding is (file identity -> (schema_version,
+        # engine, dimension)), so a changed file identity, a schema/engine-version
+        # change, or a writable open all re-validate.  The strict schema/engine
+        # check above still runs on every open, and read-only queries re-verify
+        # the file *identity* before/after each public call via the read boundary.
+        if (
+            self._read_only
+            and _trusted_file_identity is not None
+            and _trusted_file_identity in _DEEP_VALIDATED_READ_FILES
+        ):
+            cached = _DEEP_VALIDATED_READ_FILES[_trusted_file_identity]
+            if cached[0] == SCHEMA_VERSION and cached[1] == "sqlite-fts5+sqlite-vec":
+                return
         integrity = self._connection.execute("pragma quick_check").fetchall()
         if [str(item[0]) for item in integrity] != ["ok"]:
             raise ConfigurationError("Knowledge index integrity check gecemedi")
+        record_deep_validate()
         if self._connection.execute("pragma foreign_key_check").fetchone() is not None:
             raise ConfigurationError("Knowledge index foreign key integrity check failed")
+        record_deep_validate()
+        if (
+            self._read_only
+            and _trusted_file_identity is not None
+        ):
+            if len(_DEEP_VALIDATED_READ_FILES) >= _DEEP_VALIDATED_READ_FILES_MAX:
+                _DEEP_VALIDATED_READ_FILES.pop(next(iter(_DEEP_VALIDATED_READ_FILES)))
+            _DEEP_VALIDATED_READ_FILES[_trusted_file_identity] = (
+                SCHEMA_VERSION,
+                "sqlite-fts5+sqlite-vec",
+                VECTOR_DIMENSION,
+            )
         required_columns = {
             "generation": (
                 "generation_digest,project_id,source_revision,tree_digest,source_manifest_digest,"
@@ -747,47 +787,67 @@ class SQLiteKnowledgeIndex:
         if not identifiers or limit < 1:
             return ()
         generation = self._pinned_generation(project_id, generation_digest)
-        hits: list[ScoredHit] = []
+        # B04: bounded per-identifier candidate budget so one identifier's
+        # incidental matches cannot starve every later identifier.  Each
+        # identifier contributes at most ``limit`` candidates; candidates are
+        # merged and the final total is capped at ``limit`` after deterministic
+        # ordering.  This no longer returns as soon as ``len(hits)==limit`` for
+        # the first identifier only.
+        per_identifier_budget = max(limit, 1)
+        # (match_kind, chunk_order, id) candidates for the deterministic merge.
+        candidates: list[tuple[int, int, str]] = []
         seen: set[str] = set()
         for identifier in identifiers:
             if not identifier or len(identifier.encode("utf-8")) > MAX_QUERY_BYTES:
                 continue
             normalized = identifier.casefold()
             rows = self._connection.execute(
-                "select id from chunk where project_id=? and generation_digest=?"
+                "select id,chunk_order,"
+                " case"
+                "  when lower(coalesce(json_extract(locator_json,'$.object_name'),''))=?"
+                "   then 0"
+                "  when instr(lower(coalesce(json_extract(locator_json,'$.object_name'),'')),?)>0"
+                "   then 1"
+                "  when instr(lower(source_path),?)>0 then 2"
+                "  else 3 end as match_kind"
+                " from chunk where project_id=? and generation_digest=?"
                 " and ("
                 " lower(coalesce(json_extract(locator_json,'$.object_name'),''))=?"
                 " or instr(lower(coalesce(json_extract(locator_json,'$.object_name'),'')),?)>0"
                 " or instr(lower(source_path),?)>0"
                 " or instr(lower(body),?)>0"
                 ")"
-                " order by case"
-                " when lower(coalesce(json_extract(locator_json,'$.object_name'),''))=? then 0"
-                " when instr(lower(coalesce(json_extract(locator_json,'$.object_name'),'')),?)>0"
-                " then 1"
-                " when instr(lower(source_path),?)>0 then 2"
-                " else 3 end,chunk_order,id limit ?",
+                " order by match_kind,chunk_order,id limit ?",
                 (
+                    normalized,
+                    normalized,
+                    normalized,
                     project_id,
                     generation.generation_digest,
                     normalized,
                     normalized,
                     normalized,
                     normalized,
-                    normalized,
-                    normalized,
-                    normalized,
-                    limit,
+                    per_identifier_budget,
                 ),
             ).fetchall()
             for row in rows:
                 chunk_id = str(row[0])
-                if chunk_id not in seen:
-                    seen.add(chunk_id)
-                    hits.append(ScoredHit(chunk_id, RetrievalChannel.EXACT, len(hits) + 1, 1.0))
-                    if len(hits) == limit:
-                        return tuple(hits)
-        return tuple(hits)
+                if chunk_id in seen:
+                    continue
+                seen.add(chunk_id)
+                candidates.append((int(row[2]), int(row[1]), chunk_id))
+        # Deterministic final ordering.  A true exact object-name match (kind 0)
+        # is real exact evidence and must outrank a mere body-text substring
+        # mention (kind 3) for a different identifier (task B04: do not let a
+        # first identifier's substring hits saturate the limit and starve a
+        # later identifier's genuine exact match).  Within a kind, chunk_order
+        # then id provide a stable tiebreak.
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+        return tuple(
+            ScoredHit(chunk_id, RetrievalChannel.EXACT, rank, 1.0)
+            for rank, (_kind, _order, chunk_id) in enumerate(candidates[:limit], start=1)
+        )
 
     @_stable_read
     def lexical(
@@ -914,6 +974,56 @@ class SQLiteKnowledgeIndex:
             "source_digest": str(row["source_digest"]),
             "content_digest": str(row["content_digest"]),
         }
+
+    @_stable_read
+    def source_identities(
+        self,
+        project_id: str,
+        chunk_refs: tuple[str, ...],
+        *,
+        generation_digest: str | None = None,
+    ) -> dict[str, dict[str, str]]:
+        """Bulk hydrate identity fields for every cited chunk in ONE bounded query.
+
+        WP4 (B04): the per-citation ``source_identity`` call in the RAG query
+        path is an N+1 DB round-trip with duplicate per-chunk body re-hashing.
+        This method returns the same per-chunk dict shape as
+        :meth:`source_identity`, but for the whole cited set in a single
+        ``id in (...)`` query, validating the body/content digest contract for
+        each row exactly as the single-chunk path does.  Only the cited
+        ``chunk_refs`` are fetched; the corpus is never hydrated.
+        """
+        if not chunk_refs:
+            return {}
+        generation = self._pinned_generation(project_id, generation_digest)
+        placeholders = ",".join("?" for _ in chunk_refs)
+        rows = self._connection.execute(
+            "select id,source_revision,source_path,source_digest,content_digest,body"
+            " from chunk where project_id=? and generation_digest=? and id in ("
+            + placeholders
+            + ")",
+            (project_id, generation.generation_digest, *chunk_refs),
+        ).fetchall()
+        result: dict[str, dict[str, str]] = {}
+        for row in rows:
+            chunk_id = str(row["id"])
+            if str(row["content_digest"]) != digest_of_bytes(str(row["body"]).encode("utf-8")):
+                raise PolicyViolation("Knowledge citation identity/content digest drift")
+            source_ref = str(row["source_path"])
+            result[chunk_id] = {
+                "source_id": digest(
+                    {
+                        "schema": "zekam-project-source-identity/v1",
+                        "project_id": project_id,
+                        "source_ref": source_ref,
+                    }
+                ),
+                "source_revision": str(row["source_revision"]),
+                "source_ref": source_ref,
+                "source_digest": str(row["source_digest"]),
+                "content_digest": str(row["content_digest"]),
+            }
+        return result
 
     @_stable_read
     def readiness(self, project_id: str) -> dict[str, object]:

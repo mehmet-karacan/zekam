@@ -55,6 +55,7 @@ from zekam.domain.security import (
     SecretRef,
 )
 from zekam.domain.work import EffectKind
+from zekam.infrastructure.query_measurement import quantized_vector_fingerprint
 
 MAX_BATCH_SIZE = 64
 MAX_TEXT_BYTES = 256 * 1024
@@ -385,14 +386,21 @@ class OpenCodeRemoteEmbeddingProvider:
         # Bind cache compatibility to the actual normalized probe vectors while
         # tolerating the already accepted sub-milliscale numeric jitter.  Raw
         # provider response digests may contain request metadata and therefore
-        # remain evidence-only rather than profile identity.
+        # remain evidence-only rather than profile identity.  A tolerance-aware
+        # (floor-bucketed) fingerprint is used instead of ``round(value*1000)``:
+        # the rounding boundary flips accepted jitter into a different bucket and
+        # would stale a compatible profile (task B06 #1/#2).  The reference
+        # probe vectors and a versioned compatibility evaluation are bound so a
+        # genuine model/endpoint/dimension/space change still changes identity.
         probe_vector_compatibility_fingerprint = digest(
             {
-                "batch_milliunits": [
-                    [round(value * 1000) for value in vector] for vector in batch
+                "schema": "zekam-opencode-remote-probe-compat/v2",
+                "quantization": "floor-1000",
+                "batch_units": [
+                    quantized_vector_fingerprint(vector) for vector in batch
                 ],
-                "single_milliunits": [
-                    [round(value * 1000) for value in vector] for vector in single_rows
+                "single_units": [
+                    quantized_vector_fingerprint(vector) for vector in single_rows
                 ],
             }
         )
@@ -503,6 +511,11 @@ class OpenCodeRemoteEmbeddingProvider:
         latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
         for vector in vectors:
             profile.validate_vector(vector)
+        # WP1 diagnostic: record the query/document embed latency (monotonic,
+        # secret-free).  Never folded into a semantic identity digest.
+        from zekam.infrastructure.query_measurement import record_embed_latency
+
+        record_embed_latency(latency_ms)
         return EmbeddingBatch(
             vectors,
             EmbeddingReceipt(

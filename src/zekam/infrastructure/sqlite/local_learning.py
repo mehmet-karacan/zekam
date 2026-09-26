@@ -2229,6 +2229,27 @@ class SQLiteLocalLearning:
                 break
         return tuple(selected)
 
+    def active_skill_refs(self, *, maximum: int = 8) -> tuple[str, ...]:
+        """Return canonical active ``skill_id`` refs (bounded, read-only).
+
+        The canonical active-skill source is the ``skill_activation`` ->
+        ``skill_manifest`` join; memory records are NOT skill refs, so raw memory
+        IDs are never surfaced here.  Returns ``f"skill:{skill_id}@{version}"``
+        refs ordered by most recent activation.
+        """
+        if type(maximum) is not int or not 1 <= maximum <= 32:
+            raise ValidationFailed("Active skill refs maximum 1..32 olmali")
+        refs: list[str] = []
+        with closing(self._connect_readonly()) as db:
+            rows = db.execute(
+                "select m.skill_id,m.version from skill_activation a join skill_manifest m "
+                "on m.manifest_digest=a.manifest_digest order by a.activated_at desc limit ?",
+                (maximum,),
+            ).fetchall()
+        for row in rows:
+            refs.append(f"skill:{row['skill_id']!s}@{int(row['version'])}")
+        return tuple(refs)
+
     def daily_snapshot(
         self,
         day: dt.date,

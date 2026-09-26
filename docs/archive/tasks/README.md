@@ -110,3 +110,26 @@ korundu; yeni projection yalniz yeni yasayan Markdown'in exact byte digest'inden
 - Canli Jira yazma, durum/atama/worklog degisikligi, provider cagrisi, commit ve push bu
   gecisten yetki kazanmaz.
 - Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
+
+## 25 Eylul 2026 RAG performans ve dogruluk kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-COGNITIVE-ARCHITECTURE-001` | `ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001` |
+| Icerik SHA-256 | `c359bb22b3d86067e73de75a48ff74e771ad20cc9ccd3bb0032d34315d31a9ed` | `dc447591f3b7d52a5e623a3b8de1653c2e7eb60300501218775ca8957072df6b` |
+| Onceki Git blob | `77b88e5f5a42a095e28ef42ec186751057cbdddf` | Uygulanmaz |
+| Baseline HEAD | `1dfd76059aa8492b74b09486b2649329ca4a1e79` | `c3ad4c6abf2596cf633f0e95d52c8cd96c18000b` |
+
+Gecis kullanicinin acik onayi ile yapildi (Downloads dosyasi yeni yasayan gorev olarak
+aktiflestirildi; yapilmamis calisma degisiklikleri korundu). Onceki MD/YAML exact byte'lari
+bu dizinde korundu; yeni projection yalniz yeni yasayan Markdown'in exact byte digestinden
+uretildi ve `ActiveTaskContract.verify_projection` ile dogrulandi. Yeni task digest'i onceki
+task-scope grant'lerini genisletmez; canli provider, commit veya push yetkisi devralinmaz.
+
+### Carry-forward
+
+- Yapilmamis (no-commit) calisma degisiklikleri `project_rag_runtime.py` ve
+  `tests/unit/test_project_rag_runtime.py` uzerinde korunur ve yeni gorevle kontrollu tasinir.
+- Onceki bilesel mimari gorevinin tamamlanmis isleri bozulmaz veya yeniden baslatilmaz.
+- Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
+- Global DoD ve onceki acik kabul maddeleri yeni kanit olmadan tamamlanmis sayilmaz.
