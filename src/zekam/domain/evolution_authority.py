@@ -206,6 +206,11 @@ EVOLUTION_HANDLERS: Final = {
         ),
         _handler("sources.refresh", ("public-source",), ("source-candidate",)),
         _handler("report.daily", ("local-checkpoint", "local-report"), ("local-report",)),
+        # Default-disabled read-only proposal handler.  It is defined so that the
+        # evolution surface knows the operation, but it is intentionally absent
+        # from LOCAL_GRANT_OPERATIONS in evolution_bootstrap.py; without a grant
+        # it is no-effect.
+        _handler("radar.propose", ("radar-candidate", "source-candidate"), ()),
     )
 }
 EVOLUTION_HANDLER_VERSIONS: Final = {

@@ -223,14 +223,18 @@ def _bounded_evidence(
         body = str(reopened["body"])
         if scan_text(body, relative_path=str(reopened["source_ref"])):
             raise PolicyViolation("Research evidence secret taramasini gecemedi")
-        body = body[:4000]
+        original_content_digest = str(reopened["content_digest"])
+        delivered_body = body[:4000]
+        delivered_payload_digest = digest(delivered_body)
         item = {
             "citation_id": citation_id,
             "source_ref": reopened["source_ref"],
             "source_revision": reopened["source_revision"],
+            "original_content_digest": original_content_digest,
+            "delivered_payload_digest": delivered_payload_digest,
             "content_digest": reopened["content_digest"],
             "locator": reopened["locator"],
-            "body": body,
+            "body": delivered_body,
         }
         evidence.append(item)
         by_id[citation_id] = item
@@ -256,7 +260,10 @@ def _role_result(
             Citation(
                 snapshot_id=citation_id,
                 locator_detail=canonical_json(by_citation[citation_id]["locator"]),
-                content_digest=str(by_citation[citation_id]["content_digest"]),
+                content_digest=str(by_citation[citation_id]["delivered_payload_digest"]),
+                source_content_digest=str(
+                    by_citation[citation_id]["original_content_digest"]
+                ),
             )
             for citation_id in item["citation_ids"]
         )
@@ -272,12 +279,15 @@ def _role_result(
         role=ResearchRole.RESEARCHER,
         agent_ref=result.researcher_ref,
         outcome=RoleOutcome(result.outcome),
+        payload_digest=result.researcher_payload_digest,
         findings=tuple(findings),
         objections=result.objections,
         blocker=result.blocker,
     )
     verification = CitationVerification(
         verifier_ref=result.verifier_ref,
+        researcher_payload_digest=result.researcher_payload_digest,
+        evidence_manifest_digest=result.evidence_manifest_digest,
         verified_finding_ids=result.verified_finding_ids,
         rejected_finding_ids=result.rejected_finding_ids,
         rejection_reasons=result.rejection_reasons,
@@ -480,6 +490,8 @@ def run_research(
                 ],
                 "verification_keys": [
                     "verifier_ref",
+                    "researcher_payload_digest",
+                    "evidence_manifest_digest",
                     "verified_finding_ids",
                     "rejected_finding_ids",
                     "rejection_reasons",
@@ -523,6 +535,7 @@ def run_research(
         execution = require_opencode_execution(agent_result)
         execution_evidence = execution.as_dict()
         role_result, verification = _role_result(agent_result, by_citation)
+        evidence_manifest_digest = digest(evidence)
         dispatch = DispatchReport(
             question_id=question.question_id,
             subagent_count=agent_result.delegated_agent_calls,
@@ -544,6 +557,7 @@ def run_research(
             conflicts=(),
             verification=verification,
             snapshots=snapshots,
+            evidence_manifest_digest=evidence_manifest_digest,
         )
         assert_no_swallowed_results(dispatch, report)
         report_document = report.as_dict()

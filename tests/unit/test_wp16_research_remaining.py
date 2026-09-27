@@ -32,6 +32,8 @@ from zekam.domain.research import (
 
 NOW = dt.datetime(2026, 9, 5, tzinfo=dt.UTC)
 DIGEST = digest("wp16-research")
+RESEARCHER_PAYLOAD_DIGEST = digest("researcher-payload")
+EVIDENCE_MANIFEST_DIGEST = digest("evidence-manifest")
 
 
 def _question(**changes: object) -> ResearchQuestion:
@@ -53,7 +55,16 @@ def _question(**changes: object) -> ResearchQuestion:
 def _evidence() -> tuple[SourceSnapshot, Finding, CitationVerification]:
     snapshot = SourceSnapshot("s", SourceKind.FILE, "docs/a.md", DIGEST, NOW)
     finding = Finding("f", "Recovery is evidenced", (Citation("s", "L1", DIGEST),), "high")
-    return snapshot, finding, CitationVerification("verifier", ("f",))
+    return (
+        snapshot,
+        finding,
+        CitationVerification(
+            verifier_ref="verifier",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f",),
+        ),
+    )
 
 
 def _report(**changes: object) -> ResearchReport:
@@ -128,9 +139,26 @@ def test_dag_conflict_verification_and_empty_synthesis_reject_invalid_state() ->
     with pytest.raises(ValidationFailed, match="aciklamasi bos"):
         Conflict("c", ConflictKind.COMPATIBLE, "f1", "f2", " ")
     with pytest.raises(ValidationFailed, match="her red"):
-        CitationVerification("v", (), ("f",), ())
+        CitationVerification(
+            verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=(),
+            rejected_finding_ids=("f",),
+            rejection_reasons=(),
+        )
     with pytest.raises(ValidationFailed, match="en az bir"):
-        synthesize((), conflicts=(), verification=CitationVerification("v", ()))
+        synthesize(
+            (),
+            conflicts=(),
+            verification=CitationVerification(
+                verifier_ref="v",
+                researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+                evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+                verified_finding_ids=(),
+            ),
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+        )
 
 
 def test_report_and_candidate_remaining_invariants_fail_closed() -> None:

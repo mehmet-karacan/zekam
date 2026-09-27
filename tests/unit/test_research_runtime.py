@@ -34,24 +34,34 @@ pytestmark = pytest.mark.unit
 class FakeAdapter:
     def execute(self, package):  # type: ignore[no-untyped-def]
         citation_id = package["evidence"][0]["citation_id"]
+        researcher = {
+            "agent_ref": "zekam-researcher:run-1",
+            "outcome": "success",
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "claim": "Musteri servisi kaynakta tanimlidir.",
+                    "confidence": "high",
+                    "citation_ids": [citation_id],
+                },
+            ],
+            "objections": [],
+            "blocker": None,
+        }
+        evidence_manifest_digest = digest(package.get("evidence", []))
         return OpenCodeResearchResult(
             document={},
             researcher_ref="zekam-researcher:run-1",
             verifier_ref="zekam-verifier:run-2",
             outcome="success",
-            findings=(
-                {
-                    "finding_id": "finding-1",
-                    "claim": "Musteri servisi kaynakta tanimlidir.",
-                    "confidence": "high",
-                    "citation_ids": (citation_id,),
-                },
-            ),
+            findings=tuple(researcher["findings"]),
             objections=(),
             blocker=None,
             verified_finding_ids=("finding-1",),
             rejected_finding_ids=(),
             rejection_reasons=(),
+            researcher_payload_digest=digest(researcher),
+            evidence_manifest_digest=evidence_manifest_digest,
             execution=OpenCodeExecutionEvidence(
                 root_session_id="root-1",
                 calls=(
@@ -217,26 +227,34 @@ def test_opencode_result_rejects_unknown_citation_and_non_independent_verifier()
         },
         "verification": {
             "verifier_ref": "agent-b",
+            "researcher_payload_digest": digest("placeholder"),
+            "evidence_manifest_digest": digest("placeholder"),
             "verified_finding_ids": ["finding-1"],
             "rejected_finding_ids": [],
             "rejection_reasons": [],
         },
         "grants_authority": False,
     }
+    evidence_manifest_digest = digest([])
+    document["verification"]["researcher_payload_digest"] = digest(document["researcher"])
+    document["verification"]["evidence_manifest_digest"] = evidence_manifest_digest
     with pytest.raises(PolicyViolation, match="known citation"):
         validate_opencode_research_result(
             document,
             question_digest=digest("question"),
             allowed_citation_ids=frozenset({"chunk-1"}),
+            evidence_manifest_digest=evidence_manifest_digest,
         )
 
     document["researcher"]["findings"][0]["citation_ids"] = ["chunk-1"]
     document["verification"]["verifier_ref"] = "agent-a"
+    document["verification"]["researcher_payload_digest"] = digest(document["researcher"])
     with pytest.raises(PolicyViolation, match="bagimsiz"):
         validate_opencode_research_result(
             document,
             question_digest=digest("question"),
             allowed_citation_ids=frozenset({"chunk-1"}),
+            evidence_manifest_digest=evidence_manifest_digest,
         )
 
 
@@ -260,6 +278,21 @@ def test_opencode_result_requires_terminal_verdict_for_every_finding() -> None:
         },
         "verification": {
             "verifier_ref": "agent-b",
+            "researcher_payload_digest": digest({
+                "agent_ref": "agent-a",
+                "outcome": "success",
+                "findings": [
+                    {
+                        "finding_id": "finding-1",
+                        "claim": "Kaynakta servis tanimlidir.",
+                        "confidence": "high",
+                        "citation_ids": ["chunk-1"],
+                    }
+                ],
+                "objections": [],
+                "blocker": None,
+            }),
+            "evidence_manifest_digest": digest([]),
             "verified_finding_ids": [],
             "rejected_finding_ids": [],
             "rejection_reasons": [],
@@ -271,6 +304,7 @@ def test_opencode_result_requires_terminal_verdict_for_every_finding() -> None:
             document,
             question_digest=digest("question"),
             allowed_citation_ids=frozenset({"chunk-1"}),
+            evidence_manifest_digest=digest([]),
         )
 
 
@@ -315,6 +349,97 @@ def test_opencode_event_stream_rejects_missing_or_fake_delegation() -> None:
         parse_opencode_research_events(only_researcher)
 
 
+def _valid_document() -> dict[str, object]:
+    return {
+        "schema": "zekam-opencode-research-result/v1",
+        "question_digest": digest("question"),
+        "researcher": {
+            "agent_ref": "agent-a",
+            "outcome": "success",
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "claim": "Kaynakta servis tanimlidir.",
+                    "confidence": "high",
+                    "citation_ids": ["chunk-1"],
+                }
+            ],
+            "objections": [],
+            "blocker": None,
+        },
+        "verification": {
+            "verifier_ref": "agent-b",
+            "researcher_payload_digest": digest({
+                "agent_ref": "agent-a",
+                "outcome": "success",
+                "findings": [
+                    {
+                        "finding_id": "finding-1",
+                        "claim": "Kaynakta servis tanimlidir.",
+                        "confidence": "high",
+                        "citation_ids": ["chunk-1"],
+                    }
+                ],
+                "objections": [],
+                "blocker": None,
+            }),
+            "evidence_manifest_digest": digest([]),
+            "verified_finding_ids": ["finding-1"],
+            "rejected_finding_ids": [],
+            "rejection_reasons": [],
+        },
+        "grants_authority": False,
+    }
+
+
+def _validate(document: dict[str, object], evidence_manifest: object = []) -> None:
+    validate_opencode_research_result(
+        document,
+        question_digest=digest("question"),
+        allowed_citation_ids=frozenset({"chunk-1"}),
+        evidence_manifest_digest=digest(evidence_manifest),
+    )
+
+
+def test_opencode_result_rejects_tampered_researcher_payload() -> None:
+    """A02: koordinator researcher icerigini degistirirse payload digest uyusmaz."""
+    document = _valid_document()
+    assert isinstance(document["researcher"], dict)
+    document["researcher"]["findings"][0]["claim"] = "Uydurulmus iddia."
+    with pytest.raises(ValidationFailed, match="payload digest uyusmuyor"):
+        _validate(document)
+
+
+def test_opencode_result_rejects_hidden_verdict() -> None:
+    """A03: rejected bulgu gizlenemez; verifier her finding icin karar vermeli."""
+    document = _valid_document()
+    assert isinstance(document["verification"], dict)
+    document["verification"]["verified_finding_ids"] = []
+    with pytest.raises(ValidationFailed, match="terminal karar"):
+        _validate(document)
+
+
+def test_opencode_result_rejects_digest_mismatch_verifier_input() -> None:
+    """A04: verifier girdisi researcher payload ve evidence manifest digest'e bagli."""
+    document = _valid_document()
+    assert isinstance(document["verification"], dict)
+    document["verification"]["evidence_manifest_digest"] = digest("baska-evidence")
+    with pytest.raises(ValidationFailed, match="evidence manifest digest uyusmuyor"):
+        _validate(document)
+
+
+def test_opencode_result_rejects_nan_and_infinity() -> None:
+    """A06: NaN/Infinity iceren payload deterministik olarak reddedilir."""
+    document = _valid_document()
+    assert isinstance(document["researcher"], dict)
+    document["researcher"]["objections"] = [float("nan")]
+    with pytest.raises(ValidationFailed):
+        _validate(document)
+    document["researcher"]["objections"] = [float("inf")]
+    with pytest.raises(ValidationFailed):
+        _validate(document)
+
+
 def test_opencode_event_stream_binds_two_independent_completed_sessions() -> None:
     final = json.dumps(
         {
@@ -343,3 +468,24 @@ def test_opencode_event_stream_binds_two_independent_completed_sessions() -> Non
     bound = bind_opencode_result_document(model_document, execution)
     assert bound["researcher"]["agent_ref"] == "zekam-researcher:child-one"
     assert bound["verification"]["verifier_ref"] == "zekam-verifier:child-two"
+
+
+def test_citation_tracks_original_and_delivered_digest(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """A08: kesilmis excerpt'te original ve delivered digest ayridir."""
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+    citation = result["report"]["findings"][0]["citations"][0]
+    assert citation["source_content_digest"] == digest("class Demo")
+    assert citation["content_digest"] == digest("class DemoMusteriService {}")
+    assert citation["source_content_digest"] != citation["content_digest"]

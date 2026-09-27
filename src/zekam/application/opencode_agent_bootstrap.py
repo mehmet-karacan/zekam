@@ -665,8 +665,12 @@ Bos listeleri `{}` veya `null` yapma; her zaman JSON array kullan. Exact sekil o
 `"findings":[{"finding_id":"f1","claim":"...","confidence":"high",`
 `"citation_ids":["exact-id"]}],"objections":[],"blocker":null},`
 `"verification":{"verifier_ref":"zekam-verifier:<session>",`
+`"researcher_payload_digest":"sha256:...",`
+`"evidence_manifest_digest":"sha256:...",`
 `"verified_finding_ids":["f1"],"rejected_finding_ids":[],"rejection_reasons":[]},`
 `"grants_authority":false}`. Her finding ya verified ya rejected listesinde tam bir kez yer alsin.
+researcher_payload_digest, researcher nesnesinin kanonik digest'idir.
+evidence_manifest_digest, paketteki evidence listesinin kanonik digest'idir.
 """,
 }
 

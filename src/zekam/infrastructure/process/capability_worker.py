@@ -11,10 +11,7 @@ JSON result envelope'ini process belleginde cagirana dondurur.
 
 from __future__ import annotations
 
-import ctypes
 import json
-import os
-import signal
 import subprocess
 import sys
 import threading
@@ -34,51 +31,19 @@ from zekam.domain.canonical import parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
+from zekam.infrastructure.process.bounded_stream import (
+    BoundedReader,
+    finish_pipes,
+    hard_kill_tree,
+    start_process_tree,
+    wait_for,
+    worker_env,
+)
 
 CAPABILITY_WORKER_SCHEMA: Final = "zekam-capability-worker/v1"
 DEFAULT_MAX_IPC_BYTES: Final = 1_048_576
 DEFAULT_CANCELLATION_GRACE_SECONDS: Final = 10.0
 DEFAULT_PROVIDER_RESPONSE_BYTES: Final = 4 * 1024 * 1024
-_POLL_INTERVAL_SECONDS: Final = 0.01
-_CREATE_BREAKAWAY_FROM_JOB: Final = 0x01000000
-_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: Final = 9
-_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Final = 0x00002000
-
-
-class _JobObjectBasicLimitInformation(ctypes.Structure):
-    _fields_ = (
-        ("per_process_user_time_limit", ctypes.c_longlong),
-        ("per_job_user_time_limit", ctypes.c_longlong),
-        ("limit_flags", ctypes.c_uint32),
-        ("minimum_working_set_size", ctypes.c_size_t),
-        ("maximum_working_set_size", ctypes.c_size_t),
-        ("active_process_limit", ctypes.c_uint32),
-        ("affinity", ctypes.c_size_t),
-        ("priority_class", ctypes.c_uint32),
-        ("scheduling_class", ctypes.c_uint32),
-    )
-
-
-class _IoCounters(ctypes.Structure):
-    _fields_ = (
-        ("read_operation_count", ctypes.c_uint64),
-        ("write_operation_count", ctypes.c_uint64),
-        ("other_operation_count", ctypes.c_uint64),
-        ("read_transfer_count", ctypes.c_uint64),
-        ("write_transfer_count", ctypes.c_uint64),
-        ("other_transfer_count", ctypes.c_uint64),
-    )
-
-
-class _JobObjectExtendedLimitInformation(ctypes.Structure):
-    _fields_ = (
-        ("basic_limit_information", _JobObjectBasicLimitInformation),
-        ("io_info", _IoCounters),
-        ("process_memory_limit", ctypes.c_size_t),
-        ("job_memory_limit", ctypes.c_size_t),
-        ("peak_process_memory_used", ctypes.c_size_t),
-        ("peak_job_memory_used", ctypes.c_size_t),
-    )
 
 
 class CapabilityWorkerStatus(StrEnum):
@@ -148,43 +113,6 @@ class CapabilityWorkerResult:
     late_result_suppressed: bool = False
 
 
-@dataclass(slots=True)
-class _WindowsJob:
-    handle: int | None
-
-    def close(self) -> None:
-        if self.handle is None:
-            return
-        kernel32 = _windows_kernel32()
-        handle, self.handle = self.handle, None
-        kernel32.CloseHandle(ctypes.c_void_p(handle))
-
-
-@dataclass(slots=True)
-class _ProcessTree:
-    process: subprocess.Popen[bytes]
-    windows_job: _WindowsJob | None = None
-
-
-@dataclass(slots=True)
-class _BoundedReader:
-    stream: Any
-    limit: int
-    buffer: bytearray = field(default_factory=bytearray)
-    overflow: threading.Event = field(default_factory=threading.Event)
-
-    def read(self) -> None:
-        while True:
-            chunk = os.read(self.stream.fileno(), 65_536)
-            if not chunk:
-                return
-            remaining = self.limit + 1 - len(self.buffer)
-            if remaining > 0:
-                self.buffer.extend(chunk[:remaining])
-            if len(self.buffer) > self.limit or len(chunk) > remaining:
-                self.overflow.set()
-
-
 class CapabilityProcessWorker:
     """Run one typed capability request in a dedicated process tree."""
 
@@ -200,11 +128,11 @@ class CapabilityProcessWorker:
     ) -> CapabilityWorkerResult:
         started = time.monotonic()
         request_bytes = _encode_message(request.as_message(), spec.max_ipc_bytes)
-        tree = self._start(spec)
+        tree = start_process_tree(spec.argv, spec.cwd, env=worker_env())
         process = tree.process
         assert process.stdin is not None
         assert process.stdout is not None
-        reader = _BoundedReader(process.stdout, spec.max_ipc_bytes)
+        reader = BoundedReader(process.stdout, spec.max_ipc_bytes)
         reader_thread = threading.Thread(target=reader.read, daemon=True)
         reader_thread.start()
 
@@ -212,8 +140,8 @@ class CapabilityProcessWorker:
             process.stdin.write(request_bytes)
             process.stdin.flush()
         except (BrokenPipeError, OSError):
-            self._hard_kill_tree(tree)
-            self._finish_pipes(tree, reader_thread)
+            hard_kill_tree(tree)
+            finish_pipes(tree, (reader_thread,))
             return self._result(
                 request.request_id,
                 CapabilityWorkerStatus.FAILED,
@@ -224,10 +152,10 @@ class CapabilityProcessWorker:
             )
 
         deadline = started + spec.timeout_seconds
-        outcome = _wait_for(process, deadline, reader.overflow)
+        outcome = wait_for(process, deadline, reader.overflow)
         if outcome == "overflow":
-            self._hard_kill_tree(tree)
-            self._finish_pipes(tree, reader_thread)
+            hard_kill_tree(tree)
+            finish_pipes(tree, (reader_thread,))
             return self._result(
                 request.request_id,
                 CapabilityWorkerStatus.OUTPUT_LIMIT,
@@ -240,11 +168,11 @@ class CapabilityProcessWorker:
         if outcome == "deadline":
             cancel_sent = _send_cancel(process, request.request_id, spec.max_ipc_bytes)
             grace_deadline = time.monotonic() + self._cancellation_grace_seconds
-            grace_outcome = _wait_for(process, grace_deadline, reader.overflow)
+            grace_outcome = wait_for(process, grace_deadline, reader.overflow)
             hard_killed = grace_outcome != "exited" and process.poll() is None
             if hard_killed:
-                self._hard_kill_tree(tree)
-            self._finish_pipes(tree, reader_thread)
+                hard_kill_tree(tree)
+            finish_pipes(tree, (reader_thread,))
             return self._result(
                 request.request_id,
                 CapabilityWorkerStatus.TIMEOUT,
@@ -256,7 +184,7 @@ class CapabilityProcessWorker:
                 late_result_suppressed=bool(reader.buffer),
             )
 
-        self._finish_pipes(tree, reader_thread)
+        finish_pipes(tree, (reader_thread,))
         if reader.overflow.is_set():
             return self._result(
                 request.request_id,
@@ -266,87 +194,6 @@ class CapabilityProcessWorker:
                 error_code="ipc-output-limit",
             )
         return self._decode_result(request.request_id, bytes(reader.buffer), started, process)
-
-    @staticmethod
-    def _start(spec: CapabilityWorkerSpec) -> _ProcessTree:
-        kwargs: dict[str, Any] = {
-            "cwd": str(spec.cwd),
-            "stdin": subprocess.PIPE,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.DEVNULL,
-            "env": _worker_env(),
-            "shell": False,
-        }
-        windows_job: _WindowsJob | None = None
-        if os.name == "nt":
-            windows_job = _create_windows_job()
-            kwargs["creationflags"] = (
-                int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP"))  # noqa: B009
-                | _CREATE_BREAKAWAY_FROM_JOB
-            )
-        else:
-            kwargs["start_new_session"] = True
-        try:
-            process = subprocess.Popen(list(spec.argv), **kwargs)
-        except OSError as exc:
-            if windows_job is not None:
-                windows_job.close()
-            raise PolicyViolation("Capability worker process baslatilamadi") from exc
-        if windows_job is not None:
-            try:
-                _assign_windows_job(windows_job, process)
-            except PolicyViolation:
-                try:
-                    process.kill()
-                    process.wait(timeout=5)
-                finally:
-                    windows_job.close()
-                raise
-        return _ProcessTree(process, windows_job)
-
-    @staticmethod
-    def _finish_pipes(tree: _ProcessTree, reader_thread: threading.Thread) -> None:
-        process = tree.process
-        try:
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                CapabilityProcessWorker._hard_kill_tree(tree)
-                process.wait(timeout=5)
-        finally:
-            if tree.windows_job is not None:
-                tree.windows_job.close()
-            if process.stdin is not None:
-                process.stdin.close()
-            reader_thread.join(timeout=5)
-            if process.stdout is not None:
-                process.stdout.close()
-
-    @staticmethod
-    def _hard_kill_tree(tree: _ProcessTree) -> None:
-        process = tree.process
-        if tree.windows_job is not None:
-            tree.windows_job.close()
-            if process.poll() is None:
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-            return
-        if process.poll() is not None:
-            return
-        if os.name == "nt":
-            process.kill()
-            return
-        try:
-            process_group = getattr(os, "getpgid")(process.pid)  # noqa: B009
-            getattr(os, "killpg")(  # noqa: B009
-                process_group,
-                getattr(signal, "SIGKILL"),  # noqa: B009
-            )
-        except OSError:
-            if process.poll() is None:
-                process.kill()
 
     @staticmethod
     def _result(
@@ -522,92 +369,6 @@ def _send_cancel(process: subprocess.Popen[bytes], request_id: str, limit: int) 
     except (BrokenPipeError, OSError):
         return False
     return True
-
-
-def _wait_for(process: subprocess.Popen[bytes], deadline: float, overflow: threading.Event) -> str:
-    while True:
-        if overflow.is_set():
-            return "overflow"
-        if process.poll() is not None:
-            return "exited"
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return "deadline"
-        overflow.wait(min(_POLL_INTERVAL_SECONDS, remaining))
-
-
-def _windows_kernel32() -> Any:
-    kernel32 = getattr(ctypes, "WinDLL")(  # noqa: B009
-        "kernel32", use_last_error=True
-    )
-    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
-    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    kernel32.SetInformationJobObject.argtypes = (
-        ctypes.c_void_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-    )
-    kernel32.SetInformationJobObject.restype = ctypes.c_int
-    kernel32.IsProcessInJob.argtypes = (
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_int),
-    )
-    kernel32.IsProcessInJob.restype = ctypes.c_int
-    kernel32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
-    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
-    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
-    kernel32.CloseHandle.restype = ctypes.c_int
-    return kernel32
-
-
-def _create_windows_job() -> _WindowsJob:
-    kernel32 = _windows_kernel32()
-    raw_handle = kernel32.CreateJobObjectW(None, None)
-    if not raw_handle:
-        raise PolicyViolation("Capability worker Windows Job Object olusturulamadi")
-    handle = int(raw_handle)
-    information = _JobObjectExtendedLimitInformation()
-    information.basic_limit_information.limit_flags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-    configured = kernel32.SetInformationJobObject(
-        ctypes.c_void_p(handle),
-        _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-        ctypes.byref(information),
-        ctypes.sizeof(information),
-    )
-    if not configured:
-        kernel32.CloseHandle(ctypes.c_void_p(handle))
-        raise PolicyViolation("Capability worker Windows Job Object yapilandirilamadi")
-    return _WindowsJob(handle)
-
-
-def _assign_windows_job(job: _WindowsJob, process: subprocess.Popen[bytes]) -> None:
-    if job.handle is None:
-        raise PolicyViolation("Capability worker Windows Job Object kapali")
-    kernel32 = _windows_kernel32()
-    process_handle = ctypes.c_void_p(int(process._handle))  # type: ignore[attr-defined]
-    assigned = kernel32.AssignProcessToJobObject(ctypes.c_void_p(job.handle), process_handle)
-    if not assigned:
-        raise PolicyViolation("Capability worker child Windows Job Object'a guvenle atanamadi")
-    in_exact_job = ctypes.c_int()
-    checked = kernel32.IsProcessInJob(
-        process_handle, ctypes.c_void_p(job.handle), ctypes.byref(in_exact_job)
-    )
-    if not checked or not in_exact_job.value:
-        raise PolicyViolation("Capability worker child Windows Job Object binding dogrulanamadi")
-
-
-def _worker_env() -> dict[str, str]:
-    allowed = ("PATH", "SYSTEMROOT", "TEMP", "TMP", "LANG", "LC_ALL", "PYTHONPATH")
-    environment = {name: os.environ[name] for name in allowed if name in os.environ}
-    source_root = str(Path(__file__).resolve().parents[3])
-    existing_pythonpath = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = (
-        source_root if not existing_pythonpath else source_root + os.pathsep + existing_pythonpath
-    )
-    environment["PYTHONUTF8"] = "1"
-    return environment
 
 
 def _validated_provider_endpoint(value: str) -> str:

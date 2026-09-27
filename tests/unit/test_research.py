@@ -94,11 +94,16 @@ def _finding(finding_id: str = "f1", snapshot_id: str = "s1") -> Finding:
     )
 
 
+RESEARCHER_PAYLOAD_DIGEST = digest("researcher-payload")
+EVIDENCE_MANIFEST_DIGEST = digest("evidence-manifest")
+
+
 def _result(
     role: ResearchRole = ResearchRole.RESEARCHER,
     *,
     agent_ref: str = "agent-a",
     outcome: RoleOutcome = RoleOutcome.SUCCESS,
+    payload_digest: str = "",
     findings: tuple[Finding, ...] | None = None,
     blocker: str | None = None,
 ) -> RoleResult:
@@ -106,6 +111,7 @@ def _result(
         role=role,
         agent_ref=agent_ref,
         outcome=outcome,
+        payload_digest=payload_digest or digest(agent_ref),
         findings=(
             findings
             if findings is not None
@@ -288,14 +294,19 @@ def test_direct_contradiction_unresolved_kalir() -> None:
 
 
 def test_verifier_arastirmaciyla_ayni_olamaz() -> None:
-    verification = CitationVerification(verifier_ref="agent-a", verified_finding_ids=("f1",))
+    verification = CitationVerification(
+        verifier_ref="agent-a",
+        researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+        verified_finding_ids=("f1",),
+    )
     with pytest.raises(PolicyViolation):
         verification.assert_independent(frozenset({"agent-a"}))
 
 
 def test_sentez_non_success_sonucu_yutamaz() -> None:
     results = (
-        _result(agent_ref="agent-a"),
+        _result(agent_ref="agent-a", payload_digest=RESEARCHER_PAYLOAD_DIGEST),
         _result(
             ResearchRole.CRITIC,
             agent_ref="agent-b",
@@ -304,8 +315,18 @@ def test_sentez_non_success_sonucu_yutamaz() -> None:
             blocker="kaynak erisilemedi",
         ),
     )
-    verification = CitationVerification(verifier_ref="agent-v", verified_finding_ids=("f1",))
-    findings, unresolved, non_success = synthesize(results, conflicts=(), verification=verification)
+    verification = CitationVerification(
+        verifier_ref="agent-v",
+        researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+        verified_finding_ids=("f1",),
+    )
+    findings, unresolved, non_success = synthesize(
+        results,
+        conflicts=(),
+        verification=verification,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+    )
     assert [item.finding_id for item in findings] == ["f1"]
     assert unresolved == ()
     assert [item.outcome for item in non_success] == [RoleOutcome.BLOCKED]
@@ -314,11 +335,18 @@ def test_sentez_non_success_sonucu_yutamaz() -> None:
 def test_dogrulanmamis_bulgu_rapora_girmez() -> None:
     verification = CitationVerification(
         verifier_ref="agent-v",
+        researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
         verified_finding_ids=(),
         rejected_finding_ids=("f1",),
         rejection_reasons=("locator dogrulanamadi",),
     )
-    findings, _, _ = synthesize((_result(),), conflicts=(), verification=verification)
+    findings, _, _ = synthesize(
+        (_result(payload_digest=RESEARCHER_PAYLOAD_DIGEST),),
+        conflicts=(),
+        verification=verification,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+    )
     assert findings == ()
 
 
@@ -337,7 +365,11 @@ def _pipeline(
             return _result(
                 role, agent_ref=f"agent-{node_id}", outcome=outcome, findings=(), blocker="engel"
             )
-        return _result(role, agent_ref=f"agent-{node_id}")
+        return _result(
+            role,
+            agent_ref=f"agent-{node_id}",
+            payload_digest=RESEARCHER_PAYLOAD_DIGEST if role is ResearchRole.RESEARCHER else "",
+        )
 
     dispatch = service.dispatch(_dag(), dispatcher)
     report = service.build_report(
@@ -346,9 +378,13 @@ def _pipeline(
         report_id="r1",
         conflicts=conflicts,
         verification=CitationVerification(
-            verifier_ref="agent-verifier", verified_finding_ids=("f1",)
+            verifier_ref="agent-verifier",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f1",),
         ),
         snapshots=(_snapshot(),),
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
     )
     assert_no_swallowed_results(dispatch, report)
     return service, report
@@ -383,14 +419,27 @@ def test_blocked_child_raporu_partial_yapar() -> None:
 
 def test_kanit_yoksa_abstain() -> None:
     service = ResearchService()
-    dispatch = service.dispatch(_dag(), lambda node_id, role: _result(role, agent_ref=node_id))
+    dispatch = service.dispatch(
+        _dag(),
+        lambda node_id, role: _result(
+            role,
+            agent_ref=node_id,
+            payload_digest=RESEARCHER_PAYLOAD_DIGEST if role is ResearchRole.RESEARCHER else "",
+        ),
+    )
     report = service.build_report(
         _question(),
         dispatch,
         report_id="r2",
         conflicts=(),
-        verification=CitationVerification(verifier_ref="agent-v", verified_finding_ids=()),
+        verification=CitationVerification(
+            verifier_ref="agent-v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=(),
+        ),
         snapshots=(_snapshot(),),
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
     )
     assert report.status is ReportStatus.ABSTAINED
     assert report.findings == ()
@@ -450,13 +499,26 @@ def test_plan_candidate_absolute_path_yazamaz() -> None:
 
 def test_citation_bilinmeyen_snapshot_reddedilir() -> None:
     service = ResearchService()
-    dispatch = service.dispatch(_dag(), lambda node_id, role: _result(role, agent_ref=node_id))
+    dispatch = service.dispatch(
+        _dag(),
+        lambda node_id, role: _result(
+            role,
+            agent_ref=node_id,
+            payload_digest=RESEARCHER_PAYLOAD_DIGEST if role is ResearchRole.RESEARCHER else "",
+        ),
+    )
     with pytest.raises(ValidationFailed):
         service.build_report(
             _question(),
             dispatch,
             report_id="r3",
             conflicts=(),
-            verification=CitationVerification(verifier_ref="agent-v", verified_finding_ids=("f1",)),
+            verification=CitationVerification(
+                verifier_ref="agent-v",
+                researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+                evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+                verified_finding_ids=("f1",),
+            ),
             snapshots=(_snapshot("baska"),),
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
         )

@@ -21,6 +21,7 @@ from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+from zekam.interfaces.cli.research_radar import app as radar_app
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlite_operational_store
 
 app = typer.Typer(name="research", help="Kanitli project research islemleri", no_args_is_help=True)
@@ -139,3 +140,6 @@ def report_command(
         console.print_json(json.dumps(document, ensure_ascii=False))
     else:
         console.print_json(json.dumps(document["report"], ensure_ascii=False))
+
+
+app.add_typer(radar_app, name="radar")

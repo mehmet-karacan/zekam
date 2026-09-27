@@ -35,6 +35,8 @@ pytestmark = pytest.mark.security
 
 NOW = dt.datetime(2026, 8, 20, tzinfo=dt.UTC)
 CONTENT = digest("content")
+RESEARCHER_PAYLOAD_DIGEST = digest("researcher-payload")
+EVIDENCE_MANIFEST_DIGEST = digest("evidence-manifest")
 
 
 def _policy() -> SourcePolicy:
@@ -55,6 +57,7 @@ def test_kaynak_metnindeki_talimat_authority_uretmez() -> None:
         role=ResearchRole.RESEARCHER,
         agent_ref="agent-a",
         outcome=RoleOutcome.SUCCESS,
+        payload_digest=RESEARCHER_PAYLOAD_DIGEST,
         findings=(finding,),
     )
     assert result.as_dict()["grants_authority"] is False
@@ -65,7 +68,12 @@ def test_kaynak_metnindeki_talimat_authority_uretmez() -> None:
         findings=(finding,),
         unresolved_conflicts=(),
         non_success_results=(),
-        verification=CitationVerification(verifier_ref="v", verified_finding_ids=("f1",)),
+        verification=CitationVerification(
+            verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f1",),
+        ),
         snapshots=(
             SourceSnapshot(
                 snapshot_id="s1",
@@ -188,6 +196,8 @@ def test_ayni_bulgu_hem_onaylanip_hem_reddedilemez() -> None:
     with pytest.raises(ValidationFailed):
         CitationVerification(
             verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
             verified_finding_ids=("f1",),
             rejected_finding_ids=("f1",),
             rejection_reasons=("celiskili",),

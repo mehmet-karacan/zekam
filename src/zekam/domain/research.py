@@ -279,23 +279,34 @@ class SourceSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class Citation:
-    """Snapshot icindeki exact konum."""
+    """Snapshot icindeki exact konum.
+
+    ``content_digest`` modele iletilen kesitin digest'idir.
+    ``source_content_digest`` varsa orijinal blob'un digest'idir;
+    kesilmis excerpt'lerde ikisi farkli olur (A08).
+    """
 
     snapshot_id: str
     locator_detail: str
     content_digest: str
+    source_content_digest: str | None = None
 
     def __post_init__(self) -> None:
         parse_digest(self.content_digest)
+        if self.source_content_digest is not None:
+            parse_digest(self.source_content_digest)
         if not self.locator_detail.strip():
             raise ValidationFailed("citation locator detayi bos olamaz")
 
     def as_dict(self) -> dict[str, str]:
-        return {
+        body: dict[str, str] = {
             "snapshot_id": self.snapshot_id,
             "locator_detail": self.locator_detail,
             "content_digest": self.content_digest,
         }
+        if self.source_content_digest is not None:
+            body["source_content_digest"] = self.source_content_digest
+        return body
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +343,7 @@ class RoleResult:
     role: ResearchRole
     agent_ref: str
     outcome: RoleOutcome
+    payload_digest: str = ""
     findings: tuple[Finding, ...] = ()
     objections: tuple[str, ...] = ()
     blocker: str | None = None
@@ -351,6 +363,8 @@ class RoleResult:
             raise ValidationFailed("blocked sonucu gerekce ister")
         if not self.agent_ref.strip():
             raise ValidationFailed("agent referansi bos olamaz")
+        if self.payload_digest:
+            parse_digest(self.payload_digest)
 
     @property
     def is_success(self) -> bool:
@@ -498,9 +512,15 @@ class Conflict:
 
 @dataclass(frozen=True, slots=True)
 class CitationVerification:
-    """Bagimsiz citation dogrulamasi; arastirmaciyla ayni kimlik olamaz."""
+    """Bagimsiz citation dogrulamasi; arastirmaciyla ayni kimlik olamaz.
+
+    Verifier girdisi dogrulanan arastirmaci payload digest'ine ve evidence
+    manifest digest'ine baglidir (A04).
+    """
 
     verifier_ref: str
+    researcher_payload_digest: str
+    evidence_manifest_digest: str
     verified_finding_ids: tuple[str, ...]
     rejected_finding_ids: tuple[str, ...] = ()
     rejection_reasons: tuple[str, ...] = ()
@@ -508,6 +528,8 @@ class CitationVerification:
     def __post_init__(self) -> None:
         if not self.verifier_ref.strip():
             raise ValidationFailed("verifier referansi bos olamaz")
+        parse_digest(self.researcher_payload_digest)
+        parse_digest(self.evidence_manifest_digest)
         if len(self.rejected_finding_ids) != len(self.rejection_reasons):
             raise ValidationFailed("her red bir gerekce ister")
         overlap = set(self.verified_finding_ids) & set(self.rejected_finding_ids)
@@ -521,6 +543,8 @@ class CitationVerification:
     def as_dict(self) -> dict[str, Any]:
         return {
             "verifier_ref": self.verifier_ref,
+            "researcher_payload_digest": self.researcher_payload_digest,
+            "evidence_manifest_digest": self.evidence_manifest_digest,
             "verified_finding_ids": list(self.verified_finding_ids),
             "rejected_finding_ids": list(self.rejected_finding_ids),
             "rejection_reasons": list(self.rejection_reasons),
@@ -532,6 +556,7 @@ def synthesize(
     *,
     conflicts: tuple[Conflict, ...],
     verification: CitationVerification,
+    evidence_manifest_digest: str,
 ) -> tuple[tuple[Finding, ...], tuple[Conflict, ...], tuple[RoleResult, ...]]:
     """Fan-in. Non-success sonuc ve unresolved celiski yutulamaz.
 
@@ -541,8 +566,22 @@ def synthesize(
 
     if not results:
         raise ValidationFailed("sentez icin en az bir role sonucu gerekiyor")
+    parse_digest(evidence_manifest_digest)
     researcher_refs = frozenset(item.agent_ref for item in results)
     verification.assert_independent(researcher_refs)
+
+    researcher_results = tuple(
+        item for item in results if item.role is ResearchRole.RESEARCHER
+    )
+    if len(researcher_results) != 1:
+        raise ValidationFailed(
+            "deterministik dogrulama icin tek researcher sonucu gerekiyor"
+        )
+    researcher = researcher_results[0]
+    if verification.researcher_payload_digest != researcher.payload_digest:
+        raise ValidationFailed("verifier researcher payload digest ile uyusmuyor")
+    if verification.evidence_manifest_digest != evidence_manifest_digest:
+        raise ValidationFailed("verifier evidence manifest digest ile uyusmuyor")
 
     verified = frozenset(verification.verified_finding_ids)
     rejected = frozenset(verification.rejected_finding_ids)

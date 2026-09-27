@@ -61,6 +61,8 @@ from zekam.infrastructure.knowledge import document_parsers as parsers
 NOW = dt.datetime(2026, 9, 4, 12, tzinfo=dt.UTC)
 IDS = tuple(UUID(int=value) for value in range(1, 10))
 D = digest("evidence")
+RESEARCHER_PAYLOAD_DIGEST = digest("researcher-payload")
+EVIDENCE_MANIFEST_DIGEST = digest("evidence-manifest")
 
 
 def _zip(entries: dict[str, bytes]) -> bytes:
@@ -391,11 +393,25 @@ def test_research_source_question_snapshot_security_and_scope() -> None:
 def test_research_finding_results_dag_conflict_and_synthesis_integrity() -> None:
     citation = Citation("s1", "line 1", D)
     finding = Finding("f1", "Evidence supports recovery", (citation,), "high")
-    success = RoleResult(ResearchRole.RESEARCHER, "agent-a", RoleOutcome.SUCCESS, (finding,))
+    success = RoleResult(
+        ResearchRole.RESEARCHER,
+        "agent-a",
+        RoleOutcome.SUCCESS,
+        payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+        findings=(finding,),
+    )
     blocked = RoleResult(ResearchRole.CRITIC, "agent-b", RoleOutcome.BLOCKED, blocker="missing")
-    verification = CitationVerification("verifier", ("f1",))
+    verification = CitationVerification(
+        verifier_ref="verifier",
+        researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+        verified_finding_ids=("f1",),
+    )
     accepted, conflicts, non_success = synthesize(
-        (success, blocked), conflicts=(), verification=verification
+        (success, blocked),
+        conflicts=(),
+        verification=verification,
+        evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
     )
     assert accepted == (finding,) and conflicts == () and non_success == (blocked,)
     with pytest.raises(ValidationFailed):
@@ -409,8 +425,20 @@ def test_research_finding_results_dag_conflict_and_synthesis_integrity() -> None
         lambda: RoleResult(ResearchRole.CRITIC, "a", RoleOutcome.BLOCKED),
         lambda: ResearchNode("", ResearchRole.RESEARCHER),
         lambda: ResearchNode("a", ResearchRole.RESEARCHER, ("a",)),
-        lambda: CitationVerification("", ()),
-        lambda: CitationVerification("v", ("f",), ("f",), ("reason",)),
+        lambda: CitationVerification(
+            verifier_ref="",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=(),
+        ),
+        lambda: CitationVerification(
+            verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f",),
+            rejected_finding_ids=("f",),
+            rejection_reasons=("reason",),
+        ),
     ):
         with pytest.raises((ValidationFailed, PolicyViolation)):
             factory()

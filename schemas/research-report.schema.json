@@ -28,9 +28,11 @@
     "verification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["verifier_ref", "verified_finding_ids", "rejected_finding_ids", "rejection_reasons"],
+      "required": ["verifier_ref", "researcher_payload_digest", "evidence_manifest_digest", "verified_finding_ids", "rejected_finding_ids", "rejection_reasons"],
       "properties": {
         "verifier_ref": {"type": "string", "minLength": 1},
+        "researcher_payload_digest": {"$ref": "#/$defs/digest"},
+        "evidence_manifest_digest": {"$ref": "#/$defs/digest"},
         "verified_finding_ids": {"type": "array", "items": {"type": "string"}},
         "rejected_finding_ids": {"type": "array", "items": {"type": "string"}},
         "rejection_reasons": {"type": "array", "items": {"type": "string"}}
@@ -67,7 +69,8 @@
           "properties": {
             "snapshot_id": {"type": "string"},
             "locator_detail": {"type": "string", "minLength": 1},
-            "content_digest": {"$ref": "#/$defs/digest"}
+            "content_digest": {"$ref": "#/$defs/digest"},
+            "source_content_digest": {"$ref": "#/$defs/digest"}
           }
         }},
         "confidence": {"enum": ["low", "medium", "high"]}
@@ -81,6 +84,7 @@
         "role": {"enum": ["researcher", "domain-reviewer", "critic", "synthesizer", "citation-verifier"]},
         "agent_ref": {"type": "string", "minLength": 1},
         "outcome": {"enum": ["success", "partial", "failed", "blocked", "abstained", "recovery-required"]},
+        "payload_digest": {"$ref": "#/$defs/digest"},
         "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
         "objections": {"type": "array", "items": {"type": "string"}},
         "blocker": {"type": ["string", "null"]},

@@ -122,6 +122,7 @@ class ResearchService:
         conflicts: tuple[Conflict, ...],
         verification: CitationVerification,
         snapshots: tuple[SourceSnapshot, ...],
+        evidence_manifest_digest: str,
     ) -> ResearchReport:
         """Fan-in sonucunu rapora cevirir; durum kanitla belirlenir."""
 
@@ -131,6 +132,7 @@ class ResearchService:
             dispatch.results,
             conflicts=conflicts,
             verification=verification,
+            evidence_manifest_digest=evidence_manifest_digest,
         )
         status = self._status(findings, unresolved, non_success)
         return ResearchReport(

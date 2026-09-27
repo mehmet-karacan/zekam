@@ -6,6 +6,8 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,13 @@ from typing import Any
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.infrastructure.process.bounded_stream import (
+    BoundedReader,
+    finish_pipes,
+    hard_kill_tree,
+    start_process_tree,
+    wait_for,
+)
 
 RESULT_SCHEMA = "zekam-opencode-research-result/v1"
 MAX_PROMPT_BYTES = 64 * 1024
@@ -144,6 +153,8 @@ class OpenCodeResearchResult:
     verified_finding_ids: tuple[str, ...]
     rejected_finding_ids: tuple[str, ...]
     rejection_reasons: tuple[str, ...]
+    researcher_payload_digest: str
+    evidence_manifest_digest: str
     execution: OpenCodeExecutionEvidence | None = None
 
     @property
@@ -297,39 +308,64 @@ class OpenCodeResearchAdapter:
             raise ValidationFailed("OpenCode research prompt bounded siniri asiyor")
         if scan_text(prompt, relative_path="opencode-research-prompt.json"):
             raise PolicyViolation("OpenCode research prompt secret taramasini gecemedi")
+        executable = _resolve_executable(self.executable)
+        argv = (
+            executable,
+            "run",
+            "--agent",
+            "zekam-research-runner",
+            "--format",
+            "json",
+            "--title",
+            "Zekam bounded research",
+            prompt,
+        )
         try:
-            executable = _resolve_executable(self.executable)
-            completed = subprocess.run(
-                [
-                    executable,
-                    "run",
-                    "--agent",
-                    "zekam-research-runner",
-                    "--format",
-                    "json",
-                    "--title",
-                    "Zekam bounded research",
-                    prompt,
-                ],
-                cwd=self.cwd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                check=False,
-                timeout=self.timeout_seconds,
-                shell=False,
+            tree = start_process_tree(
+                argv, self.cwd, stderr=subprocess.PIPE, start_new_session=True
             )
-        except subprocess.TimeoutExpired as exc:
-            raise ValidationFailed("OpenCode research bounded timeout") from exc
-        except OSError as exc:
+        except PolicyViolation as exc:
             raise ValidationFailed("OpenCode research process baslatilamadi") from exc
-        if len(completed.stdout) > MAX_OUTPUT_BYTES or len(completed.stderr) > MAX_OUTPUT_BYTES:
+        process = tree.process
+        assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
+        per_stream_limit = MAX_OUTPUT_BYTES // 2
+        stdout_reader = BoundedReader(process.stdout, per_stream_limit)
+        stderr_reader = BoundedReader(process.stderr, per_stream_limit)
+        stdout_thread = threading.Thread(target=stdout_reader.read, daemon=True)
+        stderr_thread = threading.Thread(target=stderr_reader.read, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+        started = time.monotonic()
+        try:
+            process.stdin.write(prompt.encode("utf-8"))
+            process.stdin.flush()
+            process.stdin.close()
+        except (BrokenPipeError, OSError) as exc:
+            hard_kill_tree(tree)
+            finish_pipes(tree, (stdout_thread, stderr_thread))
+            raise ValidationFailed("OpenCode research stdin yazilamadi") from exc
+
+        deadline = started + self.timeout_seconds
+        outcome = wait_for(process, deadline, stdout_reader.overflow, stderr_reader.overflow)
+        if outcome == "overflow":
+            hard_kill_tree(tree)
+            finish_pipes(tree, (stdout_thread, stderr_thread))
             raise ValidationFailed("OpenCode research output bounded siniri asiyor")
-        if completed.returncode != 0:
+        if outcome == "deadline":
+            hard_kill_tree(tree)
+            finish_pipes(tree, (stdout_thread, stderr_thread))
+            raise ValidationFailed("OpenCode research bounded timeout")
+        finish_pipes(tree, (stdout_thread, stderr_thread))
+        if stdout_reader.overflow.is_set() or stderr_reader.overflow.is_set():
+            raise ValidationFailed("OpenCode research output bounded siniri asiyor")
+        if process.poll() != 0:
             raise ValidationFailed(
-                f"OpenCode research terminal hata verdi (exit={completed.returncode})"
+                f"OpenCode research terminal hata verdi (exit={process.poll()})"
             )
         try:
-            stream = completed.stdout.decode("utf-8", errors="strict")
+            stream = bytes(stdout_reader.buffer).decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:
             raise ValidationFailed("OpenCode research event stream strict UTF-8 olmali") from exc
         text_events, execution = parse_opencode_research_events(stream)
@@ -339,6 +375,7 @@ class OpenCodeResearchAdapter:
         document = bind_opencode_result_document(
             _strict_json(final_text, "OpenCode research result"), execution
         )
+        evidence_manifest_digest = digest(package.get("evidence", []))
         result = validate_opencode_research_result(
             document,
             question_digest=str(package.get("question_digest", "")),
@@ -347,6 +384,7 @@ class OpenCodeResearchAdapter:
                 for item in package.get("evidence", [])
                 if isinstance(item, dict)
             ),
+            evidence_manifest_digest=evidence_manifest_digest,
         )
         result = replace(result, execution=execution)
         require_opencode_execution(result)
@@ -379,6 +417,7 @@ def validate_opencode_research_result(
     *,
     question_digest: str,
     allowed_citation_ids: frozenset[str],
+    evidence_manifest_digest: str,
 ) -> OpenCodeResearchResult:
     _exact_keys(
         document,
@@ -402,6 +441,8 @@ def validate_opencode_research_result(
         verification,
         {
             "verifier_ref",
+            "researcher_payload_digest",
+            "evidence_manifest_digest",
             "verified_finding_ids",
             "rejected_finding_ids",
             "rejection_reasons",
@@ -412,6 +453,19 @@ def validate_opencode_research_result(
     verifier_ref = _text(verification["verifier_ref"], "Verifier ref", maximum=200)
     if researcher_ref == verifier_ref:
         raise PolicyViolation("OpenCode verifier researcher'dan bagimsiz olmali")
+    researcher_payload_digest = _text(
+        verification["researcher_payload_digest"], "Researcher payload digest", maximum=200
+    )
+    verifier_evidence_manifest_digest = _text(
+        verification["evidence_manifest_digest"], "Evidence manifest digest", maximum=200
+    )
+    parse_digest(researcher_payload_digest)
+    parse_digest(verifier_evidence_manifest_digest)
+    computed_payload_digest = digest(researcher)
+    if computed_payload_digest != researcher_payload_digest:
+        raise ValidationFailed("OpenCode verification researcher payload digest uyusmuyor")
+    if verifier_evidence_manifest_digest != evidence_manifest_digest:
+        raise ValidationFailed("OpenCode verification evidence manifest digest uyusmuyor")
     outcome = researcher["outcome"]
     allowed_outcomes = {
         "success",
@@ -477,4 +531,6 @@ def validate_opencode_research_result(
         verified_finding_ids=verified,
         rejected_finding_ids=rejected,
         rejection_reasons=reasons,
+        researcher_payload_digest=computed_payload_digest,
+        evidence_manifest_digest=verifier_evidence_manifest_digest,
     )

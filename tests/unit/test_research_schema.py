@@ -45,6 +45,10 @@ def _assert_conforms(document: dict[str, Any], schema_name: str) -> None:
     assert set(document) <= set(schema["properties"]), schema_name
 
 
+RESEARCHER_PAYLOAD_DIGEST = digest("researcher-payload")
+EVIDENCE_MANIFEST_DIGEST = digest("evidence-manifest")
+
+
 def _report() -> ResearchReport:
     finding = Finding(
         finding_id="f1",
@@ -59,7 +63,12 @@ def _report() -> ResearchReport:
         findings=(finding,),
         unresolved_conflicts=(),
         non_success_results=(),
-        verification=CitationVerification(verifier_ref="v", verified_finding_ids=("f1",)),
+        verification=CitationVerification(
+            verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f1",),
+        ),
         snapshots=(
             SourceSnapshot(
                 snapshot_id="s1",
