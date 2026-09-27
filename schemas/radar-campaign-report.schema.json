@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zekam-radar-campaign-report/v1",
+  "title": "Zekam Radar Campaign Report",
+  "description": "Kanonik kayittan okunabilir/makine-okur kampanya bulgulari ve evidence manifesti.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "campaign_id",
+    "stage",
+    "status",
+    "inventory_summary",
+    "selected_repos",
+    "source_manifest_summary",
+    "sub_research_runs",
+    "coverage_gaps",
+    "budget",
+    "read_only",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "zekam-radar-campaign-report/v1"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["discover", "analyse"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "running", "completed", "failed", "blocked", "recovery-required"]
+    },
+    "inventory_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "owners", "states"],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "selected_repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["owner", "name", "commit_sha"],
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "source_manifest_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "complete", "incomplete"],
+      "properties": {
+        "entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "incomplete": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sub_research_runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_digest", "state", "result_digest"],
+        "properties": {
+          "question_digest": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "result_digest": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_key", "reason"],
+        "properties": {
+          "gap_key": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reserved", "consumed"],
+        "properties": {
+          "reserved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "consumed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "read_only": {
+      "type": "boolean"
+    },
+    "grants_authority": {
+      "type": "boolean",
+      "const": false
+    }
+  }
+}

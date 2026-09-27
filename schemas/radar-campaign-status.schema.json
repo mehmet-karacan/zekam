@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zekam-radar-campaign-status/v1",
+  "title": "Zekam Radar Campaign Status",
+  "description": "Kampanya stage, coverage, usage, blocked/recovery/terminal ayrimi.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "campaign_id",
+    "stage",
+    "state",
+    "completed_work",
+    "pending_work",
+    "coverage_gaps",
+    "consumed_budget",
+    "reserved_budget",
+    "next_safe_action",
+    "latest_checkpoint",
+    "read_only",
+    "grants_authority"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "zekam-radar-campaign-status/v1"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["discover", "analyse"]
+    },
+    "state": {
+      "type": "string",
+      "enum": ["ready", "running", "completed", "failed", "blocked", "recovery-required"]
+    },
+    "completed_work": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pending_work": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_key", "reason"],
+        "properties": {
+          "gap_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "consumed_budget": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "reserved_budget": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "next_safe_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "latest_checkpoint": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "read_only": {
+      "type": "boolean"
+    },
+    "grants_authority": {
+      "type": "boolean",
+      "const": false
+    }
+  }
+}

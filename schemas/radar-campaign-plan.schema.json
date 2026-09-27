@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zekam-radar-campaign-plan/v1",
+  "title": "Zekam Radar Campaign Plan",
+  "description": "Salt-okunur, provider-free bounded muhendislik arastirma kampanya plani.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "operation",
+    "campaign_id",
+    "project_id",
+    "project_slug",
+    "stage",
+    "owners",
+    "budget",
+    "limits",
+    "inventory_digest",
+    "pinned_manifest_digest",
+    "requires_public_source_read_authorization",
+    "requires_agent_run_authorization",
+    "provider_calls_performed",
+    "grants_authority",
+    "plan_digest",
+    "idempotency_key",
+    "dry_run"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "zekam-radar-campaign-plan/v1"
+    },
+    "operation": {
+      "type": "string",
+      "const": "research.radar"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "project_slug": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["discover", "analyse"]
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "bytes", "calls", "tokens"],
+      "properties": {
+        "requests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repos_max", "selected_max", "paths_max", "duration_seconds"],
+      "properties": {
+        "repos_max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "selected_max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "paths_max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "inventory_digest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pinned_manifest_digest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requires_public_source_read_authorization": {
+      "type": "boolean"
+    },
+    "requires_agent_run_authorization": {
+      "type": "boolean"
+    },
+    "provider_calls_performed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "grants_authority": {
+      "type": "boolean",
+      "const": false
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dry_run": {
+      "type": "boolean"
+    }
+  }
+}
