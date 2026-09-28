@@ -33,3 +33,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Geçici paket doğrulama çıktısı (ZEKAM_VALIDATION_RESULT_PATH ile yönlendirilir)
+VALIDATION_RESULT.json
