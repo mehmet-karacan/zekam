@@ -95,8 +95,12 @@ class RadarEvolutionBridge:
         )
         parse_digest(evaluation_dataset_contract_digest)
 
-        change_class = self._resolve_change_class(selection)
+        change_class = self._resolve_change_class(selection, hint=selection.change_class_hint)
         allowed_resources = self._allowed_resources(selection, change_class)
+        metric_specs = (
+            selection.metric_specs if selection.metric_specs is not None else (_PRIMARY_METRIC,)
+        )
+        regression_guards = tuple(spec.metric_id for spec in metric_specs)
 
         return ImprovementCandidate(
             candidate_id=uuid4(),
@@ -108,8 +112,8 @@ class RadarEvolutionBridge:
             patch_digest=selection.selection_digest,
             change_class=change_class,
             allowed_resources=allowed_resources,
-            metric_specs=(_PRIMARY_METRIC,),
-            regression_guards=("quality.mean",),
+            metric_specs=metric_specs,
+            regression_guards=regression_guards,
             evaluation_plan_digest=evaluation_dataset_contract_digest,
             max_iterations=5,
             max_provider_calls=0,
@@ -130,11 +134,18 @@ class RadarEvolutionBridge:
         return value
 
     @staticmethod
-    def _resolve_change_class(selection: RadarCandidateSelection) -> ImprovementChangeClass:
+    def _resolve_change_class(
+        selection: RadarCandidateSelection, *, hint: str | None
+    ) -> ImprovementChangeClass:
         """Pick the smallest safe change class; AUTO_SAFE is forbidden."""
 
         if selection.decision is RadarCandidateDecision.REJECTED_RISK:
             return ImprovementChangeClass.HUMAN_APPROVAL_REQUIRED
+        if hint is not None:
+            hinted = ImprovementChangeClass(hint)
+            if hinted is ImprovementChangeClass.AUTO_SAFE:
+                raise PolicyViolation("Radar selection AUTO_SAFE change class yasak")
+            return hinted
         if any(
             resource in _HUMAN_APPROVAL_RESOURCES
             for resource in selection.affected_logical_resources

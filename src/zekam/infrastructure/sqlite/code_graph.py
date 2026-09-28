@@ -30,9 +30,12 @@ from zekam.application.code_graph import CodeGraphPort, generation_digest
 from zekam.domain.canonical import parse_digest
 from zekam.domain.code_graph import (
     DEPENDENCY_RELATIONS,
+    GraphConfidence,
     GraphEdge,
     GraphFile,
     GraphGeneration,
+    GraphNodeKind,
+    GraphRelation,
     GraphSymbol,
 )
 from zekam.domain.errors import (
@@ -201,9 +204,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
         try:
             for parent in self.path.parents:
                 if not stat.S_ISDIR(parent.lstat().st_mode):
-                    raise ConfigurationError(
-                        "Graph read-only path ancestor must be a directory"
-                    )
+                    raise ConfigurationError("Graph read-only path ancestor must be a directory")
             identities: list[_FileIdentity | None] = []
             for suffix in ("", "-wal", "-journal", "-shm"):
                 candidate = Path(str(self.path) + suffix)
@@ -221,9 +222,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
                         "Graph read-only file/sidecar must be regular, not symlink"
                     )
                 if suffix in {"-wal", "-journal"} and info.st_size:
-                    raise ConfigurationError(
-                        "Graph read-only requires offline checkpointed index"
-                    )
+                    raise ConfigurationError("Graph read-only requires offline checkpointed index")
                 identities.append(
                     (
                         info.st_dev,
@@ -479,9 +478,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
             raise ValidationFailed("Graph generation symbol sinirini asiyor")
         if len(edges) > MAX_EDGES_PER_GENERATION:
             raise ValidationFailed("Graph generation edge sinirini asiyor")
-        if any(
-            file.extractor_profile_digest != extractor_profile_digest for file in files
-        ):
+        if any(file.extractor_profile_digest != extractor_profile_digest for file in files):
             raise ValidationFailed("Graph generation profile/file digest drift")
         generation = self._generation_payload(
             project_id=project_id,
@@ -605,10 +602,11 @@ class SQLiteCodeGraphStore(CodeGraphPort):
                         edge.provenance,
                     ),
                 )
-            for rowid, names in file_symbols.items():
+            for rowid in file_rowids.values():
                 relative = next(
                     file.relative_path for file in files if file_rowids[file.relative_path] == rowid
                 )
+                names = file_symbols.get(rowid, [])
                 self._connection.execute(
                     "insert into graph_file_fts(file_rowid,generation_digest,project_id,"
                     "relative_path,symbol_names) values (?,?,?,?,?)",
@@ -698,12 +696,12 @@ class SQLiteCodeGraphStore(CodeGraphPort):
         return GraphEdge(
             edge_id=str(row["edge_id"]),
             source_symbol_id=str(row["source_symbol_id"]),
-            relation=row["relation"],
+            relation=GraphRelation(str(row["relation"])),
             target_symbol_id=(
                 str(row["target_symbol_id"]) if row["target_symbol_id"] is not None else None
             ),
             target_qualified_name=str(row["target_qualified_name"]),
-            confidence=row["confidence"],
+            confidence=GraphConfidence(str(row["confidence"])),
             provenance=str(row["provenance"]),
         )
 
@@ -779,7 +777,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
             GraphSymbol(
                 symbol_id=str(row["symbol_id"]),
                 qualified_name=str(row["qualified_name"]),
-                kind=row["kind"],
+                kind=GraphNodeKind(str(row["kind"])),
                 file_relative_path=str(row["relative_path"]),
                 parent_symbol_id=(
                     str(row["parent_symbol_id"]) if row["parent_symbol_id"] is not None else None
@@ -787,7 +785,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
                 body_digest=str(row["body_digest"]),
                 start_line=int(row["start_line"]),
                 end_line=int(row["end_line"]),
-                confidence=row["confidence"],
+                confidence=GraphConfidence(str(row["confidence"])),
             )
             for row in rows
         )
@@ -859,9 +857,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
             " on g.generation_digest=c.generation_digest order by c.project_id"
         ).fetchall()
         consistent = all(
-            int(row[1]) == int(row[4])
-            and int(row[2]) == int(row[5])
-            and int(row[3]) == int(row[6])
+            int(row[1]) == int(row[4]) and int(row[2]) == int(row[5]) and int(row[3]) == int(row[6])
             for row in projects
         )
         return {
@@ -870,11 +866,6 @@ class SQLiteCodeGraphStore(CodeGraphPort):
             "project_count": len(projects),
             "generation_counts_consistent": consistent,
             "status": (
-                "passed"
-                if quick
-                and quick[0] == "ok"
-                and not fk
-                and consistent
-                else "failed"
+                "passed" if quick and quick[0] == "ok" and not fk and consistent else "failed"
             ),
         }

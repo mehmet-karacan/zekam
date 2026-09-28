@@ -8,6 +8,12 @@ from zekam.application.radar_evolution_bridge import RadarEvolutionBridge
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.improvement_policy import ImprovementChangeClass
+from zekam.domain.optimization import (
+    MetricAggregation,
+    MetricDirection,
+    MetricRole,
+    MetricSpec,
+)
 from zekam.domain.radar_candidate import (
     RadarCandidateDecision,
     RadarCandidateSelection,
@@ -33,6 +39,8 @@ def _gap_selection(
     *,
     resources: tuple[str, ...] = ("local-index",),
     decision: RadarCandidateDecision = RadarCandidateDecision.GAP_DEMONSTRATED,
+    metric_specs: tuple[MetricSpec, ...] | None = None,
+    change_class_hint: str | None = None,
 ) -> RadarCandidateSelection:
     """Return a minimal gap-derived selection for bridge tests."""
 
@@ -52,6 +60,8 @@ def _gap_selection(
         dependencies="",
         acceptance_test="child payload digest appears in final report",
         rollback="revert fan-in change",
+        metric_specs=metric_specs,
+        change_class_hint=change_class_hint,
     )
 
 
@@ -248,3 +258,94 @@ def test_bridge_hypothesis_summarizes_evidence() -> None:
     )
     assert selection.local_evidence in candidate.hypothesis
     assert selection.upstream_evidence in candidate.hypothesis
+
+
+def _telemetry_metric(metric_id: str = "latency_ms.p95") -> MetricSpec:
+    return MetricSpec(
+        metric_id=metric_id,
+        name="latency",
+        unit="ms",
+        direction=MetricDirection.MINIMIZE,
+        role=MetricRole.PRIMARY,
+        source_kind="telemetry",
+        target_value=100.0,
+        minimum_meaningful_delta=5.0,
+        regression_tolerance=2.0,
+        aggregation=MetricAggregation.P95,
+    )
+
+
+def test_bridge_uses_selection_metric_specs_when_present() -> None:
+    bridge = RadarEvolutionBridge()
+    telemetry = (_telemetry_metric("latency_ms.p95"),)
+    selection = _gap_selection(
+        resources=("local-index",),
+        metric_specs=telemetry,
+    )
+    candidate = bridge.to_improvement_candidate(
+        selection,
+        local_failure_card_digest=digest("failure"),
+        local_baseline_aggregate_digest=digest("baseline"),
+        evaluation_dataset_contract_digest=digest("dataset-contract"),
+    )
+    assert candidate.metric_specs == telemetry
+    assert candidate.regression_guards == ("latency_ms.p95",)
+
+
+def test_bridge_falls_back_to_primary_metric_when_selection_has_none() -> None:
+    bridge = RadarEvolutionBridge()
+    selection = _gap_selection(resources=("local-index",), metric_specs=None)
+    candidate = bridge.to_improvement_candidate(
+        selection,
+        local_failure_card_digest=digest("failure"),
+        local_baseline_aggregate_digest=digest("baseline"),
+        evaluation_dataset_contract_digest=digest("dataset-contract"),
+    )
+    assert candidate.metric_specs[0].metric_id == "quality.mean"
+    assert candidate.regression_guards == ("quality.mean",)
+
+
+def test_bridge_uses_change_class_hint_when_safe() -> None:
+    bridge = RadarEvolutionBridge()
+    selection = _gap_selection(
+        resources=("local-index",),
+        change_class_hint="REVIEW_REQUIRED",
+    )
+    candidate = bridge.to_improvement_candidate(
+        selection,
+        local_failure_card_digest=digest("failure"),
+        local_baseline_aggregate_digest=digest("baseline"),
+        evaluation_dataset_contract_digest=digest("dataset-contract"),
+    )
+    assert candidate.change_class is ImprovementChangeClass.REVIEW_REQUIRED
+
+
+def test_bridge_rejects_auto_safe_change_class_hint() -> None:
+    bridge = RadarEvolutionBridge()
+    selection = _gap_selection(
+        resources=("local-index",),
+        change_class_hint="AUTO_SAFE",
+    )
+    with pytest.raises(PolicyViolation):
+        bridge.to_improvement_candidate(
+            selection,
+            local_failure_card_digest=digest("failure"),
+            local_baseline_aggregate_digest=digest("baseline"),
+            evaluation_dataset_contract_digest=digest("dataset-contract"),
+        )
+
+
+def test_bridge_change_class_hint_overrides_resource_based_resolution() -> None:
+    bridge = RadarEvolutionBridge()
+    # Without hint, local-index would resolve to REVIEW_REQUIRED.
+    selection = _gap_selection(
+        resources=("local-index",),
+        change_class_hint="HUMAN_APPROVAL_REQUIRED",
+    )
+    candidate = bridge.to_improvement_candidate(
+        selection,
+        local_failure_card_digest=digest("failure"),
+        local_baseline_aggregate_digest=digest("baseline"),
+        evaluation_dataset_contract_digest=digest("dataset-contract"),
+    )
+    assert candidate.change_class is ImprovementChangeClass.HUMAN_APPROVAL_REQUIRED

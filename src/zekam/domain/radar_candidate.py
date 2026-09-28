@@ -16,6 +16,7 @@ from typing import Any
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.optimization import MetricSpec
 
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$")
 
@@ -259,6 +260,8 @@ class RadarCandidateSelection:
     rollback: str
     existing_decision: str | None = None
     existing_campaign_id: str | None = None
+    metric_specs: tuple[MetricSpec, ...] | None = None
+    change_class_hint: str | None = None
     created_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     grants_authority: bool = False
 
@@ -294,6 +297,15 @@ class RadarCandidateSelection:
             _reject_secret(self.existing_decision, "existing_decision")
         if self.existing_campaign_id is not None:
             _reject_secret(self.existing_campaign_id, "existing_campaign_id")
+        if self.metric_specs is not None:
+            if not isinstance(self.metric_specs, tuple):
+                raise ValidationFailed("metric_specs tuple olmali")
+            if any(type(item) is not MetricSpec for item in self.metric_specs):
+                raise ValidationFailed("metric_specs elemanlari MetricSpec olmali")
+        if self.change_class_hint is not None:
+            if not isinstance(self.change_class_hint, str):
+                raise ValidationFailed("change_class_hint string olmali")
+            _reject_secret(self.change_class_hint, "change_class_hint")
         if self.created_at.tzinfo is None:
             raise ValidationFailed("zaman damgasi timezone-aware olmali")
 
@@ -322,6 +334,10 @@ class RadarCandidateSelection:
             result["existing_decision"] = self.existing_decision
         if self.existing_campaign_id is not None:
             result["existing_campaign_id"] = self.existing_campaign_id
+        if self.metric_specs is not None:
+            result["metric_specs"] = [spec.as_dict() for spec in self.metric_specs]
+        if self.change_class_hint is not None:
+            result["change_class_hint"] = self.change_class_hint
         return result
 
     @property
@@ -348,6 +364,12 @@ class RadarCandidateSelection:
             "dependencies": self.dependencies,
             "acceptance_test": self.acceptance_test,
             "rollback": self.rollback,
+            "metric_specs": (
+                [spec.as_dict() for spec in self.metric_specs]
+                if self.metric_specs is not None
+                else None
+            ),
+            "change_class_hint": self.change_class_hint,
         }
         return digest(identity)
 
