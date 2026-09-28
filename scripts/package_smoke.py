@@ -260,11 +260,7 @@ def _run_check(
         stdout_digest=digest_of_bytes(completed.stdout),
         stderr_digest=digest_of_bytes(completed.stderr),
         duration_ms=duration_ms,
-        detail=(
-            None
-            if passed
-            else validation_detail or f"exit-{completed.returncode}"
-        ),
+        detail=(None if passed else validation_detail or f"exit-{completed.returncode}"),
     )
 
 
@@ -503,6 +499,11 @@ def accept_wheel(
                 (
                     "opencode.bootstrap-plan",
                     [str(zekam), "init", "--dry-run", "--home", str(zekam_home)],
+                    frozenset({0}),
+                ),
+                (
+                    "cli.research-radar-help",
+                    [str(zekam), "research", "radar", "--help"],
                     frozenset({0}),
                 ),
             )

@@ -96,6 +96,7 @@ exclude = ["/legacy-preserved", "/legacy-preserved/**"]
 "schemas" = "zekam/schemas"
 "modeller" = "zekam/modeller"
 "AKTIF_GOREV.md" = "zekam/AKTIF_GOREV.md"
+"docs/RADAR_RUNBOOK.md" = "zekam/RADAR_RUNBOOK.md"
 
 [tool.ruff]
 line-length = 100

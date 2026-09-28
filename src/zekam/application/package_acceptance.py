@@ -226,6 +226,11 @@ def _package_source_entries(
             source=repository_root / "AKTIF_GOREV.md",
             destination=Path("AKTIF_GOREV.md"),
         )
+        _add_package_file(
+            entries,
+            source=repository_root / "docs" / "RADAR_RUNBOOK.md",
+            destination=Path("RADAR_RUNBOOK.md"),
+        )
     if not entries:
         raise ValidationFailed("Package source bundle bos")
     return [
