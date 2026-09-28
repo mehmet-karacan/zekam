@@ -7,8 +7,11 @@ narrow sub-research questions through the existing ResearchService contract.
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as dt
+import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -133,6 +136,20 @@ class CoverageGap:
     reason: str
 
 
+class CampaignPartial(Exception):
+    """Raised when a stage exhausts its bounded budget before full completion.
+
+    The caller must convert this into a partial terminal state and a checkpoint,
+    not treat it as an unexpected failure.
+    """
+
+    def __init__(self, campaign_id: str, next_safe_action: str, reason: str) -> None:
+        self.campaign_id = campaign_id
+        self.next_safe_action = next_safe_action
+        self.reason = reason
+        super().__init__(f"Campaign {campaign_id} partial: {reason}")
+
+
 @dataclass(frozen=True, slots=True)
 class CampaignStatus:
     campaign_id: str
@@ -173,6 +190,8 @@ def _default_discover_limits() -> dict[str, int]:
         "selected_max": 12,
         "paths_max": 192,
         "duration_seconds": 600,
+        "concurrent_sub_runs": 2,
+        "invocation_attempts": 72,
     }
 
 
@@ -182,6 +201,8 @@ def _default_analyse_limits() -> dict[str, int]:
         "selected_max": 12,
         "paths_max": 192,
         "duration_seconds": 7_200,
+        "concurrent_sub_runs": 2,
+        "invocation_attempts": 72,
     }
 
 
@@ -237,12 +258,8 @@ def build_radar_plan(
         if inventory is None:
             raise PolicyViolation("Analyse plan stale: inventory_digest bulunamadi")
 
-    limits = (
-        _default_discover_limits() if stage == "discover" else _default_analyse_limits()
-    )
-    budget = (
-        _default_discover_budget() if stage == "discover" else _default_analyse_budget()
-    )
+    limits = _default_discover_limits() if stage == "discover" else _default_analyse_limits()
+    budget = _default_discover_budget() if stage == "discover" else _default_analyse_budget()
 
     intent_digest = digest(
         {
@@ -405,7 +422,7 @@ def run_radar_campaign(
         owner_id=f"radar-{os.getpid()}",
         owner_pid=os.getpid(),
         owner_token=owner_token,
-        lease_seconds=min(plan.body["limits"]["duration_seconds"], 3600),
+        lease_seconds=max(1, min(plan.body["limits"]["duration_seconds"], 3600)),
         resources=(f"radar:{plan.plan_digest}",),
         supported_operations=("research.radar",),
         job_id=job.id,
@@ -478,6 +495,35 @@ def run_radar_campaign(
             claim, status="completed", evidence_digest=terminal_evidence
         )
         runtime.finish(work, state="completed", evidence_digest=terminal_evidence)
+    except CampaignPartial as partial:
+        partial_evidence = digest(
+            {
+                "operation": "research.radar",
+                "campaign_id": campaign.campaign_id,
+                "status": "blocked",
+                "reason": partial.reason,
+                "next_safe_action": partial.next_safe_action,
+            }
+        )
+        repo.record_coverage_gap(
+            campaign.id,
+            f"{plan.stage}-partial",
+            partial.reason,
+        )
+        repo.update_campaign_state(campaign.campaign_id, "blocked")
+        repo.record_stage(
+            campaign.id,
+            plan.stage,
+            "blocked",
+            evidence_digest=partial_evidence,
+            next_safe_action=partial.next_safe_action,
+        )
+        checkpoint_sequence += 1
+        _build_checkpoint(repo, campaign.id, checkpoint_sequence, partial.next_safe_action)
+        receipt = runtime.record_receipt(
+            claim, status="completed", evidence_digest=partial_evidence
+        )
+        runtime.finish(work, state="completed", evidence_digest=partial_evidence)
     except Exception as exc:
         failure_evidence = digest(
             {
@@ -511,7 +557,7 @@ def run_radar_campaign(
         "campaign_id": campaign.campaign_id,
         "plan_digest": plan.plan_digest,
         "stage": plan.stage,
-        "state": "completed",
+        "state": status_doc["state"],
         "checkpoint": status_doc["latest_checkpoint"],
         "receipt": {
             "claim_id": claim.id,
@@ -558,7 +604,9 @@ def _run_discover(
         repo.consume_budget(campaign_id, "bytes", inventory.total_response_bytes)
 
     selected = _select_repos(tuple(inventories), limits["selected_max"])
+    paths_max = limits.get("paths_max", 192)
     pins: list[dict[str, Any]] = []
+    manifest_entries: list[dict[str, Any]] = []
     for repo_record in selected:
         pin = adapter.pin_commit(repo_record)
         pins.append(
@@ -570,21 +618,39 @@ def _run_discover(
                 "commit_sha": pin.commit_sha,
             }
         )
+        if len(manifest_entries) >= paths_max:
+            repo.record_coverage_gap(
+                campaign_id,
+                f"paths-max-{repo_record.owner}-{repo_record.name}",
+                (
+                    f"Discover paths_max ({paths_max}) asildi;"
+                    f" {repo_record.owner}/{repo_record.name} atlandi"
+                ),
+            )
+            continue
         # Fetch a bounded README manifest entry for each selected repo.
         blob = adapter.fetch_blob(pin, "README.md")
+        manifest_entries.append(
+            {
+                "path": "README.md",
+                "blob_sha": blob.blob_sha,
+                "raw_content_digest": blob.raw_content_digest,
+                "complete": blob.complete,
+                "omission_reason": blob.omission_reason,
+            }
+        )
         repo.save_pinned_commits(campaign_id, (pins[-1],))
         repo.save_source_manifest(
             campaign_id,
             repo.list_pinned_commits(campaign_id)[-1]["id"],
-            (
-                {
-                    "path": "README.md",
-                    "blob_sha": blob.blob_sha,
-                    "raw_content_digest": blob.raw_content_digest,
-                    "complete": blob.complete,
-                    "omission_reason": blob.omission_reason,
-                },
-            ),
+            (manifest_entries[-1],),
+        )
+    if len(selected) > paths_max:
+        repo.record_coverage_gap(
+            campaign_id,
+            "discover-paths-overflow",
+            f"Discoverda {len(selected)} repo path icin manifest talep edildi;"
+            f" en fazla {paths_max} kaydedildi",
         )
 
 
@@ -609,7 +675,13 @@ def _run_analyse(
         repo.record_coverage_gap(campaign_id, "missing-pins", "Pinned commit bulunamadi")
         return
 
+    limits = plan.body["limits"]
     budget = plan.body["budget"]
+    invocation_limit = int(limits.get("invocation_attempts", 72))
+    concurrent_sub_runs = int(limits.get("concurrent_sub_runs", 2))
+    duration_seconds = int(limits.get("duration_seconds", 7_200))
+    deadline = time.monotonic() + duration_seconds
+
     for category, limit in budget.items():
         if limit > 0:
             repo.reserve_budget(campaign_id, category, limit, limit)
@@ -634,7 +706,7 @@ def _run_analyse(
             }
         )
 
-    max_questions = min(len(pins), 24)
+    max_questions = min(len(pins), budget.get("calls", 24))
     sub_questions = _build_sub_questions(
         plan.project_slug,
         tuple(
@@ -647,6 +719,8 @@ def _run_analyse(
         ),
         max_questions,
     )
+    planned_count = min(len(sub_questions), budget.get("calls", 24))
+    repo.record_planned_invocations(campaign_id, planned_count)
 
     if analyse_dispatcher is None:
         repo.record_coverage_gap(
@@ -656,61 +730,174 @@ def _run_analyse(
         )
         return
 
-    for idx, sub_question in enumerate(sub_questions):
-        if idx >= budget["calls"]:
-            repo.record_coverage_gap(
+    def _deadline_check(label: str) -> None:
+        if time.monotonic() >= deadline:
+            raise CampaignPartial(
                 campaign_id,
-                f"call-limit-{idx}",
-                "Agent call limitine ulasildi",
+                next_safe_action="resume",
+                reason=f"Analyse stage deadline ({duration_seconds}s) asildi: {label}",
             )
-            break
 
-        runs = repo.list_sub_research_runs(campaign_id)
-        question_digest = digest(sub_question)
-        if _is_no_progress(runs, question_digest):
-            repo.record_coverage_gap(
+    submitted: list[concurrent.futures.Future[Any]] = []
+    run_id_by_future: dict[concurrent.futures.Future[Any], str] = {}
+
+    def _drain_submitted() -> None:
+        """Update counters and run states for futures already in flight."""
+        if not submitted:
+            return
+        concurrent.futures.wait(submitted)
+        for future in submitted:
+            if not future.done() or future.cancelled():
+                continue
+            run_id = run_id_by_future[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                repo.update_sub_research_run(run_id, "failed", result={"error": str(exc)})
+                continue
+            sub_question = json.loads(repo.get_sub_research_run(run_id).question_json)
+            measurements = _extract_measurements(result)
+            repo.record_invocation_completed(
                 campaign_id,
-                f"no-progress-{sub_question['question_id']}",
-                "Uc ardisik tamamlanmis alt kosu ayni sonucu tekrarliyor",
+                observed_provider_requests=int(measurements.get("provider_requests") or 0),
             )
-            break
+            repo_key = sub_question["repo_key"]
+            repo_snapshots = tuple(
+                s for s in snapshots if s["snapshot_id"].startswith(f"{repo_key}:")
+            )
+            try:
+                _transform_and_save_analyse(repo, campaign_id, sub_question, repo_snapshots, result)
+                result_payload: dict[str, Any] = {
+                    "result": repr(result)[:1000],
+                    "estimated_tokens": _estimate_tokens(result),
+                }
+                if measurements["tokens"] is not None:
+                    repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
+                    result_payload["measured_tokens"] = measurements["tokens"]
+                else:
+                    result_payload["measured_tokens"] = None
+                    result_payload["missing_measurement_reason"] = measurements.get(
+                        "missing_reason"
+                    )
+                repo.update_sub_research_run(
+                    run_id,
+                    "completed",
+                    result=result_payload,
+                )
+            except Exception as exc:
+                repo.update_sub_research_run(
+                    run_id,
+                    "failed",
+                    result={"error": str(exc)},
+                )
 
+    def _dispatch_one(
+        sub_question: dict[str, Any],
+    ) -> Any:
+        _deadline_check("before-dispatch")
+        repo.record_invocation_started(campaign_id)
         question = _build_research_question(plan, sub_question)
         repo_key = sub_question["repo_key"]
-        repo_snapshots = tuple(
-            s for s in snapshots if s["snapshot_id"].startswith(f"{repo_key}:")
-        )
-        run = repo.save_sub_research_run(campaign_id, sub_question, "running")
-        repo.consume_budget(campaign_id, "calls", 1)
-        try:
-            result = analyse_dispatcher.dispatch(question, repo_snapshots)
-            _transform_and_save_analyse(
-                repo, campaign_id, sub_question, repo_snapshots, result
-            )
-            measurements = _extract_measurements(result)
-            result_payload: dict[str, Any] = {
-                "result": repr(result)[:1000],
-                "estimated_tokens": _estimate_tokens(result),
-            }
-            if measurements["tokens"] is not None:
-                repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
-                result_payload["measured_tokens"] = measurements["tokens"]
-            else:
-                result_payload["measured_tokens"] = None
-                result_payload["missing_measurement_reason"] = measurements.get(
-                    "missing_reason"
+        repo_snapshots = tuple(s for s in snapshots if s["snapshot_id"].startswith(f"{repo_key}:"))
+        return analyse_dispatcher.dispatch(question, repo_snapshots)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, concurrent_sub_runs)
+        ) as executor:
+            for idx, sub_question in enumerate(sub_questions):
+                _deadline_check("before-submit")
+                if idx >= budget.get("calls", 24):
+                    repo.record_coverage_gap(
+                        campaign_id,
+                        f"call-limit-{idx}",
+                        "Agent call limitine ulasildi",
+                    )
+                    break
+
+                runs = repo.list_sub_research_runs(campaign_id)
+                question_digest = digest(sub_question)
+                if _is_no_progress(runs, question_digest):
+                    repo.record_coverage_gap(
+                        campaign_id,
+                        f"no-progress-{sub_question['question_id']}",
+                        "Uc ardisik tamamlanmis alt kosu ayni sonucu tekrarliyor",
+                    )
+                    break
+
+                try:
+                    repo.record_invocation_attempt(campaign_id, invocation_limit)
+                except PolicyViolation as limit_err:
+                    repo.record_coverage_gap(
+                        campaign_id,
+                        f"invocation-limit-{idx}",
+                        f"invocation_attempts limiti ({invocation_limit}) asildi",
+                    )
+                    raise CampaignPartial(
+                        campaign_id,
+                        next_safe_action="resume",
+                        reason=f"invocation_attempts limiti {invocation_limit} asildi",
+                    ) from limit_err
+
+                repo.consume_budget(campaign_id, "calls", 1)
+                run = repo.save_sub_research_run(campaign_id, sub_question, "running")
+                future = executor.submit(_dispatch_one, sub_question)
+                submitted.append(future)
+                run_id_by_future[future] = run.id
+
+            for future in concurrent.futures.as_completed(submitted):
+                _deadline_check("while-collecting")
+                run_id = run_id_by_future[future]
+                try:
+                    result = future.result()
+                except CampaignPartial:
+                    for pending in submitted:
+                        if not pending.done():
+                            pending.cancel()
+                    raise
+                except Exception as exc:
+                    repo.update_sub_research_run(run_id, "failed", result={"error": str(exc)})
+                    continue
+                sub_question = json.loads(repo.get_sub_research_run(run_id).question_json)
+                measurements = _extract_measurements(result)
+                repo.record_invocation_completed(
+                    campaign_id,
+                    observed_provider_requests=int(measurements.get("provider_requests") or 0),
                 )
-            repo.update_sub_research_run(
-                run.id,
-                "completed",
-                result=result_payload,
-            )
-        except Exception as exc:
-            repo.update_sub_research_run(
-                run.id,
-                "failed",
-                result={"error": str(exc)},
-            )
+                repo_key = sub_question["repo_key"]
+                repo_snapshots = tuple(
+                    s for s in snapshots if s["snapshot_id"].startswith(f"{repo_key}:")
+                )
+                try:
+                    _transform_and_save_analyse(
+                        repo, campaign_id, sub_question, repo_snapshots, result
+                    )
+                    result_payload: dict[str, Any] = {
+                        "result": repr(result)[:1000],
+                        "estimated_tokens": _estimate_tokens(result),
+                    }
+                    if measurements["tokens"] is not None:
+                        repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
+                        result_payload["measured_tokens"] = measurements["tokens"]
+                    else:
+                        result_payload["measured_tokens"] = None
+                        result_payload["missing_measurement_reason"] = measurements.get(
+                            "missing_reason"
+                        )
+                    repo.update_sub_research_run(
+                        run_id,
+                        "completed",
+                        result=result_payload,
+                    )
+                except Exception as exc:
+                    repo.update_sub_research_run(
+                        run_id,
+                        "failed",
+                        result={"error": str(exc)},
+                    )
+    except CampaignPartial:
+        _drain_submitted()
+        raise
 
 
 def _transform_and_save_analyse(
@@ -740,7 +927,7 @@ def _transform_and_save_analyse(
     )
     repo_key = sub_question["repo_key"]
     if is_success:
-        card: RadarPatternCard | RadarGapCard = RadarPatternCard(
+        pattern_card = RadarPatternCard(
             card_id=f"radar-pattern:{sub_question['question_id']}",
             campaign_id=campaign_id,
             kind=RadarCandidateKind.PATTERN,
@@ -753,10 +940,10 @@ def _transform_and_save_analyse(
             cost_dependency_limit="unknown until local evaluation",
             not_applicable_conditions="requires exact local problem and measurement",
         )
-        repo.save_pattern_card(campaign_id, card)
-        problem_text = card.problem
+        repo.save_pattern_card(campaign_id, pattern_card)
+        problem_text = pattern_card.problem
     else:
-        card = RadarGapCard(
+        gap_card = RadarGapCard(
             card_id=f"radar-gap:{sub_question['question_id']}",
             campaign_id=campaign_id,
             kind=RadarCandidateKind.GAP,
@@ -768,11 +955,12 @@ def _transform_and_save_analyse(
             uncovered_areas="local baseline comparison not measured",
             result=RadarCandidateDecision.GAP_DEMONSTRATED,
         )
-        repo.save_gap_card(campaign_id, card)
+        repo.save_gap_card(campaign_id, gap_card)
         problem_text = f"gap: {repo_key}"
 
-    selection = decide_automatic(
-        card_id=card.card_id,
+    card_id = pattern_card.card_id if is_success else gap_card.card_id
+    pre_selection = decide_automatic(
+        card_id=card_id,
         campaign_id=campaign_id,
         problem=problem_text,
         local_evidence="Zekam baseline not measured",
@@ -787,6 +975,37 @@ def _transform_and_save_analyse(
         rollback="revert patch",
         is_code_or_schema_change=True,
         has_duplicate=False,
+    )
+    existing = repo.find_duplicate_selection_digest(pre_selection.selection_digest)
+    has_duplicate = existing is not None
+    existing_decision: str | None = None
+    existing_campaign_id: str | None = None
+    if has_duplicate and existing is not None:
+        existing_campaign = repo.get_campaign(existing.campaign_id)
+        existing_campaign_id = existing_campaign.campaign_id
+        existing_decision = existing.decision
+        problem_text = (
+            f"duplicate of {existing.selection_id} from campaign {existing_campaign_id};"
+            f" original decision was {existing_decision}"
+        )
+    selection = decide_automatic(
+        card_id=card_id,
+        campaign_id=campaign_id,
+        problem=problem_text,
+        local_evidence="Zekam baseline not measured",
+        upstream_evidence="source-reviewed" if is_success else "metadata-only",
+        smallest_actionable_solution="evaluate against local fixture",
+        affected_logical_resources=("local-index",),
+        expected_benefit="unknown without measurement",
+        risk="medium",
+        maintenance_burden="unknown",
+        dependencies="requires local evaluation fixture",
+        acceptance_test="existing tests pass with change",
+        rollback="revert patch",
+        is_code_or_schema_change=True,
+        has_duplicate=has_duplicate,
+        existing_decision=existing_decision,
+        existing_campaign_id=existing_campaign_id,
     )
     repo.save_candidate_decision(campaign_id, selection)
 

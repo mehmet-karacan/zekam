@@ -24,7 +24,7 @@ from zekam.domain.radar_candidate import (
     RadarPatternCard,
 )
 
-RADAR_SCHEMA_VERSION = 2
+RADAR_SCHEMA_VERSION = 4
 
 _RADAR_DDL: str = r"""
 create table if not exists radar_schema_migrations (
@@ -46,6 +46,11 @@ create table if not exists radar_campaign (
     plan_json text not null,
     idempotency_key text not null unique,
     effect_claim_id text,
+    invocation_attempts integer not null default 0 check(invocation_attempts >= 0),
+    planned_invocations integer not null default 0 check(planned_invocations >= 0),
+    started_invocations integer not null default 0 check(started_invocations >= 0),
+    completed_invocations integer not null default 0 check(completed_invocations >= 0),
+    observed_provider_requests integer not null default 0 check(observed_provider_requests >= 0),
     created_at text not null,
     updated_at text not null
 ) strict;
@@ -195,6 +200,8 @@ create table if not exists radar_candidate_decision (
     dependencies text not null,
     acceptance_test text not null,
     rollback text not null,
+    existing_decision text,
+    existing_campaign_id text,
     created_at text not null,
     unique(campaign_id, selection_id)
 ) strict;
@@ -216,6 +223,8 @@ create index if not exists radar_gap_card_campaign_idx
     on radar_gap_card(campaign_id, card_id);
 create index if not exists radar_decision_campaign_idx
     on radar_candidate_decision(campaign_id, card_id);
+create index if not exists radar_decision_selection_digest_idx
+    on radar_candidate_decision(selection_digest, created_at desc);
 """
 
 _MIGRATION_DIGEST = digest(_RADAR_DDL)
@@ -232,6 +241,11 @@ class CampaignRow:
     plan_json: str
     idempotency_key: str
     effect_claim_id: str | None
+    invocation_attempts: int
+    planned_invocations: int
+    started_invocations: int
+    completed_invocations: int
+    observed_provider_requests: int
     created_at: str
     updated_at: str
 
@@ -344,6 +358,8 @@ class RadarCandidateDecisionRow:
     dependencies: str
     acceptance_test: str
     rollback: str
+    existing_decision: str | None
+    existing_campaign_id: str | None
     created_at: str
 
 
@@ -392,13 +408,45 @@ class RadarSchemaPort:
                 ).fetchone()
                 current = 0 if existing is None else int(existing["version"])
                 if current < RADAR_SCHEMA_VERSION:
+                    if current < 3:
+                        existing_columns = {
+                            str(row["name"])
+                            for row in connection.execute(
+                                "pragma table_info(radar_campaign)"
+                            ).fetchall()
+                        }
+                        additions = [
+                            "invocation_attempts",
+                            "planned_invocations",
+                            "started_invocations",
+                            "completed_invocations",
+                            "observed_provider_requests",
+                        ]
+                        for column in additions:
+                            if column not in existing_columns:
+                                connection.execute(
+                                    f"alter table radar_campaign add column {column}"
+                                    " integer not null default 0"
+                                )
+                    if current < 4:
+                        decision_columns = {
+                            str(row["name"])
+                            for row in connection.execute(
+                                "pragma table_info(radar_candidate_decision)"
+                            ).fetchall()
+                        }
+                        for column in ("existing_decision", "existing_campaign_id"):
+                            if column not in decision_columns:
+                                connection.execute(
+                                    f"alter table radar_candidate_decision add column {column} text"
+                                )
                     connection.execute(
                         "insert into radar_schema_migrations"
                         " (version, name, migration_digest, applied_at)"
                         " values (?, ?, ?, ?)",
                         (
                             RADAR_SCHEMA_VERSION,
-                            "radar-campaign-initial-v1",
+                            "radar-campaign-duplicate-provenance-v4",
                             _MIGRATION_DIGEST,
                             _now(),
                         ),
@@ -510,6 +558,11 @@ class RadarCampaignRepository:
             plan_json=plan_json,
             idempotency_key=idempotency_key,
             effect_claim_id=None,
+            invocation_attempts=0,
+            planned_invocations=0,
+            started_invocations=0,
+            completed_invocations=0,
+            observed_provider_requests=0,
             created_at=now,
             updated_at=now,
         )
@@ -841,9 +894,7 @@ class RadarCampaignRepository:
             created_at=now,
         )
 
-    def consume_budget(
-        self, campaign_id: str, category: str, amount: int
-    ) -> BudgetReservationRow:
+    def consume_budget(self, campaign_id: str, category: str, amount: int) -> BudgetReservationRow:
         if category not in {"requests", "bytes", "calls", "tokens"}:
             raise ValidationFailed("Budget category gecersiz")
         if not isinstance(amount, int) or amount < 0:
@@ -898,9 +949,7 @@ class RadarCampaignRepository:
             }
         return result
 
-    def _latest_budget_row(
-        self, campaign_id: str, category: str
-    ) -> BudgetReservationRow | None:
+    def _latest_budget_row(self, campaign_id: str, category: str) -> BudgetReservationRow | None:
         with self._connect() as connection:
             row = connection.execute(
                 "select * from radar_budget_reservation where campaign_id = ? and category = ?"
@@ -1014,9 +1063,94 @@ class RadarCampaignRepository:
             ).fetchall()
         return tuple(self._row_to_sub_run(row) for row in rows)
 
-    def record_coverage_gap(
-        self, campaign_id: str, gap_key: str, reason: str
-    ) -> CoverageGapRow:
+    def record_planned_invocations(self, campaign_row_id: str, count: int) -> CampaignRow:
+        if not isinstance(count, int) or count < 0:
+            raise ValidationFailed("planned_invocations negatif olamaz")
+        now = _now()
+        with self._connect() as connection:
+            connection.execute("begin immediate")
+            try:
+                connection.execute(
+                    "update radar_campaign set planned_invocations = ?, updated_at = ?"
+                    " where id = ?",
+                    (count, now, campaign_row_id),
+                )
+                if connection.total_changes == 0:
+                    raise NotFound("Campaign bulunamadi")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.get_campaign(campaign_row_id)
+
+    def record_invocation_attempt(self, campaign_row_id: str, limit: int) -> CampaignRow:
+        if not isinstance(limit, int) or limit <= 0:
+            raise ValidationFailed("invocation_attempts limiti pozitif integer olmali")
+        with self._connect() as connection:
+            connection.execute("begin immediate")
+            try:
+                row = connection.execute(
+                    "select invocation_attempts from radar_campaign where id = ?",
+                    (campaign_row_id,),
+                ).fetchone()
+                if row is None:
+                    raise NotFound("Campaign bulunamadi")
+                current = int(row["invocation_attempts"])
+                if current >= limit:
+                    raise PolicyViolation(f"invocation_attempts limit asildi: {current} >= {limit}")
+                connection.execute(
+                    "update radar_campaign set invocation_attempts = invocation_attempts + 1,"
+                    " updated_at = ? where id = ?",
+                    (_now(), campaign_row_id),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.get_campaign(campaign_row_id)
+
+    def record_invocation_started(self, campaign_row_id: str) -> CampaignRow:
+        now = _now()
+        with self._connect() as connection:
+            connection.execute("begin immediate")
+            try:
+                connection.execute(
+                    "update radar_campaign set started_invocations = started_invocations + 1,"
+                    " updated_at = ? where id = ?",
+                    (now, campaign_row_id),
+                )
+                if connection.total_changes == 0:
+                    raise NotFound("Campaign bulunamadi")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.get_campaign(campaign_row_id)
+
+    def record_invocation_completed(
+        self, campaign_row_id: str, *, observed_provider_requests: int = 0
+    ) -> CampaignRow:
+        if observed_provider_requests < 0:
+            raise ValidationFailed("observed_provider_requests negatif olamaz")
+        now = _now()
+        with self._connect() as connection:
+            connection.execute("begin immediate")
+            try:
+                connection.execute(
+                    "update radar_campaign set completed_invocations = completed_invocations + 1,"
+                    " observed_provider_requests = observed_provider_requests + ?,"
+                    " updated_at = ? where id = ?",
+                    (observed_provider_requests, now, campaign_row_id),
+                )
+                if connection.total_changes == 0:
+                    raise NotFound("Campaign bulunamadi")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.get_campaign(campaign_row_id)
+
+    def record_coverage_gap(self, campaign_id: str, gap_key: str, reason: str) -> CoverageGapRow:
         if not gap_key or not reason:
             raise ValidationFailed("Coverage gap key/reason bos olamaz")
         gap_id = str(new_uuid7())
@@ -1120,9 +1254,7 @@ class RadarCampaignRepository:
         completed = [r.question_digest for r in runs if r.state == "completed"]
         pending = [r.question_digest for r in runs if r.state in {"pending", "running"}]
         latest_stage = self._latest_stage(campaign_id)
-        next_safe_action = (
-            latest_stage["next_safe_action"] if latest_stage is not None else "plan"
-        )
+        next_safe_action = latest_stage["next_safe_action"] if latest_stage is not None else "plan"
         return {
             "schema": "zekam-radar-campaign-status/v1",
             "campaign_id": campaign_id,
@@ -1130,11 +1262,13 @@ class RadarCampaignRepository:
             "state": campaign.state,
             "completed_work": completed,
             "pending_work": pending,
-            "coverage_gaps": [
-                {"gap_key": g.gap_key, "reason": g.reason} for g in gaps
-            ],
+            "coverage_gaps": [{"gap_key": g.gap_key, "reason": g.reason} for g in gaps],
             "consumed_budget": {k: v.get("consumed", 0) for k, v in budget.items()},
             "reserved_budget": {k: v.get("reserved", 0) for k, v in budget.items()},
+            "planned_invocations": campaign.planned_invocations,
+            "started_invocations": campaign.started_invocations,
+            "completed_invocations": campaign.completed_invocations,
+            "observed_provider_requests": campaign.observed_provider_requests,
             "next_safe_action": next_safe_action,
             "latest_checkpoint": None if checkpoint is None else checkpoint.checkpoint_digest,
             "read_only": True,
@@ -1192,9 +1326,7 @@ class RadarCampaignRepository:
                 }
                 for r in runs
             ],
-            "coverage_gaps": [
-                {"gap_key": g.gap_key, "reason": g.reason} for g in gaps
-            ],
+            "coverage_gaps": [{"gap_key": g.gap_key, "reason": g.reason} for g in gaps],
             "budget": budget,
             "read_only": True,
             "grants_authority": False,
@@ -1212,6 +1344,11 @@ class RadarCampaignRepository:
             plan_json=str(row["plan_json"]),
             idempotency_key=str(row["idempotency_key"]),
             effect_claim_id=row["effect_claim_id"],
+            invocation_attempts=int(row["invocation_attempts"]),
+            planned_invocations=int(row["planned_invocations"]),
+            started_invocations=int(row["started_invocations"]),
+            completed_invocations=int(row["completed_invocations"]),
+            observed_provider_requests=int(row["observed_provider_requests"]),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
         )
@@ -1411,8 +1548,9 @@ class RadarCampaignRepository:
                     " (id, campaign_id, selection_id, selection_digest, card_id, decision,"
                     " problem, local_evidence, upstream_evidence, smallest_actionable_solution,"
                     " affected_logical_resources_json, expected_benefit, risk,"
-                    " maintenance_burden, dependencies, acceptance_test, rollback, created_at)"
-                    " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " maintenance_burden, dependencies, acceptance_test, rollback,"
+                    " existing_decision, existing_campaign_id, created_at)"
+                    " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         row_id,
                         campaign.id,
@@ -1431,6 +1569,8 @@ class RadarCampaignRepository:
                         selection.dependencies,
                         selection.acceptance_test,
                         selection.rollback,
+                        selection.existing_decision,
+                        selection.existing_campaign_id,
                         now,
                     ),
                 )
@@ -1456,12 +1596,12 @@ class RadarCampaignRepository:
             dependencies=selection.dependencies,
             acceptance_test=selection.acceptance_test,
             rollback=selection.rollback,
+            existing_decision=selection.existing_decision,
+            existing_campaign_id=selection.existing_campaign_id,
             created_at=now,
         )
 
-    def list_candidate_decisions(
-        self, campaign_id: str
-    ) -> tuple[RadarCandidateDecisionRow, ...]:
+    def list_candidate_decisions(self, campaign_id: str) -> tuple[RadarCandidateDecisionRow, ...]:
         campaign = self.get_campaign(campaign_id)
         with self._connect() as connection:
             rows = connection.execute(
@@ -1469,6 +1609,26 @@ class RadarCampaignRepository:
                 (campaign.id,),
             ).fetchall()
         return tuple(self._row_to_decision(row) for row in rows)
+
+    def find_duplicate_selection_digest(
+        self, selection_digest: str
+    ) -> RadarCandidateDecisionRow | None:
+        """Return the most recent candidate decision with the same selection digest.
+
+        Looks across all campaigns so a candidate that already appeared in a previous
+        campaign is linked to its prior provenance instead of creating a duplicate task.
+        """
+
+        _validate_digest_value(selection_digest, "Selection digest")
+        with self._connect() as connection:
+            row = connection.execute(
+                "select * from radar_candidate_decision where selection_digest = ?"
+                " order by created_at desc limit 1",
+                (selection_digest,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_decision(row)
 
     def candidates_document(self, campaign_id: str) -> dict[str, Any]:
         """Read-only candidate view for CLI/report surfaces."""
@@ -1569,5 +1729,7 @@ class RadarCampaignRepository:
             dependencies=str(row["dependencies"]),
             acceptance_test=str(row["acceptance_test"]),
             rollback=str(row["rollback"]),
+            existing_decision=row["existing_decision"],
+            existing_campaign_id=row["existing_campaign_id"],
             created_at=str(row["created_at"]),
         )

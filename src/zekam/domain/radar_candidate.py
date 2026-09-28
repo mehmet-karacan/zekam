@@ -257,6 +257,8 @@ class RadarCandidateSelection:
     dependencies: str
     acceptance_test: str
     rollback: str
+    existing_decision: str | None = None
+    existing_campaign_id: str | None = None
     created_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     grants_authority: bool = False
 
@@ -288,11 +290,15 @@ class RadarCandidateSelection:
             raise ValidationFailed("affected_logical_resources sirali ve benzersiz olmali")
         for resource in self.affected_logical_resources:
             _safe(resource, "affected_logical_resources")
+        if self.existing_decision is not None:
+            _reject_secret(self.existing_decision, "existing_decision")
+        if self.existing_campaign_id is not None:
+            _reject_secret(self.existing_campaign_id, "existing_campaign_id")
         if self.created_at.tzinfo is None:
             raise ValidationFailed("zaman damgasi timezone-aware olmali")
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "schema": "zekam-radar-candidate-selection/v1",
             "selection_id": self.selection_id,
             "campaign_id": self.campaign_id,
@@ -312,10 +318,38 @@ class RadarCandidateSelection:
             "created_at": self.created_at.isoformat(),
             "grants_authority": False,
         }
+        if self.existing_decision is not None:
+            result["existing_decision"] = self.existing_decision
+        if self.existing_campaign_id is not None:
+            result["existing_campaign_id"] = self.existing_campaign_id
+        return result
 
     @property
     def selection_digest(self) -> str:
-        return digest(self.as_dict())
+        """Stable identity digest of the candidate, excluding campaign-specific fields.
+
+        Two selections that represent the same candidate in different campaigns
+        produce the same digest so cross-campaign duplicate detection can link
+        them to prior provenance.
+        """
+
+        identity = {
+            "schema": "zekam-radar-candidate-selection/v1",
+            "card_id": self.card_id,
+            "decision": str(self.decision),
+            "problem": self.problem,
+            "local_evidence": self.local_evidence,
+            "upstream_evidence": self.upstream_evidence,
+            "smallest_actionable_solution": self.smallest_actionable_solution,
+            "affected_logical_resources": list(self.affected_logical_resources),
+            "expected_benefit": self.expected_benefit,
+            "risk": self.risk,
+            "maintenance_burden": self.maintenance_burden,
+            "dependencies": self.dependencies,
+            "acceptance_test": self.acceptance_test,
+            "rollback": self.rollback,
+        }
+        return digest(identity)
 
 
 def decide_automatic(
@@ -335,17 +369,21 @@ def decide_automatic(
     rollback: str,
     is_code_or_schema_change: bool = False,
     has_duplicate: bool = False,
+    existing_decision: str | None = None,
+    existing_campaign_id: str | None = None,
 ) -> RadarCandidateSelection:
     """Produce an authority-free automatic decision without AUTO_SAFE.
 
-    Code/schema/security/root proposals are always ``rejected-risk`` because they
+    Code/schema/security proposals are always ``rejected-risk`` because they
     must go through the existing improvement/evaluation/rollout boundary.
+    A previously seen candidate is marked ``duplicate`` instead so the prior
+    decision and campaign provenance are preserved.
     """
 
-    if is_code_or_schema_change:
-        decision = RadarCandidateDecision.REJECTED_RISK
-    elif has_duplicate:
+    if has_duplicate:
         decision = RadarCandidateDecision.DUPLICATE
+    elif is_code_or_schema_change:
+        decision = RadarCandidateDecision.REJECTED_RISK
     elif not upstream_evidence.strip() or upstream_evidence.strip() == "metadata-only":
         decision = RadarCandidateDecision.EVIDENCE_INSUFFICIENT
     elif dependencies.strip():
@@ -368,4 +406,6 @@ def decide_automatic(
         dependencies=dependencies,
         acceptance_test=acceptance_test,
         rollback=rollback,
+        existing_decision=existing_decision,
+        existing_campaign_id=existing_campaign_id,
     )
