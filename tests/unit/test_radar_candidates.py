@@ -95,7 +95,10 @@ class _FakeGitHubAdapter:
             total_response_bytes=200,
             receipts=(
                 FetchReceipt(
-                    "GET", f"/orgs/{owner}/repos", 200, 200,
+                    "GET",
+                    f"/orgs/{owner}/repos",
+                    200,
+                    200,
                     observed_at="2026-01-01T00:00:00Z",
                 ),
             ),

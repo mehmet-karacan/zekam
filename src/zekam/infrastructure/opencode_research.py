@@ -262,6 +262,8 @@ def parse_opencode_research_events(
         raise PolicyViolation("OpenCode iki gercek delegated task kaniti ister")
     if not text_events:
         raise ValidationFailed("OpenCode research terminal text eventi uretmedi")
+    if len(text_events) > 1:
+        raise ValidationFailed("OpenCode research tek terminal text payload ister")
     return tuple(text_events), OpenCodeExecutionEvidence(root_session_id, tuple(calls))
 
 
@@ -361,9 +363,7 @@ class OpenCodeResearchAdapter:
         if stdout_reader.overflow.is_set() or stderr_reader.overflow.is_set():
             raise ValidationFailed("OpenCode research output bounded siniri asiyor")
         if process.poll() != 0:
-            raise ValidationFailed(
-                f"OpenCode research terminal hata verdi (exit={process.poll()})"
-            )
+            raise ValidationFailed(f"OpenCode research terminal hata verdi (exit={process.poll()})")
         try:
             stream = bytes(stdout_reader.buffer).decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:

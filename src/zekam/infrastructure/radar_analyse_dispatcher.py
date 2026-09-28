@@ -97,7 +97,7 @@ class ResearchServiceAnalyseDispatcher:
             snapshots=snapshots,
         )
         nodes = tuple(
-            ResearchNode(node_id=node_id, role=role, dependencies=deps)
+            ResearchNode(node_id=node_id, role=role, depends_on=deps)
             for node_id, role, deps in default_dag_nodes()
         )
         dag = ResearchDag(question_id=question.question_id, nodes=nodes)
@@ -172,6 +172,3 @@ class FakeAnalyseDispatcher:
             if self._measured_tokens is not None
             else "Fake dispatcher does not emit telemetry; tokens are not estimated",
         )
-
-
-

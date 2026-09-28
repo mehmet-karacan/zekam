@@ -117,12 +117,8 @@ def runtime(tmp_path: Path) -> tuple[Path, OperationalStore, Any]:
     return home, store, project
 
 
-def _run_discover(
-    home: Path, store: OperationalStore
-) -> tuple[CampaignPlan, Any]:
-    plan = build_radar_plan(
-        store, home, project_ref="demo", stage="discover", owners=("openai",)
-    )
+def _run_discover(home: Path, store: OperationalStore) -> tuple[CampaignPlan, Any]:
+    plan = build_radar_plan(store, home, project_ref="demo", stage="discover", owners=("openai",))
     adapter = _FakeGitHubAdapter()
     result = run_radar_campaign(
         store,
@@ -203,9 +199,7 @@ def test_plan_digest_changes_when_source_binding_changes(
     """A32: different owner scope produces a different plan digest/authorization."""
 
     home, store, _project = runtime
-    plan_a = build_radar_plan(
-        store, home, project_ref="demo", stage="discover", owners=("openai",)
-    )
+    plan_a = build_radar_plan(store, home, project_ref="demo", stage="discover", owners=("openai",))
     plan_b = build_radar_plan(
         store,
         home,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from zekam.application.research_runtime import (
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.research import Citation, Finding
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.opencode_research import (
     OpenCodeAgentCall,
@@ -278,20 +280,22 @@ def test_opencode_result_requires_terminal_verdict_for_every_finding() -> None:
         },
         "verification": {
             "verifier_ref": "agent-b",
-            "researcher_payload_digest": digest({
-                "agent_ref": "agent-a",
-                "outcome": "success",
-                "findings": [
-                    {
-                        "finding_id": "finding-1",
-                        "claim": "Kaynakta servis tanimlidir.",
-                        "confidence": "high",
-                        "citation_ids": ["chunk-1"],
-                    }
-                ],
-                "objections": [],
-                "blocker": None,
-            }),
+            "researcher_payload_digest": digest(
+                {
+                    "agent_ref": "agent-a",
+                    "outcome": "success",
+                    "findings": [
+                        {
+                            "finding_id": "finding-1",
+                            "claim": "Kaynakta servis tanimlidir.",
+                            "confidence": "high",
+                            "citation_ids": ["chunk-1"],
+                        }
+                    ],
+                    "objections": [],
+                    "blocker": None,
+                }
+            ),
             "evidence_manifest_digest": digest([]),
             "verified_finding_ids": [],
             "rejected_finding_ids": [],
@@ -369,20 +373,22 @@ def _valid_document() -> dict[str, object]:
         },
         "verification": {
             "verifier_ref": "agent-b",
-            "researcher_payload_digest": digest({
-                "agent_ref": "agent-a",
-                "outcome": "success",
-                "findings": [
-                    {
-                        "finding_id": "finding-1",
-                        "claim": "Kaynakta servis tanimlidir.",
-                        "confidence": "high",
-                        "citation_ids": ["chunk-1"],
-                    }
-                ],
-                "objections": [],
-                "blocker": None,
-            }),
+            "researcher_payload_digest": digest(
+                {
+                    "agent_ref": "agent-a",
+                    "outcome": "success",
+                    "findings": [
+                        {
+                            "finding_id": "finding-1",
+                            "claim": "Kaynakta servis tanimlidir.",
+                            "confidence": "high",
+                            "citation_ids": ["chunk-1"],
+                        }
+                    ],
+                    "objections": [],
+                    "blocker": None,
+                }
+            ),
             "evidence_manifest_digest": digest([]),
             "verified_finding_ids": ["finding-1"],
             "rejected_finding_ids": [],
@@ -488,4 +494,207 @@ def test_citation_tracks_original_and_delivered_digest(monkeypatch, tmp_path: Pa
     citation = result["report"]["findings"][0]["citations"][0]
     assert citation["source_content_digest"] == digest("class Demo")
     assert citation["content_digest"] == digest("class DemoMusteriService {}")
-    assert citation["source_content_digest"] != citation["content_digest"]
+    assert citation["slice_digest"] == citation["content_digest"]
+
+
+def test_research_run_rejects_tampered_citation_slice_digest(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """A07: runtime citation slice_digest dogrulamasi reddeder."""
+    from zekam.application import research_runtime as runtime_subject
+
+    home, store, project = _runtime(tmp_path, monkeypatch)
+
+    original_role_result = runtime_subject._role_result
+
+    def tampered_role_result(result, by_citation):
+        role, verification = original_role_result(result, by_citation)
+        tampered_citation = role.findings[0].citations[0]
+        tampered_finding = Finding(
+            finding_id=role.findings[0].finding_id,
+            claim=role.findings[0].claim,
+            citations=(
+                Citation(
+                    snapshot_id=tampered_citation.snapshot_id,
+                    locator_detail=tampered_citation.locator_detail,
+                    content_digest=tampered_citation.content_digest,
+                    source_content_digest=tampered_citation.source_content_digest,
+                    slice_digest=digest("tampered-slice"),
+                ),
+            ),
+            confidence=role.findings[0].confidence,
+        )
+        from zekam.domain.research import RoleResult
+
+        return (
+            RoleResult(
+                role=role.role,
+                agent_ref=role.agent_ref,
+                outcome=role.outcome,
+                payload_digest=role.payload_digest,
+                findings=(tampered_finding,),
+                objections=role.objections,
+                blocker=role.blocker,
+            ),
+            verification,
+        )
+
+    monkeypatch.setattr(runtime_subject, "_role_result", tampered_role_result)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    with pytest.raises(ValidationFailed, match="slice_digest"):
+        run_research(
+            store,
+            home,
+            plan,
+            expected_run_digest=plan.run_digest,
+            authorize_remote_query=True,
+            authorize_agent_run=True,
+            adapter=FakeAdapter(),
+        )
+
+
+def test_legacy_report_replay_does_not_gain_new_verifier(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """A45: old report replay keeps historical data and stays legacy-unverified."""
+    from zekam.application.knowledge_file_plane import (
+        KnowledgeClassification,
+        generated_note_bytes,
+        note_content_digest,
+    )
+
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+
+    # Create a legacy report without agent_execution evidence.
+    legacy_report = {
+        "schema": "zekam-research-report/v1",
+        "report_id": "legacy-report-1",
+        "question_id": plan.body["question"]["question_id"],
+        "question_digest": plan.body["question_digest"],
+        "status": "answered",
+        "findings": [
+            {
+                "finding_id": "legacy-finding-1",
+                "claim": "Tarihsel bulgu.",
+                "citations": [
+                    {
+                        "snapshot_id": "legacy-snap-1",
+                        "locator_detail": "line 1-5",
+                        "content_digest": digest("legacy-body"),
+                    }
+                ],
+                "confidence": "medium",
+            }
+        ],
+        "unresolved_conflicts": [],
+        "non_success_results": [],
+        "verification": {
+            "verifier_ref": "legacy-verifier",
+            "researcher_payload_digest": digest("legacy-researcher"),
+            "evidence_manifest_digest": digest([]),
+            "verified_finding_ids": ["legacy-finding-1"],
+            "rejected_finding_ids": [],
+            "rejection_reasons": [],
+        },
+        "snapshots": [
+            {
+                "snapshot_id": "legacy-snap-1",
+                "kind": "repository",
+                "locator": "docs/Legacy.md",
+                "content_digest": digest("legacy-body"),
+                "revision": "abc123",
+                "host": None,
+            }
+        ],
+        "grants_authority": False,
+    }
+    report_without_digest = dict(legacy_report)
+    report_digest = digest(report_without_digest)
+    legacy_report["report_digest"] = report_digest
+
+    # Materialize legacy projection.
+    from zekam.application.knowledge_file_plane import KnowledgeNoteManifest
+    from zekam.application.research_runtime import _LOCAL_REALM_ID
+
+    markdown = subject._report_markdown(plan.body["question"]["question"], legacy_report)
+    payload = generated_note_bytes(
+        owner_scope=f"project:{plan.project_id}",
+        project_slug=plan.project_slug,
+        note_kind="research",
+        classification=KnowledgeClassification.INTERNAL,
+        source_refs=("research-runs/legacy-job-1",),
+        source_digests=(report_digest,),
+        generated_at=subject._timestamp(),
+        generator_version="zekam-research-runtime/v1",
+        body=markdown,
+    )
+    content_digest = note_content_digest(payload)
+    manifest = KnowledgeNoteManifest(
+        owner_scope=f"project:{plan.project_id}",
+        project_slug=plan.project_slug,
+        note_kind="research",
+        authorship="generated",
+        classification=KnowledgeClassification.INTERNAL,
+        portable_ref=plan.projection_ref,
+        content_digest=content_digest,
+    )
+    files = KnowledgeFileStore(home)
+    evidence_digest = digest(
+        {
+            "portable_ref": manifest.portable_ref,
+            "content_digest": content_digest,
+            "report_digest": report_digest,
+        }
+    )
+    with store.unit_of_work() as uow:
+        note = uow.register_knowledge_note(
+            realm_id=_LOCAL_REALM_ID,
+            project_id=plan.project_id,
+            owner_scope=manifest.owner_scope,
+            portable_ref=manifest.portable_ref,
+            note_kind=manifest.note_kind,
+            authorship=manifest.authorship,
+            classification=manifest.classification.value,
+            content_digest=manifest.content_digest,
+        )
+        files.create_note(manifest, payload)
+        uow.confirm_knowledge_note(
+            note_id=note.id,
+            expected_content_digest=content_digest,
+            evidence_digest=evidence_digest,
+        )
+        uow.commit()
+
+    # Enqueue a job and record a receipt tied to the legacy report digest.
+    job, _created = runtime.enqueue(
+        idempotency_key=str(plan.body["idempotency_key"]),
+        payload=dict(plan.body) | {"dry_run": False},
+        max_attempts=1,
+    )
+    work = runtime.claim_next(
+        owner_id=f"research-{os.getpid()}",
+        owner_pid=os.getpid(),
+        owner_token=os.urandom(32).hex(),
+        lease_seconds=600,
+        resources=(f"research:{plan.run_digest}",),
+        supported_operations=("research.run",),
+        job_id=job.id,
+    )
+    claim, _created = runtime.claim_effect(
+        work,
+        operation="opencode.research",
+        effect_digest=digest({"run_digest": plan.run_digest}),
+        idempotency_key=f"research:{plan.run_digest}:effect",
+    )
+    runtime.record_receipt(claim, status="completed", evidence_digest=report_digest)
+    runtime.finish(work, state="completed", evidence_digest=report_digest)
+
+    surface = research_report(runtime, store, files, job.id)
+
+    assert surface["verified"] is False
+    assert surface["provenance"] == "legacy-unverified"
+    assert surface["report"]["findings"][0]["finding_id"] == "legacy-finding-1"
+    assert surface["report"]["report_digest"] == report_digest
+    assert surface["grants_authority"] is False

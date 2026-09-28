@@ -78,7 +78,10 @@ class FakeGitHubAdapter:
                 total_response_bytes=2,
                 receipts=(
                     FetchReceipt(
-                        "GET", f"/orgs/{owner}/repos", 200, 2,
+                        "GET",
+                        f"/orgs/{owner}/repos",
+                        200,
+                        2,
                         observed_at="2026-01-01T00:00:00Z",
                     ),
                 ),
@@ -123,7 +126,10 @@ class FakeGitHubAdapter:
                 total_response_bytes=200,
                 receipts=(
                     FetchReceipt(
-                        "GET", f"/orgs/{owner}/repos", 200, 200,
+                        "GET",
+                        f"/orgs/{owner}/repos",
+                        200,
+                        200,
                         observed_at="2026-01-01T00:00:00Z",
                     ),
                 ),
@@ -138,7 +144,10 @@ class FakeGitHubAdapter:
             total_response_bytes=200,
             receipts=(
                 FetchReceipt(
-                    "GET", f"/orgs/{owner}/repos", 200, 200,
+                    "GET",
+                    f"/orgs/{owner}/repos",
+                    200,
+                    200,
                     observed_at="2026-01-01T00:00:00Z",
                 ),
             ),
@@ -408,9 +417,7 @@ def test_run_analyse_uses_inventory_digest(
     repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
     inventories = repo.list_inventories(discover_result["campaign_id"])
     inventory_digest = inventories[0].inventory_digest
-    analyse_plan = _plan(
-        home, store, stage="analyse", inventory_digest=inventory_digest
-    )
+    analyse_plan = _plan(home, store, stage="analyse", inventory_digest=inventory_digest)
     analyse_result = run_radar_campaign(
         store,
         home,
@@ -537,9 +544,7 @@ def test_analyse_passes_only_relevant_snapshots(
             calls.append((question.question_id, snapshots))
             return FakeAnalyseDispatcher().dispatch(question, snapshots)
 
-    analyse_plan = _plan(
-        home, store, stage="analyse", inventory_digest=inventory_digest
-    )
+    analyse_plan = _plan(home, store, stage="analyse", inventory_digest=inventory_digest)
     run_radar_campaign(
         store,
         home,

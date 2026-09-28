@@ -53,6 +53,33 @@ _FIXED_SHA = "a" * 40
 _FIXED_SHA_ADVANCED = "b" * 40
 
 
+def _repo_item(
+    repo_id: int,
+    name: str,
+    *,
+    fork: bool = False,
+    archived: bool = False,
+) -> dict[str, object]:
+    return {
+        "id": repo_id,
+        "owner": {"login": "test"},
+        "name": name,
+        "full_name": f"test/{name}",
+        "default_branch": "main",
+        "private": False,
+        "fork": fork,
+        "archived": archived,
+        "disabled": False,
+    }
+
+
+def _default_inventory_pages(host: str) -> list[list[dict[str, object]]]:
+    return [
+        [_repo_item(1, "alpha")],
+        [_repo_item(2, "beta", fork=True)],
+    ]
+
+
 @pytest.fixture(autouse=True)
 def _reset_fake_handler_state() -> None:
     _FakeGitHubHandler.calls.clear()
@@ -61,8 +88,15 @@ def _reset_fake_handler_state() -> None:
     _FakeGitHubHandler.blob_etag = '"v1"'
     _FakeGitHubHandler.blob_body = b"# alpha\n\nSample README.\n"
     _FakeGitHubHandler.redirect_target = None
+    _FakeGitHubHandler.inventory_pages = None
+    _FakeGitHubHandler.inventory_fail_page = None
+    _FakeGitHubHandler.inventory_fail_status = 403
+    _FakeGitHubHandler.tree_responses = {}
     yield
     _FakeGitHubHandler.redirect_target = None
+    _FakeGitHubHandler.inventory_pages = None
+    _FakeGitHubHandler.inventory_fail_page = None
+    _FakeGitHubHandler.tree_responses = {}
 
 
 class _FakeGitHubHandler(BaseHTTPRequestHandler):
@@ -72,6 +106,10 @@ class _FakeGitHubHandler(BaseHTTPRequestHandler):
     redirect_target: ClassVar[str | None] = None
     last_request_headers: ClassVar[dict[str, str] | None] = None
     captured_authorization: ClassVar[str | None] = None
+    inventory_pages: ClassVar[list[list[dict[str, object]]] | None] = None
+    inventory_fail_page: ClassVar[int | None] = None
+    inventory_fail_status: ClassVar[int] = 403
+    tree_responses: ClassVar[dict[str, dict[str, object]]] = {}
 
     def log_message(self, *args: object) -> None:
         pass
@@ -83,56 +121,64 @@ class _FakeGitHubHandler(BaseHTTPRequestHandler):
         if auth:
             _FakeGitHubHandler.captured_authorization = auth
         if self.path.startswith("/orgs/test/repos"):
-            page = self._query("page", "1")
-            if page == "1":
-                body = json.dumps(
-                    [
-                        {
-                            "id": 1,
-                            "owner": {"login": "test"},
-                            "name": "alpha",
-                            "full_name": "test/alpha",
-                            "default_branch": "main",
-                            "private": False,
-                            "fork": False,
-                            "archived": False,
-                            "disabled": False,
-                        }
-                    ]
-                ).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header(
-                    "Link",
-                    f'<http://{self.headers["Host"]}/orgs/test/repos?page=2>; rel="next"',
-                )
-                self.send_header("ETag", '"page1"')
-                self.end_headers()
-                self.wfile.write(body)
+            page = int(self._query("page", "1"))
+            pages = _FakeGitHubHandler.inventory_pages
+            if pages is None:
+                pages = _default_inventory_pages(self.headers["Host"])
+            if (
+                _FakeGitHubHandler.inventory_fail_page is not None
+                and page >= _FakeGitHubHandler.inventory_fail_page
+            ):
+                self.send_error(_FakeGitHubHandler.inventory_fail_status)
                 return
-            body = json.dumps(
-                [
-                    {
-                        "id": 2,
-                        "owner": {"login": "test"},
-                        "name": "beta",
-                        "full_name": "test/beta",
-                        "default_branch": "main",
-                        "private": False,
-                        "fork": True,
-                        "archived": False,
-                        "disabled": False,
-                    }
-                ]
-            ).encode("utf-8")
+            if page < 1 or page > len(pages):
+                self.send_error(404)
+                return
+            body = json.dumps(pages[page - 1]).encode("utf-8")
+            links: list[str] = []
+            if page > 1:
+                links.append(
+                    f'<http://{self.headers["Host"]}/orgs/test/repos?page={page - 1}>; rel="prev"'
+                )
+            if page < len(pages):
+                links.append(
+                    f'<http://{self.headers["Host"]}/orgs/test/repos?page={page + 1}>; rel="next"'
+                )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("ETag", '"page2"')
+            if links:
+                self.send_header("Link", ", ".join(links))
+            self.send_header("ETag", f'"page{page}"')
             self.end_headers()
             self.wfile.write(body)
             return
         if self.path.startswith("/repos/test/alpha/git/refs/heads/main"):
             body = json.dumps({"object": {"sha": _FIXED_SHA}}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/repos/test/alpha/git/trees/"):
+            tree_key = self.path.split("/")[-1]
+            if "?" in tree_key:
+                tree_key = tree_key.split("?")[0]
+            response = _FakeGitHubHandler.tree_responses.get(tree_key)
+            if response is None:
+                response = {
+                    "sha": tree_key,
+                    "tree": [
+                        {
+                            "path": "README.md",
+                            "mode": "100644",
+                            "type": "blob",
+                            "sha": "blob1",
+                            "size": 64,
+                        }
+                    ],
+                    "truncated": False,
+                }
+            body = json.dumps(response).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -464,3 +510,167 @@ def test_rejects_path_traversal(tmp_path: Path) -> None:
     for bad in ("../etc/passwd", "foo/../bar", "/absolute"):
         with pytest.raises(ValidationFailed, match="path gecersiz"):
             adapter.fetch_blob(pin, bad)
+
+
+def test_discover_large_inventory_deduplicates_and_keeps_metadata(
+    tmp_path: Path,
+) -> None:
+    """A16: 120 repos across pages, duplicate IDs, archived/fork kept, deduped."""
+
+    pages: list[list[dict[str, object]]] = []
+    page_size = 100
+    repo_id = 1
+    expected_names: set[str] = set()
+    while repo_id <= 120:
+        page: list[dict[str, object]] = []
+        while len(page) < page_size and repo_id <= 120:
+            name = f"repo-{repo_id:03d}"
+            page.append(
+                _repo_item(
+                    repo_id,
+                    name,
+                    fork=repo_id % 5 == 0,
+                    archived=repo_id % 7 == 0,
+                )
+            )
+            expected_names.add(name)
+            repo_id += 1
+        pages.append(page)
+    # Inject a duplicate ID on the second page to verify deduplication.
+    pages[1].insert(0, _repo_item(1, "repo-001-dup"))
+    # Inject a renamed repo that keeps the same ID on the second page.
+    pages[1].insert(1, _repo_item(101, "repo-101-renamed"))
+    expected_names.discard("repo-101")
+    expected_names.add("repo-101-renamed")
+
+    _FakeGitHubHandler.inventory_pages = pages
+    server = _server()
+    adapter = _adapter(tmp_path, server)
+    inventory = adapter.discover_organization("test")
+    assert inventory.state is InventoryState.COMPLETE
+    assert len(inventory.repositories) == 120
+    assert {r.name for r in inventory.repositories} == expected_names
+    assert inventory.pages_fetched == 2
+    assert any(r.fork for r in inventory.repositories)
+    assert any(r.archived for r in inventory.repositories)
+    assert not any(r.name == "repo-001-dup" for r in inventory.repositories)
+
+
+def test_discover_second_page_error_keeps_previous_repos_partial(
+    tmp_path: Path,
+) -> None:
+    """A17: second page 403/429/timeout; previous repos remain, state=partial."""
+
+    pages: list[list[dict[str, object]]] = []
+    repo_id = 1
+    while repo_id <= 150:
+        page: list[dict[str, object]] = []
+        while len(page) < 100 and repo_id <= 150:
+            page.append(_repo_item(repo_id, f"repo-{repo_id:03d}"))
+            repo_id += 1
+        pages.append(page)
+    _FakeGitHubHandler.inventory_pages = pages
+    server = _server()
+    adapter = _adapter(tmp_path, server)
+
+    for status in (403, 429):
+        _FakeGitHubHandler.inventory_fail_page = 2
+        _FakeGitHubHandler.inventory_fail_status = status
+        _FakeGitHubHandler.calls.clear()
+        inventory = adapter.discover_organization("test")
+        assert inventory.state is InventoryState.PARTIAL
+        assert len(inventory.repositories) == 100
+        assert {r.name for r in inventory.repositories} == {f"repo-{i:03d}" for i in range(1, 101)}
+        assert inventory.pages_fetched == 1
+
+
+def test_fetch_tree_reports_truncation_and_omissions(tmp_path: Path) -> None:
+    """A19: truncated tree and symlink/submodule omissions are visible."""
+
+    tree_key = _FIXED_SHA
+    _FakeGitHubHandler.tree_responses[tree_key] = {
+        "sha": tree_key,
+        "tree": [
+            {"path": "README.md", "mode": "100644", "type": "blob", "sha": "b1", "size": 64},
+            {"path": "link", "mode": "120000", "type": "symlink", "sha": "s1"},
+            {"path": "sub", "mode": "160000", "type": "commit", "sha": "m1"},
+            {"path": "src/main.py", "mode": "100644", "type": "blob", "sha": "b2", "size": 128},
+        ],
+        "truncated": True,
+    }
+    server = _server()
+    adapter = _adapter(tmp_path, server)
+    pin = PinnedCommit(
+        repository_id=1,
+        owner="test",
+        name="alpha",
+        branch="main",
+        commit_sha=_FIXED_SHA,
+    )
+    tree = adapter.fetch_tree(pin)
+    assert not tree.complete
+    assert tree.truncated
+    assert {e.path for e in tree.entries} == {"README.md", "src/main.py"}
+    assert set(tree.omitted_paths) == {"link", "sub"}
+    assert tree.omission_reason == "truncated-or-omitted"
+
+
+def test_fetch_tree_subtree_traversal_marks_incomplete(
+    tmp_path: Path,
+) -> None:
+    """A19: subtree traversal result missing a child subtree stays incomplete."""
+
+    tree_key = _FIXED_SHA
+    _FakeGitHubHandler.tree_responses[tree_key] = {
+        "sha": tree_key,
+        "tree": [
+            {"path": "README.md", "mode": "100644", "type": "blob", "sha": "b1", "size": 64},
+            {"path": "src", "mode": "040000", "type": "tree", "sha": "t1"},
+        ],
+        "truncated": False,
+    }
+    server = _server()
+    adapter = _adapter(tmp_path, server)
+    pin = PinnedCommit(
+        repository_id=1,
+        owner="test",
+        name="alpha",
+        branch="main",
+        commit_sha=_FIXED_SHA,
+    )
+    tree = adapter.fetch_tree(pin, recursive=True)
+    assert not tree.complete
+    assert tree.omitted_paths == ("src",)
+    assert tree.omission_reason == "truncated-or-omitted"
+
+
+def test_rejects_symlink_and_submodule_fetch(tmp_path: Path) -> None:
+    """A21: symlink/submodule paths are refused at the blob fetch boundary."""
+
+    adapter = GitHubRadarAdapter(cache_dir=tmp_path / "cache")
+    pin = PinnedCommit(
+        repository_id=1,
+        owner="test",
+        name="alpha",
+        branch="main",
+        commit_sha=_FIXED_SHA,
+    )
+    for bad in (".git/modules/foo", "vendor/.gitmodules"):
+        with pytest.raises(PolicyViolation, match="symlink ve submodule"):
+            adapter.fetch_blob(pin, bad)
+
+
+def test_rejects_total_response_byte_limit(tmp_path: Path) -> None:
+    """A21: exceeding max_response_bytes raises before the adapter ingests it."""
+
+    pages: list[list[dict[str, object]]] = []
+    repo_id = 1
+    while repo_id <= 10:
+        pages.append([_repo_item(repo_id, f"repo-{repo_id:03d}")])
+        repo_id += 1
+    _FakeGitHubHandler.inventory_pages = pages
+    server = _server()
+    adapter = _adapter(tmp_path, server)
+    adapter._max_response_bytes = 32
+    with pytest.raises(PolicyViolation, match="response byte siniri"):
+        adapter.discover_organization("test")

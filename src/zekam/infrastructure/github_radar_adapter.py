@@ -38,7 +38,7 @@ MAX_BLOB_BYTES: Final = 2 * 1024 * 1024
 MAX_REDIRECTS: Final = 2
 
 
-class PolicyViolation(PolicyViolation):
+class RadarPolicyViolation(PolicyViolation):
     """Radar-specific policy violation."""
 
 
@@ -59,9 +59,9 @@ class _NoCredentialRedirectHandler(urllib.request.HTTPRedirectHandler):
     ) -> urllib.request.Request | None:
         parsed = urlparse(newurl)
         if parsed.username is not None or parsed.password is not None:
-            raise PolicyViolation("Redirect credential forwarding yasak")
+            raise RadarPolicyViolation("Redirect credential forwarding yasak")
         if parsed.hostname not in self._allowed_hosts:
-            raise PolicyViolation("Redirect host izinli degil")
+            raise RadarPolicyViolation("Redirect host izinli degil")
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req is not None:
             new_req.remove_header("Authorization")
@@ -145,6 +145,27 @@ class SourceBlob:
             raise ValidationFailed("SourceBlob raw bytes varsa digest zorunlu")
         if not self.complete and self.omission_reason is None:
             raise ValidationFailed("tamamlanmamis blob omission_reason ister")
+
+
+@dataclass(frozen=True, slots=True)
+class TreeEntry:
+    path: str
+    mode: str
+    type: str
+    sha: str
+    size: int | None = None
+    url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceTree:
+    repository_id: int
+    commit_sha: str
+    entries: tuple[TreeEntry, ...]
+    complete: bool
+    truncated: bool
+    omitted_paths: tuple[str, ...]
+    omission_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +312,8 @@ class GitHubRadarAdapter:
 
         if not path or ".." in path or path.startswith("/") or "\\" in path:
             raise ValidationFailed("GitHub blob path gecersiz")
+        if _is_vcs_link_path(path):
+            raise RadarPolicyViolation("GitHub blob symlink ve submodule otomatik takip edilmez")
         if pin.commit_sha != _clean_sha(pin.commit_sha):
             raise ValidationFailed("GitHub commit sha gecersiz")
         url = f"https://{GITHUB_RAW_HOST}/{pin.owner}/{pin.name}/{pin.commit_sha}/{path}"
@@ -321,6 +344,81 @@ class GitHubRadarAdapter:
             raw_bytes=data,
             raw_content_digest=content_digest,
             complete=True,
+        )
+
+    def fetch_tree(
+        self,
+        pin: PinnedCommit,
+        *,
+        recursive: bool = True,
+        max_entries: int = MAX_SELECTED_PATHS,
+    ) -> SourceTree:
+        """Fetch the Git tree for a pinned commit and track truncation/omissions."""
+
+        if pin.commit_sha != _clean_sha(pin.commit_sha):
+            raise ValidationFailed("GitHub commit sha gecersiz")
+        url = f"https://{GITHUB_API_HOST}/repos/{pin.owner}/{pin.name}/git/trees/{pin.commit_sha}"
+        if recursive:
+            url += "?recursive=1"
+        data, _receipt = self._get_json(url, max_bytes=MAX_BLOB_BYTES)
+        if data is None:
+            return SourceTree(
+                repository_id=pin.repository_id,
+                commit_sha=pin.commit_sha,
+                entries=(),
+                complete=False,
+                truncated=False,
+                omitted_paths=(),
+                omission_reason="tree-fetch-failed",
+            )
+        if not isinstance(data, dict):
+            raise ValidationFailed("GitHub tree response beklenen sekilde degil")
+        truncated = bool(data.get("truncated"))
+        tree = data.get("tree", [])
+        if not isinstance(tree, list):
+            raise ValidationFailed("GitHub tree array beklenen sekilde degil")
+        entries: list[TreeEntry] = []
+        omitted: list[str] = []
+        for item in tree:
+            if not isinstance(item, dict):
+                continue
+            entry_type = item.get("type", "")
+            path = item.get("path", "")
+            if entry_type in {"symlink", "commit"}:
+                omitted.append(path)
+                continue
+            mode = item.get("mode", "")
+            if mode == "120000" or entry_type == "symlink":
+                omitted.append(path)
+                continue
+            if mode == "160000" or entry_type == "commit":
+                omitted.append(path)
+                continue
+            if recursive and entry_type == "tree":
+                omitted.append(path)
+                continue
+            entries.append(
+                TreeEntry(
+                    path=path,
+                    mode=str(mode),
+                    type=str(entry_type),
+                    sha=str(item.get("sha", "")),
+                    size=item.get("size") if isinstance(item.get("size"), int) else None,
+                    url=item.get("url"),
+                )
+            )
+            if len(entries) >= max_entries:
+                truncated = True
+                break
+        complete = not truncated and len(omitted) == 0
+        return SourceTree(
+            repository_id=pin.repository_id,
+            commit_sha=pin.commit_sha,
+            entries=tuple(entries),
+            complete=complete,
+            truncated=truncated,
+            omitted_paths=tuple(omitted),
+            omission_reason=None if complete else "truncated-or-omitted",
         )
 
     def _cache_lookup(self, url: str) -> tuple[SourceBlob | None, str | None]:
@@ -406,6 +504,8 @@ class GitHubRadarAdapter:
     ) -> tuple[bytes | None, FetchReceipt]:
         if self._request_count >= self._max_requests:
             return None, self._receipt("GET", url, None, 0)
+        if self._response_byte_count >= self._max_response_bytes:
+            raise RadarPolicyViolation("GitHub radar toplam response byte siniri asildi")
         url = self._validate_url(url)
         request = urllib.request.Request(url, method="GET")
         if self._token is not None:
@@ -446,6 +546,8 @@ class GitHubRadarAdapter:
             etag_path.write_text(etag, encoding="utf-8")
         self._request_count += 1
         self._response_byte_count += len(body)
+        if self._response_byte_count > self._max_response_bytes:
+            raise RadarPolicyViolation("GitHub radar toplam response byte siniri asildi")
         if len(body) > max_bytes:
             return None, self._receipt(
                 "GET", url, status, len(body), etag=etag, link_header=link_header
@@ -460,13 +562,13 @@ class GitHubRadarAdapter:
             parsed.scheme == "http" and _is_loopback_host(parsed.hostname)
         )
         if not scheme_ok:
-            raise PolicyViolation("GitHub radar yalnizca https kabul eder")
+            raise RadarPolicyViolation("GitHub radar yalnizca https kabul eder")
         if parsed.hostname not in self._allowed_hosts:
-            raise PolicyViolation(f"GitHub radar host izinli degil: {parsed.hostname}")
+            raise RadarPolicyViolation(f"GitHub radar host izinli degil: {parsed.hostname}")
         if parsed.username is not None or parsed.password is not None:
-            raise PolicyViolation("GitHub radar URL userinfo tasiyamaz")
+            raise RadarPolicyViolation("GitHub radar URL userinfo tasiyamaz")
         if _is_private_host(parsed.hostname):
-            raise PolicyViolation("GitHub radar private/loopback/link-local IP kabul etmez")
+            raise RadarPolicyViolation("GitHub radar private/loopback/link-local IP kabul etmez")
         return url
 
     def _receipt(
@@ -538,6 +640,17 @@ def _git_blob_sha(data: bytes) -> str:
     return hashlib.sha1(header + data).hexdigest()
 
 
+def _is_vcs_link_path(path: str) -> bool:
+    """Reject paths that look like symlink/submodule targets.
+
+    Git tree entries carry mode 120000/160000; blob fetch paths do not expose
+    that metadata, so we conservatively reject literal symlinks/submodules and
+    paths that point outside the repository root.
+    """
+
+    return bool(path) and (path.startswith(".git/modules/") or path.endswith(".gitmodules"))
+
+
 def _is_loopback_host(hostname: str | None) -> bool:
     if not hostname:
         return False
@@ -558,12 +671,7 @@ def _is_private_host(hostname: str | None) -> bool:
         return False
     if addr.is_loopback:
         return False
-    return bool(
-        addr.is_private
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-    )
+    return bool(addr.is_private or addr.is_link_local or addr.is_reserved or addr.is_multicast)
 
 
 def _clean_sha(value: str) -> str:

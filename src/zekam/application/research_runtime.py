@@ -261,9 +261,8 @@ def _role_result(
                 snapshot_id=citation_id,
                 locator_detail=canonical_json(by_citation[citation_id]["locator"]),
                 content_digest=str(by_citation[citation_id]["delivered_payload_digest"]),
-                source_content_digest=str(
-                    by_citation[citation_id]["original_content_digest"]
-                ),
+                source_content_digest=str(by_citation[citation_id]["original_content_digest"]),
+                slice_digest=str(by_citation[citation_id]["delivered_payload_digest"]),
             )
             for citation_id in item["citation_ids"]
         )
@@ -690,6 +689,9 @@ def research_report(
     receipt_evidence = effects[-1]["evidence_digest"] if effects else None
     if receipt_evidence != report["report_digest"]:
         raise PolicyViolation("Research receipt/report digest drift")
+    execution = report.get("agent_execution")
+    verified = isinstance(execution, dict) and int(execution.get("delegated_agent_calls", 0)) >= 2
+    provenance = "verified" if verified else "legacy-unverified"
     body: dict[str, Any] = {
         "schema": REPORT_SURFACE_SCHEMA,
         "job_id": status["job_id"],
@@ -698,7 +700,8 @@ def research_report(
         "projection_ref": status["projection_ref"],
         "projection_content_digest": note["content_digest"],
         "report": report,
-        "verified": True,
+        "verified": verified,
+        "provenance": provenance,
         "read_only": True,
         "grants_authority": False,
     }

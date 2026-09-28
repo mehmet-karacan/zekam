@@ -284,17 +284,24 @@ class Citation:
     ``content_digest`` modele iletilen kesitin digest'idir.
     ``source_content_digest`` varsa orijinal blob'un digest'idir;
     kesilmis excerpt'lerde ikisi farkli olur (A08).
+    ``slice_digest`` kaynak tarafindan iddia edilen exact kesitin
+    bagimsiz dogrulama digest'idir (A07).
     """
 
     snapshot_id: str
     locator_detail: str
     content_digest: str
     source_content_digest: str | None = None
+    slice_digest: str | None = None
 
     def __post_init__(self) -> None:
         parse_digest(self.content_digest)
         if self.source_content_digest is not None:
             parse_digest(self.source_content_digest)
+        if self.slice_digest is not None:
+            parse_digest(self.slice_digest)
+            if self.slice_digest != self.content_digest:
+                raise ValidationFailed("citation slice_digest content_digest ile uyusmuyor")
         if not self.locator_detail.strip():
             raise ValidationFailed("citation locator detayi bos olamaz")
 
@@ -306,6 +313,8 @@ class Citation:
         }
         if self.source_content_digest is not None:
             body["source_content_digest"] = self.source_content_digest
+        if self.slice_digest is not None:
+            body["slice_digest"] = self.slice_digest
         return body
 
 
@@ -570,13 +579,9 @@ def synthesize(
     researcher_refs = frozenset(item.agent_ref for item in results)
     verification.assert_independent(researcher_refs)
 
-    researcher_results = tuple(
-        item for item in results if item.role is ResearchRole.RESEARCHER
-    )
+    researcher_results = tuple(item for item in results if item.role is ResearchRole.RESEARCHER)
     if len(researcher_results) != 1:
-        raise ValidationFailed(
-            "deterministik dogrulama icin tek researcher sonucu gerekiyor"
-        )
+        raise ValidationFailed("deterministik dogrulama icin tek researcher sonucu gerekiyor")
     researcher = researcher_results[0]
     if verification.researcher_payload_digest != researcher.payload_digest:
         raise ValidationFailed("verifier researcher payload digest ile uyusmuyor")

@@ -15,6 +15,7 @@ import pytest
 
 from zekam.application.intake_service import IntakeService
 from zekam.domain.canonical import digest
+from zekam.domain.errors import ValidationFailed
 from zekam.domain.research import (
     Citation,
     CitationVerification,
@@ -123,6 +124,93 @@ def test_plan_candidate_schema_ile_uyumlu() -> None:
     document = candidate.body()
     _assert_conforms(document, "plan-candidate.schema.json")
     assert document["requires_authorization"] is True
+
+
+def test_citation_slice_digest_dogru_snapshot_yanlis_kesit_reddedilir() -> None:
+    """A07: dogru snapshot ID ama yanlis slice digest kanit kabul etmez."""
+
+    yanlis_digest = digest("baska icerik")
+    snapshot = SourceSnapshot(
+        snapshot_id="s1",
+        kind=SourceKind.FILE,
+        locator="docs/RAG.md",
+        content_digest=CONTENT,
+        captured_at=NOW,
+    )
+    with pytest.raises(ValidationFailed, match="slice_digest"):
+        ResearchReport(
+            report_id="r-a07",
+            question_id="q1",
+            question_digest=digest("q"),
+            findings=(
+                Finding(
+                    finding_id="f-a07",
+                    claim="yanlis kesit",
+                    citations=(
+                        Citation(
+                            snapshot_id="s1",
+                            locator_detail="line 1-5",
+                            content_digest=CONTENT,
+                            slice_digest=yanlis_digest,
+                        ),
+                    ),
+                    confidence="high",
+                ),
+            ),
+            unresolved_conflicts=(),
+            non_success_results=(),
+            verification=CitationVerification(
+                verifier_ref="v",
+                researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+                evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+                verified_finding_ids=("f-a07",),
+            ),
+            snapshots=(snapshot,),
+            status=ReportStatus.ANSWERED,
+        )
+
+
+def test_citation_dogru_slice_digest_kabul_edilir() -> None:
+    """A07: slice_digest snapshot content_digest ile uyusursa kabul edilir."""
+
+    snapshot = SourceSnapshot(
+        snapshot_id="s1",
+        kind=SourceKind.FILE,
+        locator="docs/RAG.md",
+        content_digest=CONTENT,
+        captured_at=NOW,
+    )
+    report = ResearchReport(
+        report_id="r-a07-ok",
+        question_id="q1",
+        question_digest=digest("q"),
+        findings=(
+            Finding(
+                finding_id="f-a07-ok",
+                claim="dogru kesit",
+                citations=(
+                    Citation(
+                        snapshot_id="s1",
+                        locator_detail="line 1-5",
+                        content_digest=CONTENT,
+                        slice_digest=CONTENT,
+                    ),
+                ),
+                confidence="high",
+            ),
+        ),
+        unresolved_conflicts=(),
+        non_success_results=(),
+        verification=CitationVerification(
+            verifier_ref="v",
+            researcher_payload_digest=RESEARCHER_PAYLOAD_DIGEST,
+            evidence_manifest_digest=EVIDENCE_MANIFEST_DIGEST,
+            verified_finding_ids=("f-a07-ok",),
+        ),
+        snapshots=(snapshot,),
+        status=ReportStatus.ANSWERED,
+    )
+    assert report.report_digest is not None
 
 
 @pytest.mark.parametrize(

@@ -70,7 +70,8 @@
             "snapshot_id": {"type": "string"},
             "locator_detail": {"type": "string", "minLength": 1},
             "content_digest": {"$ref": "#/$defs/digest"},
-            "source_content_digest": {"$ref": "#/$defs/digest"}
+            "source_content_digest": {"$ref": "#/$defs/digest"},
+            "slice_digest": {"$ref": "#/$defs/digest"}
           }
         }},
         "confidence": {"enum": ["low", "medium", "high"]}
