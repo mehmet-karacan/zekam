@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from zekam.domain.errors import ValidationFailed
+from zekam.infrastructure.opencode_research import parse_opencode_research_events
 from zekam.infrastructure.process.bounded_stream import (
     BoundedReader,
     finish_pipes,
@@ -154,3 +156,169 @@ def test_unicode_chunk_boundaries(tmp_path: Path) -> None:
     finish_pipes(tree, (thread,))
     decoded = bytes(reader.buffer).decode("utf-8")
     assert decoded == text
+
+
+def test_crlf_byte_count_is_exact(tmp_path: Path) -> None:
+    """A09: CRLF line endings preserve exact byte accounting."""
+    text = "line1\r\nline2\r\nline3"
+    script = _write_child(
+        tmp_path,
+        f"import sys\nsys.stdout.buffer.write({text.encode('utf-8')!r})\nsys.stdout.flush()\n",
+    )
+    tree = start_process_tree((sys.executable, str(script)), tmp_path)
+    process = tree.process
+    assert process.stdout is not None
+    reader = BoundedReader(process.stdout, limit=1_000_000)
+    thread = threading.Thread(target=reader.read, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    outcome = wait_for(process, deadline, reader.overflow)
+    assert outcome == "exited"
+    finish_pipes(tree, (thread,))
+    raw = bytes(reader.buffer)
+    assert raw == text.encode("utf-8")
+    assert len(raw) == len(text.encode("utf-8"))
+
+
+def test_bom_and_final_newline_variants(tmp_path: Path) -> None:
+    """A09: BOM, trailing newline and no-newline are byte-accurate."""
+    cases = [
+        ("bom-no-newline", "\ufeffhello"),
+        ("bom-lf", "\ufeffhello\n"),
+        ("bom-crlf", "\ufeffhello\r\n"),
+        ("trailing-lf", "hello\n"),
+        ("trailing-crlf", "hello\r\n"),
+        ("no-final-newline", "hello"),
+    ]
+    for _name, text in cases:
+        script = _write_child(
+            tmp_path,
+            f"import sys\nsys.stdout.buffer.write({text.encode('utf-8')!r})\nsys.stdout.flush()\n",
+        )
+        tree = start_process_tree((sys.executable, str(script)), tmp_path)
+        process = tree.process
+        assert process.stdout is not None
+        reader = BoundedReader(process.stdout, limit=1_000_000)
+        thread = threading.Thread(target=reader.read, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 5
+        outcome = wait_for(process, deadline, reader.overflow)
+        assert outcome == "exited"
+        finish_pipes(tree, (thread,))
+        raw = bytes(reader.buffer)
+        expected = text.encode("utf-8")
+        assert raw == expected
+        assert len(raw) == len(expected)
+
+
+def test_multibyte_split_across_many_small_chunks(tmp_path: Path) -> None:
+    """A09: 4-byte emoji split across tiny writes stays intact and counted."""
+    text = "🎉" * 256
+    script = _write_child(
+        tmp_path,
+        "import sys\n"
+        "text = '🎉' * 256\n"
+        "for byte in text.encode('utf-8'):\n"
+        "    sys.stdout.buffer.write(bytes([byte]))\n"
+        "    sys.stdout.buffer.flush()\n",
+    )
+    tree = start_process_tree((sys.executable, str(script)), tmp_path)
+    process = tree.process
+    assert process.stdout is not None
+    reader = BoundedReader(process.stdout, limit=1_000_000)
+    thread = threading.Thread(target=reader.read, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    outcome = wait_for(process, deadline, reader.overflow)
+    assert outcome == "exited"
+    finish_pipes(tree, (thread,))
+    raw = bytes(reader.buffer)
+    assert raw == text.encode("utf-8")
+    assert len(raw) == len(text.encode("utf-8"))
+
+
+def test_newlineless_long_stream_protocol_error(tmp_path: Path) -> None:
+    """A12: a single endless JSON line is a bounded protocol error."""
+    script = _write_child(
+        tmp_path,
+        "import sys\n"
+        'sys.stdout.write(\'{"type": "text", "sessionID": "s", \')\n'
+        "while True:\n"
+        '    sys.stdout.write(\'"x": "x", \')\n'
+        "    sys.stdout.flush()\n",
+    )
+    tree = start_process_tree((sys.executable, str(script)), tmp_path)
+    process = tree.process
+    assert process.stdout is not None
+    reader = BoundedReader(process.stdout, limit=8_192)
+    thread = threading.Thread(target=reader.read, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    outcome = wait_for(process, deadline, reader.overflow)
+    assert outcome == "overflow"
+    hard_kill_tree(tree)
+    finish_pipes(tree, (thread,))
+    assert not reader.buffer.decode("utf-8", errors="ignore").endswith("\n")
+
+
+def test_many_tiny_frames_accounted_exactly(tmp_path: Path) -> None:
+    """A12: many tiny frames do not fake success or lose bytes."""
+    payload = b"x"
+    script = _write_child(
+        tmp_path,
+        f"import sys, time\n"
+        f"for _ in range(1000):\n"
+        f"    sys.stdout.buffer.write({payload!r})\n"
+        f"    sys.stdout.buffer.flush()\n"
+        f"    time.sleep(0.0001)\n",
+    )
+    tree = start_process_tree((sys.executable, str(script)), tmp_path)
+    process = tree.process
+    assert process.stdout is not None
+    reader = BoundedReader(process.stdout, limit=2_000)
+    thread = threading.Thread(target=reader.read, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    outcome = wait_for(process, deadline, reader.overflow)
+    assert outcome == "exited"
+    finish_pipes(tree, (thread,))
+    assert len(reader.buffer) == 1000
+    assert not reader.overflow.is_set()
+
+
+def test_malformed_final_frame_rejected() -> None:
+    """A12: malformed final JSON is a protocol error, not success."""
+    stream = (
+        '{"type":"tool_use","sessionID":"root","part":{"type":"tool","tool":"task",'
+        '"callID":"c1","state":{"status":"completed","input":{"subagent_type":"zekam-researcher"},'
+        '"output":"ok","metadata":{"parentSessionId":"root","sessionId":"child-one",'
+        '"model":{"providerID":"p","modelID":"m"},"truncated":false}}}}\n'
+        '{"type":"tool_use","sessionID":"root","part":{"type":"tool","tool":"task",'
+        '"callID":"c2","state":{"status":"completed","input":{"subagent_type":"zekam-verifier"},'
+        '"output":"ok","metadata":{"parentSessionId":"root","sessionId":"child-two",'
+        '"model":{"providerID":"p","modelID":"m"},"truncated":false}}}}\n'
+        '{"type":"text","sessionID":"root","part":{"type":"text","text": NOT_VALID_JSON}'
+    )
+    with pytest.raises(ValidationFailed):
+        parse_opencode_research_events(stream)
+
+
+def test_two_final_payloads_rejected() -> None:
+    """A12: more than one terminal text payload is a protocol error."""
+    event = (
+        '{"type":"tool_use","sessionID":"root","part":{"type":"tool","tool":"task",'
+        '"callID":"c1","state":{"status":"completed","input":{"subagent_type":"zekam-researcher"},'
+        '"output":"ok","metadata":{"parentSessionId":"root","sessionId":"child-one",'
+        '"model":{"providerID":"p","modelID":"m"},"truncated":false}}}}\n'
+        '{"type":"tool_use","sessionID":"root","part":{"type":"tool","tool":"task",'
+        '"callID":"c2","state":{"status":"completed","input":{"subagent_type":"zekam-verifier"},'
+        '"output":"ok","metadata":{"parentSessionId":"root","sessionId":"child-two",'
+        '"model":{"providerID":"p","modelID":"m"},"truncated":false}}}}\n'
+    )
+    stream = (
+        event
+        + '{"type":"text","sessionID":"root","part":{"type":"text","text":"{}"}}\n'
+        + '{"type":"text","sessionID":"root","part":{"type":"text","text":"{}"}}\n'
+    )
+    with pytest.raises(ValidationFailed, match="terminal"):
+        parse_opencode_research_events(stream)

@@ -390,10 +390,7 @@ def test_remote_profile_identity_changes_when_probe_vectors_materially_change(
     ).probe(_fixture())
 
     assert baseline.profile.profile_digest != shifted.profile.profile_digest
-    assert (
-        baseline.profile.model_revision_fingerprint
-        != shifted.profile.model_revision_fingerprint
-    )
+    assert baseline.profile.model_revision_fingerprint != shifted.profile.model_revision_fingerprint
 
 
 def test_rounding_boundary_jitter_does_not_change_profile_identity(
@@ -444,7 +441,6 @@ def test_rounding_boundary_jitter_does_not_change_profile_identity(
     # embedding-space shift moves a component across a bucket boundary).
     shifted = quantized_vector_fingerprint((0.5, _math.sqrt(1.0 - 0.5**2), 0.0))
     assert quantized_u != shifted
-
 
 
 @pytest.mark.parametrize("fault", ["partial", "nan", "dimension"])
