@@ -42,7 +42,9 @@ _IDENTIFIER = re.compile(
     r")\b"
 )
 _PORTABLE_PATH = re.compile(r"(?<![\w/])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?![\w/])")
-_QUOTED_PHRASE = re.compile(r'"([^"\n]{2,256})"|\'([^\'\n]{2,256})\'')
+#: Tek tirnak yalniz sozcuk disinda baslar/biter; `backend'inde`, `job'lari` gibi
+#: Turkce ek kesmeleri ve `user's` gibi iyelik ekleri alinti sayilmaz.
+_QUOTED_PHRASE = re.compile(r'"([^"\n]{2,256})"|(?<!\w)\'([^\'\n]{2,256})\'(?!\w)')
 
 
 def estimate_tokens(text: str) -> int:
@@ -191,6 +193,7 @@ def answer_semantics(state_value: str, *, evidence_found: bool) -> dict[str, Any
         "generation_state": generation_state,
         "answer_kind": answer_kind,
     }
+
 
 #: States that require genuine evidence (citations) to be valid.
 _NEEDS_EVIDENCE = frozenset({AnswerState.ANSWERED})
