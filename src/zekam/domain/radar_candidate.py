@@ -374,6 +374,89 @@ class RadarCandidateSelection:
         return digest(identity)
 
 
+# Evidence levels that are strong enough to claim a source-reviewed promotion.
+_PROMOTION_ELIGIBLE_LEVELS: frozenset[EvidenceLevel] = frozenset(
+    {
+        EvidenceLevel.SOURCE_REVIEWED,
+        EvidenceLevel.TESTS_REVIEWED,
+        EvidenceLevel.RUNTIME_MEASURED,
+    }
+)
+
+# License constraint markers that block a reuse-approved claim.
+_REUSE_BLOCKING_MARKERS: tuple[str, ...] = (
+    "unknown",
+    "source-available",
+    "path-override",
+)
+
+
+def source_reviewed_promotion_allowed(level: EvidenceLevel) -> bool:
+    """Whether a ``documentation/missing`` claim may be promoted to an
+    actionable source-reviewed candidate.
+
+    Only real code/test/runtime evidence enables promotion. A README-only or
+    failing-code-only observation must not turn into a promotable candidate.
+    """
+    return level in _PROMOTION_ELIGIBLE_LEVELS
+
+
+def require_source_reviewed_promotion(level: EvidenceLevel) -> None:
+    """Refuse a source-reviewed promotion when evidence is not strong enough."""
+    if not source_reviewed_promotion_allowed(level):
+        raise PolicyViolation(
+            "source-reviewed promotion yanliz SOURCE_REVIEWED/TESTS_REVIEWED/"
+            "RUNTIME_MEASURED seviyesinde mumkundur"
+        )
+
+
+def license_reuse_allowed(license_reuse_constraint: str) -> bool:
+    """Whether a reuse-approved claim is permitted for the given license rule.
+
+    ``unknown``, ``source-available`` or ``path-override`` constraints cannot
+    authorize upstream code/script reuse.
+    """
+    lowered = license_reuse_constraint.lower()
+    return not any(marker in lowered for marker in _REUSE_BLOCKING_MARKERS)
+
+
+def require_license_reuse_allowed(license_reuse_constraint: str) -> None:
+    """Refuse a reuse-approved claim under a blocked license constraint."""
+    if not license_reuse_allowed(license_reuse_constraint):
+        raise PolicyViolation(
+            "reuse-approved yanliz net izin veren lisans kisitinda uretilebilir;"
+            " unknown/source-available/path-override reddedilir"
+        )
+
+
+def require_real_measurement_binding(
+    *,
+    has_real_failure: bool,
+    has_real_baseline: bool,
+    has_real_eval: bool,
+) -> None:
+    """Refuse a measured-improvement record without a real evidence binding.
+
+    A speculative external proposal that has no real failure card, no baseline
+    aggregate and no evaluation dataset contract cannot claim a measured
+    improvement; doing so would fabricate a benchmark reward or a fake receipt.
+    """
+    missing = [
+        label
+        for label, present in (
+            ("failure", has_real_failure),
+            ("baseline", has_real_baseline),
+            ("eval", has_real_eval),
+        )
+        if not present
+    ]
+    if missing:
+        raise PolicyViolation(
+            "measured improvement kaydi gercek failure/baseline/eval bagi olmadan "
+            f"uretilmez; eksik: {', '.join(missing)}"
+        )
+
+
 def decide_automatic(
     *,
     card_id: str,
@@ -391,18 +474,26 @@ def decide_automatic(
     rollback: str,
     is_code_or_schema_change: bool = False,
     has_duplicate: bool = False,
+    already_satisfied: bool = False,
+    not_applicable: bool = False,
     existing_decision: str | None = None,
     existing_campaign_id: str | None = None,
 ) -> RadarCandidateSelection:
     """Produce an authority-free automatic decision without AUTO_SAFE.
 
-    Code/schema/security proposals are always ``rejected-risk`` because they
-    must go through the existing improvement/evaluation/rollout boundary.
-    A previously seen candidate is marked ``duplicate`` instead so the prior
-    decision and campaign provenance are preserved.
+    Already-satisfied and not-applicable candidates short-circuit to their own
+    decisions; they neither add a module nor a measured claim. Code/schema/
+    security proposals are always ``rejected-risk`` because they must go
+    through the existing improvement/evaluation/rollout boundary. A previously
+    seen candidate is marked ``duplicate`` instead so the prior decision and
+    campaign provenance are preserved.
     """
 
-    if has_duplicate:
+    if already_satisfied:
+        decision = RadarCandidateDecision.ALREADY_SATISFIED
+    elif not_applicable:
+        decision = RadarCandidateDecision.NOT_APPLICABLE
+    elif has_duplicate:
         decision = RadarCandidateDecision.DUPLICATE
     elif is_code_or_schema_change:
         decision = RadarCandidateDecision.REJECTED_RISK

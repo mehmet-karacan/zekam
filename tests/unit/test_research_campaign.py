@@ -15,11 +15,13 @@ from zekam.application.research_campaign_runtime import (
     _build_sub_questions,
     _extract_measurements,
     _is_no_progress,
+    _transform_and_save_analyse,
     build_radar_plan,
     run_radar_campaign,
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.radar_candidate import RadarCandidateDecision, decide_automatic
 from zekam.domain.research import ResearchBudget, ResearchQuestion, SourceKind, SourcePolicy
 from zekam.infrastructure.github_radar_adapter import (
     FetchReceipt,
@@ -686,3 +688,268 @@ def test_analyse_budget_consumes_measured_tokens(
     )
     budget2 = repo.get_budget(with_telemetry["campaign_id"])
     assert budget2.get("tokens", {}).get("consumed", 0) == 800
+
+
+def _sub_question() -> dict[str, Any]:
+    return {
+        "question_id": "radar-sub:abc123",
+        "question": "ornek pattern sorusu",
+        "repo_key": "openai/codex",
+        "source_count": 1,
+        "slice_count": 1,
+        "path_overflow": False,
+    }
+
+
+def _question() -> ResearchQuestion:
+    return ResearchQuestion(
+        question_id="radar-sub:abc123",
+        question="ornek pattern sorusu",
+        project_ref="demo",
+        work_ref="w1",
+        intent_digest=digest("intent"),
+        source_revision="git-head",
+        policy=SourcePolicy(
+            allowed_kinds=frozenset({SourceKind.REPOSITORY}),
+            allowed_hosts=frozenset(),
+            project_scope="demo",
+            allow_row_data=False,
+        ),
+        budget=ResearchBudget(
+            max_tokens=12_000,
+            max_cost_units=3,
+            max_seconds=600,
+            max_rounds=1,
+        ),
+        created_at=dt.datetime.now(dt.UTC),
+    )
+
+
+def _analyse_result() -> Any:
+    return FakeAnalyseDispatcher().dispatch(_question(), ())
+
+
+def _source_snapshot(*, path: str = "README.md", **markers: Any) -> dict[str, Any]:
+    snap: dict[str, Any] = {
+        "repository_id": 1001,
+        "owner": "openai",
+        "name": "codex",
+        "revision": "abc123" * 6,
+        "path": path,
+        "content_digest": digest("content"),
+    }
+    snap.update(markers)
+    return snap
+
+
+def _make_analyse_campaign(
+    repo: RadarCampaignRepository,
+    campaign_id: str,
+) -> str:
+    created = repo.create_campaign(
+        project_id="p1",
+        campaign_id=campaign_id,
+        stage="analyse",
+        state="running",
+        plan_digest=digest({}),
+        plan={},
+        idempotency_key=f"ik-{campaign_id}",
+    )
+    return created.id
+
+
+def test_integration_a33_domain_decide_automatic_short_circuits() -> None:
+    """A33 (domain): already_satisfied/not_applicable flags short-circuit to
+    ALREADY_SATISFIED/NOT_APPLICABLE instead of adding a new module."""
+
+    commons: dict[str, Any] = {
+        "card_id": "radar-pattern:x",
+        "campaign_id": "camp-x",
+        "problem": "ornek",
+        "local_evidence": "baseline not measured",
+        "upstream_evidence": "source-reviewed",
+        "smallest_actionable_solution": "evaluate",
+        "affected_logical_resources": ("local-index",),
+        "expected_benefit": "unknown",
+        "risk": "medium",
+        "maintenance_burden": "unknown",
+        "dependencies": "fixture",
+        "acceptance_test": "tests pass",
+        "rollback": "revert",
+    }
+    satisfied = decide_automatic(
+        **commons,
+        is_code_or_schema_change=True,
+        already_satisfied=True,
+    )
+    assert satisfied.decision is RadarCandidateDecision.ALREADY_SATISFIED
+    applicable = decide_automatic(
+        **commons,
+        is_code_or_schema_change=True,
+        not_applicable=True,
+    )
+    assert applicable.decision is RadarCandidateDecision.NOT_APPLICABLE
+
+
+def test_integration_a34_metadata_only_rejects_pattern_card(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """A34: README/metadata-only evidence raises PolicyViolation and no pattern
+    card is produced (no fake success)."""
+
+    home, _store, _project = runtime
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    campaign_id = _make_analyse_campaign(repo, "camp-a34")
+    result = _analyse_result()
+    with pytest.raises(PolicyViolation, match="source-reviewed promotion"):
+        _transform_and_save_analyse(
+            repo,
+            campaign_id,
+            _sub_question(),
+            (_source_snapshot(),),
+            result,
+        )
+    assert repo.list_pattern_cards(campaign_id) == ()
+
+
+def test_integration_a38_source_available_license_rejected(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """A38: a source-available license constraint is rejected even when code
+    evidence exists."""
+
+    home, _store, _project = runtime
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    campaign_id = _make_analyse_campaign(repo, "camp-a38")
+    snapshot = _source_snapshot(path="src/main.py", license_reuse_constraint="source-available")
+    result = _analyse_result()
+    with pytest.raises(PolicyViolation, match="reuse-approved"):
+        _transform_and_save_analyse(
+            repo,
+            campaign_id,
+            _sub_question(),
+            (snapshot,),
+            result,
+        )
+    assert repo.list_pattern_cards(campaign_id) == ()
+
+
+def test_integration_a33_already_satisfied_short_circuits(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """A33: an already-satisfied candidate is decided ALREADY_SATISFIED and
+    adds no new module/selection that grants mutation."""
+
+    home, _store, _project = runtime
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    campaign_id = _make_analyse_campaign(repo, "camp-a33")
+    snapshot = _source_snapshot(path="src/main.py")
+    result = _analyse_result()
+    _transform_and_save_analyse(
+        repo,
+        campaign_id,
+        _sub_question(),
+        (snapshot,),
+        result,
+        already_satisfied=True,
+        not_applicable=False,
+    )
+    decisions = repo.list_candidate_decisions(campaign_id)
+    assert len(decisions) == 1
+    assert decisions[0].decision == RadarCandidateDecision.ALREADY_SATISFIED.value
+
+
+def test_integration_a33_not_applicable_short_circuits(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """A33: not-applicable candidates are decided NOT_APPLICABLE."""
+
+    home, _store, _project = runtime
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    campaign_id = _make_analyse_campaign(repo, "camp-a33na")
+    snapshot = _source_snapshot(path="src/main.py")
+    result = _analyse_result()
+    _transform_and_save_analyse(
+        repo,
+        campaign_id,
+        _sub_question(),
+        (snapshot,),
+        result,
+        already_satisfied=False,
+        not_applicable=True,
+    )
+    decisions = repo.list_candidate_decisions(campaign_id)
+    assert len(decisions) == 1
+    assert decisions[0].decision == RadarCandidateDecision.NOT_APPLICABLE.value
+
+
+def test_integration_a35_measured_improvement_without_binding_rejected(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """A35: a measured-improvement promotion without a real failure/baseline/
+    eval binding is refused with PolicyViolation."""
+
+    home, _store, _project = runtime
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    campaign_id = _make_analyse_campaign(repo, "camp-a35")
+    snapshot = _source_snapshot(path="src/main.py")
+    result = _analyse_result()
+    with pytest.raises(PolicyViolation, match="measured improvement"):
+        _transform_and_save_analyse(
+            repo,
+            campaign_id,
+            _sub_question(),
+            (snapshot,),
+            result,
+            promote_measured_improvement=True,
+        )
+    assert repo.list_candidate_decisions(campaign_id) == ()
+
+
+def test_integration_guards_keep_campaign_result_safe(
+    runtime: tuple[Path, OperationalStore, Any],
+) -> None:
+    """When guards trigger through the real run flow, the campaign/report
+    result stays safe: no pattern card, no fake success, run marked failed."""
+
+    home, store, _project = runtime
+    discover_plan = _plan(home, store)
+    adapter = FakeGitHubAdapter()
+    discover_result = run_radar_campaign(
+        store,
+        home,
+        discover_plan,
+        authorized_plan_digest=discover_plan.plan_digest,
+        authorize_public_source_read=True,
+        authorize_agent_run=False,
+        github_adapter=adapter,
+    )
+    repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+    inventories = repo.list_inventories(discover_result["campaign_id"])
+    inventory_digest = inventories[0].inventory_digest
+    analyse_plan = _plan(
+        home,
+        store,
+        stage="analyse",
+        inventory_digest=inventory_digest,
+        owners=("openai",),
+    )
+    analyse_result = run_radar_campaign(
+        store,
+        home,
+        analyse_plan,
+        authorized_plan_digest=analyse_plan.plan_digest,
+        authorize_public_source_read=True,
+        authorize_agent_run=True,
+        github_adapter=adapter,
+        analyse_dispatcher=FakeAnalyseDispatcher(),
+    )
+    campaign_id = analyse_result["campaign_id"]
+    # README snapshot -> A34 refuses -> no pattern card, no fake success.
+    assert repo.list_pattern_cards(campaign_id) == ()
+    runs = repo.list_sub_research_runs(campaign_id)
+    assert len(runs) > 0
+    assert all(r.state == "failed" for r in runs)
+    report = repo.campaign_report_document(campaign_id)
+    assert report["read_only"] is True
+    assert report["grants_authority"] is False

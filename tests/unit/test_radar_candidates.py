@@ -27,6 +27,11 @@ from zekam.domain.radar_candidate import (
     RadarPatternCard,
     SourceProvenance,
     decide_automatic,
+    license_reuse_allowed,
+    require_license_reuse_allowed,
+    require_real_measurement_binding,
+    require_source_reviewed_promotion,
+    source_reviewed_promotion_allowed,
 )
 from zekam.infrastructure.github_radar_adapter import (
     FetchReceipt,
@@ -459,9 +464,12 @@ def test_analyse_creates_pattern_and_decision(
     )
     patterns = repo.list_pattern_cards(analyse_result["campaign_id"])
     decisions = repo.list_candidate_decisions(analyse_result["campaign_id"])
-    assert len(patterns) >= 1
-    assert len(decisions) >= 1
-    assert all(d.decision == "rejected-risk" for d in decisions)
+    # A34 wiring: README-only evidence is refused for promotion, so no pattern
+    # card is produced from a metadata-only snapshot. The campaign still ends
+    # "completed" safely with no fake success and no mutation grant.
+    assert patterns == ()
+    assert decisions == ()
+    assert analyse_result["state"] == "completed"
 
 
 def test_analyse_partial_creates_gap_card(
@@ -650,6 +658,217 @@ def test_paired_evaluation_rejects_mismatched_case_ids(
     decisions = repo.list_candidate_decisions("camp-mismatch")
     assert len(decisions) == 1
     assert decisions[0].decision == "evidence-insufficient"
+
+
+def test_decide_automatic_already_satisfied() -> None:
+    """A33: Zekam already satisfies the pattern -> ALREADY_SATISFIED, no module added."""
+    sel = decide_automatic(
+        card_id="pattern-a33",
+        campaign_id="camp-1",
+        problem="existing capability covers this pattern",
+        local_evidence="present in Zekam main",
+        upstream_evidence="source-reviewed",
+        smallest_actionable_solution="no new module; document existing coverage",
+        affected_logical_resources=("local-projection",),
+        expected_benefit="none",
+        risk="low",
+        maintenance_burden="none",
+        dependencies="",
+        acceptance_test="existing tests cover the behavior",
+        rollback="n/a",
+        is_code_or_schema_change=False,
+        already_satisfied=True,
+    )
+    assert sel.decision is RadarCandidateDecision.ALREADY_SATISFIED
+    assert sel.grants_authority is False
+
+
+def test_decide_automatic_not_applicable() -> None:
+    """A33: pattern does not apply -> NOT_APPLICABLE, no module added."""
+    sel = decide_automatic(
+        card_id="pattern-a33-na",
+        campaign_id="camp-1",
+        problem="pattern not relevant to Zekam",
+        local_evidence="no matching problem",
+        upstream_evidence="source-reviewed",
+        smallest_actionable_solution="no change; record not-applicable",
+        affected_logical_resources=("local-projection",),
+        expected_benefit="none",
+        risk="low",
+        maintenance_burden="none",
+        dependencies="",
+        acceptance_test="not applicable",
+        rollback="n/a",
+        is_code_or_schema_change=False,
+        not_applicable=True,
+    )
+    assert sel.decision is RadarCandidateDecision.NOT_APPLICABLE
+    assert sel.grants_authority is False
+
+
+def test_decide_automatic_already_satisfied_wins_over_code_change() -> None:
+    """A33: already-satisfied decision wins and never mutates to rejected-risk."""
+    sel = decide_automatic(
+        card_id="pattern-a33-win",
+        campaign_id="camp-1",
+        problem="already covered",
+        local_evidence="present",
+        upstream_evidence="source-reviewed",
+        smallest_actionable_solution="no new module",
+        affected_logical_resources=("local-index",),
+        expected_benefit="none",
+        risk="low",
+        maintenance_burden="none",
+        dependencies="",
+        acceptance_test="existing tests",
+        rollback="n/a",
+        is_code_or_schema_change=True,
+        already_satisfied=True,
+    )
+    assert sel.decision is RadarCandidateDecision.ALREADY_SATISFIED
+
+
+def test_source_reviewed_promotion_requires_real_evidence() -> None:
+    """A34: README-only or failing-code search cannot promote to actionable candidate."""
+    assert source_reviewed_promotion_allowed(EvidenceLevel.SOURCE_REVIEWED) is True
+    assert source_reviewed_promotion_allowed(EvidenceLevel.TESTS_REVIEWED) is True
+    assert source_reviewed_promotion_allowed(EvidenceLevel.RUNTIME_MEASURED) is True
+    assert source_reviewed_promotion_allowed(EvidenceLevel.DOCUMENTATION_REVIEWED) is False
+    assert source_reviewed_promotion_allowed(EvidenceLevel.METADATA_ONLY) is False
+    with pytest.raises(PolicyViolation):
+        require_source_reviewed_promotion(EvidenceLevel.DOCUMENTATION_REVIEWED)
+    with pytest.raises(PolicyViolation):
+        require_source_reviewed_promotion(EvidenceLevel.METADATA_ONLY)
+    # Strong evidence is accepted without raising.
+    require_source_reviewed_promotion(EvidenceLevel.SOURCE_REVIEWED)
+
+
+def test_source_reviewed_promotion_rejects_missing_or_failing_code() -> None:
+    """A34: a 'missing' claim from only failed code search stays non-promotable."""
+    # The pattern/gap card carries evidence level; a missing/readme-only claim
+    # is represented by METADATA_ONLY / DOCUMENTATION_REVIEWED and cannot be
+    # promoted to an actionable candidate.
+    card = _pattern_card()
+    weak = RadarPatternCard(
+        card_id="card-weak",
+        campaign_id=card.campaign_id,
+        kind=RadarCandidateKind.PATTERN,
+        problem=card.problem,
+        source=card.source,
+        observed_behavior=card.observed_behavior,
+        inference_or_assumption="README mentions a feature; no code search hit",
+        test_evidence_level=EvidenceLevel.DOCUMENTATION_REVIEWED,
+        license_reuse_constraint=card.license_reuse_constraint,
+        cost_dependency_limit=card.cost_dependency_limit,
+        not_applicable_conditions=card.not_applicable_conditions,
+    )
+    assert weak.test_evidence_level is EvidenceLevel.DOCUMENTATION_REVIEWED
+    assert source_reviewed_promotion_allowed(weak.test_evidence_level) is False
+
+
+def test_real_measurement_binding_required() -> None:
+    """A35: speculative external proposal cannot claim a measured improvement."""
+    # All three real bindings present -> allowed.
+    require_real_measurement_binding(
+        has_real_failure=True,
+        has_real_baseline=True,
+        has_real_eval=True,
+    )
+    # Any missing real binding -> measured improvement is refused.
+    with pytest.raises(PolicyViolation):
+        require_real_measurement_binding(
+            has_real_failure=False,
+            has_real_baseline=True,
+            has_real_eval=True,
+        )
+    with pytest.raises(PolicyViolation):
+        require_real_measurement_binding(
+            has_real_failure=True,
+            has_real_baseline=False,
+            has_real_eval=True,
+        )
+    with pytest.raises(PolicyViolation):
+        require_real_measurement_binding(
+            has_real_failure=True,
+            has_real_baseline=True,
+            has_real_eval=False,
+        )
+    # A fully speculative external proposal (no failure no baseline no eval).
+    with pytest.raises(PolicyViolation):
+        require_real_measurement_binding(
+            has_real_failure=False,
+            has_real_baseline=False,
+            has_real_eval=False,
+        )
+
+
+def test_no_measured_improvement_without_real_binding() -> None:
+    """A35: external proposal without any real binding yields no measured record."""
+    # Speculative external proposal: source reviewed only, no local measurement.
+    speculative = decide_automatic(
+        card_id="pattern-a35",
+        campaign_id="camp-1",
+        problem="external proposal claims a gain",
+        local_evidence="no local failure/baseline/eval",
+        upstream_evidence="source-reviewed",
+        smallest_actionable_solution="evaluate against local fixture first",
+        affected_logical_resources=("local-index",),
+        expected_benefit="unknown without measurement",
+        risk="medium",
+        maintenance_burden="unknown",
+        dependencies="requires local evaluation fixture",
+        acceptance_test="existing tests pass",
+        rollback="revert",
+        is_code_or_schema_change=True,
+    )
+    # Radar never fabricates a measured improvement or a fake receipt.
+    assert speculative.decision is RadarCandidateDecision.REJECTED_RISK
+    assert speculative.grants_authority is False
+    # The bridge refuses to build a measured improvement without real bindings;
+    # calling the guard with no binding must raise.
+    with pytest.raises(PolicyViolation):
+        require_real_measurement_binding(
+            has_real_failure=False,
+            has_real_baseline=False,
+            has_real_eval=False,
+        )
+
+
+def test_license_reuse_requires_clear_constraint() -> None:
+    """A38: unknown/source-available/path-override license blocks reuse-approved."""
+    assert license_reuse_allowed("MIT with NOTICE") is True
+    assert license_reuse_allowed("Apache-2.0") is True
+    assert license_reuse_allowed("unknown") is False
+    assert license_reuse_allowed("source-available") is False
+    assert license_reuse_allowed("path-override required") is False
+    with pytest.raises(PolicyViolation):
+        require_license_reuse_allowed("unknown")
+    with pytest.raises(PolicyViolation):
+        require_license_reuse_allowed("source-available licensed")
+    # Clear license is accepted without raising.
+    require_license_reuse_allowed("MIT")
+
+
+def test_license_reuse_guard_on_pattern_card() -> None:
+    """A38: a pattern card whose license blocks upstream reuse cannot be promoted."""
+    card = _pattern_card()
+    blocked = RadarPatternCard(
+        card_id="card-blocked",
+        campaign_id=card.campaign_id,
+        kind=RadarCandidateKind.PATTERN,
+        problem=card.problem,
+        source=card.source,
+        observed_behavior=card.observed_behavior,
+        inference_or_assumption="upstream source-available",
+        test_evidence_level=EvidenceLevel.SOURCE_REVIEWED,
+        license_reuse_constraint="source-available",
+        cost_dependency_limit=card.cost_dependency_limit,
+        not_applicable_conditions=card.not_applicable_conditions,
+    )
+    assert license_reuse_allowed(blocked.license_reuse_constraint) is False
+    # Upstream code/script must not be auto-run under a blocking license.
+    with pytest.raises(PolicyViolation):
+        require_license_reuse_allowed(blocked.license_reuse_constraint)
 
 
 def test_radar_propose_handler_default_disabled() -> None:

@@ -27,6 +27,9 @@ from zekam.domain.radar_candidate import (
     RadarPatternCard,
     SourceProvenance,
     decide_automatic,
+    require_license_reuse_allowed,
+    require_real_measurement_binding,
+    require_source_reviewed_promotion,
 )
 from zekam.domain.research import ResearchBudget, ResearchQuestion, SourceKind, SourcePolicy
 from zekam.infrastructure.github_radar_adapter import (
@@ -766,29 +769,36 @@ def _run_analyse(
                 s for s in snapshots if s["snapshot_id"].startswith(f"{repo_key}:")
             )
             try:
-                _transform_and_save_analyse(repo, campaign_id, sub_question, repo_snapshots, result)
-                result_payload: dict[str, Any] = {
-                    "result": repr(result)[:1000],
-                    "estimated_tokens": _estimate_tokens(result),
-                }
-                if measurements["tokens"] is not None:
-                    repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
-                    result_payload["measured_tokens"] = measurements["tokens"]
-                else:
-                    result_payload["measured_tokens"] = None
-                    result_payload["missing_measurement_reason"] = measurements.get(
-                        "missing_reason"
-                    )
-                repo.update_sub_research_run(
+                _transform_and_save_analyse(
+                    repo,
+                    campaign_id,
+                    sub_question,
+                    repo_snapshots,
+                    result,
+                    already_satisfied=None,
+                    not_applicable=None,
+                    promote_measured_improvement=None,
+                )
+                _finalize_sub_research(
+                    repo,
+                    campaign_id,
                     run_id,
-                    "completed",
-                    result=result_payload,
+                    result,
+                    measurements,
+                    state="completed",
                 )
             except Exception as exc:
-                repo.update_sub_research_run(
+                # A34/A38/A35 guard refusal still consumes measured usage: the
+                # invocation really happened, but it produced no card and no
+                # fake success. The run is marked failed with the guard reason.
+                _finalize_sub_research(
+                    repo,
+                    campaign_id,
                     run_id,
-                    "failed",
-                    result={"error": str(exc)},
+                    result,
+                    measurements,
+                    state="failed",
+                    error=str(exc),
                 )
 
     def _dispatch_one(
@@ -870,34 +880,113 @@ def _run_analyse(
                 )
                 try:
                     _transform_and_save_analyse(
-                        repo, campaign_id, sub_question, repo_snapshots, result
+                        repo,
+                        campaign_id,
+                        sub_question,
+                        repo_snapshots,
+                        result,
+                        already_satisfied=None,
+                        not_applicable=None,
+                        promote_measured_improvement=None,
                     )
-                    result_payload: dict[str, Any] = {
-                        "result": repr(result)[:1000],
-                        "estimated_tokens": _estimate_tokens(result),
-                    }
-                    if measurements["tokens"] is not None:
-                        repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
-                        result_payload["measured_tokens"] = measurements["tokens"]
-                    else:
-                        result_payload["measured_tokens"] = None
-                        result_payload["missing_measurement_reason"] = measurements.get(
-                            "missing_reason"
-                        )
-                    repo.update_sub_research_run(
+                    _finalize_sub_research(
+                        repo,
+                        campaign_id,
                         run_id,
-                        "completed",
-                        result=result_payload,
+                        result,
+                        measurements,
+                        state="completed",
                     )
                 except Exception as exc:
-                    repo.update_sub_research_run(
+                    _finalize_sub_research(
+                        repo,
+                        campaign_id,
                         run_id,
-                        "failed",
-                        result={"error": str(exc)},
+                        result,
+                        measurements,
+                        state="failed",
+                        error=str(exc),
                     )
     except CampaignPartial:
         _drain_submitted()
         raise
+
+
+def _evidence_level_from_snapshot(snapshot: dict[str, Any]) -> EvidenceLevel:
+    """Derive the actionable evidence level from a real source snapshot path.
+
+    Only genuine source/test files carry enough evidence for an actionable
+    promotion. README / documentation / metadata files are not code evidence.
+    An explicit ``test_evidence_level`` marker (used by integration tests and
+    future callers) takes precedence over the path heuristic.
+    """
+    explicit = snapshot.get("test_evidence_level")
+    if explicit is not None:
+        try:
+            return EvidenceLevel(str(explicit))
+        except ValueError:
+            pass
+    path = str(snapshot.get("path") or "README.md")
+    lower = path.lower()
+    if lower.endswith(("_test.py", "_test.go", "_tests.rs", ".test.ts", "test_")):
+        return EvidenceLevel.TESTS_REVIEWED
+    if lower.endswith((".py", ".go", ".rs", ".js", ".ts", ".tsx", ".java", ".c", ".cpp")):
+        return EvidenceLevel.SOURCE_REVIEWED
+    if any(seg in lower for seg in ("/docs/", "/doc/", "readme", "doc.")):
+        return EvidenceLevel.DOCUMENTATION_REVIEWED
+    return EvidenceLevel.METADATA_ONLY
+
+
+def _license_constraint_from_snapshot(snapshot: dict[str, Any]) -> str:
+    """Derive an explicit license-reuse constraint from the source snapshot.
+
+    A README/metadata-only observation cannot authorise upstream reuse and is
+    treated as ``unknown``. An explicit ``license_reuse_constraint`` marker
+    (integration tests / future callers) takes precedence.
+    """
+    explicit = snapshot.get("license_reuse_constraint")
+    if explicit is not None:
+        return str(explicit)
+    evidence = _evidence_level_from_snapshot(snapshot)
+    if evidence in (
+        EvidenceLevel.SOURCE_REVIEWED,
+        EvidenceLevel.TESTS_REVIEWED,
+        EvidenceLevel.RUNTIME_MEASURED,
+    ):
+        return "source-reviewed without an explicit permissive license grant"
+    return "unknown"
+
+
+def _finalize_sub_research(
+    repo: RadarCampaignRepository,
+    campaign_id: str,
+    run_id: str,
+    result: Any,
+    measurements: dict[str, Any],
+    *,
+    state: str,
+    error: str | None = None,
+) -> None:
+    """Persist a sub-research completion/failure and account measured usage.
+
+    Measured token usage is consumed regardless of transform/guard outcome
+    because the invocation really executed; a guard refusal neither produces a
+    card/fake success nor fabricates a benchmark. A failure carries the
+    sanitized reason (never raw transcript or secrets).
+    """
+    result_payload: dict[str, Any] = {
+        "result": repr(result)[:1000],
+        "estimated_tokens": _estimate_tokens(result),
+    }
+    if measurements["tokens"] is not None:
+        repo.consume_budget(campaign_id, "tokens", measurements["tokens"])
+        result_payload["measured_tokens"] = measurements["tokens"]
+    else:
+        result_payload["measured_tokens"] = None
+        result_payload["missing_measurement_reason"] = measurements.get("missing_reason")
+    if error is not None:
+        result_payload["error"] = error
+    repo.update_sub_research_run(run_id, state, result=result_payload)
 
 
 def _transform_and_save_analyse(
@@ -906,16 +995,43 @@ def _transform_and_save_analyse(
     sub_question: dict[str, Any],
     repo_snapshots: tuple[Any, ...],
     result: Any,
+    *,
+    already_satisfied: bool | None = None,
+    not_applicable: bool | None = None,
+    promote_measured_improvement: bool | None = None,
 ) -> None:
     """Convert one sub-research result to pattern/gap cards and a decision.
 
     Code/schema/security proposals are always ``rejected-risk`` because they
     must cross the existing improvement/evaluation/rollout boundary before any
     mutation.
+
+    A33 wiring: ``already_satisfied``/``not_applicable`` are threaded to
+    ``decide_automatic`` so an existing Zekam solution short-circuits to
+    ``ALREADY_SATISFIED`` and an inapplicable candidate to ``NOT_APPLICABLE``
+    without adding a new module or a measured claim. When not given explicitly
+    they are derived from the real sub-question metadata.
+
+    A35 wiring: a measured-improvement promotion is refused unless the run
+    carried a real failure card, a real baseline aggregate and a real
+    evaluation contract. Speculative external radar results never carry these,
+    so ``promote_measured_improvement`` always fails closed here.
     """
 
     is_success = getattr(result, "outcome", "") == "success"
     snapshot = repo_snapshots[0] if repo_snapshots else {}
+    if already_satisfied is None:
+        already_satisfied = bool(sub_question.get("already_satisfied", False))
+    if not_applicable is None:
+        not_applicable = bool(sub_question.get("not_applicable", False))
+    if promote_measured_improvement is None:
+        promote_measured_improvement = bool(sub_question.get("promote_measured_improvement", False))
+    if promote_measured_improvement:
+        require_real_measurement_binding(
+            has_real_failure=False,
+            has_real_baseline=False,
+            has_real_eval=False,
+        )
     source = SourceProvenance(
         repository_id=int(snapshot.get("repository_id", 0) or 0),
         owner=str(snapshot.get("owner", "unknown")),
@@ -927,6 +1043,13 @@ def _transform_and_save_analyse(
     )
     repo_key = sub_question["repo_key"]
     if is_success:
+        # A34/A38 wiring: only real source/test/runtime evidence may be promoted
+        # to an actionable pattern card, and only a license that clearly permits
+        # reuse can be claimed. README/metadata-only evidence or an unknown/
+        # source-available/path-override license must raise PolicyViolation so
+        # no pattern card (and no fake success) is ever produced for them.
+        require_source_reviewed_promotion(_evidence_level_from_snapshot(snapshot))
+        require_license_reuse_allowed(_license_constraint_from_snapshot(snapshot))
         pattern_card = RadarPatternCard(
             card_id=f"radar-pattern:{sub_question['question_id']}",
             campaign_id=campaign_id,
@@ -935,8 +1058,8 @@ def _transform_and_save_analyse(
             source=source,
             observed_behavior="successful analyse result produced findings",
             inference_or_assumption="source-reviewed; runtime not measured",
-            test_evidence_level=EvidenceLevel.SOURCE_REVIEWED,
-            license_reuse_constraint="upstream license must be reviewed before reuse",
+            test_evidence_level=_evidence_level_from_snapshot(snapshot),
+            license_reuse_constraint=_license_constraint_from_snapshot(snapshot),
             cost_dependency_limit="unknown until local evaluation",
             not_applicable_conditions="requires exact local problem and measurement",
         )
@@ -975,6 +1098,8 @@ def _transform_and_save_analyse(
         rollback="revert patch",
         is_code_or_schema_change=True,
         has_duplicate=False,
+        already_satisfied=already_satisfied,
+        not_applicable=not_applicable,
     )
     existing = repo.find_duplicate_selection_digest(pre_selection.selection_digest)
     has_duplicate = existing is not None
@@ -1004,6 +1129,8 @@ def _transform_and_save_analyse(
         rollback="revert patch",
         is_code_or_schema_change=True,
         has_duplicate=has_duplicate,
+        already_satisfied=already_satisfied,
+        not_applicable=not_applicable,
         existing_decision=existing_decision,
         existing_campaign_id=existing_campaign_id,
     )
