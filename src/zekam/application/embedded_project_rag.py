@@ -74,61 +74,120 @@ _RELATIONSHIP_EDGE_SIGNALS = (
 #: and model context/output reserve is respected.  The excerpt is chosen from
 #: the *used* chunks (evidence-selected), not a blind first-500 of the very
 #: first chunk.
-MAX_ANSWER_EXCERPT_CHARS = 500
+MAX_ANSWER_EXCERPT_CHARS = 1200
 
 
-def _excerpt_window(text: str, max_chars: int) -> tuple[str, bool]:
-    """Return a bounded, line-aligned leading window of ``text`` for the excerpt.
+_EXCERPT_NOISE_PREFIXES = ("import ", "package ", "#include", "using ", "from ")
+_EXCERPT_STOPWORDS = frozenset(
+    {
+        *("hangi", "nedir", "nasil", "neler", "nerede", "ile", "icin", "veya", "ama"),
+        *("gibi", "olan", "olarak", "sunar", "calistirir", "tanimli", "var", "the"),
+        *("and", "for", "what", "which", "how", "does"),
+    }
+)
 
-    WP6 (B08): the answer excerpt is an *evidence-selected* bounded window, not a
-    blind first-500-character slice of the first used chunk with no provenance.
-    The window is line-aligned and deterministic; when the whole chunk fits it is
-    returned unchanged.  The returned ``(window, truncated)`` flag tells the
-    caller whether the chunk was truncated, so the excerpt's derived digest and
-    locator relationship stay accurate.
+
+def _excerpt_terms(query: str) -> frozenset[str]:
+    return frozenset(
+        item.casefold()
+        for item in _TOKEN.findall(query)
+        if len(item) > 2 and item.casefold() not in _EXCERPT_STOPWORDS
+    )
+
+
+def _excerpt_line_score(line: str, terms: frozenset[str]) -> int:
+    """Query relevance of one source line; import/package preamble scores zero."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith(_EXCERPT_NOISE_PREFIXES):
+        return 0
+    lowered = stripped.casefold()
+    return sum(1 for term in terms if term in lowered)
+
+
+def _excerpt_window(
+    text: str, max_chars: int, query: str = ""
+) -> tuple[str, bool, tuple[int, int]]:
+    """Return a bounded, line-aligned, query-aware window of ``text``.
+
+    RAG26-R03: the window is the contiguous run of *exact source lines* (never
+    rewritten) that maximises query-term relevance within ``max_chars``.
+    Import/package preambles carry no score, so an endpoint or flow body that
+    starts after a long import block is not cut off.  Without any query match the
+    deterministic leading window is used.  ``(window, truncated, (first, last))``
+    where the 1-based line range lets the consumer bind the excerpt to the same
+    bytes the chunk locator refers to.
     """
     if max_chars <= 0:
-        return "", text != ""
-    if len(text) <= max_chars:
-        return text, False
+        return "", text != "", (1, 1)
     lines = text.splitlines(keepends=True)
-    accumulated: list[str] = []
-    total = 0
-    for line in lines:
-        if total + len(line) > max_chars:
-            if not accumulated:
-                return text[:max_chars], True
-            break
-        accumulated.append(line)
-        total += len(line)
-    return "".join(accumulated), True
+    if len(text) <= max_chars:
+        return text, False, (1, max(len(lines), 1))
+    terms = _excerpt_terms(query)
+    scores = [_excerpt_line_score(line, terms) for line in lines]
+    best = (0, 0, 0)  # (score, start, end_exclusive)
+    if any(scores):
+        for start in range(len(lines)):
+            if not scores[start]:
+                continue
+            total = 0
+            score = 0
+            end = start
+            while end < len(lines) and total + len(lines[end]) <= max_chars:
+                total += len(lines[end])
+                score += scores[end]
+                end += 1
+            if end > start and score > best[0]:
+                best = (score, start, end)
+    if best[0] == 0:
+        start, end, total = 0, 0, 0
+        while end < len(lines) and total + len(lines[end]) <= max_chars:
+            total += len(lines[end])
+            end += 1
+        if end == 0:
+            return text[:max_chars], True, (1, 1)
+        return "".join(lines[:end]), True, (1, end)
+    _, start, end = best
+    return "".join(lines[start:end]), True, (start + 1, end)
 
 
-def _build_excerpt(answer: Any, views: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+def _excerpt_relevance(text: str, query: str) -> int:
+    terms = _excerpt_terms(query)
+    return sum(_excerpt_line_score(line, terms) for line in text.splitlines())
+
+
+def _build_excerpt(
+    answer: Any, views: dict[str, Any], query: str = ""
+) -> tuple[str | None, dict[str, Any] | None]:
     """Build the answer excerpt window and its additive provenance metadata.
 
-    WP6 (B08): ``answer_excerpt`` stays a **string** (backward-compatible with the
-    existing CLI/consumer contract), but is now the bounded, line-aligned window
-    of the first *used* chunk — an evidence-selected window rather than a blind
-    first-500-character slice.  The accurate digest/locator relationship is
-    carried in a separate additive ``answer_excerpt_meta`` field so the excerpt
-    digest is never mixed with the full source/chunk digest.
+    ``answer_excerpt`` stays a **string** (backward-compatible), taken from the
+    used chunk whose query-aware window is most relevant (first used chunk on
+    ties).  The digest/locator relationship is carried in the additive
+    ``answer_excerpt_meta`` field, now including ``excerpt_line_range`` so the
+    excerpt digest is never mixed with the full chunk digest.  The range is
+    relative to the chunk text; the file line is ``locator.line_start + a - 1``.
 
     Returns ``(text_or_None, meta_or_None)``.
     """
     if not answer.used_chunk_ids or not answer.citations:
         return None, None
-    chunk_id = answer.used_chunk_ids[0]
-    view = views.get(chunk_id)
-    if view is None:
+    candidates = [
+        (chunk_id, views[chunk_id]) for chunk_id in answer.used_chunk_ids if chunk_id in views
+    ]
+    if not candidates:
         return None, None
-    text, truncated = _excerpt_window(view.text, MAX_ANSWER_EXCERPT_CHARS)
+    chunk_id, view = max(
+        enumerate(candidates),
+        key=lambda item: (_excerpt_relevance(item[1][1].text, query), -item[0]),
+    )[1]
+    text, truncated, line_range = _excerpt_window(view.text, MAX_ANSWER_EXCERPT_CHARS, query)
     meta: dict[str, Any] = {
         "chunk_id": chunk_id,
         "truncated": truncated,
         # Derived digest of JUST the excerpt window — never confused with the
         # full chunk content_digest (kept distinct and clearly labelled).
         "excerpt_digest": digest_of_bytes(text.encode("utf-8")),
+        "excerpt_line_range": list(line_range),
         "content_digest": view.content_digest,
         "locator": view.locator.as_dict() if view.locator else None,
         "source_ref": view.locator.relative_path if view.locator else None,
@@ -721,7 +780,7 @@ class EmbeddedProjectRAG:
             else:
                 state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
                 citations = []
-        excerpt, excerpt_meta = _build_excerpt(answer, views)
+        excerpt, excerpt_meta = _build_excerpt(answer, views, query)
         # WP7 / B08: `evidence_found` is derived from actual citations carried by
         # the result (never from the `state` string alone) so the retrieval
         # outcome and the payload reality stay consistent.

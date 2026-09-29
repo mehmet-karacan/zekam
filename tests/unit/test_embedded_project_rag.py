@@ -12,6 +12,7 @@ from uuid import UUID
 import pytest
 
 from zekam.application.embedded_project_rag import (
+    MAX_ANSWER_EXCERPT_CHARS,
     MAX_QUERY_BYTES,
     EmbeddedProjectRAG,
     build_embedded_project_generation,
@@ -389,7 +390,7 @@ def test_wp6_b1_excerpt_digest_is_derived_and_linked(tmp_path: Path) -> None:
         assert meta["chunk_id"] == result["citations"][0]["chunk_id"]
         assert meta["source_ref"] == PATH
         assert meta["locator"]["relative_path"] == PATH
-        assert len(result["answer_excerpt"]) <= 500
+        assert len(result["answer_excerpt"]) <= MAX_ANSWER_EXCERPT_CHARS
     finally:
         index.close()
 
