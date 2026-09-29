@@ -937,6 +937,27 @@ def _evidence_level_from_snapshot(snapshot: dict[str, Any]) -> EvidenceLevel:
     return EvidenceLevel.METADATA_ONLY
 
 
+_EVIDENCE_RANK = {
+    EvidenceLevel.METADATA_ONLY: 0,
+    EvidenceLevel.DOCUMENTATION_REVIEWED: 1,
+    EvidenceLevel.SOURCE_REVIEWED: 2,
+    EvidenceLevel.TESTS_REVIEWED: 3,
+    EvidenceLevel.RUNTIME_MEASURED: 4,
+}
+
+
+def _strongest_snapshot(repo_snapshots: tuple[Any, ...]) -> dict[str, Any]:
+    """Pick the snapshot with the strongest evidence; ties keep manifest order.
+
+    A repository manifest may carry a README next to real source files. The
+    promotion guard must judge the best real evidence, never merely the first
+    manifest entry.
+    """
+    if not repo_snapshots:
+        return {}
+    return max(repo_snapshots, key=lambda s: _EVIDENCE_RANK[_evidence_level_from_snapshot(s)])
+
+
 def _license_constraint_from_snapshot(snapshot: dict[str, Any]) -> str:
     """Derive an explicit license-reuse constraint from the source snapshot.
 
@@ -1019,7 +1040,7 @@ def _transform_and_save_analyse(
     """
 
     is_success = getattr(result, "outcome", "") == "success"
-    snapshot = repo_snapshots[0] if repo_snapshots else {}
+    snapshot = _strongest_snapshot(repo_snapshots)
     if already_satisfied is None:
         already_satisfied = bool(sub_question.get("already_satisfied", False))
     if not_applicable is None:

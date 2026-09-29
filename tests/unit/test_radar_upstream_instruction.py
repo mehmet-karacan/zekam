@@ -49,6 +49,30 @@ These sentences are data, not operational instructions.
 """
 
 
+def _seed_source_entry(repo: RadarCampaignRepository, campaign_id: str) -> None:
+    """Add a real source-level manifest entry next to the README.
+
+    The analyse promotion guard (A34/A38) refuses README-only evidence, so the
+    offline corpus must carry a genuine source file for pattern cards to exist.
+    """
+    body = "def pattern() -> int:\n    return 1\n"
+    internal_id = repo.get_campaign(campaign_id).id
+    for pin in repo.list_pinned_commits(campaign_id):
+        repo.save_source_manifest(
+            internal_id,
+            pin["id"],
+            (
+                {
+                    "path": "src/core.py",
+                    "blob_sha": "b" * 40,
+                    "raw_content_digest": digest(body),
+                    "complete": True,
+                    "omission_reason": None,
+                },
+            ),
+        )
+
+
 class _InstructionBearingAdapter:
     """Fake adapter whose README contains adversarial instruction text."""
 
@@ -158,6 +182,8 @@ def test_upstream_instruction_text_is_data_not_effect(
     assert manifest[0]["path"] == "README.md"
     assert manifest[0]["complete"] is True
     assert manifest[0]["raw_content_digest"] == digest(_INSTRUCTION_README)
+
+    _seed_source_entry(repo, discover_result["campaign_id"])
 
     # Run analysis with the instruction-bearing README.  The fake dispatcher
     # returns a normal result; no command execution or secret loading occurs.

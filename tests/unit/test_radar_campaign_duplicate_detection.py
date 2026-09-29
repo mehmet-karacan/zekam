@@ -193,12 +193,12 @@ def test_duplicate_selection_found_across_campaigns(
     sub_question = {"question_id": "q-1", "repo_key": "openai/codex"}
     snapshots = (
         {
-            "snapshot_id": "openai/codex:README.md",
+            "snapshot_id": "openai/codex:src/main.py",
             "repository_id": 1,
             "owner": "openai",
             "name": "codex",
             "revision": "abc123" * 6,
-            "path": "README.md",
+            "path": "src/main.py",
             "content_digest": digest("readme"),
         },
     )
@@ -240,12 +240,12 @@ def test_different_selection_digest_is_not_duplicate(
     sub_question = {"question_id": "q-1", "repo_key": "openai/codex"}
     snapshots = (
         {
-            "snapshot_id": "openai/codex:README.md",
+            "snapshot_id": "openai/codex:src/main.py",
             "repository_id": 1,
             "owner": "openai",
             "name": "codex",
             "revision": "abc123" * 6,
-            "path": "README.md",
+            "path": "src/main.py",
             "content_digest": digest("readme"),
         },
     )
@@ -257,12 +257,12 @@ def test_different_selection_digest_is_not_duplicate(
     other_question = {"question_id": "q-2", "repo_key": "google-gemini/gemini-cli"}
     other_snapshots = (
         {
-            "snapshot_id": "google-gemini/gemini-cli:README.md",
+            "snapshot_id": "google-gemini/gemini-cli:src/main.py",
             "repository_id": 2,
             "owner": "google-gemini",
             "name": "gemini-cli",
             "revision": "def456" * 6,
-            "path": "README.md",
+            "path": "src/main.py",
             "content_digest": digest("other readme"),
         },
     )

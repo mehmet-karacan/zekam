@@ -44,6 +44,30 @@ pytestmark = pytest.mark.unit
 _FIXED_SHA = "a" * 40
 
 
+def _seed_source_entry(repo: RadarCampaignRepository, campaign_id: str) -> None:
+    """Add a real source-level manifest entry next to the README.
+
+    The analyse promotion guard (A34/A38) refuses README-only evidence, so the
+    offline corpus must carry a genuine source file for pattern cards to exist.
+    """
+    body = "def pattern() -> int:\n    return 1\n"
+    internal_id = repo.get_campaign(campaign_id).id
+    for pin in repo.list_pinned_commits(campaign_id):
+        repo.save_source_manifest(
+            internal_id,
+            pin["id"],
+            (
+                {
+                    "path": "src/core.py",
+                    "blob_sha": "b" * 40,
+                    "raw_content_digest": digest(body),
+                    "complete": True,
+                    "omission_reason": None,
+                },
+            ),
+        )
+
+
 class _DeterministicGitHubAdapter:
     """Typed fake GitHub adapter returning a deterministic offline corpus."""
 
@@ -197,6 +221,7 @@ def test_e2e_offline_discover_analyse_report(runtime: tuple[Path, OperationalSto
     assert manifest[0]["path"] == "README.md"
     assert manifest[0]["complete"] is True
 
+    _seed_source_entry(repo, discover_result["campaign_id"])
     analyse_plan = build_radar_plan(
         store,
         home,
@@ -269,6 +294,7 @@ def test_two_projects_same_upstream_keep_isolation(
         )
         repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
         inventory_digest = repo.list_inventories(result["campaign_id"])[0].inventory_digest
+        _seed_source_entry(repo, result["campaign_id"])
         analyse_plan = build_radar_plan(
             store,
             home,

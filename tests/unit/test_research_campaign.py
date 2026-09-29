@@ -15,6 +15,7 @@ from zekam.application.research_campaign_runtime import (
     _build_sub_questions,
     _extract_measurements,
     _is_no_progress,
+    _strongest_snapshot,
     _transform_and_save_analyse,
     build_radar_plan,
     run_radar_campaign,
@@ -953,3 +954,15 @@ def test_integration_guards_keep_campaign_result_safe(
     report = repo.campaign_report_document(campaign_id)
     assert report["read_only"] is True
     assert report["grants_authority"] is False
+
+
+def test_strongest_snapshot_prefers_real_source_over_readme() -> None:
+    readme = _source_snapshot(path="README.md")
+    source = _source_snapshot(path="src/core.py")
+    tests_file = _source_snapshot(path="tests/core_test.py")
+    assert _strongest_snapshot((readme, source))["path"] == "src/core.py"
+    assert _strongest_snapshot((source, readme))["path"] == "src/core.py"
+    assert _strongest_snapshot((source, tests_file))["path"] == "tests/core_test.py"
+    # README-only stays README-only so the promotion guard still refuses it.
+    assert _strongest_snapshot((readme,))["path"] == "README.md"
+    assert _strongest_snapshot(()) == {}
