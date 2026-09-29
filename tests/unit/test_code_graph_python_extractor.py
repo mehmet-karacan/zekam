@@ -104,8 +104,7 @@ def test_inheritance_extends(tmp_path: Path) -> None:
     extends_child = [
         edge
         for edge in _edges(extraction)
-        if edge.relation == GraphRelation.EXTENDS
-        and edge.target_qualified_name == "Base"
+        if edge.relation == GraphRelation.EXTENDS and edge.target_qualified_name == "Base"
     ]
     assert len(extends_child) == 1
     edge = extends_child[0]
@@ -130,8 +129,7 @@ def test_unresolved_attribute_call(tmp_path: Path) -> None:
     unresolved = [
         edge
         for edge in _edges(extraction)
-        if edge.relation == GraphRelation.CALLS
-        and edge.confidence == GraphConfidence.UNRESOLVED
+        if edge.relation == GraphRelation.CALLS and edge.confidence == GraphConfidence.UNRESOLVED
     ]
     assert unresolved, "attribute dispatch must be marked unresolved"
     assert unresolved[0].target_symbol_id is None
@@ -143,8 +141,7 @@ def test_local_unresolved_call(tmp_path: Path) -> None:
     unresolved = [
         edge
         for edge in _edges(extraction)
-        if edge.relation == GraphRelation.CALLS
-        and edge.confidence == GraphConfidence.UNRESOLVED
+        if edge.relation == GraphRelation.CALLS and edge.confidence == GraphConfidence.UNRESOLVED
     ]
     assert unresolved
     assert unresolved[0].target_qualified_name == "missing_function"
@@ -153,9 +150,7 @@ def test_local_unresolved_call(tmp_path: Path) -> None:
 def test_duplicate_symbol_names(tmp_path: Path) -> None:
     content = "class C:\n    pass\n\nclass C:\n    pass\n"
     extraction = _extract(tmp_path, "m.py", content)
-    c_symbols = [
-        symbol for symbol in _symbols(extraction) if symbol.qualified_name == "m.C"
-    ]
+    c_symbols = [symbol for symbol in _symbols(extraction) if symbol.qualified_name == "m.C"]
     assert len(c_symbols) == 2
     assert c_symbols[0].symbol_id != c_symbols[1].symbol_id
 

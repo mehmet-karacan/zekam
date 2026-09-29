@@ -38,7 +38,6 @@ class SkillRuntimeSigner:
         return f"hmac-sha256:{value}"
 
 
-
 class SkillRuntimeVerifier:
     """Verification-only capability; it never exposes or returns a valid seal."""
 
@@ -50,9 +49,10 @@ class SkillRuntimeVerifier:
     def matches_receipt_digest(
         self, unsigned_body: dict[str, object], evidence_digest: str
     ) -> bool:
-        seal = "hmac-sha256:" + hmac.digest(
-            self.__key, canonical_json(unsigned_body).encode(), "sha256"
-        ).hex()
+        seal = (
+            "hmac-sha256:"
+            + hmac.digest(self.__key, canonical_json(unsigned_body).encode(), "sha256").hex()
+        )
         return hmac.compare_digest(
             digest(unsigned_body | {"runtime_attestation": seal}), evidence_digest
         )

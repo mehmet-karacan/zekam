@@ -155,11 +155,7 @@ def normalize_source(payload: bytes) -> dict[str, object]:
         if raw_line == "<<ZEKAM_END_PRE>>":
             in_pre = False
             continue
-        line = (
-            raw_line.rstrip()
-            if in_pre
-            else re.sub(r"[ \t]+", " ", raw_line).strip()
-        )
+        line = raw_line.rstrip() if in_pre else re.sub(r"[ \t]+", " ", raw_line).strip()
         if line:
             lines.append(line)
     joined = "\n".join(lines)

@@ -158,9 +158,7 @@ def query_project_knowledge(
         base,
         state=state,
         reason=(
-            stale_reasons[0]
-            if stale_reasons
-            else None if answer.is_answered else str(answer.state)
+            stale_reasons[0] if stale_reasons else None if answer.is_answered else str(answer.state)
         ),
         citations=[citation.as_dict() for citation in answer.citations],
         fallback_allowed=not answer.is_answered,

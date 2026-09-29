@@ -162,9 +162,7 @@ def test_evolution_pause_resume_disable_controls_real_tick_admission(tmp_path: P
     assert preview.exit_code == 0, preview.stdout
     assert json.loads(preview.stdout)["apply"] is False
 
-    paused = runner.invoke(
-        app, ["evolve", "pause", "--uygula", "--home", str(home)]
-    )
+    paused = runner.invoke(app, ["evolve", "pause", "--uygula", "--home", str(home)])
     assert paused.exit_code == 0, paused.stdout
     assert json.loads(paused.stdout)["result"]["state"] == "paused"
     tick = runner.invoke(app, ["local-runtime", "tick", "--home", str(home)])
@@ -174,23 +172,17 @@ def test_evolution_pause_resume_disable_controls_real_tick_admission(tmp_path: P
     assert stopped["job_created"] is False
     assert stopped["terminal_state"] == "not-admitted"
 
-    resumed = runner.invoke(
-        app, ["evolve", "resume", "--uygula", "--home", str(home)]
-    )
+    resumed = runner.invoke(app, ["evolve", "resume", "--uygula", "--home", str(home)])
     assert resumed.exit_code == 70
     assert "admission hazir degil" in resumed.stderr
     still_stopped = runner.invoke(app, ["local-runtime", "tick", "--home", str(home)])
     assert still_stopped.exit_code == 0, still_stopped.stdout
     assert json.loads(still_stopped.stdout)["state"] == "paused"
 
-    disabled = runner.invoke(
-        app, ["evolve", "disable", "--uygula", "--home", str(home)]
-    )
+    disabled = runner.invoke(app, ["evolve", "disable", "--uygula", "--home", str(home)])
     assert disabled.exit_code == 0, disabled.stdout
     assert json.loads(disabled.stdout)["result"]["state"] == "disabled"
-    rejected = runner.invoke(
-        app, ["evolve", "resume", "--uygula", "--home", str(home)]
-    )
+    rejected = runner.invoke(app, ["evolve", "resume", "--uygula", "--home", str(home)])
     assert rejected.exit_code == 70
 
 
@@ -209,9 +201,9 @@ def test_os_supervisor_combines_missed_local_days_into_one_catch_up(
     )
     first = runner.invoke(app, ["local-runtime", "tick", "--home", str(home)])
     assert first.exit_code == 0, first.stdout
-    first_payload = next(
-        (home / "global/generated/daylog").glob("2026-09-04-*.md")
-    ).read_text(encoding="utf-8")
+    first_payload = next((home / "global/generated/daylog").glob("2026-09-04-*.md")).read_text(
+        encoding="utf-8"
+    )
     assert '"start_day":"2026-09-01"' in first_payload
 
     monkeypatch.setattr(
@@ -262,9 +254,16 @@ def test_os_tick_claims_its_exact_slot_job_ahead_of_older_supported_backlog(
     submitted = runner.invoke(
         app,
         [
-            "local-runtime", "submit-journal", "--home", str(home),
-            "--idempotency-key", "older-journal", "--relative-path", "older.log",
-            "--line", "must-remain-ready",
+            "local-runtime",
+            "submit-journal",
+            "--home",
+            str(home),
+            "--idempotency-key",
+            "older-journal",
+            "--relative-path",
+            "older.log",
+            "--line",
+            "must-remain-ready",
         ],
     )
     assert submitted.exit_code == 0
@@ -276,7 +275,7 @@ def test_os_tick_claims_its_exact_slot_job_ahead_of_older_supported_backlog(
     assert document["claimed_job_id"] == document["job_id"]
     assert document["terminal_state"] == "completed"
     assert not (home / "runtime/local-effects/older.log").exists()
-    snapshot = LocalCoreServices.from_context(
-        build_context(home=str(home))
-    ).runtime.job_snapshot(older_job)
+    snapshot = LocalCoreServices.from_context(build_context(home=str(home))).runtime.job_snapshot(
+        older_job
+    )
     assert snapshot is not None and snapshot["state"] == "ready"

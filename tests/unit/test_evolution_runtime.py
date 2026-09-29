@@ -346,23 +346,29 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
     assert len(result["cycles"]) == 2
     assert result["cycles"][1]["scheduled_for"] == "2026-09-07T12:10:00Z"
     failed = ({**events[0], "result_code": 1}, events[1])
-    assert _native_two_cycle_acceptance(
-        build_context(home=home),
-        operational_database=operational,
-        supervisor=supervisor,
-        events=failed,
-    )["verified"] is False
+    assert (
+        _native_two_cycle_acceptance(
+            build_context(home=home),
+            operational_database=operational,
+            supervisor=supervisor,
+            events=failed,
+        )["verified"]
+        is False
+    )
     with sqlite3.connect(operational) as connection:
         connection.execute(
             "update local_scheduler_slot set schedule_digest=? where job_id='job-10'",
             (digest("wrong-schedule"),),
         )
-    assert _native_two_cycle_acceptance(
-        build_context(home=home),
-        operational_database=operational,
-        supervisor=supervisor,
-        events=events,
-    )["verified"] is False
+    assert (
+        _native_two_cycle_acceptance(
+            build_context(home=home),
+            operational_database=operational,
+            supervisor=supervisor,
+            events=events,
+        )["verified"]
+        is False
+    )
 
 
 def test_windows_event_reader_pins_native_diagnostics_module_and_bounds_query(

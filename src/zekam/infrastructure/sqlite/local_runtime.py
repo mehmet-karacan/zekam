@@ -105,9 +105,7 @@ def _payload_json(payload: dict[str, Any]) -> str:
     if payload.get("operation") == "skill.execute.local-journal/v1":
         effect = payload.get("effect")
         line = effect.get("line") if isinstance(effect, dict) else None
-        if isinstance(line, str) and scan_text(
-            line, relative_path="runtime/skill-execution-input"
-        ):
+        if isinstance(line, str) and scan_text(line, relative_path="runtime/skill-execution-input"):
             raise PolicyViolation("Skill execution secret durable queue'ya yazilamaz")
     try:
         encoded = canonical_json(payload)

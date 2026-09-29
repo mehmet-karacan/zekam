@@ -614,9 +614,7 @@ def test_typed_evaluation_uses_frozen_improvement_ledger_and_trusted_receipts(
         cases=tuple(
             replace(
                 case,
-                provenance_receipt_digest=caller_signer.seal_digest(
-                    case.provenance_receipt_body()
-                ),
+                provenance_receipt_digest=caller_signer.seal_digest(case.provenance_receipt_body()),
             )
             for case in unsigned_dataset.cases
         ),

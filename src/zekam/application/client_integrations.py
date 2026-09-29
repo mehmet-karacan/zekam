@@ -139,9 +139,7 @@ def _export_receipt_digest(plan: dict[str, Any]) -> str:
                 "grants_authority": False,
             }
             if schema.endswith("/v2"):
-                ownership["integration_policy_digest"] = plan.get(
-                    "integration_policy_digest"
-                )
+                ownership["integration_policy_digest"] = plan.get("integration_policy_digest")
             receipts.append(
                 ownership
                 | {
@@ -392,13 +390,9 @@ def integration_mutation_resource(
     """Return the shared single-writer key for every integration mutation surface."""
 
     if scope == "user" and project_root is None:
-        return "client-integrations:native:" + _root_identity(
-            native_user_root, must_exist=True
-        )
+        return "client-integrations:native:" + _root_identity(native_user_root, must_exist=True)
     if scope == "project" and project_root is not None:
-        return "client-integrations:project:" + _root_identity(
-            project_root, must_exist=True
-        )
+        return "client-integrations:project:" + _root_identity(project_root, must_exist=True)
     raise ValidationFailed("CLI integration mutation resource scope/root mismatch")
 
 
@@ -580,8 +574,7 @@ def _managed_skill(
         and trusted.relative_path == relative
         and trusted.clients == tuple(document.get("clients", ()))
         and trusted.marker_schema == document.get("schema")
-        and trusted.source_root_identity_digest
-        == _root_identity(project_root, must_exist=True)
+        and trusted.source_root_identity_digest == _root_identity(project_root, must_exist=True)
     )
     if not any(trusted.package_digest == package_digest for trusted in trusted_package_projections):
         return None, "canonical-package-ownership-proof-missing"

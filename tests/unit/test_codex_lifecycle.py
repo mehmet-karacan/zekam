@@ -61,6 +61,7 @@ def _enable_codex(home: Path) -> None:
         encoding="utf-8",
     )
 
+
 pytestmark = pytest.mark.unit
 NOW = dt.datetime(2026, 8, 28, 9, 0, tzinfo=dt.UTC)
 SESSION_ID = "0198f2ad-3d10-7a11-b515-4c5c1733f7b1"
@@ -1438,9 +1439,7 @@ def test_hook_cli_spools_empty_json_and_version_drift_rejects(tmp_path: Path) ->
     assert success.exit_code == 0, success.output
     assert json.loads(success.stdout) == {}
     assert drift.exit_code == 2
-    assert not (
-        tmp_path / "drift-home" / "global" / "runtime" / "client-lifecycle"
-    ).exists()
+    assert not (tmp_path / "drift-home" / "global" / "runtime" / "client-lifecycle").exists()
 
 
 def test_precompact_hook_failure_returns_documented_fail_closed_output(tmp_path: Path) -> None:

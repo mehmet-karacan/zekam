@@ -57,9 +57,7 @@ def _unique_mapping(
     return result
 
 
-_UniqueLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping
-)
+_UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
 
 
 def _canonical_path(raw: str) -> str:
@@ -121,9 +119,7 @@ def _optional_text(values: Mapping[str, Any], field: str, maximum: int) -> str |
     return value
 
 
-def _lazy_payload(
-    files: Mapping[str, bytes], path: str, *, kind: str, maximum: int
-) -> bytes:
+def _lazy_payload(files: Mapping[str, bytes], path: str, *, kind: str, maximum: int) -> bytes:
     """Return the exact bounded payload for one managed path, fail-closed.
 
     The caller keeps the path allow-list authoritative: this function only
@@ -278,14 +274,18 @@ class SkillPackage:
         ):
             raise ValidationFailed("Skill name/description specification mismatch")
         metadata = values.get("metadata", {})
-        if not isinstance(metadata, dict) or len(metadata) > 32 or not all(
-            isinstance(key, str)
-            and isinstance(value, str)
-            and key.strip()
-            and value.strip()
-            and len(key) <= 128
-            and len(value) <= 1024
-            for key, value in metadata.items()
+        if (
+            not isinstance(metadata, dict)
+            or len(metadata) > 32
+            or not all(
+                isinstance(key, str)
+                and isinstance(value, str)
+                and key.strip()
+                and value.strip()
+                and len(key) <= 128
+                and len(value) <= 1024
+                for key, value in metadata.items()
+            )
         ):
             raise ValidationFailed("SKILL.md metadata must be bounded string pairs")
         allowed = _optional_text(values, "allowed-tools", 1024)
@@ -357,9 +357,7 @@ class SkillPackage:
                 "name": self.name,
                 "description": self.description,
                 "instructions": self.instructions,
-                "references": [
-                    item for item in self.file_manifest if item["path"] != "SKILL.md"
-                ],
+                "references": [item for item in self.file_manifest if item["path"] != "SKILL.md"],
             }
         )
 
@@ -389,9 +387,7 @@ class SkillPackage:
     @property
     def metadata_view(self) -> SkillPackageMetadata:
         """Metadata-only view; never touches reference/script/asset content."""
-        references = {
-            path for path in self._lazy_manifest if path.startswith("references/")
-        }
+        references = {path for path in self._lazy_manifest if path.startswith("references/")}
         scripts = {path for path in self._lazy_manifest if path.startswith("scripts/")}
         assets = {
             path
@@ -421,9 +417,12 @@ class SkillPackage:
         self, *, fields: tuple[str, ...] = ("name", "description")
     ) -> dict[str, object]:
         """Return a bounded metadata projection requested by the caller."""
-        if not isinstance(fields, tuple) or not fields or len(fields) > 16 or len(
-            set(fields)
-        ) != len(fields):
+        if (
+            not isinstance(fields, tuple)
+            or not fields
+            or len(fields) > 16
+            or len(set(fields)) != len(fields)
+        ):
             raise ValidationFailed("Skill metadata requested fields invalid")
         allowed = {
             "name",
@@ -470,10 +469,8 @@ class SkillPackage:
         script = _canonical_path(relative_path)
         if not script.startswith("scripts/"):
             raise PolicyViolation("Skill script must live under scripts/")
-        payload = _lazy_payload(
-            self._lazy_manifest, script, kind="script", maximum=MAX_FILE_BYTES
-        )
-        prefix = f"scripts/{script[len('scripts/'):].split('.')[0]}/"
+        payload = _lazy_payload(self._lazy_manifest, script, kind="script", maximum=MAX_FILE_BYTES)
+        prefix = f"scripts/{script[len('scripts/') :].split('.')[0]}/"
         assets: dict[str, bytes] = {
             path: self._lazy_manifest[path]
             for path in self._lazy_manifest

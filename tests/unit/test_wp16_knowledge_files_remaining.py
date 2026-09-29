@@ -429,8 +429,6 @@ def test_windows_readonly_traversal_requires_private_write_parent(
     payload_json = b'{"ok":true}\n'
     assert store.write_private_binding(binding_ref, payload_json).read_bytes() == payload_json
 
-    monkeypatch.setattr(
-        knowledge_files, "private_directory", lambda _path, mode=0o700: False
-    )
+    monkeypatch.setattr(knowledge_files, "private_directory", lambda _path, mode=0o700: False)
     with pytest.raises(LayoutError, match="Knowledge parent identity drift"):
         store.write_private_binding(binding_ref, b'{"ok":false}\n')

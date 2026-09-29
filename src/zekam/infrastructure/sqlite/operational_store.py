@@ -390,9 +390,7 @@ class SQLiteOperationalUnitOfWork:
         Salt okunur; davranisi/state'i degistirmez, yalniz proje basina ayri bir
         sorgu calistirmak yerine tek bir ``IN`` sorgusu yapar.
         """
-        project_ids = tuple(
-            dict.fromkeys(project_id for project_id in project_ids if project_id)
-        )
+        project_ids = tuple(dict.fromkeys(project_id for project_id in project_ids if project_id))
         if not project_ids:
             return {}
         placeholders = ",".join("?" for _ in project_ids)

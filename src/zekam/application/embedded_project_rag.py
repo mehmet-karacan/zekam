@@ -201,9 +201,7 @@ def _collective_identifier_coverage(
     covered: set[str] = set()
     for identifier in identifiers:
         parts = [
-            part.casefold()
-            for part in re.findall(r"[A-Za-z0-9_$#]+", identifier)
-            if len(part) > 1
+            part.casefold() for part in re.findall(r"[A-Za-z0-9_$#]+", identifier) if len(part) > 1
         ]
         if any(all(part in tokens for part in parts) for tokens in text_tokens.values()):
             covered.add(identifier)
@@ -221,9 +219,7 @@ def _relationship_edge_evidence(views: dict[str, Any], candidate_ids: tuple[str,
     co-presence of names.
     """
     lowered = " ".join(
-        views[chunk_id].text.casefold()
-        for chunk_id in candidate_ids
-        if chunk_id in views
+        views[chunk_id].text.casefold() for chunk_id in candidate_ids if chunk_id in views
     )
     return any(signal in lowered for signal in _RELATIONSHIP_EDGE_SIGNALS)
 
@@ -524,14 +520,11 @@ class EmbeddedProjectRAG:
         #     co-presence of A and B is NOT evidence of a relationship (no edge
         #     fabrication).
         intent = _classify_intent(query, identifiers)
-        single_object = (
-            intent.value == QueryIntent.EXACT_LOOKUP.value
-            or (
-                # A single-identifier relationship/comparison still targets one
-                # object (e.g. "X hangi fonksiyonu cagirir") — strict object
-                # support applies, the edge rule is separate.
-                len(identifiers) <= 1
-            )
+        single_object = intent.value == QueryIntent.EXACT_LOOKUP.value or (
+            # A single-identifier relationship/comparison still targets one
+            # object (e.g. "X hangi fonksiyonu cagirir") — strict object
+            # support applies, the edge rule is separate.
+            len(identifiers) <= 1
         )
         # ``single_chunk_identifier_support`` stays a strict, honest report of
         # whether ANY single chunk holds EVERY identifier (the pre-WP6 contract).
@@ -550,26 +543,21 @@ class EmbeddedProjectRAG:
         else:
             # Multi-object: the hits already represent verified candidates.  We
             # require that the evidence SET collectively covers every identifier.
-            _, coverage_missing = _collective_identifier_coverage(
-                views, candidate_ids, identifiers
-            )
+            _, coverage_missing = _collective_identifier_coverage(views, candidate_ids, identifiers)
 
             def identity_support_for(text: str) -> bool:
                 return True
 
         exact_identity_support = any(
-            hit.chunk_id in views
-            and identity_support_for(views[hit.chunk_id].text)
+            hit.chunk_id in views and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_exact
         )
         lexical_identity_support = any(
-            hit.chunk_id in views
-            and identity_support_for(views[hit.chunk_id].text)
+            hit.chunk_id in views and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_lexical
         )
         dense_identity_support = any(
-            hit.chunk_id in views
-            and identity_support_for(views[hit.chunk_id].text)
+            hit.chunk_id in views and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_dense[:2]
         )
         enough_evidence = (
@@ -726,8 +714,7 @@ class EmbeddedProjectRAG:
             ) and (
                 exact_identity_support
                 or (
-                    lexical_coverage >= self.lexical_coverage_threshold
-                    and lexical_identity_support
+                    lexical_coverage >= self.lexical_coverage_threshold and lexical_identity_support
                 )
             ):
                 state = "lexical-only-degraded"

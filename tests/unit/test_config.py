@@ -96,9 +96,7 @@ def test_embedding_route_is_explicit_and_secret_free(home_root: Path) -> None:
 
 
 @pytest.mark.parametrize("route", ["", "auto", "provider-fallback"])
-def test_embedding_route_rejects_implicit_or_fallback_values(
-    home_root: Path, route: str
-) -> None:
+def test_embedding_route_rejects_implicit_or_fallback_values(home_root: Path, route: str) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
         f"schema: {CONFIG_SCHEMA}\nknowledge:\n  embedding_route: {route!r}\n",
@@ -315,8 +313,7 @@ def test_disabled_client_missing_executable_does_not_block_policy_or_cleanup(
     missing = home_root / "missing-codex.exe"
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\nclients:\n"
-        f"  - name: codex\n    executable: '{missing}'\n",
+        f"schema: {CONFIG_SCHEMA}\nclients:\n  - name: codex\n    executable: '{missing}'\n",
     )
 
     settings = load_settings(home=home_root, environ={})
@@ -367,8 +364,7 @@ def test_cli_integration_rejects_unknown_fields_and_duplicate_yaml_keys(home_roo
 
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n"
-        "    codex: true\n    codex: false\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n    codex: false\n",
     )
     with pytest.raises(ConfigurationError, match="Duplicate YAML key"):
         load_settings(home=home_root, environ={})

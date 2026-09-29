@@ -16,13 +16,7 @@ from zekam.domain.skill_package import SkillPackage
 
 sys.dont_write_bytecode = True
 
-ROOT = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "zekam"
-    / "skills"
-    / "jira-is-kaydi"
-)
+ROOT = Path(__file__).resolve().parents[2] / "src" / "zekam" / "skills" / "jira-is-kaydi"
 
 
 def _module(name: str, relative: str) -> ModuleType:
@@ -102,21 +96,18 @@ def test_skill_projects_to_opencode_codex_and_claude_code(tmp_path: Path) -> Non
 
 
 def test_reference_payload_hash_matches_metadata() -> None:
-    document = (ROOT / "references" / "JIRA_FORMAT_REFERENCE.md").read_text(
-        encoding="utf-8"
-    )
+    document = (ROOT / "references" / "JIRA_FORMAT_REFERENCE.md").read_text(encoding="utf-8")
     payload = document.split("<!-- BEGIN_REFERENCE_PAYLOAD -->\n", 1)[1].split(
         "<!-- END_REFERENCE_PAYLOAD -->", 1
     )[0]
     metadata = dict(
-        line.split(":", 1)
-        for line in document.split("---\n", 2)[1].splitlines()
-        if ":" in line
+        line.split(":", 1) for line in document.split("---\n", 2)[1].splitlines() if ":" in line
     )
 
-    assert metadata["reference_content_sha256"].strip(" '") == hashlib.sha256(
-        payload.encode()
-    ).hexdigest()
+    assert (
+        metadata["reference_content_sha256"].strip(" '")
+        == hashlib.sha256(payload.encode()).hexdigest()
+    )
 
 
 @pytest.mark.parametrize(
@@ -146,9 +137,7 @@ def test_summary_preserves_technical_tokens_and_turkish_connectors(
         source_id="923105",
     )
 
-    assert summary == (
-        "Talep ID: 923105 - ODI Akışları ve RTXIX_SYSADM ile extraction_id Kontrolü"
-    )
+    assert summary == ("Talep ID: 923105 - ODI Akışları ve RTXIX_SYSADM ile extraction_id Kontrolü")
 
 
 def test_summary_accepts_254_and_rejects_255_without_truncation(
@@ -200,9 +189,7 @@ def test_refresh_ttl_is_strictly_more_than_thirty_days(refresh: ModuleType) -> N
         (dt.timedelta(days=30), False),
         (dt.timedelta(days=30, seconds=1), True),
     ):
-        metadata = base | {
-            "last_checked_at": (now - delta).isoformat().replace("+00:00", "Z")
-        }
+        metadata = base | {"last_checked_at": (now - delta).isoformat().replace("+00:00", "Z")}
         assert refresh.should_refresh(metadata, now)[0] is expected
 
 
@@ -249,9 +236,10 @@ def test_failure_keeps_known_good_payload_and_starts_cooldown(
     assert payload_after == payload_before
     assert metadata["last_checked_at"] == checked_before
     assert metadata["next_retry_after"] == "2026-09-17T00:00:00Z"
-    assert refresh.should_refresh(
-        metadata, dt.datetime(2026, 9, 16, 1, tzinfo=dt.UTC)
-    ) == (False, "retry-cooldown")
+    assert refresh.should_refresh(metadata, dt.datetime(2026, 9, 16, 1, tzinfo=dt.UTC)) == (
+        False,
+        "retry-cooldown",
+    )
 
 
 def test_successful_bootstrap_persists_deterministic_baseline(
@@ -310,9 +298,9 @@ def test_304_without_baseline_is_failure(refresh: ModuleType, tmp_path: Path) ->
     )
 
     assert result["status"] == "failed"
-    assert refresh.parse_metadata(target.read_text(encoding="utf-8"))[
-        "bootstrap_required"
-    ] == "true"
+    assert (
+        refresh.parse_metadata(target.read_text(encoding="utf-8"))["bootstrap_required"] == "true"
+    )
 
 
 def test_normalizer_ignores_footer_but_preserves_code_indentation(
@@ -333,9 +321,7 @@ def test_access_denied_page_with_section_words_is_rejected(refresh: ModuleType) 
         refresh.normalize_source(payload)
 
 
-def test_reference_hash_drift_is_not_reported_fresh(
-    refresh: ModuleType, tmp_path: Path
-) -> None:
+def test_reference_hash_drift_is_not_reported_fresh(refresh: ModuleType, tmp_path: Path) -> None:
     target = _reference(tmp_path)
     document = target.read_text(encoding="utf-8").replace(
         "Jira Text Formatting Notation", "Jira X Text Formatting Notation", 1
@@ -346,9 +332,7 @@ def test_reference_hash_drift_is_not_reported_fresh(
         refresh.validate_reference(target.read_text(encoding="utf-8"))
 
 
-def test_rehashed_but_empty_baseline_is_rejected(
-    refresh: ModuleType, tmp_path: Path
-) -> None:
+def test_rehashed_but_empty_baseline_is_rejected(refresh: ModuleType, tmp_path: Path) -> None:
     target = _reference(tmp_path)
     document = target.read_text(encoding="utf-8")
     empty = json.dumps(
@@ -367,9 +351,7 @@ def test_rehashed_but_empty_baseline_is_rejected(
     )
     document = refresh._replace_meta(
         document,
-        {
-            "source_content_sha256": hashlib.sha256((empty + "\n").encode()).hexdigest()
-        },
+        {"source_content_sha256": hashlib.sha256((empty + "\n").encode()).hexdigest()},
     )
 
     with pytest.raises(ValueError, match="sections invalid"):
@@ -437,9 +419,7 @@ def test_same_source_updates_check_time_not_revision_or_change_time(
     assert second_meta["last_checked_at"] == "2026-09-18T00:00:00Z"
 
 
-def test_existing_refresh_lock_prevents_second_writer(
-    refresh: ModuleType, tmp_path: Path
-) -> None:
+def test_existing_refresh_lock_prevents_second_writer(refresh: ModuleType, tmp_path: Path) -> None:
     target = _reference(tmp_path)
     lock = target.with_suffix(target.suffix + ".lock")
     lock.write_text("held", encoding="utf-8")
@@ -495,17 +475,11 @@ def test_normalizer_change_requires_explicit_rebaseline(
     )
     document = refresh._replace_meta(
         document,
-        {
-            "source_content_sha256": hashlib.sha256(
-                (altered + "\n").encode()
-            ).hexdigest()
-        },
+        {"source_content_sha256": hashlib.sha256((altered + "\n").encode()).hexdigest()},
     )
     target.write_text(document, encoding="utf-8", newline="\n")
 
-    result = refresh.refresh(
-        target, now=dt.datetime(2026, 9, 17, tzinfo=dt.UTC)
-    )
+    result = refresh.refresh(target, now=dt.datetime(2026, 9, 17, tzinfo=dt.UTC))
 
     assert result == {
         "status": "rebaseline-required",

@@ -33,24 +33,19 @@ def test_digest_like_11_digit_sequence_passes() -> None:
 
 def test_real_tr_phone_mobile_still_rejected() -> None:
     with pytest.raises(PolicyViolation, match="secret/PII"):
-        assert_public_safe_projection(
-            b"phone: +90 532 123 45 67\n", relative_path="public/note.md"
-        )
+        assert_public_safe_projection(b"phone: +90 532 123 45 67\n", relative_path="public/note.md")
 
 
 def test_real_tr_phone_landline_still_rejected() -> None:
     with pytest.raises(PolicyViolation, match="secret/PII"):
-        assert_public_safe_projection(
-            b"tel: 0212 555 12 34\n", relative_path="public/note.md"
-        )
+        assert_public_safe_projection(b"tel: 0212 555 12 34\n", relative_path="public/note.md")
 
 
 def test_digest_and_clean_note_passes_sanity() -> None:
     digest_value = "9" * 8 + "01638239149" + "c" * 45
     assert len(digest_value) == 64
     payload = (
-        f"project: demo\nlast_source_snapshot: sha256:{digest_value}\n"
-        "note: bir not\n"
+        f"project: demo\nlast_source_snapshot: sha256:{digest_value}\nnote: bir not\n"
     ).encode()
     result = assert_public_safe_projection(payload, relative_path="public/project.yaml")
     assert isinstance(result, str) and result
@@ -59,10 +54,6 @@ def test_digest_and_clean_note_passes_sanity() -> None:
 def test_secret_and_other_pii_behavior_unchanged() -> None:
     """Sanity: a plain secret/password is still rejected (guard scope stays narrow)."""
     with pytest.raises(PolicyViolation, match="secret/PII"):
-        assert_public_safe_projection(
-            b"API_KEY = 'p9x7m2q4v8n6'\n", relative_path="public/note.md"
-        )
+        assert_public_safe_projection(b"API_KEY = 'p9x7m2q4v8n6'\n", relative_path="public/note.md")
     with pytest.raises(PolicyViolation, match="secret/PII"):
-        assert_public_safe_projection(
-            b"owner: user@example.com\n", relative_path="public/note.md"
-        )
+        assert_public_safe_projection(b"owner: user@example.com\n", relative_path="public/note.md")

@@ -653,11 +653,7 @@ def assert_public_safe_projection(payload: bytes, *, relative_path: str) -> str:
     contains_secret = any(
         rule.pattern.search(line) for line in text.splitlines() for rule in SECRET_RULES
     )
-    if (
-        contains_secret
-        or _has_public_pii(text)
-        or _contains_sensitive_number(text)
-    ):
+    if contains_secret or _has_public_pii(text) or _contains_sensitive_number(text):
         raise PolicyViolation("Public-safe projection secret/PII taramasini gecemedi")
     return digest_of_bytes(payload)
 

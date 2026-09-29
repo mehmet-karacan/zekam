@@ -147,9 +147,7 @@ def campaign_plan_command(
                 )
             scope = load_campaign_scope()
             config_file = default_opencode_config_file()
-            catalog = load_opencode_aihub_catalog(
-                config_file, provider_id=scope.provider_id
-            )
+            catalog = load_opencode_aihub_catalog(config_file, provider_id=scope.provider_id)
             reviewed_ids = {target.configured_model_id for target in scope.targets}
             configured_ids = set(catalog.configured_model_ids)
             base: dict[str, object] = {

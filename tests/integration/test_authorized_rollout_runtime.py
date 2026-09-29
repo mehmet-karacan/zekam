@@ -47,9 +47,7 @@ class _SettlementSink:
         if _kwargs.get("prepare_only") is True:
             if self.fail_prepare:
                 raise RuntimeError("simulated-crash-before-prepare")
-            self.pending[str(_kwargs["reservation_id"])] = cast(
-                RolloutPlan, args[0]
-            ).plan_digest
+            self.pending[str(_kwargs["reservation_id"])] = cast(RolloutPlan, args[0]).plan_digest
             return digest({"pending": cast(RolloutPlan, args[0]).plan_digest})
         self.calls += 1
         self.plans.append(cast(RolloutPlan, args[0]).plan_digest)
@@ -67,9 +65,7 @@ class _SettlementSink:
         self.plans.append(self.pending[_reservation])
         return digest({"settlement": self.calls})
 
-    def record_typed_rollout_recovery(
-        self, *_args: object, **_kwargs: object
-    ) -> str:
+    def record_typed_rollout_recovery(self, *_args: object, **_kwargs: object) -> str:
         return digest({"recovery": _args[-1]})
 
 
@@ -173,18 +169,26 @@ def _run(
         RolloutStage.ACTIVATION: "improvement.activate",
         RolloutStage.ROLLBACK: "improvement.rollback",
     }[stage]
-    reads = tuple(sorted({
-        RolloutStage.SHADOW: ("improvement-candidate", "improvement-evaluation"),
-        RolloutStage.CANARY: ("improvement-candidate", "rollout-shadow"),
-        RolloutStage.ACTIVATION: ("rollout-canary",),
-        RolloutStage.ROLLBACK: ("rollout-pointer",),
-    }[stage]))
-    writes = tuple(sorted({
-        RolloutStage.SHADOW: ("rollout-shadow",),
-        RolloutStage.CANARY: ("rollout-canary",),
-        RolloutStage.ACTIVATION: ("rollout-pointer",),
-        RolloutStage.ROLLBACK: ("rollout-pointer",),
-    }[stage]))
+    reads = tuple(
+        sorted(
+            {
+                RolloutStage.SHADOW: ("improvement-candidate", "improvement-evaluation"),
+                RolloutStage.CANARY: ("improvement-candidate", "rollout-shadow"),
+                RolloutStage.ACTIVATION: ("rollout-canary",),
+                RolloutStage.ROLLBACK: ("rollout-pointer",),
+            }[stage]
+        )
+    )
+    writes = tuple(
+        sorted(
+            {
+                RolloutStage.SHADOW: ("rollout-shadow",),
+                RolloutStage.CANARY: ("rollout-canary",),
+                RolloutStage.ACTIVATION: ("rollout-pointer",),
+                RolloutStage.ROLLBACK: ("rollout-pointer",),
+            }[stage]
+        )
+    )
     budget = EvolutionBudget(0, 0, 20, 0, 32768, 1)
     arguments: dict[str, Any] = {
         "parent_grant_digest": grant.grant_digest,
@@ -336,9 +340,7 @@ def test_authority_child_claim_executes_and_revoke_blocks_next_effect(tmp_path: 
         )
         activation = replace(
             activation_draft,
-            authorization_digest=(
-                activation_reservation.authorization.authorization_digest
-            ),
+            authorization_digest=(activation_reservation.authorization.authorization_digest),
         )
         sink.fail_prepare = True
         with pytest.raises(RuntimeError, match="simulated-crash"):
@@ -410,9 +412,7 @@ def test_authority_child_claim_executes_and_revoke_blocks_next_effect(tmp_path: 
         )
         terminal_crash_rollout = replace(
             terminal_crash_draft,
-            authorization_digest=(
-                terminal_crash_reservation.authorization.authorization_digest
-            ),
+            authorization_digest=(terminal_crash_reservation.authorization.authorization_digest),
         )
         sink.fail_finalize = True
         with pytest.raises(RuntimeError, match="after-terminal"):
@@ -443,9 +443,7 @@ def test_authority_child_claim_executes_and_revoke_blocks_next_effect(tmp_path: 
             "verifier",
         )
         connection = sqlite3.connect(authority_path)
-        runtime = AuthorizedRolloutRuntime(
-            connection, cast(Any, sink), executor, verifier
-        )
+        runtime = AuthorizedRolloutRuntime(connection, cast(Any, sink), executor, verifier)
         assert runtime.recover_from_durable(
             terminal_crash_reservation.reservation_id,
             terminal_crash_rollout.plan_digest,

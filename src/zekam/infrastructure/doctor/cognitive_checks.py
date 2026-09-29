@@ -62,9 +62,7 @@ _BROKEN_KNOWLEDGE_ISSUES = frozenset(
 
 def _readonly(path: Path) -> sqlite3.Connection:
     """Kanonik SQLite dosyasini salt okunur acar."""
-    return sqlite3.connect(
-        f"{path.resolve(strict=True).as_uri()}?mode=ro", uri=True, timeout=5.0
-    )
+    return sqlite3.connect(f"{path.resolve(strict=True).as_uri()}?mode=ro", uri=True, timeout=5.0)
 
 
 def _query_scalar(connection: sqlite3.Connection, sql: str, *parameters: object) -> int:
@@ -131,8 +129,7 @@ class MemoryHygieneCheck:
                     " where h.revision_digest=tr.revision_digest)",
                 )
                 hygiene = db.execute(
-                    "select finding, count(*) as n from hygiene_proposal "
-                    "group by finding"
+                    "select finding, count(*) as n from hygiene_proposal group by finding"
                 ).fetchall()
         except (OSError, sqlite3.DatabaseError):
             return _unavailable(self.check_id, "learning store okunamadi")
@@ -143,9 +140,11 @@ class MemoryHygieneCheck:
             if kind in _MEMORY_HYGIENE_KINDS:
                 hygiene_counts[kind] = int(row["n"])
         duplicate = hygiene_counts.get("duplicate", 0)
-        stale = hygiene_counts.get("stale", 0) + hygiene_counts.get(
-            "retention-review", 0
-        ) + hygiene_counts.get("supersession", 0)
+        stale = (
+            hygiene_counts.get("stale", 0)
+            + hygiene_counts.get("retention-review", 0)
+            + hygiene_counts.get("supersession", 0)
+        )
 
         findings: list[Finding] = []
         if orphan:
@@ -246,9 +245,7 @@ class KnowledgeHealthCheck:
         except Exception as exc:
             return _unavailable(self.check_id, type(exc).__name__)
 
-        broken = tuple(
-            issue for issue in sorted(issues) if issue.kind in _BROKEN_KNOWLEDGE_ISSUES
-        )
+        broken = tuple(issue for issue in sorted(issues) if issue.kind in _BROKEN_KNOWLEDGE_ISSUES)
         findings: list[Finding] = []
         if broken:
             findings.append(
@@ -269,9 +266,7 @@ class KnowledgeHealthCheck:
                     },
                 )
             )
-        pending = tuple(
-            issue for issue in issues if issue.kind == "pending-note-materialization"
-        )
+        pending = tuple(issue for issue in issues if issue.kind == "pending-note-materialization")
         if pending:
             findings.append(
                 Finding(
@@ -442,10 +437,7 @@ class ContinuityFreshnessCheck:
             check_id=self.check_id,
             category=self.category,
             status=CheckStatus.PASSED if not findings else CheckStatus.DEGRADED,
-            summary=(
-                f"continuity: {len(open_run_ids)} open run, "
-                f"{checkpoints} checkpoint"
-            ),
+            summary=(f"continuity: {len(open_run_ids)} open run, {checkpoints} checkpoint"),
             findings=tuple(findings),
             evidence={
                 "open_runs": len(open_run_ids),
@@ -563,9 +555,7 @@ class LearningBacklogCheck:
                 with closing(_readonly(improvement_path)) as db:
                     db.row_factory = sqlite3.Row
                     try:
-                        feedback = _query_scalar(
-                            db, "select count(*) from learning_feedback"
-                        )
+                        feedback = _query_scalar(db, "select count(*) from learning_feedback")
                         pending_rollout = _query_scalar(
                             db,
                             "select count(*) from typed_rollout_pending "
@@ -671,9 +661,7 @@ def _row_knowledge_note(row: Any) -> Any:
         project_id=str(row["project_id"]) if row["project_id"] is not None else None,
         project_slug=str(row["project_slug"]) if row["project_slug"] is not None else None,
         materialized=bool(row["materialized"]),
-        archived_ref=(
-            str(row["archived_ref"]) if row["archived_ref"] is not None else None
-        ),
+        archived_ref=(str(row["archived_ref"]) if row["archived_ref"] is not None else None),
     )
 
 

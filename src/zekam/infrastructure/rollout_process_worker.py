@@ -216,9 +216,7 @@ def bootstrap_rollout_fixture(root: Path, pointer_name: str, initial_digest: str
             raise PolicyViolation("Rollout fixture bootstrap readback failed")
 
 
-def register_rollout_artifact(
-    root: Path, artifact_digest: str, implementation: str
-) -> None:
+def register_rollout_artifact(root: Path, artifact_digest: str, implementation: str) -> None:
     """Register one executable fixture artifact before a rollout plan is authorized."""
 
     parse_digest(artifact_digest)
@@ -258,9 +256,7 @@ def rollout_selector(root: Path, pointer_name: str) -> str:
     return str(row[0])
 
 
-def rollout_recovery_status(
-    root: Path, settled_plan_digests: tuple[str, ...]
-) -> dict[str, object]:
+def rollout_recovery_status(root: Path, settled_plan_digests: tuple[str, ...]) -> dict[str, object]:
     """Expose durable worker evidence not yet settled in the improvement ledger."""
 
     for value in settled_plan_digests:
@@ -314,10 +310,15 @@ def recover_unsettled_activation(root: Path, plan: RolloutPlan) -> str:
         if existing is not None:
             db.rollback()
             return digest(json.loads(str(existing[0])))
-        if evidence is None or selector is None or str(evidence[0]) not in {
-            RolloutStatus.COMPLETED.value,
-            RolloutStatus.RECOVERY_REQUIRED.value,
-        }:
+        if (
+            evidence is None
+            or selector is None
+            or str(evidence[0])
+            not in {
+                RolloutStatus.COMPLETED.value,
+                RolloutStatus.RECOVERY_REQUIRED.value,
+            }
+        ):
             raise PolicyViolation("Rollout recovery selector/evidence drift")
         reverse_activation = plan.stage is RolloutStage.ACTIVATION
         expected_after = (
@@ -378,15 +379,11 @@ def recover_unsettled_activation(root: Path, plan: RolloutPlan) -> str:
     return digest(body)
 
 
-def _execute_fixture_artifact(
-    implementation: str, input_digest: str, harness_digest: str
-) -> str:
+def _execute_fixture_artifact(implementation: str, input_digest: str, harness_digest: str) -> str:
     if implementation == "identity-v1":
         return digest({"input": input_digest, "harness": harness_digest})
     if implementation == "salted-v1":
-        return digest(
-            {"input": input_digest, "harness": harness_digest, "salt": "candidate-v1"}
-        )
+        return digest({"input": input_digest, "harness": harness_digest, "salt": "candidate-v1"})
     raise PolicyViolation("Rollout artifact implementation drift")
 
 
@@ -441,9 +438,7 @@ def _insert_evidence(
         "outcomes": outcomes,
         "workload_classification": "local-deterministic-fixture",
         "production_traffic": False,
-        "real_candidate_usage_count": (
-            len(outcomes) if plan.stage is RolloutStage.CANARY else 0
-        ),
+        "real_candidate_usage_count": (len(outcomes) if plan.stage is RolloutStage.CANARY else 0),
     }
     db.execute(
         "insert into rollout_evidence values(?,?,?,?,?,?,?,?,?,?)",
@@ -463,9 +458,7 @@ def _insert_evidence(
     return body
 
 
-def _run_plan(
-    root: Path, plan: RolloutPlan, identity: RolloutWorkerIdentity
-) -> RolloutObservation:
+def _run_plan(root: Path, plan: RolloutPlan, identity: RolloutWorkerIdentity) -> RolloutObservation:
     plan.__post_init__()
     if plan.resource_manifest_digest != rollout_resource_manifest(root, plan.pointer_name):
         raise PolicyViolation("Rollout resource manifest drift")
@@ -480,9 +473,7 @@ def _run_plan(
             if str(existing_intent[0]) != intent_json:
                 raise PolicyViolation("Rollout durable intent replay drift")
             raise ConcurrencyConflict("Rollout plan already executed")
-        db.execute(
-            "insert into rollout_intent values(?,?)", (plan.plan_digest, intent_json)
-        )
+        db.execute("insert into rollout_intent values(?,?)", (plan.plan_digest, intent_json))
         row = db.execute(
             "select artifact_digest,revision from active_selector where pointer_name=?",
             (plan.pointer_name,),
@@ -827,9 +818,7 @@ class RolloutProcessWorker:
         self._process = process
         self.role = role
         self.identity: RolloutWorkerIdentity = identity
-        self.verifier = RolloutWorkerVerifier(
-            _VERIFIER_TOKEN, process, identity, public_key
-        )
+        self.verifier = RolloutWorkerVerifier(_VERIFIER_TOKEN, process, identity, public_key)
         if not self.verifier.matches(identity.boundary_body(), identity.boundary_receipt):
             self.close()
             raise PolicyViolation("Rollout worker startup receipt invalid")
@@ -843,9 +832,7 @@ class RolloutProcessWorker:
             raise PolicyViolation("Rollout executor rejected plan")
         return result
 
-    def recovery_status(
-        self, settled_plan_digests: tuple[str, ...]
-    ) -> dict[str, object]:
+    def recovery_status(self, settled_plan_digests: tuple[str, ...]) -> dict[str, object]:
         return rollout_recovery_status(self._root, settled_plan_digests)
 
     def load_rollout_plan(self, plan_digest: str) -> RolloutPlan:

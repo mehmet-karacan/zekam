@@ -147,8 +147,7 @@ class LearningDailyEffectExecutor:
             or scheduled_for.utcoffset() != dt.timedelta(0)
             or start_day > day
             or scheduled_for != learning_daily_scheduled_for(day)
-            or str(payload["scheduled_for"])
-            != scheduled_for.isoformat().replace("+00:00", "Z")
+            or str(payload["scheduled_for"]) != scheduled_for.isoformat().replace("+00:00", "Z")
         ):
             raise PolicyViolation("Learning daily day/schedule binding drift")
         schedule_body = {
@@ -216,17 +215,20 @@ def compile_learning_daily(
     if compiled_at.tzinfo is None or compiled_at.utcoffset() is None:
         raise PolicyViolation("Learning daily compiler timezone-aware time ister")
     start = day if start_day is None else start_day
-    if type(start) is not dt.date or start > day or timezone_name not in {
-        "UTC",
-        DAILY_TIMEZONE,
-    }:
+    if (
+        type(start) is not dt.date
+        or start > day
+        or timezone_name
+        not in {
+            "UTC",
+            DAILY_TIMEZONE,
+        }
+    ):
         raise PolicyViolation("Learning daily compiler bounded day range ister")
     generated_at = (
         compiled_at.astimezone(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     )
-    snapshot = learning.daily_snapshot(
-        day, start_day=start, timezone_name=timezone_name
-    )
+    snapshot = learning.daily_snapshot(day, start_day=start, timezone_name=timezone_name)
     snapshot_digest = snapshot.get("snapshot_digest")
     if not isinstance(snapshot_digest, str):
         raise PolicyViolation("Learning daily snapshot digest eksik")
@@ -299,8 +301,10 @@ def compile_learning_daily(
         )
     if len(active) > 1 and not snapshot_matches:
         raise PolicyViolation("Learning daily unresolved active revision conflict")
-    exact = snapshot_matches[0] if snapshot_matches else next(
-        (note for note in active if note.content_digest == content_digest), None
+    exact = (
+        snapshot_matches[0]
+        if snapshot_matches
+        else next((note for note in active if note.content_digest == content_digest), None)
     )
     predecessor = next((note for note in active if note.id != getattr(exact, "id", None)), None)
     if exact is None:

@@ -1651,9 +1651,7 @@ class SQLiteLocalImprovementStore:
             or baseline_artifacts == candidate_artifacts
         ):
             raise PolicyViolation("Typed evaluation baseline/candidate artifact binding drift")
-        cases_by_id = {
-            item.case_id: item for item in report.dataset.cases_for(report.partition)
-        }
+        cases_by_id = {item.case_id: item for item in report.dataset.cases_for(report.partition)}
         for baseline, evaluated_candidate in zip(
             report.baseline_results, report.candidate_results, strict=True
         ):
@@ -1683,8 +1681,7 @@ class SQLiteLocalImprovementStore:
                 (candidate.candidate_digest,),
             ).fetchone()
             dataset_contract = db.execute(
-                "select body_json from evaluation_dataset_contract "
-                "where dataset_digest=?",
+                "select body_json from evaluation_dataset_contract where dataset_digest=?",
                 (report.dataset_digest,),
             ).fetchone()
             claim = db.execute(
@@ -1730,8 +1727,7 @@ class SQLiteLocalImprovementStore:
             }
             if (
                 stored_candidate[0] != canonical_json(candidate.body())
-                or stored_candidate["evaluation_dataset_contract_digest"]
-                != dataset_contract_digest
+                or stored_candidate["evaluation_dataset_contract_digest"] != dataset_contract_digest
                 or dataset_contract_body.get("dataset_manifest") != report.dataset.body()
                 or digest(manifest_body) != manifest["manifest_digest"]
                 or str(report.builder_identity.assignment_id) != candidate.proposer_ref
@@ -1829,9 +1825,7 @@ class SQLiteLocalImprovementStore:
             raise PolicyViolation("Registered provenance public key missing")
         try:
             public_key = base64.b64decode(public_key_text, validate=True)
-            verifier = Ed25519ReceiptVerifier(
-                Ed25519PublicKey.from_public_bytes(public_key)
-            )
+            verifier = Ed25519ReceiptVerifier(Ed25519PublicKey.from_public_bytes(public_key))
         except (ValueError, TypeError) as exc:
             raise PolicyViolation("Registered provenance public key invalid") from exc
         terminal = body.get("provenance_terminal")
@@ -1886,20 +1880,17 @@ class SQLiteLocalImprovementStore:
             or terminal_body.get("status") != "completed"
             or terminal_body.get("assignment_challenge_digest")
             != provenance_verifier.identity.assignment_challenge_digest
-            or not provenance_verifier.matches_receipt_digest(
-                terminal_body, terminal_signature
-            )
+            or not provenance_verifier.matches_receipt_digest(terminal_body, terminal_signature)
         ):
             raise PolicyViolation("Dataset contract provenance terminal receipt untrusted")
         body = {
             "schema": "zekam-evaluation-dataset-contract/v1",
             "dataset_manifest": dataset.body(),
             "provenance_identity": provenance_verifier.identity.body(),
-            "provenance_public_key": base64.b64encode(
-                provenance_verifier.public_key
-            ).decode("ascii"),
-            "provenance_terminal": terminal_body
-            | {"terminal_receipt": terminal_signature},
+            "provenance_public_key": base64.b64encode(provenance_verifier.public_key).decode(
+                "ascii"
+            ),
+            "provenance_terminal": terminal_body | {"terminal_receipt": terminal_signature},
             "registered_at": _instant(registered_at),
             "grants_candidate_authority": False,
         }
@@ -2757,8 +2748,7 @@ class SQLiteLocalImprovementStore:
             predecessors = {
                 str(row["stage"]): str(row["status"])
                 for row in db.execute(
-                    "select stage,status from typed_rollout_execution "
-                    "where candidate_digest=?",
+                    "select stage,status from typed_rollout_execution where candidate_digest=?",
                     (plan.candidate_digest,),
                 ).fetchall()
             }
@@ -2967,8 +2957,7 @@ class SQLiteLocalImprovementStore:
             if (
                 pending is None
                 or pending["run_plan_digest"] != run_plan.plan_digest
-                or pending["authorization_digest"]
-                != child_authorization.authorization_digest
+                or pending["authorization_digest"] != child_authorization.authorization_digest
             ):
                 raise PolicyViolation("Typed rollout prepared receipt binding missing")
             authority_ledger.assert_terminal_settlement(
@@ -3099,11 +3088,7 @@ class SQLiteLocalImprovementStore:
                     or digest(settlement) != receipt_digest
                 ):
                     raise PolicyViolation("Evolution bootstrap terminal settlement invalid")
-            if (
-                previous_state == "disabled"
-                and state != "disabled"
-                and enable_plan_digest is None
-            ):
+            if previous_state == "disabled" and state != "disabled" and enable_plan_digest is None:
                 raise PolicyViolation("Disabled evolution requires exact enable plan")
             if previous_state == "paused" and state == "observing":
                 if not isinstance(admission_evidence, Mapping):
@@ -3138,9 +3123,7 @@ class SQLiteLocalImprovementStore:
                 for grant_digest in grants:
                     parse_digest(grant_digest)
                 evidence_body = {
-                    key: admission_evidence[key]
-                    for key in required
-                    if key != "evidence_digest"
+                    key: admission_evidence[key] for key in required if key != "evidence_digest"
                 }
                 if digest(evidence_body) != admission_evidence["evidence_digest"]:
                     raise PolicyViolation("Evolution resume admission evidence digest drift")

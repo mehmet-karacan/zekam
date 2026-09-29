@@ -173,9 +173,7 @@ def _build(
     def resolve_local(name: str) -> str | None:
         return local_names.get(name)
 
-    def reference_edges(
-        owner_symbol_id: str, node: ast.AST, confidence: GraphConfidence
-    ) -> None:
+    def reference_edges(owner_symbol_id: str, node: ast.AST, confidence: GraphConfidence) -> None:
         for child in ast.walk(node):
             if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
                 target = resolve_local(child.id)
@@ -251,9 +249,7 @@ def _build(
                     confidence=GraphConfidence.EXTERNAL,
                 )
 
-    def process_class(
-        class_symbol: GraphSymbol, node: ast.ClassDef, qname: str
-    ) -> None:
+    def process_class(class_symbol: GraphSymbol, node: ast.ClassDef, qname: str) -> None:
         know_local(class_symbol)
         class_extends(class_symbol, node)
         reference_edges(class_symbol.symbol_id, node, GraphConfidence.INFERRED)
@@ -302,9 +298,7 @@ def _build(
         for stmt in node.body:
             if isinstance(stmt, ast.ClassDef):
                 nested_qname = f"{child_qname}.{stmt.name}"
-                nested = create_symbol(
-                    nested_qname, GraphNodeKind.CLASS, stmt, symbol.symbol_id
-                )
+                nested = create_symbol(nested_qname, GraphNodeKind.CLASS, stmt, symbol.symbol_id)
                 symbols.append(nested)
                 add_edge(
                     source_symbol_id=symbol.symbol_id,
@@ -342,9 +336,7 @@ def _build(
             )
             process_class(symbol, stmt, qname)
         elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbol = process_function(
-                stmt, module_qname, file_symbol.symbol_id, inside_class=False
-            )
+            symbol = process_function(stmt, module_qname, file_symbol.symbol_id, inside_class=False)
             add_edge(
                 source_symbol_id=file_symbol.symbol_id,
                 relation=GraphRelation.CONTAINS,

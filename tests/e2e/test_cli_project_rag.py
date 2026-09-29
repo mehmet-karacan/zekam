@@ -415,9 +415,7 @@ def test_ask_json_providerless_never_claims_generated_answer(
         },
     )
 
-    result = CliRunner().invoke(
-        cli.app, ["ask", "kuantum muz sulama protokolu", "--json"]
-    )
+    result = CliRunner().invoke(cli.app, ["ask", "kuantum muz sulama protokolu", "--json"])
 
     assert result.exit_code == 0, result.output
     retrieval = json.loads(result.output)["retrieval"]

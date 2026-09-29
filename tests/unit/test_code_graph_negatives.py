@@ -37,7 +37,9 @@ _CREATED_AT = "2026-09-21T00:00:00Z"
 def _symbol(qname: str, file: str = "a.py") -> GraphSymbol:
     return GraphSymbol(
         symbol_id=symbol_identity(
-            kind=GraphNodeKind.FUNCTION, qualified_name=qname, file_relative_path=file,
+            kind=GraphNodeKind.FUNCTION,
+            qualified_name=qname,
+            file_relative_path=file,
             disambiguator=0,
         ),
         qualified_name=qname,
@@ -244,8 +246,12 @@ def test_wrong_project_graph_rejected(tmp_path: Path) -> None:
     store = SQLiteCodeGraphStore(tmp_path / "g.sqlite3", create=True)
     try:
         plan = plan_graph_build(
-            source_root, project_id="alpha", project_slug="alpha", source_revision="r1",
-            extractor=extractor, created_at=_CREATED_AT,
+            source_root,
+            project_id="alpha",
+            project_slug="alpha",
+            source_revision="r1",
+            extractor=extractor,
+            created_at=_CREATED_AT,
         )
         apply_graph_build(store, extractor, source_root, plan)
         with pytest.raises(ValidationFailed):
@@ -261,8 +267,12 @@ def test_read_only_mutation_rejected(tmp_path: Path) -> None:
     extractor = PythonAstExtractor()
     store = SQLiteCodeGraphStore(tmp_path / "g.sqlite3", create=True)
     plan = plan_graph_build(
-        source_root, project_id="p", project_slug="p", source_revision="r1",
-        extractor=extractor, created_at=_CREATED_AT,
+        source_root,
+        project_id="p",
+        project_slug="p",
+        source_revision="r1",
+        extractor=extractor,
+        created_at=_CREATED_AT,
     )
     apply_graph_build(store, extractor, source_root, plan)
     store.close()

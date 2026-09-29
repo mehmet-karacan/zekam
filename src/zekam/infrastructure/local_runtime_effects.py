@@ -358,9 +358,7 @@ class _PinnedJournalDirectory:
                 os.close(descriptor)
 
     @staticmethod
-    def _read_verification_payload(
-        descriptor: int, before: os.stat_result
-    ) -> bytes:
+    def _read_verification_payload(descriptor: int, before: os.stat_result) -> bytes:
         if not stat.S_ISREG(before.st_mode):
             raise PolicyViolation("Local journal verification requires regular file")
         if before.st_size > MAX_VERIFICATION_JOURNAL_BYTES:

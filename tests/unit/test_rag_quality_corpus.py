@@ -386,9 +386,7 @@ def items_to_cases(items: tuple[CorpusItem, ...]) -> tuple[GoldenCase, ...]:
 
 def items_to_negatives(items: tuple[CorpusItem, ...]) -> tuple[NegativeCase, ...]:
     return tuple(
-        NegativeCase(query=item.query, reason=item.reason)
-        for item in items
-        if item.negative
+        NegativeCase(query=item.query, reason=item.reason) for item in items if item.negative
     )
 
 

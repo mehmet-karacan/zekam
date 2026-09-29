@@ -64,9 +64,7 @@ class _RolloutApprovalAuthority(EvolutionApprovalAuthority):
     def verify_grant_approval(
         self, grant: StandingGrant, approval_receipt_digest: str, *, now: dt.datetime
     ) -> bool:
-        return self._base.verify_grant_approval(
-            grant, approval_receipt_digest, now=now
-        )
+        return self._base.verify_grant_approval(grant, approval_receipt_digest, now=now)
 
     def verify_review(self, plan: EvolutionRunPlan, *, now: dt.datetime) -> bool:
         return self._base.verify_review(plan, now=now)
@@ -156,9 +154,7 @@ class AuthorizedRolloutRuntime:
         *,
         now: dt.datetime,
     ) -> None:
-        self.ledger.register_grant(
-            grant, approval_receipt_digest=approval_receipt_digest, now=now
-        )
+        self.ledger.register_grant(grant, approval_receipt_digest=approval_receipt_digest, now=now)
 
     def reserve(
         self,
@@ -201,9 +197,7 @@ class AuthorizedRolloutRuntime:
         claimed_at: dt.datetime,
     ) -> str:
         expected_operation = _OPERATIONS[rollout.stage]
-        recovery = self._executor.recovery_status(
-            self._improvement.typed_rollout_plan_digests()
-        )
+        recovery = self._executor.recovery_status(self._improvement.typed_rollout_plan_digests())
         if recovery["state"] != "clean":
             raise PolicyViolation("Unsettled rollout evidence requires reconciliation")
         if (
@@ -215,8 +209,7 @@ class AuthorizedRolloutRuntime:
             or run.input_digest != rollout.intent_digest
             or run.executor_ref != str(self._executor.identity.assignment_id)
             or run.verifier_ref != str(self._verifier.identity.assignment_id)
-            or reservation.authorization.authorization_digest
-            != rollout.authorization_digest
+            or reservation.authorization.authorization_digest != rollout.authorization_digest
         ):
             raise PolicyViolation("Authorized rollout plan/child binding drift")
         self._authority.bind(run, rollout)
@@ -236,9 +229,7 @@ class AuthorizedRolloutRuntime:
             now=claimed_at,
         )
         observation = self._executor.execute(rollout)
-        verification = self._verifier.verify(
-            rollout, observation, self._executor.verifier
-        )
+        verification = self._verifier.verify(rollout, observation, self._executor.verifier)
         self._authority.bind_terminal(verification)
         duration = max(
             1,
@@ -295,8 +286,7 @@ class AuthorizedRolloutRuntime:
         )
         if (
             run.input_digest != rollout.intent_digest
-            or reservation.authorization.authorization_digest
-            != rollout.authorization_digest
+            or reservation.authorization.authorization_digest != rollout.authorization_digest
         ):
             raise PolicyViolation("Authorized recovery binding drift")
         recovery_digest = self._executor.recover_unsettled_activation(rollout)
@@ -319,15 +309,11 @@ class AuthorizedRolloutRuntime:
         )
         return recovery_digest
 
-    def recover_from_durable(
-        self, reservation_id: str, rollout_plan_digest: str
-    ) -> str:
+    def recover_from_durable(self, reservation_id: str, rollout_plan_digest: str) -> str:
         """Recover after restart without trusting caller-recreated plan objects."""
 
         run, reservation = self.ledger.load_claimed(reservation_id)
-        terminal = self.ledger.claimed_terminal(
-            reservation_id, run, reservation.authorization
-        )
+        terminal = self.ledger.claimed_terminal(reservation_id, run, reservation.authorization)
         if terminal is not None and terminal[0] == "completed":
             return self._improvement.finalize_prepared_typed_rollout(
                 self.ledger, reservation_id, run, reservation.authorization

@@ -24,9 +24,7 @@ def test_authority_loader_handles_repeated_short_descriptor_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = _private_root(tmp_path, "short-read") / "skill-receipt.key"
-    first_signer, _first_verifier = authority_module.load_or_create_skill_runtime_authority(
-        path
-    )
+    first_signer, _first_verifier = authority_module.load_or_create_skill_runtime_authority(path)
     body = {"schema": "skill-authority-test/v1"}
     expected = first_signer.attest(body)
     original_read = os.read
@@ -35,9 +33,7 @@ def test_authority_loader_handles_repeated_short_descriptor_reads(
         return original_read(descriptor, min(count, 1))
 
     monkeypatch.setattr(authority_module.os, "read", short_read)
-    second_signer, _second_verifier = authority_module.load_or_create_skill_runtime_authority(
-        path
-    )
+    second_signer, _second_verifier = authority_module.load_or_create_skill_runtime_authority(path)
 
     assert second_signer.attest(body) == expected
 

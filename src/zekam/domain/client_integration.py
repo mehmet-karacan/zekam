@@ -73,9 +73,7 @@ class ClientIntegrationPolicy:
         if overlap:
             raise PolicyViolation("Ayni istemci birlikte enable ve disable edilemez")
         values = self.body()
-        changes = tuple((item, True) for item in enable) + tuple(
-            (item, False) for item in disable
-        )
+        changes = tuple((item, True) for item in enable) + tuple((item, False) for item in disable)
         for requested, state in changes:
             try:
                 identity = ClientIntegrationId(requested)

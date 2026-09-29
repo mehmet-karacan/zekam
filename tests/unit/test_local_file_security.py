@@ -114,9 +114,7 @@ def test_windows_root_rejects_conditional_or_callback_allow_ace(
         lambda _path: "O:OWG:SYD:(A;;FA;;;SY)(XA;;FA;;;WD;(TRUE))",
     )
     monkeypatch.setattr(local_file_security, "windows_user_sid", lambda: "S-1-5-21-1")
-    monkeypatch.setattr(
-        local_file_security, "windows_codex_sandbox_sid", lambda: "S-1-5-21-2"
-    )
+    monkeypatch.setattr(local_file_security, "windows_codex_sandbox_sid", lambda: "S-1-5-21-2")
 
     assert not private_or_sandbox_readonly_directory(root)
     assert not private_directory(root)

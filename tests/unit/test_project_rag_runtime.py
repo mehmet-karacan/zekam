@@ -39,9 +39,7 @@ def test_generation_chunk_scope_changes_when_provider_profile_changes() -> None:
         "tree_digest": digest("tree-digest"),
         "source_manifest_digest": digest("source-manifest"),
         "embedding_profile_digest": digest("embedding-profile"),
-        "chunk_fingerprints": (
-            ("logical-chunk", digest("content"), digest("vector")),
-        ),
+        "chunk_fingerprints": (("logical-chunk", digest("content"), digest("vector")),),
     }
 
     first_scope = runtime._generation_chunk_scope_digest(
@@ -75,15 +73,11 @@ def test_generation_chunk_scope_changes_when_vector_changes() -> None:
 
     first_scope = runtime._generation_chunk_scope_digest(
         **common,
-        chunk_fingerprints=(
-            ("logical-chunk", digest("content"), digest("vector-a")),
-        ),
+        chunk_fingerprints=(("logical-chunk", digest("content"), digest("vector-a")),),
     )
     second_scope = runtime._generation_chunk_scope_digest(
         **common,
-        chunk_fingerprints=(
-            ("logical-chunk", digest("content"), digest("vector-b")),
-        ),
+        chunk_fingerprints=(("logical-chunk", digest("content"), digest("vector-b")),),
     )
 
     assert first_scope != second_scope
@@ -639,9 +633,7 @@ def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
-    monkeypatch.setattr(
-        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
-    )
+    monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
     monkeypatch.setattr(
         runtime,
         "_provider",
@@ -760,9 +752,7 @@ def test_query_rejects_state_generation_identity_drift_before_provider_call(
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
-    monkeypatch.setattr(
-        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
-    )
+    monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
     monkeypatch.setattr(
         runtime,
         "_provider",
@@ -1262,9 +1252,7 @@ def test_runtime_paths_skips_rehardening_when_acl_already_private(
 ) -> None:
     monkeypatch.setattr(runtime.HomeLayout, "verify", lambda _self: [])
     project_root = tmp_path / "projeler" / "slug"
-    monkeypatch.setattr(
-        runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root
-    )
+    monkeypatch.setattr(runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root)
     restricted: list[Path] = []
     monkeypatch.setattr(runtime, "restrict_private_tree", restricted.append)
     monkeypatch.setattr(runtime, "private_directory", lambda _path: True)
@@ -1276,9 +1264,7 @@ def test_runtime_paths_skips_rehardening_when_acl_already_private(
     assert paths["index_root"] == (
         tmp_path / "knowledge-index" / "vector" / "opencode-bge-m3" / "slug"
     )
-    assert (
-        paths["manifest_root"] == tmp_path / "knowledge-index" / "manifests" / "slug"
-    )
+    assert paths["manifest_root"] == tmp_path / "knowledge-index" / "manifests" / "slug"
 
 
 def test_runtime_paths_still_hardens_and_raises_when_acl_not_private(
@@ -1286,9 +1272,7 @@ def test_runtime_paths_still_hardens_and_raises_when_acl_not_private(
 ) -> None:
     monkeypatch.setattr(runtime.HomeLayout, "verify", lambda _self: [])
     project_root = tmp_path / "projeler" / "slug"
-    monkeypatch.setattr(
-        runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root
-    )
+    monkeypatch.setattr(runtime.HomeLayout, "ensure_project", lambda _self, _slug: project_root)
     restricted: list[Path] = []
     monkeypatch.setattr(runtime, "restrict_private_tree", restricted.append)
     monkeypatch.setattr(runtime, "private_directory", lambda path: path != project_root)
@@ -1589,9 +1573,7 @@ def test_wp3_warm_local_query_skips_corpus_plan(
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
-    monkeypatch.setattr(
-        runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge)
-    )
+    monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
     monkeypatch.setattr(runtime, "_runtime_platform", lambda: "darwin")
 
     class _LocalBinding:
@@ -1688,6 +1670,3 @@ def test_wp3_deleted_source_is_freshness_unknown(
     reasons, obs = runtime._source_freshness_for_query(state, root)
     assert "project-source-freshness-unknown" in reasons
     assert obs.get("unknown") is True
-
-
-

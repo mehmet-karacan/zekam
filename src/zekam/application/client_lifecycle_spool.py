@@ -1125,9 +1125,7 @@ class ClientLifecycleSpool:
                 entry_digest=entry.entry_digest,
                 canonical_event_digest=receipt.canonical_event_digest,
                 canonical_lookup_digest=receipt.canonical_lookup_digest,
-                continuity_binding_digest=str(
-                    receipt.continuity_binding["binding_digest"]
-                ),
+                continuity_binding_digest=str(receipt.continuity_binding["binding_digest"]),
             )
         if not _safe_regular_file_exists(self.instance_path):
             raise PolicyViolation("Lifecycle ACK canonical client instance ister")
@@ -2201,9 +2199,7 @@ def replay_pending(
     spool: ClientLifecycleSpool,
     *,
     deliver: Callable[[LifecycleSpoolEntry], CanonicalLifecycleReceipt],
-    capture: Callable[
-        [LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]
-    ]
+    capture: Callable[[LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]]
     | None = None,
     limit: int = 80,
     attempted_at: dt.datetime | None = None,
@@ -2365,9 +2361,7 @@ def drain_to_postgres(
     *,
     client_instance_id: str,
     continuity_admission: LifecycleContinuityAdmission | None = None,
-    capture: Callable[
-        [LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]
-    ]
+    capture: Callable[[LifecycleSpoolEntry, CanonicalLifecycleReceipt], Mapping[str, Any]]
     | None = None,
     limit: int = 80,
     attempted_at: dt.datetime | None = None,
@@ -2621,12 +2615,31 @@ def _validate_evolution_capture(
 def _validate_capture_envelope(document: Any, capture_digest: str) -> None:
     expected = frozenset(
         {
-            "schema", "event_id", "event_type", "schema_version", "device_id",
-            "client_id", "client_version", "session_id", "project_scope", "work_ref",
-            "run_ref", "source_revision", "occurred_at", "received_at",
-            "sequence_or_cursor", "idempotency_key", "parent_run_ref", "origin",
-            "payload_digest", "privacy_class", "evidence_refs", "contains_prompt",
-            "contains_response", "contains_transcript", "grants_authority",
+            "schema",
+            "event_id",
+            "event_type",
+            "schema_version",
+            "device_id",
+            "client_id",
+            "client_version",
+            "session_id",
+            "project_scope",
+            "work_ref",
+            "run_ref",
+            "source_revision",
+            "occurred_at",
+            "received_at",
+            "sequence_or_cursor",
+            "idempotency_key",
+            "parent_run_ref",
+            "origin",
+            "payload_digest",
+            "privacy_class",
+            "evidence_refs",
+            "contains_prompt",
+            "contains_response",
+            "contains_transcript",
+            "grants_authority",
             "capture_digest",
         }
     )
@@ -2644,8 +2657,13 @@ def _validate_capture_envelope(document: Any, capture_digest: str) -> None:
     ):
         raise PolicyViolation("Lifecycle evolution capture envelope schema gecersiz")
     for key in (
-        "device_id", "client_id", "client_version", "session_id", "source_revision",
-        "idempotency_key", "origin",
+        "device_id",
+        "client_id",
+        "client_version",
+        "session_id",
+        "source_revision",
+        "idempotency_key",
+        "origin",
     ):
         value = document.get(key)
         if not isinstance(value, str) or _CAPTURE_SAFE_REF.fullmatch(value) is None:
@@ -2666,9 +2684,7 @@ def _validate_capture_envelope(document: Any, capture_digest: str) -> None:
         UUID(str(document.get("event_id")))
     except ValueError as exc:
         raise ValidationFailed("Lifecycle evolution capture event_id UUID olmali") from exc
-    for key, prefix in (
-        ("project_scope", "project:"), ("work_ref", "work:"), ("run_ref", "run:")
-    ):
+    for key, prefix in (("project_scope", "project:"), ("work_ref", "work:"), ("run_ref", "run:")):
         value = document.get(key)
         if not isinstance(value, str) or not value.startswith(prefix):
             raise PolicyViolation("Lifecycle evolution capture scope binding gecersiz")
@@ -2716,8 +2732,7 @@ def _validate_capture_gap(document: Any, *, client_id: str) -> dict[str, Any]:
         or frozenset(document) != expected
         or document.get("schema") != "zekam-capture-replay-decision/v1"
         or document.get("state") != "capture-gap"
-        or document.get("reason")
-        not in {"source-unavailable", "source-window-expired"}
+        or document.get("reason") not in {"source-unavailable", "source-window-expired"}
         or document.get("inferred_content") is not False
         or document.get("grants_authority") is not False
         or document.get("limit") != 0

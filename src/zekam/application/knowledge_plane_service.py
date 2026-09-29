@@ -133,9 +133,7 @@ class KnowledgePlaneService:
         return record
 
 
-def _materialization_evidence(
-    record: KnowledgeNoteRecord, manifest: KnowledgeNoteManifest
-) -> str:
+def _materialization_evidence(record: KnowledgeNoteRecord, manifest: KnowledgeNoteManifest) -> str:
     return digest(
         {
             "operation": "knowledge-note-materialized",

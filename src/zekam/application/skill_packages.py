@@ -142,11 +142,7 @@ def _target_specs(package: SkillPackage) -> tuple[tuple[Path, tuple[str, ...], s
 
 
 def _quarantine_relative(client: str, package: SkillPackage, artifact_digest: str) -> str:
-    return (
-        Path(client)
-        / package.name
-        / artifact_digest.removeprefix("sha256:")
-    ).as_posix()
+    return (Path(client) / package.name / artifact_digest.removeprefix("sha256:")).as_posix()
 
 
 def _assert_safe_quarantine(project_root: Path, quarantine_root: Path) -> None:
@@ -213,7 +209,8 @@ def build_projection_plan(
                     if client == ClientIntegrationId.CODEX.value:
                         accepted_clients.add(("codex", "opencode"))
                     if (
-                        schema not in {
+                        schema
+                        not in {
                             "zekam-managed-skill-projection/v1",
                             "zekam-managed-skill-projection/v2",
                         }
@@ -292,9 +289,7 @@ def build_projection_plan(
     )
 
 
-def _ownership_body(
-    plan: SkillProjectionPlan, target_info: dict[str, object]
-) -> dict[str, Any]:
+def _ownership_body(plan: SkillProjectionPlan, target_info: dict[str, object]) -> dict[str, Any]:
     clients = target_info["clients"]
     if not isinstance(clients, (list, tuple)):
         raise PolicyViolation("Skill projection client list invalid")
@@ -372,8 +367,7 @@ def apply_projection_plan(
     if fresh.targets != plan.targets or fresh.plan_digest != plan.plan_digest:
         raise PolicyViolation("Skill projection target changed after authorization")
     if any(
-        item["state"]
-        not in {"new", "current", "managed-update", "absent", "managed-disable"}
+        item["state"] not in {"new", "current", "managed-update", "absent", "managed-disable"}
         for item in plan.targets
     ):
         raise PolicyViolation("Skill projection refuses unmanaged or drifted target")
@@ -429,9 +423,7 @@ def apply_projection_plan(
                     raise PolicyViolation("Skill projection staged file readback drift")
             ownership_body = _ownership_body(plan, target_info)
             ownership = stage / ".zekam-managed.json"
-            ownership.write_text(
-                canonical_json(ownership_body), encoding="utf-8", newline="\n"
-            )
+            ownership.write_text(canonical_json(ownership_body), encoding="utf-8", newline="\n")
             expected_artifact = str(target_info["artifact_digest"])
             if _projected_artifact_digest(stage) != expected_artifact:
                 raise PolicyViolation("Skill projection staged artifact digest drift")

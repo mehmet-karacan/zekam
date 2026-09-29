@@ -104,9 +104,9 @@ def test_cognitive_check_detects_memory_drift(tmp_path: Path) -> None:
     orphan = next((r for r in results if r.check_id == "cognitive.memory"), None)
     assert orphan is not None
     assert orphan.status is CheckStatus.DEGRADED
-    assert any(
-        f.code == "cognitive.memory-orphan-candidate" for f in orphan.findings
-    ), "orphan bellek adayi checking finding uretmesi beklenir"
+    assert any(f.code == "cognitive.memory-orphan-candidate" for f in orphan.findings), (
+        "orphan bellek adayi checking finding uretmesi beklenir"
+    )
 
 
 def test_doctor_default_path_is_read_only(tmp_path: Path) -> None:
@@ -136,16 +136,12 @@ def test_doctor_has_no_destructive_implicit_repair(tmp_path: Path) -> None:
     context = build_context(home=home, environ={})
 
     state_dir = home / "state"
-    before_files = {
-        str(p): p.read_bytes() for p in state_dir.glob("*.db")
-    }
+    before_files = {str(p): p.read_bytes() for p in state_dir.glob("*.db")}
 
     for _ in _cognitive_results(context):
         pass
 
-    after_files = {
-        str(p): p.read_bytes() for p in state_dir.glob("*.db")
-    }
+    after_files = {str(p): p.read_bytes() for p in state_dir.glob("*.db")}
     # Hicbir row silinmedi / dosya icerigi degismedi; yeni dosya da olusmadi.
     assert set(before_files) == set(after_files)
     for key, payload in before_files.items():

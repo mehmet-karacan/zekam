@@ -198,9 +198,9 @@ def test_seed_mapper_weights_top_and_exact_higher() -> None:
         _hit("c-a2"),
     )
     mapping = {"c-b": "b.py", "c-a1": "a.py", "c-a2": "a.py"}
-    seed_map = GraphSeedMapper(
-        graph, config=GraphRankingConfig()
-    ).map_hits(fused, mapping.__getitem__)
+    seed_map = GraphSeedMapper(graph, config=GraphRankingConfig()).map_hits(
+        fused, mapping.__getitem__
+    )
     weight_b = sum(seed_map.weights.get(s, 0.0) for s in (_id("b1"),))
     weight_a = sum(seed_map.weights.get(s, 0.0) for s in (_id("a1"), _id("a2")))
     assert weight_b > weight_a

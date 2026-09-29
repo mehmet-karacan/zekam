@@ -69,9 +69,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self._allowed_ips = allowed_ips
 
     def connect(self) -> None:
-        raw_socket = socket.create_connection(
-            (self._destination_ip, 443), timeout=self.timeout
-        )
+        raw_socket = socket.create_connection((self._destination_ip, 443), timeout=self.timeout)
         try:
             peer_ip = str(raw_socket.getpeername()[0])
             _assert_global_address(peer_ip)

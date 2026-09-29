@@ -56,18 +56,14 @@ def _response(body: bytes = b"new") -> SourceRefreshResponse:
     )
     return replace(
         draft,
-        transport_receipt_digest=TRANSPORT_SIGNER.seal_digest(
-            draft.transport_receipt_body()
-        ),
+        transport_receipt_digest=TRANSPORT_SIGNER.seal_digest(draft.transport_receipt_body()),
     )
 
 
 def _resign(response: SourceRefreshResponse) -> SourceRefreshResponse:
     return replace(
         response,
-        transport_receipt_digest=TRANSPORT_SIGNER.seal_digest(
-            response.transport_receipt_body()
-        ),
+        transport_receipt_digest=TRANSPORT_SIGNER.seal_digest(response.transport_receipt_body()),
     )
 
 
@@ -223,9 +219,7 @@ def test_bounded_transport_derives_peer_and_signs_observed_body(
         "zekam.application.source_refresh._PinnedHTTPSConnection",
         FakeConnection,
     )
-    transport = BoundedPublicSourceTransport(
-        SourceRefreshPolicy((URL,)), TRANSPORT_SIGNER
-    )
+    transport = BoundedPublicSourceTransport(SourceRefreshPolicy((URL,)), TRANSPORT_SIGNER)
     response = transport.fetch(URL, now=NOW)
     assert response.body == b"trusted bytes"
     assert response.peer_ip == "8.8.8.8"

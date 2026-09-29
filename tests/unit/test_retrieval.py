@@ -774,6 +774,7 @@ def test_wp5_provider_unavailable_with_strong_evidence_marked_degraded() -> None
 def test_wp5_provider_unavailable_insufficient_evidence_abstains() -> None:
     """WP5-C: provider-unavailable with insufficient evidence is an explicit
     abstain (no fake success, distinct from no-hit)."""
+
     class _EmptyBackend:
         provider_unavailable = True
 
@@ -1026,7 +1027,3 @@ def test_wp7_b1_answer_semantics_contract_ready_and_no_fabricated_generation() -
     unknown = answer_semantics("future-state", evidence_found=False)
     assert unknown["retrieval_state"] == RetrievalState.ABSTAINED_LOW_EVIDENCE.value
     assert unknown["answer_kind"] == AnswerKind.ABSTAINED.value
-
-
-
-

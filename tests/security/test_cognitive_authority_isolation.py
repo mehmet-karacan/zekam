@@ -95,9 +95,7 @@ def _feedback_item(**kwargs: object) -> FeedbackItem:
 def test_memory_icerigindeki_sahre_approved_veri_authority_uretmez() -> None:
     # Kullanici/model metni bellege "approved=true" yerlesirse otorite OLMAZ.
     candidate = _candidate(content=f"{_FAKE_APPROVAL} Nesnel gozlem")
-    record = candidate.promote(
-        memory_id="m1", reviewed_by="reviewer-x", now=NOW, revision=1
-    )
+    record = candidate.promote(memory_id="m1", reviewed_by="reviewer-x", now=NOW, revision=1)
     # Aday/bellegin kendisi authority tasiyamaz; icerigi sadece veridir.
     assert record.body()["grants_authority"] is False
     # Memory body bir Authorization/Claim/Receipt/Uretmez: yetki alanlari yok.

@@ -25,9 +25,17 @@ from zekam.domain.personal_skill import SkillOriginEvidence, SkillOriginKind
 
 # Learning daily-snapshot record kinds the bridge understands.
 LEARNING_RECORD_KINDS = frozenset(
-    {"lesson", "failure_occurrence", "failure_card", "memory_revision",
-     "skill_evaluation", "skill_review", "skill_activation", "skill_usage",
-     "skill_outcome"}
+    {
+        "lesson",
+        "failure_occurrence",
+        "failure_card",
+        "memory_revision",
+        "skill_evaluation",
+        "skill_review",
+        "skill_activation",
+        "skill_usage",
+        "skill_outcome",
+    }
 )
 
 MINIMUM_EVIDENCE_ORIGINS = 2
@@ -93,10 +101,14 @@ class ExperienceSkillOrigin:
             self.user_ref is None or self.artifact_revision_digest is not None
         ):
             raise ValidationFailed("User request needs user source without fabricated artifact")
-        if self.kind not in {
-            SkillOriginKind.USER_CORRECTION,
-            SkillOriginKind.USER_REQUEST,
-        } and self.user_ref is not None:
+        if (
+            self.kind
+            not in {
+                SkillOriginKind.USER_CORRECTION,
+                SkillOriginKind.USER_REQUEST,
+            }
+            and self.user_ref is not None
+        ):
             raise ValidationFailed("Only real user correction/request may carry user_ref")
 
     def to_origin(self) -> SkillOriginEvidence:
@@ -122,9 +134,7 @@ class ExperienceSkillOrigin:
             "source_kind": str(self.source_kind),
             "artifact_revision_digest": self.artifact_revision_digest,
             "user_ref": self.user_ref,
-            "observed_at": self.observed_at.astimezone(dt.UTC)
-            .replace(microsecond=0)
-            .isoformat(),
+            "observed_at": self.observed_at.astimezone(dt.UTC).replace(microsecond=0).isoformat(),
             "candidate_only": True,
             "grants_authority": False,
         }
@@ -155,9 +165,7 @@ def _verdict_for_record(record: Mapping[str, object]) -> tuple[ExperienceVerdict
         if status == "verified-success":
             return ExperienceVerdict.VERIFIED_SUCCESS, record_digest
         raise ValidationFailed("Experience skill outcome not verified success")
-    raise ValidationFailed(
-        f"Experience skill record kind {kind} not directly candidacy-bearing"
-    )
+    raise ValidationFailed(f"Experience skill record kind {kind} not directly candidacy-bearing")
 
 
 def candidate_proposal_from_experience(
@@ -185,8 +193,10 @@ def candidate_proposal_from_experience(
     _ref(skill_id, "skill id")
     _ref(name, "name")
     _ref(description, "description")
-    if not isinstance(trigger_terms, tuple) or not trigger_terms or len(set(trigger_terms)) != len(
-        trigger_terms
+    if (
+        not isinstance(trigger_terms, tuple)
+        or not trigger_terms
+        or len(set(trigger_terms)) != len(trigger_terms)
     ):
         raise ValidationFailed("Experience skill trigger terms must be bounded")
     _ref(operational_run_ref, "proposal run")
@@ -213,9 +223,7 @@ def candidate_proposal_from_experience(
             source_ref=source_ref,
             source_kind=source_kind,
             artifact_revision_digest=(
-                artifact_revision_digest
-                if verdict is ExperienceVerdict.CORRECTION
-                else None
+                artifact_revision_digest if verdict is ExperienceVerdict.CORRECTION else None
             ),
             user_ref=(user_ref if verdict is ExperienceVerdict.CORRECTION else None),
             observed_at=observed_at,
@@ -242,14 +250,10 @@ def candidate_proposal_from_experience(
         "trigger_terms": list(trigger_terms),
         "state": "candidate",
         "origin_count": len(origins),
-        "origins": [
-            origin.body() | {"origin_digest": origin.origin_digest} for origin in origins
-        ],
+        "origins": [origin.body() | {"origin_digest": origin.origin_digest} for origin in origins],
         "source_kind": str(source_kind),
         "proposal_run_ref": operational_run_ref,
-        "observed_at": observed_at.astimezone(dt.UTC)
-        .replace(microsecond=0)
-        .isoformat(),
+        "observed_at": observed_at.astimezone(dt.UTC).replace(microsecond=0).isoformat(),
         "candidate_only": True,
         "activatable": False,
         "grants_authority": False,
@@ -291,9 +295,7 @@ def proposal_origins(proposal: Mapping[str, object]) -> tuple[SkillOriginEvidenc
                     if raw.get("artifact_revision_digest") is not None
                     else None
                 ),
-                user_ref=(
-                    str(raw["user_ref"]) if raw.get("user_ref") is not None else None
-                ),
+                user_ref=(str(raw["user_ref"]) if raw.get("user_ref") is not None else None),
                 observed_at=dt.datetime.fromisoformat(
                     str(raw["observed_at"]).replace("Z", "+00:00")
                 ),

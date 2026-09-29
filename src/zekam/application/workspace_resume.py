@@ -152,9 +152,7 @@ def _active_skill_refs(home: Path) -> list[str]:
             database.resolve(), operational_path=(home / "state" / "operational.db").resolve()
         )
         active_skill_refs = (
-            learning.active_skill_refs(maximum=8)
-            if hasattr(learning, "active_skill_refs")
-            else ()
+            learning.active_skill_refs(maximum=8) if hasattr(learning, "active_skill_refs") else ()
         )
     except Exception:
         return []
@@ -279,16 +277,13 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 _completed_summaries()
                 if latest_checkpoint is None
                 else [latest_checkpoint.get("completed")]
-            ),            "pending": (
+            ),
+            "pending": (
                 []
                 if latest_checkpoint is None
                 else _bounded_list([latest_checkpoint.get("pending")], limit=5)
             ),
-            "blocked": [
-                _bounded(item.title)
-                for item in open_work
-                if item.state == "blocked"
-            ][:5],
+            "blocked": [_bounded(item.title) for item in open_work if item.state == "blocked"][:5],
             "next_safe_action": next_safe_action,
             "relevant_decisions": _decision_refs(work),
             "relevant_skill_refs": _active_skill_refs(resolved_home),

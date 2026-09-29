@@ -203,9 +203,7 @@ def test_expired_bootstrap_approval_is_rejected_before_durable_claim(
     _persist_intent(build_context(home=home), plan)
 
     with pytest.raises(PolicyViolation, match="approval current degil"):
-        apply_evolution_bootstrap(
-            build_context(home=home), authorized_plan_digest=plan.plan_digest
-        )
+        apply_evolution_bootstrap(build_context(home=home), authorized_plan_digest=plan.plan_digest)
 
     assert improvement.evolution_control_status()["ordinal"] == 0
 
@@ -287,9 +285,7 @@ def test_full_bootstrap_apply_and_same_intent_replay_are_idempotent(
     assert second["receipt_digest"] == first["receipt_digest"]
     assert status(database).schema_version == 5
     with sqlite3.connect(database) as connection:
-        grant_count = connection.execute(
-            "select count(*) from evolution_standing_grant"
-        ).fetchone()
+        grant_count = connection.execute("select count(*) from evolution_standing_grant").fetchone()
         assert grant_count == (1,)
         assert connection.execute(
             "select realm_id from project_knowledge_realm where project_id=?", (project_id,)
@@ -304,6 +300,4 @@ def test_full_bootstrap_apply_and_same_intent_replay_are_idempotent(
         now=dt.datetime.now(dt.UTC),
     )
     with pytest.raises(PolicyViolation, match="owner control decision"):
-        apply_evolution_bootstrap(
-            build_context(home=home), authorized_plan_digest=plan.plan_digest
-        )
+        apply_evolution_bootstrap(build_context(home=home), authorized_plan_digest=plan.plan_digest)

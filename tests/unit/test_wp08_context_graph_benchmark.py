@@ -65,9 +65,7 @@ CHUNK_IDS: dict[str, tuple[str, ...]] = {
     path: (digest("wp08-chunk:" + path) + "-0", digest("wp08-chunk:" + path) + "-1")
     for path in ALL_FILES
 }
-CHUNK_TO_FILE: dict[str, str] = {
-    cid: path for path in ALL_FILES for cid in CHUNK_IDS[path]
-}
+CHUNK_TO_FILE: dict[str, str] = {cid: path for path in ALL_FILES for cid in CHUNK_IDS[path]}
 
 #: Query terms each real file conceptually answers.  Used only by the local stub.
 FILE_TERMS: dict[str, tuple[str, ...]] = {
@@ -99,8 +97,7 @@ FILE_TERMS: dict[str, tuple[str, ...]] = {
 
 #: File-path terms for the file-FTS variant (+file FTS signal).
 PATH_TERMS: dict[str, tuple[str, ...]] = {
-    path: tuple(part for part in re.findall(r"[a-zA-Z0-9_]+", path.lower()))
-    for path in ALL_FILES
+    path: tuple(part for part in re.findall(r"[a-zA-Z0-9_]+", path.lower())) for path in ALL_FILES
 }
 
 #: Exact identifier -> files that define it (drives the EXACT channel).

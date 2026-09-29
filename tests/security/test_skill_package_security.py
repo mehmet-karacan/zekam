@@ -56,9 +56,7 @@ def test_agent_skill_parse_round_trip_and_authority_stripping() -> None:
     ("files", "error"),
     [
         (
-            {
-                "SKILL.md": b"---\nname: x\nname: x\ndescription: d\n---\nbody\n"
-            },
+            {"SKILL.md": b"---\nname: x\nname: x\ndescription: d\n---\nbody\n"},
             ValidationFailed,
         ),
         ({"SKILL.md": b"\xff"}, ValidationFailed),
@@ -68,8 +66,7 @@ def test_agent_skill_parse_round_trip_and_authority_stripping() -> None:
         (_files() | {"references/CON.txt": b"x"}, PolicyViolation),
         (_files() | {"references/report. ": b"x"}, PolicyViolation),
         (
-            _files()
-            | {unicodedata.normalize("NFD", "references/ölçüm.md"): b"x"},
+            _files() | {unicodedata.normalize("NFD", "references/ölçüm.md"): b"x"},
             PolicyViolation,
         ),
         (_files() | {".zekam-managed.json": b"{}"}, PolicyViolation),
@@ -140,13 +137,8 @@ def test_managed_client_projection_is_shared_scoped_and_drift_safe(tmp_path: Pat
     update = _plan(project, updated_package)
     assert all(target["state"] == "managed-update" for target in update.targets)
     apply_projection_plan(update, authorized_plan_digest=update.plan_digest)
-    assert all(
-        target["state"] == "current"
-        for target in _plan(project, updated_package).targets
-    )
-    changed = (
-        project / ".agents" / "skills" / package.name / "references" / "checks.md"
-    )
+    assert all(target["state"] == "current" for target in _plan(project, updated_package).targets)
+    changed = project / ".agents" / "skills" / package.name / "references" / "checks.md"
     changed.write_text("user change", encoding="utf-8")
     drifted = _plan(project, updated_package)
     assert drifted.targets[1]["state"] == "managed-drift"
@@ -219,6 +211,7 @@ def test_cross_client_managed_default_and_opt_in_policy_preserved(tmp_path: Path
     opt_in = build_projection_plan(project, package, policy=ALL_ENABLED)
     assert all(target["enabled"] for target in opt_in.targets)
     assert len({target["artifact_digest"] for target in opt_in.targets}) == 1
+
 
 def test_managed_update_rechecks_target_after_plan_authorization(tmp_path: Path) -> None:
     project = (tmp_path / "project").resolve()
@@ -350,9 +343,7 @@ def test_projection_keeps_recoverable_backup_when_rollback_restore_is_blocked(
     real_replace = os.replace
     replace_calls = 0
 
-    def fail_swap_and_one_restore(
-        source: os.PathLike[str], destination: os.PathLike[str]
-    ) -> None:
+    def fail_swap_and_one_restore(source: os.PathLike[str], destination: os.PathLike[str]) -> None:
         nonlocal replace_calls
         replace_calls += 1
         if replace_calls in {4, 6}:

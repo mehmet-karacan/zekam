@@ -89,9 +89,7 @@ DEPENDENCY_RELATIONS: frozenset[GraphRelation] = frozenset(
 )
 
 #: All relations allowed in V1.
-ALL_RELATIONS: frozenset[GraphRelation] = frozenset(
-    {*DEPENDENCY_RELATIONS, GraphRelation.CONTAINS}
-)
+ALL_RELATIONS: frozenset[GraphRelation] = frozenset({*DEPENDENCY_RELATIONS, GraphRelation.CONTAINS})
 
 NODE_KINDS: frozenset[GraphNodeKind] = frozenset(GraphNodeKind)
 

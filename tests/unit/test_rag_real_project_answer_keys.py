@@ -234,9 +234,7 @@ class _DeterministicProvider:
             ),
         )
 
-    def embed_documents(
-        self, texts: tuple[str, ...], policy: EmbeddingPolicy
-    ) -> EmbeddingBatch:
+    def embed_documents(self, texts: tuple[str, ...], policy: EmbeddingPolicy) -> EmbeddingBatch:
         self.profile.assert_policy(policy)
         vectors = tuple(_vector_for_chunk(f"doc:{i}:{text}") for i, text in enumerate(texts))
         return EmbeddingBatch(
@@ -301,9 +299,7 @@ def _build_index(
     if not records:
         pytest.skip("No chunks could be produced.")
     if len(records) > MAX_RECORDS_PER_GENERATION:
-        pytest.skip(
-            f"Chunk count {len(records)} exceeds limit {MAX_RECORDS_PER_GENERATION}."
-        )
+        pytest.skip(f"Chunk count {len(records)} exceeds limit {MAX_RECORDS_PER_GENERATION}.")
 
     tree_digest = digest(revision)
     index.build_generation(
@@ -400,9 +396,7 @@ def test_real_project_answer_keys(tmp_path: Path) -> None:
         pytest.skip(f"Not enough symbols found: {len(all_symbols)}")
 
     symbols = _select_symbols(tuple(all_symbols), TARGET_SYMBOLS)
-    questions = tuple(
-        question for symbol in symbols for question in _symbol_to_question(symbol)
-    )
+    questions = tuple(question for symbol in symbols for question in _symbol_to_question(symbol))
 
     index = _build_index(tmp_path, files, symbols, revision, root)
     try:

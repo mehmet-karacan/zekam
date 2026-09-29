@@ -746,18 +746,18 @@ class SQLiteLocalLearning:
             if not private_regular(backup_path):
                 raise PolicyViolation("Learning v2 existing backup identity invalid")
             with closing(
-                sqlite3.connect(
-                    f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
-                )
+                sqlite3.connect(f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)
             ) as backup:
                 backup_row = backup.execute(
                     "select version,schema_digest from learning_schema where singleton=1"
                 ).fetchone()
                 backup_digest = _schema_digest(backup)
                 backup_content_digest = _v1_content_digest(backup)
-            if backup_row is None or (
-                int(backup_row[0]), str(backup_row[1]), backup_digest
-            ) != (1, SCHEMA_V1_DIGEST, SCHEMA_V1_DIGEST):
+            if backup_row is None or (int(backup_row[0]), str(backup_row[1]), backup_digest) != (
+                1,
+                SCHEMA_V1_DIGEST,
+                SCHEMA_V1_DIGEST,
+            ):
                 raise PolicyViolation("Learning v2 existing backup fingerprint invalid")
         else:
             backup_content_digest = None
@@ -780,10 +780,7 @@ class SQLiteLocalLearning:
             (SCHEMA_VERSION, SCHEMA_DIGEST, SCHEMA_DIGEST),
         }:
             raise PolicyViolation("Learning migration unknown schema fingerprint")
-        if (
-            backup_content_digest is not None
-            and backup_content_digest != source_content_digest
-        ):
+        if backup_content_digest is not None and backup_content_digest != source_content_digest:
             raise PolicyViolation("Learning v2 backup content does not match source")
         body: dict[str, object] = {
             "schema": "zekam-learning-migration-plan/v2",
@@ -820,11 +817,7 @@ class SQLiteLocalLearning:
             if plan["plan_digest"] != authorized_plan_digest:
                 raise PolicyViolation("Learning migration exact plan digest ister")
         else:
-            original_body = {
-                key: value
-                for key, value in plan.items()
-                if key != "plan_digest"
-            }
+            original_body = {key: value for key, value in plan.items() if key != "plan_digest"}
             original_body.update(
                 {
                     "source_version": 1,
@@ -862,9 +855,7 @@ class SQLiteLocalLearning:
         if not private_regular(backup_path):
             raise PolicyViolation("Learning migration backup identity readback invalid")
         with closing(
-            sqlite3.connect(
-                f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
-            )
+            sqlite3.connect(f"{backup_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)
         ) as backup:
             observed_backup_content_digest = _v1_content_digest(backup)
         if observed_backup_content_digest != plan["backup_content_digest"]:
@@ -914,9 +905,7 @@ class SQLiteLocalLearning:
 
     def _connect_readonly(self) -> sqlite3.Connection:
         self._file_ok()
-        db = sqlite3.connect(
-            f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
-        )
+        db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0)
         db.row_factory = sqlite3.Row
         db.execute("pragma foreign_keys=on")
         db.execute("pragma query_only=on")
@@ -937,9 +926,7 @@ class SQLiteLocalLearning:
                 "memory_relation",
                 "memory_head",
             ):
-                counts[table] = int(
-                    db.execute(f"select count(*) from {table}").fetchone()[0]
-                )
+                counts[table] = int(db.execute(f"select count(*) from {table}").fetchone()[0])
             by_state: dict[str, int] = {}
             for row in db.execute(
                 "select state,count(*) as n from memory_revision group by state"
@@ -966,9 +953,7 @@ class SQLiteLocalLearning:
             reviewed = db.execute(
                 "select candidate_digest from memory_review group by candidate_digest"
             ).fetchall()
-            reviewed_set = frozenset(
-                str(row["candidate_digest"]) for row in reviewed
-            )
+            reviewed_set = frozenset(str(row["candidate_digest"]) for row in reviewed)
             rows = db.execute(
                 "select candidate_digest,candidate_id,memory_class,author_ref,"
                 "observed_at,body_json from memory_candidate order by observed_at desc limit ?",
@@ -1120,9 +1105,7 @@ class SQLiteLocalLearning:
 
     def is_active(self, memory_id: str) -> bool:
         with closing(self._connect_readonly()) as db:
-            row = db.execute(
-                "select 1 from memory_head where memory_id=?", (memory_id,)
-            ).fetchone()
+            row = db.execute("select 1 from memory_head where memory_id=?", (memory_id,)).fetchone()
         return row is not None
 
     def active_records(self) -> tuple[Any, ...]:
@@ -1162,9 +1145,7 @@ class SQLiteLocalLearning:
             memory_key = MemoryKey(
                 scope=scope,
                 realm_ref=str(key_doc.get("realm_ref", "")),
-                project_ref=(
-                    str(key_doc["project_ref"]) if key_doc.get("project_ref") else None
-                ),
+                project_ref=(str(key_doc["project_ref"]) if key_doc.get("project_ref") else None),
                 work_ref=str(key_doc["work_ref"]) if key_doc.get("work_ref") else None,
                 run_ref=str(key_doc["run_ref"]) if key_doc.get("run_ref") else None,
                 agent_ref=str(key_doc["agent_ref"]) if key_doc.get("agent_ref") else None,
@@ -1178,9 +1159,7 @@ class SQLiteLocalLearning:
                 for item in body.get("evidence", ())
                 if isinstance(item, dict)
             )
-            reviewed_by = (
-                str(row["reviewer_ref"]) if row["reviewer_ref"] is not None else None
-            )
+            reviewed_by = str(row["reviewer_ref"]) if row["reviewer_ref"] is not None else None
             records.append(
                 MemoryRecord(
                     memory_id=str(row["memory_id"]),
@@ -1193,9 +1172,7 @@ class SQLiteLocalLearning:
                     evidence=evidence,
                     valid_from=_parse_time(str(row["created_at"])),
                     reviewed_by=reviewed_by,
-                    author_ref=(
-                        str(row["author_ref"]) if row["author_ref"] is not None else None
-                    ),
+                    author_ref=(str(row["author_ref"]) if row["author_ref"] is not None else None),
                 )
             )
         return tuple(records)
@@ -1843,9 +1820,7 @@ class SQLiteLocalLearning:
         parse_digest(activation_digest)
         parse_digest(usage_evidence_digest)
         _text(run_ref, "run ref")
-        evidence = self._skill_run_evidence(
-            activation_digest, run_ref, usage_evidence_digest
-        )
+        evidence = self._skill_run_evidence(activation_digest, run_ref, usage_evidence_digest)
         if not self._physical_skill_record_present(evidence):
             raise PolicyViolation("Skill usage physical effect readback ister")
         if _parse_time(evidence["terminal_at"]) > _parse_time(_time(now)):
@@ -1943,9 +1918,7 @@ class SQLiteLocalLearning:
                 evidence,
             )
             physically_present = self._physical_skill_record_present(evidence)
-            physical_outcome = (
-                "verified-success" if physically_present else "verified-failure"
-            )
+            physical_outcome = "verified-success" if physically_present else "verified-failure"
             if outcome != verifier["outcome"]:
                 raise PolicyViolation("Skill outcome contradicts verifier receipt")
             if outcome != physical_outcome:
@@ -2021,9 +1994,7 @@ class SQLiteLocalLearning:
         else:
             activation_value = trigger = input_digest = line = None
         journal_ref = f"skills/executions/{activation_digest[7:]}.jsonl"
-        journal_evidence = digest(
-            {"idempotency_key": row["idempotency_key"], "line": line}
-        )
+        journal_evidence = digest({"idempotency_key": row["idempotency_key"], "line": line})
         unsigned_receipt = execution_receipt_unsigned_body(
             activation_digest=activation_digest,
             trigger=str(trigger),
@@ -2044,9 +2015,7 @@ class SQLiteLocalLearning:
             or not all(isinstance(value, str) for value in (trigger, input_digest, line))
             or digest(effect) != row["effect_digest"]
             or (row["state"], row["status"]) != ("completed", "completed")
-            or not self._skill_authority().matches_receipt_digest(
-                unsigned_receipt, evidence_digest
-            )
+            or not self._skill_authority().matches_receipt_digest(unsigned_receipt, evidence_digest)
             or not (
                 _parse_time(row["claimed_at"])
                 <= _parse_time(row["receipt_at"])
@@ -2074,8 +2043,7 @@ class SQLiteLocalLearning:
         parse_digest(usage_digest)
         with closing(self._connect()) as db:
             row = db.execute(
-                "select activation_digest,run_ref,body_json from skill_usage "
-                "where usage_digest=?",
+                "select activation_digest,run_ref,body_json from skill_usage where usage_digest=?",
                 (usage_digest,),
             ).fetchone()
         if row is None:
@@ -2137,9 +2105,7 @@ class SQLiteLocalLearning:
                 "journal_record_present": present,
             }
         )
-        audit_evidence = digest(
-            {"idempotency_key": row["idempotency_key"], "line": audit_line}
-        )
+        audit_evidence = digest({"idempotency_key": row["idempotency_key"], "line": audit_line})
         unsigned_receipt = verification_receipt_unsigned_body(
             usage_digest=usage_digest,
             activation_digest=execution["activation_digest"],
@@ -2160,9 +2126,7 @@ class SQLiteLocalLearning:
             or row["operation"] != SKILL_VERIFY_OPERATION
             or digest(effect) != row["effect_digest"]
             or terminal_pair not in {("completed", "completed"), ("failed", "failed")}
-            or not self._skill_authority().matches_receipt_digest(
-                unsigned_receipt, evidence_digest
-            )
+            or not self._skill_authority().matches_receipt_digest(unsigned_receipt, evidence_digest)
             or not self._skill_journal().verify_record(
                 relative_path=audit_ref,
                 idempotency_key=str(row["idempotency_key"]),
@@ -2262,10 +2226,15 @@ class SQLiteLocalLearning:
         if type(day) is not dt.date:
             raise ValidationFailed("Learning daily snapshot exact date ister")
         start = day if start_day is None else start_day
-        if type(start) is not dt.date or start > day or timezone_name not in {
-            "UTC",
-            "Europe/Istanbul",
-        }:
+        if (
+            type(start) is not dt.date
+            or start > day
+            or timezone_name
+            not in {
+                "UTC",
+                "Europe/Istanbul",
+            }
+        ):
             raise ValidationFailed("Learning daily snapshot bounded day range ister")
         zone = ZoneInfo(timezone_name)
         range_start = dt.datetime.combine(start, dt.time.min, tzinfo=zone).astimezone(dt.UTC)

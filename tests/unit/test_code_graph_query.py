@@ -243,8 +243,7 @@ def test_graph_outline_hierarchy(tmp_path: Path) -> None:
         assert len(methods) >= 2
         # Methods nest under the class (level +1 of the class).
         assert all(
-            int(cast(Any, m["level"])) == int(cast(Any, class_entry["level"])) + 1
-            for m in methods
+            int(cast(Any, m["level"])) == int(cast(Any, class_entry["level"])) + 1 for m in methods
         )
         assert all(
             int(cast(Any, m["start_line"])) >= 1
@@ -266,13 +265,11 @@ def test_graph_impact_direct_and_transitive() -> None:
     impact = graph_impact(graph, "proj", "p.a")
     assert impact["found"] is True
     out_names = {
-        str(h["other_name"])
-        for h in cast(list[dict[str, object]], impact["direct_outgoing"])
+        str(h["other_name"]) for h in cast(list[dict[str, object]], impact["direct_outgoing"])
     }
     assert "p.b" in out_names
     trans_names = {
-        str(h["other_name"])
-        for h in cast(list[dict[str, object]], impact["transitive_outgoing"])
+        str(h["other_name"]) for h in cast(list[dict[str, object]], impact["transitive_outgoing"])
     }
     assert "p.c" in trans_names
     assert impact["cycle_detected"] is False
@@ -285,8 +282,7 @@ def test_graph_impact_cycle_detected() -> None:
     assert impact["found"] is True
     assert impact["cycle_detected"] is True
     out_names = {
-        str(h["other_name"])
-        for h in cast(list[dict[str, object]], impact["direct_outgoing"])
+        str(h["other_name"]) for h in cast(list[dict[str, object]], impact["direct_outgoing"])
     }
     assert "p.b" in out_names
 
@@ -294,12 +290,7 @@ def test_graph_impact_cycle_detected() -> None:
 def test_graph_impact_on_real_store_found(tmp_path: Path) -> None:
     store, project_id, _rev, _tree = _pipeline(
         tmp_path,
-        {
-            "mutual.py": (
-                "def a():\n    return b()\n"
-                "def b():\n    return a()\n"
-            )
-        },
+        {"mutual.py": ("def a():\n    return b()\ndef b():\n    return a()\n")},
     )
     try:
         impact = graph_impact(store, project_id, "mutual.a")
@@ -326,7 +317,7 @@ def test_graph_map_aggregation(tmp_path: Path) -> None:
     store, project_id, _rev, _tree = _pipeline(
         tmp_path,
         {
-            "src/app.py": "def a():\n    return b()\n" "def b():\n    return 1\n",
+            "src/app.py": "def a():\n    return b()\ndef b():\n    return 1\n",
             "tests/test_app.py": "def test_a():\n    return 1\n",
         },
     )

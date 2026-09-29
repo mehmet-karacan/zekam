@@ -446,8 +446,7 @@ class RetrievalTrace:
             lines.append(f"token butcesi nedeniyle disarida: {', '.join(self.dropped_for_budget)}")
         if self.windowed_chunk_ids:
             lines.append(
-                "siginmayan chunk tampon pencereye kesildi: "
-                + ", ".join(self.windowed_chunk_ids)
+                "siginmayan chunk tampon pencereye kesildi: " + ", ".join(self.windowed_chunk_ids)
             )
         lines.append(f"query intent: {self.intent}")
         if self.deadline_expired:
@@ -552,10 +551,7 @@ class RetrievalService:
         # exact lookup; explanation/relationship and comparison intents always
         # keep dense enabled so a mere name hit never short-circuits a full
         # answer, and the deadline/budget is respected before launching it.
-        if (
-            not deadline.expired
-            and self._dense_required(query, identifiers, channels)
-        ):
+        if not deadline.expired and self._dense_required(query, identifiers, channels):
             _attempt(
                 RetrievalChannel.DENSE,
                 lambda: self.backend.dense(query, limit=self.limit),
@@ -592,8 +588,16 @@ class RetrievalService:
         if deadline.expired:
             deadline_expired = True
         trace = self._build_trace(
-            identifiers, intent, channels, fused, reranked, used, failed, deadline,
-            deadline_expired, degraded_reason,
+            identifiers,
+            intent,
+            channels,
+            fused,
+            reranked,
+            used,
+            failed,
+            deadline,
+            deadline_expired,
+            degraded_reason,
         )
         return reranked, trace
 
@@ -680,9 +684,7 @@ class RetrievalService:
         # starved (task B04).
         protected = {identifier.casefold() for identifier in identifiers}
         genuine_ids = {
-            hit.chunk_id
-            for hit in exact_hits
-            if hit.chunk_id.casefold() not in protected
+            hit.chunk_id for hit in exact_hits if hit.chunk_id.casefold() not in protected
         }
         # Dense stays required unless exact produced at least one genuine object
         # per extracted identifier (so no identifier is starved, task B04).
@@ -819,9 +821,7 @@ class RetrievalService:
         if trace.deadline_expired:
             # Timeout: return gathered evidence marked degraded, never success.
             state = (
-                AnswerState.DEGRADED_TIMEOUT
-                if evidence_ok
-                else AnswerState.ABSTAINED_LOW_EVIDENCE
+                AnswerState.DEGRADED_TIMEOUT if evidence_ok else AnswerState.ABSTAINED_LOW_EVIDENCE
             )
         elif trace.degraded_reason:
             # Provider/dependency unavailable: same rule.
@@ -1099,8 +1099,8 @@ def evaluate_quality(
         if positive_mrr <= 0.0 or negative_precision <= 0.0:
             quality_score = 0.0
         else:
-            quality_score = 2 * positive_mrr * negative_precision / (
-                positive_mrr + negative_precision
+            quality_score = (
+                2 * positive_mrr * negative_precision / (positive_mrr + negative_precision)
             )
 
     return QualityEvaluation(

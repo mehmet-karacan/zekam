@@ -88,15 +88,15 @@ def _dataset(*, count: int = 24, regression: bool = False) -> EvaluationDataset:
         )
         input_value = digest(f"input:{index}")
         draft = EvaluationCase(
-                f"case-{index:03d}",
-                partition,
-                origin,
-                f"work:{index:03d}",
-                digest(f"transcript:{index}"),
-                input_value,
-                digest(f"caller-expected:{index}"),
-                digest(f"provenance-receipt:{index}"),
-            )
+            f"case-{index:03d}",
+            partition,
+            origin,
+            f"work:{index:03d}",
+            digest(f"transcript:{index}"),
+            input_value,
+            digest(f"caller-expected:{index}"),
+            digest(f"provenance-receipt:{index}"),
+        )
         cases.append(draft)
     return _WORKERS[0].attest_dataset(
         EvaluationDataset(
@@ -116,12 +116,8 @@ def _plan(dataset: EvaluationDataset) -> EvaluationPlanBinding:
         "revision-1",
         dataset.dataset_digest,
         profile.profile_digest,
-        EVALUATION_GOLDEN_ARTIFACT_DIGEST
-        if regression
-        else digest("baseline-artifact"),
-        digest("candidate-artifact")
-        if regression
-        else EVALUATION_GOLDEN_ARTIFACT_DIGEST,
+        EVALUATION_GOLDEN_ARTIFACT_DIGEST if regression else digest("baseline-artifact"),
+        digest("candidate-artifact") if regression else EVALUATION_GOLDEN_ARTIFACT_DIGEST,
         digest("source"),
         digest("config"),
         EVALUATION_FIXTURE_FINGERPRINT,
@@ -149,9 +145,7 @@ def _results(
                 profile=profile,
                 partition=EvaluationPartition.HOLDOUT,
                 artifact_digest=(
-                    plan.candidate_artifact_digest
-                    if candidate
-                    else plan.baseline_artifact_digest
+                    plan.candidate_artifact_digest if candidate else plan.baseline_artifact_digest
                 ),
                 environment_digest=digest("local-eval-environment"),
             )
@@ -389,9 +383,7 @@ def test_parent_generated_key_cannot_pose_as_spawned_builder_worker() -> None:
     )
     forged = replace(
         forged_draft,
-        boundary_receipt_digest=parent_signer.seal_digest(
-            forged_draft.boundary_receipt_body()
-        ),
+        boundary_receipt_digest=parent_signer.seal_digest(forged_draft.boundary_receipt_body()),
     )
     parent_verifier = Ed25519ReceiptVerifier(parent_key.public_key())
     with pytest.raises(ValidationFailed, match="receipt verifier"):

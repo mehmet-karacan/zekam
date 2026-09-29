@@ -95,13 +95,21 @@ def test_normalization_folds_caseless_whitespace_and_unicode() -> None:
 def test_compaction_output_authority_free_and_deterministic() -> None:
     first = FeedbackCompactor().compact(
         (_item("A", key="k1"),),
-        output_id=uuid4(), realm_id=uuid4(), project_id=uuid4(),
-        work_item_id=uuid4(), run_id=uuid4(), created_at=NOW,
+        output_id=uuid4(),
+        realm_id=uuid4(),
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        run_id=uuid4(),
+        created_at=NOW,
     )
     second = FeedbackCompactor().compact(
         (_item("A", key="k1"),),
-        output_id=uuid4(), realm_id=uuid4(), project_id=uuid4(),
-        work_item_id=uuid4(), run_id=uuid4(), created_at=NOW,
+        output_id=uuid4(),
+        realm_id=uuid4(),
+        project_id=uuid4(),
+        work_item_id=uuid4(),
+        run_id=uuid4(),
+        created_at=NOW,
     )
     # Deterministik icerik digest (ids diger).
     assert first.clusters[0].content_digest == second.clusters[0].content_digest
@@ -135,9 +143,7 @@ def test_durable_lesson_bridge_produces_candidate_not_approval() -> None:
             _item("Migration tekrari checksum drift uretiyor", key="k1", run="r2"),
         )
     )
-    bridges = FeedbackCompactor().bridge_to_durable_lesson(
-        output.clusters, author_ref="author-a"
-    )
+    bridges = FeedbackCompactor().bridge_to_durable_lesson(output.clusters, author_ref="author-a")
     assert len(bridges) == 1
     bridge = bridges[0]
     # feedback != authority: proposal authority vermez, candidate sadece aday.

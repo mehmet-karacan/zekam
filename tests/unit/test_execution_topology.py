@@ -43,9 +43,7 @@ def _outcome(
 
 
 def test_consistent_fan_in_when_all_completed_and_same_result() -> None:
-    result = fan_in_disposition(
-        (_outcome("a", evidence="same"), _outcome("b", evidence="same"))
-    )
+    result = fan_in_disposition((_outcome("a", evidence="same"), _outcome("b", evidence="same")))
     assert result is FanInDisposition.CONSISTENT
 
 

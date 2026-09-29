@@ -70,12 +70,14 @@ def test_windows_supervisor_status_distinguishes_absent_matching_and_drift(
         return subprocess.CompletedProcess(arguments, 3, "", "not found")
 
     assert inspect_windows_task(plan, runner=absent)["state"] == "absent"
+
     def denied(arguments: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(arguments, 4, "", "access denied")
 
     with pytest.raises(PolicyViolation, match="query"):
         inspect_windows_task(plan, runner=denied)
     xml = _task_xml(plan).decode("utf-16")
+
     def matching(arguments: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(arguments, 0, xml, "")
 
@@ -137,9 +139,7 @@ def test_windows_supervisor_accepts_only_native_semantic_normalization(
 
 def test_windows_supervisor_principal_sid_is_exact_and_validated(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
-    xml = _task_xml(plan).decode("utf-16").replace(
-        "DOMAIN\\user", "S-1-5-21-100-200-300-999"
-    )
+    xml = _task_xml(plan).decode("utf-16").replace("DOMAIN\\user", "S-1-5-21-100-200-300-999")
 
     def runner(arguments: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(arguments, 0, xml, "")
@@ -189,9 +189,7 @@ def test_windows_supervisor_rejects_native_semantic_drift(
         "Triggers/TimeTrigger",
     ],
 )
-def test_windows_supervisor_rejects_nested_extra_capabilities(
-    tmp_path: Path, xpath: str
-) -> None:
+def test_windows_supervisor_rejects_nested_extra_capabilities(tmp_path: Path, xpath: str) -> None:
     plan = _plan(tmp_path)
     root = ET.fromstring(_task_xml(plan))
     namespace = "http://schemas.microsoft.com/windows/2004/02/mit/task"
@@ -299,11 +297,14 @@ def test_install_and_uninstall_require_exact_digest_and_terminal_readback(
         runner=runner,
     )
     assert installed["state"] == "installed"
-    assert install_windows_task(
-        plan,
-        authorized_plan_digest=plan.plan_digest,
-        runner=runner,
-    )["state"] == "already-installed"
+    assert (
+        install_windows_task(
+            plan,
+            authorized_plan_digest=plan.plan_digest,
+            runner=runner,
+        )["state"]
+        == "already-installed"
+    )
     removed = uninstall_windows_task(
         plan,
         authorized_plan_digest=plan.plan_digest,
@@ -314,21 +315,15 @@ def test_install_and_uninstall_require_exact_digest_and_terminal_readback(
 
 def test_drifted_same_name_is_never_overwritten_or_deleted(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
-    drifted_xml = _task_xml(plan).decode("utf-16").replace(
-        "ZEKAM_SUPERVISOR_V3", "FOREIGN_TASK"
-    )
+    drifted_xml = _task_xml(plan).decode("utf-16").replace("ZEKAM_SUPERVISOR_V3", "FOREIGN_TASK")
 
     def runner(arguments: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(arguments, 0, drifted_xml, "")
 
     with pytest.raises(PolicyViolation, match="overwrite"):
-        install_windows_task(
-            plan, authorized_plan_digest=plan.plan_digest, runner=runner
-        )
+        install_windows_task(plan, authorized_plan_digest=plan.plan_digest, runner=runner)
     with pytest.raises(PolicyViolation, match="silinemez"):
-        uninstall_windows_task(
-            plan, authorized_plan_digest=plan.plan_digest, runner=runner
-        )
+        uninstall_windows_task(plan, authorized_plan_digest=plan.plan_digest, runner=runner)
 
 
 def test_install_rolls_back_and_proves_absent_when_readback_query_fails(
@@ -356,9 +351,7 @@ def test_install_rolls_back_and_proves_absent_when_readback_query_fails(
         return subprocess.CompletedProcess(arguments, 0 if registered else 3, "", "")
 
     with pytest.raises(PolicyViolation, match="geri alindi"):
-        install_windows_task(
-            plan, authorized_plan_digest=plan.plan_digest, runner=runner
-        )
+        install_windows_task(plan, authorized_plan_digest=plan.plan_digest, runner=runner)
     assert registered is False
     assert any(call[0] == "schtasks.exe" and call[1] == "/Delete" for call in calls)
 
@@ -379,6 +372,4 @@ def test_install_reports_recovery_required_if_rollback_absence_is_unprovable(
         return subprocess.CompletedProcess(arguments, 4, "", "query failed")
 
     with pytest.raises(PolicyViolation, match="recovery-required"):
-        install_windows_task(
-            plan, authorized_plan_digest=plan.plan_digest, runner=runner
-        )
+        install_windows_task(plan, authorized_plan_digest=plan.plan_digest, runner=runner)

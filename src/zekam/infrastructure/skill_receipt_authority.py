@@ -69,9 +69,7 @@ def load_or_create_skill_runtime_authority(
     if descriptor is None:
         descriptor = os.open(
             path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_BINARY", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0),
         )
     try:
         before = os.fstat(descriptor)
@@ -105,7 +103,5 @@ def load_or_create_skill_runtime_authority(
     if os.name != "nt" and _stable_identity(after) != _stable_identity(current):
         drift.append("path-handle")
     if drift:
-        raise PolicyViolation(
-            "Skill runtime authority identity/content drift: " + ",".join(drift)
-        )
+        raise PolicyViolation("Skill runtime authority identity/content drift: " + ",".join(drift))
     return SkillRuntimeSigner(payload), SkillRuntimeVerifier(payload)

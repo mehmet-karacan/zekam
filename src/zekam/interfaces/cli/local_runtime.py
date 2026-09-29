@@ -70,9 +70,7 @@ def _service(
     store = SQLiteLocalRuntimeStore(context.settings.database.sqlite_path(context.home))
     core = LocalCoreServices.from_context(context)
     effects_root = context.home / "runtime" / "local-effects"
-    journal = LocalJournalEffectExecutor(
-        effects_root, pause_after_write_ms=effect_pause_ms
-    )
+    journal = LocalJournalEffectExecutor(effects_root, pause_after_write_ms=effect_pause_ms)
     maintenance = LocalMaintenanceReconcileExecutor(effects_root)
     learning_daily = LearningDailyEffectExecutor(
         core.learning,
@@ -359,16 +357,12 @@ def tick_command(
             ),
             "daily_job_id": None if daily_job is None else daily_job.id,
             "daily_job_created": daily_created,
-            "daily_claimed_job_id": (
-                None if daily_work is None else daily_work.job.id
-            ),
+            "daily_claimed_job_id": (None if daily_work is None else daily_work.job.id),
             "daily_terminal_state": (
                 "not-due" if daily_snapshot is None else daily_snapshot["state"]
             ),
             "daily_terminal_evidence_digest": (
-                None
-                if daily_snapshot is None
-                else daily_snapshot["terminal_evidence_digest"]
+                None if daily_snapshot is None else daily_snapshot["terminal_evidence_digest"]
             ),
             "startup": asdict(startup),
             "recovered_outbox": recovered_outbox,

@@ -32,9 +32,7 @@ _UI_TERM_RE = re.compile(r"\b(?:dashboard|browser|frontend|webapp|tui|graphical-
 #: Product dosya uzantilari; CSS/HTML/TSX/JSX ciktilari UI'dir.
 _UI_EXTENSIONS = (".html", ".css", ".tsx", ".jsx", ".htm")
 #: Dizin adlarinda visual surface isaretcileri.
-_UI_DIR_RE = re.compile(
-    r"(?:^|[/\\])(?:ui|dashboard|frontend|webapp|web|browser)(?:[/\\]|$)", re.I
-)
+_UI_DIR_RE = re.compile(r"(?:^|[/\\])(?:ui|dashboard|frontend|webapp|web|browser)(?:[/\\]|$)", re.I)
 
 
 def _iter_cli_names(application: typer.Typer, prefix: str = "") -> list[str]:

@@ -269,9 +269,7 @@ def test_corrupted_anchored_write_is_verified_from_persisted_bytes(
         original_write(descriptor, b"X" + content[1:])
 
     monkeypatch.setattr(operational_backup, "_write_all", corrupt_write)
-    with pytest.raises(
-        ConfigurationError, match=r"serialized|integrity|parity|header|truncated"
-    ):
+    with pytest.raises(ConfigurationError, match=r"serialized|integrity|parity|header|truncated"):
         operational_backup.SQLiteOperationalBackup(source).create_backup(str(destination))
 
     assert not destination.exists()

@@ -122,9 +122,7 @@ def test_native_campaign_plan_is_digest_bound_to_portable_design_source(
 ) -> None:
     portable_fixture(tmp_path)
     plain_result = _invoke("plan", "--native-pipeline", "--json")
-    bound_result = _invoke(
-        "plan", "--native-pipeline", "--portable-root", str(tmp_path), "--json"
-    )
+    bound_result = _invoke("plan", "--native-pipeline", "--portable-root", str(tmp_path), "--json")
     assert plain_result.exit_code == bound_result.exit_code == 0
     plain = json.loads(plain_result.output)
     bound = json.loads(bound_result.output)

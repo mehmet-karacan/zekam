@@ -338,9 +338,7 @@ class GraphExecutionReceipt:
         if self.fan_in_disposition is FanInDisposition.FAILED and (
             self.terminal_state is not GraphTerminalState.FAILED
         ):
-            raise PolicyViolation(
-                "Worker failure fan-in disposition success olarak maskelenemez"
-            )
+            raise PolicyViolation("Worker failure fan-in disposition success olarak maskelenemez")
         if not self.node_receipts:
             raise ValidationFailed("Graph receipt node receipt ister")
         node_ids = tuple(item.step_id for item in self.node_receipts)
@@ -597,9 +595,7 @@ class GraphFanInResult:
 
     @classmethod
     def create(cls, **values: Any) -> GraphFanInResult:
-        values["outcomes"] = tuple(
-            sorted(values["outcomes"], key=lambda item: item.child_id)
-        )
+        values["outcomes"] = tuple(sorted(values["outcomes"], key=lambda item: item.child_id))
         computed = cls(**{**values, "fan_in_result_digest": ""}).computed_digest
         return cls(**{**values, "fan_in_result_digest": computed})
 
@@ -614,9 +610,7 @@ def fan_in_disposition(outcomes: tuple[FanInNodeOutcome, ...]) -> FanInDispositi
     if not outcomes:
         raise ValidationFailed("Fan-in sonuc en az bir child ister")
     states = {item.state for item in outcomes}
-    if not states.issubset(
-        {GraphNodeTerminalState.COMPLETED, GraphNodeTerminalState.PARTIAL}
-    ):
+    if not states.issubset({GraphNodeTerminalState.COMPLETED, GraphNodeTerminalState.PARTIAL}):
         # FAILED, CANCELLED, RECOVERY_REQUIRED -> asla basarili fan-in degil
         return FanInDisposition.FAILED
     completed = [item for item in outcomes if item.state is GraphNodeTerminalState.COMPLETED]

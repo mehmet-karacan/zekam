@@ -83,9 +83,7 @@ def _spooled(
     return spool, entry
 
 
-def _receipt(
-    spool: ClientLifecycleSpool, entry: LifecycleSpoolEntry
-) -> CanonicalLifecycleReceipt:
+def _receipt(spool: ClientLifecycleSpool, entry: LifecycleSpoolEntry) -> CanonicalLifecycleReceipt:
     previous = None
     if entry.sequence > 1:
         previous = digest("canonical-predecessor")
@@ -106,9 +104,7 @@ def _receipt(
             else None
         ),
         compaction_payload_digest=(
-            digest("compaction-payload")
-            if entry.internal_event_type == "pre_compaction"
-            else None
+            digest("compaction-payload") if entry.internal_event_type == "pre_compaction" else None
         ),
     )
     generic = CanonicalLifecycleReceipt.verified(entry, event, ack, ack)
@@ -117,17 +113,27 @@ def _receipt(
         "schema": "zekam-client-lifecycle-continuity-binding/v1",
         "entry_digest": entry.entry_digest,
         "canonical_event_digest": generic.canonical_event_digest,
-        "realm_id": ids[0], "project_id": ids[1], "work_item_id": ids[2],
-        "run_id": ids[3], "authorization_id": ids[4], "job_id": ids[5],
-        "claim_id": ids[6], "plan_digest": digest("plan"),
-        "effect_digest": digest("effect"), "effect_receipt_id": ids[7],
+        "realm_id": ids[0],
+        "project_id": ids[1],
+        "work_item_id": ids[2],
+        "run_id": ids[3],
+        "authorization_id": ids[4],
+        "job_id": ids[5],
+        "claim_id": ids[6],
+        "plan_digest": digest("plan"),
+        "effect_digest": digest("effect"),
+        "effect_receipt_id": ids[7],
         "effect_receipt_digest": digest("effect-receipt"),
-        "continuity_event_id": ids[8], "continuity_event_digest": digest("continuity"),
-        "delivery_outbox_id": ids[9], "terminal_receipt_digest": digest("terminal"),
-        "event_type": entry.internal_event_type, "session_id": entry.session_id,
+        "continuity_event_id": ids[8],
+        "continuity_event_digest": digest("continuity"),
+        "delivery_outbox_id": ids[9],
+        "terminal_receipt_digest": digest("terminal"),
+        "event_type": entry.internal_event_type,
+        "session_id": entry.session_id,
         "client_id": entry.client_id,
         "compiler_enqueue": entry.internal_event_type == "pre_compaction",
-        "status": "completed", "grants_authority": False,
+        "status": "completed",
+        "grants_authority": False,
     }
     return generic.bind_continuity(entry, body | {"binding_digest": digest(body)})
 
@@ -304,12 +310,15 @@ def test_capture_receipt_is_persisted_inside_canonical_spool_ack(tmp_path: Path)
     assert ack["evolution_capture"]["status"] == "completed"
     assert ack["evolution_capture"]["capture_digest"]
 
-    assert replay_pending(
-        spool,
-        deliver=lambda _entry: receipt,
-        capture=lambda _entry, _receipt: pytest.fail("duplicate capture ran"),
-        attempted_at=NOW,
-    ) == ()
+    assert (
+        replay_pending(
+            spool,
+            deliver=lambda _entry: receipt,
+            capture=lambda _entry, _receipt: pytest.fail("duplicate capture ran"),
+            attempted_at=NOW,
+        )
+        == ()
+    )
 
 
 def test_precompaction_capture_is_bound_to_runtime_receipt(tmp_path: Path) -> None:
@@ -320,9 +329,9 @@ def test_precompaction_capture_is_bound_to_runtime_receipt(tmp_path: Path) -> No
         _plan(contract, entry), contract, spool=spool, entry=entry, receipt=receipt
     )
     assert capture.body["event_type"] == "pre_compaction"
-    assert EvolutionCaptureReceipt.verified(capture, entry, receipt).as_dict()[
-        "status"
-    ] == "completed"
+    assert (
+        EvolutionCaptureReceipt.verified(capture, entry, receipt).as_dict()["status"] == "completed"
+    )
 
 
 def test_post_commit_capture_failure_replays_without_blind_effect_retry(tmp_path: Path) -> None:
@@ -374,9 +383,9 @@ def test_real_child_hard_exit_after_commit_recovers_capture_and_ack(tmp_path: Pa
         pytest.fail("hard-kill child zamaninda cikmadi")
     assert process.exitcode == 91
     with sqlite3.connect(database) as connection:
-        assert connection.execute(
-            "select entry_digest from terminal"
-        ).fetchone() == (entry.entry_digest,)
+        assert connection.execute("select entry_digest from terminal").fetchone() == (
+            entry.entry_digest,
+        )
     assert not spool._ack_path(entry.entry_digest).exists()
 
     receipt = _receipt(spool, entry)

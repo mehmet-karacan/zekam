@@ -239,13 +239,17 @@ def run_once_command(
     """Run the same bounded supervisor tick, subject to the same control gate."""
 
     if not apply:
-        console.print_json(json.dumps({
-            "schema": "zekam-evolution-run-once-plan/v1",
-            "apply": False,
-            "provider_calls": 0,
-            "network_calls": 0,
-            "grants_authority": False,
-        }))
+        console.print_json(
+            json.dumps(
+                {
+                    "schema": "zekam-evolution-run-once-plan/v1",
+                    "apply": False,
+                    "provider_calls": 0,
+                    "network_calls": 0,
+                    "grants_authority": False,
+                }
+            )
+        )
         return
     local_runtime_cli.tick_command(owner_id="zekam-evolve-run-once", home=home)
 

@@ -113,8 +113,7 @@ def fixture_record(index: int) -> KnowledgeIndexRecord:
     """Deterministic synthetic chunk (real ingestion rows, deterministic content)."""
     path = f"src/module_{index % 500}/file_{index}.py"
     text = (
-        f"File {index} handles token TOKEN_{index} and helper util for "
-        f"module module_{index % 500}."
+        f"File {index} handles token TOKEN_{index} and helper util for module module_{index % 500}."
     )
     locator = Locator(
         relative_path=path,
@@ -260,9 +259,7 @@ def _measure_index(path: Path) -> CorpusResult:
         first_dense = [h.chunk_id for h in index.dense(PROJECT_ID, vector, limit=5)]
         second_dense = [h.chunk_id for h in index.dense(PROJECT_ID, vector, limit=5)]
         result.deterministic = (
-            first_exact == second_exact
-            and first_lex == second_lex
-            and first_dense == second_dense
+            first_exact == second_exact and first_lex == second_lex and first_dense == second_dense
         )
 
         # Storage / traversal evidence (bounded; a few targeted row counts and a

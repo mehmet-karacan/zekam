@@ -124,18 +124,14 @@ def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
         store, project_id = _graph_store(project)
         try:
             return _text_result(
-                graph_find(
-                    store, project_id, str(args["query"]), limit=int(args.get("limit", 50))
-                )
+                graph_find(store, project_id, str(args["query"]), limit=int(args.get("limit", 50)))
             )
         finally:
             store.close()
     if name == "zekam_code_outline":
         store, project_id = _graph_store(project)
         try:
-            return _text_result(
-                graph_outline(store, project_id, str(args["relative_path"]))
-            )
+            return _text_result(graph_outline(store, project_id, str(args["relative_path"])))
         finally:
             store.close()
     if name == "zekam_code_impact":

@@ -45,9 +45,7 @@ class LocalAttestationVerifier:
         self, unsigned_body: Mapping[str, object], receipt_digest: str
     ) -> bool:
         seal = hmac.digest(self.__key, canonical_json(unsigned_body).encode(), "sha256").hex()
-        expected = digest(
-            dict(unsigned_body) | {"runtime_attestation": f"hmac-sha256:{seal}"}
-        )
+        expected = digest(dict(unsigned_body) | {"runtime_attestation": f"hmac-sha256:{seal}"})
         return hmac.compare_digest(expected, receipt_digest)
 
 

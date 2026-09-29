@@ -124,9 +124,7 @@ def test_typed_effect_dispatcher_selects_exact_operation_and_rejects_foreign() -
         return LocalEffectResult("completed", digest(request.payload))
 
     dispatcher = LocalEffectDispatcher((("report.daily/v1", handled),))
-    result = dispatcher(
-        LocalEffectRequest("report.daily/v1", "job:one", {"day": "2026-09-06"})
-    )
+    result = dispatcher(LocalEffectRequest("report.daily/v1", "job:one", {"day": "2026-09-06"}))
     assert result.status == "completed"
     assert calls == ["report.daily/v1"]
     with pytest.raises(PolicyViolation, match="registry"):
@@ -149,9 +147,10 @@ def test_maintenance_handler_recomputes_exact_schedule_digest(tmp_path: Path) ->
         "schedule_digest": digest(body),
         "source": "os-supervisor",
     }
-    assert executor(
-        LocalEffectRequest(MAINTENANCE_RECONCILE_OPERATION, "job:one", payload)
-    ).status == "completed"
+    assert (
+        executor(LocalEffectRequest(MAINTENANCE_RECONCILE_OPERATION, "job:one", payload)).status
+        == "completed"
+    )
     with pytest.raises(PolicyViolation, match="schedule digest"):
         executor(
             LocalEffectRequest(

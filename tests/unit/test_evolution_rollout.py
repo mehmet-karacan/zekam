@@ -32,9 +32,7 @@ def _root(tmp_path: Path) -> Path:
     return root
 
 
-def _plan(
-    root: Path, stage: RolloutStage, *, authorization: str, before: str = LKG
-) -> RolloutPlan:
+def _plan(root: Path, stage: RolloutStage, *, authorization: str, before: str = LKG) -> RolloutPlan:
     return RolloutPlan(
         digest("candidate-record"),
         digest("evaluation-record"),

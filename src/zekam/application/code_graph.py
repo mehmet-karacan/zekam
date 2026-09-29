@@ -191,8 +191,10 @@ def _discover_source_files(source_root: Path) -> list[Path]:
             relative = path.relative_to(source_root)
         except ValueError:
             continue
-        if any(part in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
-               for part in relative.parts):
+        if any(
+            part in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
+            for part in relative.parts
+        ):
             continue
         files.append(relative)
     return files
@@ -215,16 +217,12 @@ def plan_graph_build(
             continue
         content = (source_root / relative).read_bytes()
         if len(content) > MAX_GRAPH_SOURCE_BYTES:
-            raise ValidationFailed(
-                "Graph source dosya boyut sinirini asiyor"
-            )
+            raise ValidationFailed("Graph source dosya boyut sinirini asiyor")
         manifests.append((relative_path, digest_of_bytes(content)))
         del content
     if not manifests:
         raise ValidationFailed("Graph plan desteklenen dosya icermiyor")
-    tree_digest = digest(
-        {"schema": "zekam-graph-tree/v1", "files": sorted(manifests)}
-    )
+    tree_digest = digest({"schema": "zekam-graph-tree/v1", "files": sorted(manifests)})
     source_manifest_digest = digest(
         {"schema": "zekam-graph-source-manifest/v1", "files": sorted(manifests)}
     )

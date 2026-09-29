@@ -87,14 +87,10 @@ def _daily_hard_kill_child(
     day_text: str,
     compiled_at_text: str,
 ) -> None:
-    store = SQLiteLocalLearning(
-        Path(learning_path), operational_path=Path(operational_path)
-    )
+    store = SQLiteLocalLearning(Path(learning_path), operational_path=Path(operational_path))
     operational = SQLiteOperationalStore(Path(operational_path))
     files_type = (
-        _KillAfterDailyFileCreate
-        if cut_point == "after-create"
-        else _KillAfterDailyArchive
+        _KillAfterDailyFileCreate if cut_point == "after-create" else _KillAfterDailyArchive
     )
     compile_learning_daily(
         store,
@@ -345,9 +341,7 @@ def _skill_run(
             (
                 (
                     SKILL_EXECUTE_OPERATION,
-                    TrustedJournalSkillExecutor(
-                        store, effects_root, _TEST_SKILL_SIGNER
-                    ),
+                    TrustedJournalSkillExecutor(store, effects_root, _TEST_SKILL_SIGNER),
                 ),
             )
         ),
@@ -387,9 +381,7 @@ def _verify_skill_run(
             (
                 (
                     SKILL_VERIFY_OPERATION,
-                    TrustedJournalSkillVerifier(
-                        store, effects_root, _TEST_SKILL_SIGNER
-                    ),
+                    TrustedJournalSkillVerifier(store, effects_root, _TEST_SKILL_SIGNER),
                 ),
             )
         ),
@@ -409,9 +401,7 @@ def _verify_skill_run(
     return job.id, evidence
 
 
-def _forged_generic_skill_run(
-    store: SQLiteLocalLearning, activation: str
-) -> tuple[str, str]:
+def _forged_generic_skill_run(store: SQLiteLocalLearning, activation: str) -> tuple[str, str]:
     runtime = SQLiteLocalRuntimeStore(store.operational_path, existing_only=True)
     effect = {
         "activation_digest": activation,
@@ -437,9 +427,7 @@ def _forged_generic_skill_run(
             journal_ref=journal_ref,
             line=str(effect["line"]),
             idempotency_key=effect_key,
-            journal_evidence_digest=digest(
-                {"idempotency_key": effect_key, "line": effect["line"]}
-            ),
+            journal_evidence_digest=digest({"idempotency_key": effect_key, "line": effect["line"]}),
             authority=_FORGED_SKILL_SIGNER,
         )
     )
@@ -460,22 +448,21 @@ def _forged_generic_skill_run(
                 ),
             )
         ),
-        outbox_publisher=LocalJournalOutboxPublisher(
-            store.path.parent / "trusted-skill-effects"
-        ),
+        outbox_publisher=LocalJournalOutboxPublisher(store.path.parent / "trusted-skill-effects"),
     )
-    assert service.run_worker_once(
-        owner_id="forged-generic",
-        owner_pid=os.getpid(),
-        owner_token="forged-generic-owner",
-        job_id=job.id,
-    ) is not None
+    assert (
+        service.run_worker_once(
+            owner_id="forged-generic",
+            owner_pid=os.getpid(),
+            owner_token="forged-generic-owner",
+            job_id=job.id,
+        )
+        is not None
+    )
     return job.id, forged_receipt
 
 
-def _forged_generic_verifier_run(
-    store: SQLiteLocalLearning, usage_digest: str
-) -> tuple[str, str]:
+def _forged_generic_verifier_run(store: SQLiteLocalLearning, usage_digest: str) -> tuple[str, str]:
     runtime = SQLiteLocalRuntimeStore(store.operational_path, existing_only=True)
     target = store.skill_usage_verification_target(usage_digest)
     effect = {"usage_digest": usage_digest}
@@ -530,16 +517,17 @@ def _forged_generic_verifier_run(
                 ),
             )
         ),
-        outbox_publisher=LocalJournalOutboxPublisher(
-            store.path.parent / "trusted-skill-effects"
-        ),
+        outbox_publisher=LocalJournalOutboxPublisher(store.path.parent / "trusted-skill-effects"),
     )
-    assert service.run_worker_once(
-        owner_id="forged-generic-verifier",
-        owner_pid=os.getpid(),
-        owner_token="forged-generic-verifier-owner",
-        job_id=job.id,
-    ) is not None
+    assert (
+        service.run_worker_once(
+            owner_id="forged-generic-verifier",
+            owner_pid=os.getpid(),
+            owner_token="forged-generic-verifier-owner",
+            job_id=job.id,
+        )
+        is not None
+    )
     return job.id, forged_receipt
 
 
@@ -827,9 +815,7 @@ def test_skill_requires_tests_independent_review_and_records_effectiveness(tmp_p
         )
         == activation
     )
-    run_ref, usage_evidence = _skill_run(
-        store, activation, now=activation_at
-    )
+    run_ref, usage_evidence = _skill_run(store, activation, now=activation_at)
     used = store.record_skill_usage(
         activation,
         run_ref=run_ref,
@@ -902,9 +888,7 @@ def test_skill_usage_and_outcome_are_separate_and_receipt_bound(tmp_path: Path) 
         activation_job_id=activation_job,
         now=activation_at,
     )
-    forged_generic_run, forged_generic_evidence = _forged_generic_skill_run(
-        store, activation
-    )
+    forged_generic_run, forged_generic_evidence = _forged_generic_skill_run(store, activation)
     with pytest.raises(PolicyViolation, match="terminal run binding drift"):
         store.record_skill_usage(
             activation,
@@ -912,9 +896,7 @@ def test_skill_usage_and_outcome_are_separate_and_receipt_bound(tmp_path: Path) 
             usage_evidence_digest=forged_generic_evidence,
             now=dt.datetime.now(dt.UTC) + dt.timedelta(seconds=1),
         )
-    run_ref, evidence = _skill_run(
-        store, activation, now=activation_at
-    )
+    run_ref, evidence = _skill_run(store, activation, now=activation_at)
     used = store.record_skill_usage(
         activation,
         run_ref=run_ref,
@@ -1161,12 +1143,12 @@ def test_daily_learning_compile_revises_and_preserves_edited_generated_note(
 
 
 def test_daily_learning_due_window_uses_istanbul_21_and_only_complete_days() -> None:
-    assert latest_due_learning_day(
-        dt.datetime(2026, 9, 6, 17, 59, tzinfo=dt.UTC)
-    ) == dt.date(2026, 9, 4)
-    assert latest_due_learning_day(
-        dt.datetime(2026, 9, 6, 18, 0, tzinfo=dt.UTC)
-    ) == dt.date(2026, 9, 5)
+    assert latest_due_learning_day(dt.datetime(2026, 9, 6, 17, 59, tzinfo=dt.UTC)) == dt.date(
+        2026, 9, 4
+    )
+    assert latest_due_learning_day(dt.datetime(2026, 9, 6, 18, 0, tzinfo=dt.UTC)) == dt.date(
+        2026, 9, 5
+    )
     assert learning_daily_scheduled_for(dt.date(2026, 9, 5)) == dt.datetime(
         2026, 9, 6, 18, 0, tzinfo=dt.UTC
     )
@@ -1190,9 +1172,7 @@ def test_daily_snapshot_includes_local_start_and_excludes_local_end(tmp_path: Pa
         now=dt.datetime(2026, 9, 4, 21, 0, 0, tzinfo=dt.UTC),
     )
 
-    snapshot = store.daily_snapshot(
-        dt.date(2026, 9, 4), timezone_name=DAILY_TIMEZONE
-    )
+    snapshot = store.daily_snapshot(dt.date(2026, 9, 4), timezone_name=DAILY_TIMEZONE)
 
     assert snapshot["range_start_utc"] == "2026-09-03T21:00:00+00:00"
     assert snapshot["range_end_utc"] == "2026-09-04T21:00:00+00:00"
@@ -1217,9 +1197,7 @@ def test_daily_learning_reconciles_kill_after_file_before_confirm(tmp_path: Path
         compiled_at=NOW,
     )
     with sqlite3.connect(store.operational_path) as connection:
-        assert connection.execute(
-            "select materialized from knowledge_note"
-        ).fetchone() == (0,)
+        assert connection.execute("select materialized from knowledge_note").fetchone() == (0,)
 
     recovered = compile_learning_daily(
         store,
@@ -1231,9 +1209,7 @@ def test_daily_learning_reconciles_kill_after_file_before_confirm(tmp_path: Path
 
     assert recovered.state == "current"
     with sqlite3.connect(store.operational_path) as connection:
-        assert connection.execute(
-            "select materialized from knowledge_note"
-        ).fetchone() == (1,)
+        assert connection.execute("select materialized from knowledge_note").fetchone() == (1,)
 
 
 def test_daily_learning_reconciles_kill_after_archive_before_db_commit(

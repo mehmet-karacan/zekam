@@ -59,6 +59,7 @@ from zekam.infrastructure.local_file_security import private_regular
 # interpreter so the binding digest is identical on both sides.
 # ---------------------------------------------------------------------------
 
+
 def _make_knowledge() -> KnowledgeSettings:
     return KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
 
@@ -107,6 +108,7 @@ def _make_record(now_ns: int, ttl_seconds: int) -> runtime._QualificationRecord:
 # Subordinate-process runner.  Executed inside a SEPARATE interpreter via
 # ``_run_subprocess``; this is NOT a pytest test.
 # ---------------------------------------------------------------------------
+
 
 def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
     """Return a JSON-safe report of ``_provider`` warm/cold behaviour.
@@ -240,19 +242,19 @@ def _run_subprocess(ledger_path: Path, case: str, timeout: int = 120) -> dict[st
             f"stderr={completed.stderr}"
         )
     try:
-        parsed = cast(
-            "dict[str, object]", json.loads(completed.stdout.strip().splitlines()[-1])
-        )
+        parsed = cast("dict[str, object]", json.loads(completed.stdout.strip().splitlines()[-1]))
         return parsed
     except Exception as exc:  # pragma: no cover - defensive
         raise AssertionError(
             f"could not parse subordinate JSON: {exc}\nstdout={completed.stdout}"
         ) from exc
 
+
 # ---------------------------------------------------------------------------
 # XP-1  Cross-process reuse: A writes a warm record, a SEPARATE interpreter B
 # reuses it and does NOT re-probe.
 # ---------------------------------------------------------------------------
+
 
 def test_xp1_warm_qualification_reused_across_separate_processes(tmp_path: Path) -> None:
     ledger = tmp_path / "runtime" / "provider-ledger.sqlite3"
@@ -287,6 +289,7 @@ def test_xp1_warm_qualification_reused_across_separate_processes(tmp_path: Path)
 # never silently skipped).
 # ---------------------------------------------------------------------------
 
+
 def test_xp2_separate_process_with_no_ledger_reprobes(tmp_path: Path) -> None:
     ledger = tmp_path / "runtime" / "provider-ledger.sqlite3"
     assert not ledger.exists()
@@ -306,6 +309,7 @@ def test_xp2_separate_process_with_no_ledger_reprobes(tmp_path: Path) -> None:
 # XP-3  Expired / mismatched-binding => a SEPARATE process re-validates
 # (fail-closed): it never treats the stale/incompatible record as valid.
 # ---------------------------------------------------------------------------
+
 
 def _prepare_nonwarm_ledger(tmp_path: Path, case: str) -> Path:
     ledger = tmp_path / "runtime" / "provider-ledger.sqlite3"

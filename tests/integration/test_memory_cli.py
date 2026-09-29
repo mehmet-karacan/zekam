@@ -241,9 +241,7 @@ def test_memory_inspect_redacts_secrets(tmp_path: Path) -> None:
     runner = CliRunner()
 
     # Varsayilan inspect: preview, email gorunmez.
-    preview = runner.invoke(
-        app, ["memory", "inspect", memory_id, "--home", str(home), "--json"]
-    )
+    preview = runner.invoke(app, ["memory", "inspect", memory_id, "--home", str(home), "--json"])
     assert preview.exit_code == 0, preview.output
     pdoc = json.loads(preview.output)
     body = pdoc["body"]

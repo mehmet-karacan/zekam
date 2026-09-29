@@ -51,9 +51,7 @@ class EvaluationWorkerVerifier:
             raise PolicyViolation("Evaluation worker verifier requires spawned composition")
         self._process = process
         self._identity = identity
-        self._delegate = Ed25519ReceiptVerifier(
-            Ed25519PublicKey.from_public_bytes(public_key)
-        )
+        self._delegate = Ed25519ReceiptVerifier(Ed25519PublicKey.from_public_bytes(public_key))
         self.role = role
         self.public_key = public_key
 
@@ -71,8 +69,7 @@ class EvaluationWorkerVerifier:
             identity == self._identity
             and self._process.pid == identity.process_id
             and self._process.is_alive()
-            and process_incarnation_token(identity.process_id)
-            == identity.process_start_token
+            and process_incarnation_token(identity.process_id) == identity.process_start_token
         )
 
 
@@ -148,9 +145,7 @@ def _worker_main(
                             fixture_fingerprint=EVALUATION_FIXTURE_FINGERPRINT,
                             harness_fingerprint=EVALUATION_HARNESS_FINGERPRINT,
                         ),
-                        provenance_receipt_digest=digest(
-                            "provenance-authority-placeholder"
-                        ),
+                        provenance_receipt_digest=digest("provenance-authority-placeholder"),
                     )
                     cases_list.append(
                         replace(

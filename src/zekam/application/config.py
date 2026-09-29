@@ -575,9 +575,7 @@ def load_settings(
             embedding_route=EmbeddingRoute(
                 str(knowledge_document.get("embedding_route", EmbeddingRoute.REMOTE.value))
             ),
-            remote_provider_id=str(
-                knowledge_document.get("remote_provider_id", "litellm")
-            ),
+            remote_provider_id=str(knowledge_document.get("remote_provider_id", "litellm")),
             embedding_model_ref=str(
                 knowledge_document.get("embedding_model_ref", "openai/BAAI/bge-m3")
             ),

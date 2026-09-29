@@ -302,9 +302,7 @@ def test_wp6_a2_single_object_strict_support_preserved(tmp_path: Path) -> None:
     in a chunk.  A missing object must abstain even though a near-by object exists
     (strict per-object verification preserved; not loosened)."""
     provider = QueryProvider()
-    index, rag = _rag(
-        tmp_path, provider, text=f"{ALPHA} tek dosyada tanimlama islem aciklamasi."
-    )
+    index, rag = _rag(tmp_path, provider, text=f"{ALPHA} tek dosyada tanimlama islem aciklamasi.")
     try:
         supported = _query(rag, ALPHA)
         assert supported["state"] == "answered"
@@ -371,7 +369,9 @@ def test_wp6_b1_excerpt_digest_is_derived_and_linked(tmp_path: Path) -> None:
     provider = QueryProvider()
     long_text = " ".join(["kelime"] * 800)
     index, rag = _rag(
-        tmp_path, provider, text=f"{long_text} {ALPHA} belgesel uzun satirlar.",
+        tmp_path,
+        provider,
+        text=f"{long_text} {ALPHA} belgesel uzun satirlar.",
     )
     try:
         result = _query(rag, ALPHA)
@@ -420,8 +420,6 @@ def test_wp6_b2_rag_budget_reserves_second_object(tmp_path: Path) -> None:
         assert result["tokens_used"] <= 120
     finally:
         index.close()
-
-
 
 
 def test_multiple_technical_identifiers_abstain_without_single_chunk_support(
@@ -874,9 +872,7 @@ def test_wp7_c2_no_fabricated_generation_when_abstained(tmp_path: Path) -> None:
     """WP7-C-2 (B08): in abstained low-evidence state generation is never claimed
     and answer_kind is NOT generated_answer — no fabricated answer."""
     provider = QueryProvider()
-    index, rag = _rag(
-        tmp_path, provider, text=f"{ALPHA} tek dosyada tanimlama islem aciklamasi."
-    )
+    index, rag = _rag(tmp_path, provider, text=f"{ALPHA} tek dosyada tanimlama islem aciklamasi.")
     try:
         result = _query(rag, "OBJ_GAMA_YOK")
         assert result["state"] == "abstained-low-evidence"

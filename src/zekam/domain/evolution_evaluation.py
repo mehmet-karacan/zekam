@@ -765,15 +765,12 @@ def build_paired_evaluation_report(
     meaningful = any(
         dict(deltas)[metric] >= profile.minimum_meaningful_delta for metric in profile.primary_ids
     )
-    evaluated_real_count = sum(
-        item.origin is EvaluationCaseOrigin.REAL for item in expected_cases
-    )
+    evaluated_real_count = sum(item.origin is EvaluationCaseOrigin.REAL for item in expected_cases)
     evaluated_synthetic_count = sum(
         item.origin is EvaluationCaseOrigin.SYNTHETIC for item in expected_cases
     )
     sufficient = (
-        partition is EvaluationPartition.HOLDOUT
-        and dataset.evidence_sufficient_for_activation()
+        partition is EvaluationPartition.HOLDOUT and dataset.evidence_sufficient_for_activation()
     )
     if regressed:
         verdict = EvaluationVerdict.REGRESSED
@@ -871,15 +868,16 @@ def assert_trusted_evaluation_receipts(
         or independent_verifier.role != "verifier"
     ):
         raise PolicyViolation("Evaluation requires exact spawned worker role registry")
-    if len({item.assignment_id for item in identities}) != 3 or len(
-        {(item.process_id, item.process_start_token) for item in identities}
-    ) != 3 or len({item.implementation_digest for item in identities}) != 3:
+    if (
+        len({item.assignment_id for item in identities}) != 3
+        or len({(item.process_id, item.process_start_token) for item in identities}) != 3
+        or len({item.implementation_digest for item in identities}) != 3
+    ):
         raise PolicyViolation(
             "Builder, evaluator and verifier require independent assignments/processes"
         )
     if any(
-        not identity.boundary_receipt_digest.startswith("ed25519:")
-        for identity in identities
+        not identity.boundary_receipt_digest.startswith("ed25519:") for identity in identities
     ) or not receipt.evidence_digest.startswith("ed25519:"):
         raise PolicyViolation("Evaluation authority requires worker-confined signatures")
     for identity, verifier in (
@@ -917,10 +915,7 @@ def assert_trusted_evaluation_receipts(
         receipt.verification_receipt_body(), receipt.evidence_digest
     ):
         raise PolicyViolation("Evaluation independent verifier receipt is untrusted")
-    if (
-        receipt.report_digest != report.report_digest
-        or receipt.plan_digest != report.plan_digest
-    ):
+    if receipt.report_digest != report.report_digest or receipt.plan_digest != report.plan_digest:
         raise PolicyViolation("Evaluation verifier receipt report/plan binding drift")
 
 

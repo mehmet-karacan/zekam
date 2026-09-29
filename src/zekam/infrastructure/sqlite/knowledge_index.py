@@ -431,10 +431,7 @@ class SQLiteKnowledgeIndex:
         if self._connection.execute("pragma foreign_key_check").fetchone() is not None:
             raise ConfigurationError("Knowledge index foreign key integrity check failed")
         record_deep_validate()
-        if (
-            self._read_only
-            and _trusted_file_identity is not None
-        ):
+        if self._read_only and _trusted_file_identity is not None:
             if len(_DEEP_VALIDATED_READ_FILES) >= _DEEP_VALIDATED_READ_FILES_MAX:
                 _DEEP_VALIDATED_READ_FILES.pop(next(iter(_DEEP_VALIDATED_READ_FILES)))
             _DEEP_VALIDATED_READ_FILES[_trusted_file_identity] = (

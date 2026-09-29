@@ -199,9 +199,7 @@ def _qualification_key(
     """
     config_identity = getattr(configuration, "endpoint_identity", None)
     endpoint_digest = (
-        getattr(config_identity, "identity_digest", None)
-        if config_identity is not None
-        else None
+        getattr(config_identity, "identity_digest", None) if config_identity is not None else None
     )
     provider_id = getattr(configuration, "provider_id", None)
     selected_model = getattr(configuration, "selected_model_id", None)
@@ -651,9 +649,7 @@ def _source_freshness_for_query(
             # Content-aware: a changed indexed file whose current digest differs
             # from what was indexed is a content change even if the git status
             # text is the same (the project-source-content-stale reason).
-            for path, current_digest in observations.get(
-                "changed_content_digests", {}
-            ).items():
+            for path, current_digest in observations.get("changed_content_digests", {}).items():
                 indexed_digest = indexed_digests.get(path)
                 if indexed_digest is not None and current_digest != indexed_digest:
                     reasons.append("project-source-content-stale")
@@ -689,9 +685,7 @@ def _directory_freshness_for_query(
     # change is reported even when head is an empty string.
     if status_digest:
         current_tree = (
-            f"sha256:{status_digest}"
-            if not status_digest.startswith("sha256:")
-            else status_digest
+            f"sha256:{status_digest}" if not status_digest.startswith("sha256:") else status_digest
         )
         if declared_tree and declared_tree != current_tree:
             reasons.append("project-source-tree-stale")
@@ -853,9 +847,7 @@ def _existing_runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
     }
 
 
-def _scoped_path_is_private(
-    root: Path, path: Path, *, directory: bool
-) -> bool:
+def _scoped_path_is_private(root: Path, path: Path, *, directory: bool) -> bool:
     """Reject missing, escaped, symlinked or reparse-backed scoped RAG paths."""
 
     try:
@@ -874,8 +866,7 @@ def _rag_scope_is_private(paths: dict[str, Path]) -> bool:
         _scoped_path_is_private(root, paths[name], directory=True)
         for name in ("project_root", "index_root", "manifest_root")
     ) and all(
-        _scoped_path_is_private(root, paths[name], directory=False)
-        for name in ("state", "index")
+        _scoped_path_is_private(root, paths[name], directory=False) for name in ("state", "index")
     )
 
 
@@ -1217,9 +1208,7 @@ def _provider(
                 (DataClassification.PUBLIC, DataClassification.INTERNAL),
             ),
             verified_at=(
-                dt.datetime.fromtimestamp(
-                    cached.qualified_at_ns / 1_000_000_000, tz=dt.UTC
-                )
+                dt.datetime.fromtimestamp(cached.qualified_at_ns / 1_000_000_000, tz=dt.UTC)
                 .isoformat()
                 .replace("+00:00", "Z")
             ),
@@ -2375,10 +2364,9 @@ def _query(
     except ConfigurationError:
         canonical_profile = False
         stale_reasons.append("embedding-config-unsupported")
-    profile_binding_current = (
-        canonical_profile
-        and state.get("knowledge_binding_digest") == _knowledge_binding_digest(knowledge)
-    )
+    profile_binding_current = canonical_profile and state.get(
+        "knowledge_binding_digest"
+    ) == _knowledge_binding_digest(knowledge)
     if not profile_binding_current and "embedding-config-unsupported" not in stale_reasons:
         stale_reasons.append("embedding-config-stale")
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
@@ -2643,11 +2631,7 @@ def main() -> int:
             home,
             project_id,
             project_slug,
-            (
-                args.opencode_config.resolve(strict=True)
-                if route is EmbeddingRoute.REMOTE
-                else None
-            ),
+            (args.opencode_config.resolve(strict=True) if route is EmbeddingRoute.REMOTE else None),
             args.oracle_config,
             batch_size=args.batch_size,
             authorize_remote_source=args.authorize_remote_source,

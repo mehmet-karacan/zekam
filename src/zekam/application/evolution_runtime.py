@@ -235,9 +235,7 @@ def _authority_schema_status(
                 if not isinstance(body, dict) or digest(body) != str(grant_digest):
                     drifted += 1
                     continue
-                if body.get("task_scope_digest") != required_bindings.get(
-                    "task_scope_digest"
-                ):
+                if body.get("task_scope_digest") != required_bindings.get("task_scope_digest"):
                     continue
                 if bool(revoked):
                     continue
@@ -258,11 +256,7 @@ def _authority_schema_status(
                 else:
                     drifted += 1
             models = sorted(
-                {
-                    str(value)
-                    for _, body in active
-                    for value in body.get("model_refs", [])
-                }
+                {str(value) for _, body in active for value in body.get("model_refs", [])}
             )
             resources = sorted(
                 {
@@ -345,7 +339,7 @@ def _windows_task_success_events() -> tuple[dict[str, object], ...]:
         "Import-Module -Name $diagnostics -Force;"
         "$events=@(Get-WinEvent "
         "-LogName 'Microsoft-Windows-TaskScheduler/Operational' "
-        "-FilterXPath \"*[System[EventID=201] and "
+        '-FilterXPath "*[System[EventID=201] and '
         "EventData[Data[@Name='TaskName']='\\Zekam\\AutonomousEvolution']]\" "
         f"-MaxEvents {_TASK_EVENT_LIMIT} | ForEach-Object {{"
         "[pscustomobject]@{"
@@ -485,9 +479,7 @@ def _native_two_cycle_acceptance(
             scheduled_text = str(effect["scheduled_for"])
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z", scheduled_text) is None:
                 continue
-            scheduled_for = dt.datetime.fromisoformat(
-                scheduled_text.replace("Z", "+00:00")
-            )
+            scheduled_for = dt.datetime.fromisoformat(scheduled_text.replace("Z", "+00:00"))
             terminal_digest = str(row[6])
             parse_digest(terminal_digest)
             schedule_digest = str(effect["schedule_digest"])
@@ -551,9 +543,7 @@ def _native_two_cycle_acceptance(
     return accepted | {"evidence_digest": digest(accepted)}
 
 
-def effective_evolution_state(
-    plan: dict[str, Any], report: dict[str, Any]
-) -> str:
+def effective_evolution_state(plan: dict[str, Any], report: dict[str, Any]) -> str:
     """Reduce all public surfaces to one fail-closed canonical state."""
 
     control = report.get("control")
@@ -597,8 +587,7 @@ def _operational_usage(database: Path) -> dict[str, Any]:
     try:
         with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
             present = connection.execute(
-                "select 1 from sqlite_master where type='table' "
-                "and name='evolution_child_terminal'"
+                "select 1 from sqlite_master where type='table' and name='evolution_child_terminal'"
             ).fetchone()
             if present is None:
                 return result
@@ -707,8 +696,7 @@ def _admission_bindings(
         "dependency_manifest_digest": document.get("config_bundle_digest"),
     }
     if any(
-        not isinstance(value, str) or not value.startswith("sha256:")
-        for value in required.values()
+        not isinstance(value, str) or not value.startswith("sha256:") for value in required.values()
     ):
         return {}
     return {key: str(value) for key, value in required.items()}
@@ -827,13 +815,7 @@ def build_evolution_plan(context: ApplicationContext) -> dict[str, Any]:
     state = (
         "recovery-required"
         if "runtime-recovery-or-live-lease" in blockers
-        else (
-            "blocked"
-            if blockers
-            else "setup-required"
-            if setup_gaps
-            else "observing"
-        )
+        else ("blocked" if blockers else "setup-required" if setup_gaps else "observing")
     )
     body: dict[str, Any] = {
         "schema": "zekam-evolution-plan/v1",
@@ -946,9 +928,7 @@ def build_evolution_report(
     evaluation_pairs: list[dict[str, object]] = []
     if database.is_file():
         try:
-            with sqlite3.connect(
-                f"{database.resolve().as_uri()}?mode=ro", uri=True
-            ) as connection:
+            with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
                 connection.row_factory = sqlite3.Row
                 table_names = {
                     str(row[0])
@@ -1005,14 +985,14 @@ def build_evolution_report(
                     )
                 if "improvement_candidate" in table_names:
                     for row in connection.execute(
-                            "select c.candidate_digest,c.change_class,c.created_at,"
-                            "c.failure_card_digest,c.baseline_aggregate_digest,"
-                            "e.evaluation_digest,e.state,r.approved from improvement_candidate c "
-                            "left join improvement_evaluation e "
-                            "on e.candidate_digest=c.candidate_digest "
-                            "left join improvement_review r "
-                            "on r.candidate_digest=c.candidate_digest "
-                            "order by c.created_at desc limit 100"
+                        "select c.candidate_digest,c.change_class,c.created_at,"
+                        "c.failure_card_digest,c.baseline_aggregate_digest,"
+                        "e.evaluation_digest,e.state,r.approved from improvement_candidate c "
+                        "left join improvement_evaluation e "
+                        "on e.candidate_digest=c.candidate_digest "
+                        "left join improvement_review r "
+                        "on r.candidate_digest=c.candidate_digest "
+                        "order by c.created_at desc limit 100"
                     ):
                         change_class = str(row[1])
                         evaluation_state = None if row[6] is None else str(row[6])
@@ -1035,29 +1015,26 @@ def build_evolution_report(
                                 "created_at": str(row[2]),
                                 "source_evidence_digest": str(row[3]),
                                 "baseline_aggregate_digest": str(row[4]),
-                                "evaluation_digest": (
-                                    None if row[5] is None else str(row[5])
-                                ),
+                                "evaluation_digest": (None if row[5] is None else str(row[5])),
                                 "evaluation_state": evaluation_state,
                                 "blockers": tuple(blockers),
                             }
                         )
                 if "improvement_evaluation" in table_names:
                     for row in connection.execute(
-                            "select e.evaluation_digest,e.candidate_digest,"
-                            "c.baseline_aggregate_digest,e.after_aggregate_digest,"
-                            "e.state,e.finished_at,e.body_json from improvement_evaluation e "
-                            "join improvement_candidate c "
-                            "on c.candidate_digest=e.candidate_digest "
-                            "order by e.finished_at desc limit 100"
+                        "select e.evaluation_digest,e.candidate_digest,"
+                        "c.baseline_aggregate_digest,e.after_aggregate_digest,"
+                        "e.state,e.finished_at,e.body_json from improvement_evaluation e "
+                        "join improvement_candidate c "
+                        "on c.candidate_digest=e.candidate_digest "
+                        "order by e.finished_at desc limit 100"
                     ):
                         try:
                             evaluation_body = json.loads(str(row[6]))
                         except json.JSONDecodeError:
                             continue
-                        if (
-                            not isinstance(evaluation_body, dict)
-                            or digest(evaluation_body) != str(row[0])
+                        if not isinstance(evaluation_body, dict) or digest(evaluation_body) != str(
+                            row[0]
                         ):
                             continue
                         evaluation_pairs.append(
@@ -1066,20 +1043,14 @@ def build_evolution_report(
                                 "candidate_digest": str(row[1]),
                                 "before_aggregate_digest": str(row[2]),
                                 "after_aggregate_digest": str(row[3]),
-                                "baseline_values": evaluation_body.get(
-                                    "baseline_values", {}
-                                ),
-                                "current_values": evaluation_body.get(
-                                    "current_values", {}
-                                ),
+                                "baseline_values": evaluation_body.get("baseline_values", {}),
+                                "current_values": evaluation_body.get("current_values", {}),
                                 "progress": evaluation_body.get("progress", {}),
                                 "actual_usage": {
                                     "provider_calls": int(
                                         evaluation_body.get("actual_provider_calls", 0)
                                     ),
-                                    "tokens": int(
-                                        evaluation_body.get("actual_tokens", 0)
-                                    ),
+                                    "tokens": int(evaluation_body.get("actual_tokens", 0)),
                                     "cost_micros": int(
                                         evaluation_body.get("actual_cost_micros", 0)
                                     ),
@@ -1090,11 +1061,7 @@ def build_evolution_report(
                         )
         except sqlite3.Error:
             counts["prepared_unsettled"] = -1
-    ledger_state = (
-        "recovery-required"
-        if counts["prepared_unsettled"] != 0
-        else "observing"
-    )
+    ledger_state = "recovery-required" if counts["prepared_unsettled"] != 0 else "observing"
     current_plan = plan or build_evolution_plan(context)
     actual_usage = _operational_usage(context.settings.database.sqlite_path(context.home))
     evaluation_usage = {"provider_calls": 0, "tokens": 0, "cost_micros": 0}
@@ -1191,15 +1158,16 @@ def build_resume_admission(context: ApplicationContext) -> dict[str, object] | N
     supervisor = plan["supervisor"]
     if not all(isinstance(item, dict) for item in (runtime, authority, supervisor)):
         return None
-    recovery_clear = not any(
-        runtime.get(field, 0) != 0
-        for field in ("running_jobs", "recovery_jobs", "open_recovery_cases")
-    ) and report["ledger_state"] != "recovery-required"
+    recovery_clear = (
+        not any(
+            runtime.get(field, 0) != 0
+            for field in ("running_jobs", "recovery_jobs", "open_recovery_cases")
+        )
+        and report["ledger_state"] != "recovery-required"
+    )
     raw_grants = authority.get("current_grant_digests", ())
     grant_digests = (
-        tuple(str(value) for value in raw_grants)
-        if isinstance(raw_grants, (list, tuple))
-        else ()
+        tuple(str(value) for value in raw_grants) if isinstance(raw_grants, (list, tuple)) else ()
     )
     if not (
         recovery_clear

@@ -153,8 +153,10 @@ def build_evolution_bootstrap_plan(
 ) -> EvolutionBootstrapPlan:
     """Build a stable-within-the-hour plan; never migrates, approves or installs."""
 
-    moment = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC).replace(
-        minute=0, second=0, microsecond=0
+    moment = (
+        (now or dt.datetime.now(dt.UTC))
+        .astimezone(dt.UTC)
+        .replace(minute=0, second=0, microsecond=0)
     )
     database = context.settings.database.sqlite_path(context.home)
     current = operational_status(database)
@@ -504,9 +506,7 @@ class ProductionEvolutionMigrationAdmission:
         self._runtime.recover_outbox()
 
     def assert_no_admitted_authority(self) -> None:
-        _assert_current_bootstrap_claim(
-            self._control, self._plan_digest, self._claim_event_digest
-        )
+        _assert_current_bootstrap_claim(self._control, self._plan_digest, self._claim_event_digest)
         control = self._control.evolution_control_status()
         runtime = self._runtime.status()
         if control["state"] not in {"paused", "disabled"}:
@@ -542,9 +542,7 @@ def _spool_targets(database: Path, home: Path) -> tuple[MigrationSpoolTarget, ..
             "select session_id,client_id,external_session_id "
             "from continuity_session_binding order by session_id"
         ).fetchall()
-    return tuple(
-        MigrationSpoolTarget(home, str(row[1]), str(row[0]), str(row[2])) for row in rows
-    )
+    return tuple(MigrationSpoolTarget(home, str(row[1]), str(row[0]), str(row[2])) for row in rows)
 
 
 def apply_evolution_bootstrap(
@@ -618,9 +616,7 @@ def apply_evolution_bootstrap(
     migration_receipt: dict[str, Any] = {"state": "already-v5"}
     if operational["migration_required"]:
         source_digest = str(operational["source_logical_digest"])
-        backup = context.home / "backups" / (
-            f"operational-v3-before-v5-{source_digest[7:19]}.db"
-        )
+        backup = context.home / "backups" / (f"operational-v3-before-v5-{source_digest[7:19]}.db")
         backup.parent.mkdir(parents=True, exist_ok=True)
         restrict_private_tree(backup.parent)
         current = operational_status(database)

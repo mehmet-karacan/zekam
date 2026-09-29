@@ -492,14 +492,24 @@ def test_experience_candidate_proposal_origin_digest_deterministic() -> None:
         _daily_record("lesson", "fail1"),
     )
     first = candidate_proposal_from_experience(
-        skill_id="x", name="x", description="d", trigger_terms=("t",),
-        records=records, source_kind=ExperienceSource.LEARNING,
-        operational_run_ref="r", observed_at=NOW,
+        skill_id="x",
+        name="x",
+        description="d",
+        trigger_terms=("t",),
+        records=records,
+        source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="r",
+        observed_at=NOW,
     )
     second = candidate_proposal_from_experience(
-        skill_id="x", name="x", description="d", trigger_terms=("t",),
-        records=records, source_kind=ExperienceSource.LEARNING,
-        operational_run_ref="r", observed_at=NOW,
+        skill_id="x",
+        name="x",
+        description="d",
+        trigger_terms=("t",),
+        records=records,
+        source_kind=ExperienceSource.LEARNING,
+        operational_run_ref="r",
+        observed_at=NOW,
     )
     assert first == second
     assert first["proposal_digest"] == second["proposal_digest"]
@@ -508,8 +518,12 @@ def test_experience_candidate_proposal_origin_digest_deterministic() -> None:
 def test_experience_candidate_rejects_unbounded_inputs() -> None:
     with pytest.raises(ValidationFailed):
         candidate_proposal_from_experience(
-            skill_id="x", name="x", description="d", trigger_terms=(),
+            skill_id="x",
+            name="x",
+            description="d",
+            trigger_terms=(),
             records=(_daily_record("lesson", "l1"),),
             source_kind=ExperienceSource.LEARNING,
-            operational_run_ref="r", observed_at=NOW,
+            operational_run_ref="r",
+            observed_at=NOW,
         )

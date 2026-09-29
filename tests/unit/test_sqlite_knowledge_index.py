@@ -739,9 +739,7 @@ def test_read_only_every_public_query_rejects_source_drift(tmp_path: Path, opera
             "dense": lambda: reader.dense("akilli-kasa", _vector(0), limit=1),
             "views": lambda: reader.views("akilli-kasa", ("stable-id",)),
             "source_identity": lambda: reader.source_identity("akilli-kasa", "stable-id"),
-            "source_identities": lambda: reader.source_identities(
-                "akilli-kasa", ("stable-id",)
-            ),
+            "source_identities": lambda: reader.source_identities("akilli-kasa", ("stable-id",)),
             "integrity": reader.integrity,
         }
         with pytest.raises(PolicyViolation, match="source fingerprint drift"):

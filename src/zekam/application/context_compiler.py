@@ -117,9 +117,7 @@ def _priority_tier(source_kind: ContextSourceKind) -> int:
         return len(CONTEXT_DETERMINISTIC_PRIORITY)
 
 
-def _disclosure_allowed(
-    load_level: ContextLoadLevel, max_load_level: ContextLoadLevel
-) -> bool:
+def _disclosure_allowed(load_level: ContextLoadLevel, max_load_level: ContextLoadLevel) -> bool:
     """L0 metadata her zaman acik; secilen body/full source lazy ve max ile sinirli."""
     return load_level.rank <= max_load_level.rank
 

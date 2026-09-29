@@ -144,6 +144,8 @@ def _authorize_review(
             reason=reason,
         ),
     )
+
+
 def _revision(package_digest: str, *, scope_ref: str = "project-a") -> PersonalSkillRevision:
     return PersonalSkillRevision(
         skill_id="zekam-arastirma-uygulama",
@@ -228,9 +230,7 @@ def test_learning_v1_to_v2_migration_is_digest_bound_and_backed_up(tmp_path: Pat
     assert plan["migration_required"] is True
     assert plan["plan_digest"] != other_plan["plan_digest"]
     with pytest.raises(PolicyViolation, match="plan digest"):
-        store.migrate_v1_to_v2(
-            same_name_elsewhere, authorized_plan_digest=str(plan["plan_digest"])
-        )
+        store.migrate_v1_to_v2(same_name_elsewhere, authorized_plan_digest=str(plan["plan_digest"]))
     assert not same_name_elsewhere.exists()
     with pytest.raises(PolicyViolation, match="plan digest"):
         store.migrate_v1_to_v2(backup, authorized_plan_digest=digest("wrong"))
@@ -238,12 +238,8 @@ def test_learning_v1_to_v2_migration_is_digest_bound_and_backed_up(tmp_path: Pat
     with sqlite3.connect(learning) as source, sqlite3.connect(backup) as target:
         source.backup(target)
     restrict_private_file(backup)
-    receipt = store.migrate_v1_to_v2(
-        backup, authorized_plan_digest=str(plan["plan_digest"])
-    )
-    replay = store.migrate_v1_to_v2(
-        backup, authorized_plan_digest=str(plan["plan_digest"])
-    )
+    receipt = store.migrate_v1_to_v2(backup, authorized_plan_digest=str(plan["plan_digest"]))
+    replay = store.migrate_v1_to_v2(backup, authorized_plan_digest=str(plan["plan_digest"]))
 
     assert receipt["source_schema_digest"] == SCHEMA_V1_DIGEST
     assert receipt["source_content_digest"] == receipt["backup_content_digest"]
@@ -354,10 +350,7 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
     )
     _authorize_evaluation(operational, equal_evaluation)
     equal = lifecycle.record_evaluation(equal_evaluation, now=NOW)
-    assert (
-        lifecycle.record_evaluation(equal_evaluation, now=NOW + dt.timedelta(seconds=1))
-        == equal
-    )
+    assert lifecycle.record_evaluation(equal_evaluation, now=NOW + dt.timedelta(seconds=1)) == equal
     _authorize_review(
         operational,
         revision_digest,
@@ -513,9 +506,12 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
         )
         == activation
     )
-    assert lifecycle.require_active_package(
-        package_digest, allowed_scopes=allowed
-    )["activation_event_digest"] == activation
+    assert (
+        lifecycle.require_active_package(package_digest, allowed_scopes=allowed)[
+            "activation_event_digest"
+        ]
+        == activation
+    )
     with pytest.raises(ConcurrencyConflict):
         lifecycle.append_activation(
             revision_digest,
@@ -529,9 +525,12 @@ def test_success_correction_evaluation_activation_discovery_and_outcome(tmp_path
     assert [item["revision_digest"] for item in discovered_items] == [revision_digest]
     assert discovered_items[0]["body_loaded"] is False
     assert lifecycle.discover("şiir araştır", allowed_scopes=allowed)["abstained"] is True
-    assert lifecycle.discover(
-        "research", allowed_scopes=((SkillScopeKind.PROJECT, "project-b"),)
-    )["items"] == []
+    assert (
+        lifecycle.discover("research", allowed_scopes=((SkillScopeKind.PROJECT, "project-b"),))[
+            "items"
+        ]
+        == []
+    )
     inspected = lifecycle.inspect_revision(revision_digest, allowed_scopes=allowed)
     inspected_origins = cast(list[dict[str, object]], inspected["origins"])
     assert {item["origin_kind"] for item in inspected_origins} == {
@@ -758,9 +757,10 @@ def test_explicit_user_request_can_create_candidate_without_fake_effect_receipt(
 
     assert replay_digest == revision_digest
     with sqlite3.connect(learning) as db:
-        assert db.execute(
-            "select origin_kind,evidence_digest from skill_origin_v2"
-        ).fetchone() == ("user_request", request_digest)
+        assert db.execute("select origin_kind,evidence_digest from skill_origin_v2").fetchone() == (
+            "user_request",
+            request_digest,
+        )
 
 
 def test_proposal_scope_rejection_happens_before_runtime_enqueue(tmp_path: Path) -> None:

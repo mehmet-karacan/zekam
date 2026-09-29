@@ -39,9 +39,7 @@ _MAX_IMPACT_DEPTH = 100
 _DEFAULT_FIND_LIMIT = 50
 
 
-def _generation_or_none(
-    graph: GraphReadPort, project_id: str
-) -> GraphGeneration | None:
+def _generation_or_none(graph: GraphReadPort, project_id: str) -> GraphGeneration | None:
     try:
         return graph.current_generation(project_id)
     except Exception:
@@ -104,9 +102,7 @@ def graph_find(
             results.append(_file_result(file, "exact"))
         elif needle in lowered:
             results.append(_file_result(file, "fuzzy"))
-    ordered = sorted(
-        results, key=lambda entry: (0 if str(entry["confidence"]) == "exact" else 1)
-    )
+    ordered = sorted(results, key=lambda entry: 0 if str(entry["confidence"]) == "exact" else 1)
     bounded: list[dict[str, object]] = []
     for entry in ordered:
         identity = str(entry["identity"])
@@ -165,9 +161,7 @@ def graph_outline(
     if _generation_or_none(graph, project_id) is None:
         return []
     file_symbols = [
-        symbol
-        for symbol in graph.symbols()
-        if symbol.file_relative_path == relative_path
+        symbol for symbol in graph.symbols() if symbol.file_relative_path == relative_path
     ]
     if not file_symbols:
         return []
@@ -257,8 +251,11 @@ def _impact_bfs(
                     other_id = edge.source_symbol_id
                 # Adjacent unresolved edge -> report once as a direct hit.
                 if other_id is None:
-                    direct.append(_edge_hit(edge, symbol_id=node_id, direction=direction,
-                                            depth=1, names=names))
+                    direct.append(
+                        _edge_hit(
+                            edge, symbol_id=node_id, direction=direction, depth=1, names=names
+                        )
+                    )
                     continue
                 if other_id in visited:
                     cycle = True
@@ -266,11 +263,17 @@ def _impact_bfs(
                 visited.add(other_id)
                 next_frontier.append(other_id)
                 if depth == 1:
-                    direct.append(_edge_hit(edge, symbol_id=node_id, direction=direction,
-                                            depth=1, names=names))
+                    direct.append(
+                        _edge_hit(
+                            edge, symbol_id=node_id, direction=direction, depth=1, names=names
+                        )
+                    )
                 else:
-                    transitive.append(_edge_hit(edge, symbol_id=node_id, direction=direction,
-                                                depth=depth, names=names))
+                    transitive.append(
+                        _edge_hit(
+                            edge, symbol_id=node_id, direction=direction, depth=depth, names=names
+                        )
+                    )
         frontier = next_frontier
     return direct, transitive, cycle
 

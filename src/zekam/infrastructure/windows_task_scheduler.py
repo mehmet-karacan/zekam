@@ -88,8 +88,11 @@ class WindowsTaskPlan:
         resolved_manifest = implementation_manifest.resolve(strict=True)
         implementation_digest = _sha256_file(resolved_manifest)
         arguments = ("tick", "--home", str(resolved_home))
-        boundary = start_boundary.astimezone(dt.UTC).replace(microsecond=0).isoformat().replace(
-            "+00:00", "Z"
+        boundary = (
+            start_boundary.astimezone(dt.UTC)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
         )
         body = {
             "schema": "zekam-windows-supervisor-install-plan/v3",
@@ -259,9 +262,7 @@ def _semantic_task_matches(task: ET.Element, plan: WindowsTaskPlan) -> bool:
         return False
     if not _leaf(principal_fields["LogonType"], "InteractiveToken"):
         return False
-    if "RunLevel" in principal_fields and not _leaf(
-        principal_fields["RunLevel"], "LeastPrivilege"
-    ):
+    if "RunLevel" in principal_fields and not _leaf(principal_fields["RunLevel"], "LeastPrivilege"):
         return False
 
     triggers = _children(root["Triggers"], {"TimeTrigger"})
@@ -272,22 +273,14 @@ def _semantic_task_matches(task: ET.Element, plan: WindowsTaskPlan) -> bool:
         {"Repetition", "StartBoundary"},
         optional={"Enabled"},
     )
-    if trigger is None or not _same_instant(
-        _text(trigger["StartBoundary"]), plan.start_boundary
-    ):
+    if trigger is None or not _same_instant(_text(trigger["StartBoundary"]), plan.start_boundary):
         return False
     if "Enabled" in trigger and not _leaf(trigger["Enabled"], "true"):
         return False
-    repetition = _children(
-        trigger["Repetition"], {"Interval"}, optional={"StopAtDurationEnd"}
-    )
-    if repetition is None or not _leaf(
-        repetition["Interval"], f"PT{TICK_INTERVAL_MINUTES}M"
-    ):
+    repetition = _children(trigger["Repetition"], {"Interval"}, optional={"StopAtDurationEnd"})
+    if repetition is None or not _leaf(repetition["Interval"], f"PT{TICK_INTERVAL_MINUTES}M"):
         return False
-    if "StopAtDurationEnd" in repetition and not _leaf(
-        repetition["StopAtDurationEnd"], "false"
-    ):
+    if "StopAtDurationEnd" in repetition and not _leaf(repetition["StopAtDurationEnd"], "false"):
         return False
 
     settings = _children(
@@ -366,11 +359,7 @@ def _children(
 
 
 def _leaf(element: ET.Element, expected: str) -> bool:
-    return (
-        element.attrib == {}
-        and len(element) == 0
-        and (element.text or "") == expected
-    )
+    return element.attrib == {} and len(element) == 0 and (element.text or "") == expected
 
 
 def _text(element: ET.Element) -> str:
@@ -431,9 +420,7 @@ def install_windows_task(
             output.write(payload)
             output.flush()
             os.fsync(output.fileno())
-        result = execute(
-            ("schtasks.exe", "/Create", "/TN", plan.task_name, "/XML", name)
-        )
+        result = execute(("schtasks.exe", "/Create", "/TN", plan.task_name, "/XML", name))
         if result.returncode != 0:
             raise PolicyViolation("Windows supervisor Task Scheduler kaydi basarisiz")
         try:

@@ -839,8 +839,7 @@ class SQLiteEvolutionAuthorityLedger:
 
         self.assert_claimed_recovery(reservation_id, plan, child)
         row = self._db.execute(
-            "select status,evidence_digest from evolution_child_terminal "
-            "where reservation_id=?",
+            "select status,evidence_digest from evolution_child_terminal where reservation_id=?",
             (reservation_id,),
         ).fetchone()
         if row is None or tuple(row) != ("failed", recovery_digest):

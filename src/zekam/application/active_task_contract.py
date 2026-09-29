@@ -200,9 +200,7 @@ class ActiveTaskContract:
         if "baseline_is_fixed_revision" in values:
             raw_fixed = values["baseline_is_fixed_revision"]
             if raw_fixed not in {"true", "false"}:
-                raise ValidationFailed(
-                    "Aktif gorev baseline_is_fixed_revision true/false olmali"
-                )
+                raise ValidationFailed("Aktif gorev baseline_is_fixed_revision true/false olmali")
             baseline_is_fixed_revision = raw_fixed == "true"
         return cls(
             task_id=values["task_id"],

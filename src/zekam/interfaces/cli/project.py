@@ -188,9 +188,7 @@ def alias_add_command(
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    _print_json(
-        {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True}
-    )
+    _print_json({"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True})
 
 
 @app.command("alias-remove")
@@ -216,9 +214,7 @@ def alias_remove_command(
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    _print_json(
-        {"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True}
-    )
+    _print_json({"project": resolved.slug, "alias": alias, "aliases": aliases, "apply": True})
 
 
 @app.command("resolve")
@@ -627,8 +623,12 @@ def graph_plan_command(
     try:
         resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
         source_root = resolve_project_source(resolve_home(home), str(resolved["slug"]))
-        plan = _graph_plan(project, source_root=source_root, resolved=resolved,
-                           created_at=dt.datetime.now(dt.UTC).isoformat())
+        plan = _graph_plan(
+            project,
+            source_root=source_root,
+            resolved=resolved,
+            created_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
@@ -666,8 +666,12 @@ def graph_build_command(
         resolved = _resolve_project_document(project, home=home, realm=DEFAULT_REALM_SLUG)
         resolved_home = resolve_home(home)
         source_root = resolve_project_source(resolved_home, str(resolved["slug"]))
-        plan = _graph_plan(project, source_root=source_root, resolved=resolved,
-                           created_at=dt.datetime.now(dt.UTC).isoformat())
+        plan = _graph_plan(
+            project,
+            source_root=source_root,
+            resolved=resolved,
+            created_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
         if not apply:
             document = {
                 "schema": "zekam-project-graph-plan/v1",
@@ -874,9 +878,7 @@ def graph_impact_command(
             document["state"] = "unavailable"
         else:
             with _graph_read_store(store_path) as store:
-                impact = graph_impact(
-                    store, str(resolved["id"]), symbol, max_depth=max_depth
-                )
+                impact = graph_impact(store, str(resolved["id"]), symbol, max_depth=max_depth)
                 document["state"] = "ready" if impact.get("found") else "not-found"
                 document.update(impact)
     except ZekamError as exc:

@@ -564,9 +564,7 @@ def promote_command(
 
         def apply_effect() -> dict[str, object]:
             moment = dt.datetime.now(dt.UTC)
-            review_digest = learning.review_memory(
-                candidate_digest, review, now=moment
-            )
+            review_digest = learning.review_memory(candidate_digest, review, now=moment)
             revision_digest = learning.activate_memory(
                 candidate_digest,
                 review_digest,
