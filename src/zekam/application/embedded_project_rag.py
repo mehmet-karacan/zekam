@@ -83,7 +83,9 @@ MAX_ANSWER_EXCERPT_CHARS = 1200
 
 
 _EXCERPT_NOISE_PREFIXES = ("import ", "package ", "#include", "using ", "from ")
-_QUESTION_FILLER = frozenset({"ve", "gerekir", "mi", "mu", "mı", "mü", "bir", "bu", "de", "da", "ne", "en"})
+_QUESTION_FILLER = frozenset(
+    {"ve", "gerekir", "mi", "mu", "mı", "mü", "bir", "bu", "de", "da", "ne", "en"}
+)
 _EXCERPT_STOPWORDS = frozenset(
     {
         *("hangi", "nedir", "nasil", "neler", "nerede", "ile", "icin", "veya", "ama"),
