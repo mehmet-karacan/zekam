@@ -122,6 +122,11 @@ def _select_window(text: str, budget_tokens: int) -> str:
 #: barely-readable sliver into the context.
 MIN_CONTEXT_WINDOW_TOKENS = 48
 
+#: RAG26-R04: per-chunk fairness share is computed over at most this many top
+#: candidates.  Splitting the budget across every fused candidate (often 30-40)
+#: shrank the share below ``MIN_CONTEXT_WINDOW_TOKENS`` and dropped all evidence.
+MAX_PACKED_CHUNKS = 5
+
 
 def _is_pure_identifier_lookup(query: str, identifiers: tuple[str, ...]) -> bool:
     """Return True only for a *pure single-object exact lookup*.
@@ -768,7 +773,12 @@ class RetrievalService:
         # fairness heuristic (``len(ordered)`` chunks, reserving a floor); it
         # never bumps the total, so model context capacity and output reserve
         # stay bounded.
-        shared_floor = max(1, token_budget // max(1, len(ordered)))
+        packed_cap = max(MAX_PACKED_CHUNKS, minimum_citations)
+        shared_floor = max(
+            1,
+            token_budget // max(1, min(len(ordered), packed_cap)),
+            min(MIN_CONTEXT_WINDOW_TOKENS, token_budget),
+        )
         for chunk_id in ordered:
             view = views.get(chunk_id)
             if view is None:
