@@ -907,6 +907,40 @@ class SQLiteKnowledgeIndex:
         )
 
     @_stable_read
+    def following_chunk_ids(
+        self,
+        project_id: str,
+        chunk_id: str,
+        *,
+        count: int,
+        generation_digest: str | None = None,
+    ) -> tuple[str, ...]:
+        """Ayni kaynak dosyasinda, verilen chunk'i izleyen en fazla ``count`` chunk kimligi."""
+
+        if count < 1:
+            return ()
+        generation = self._pinned_generation(project_id, generation_digest)
+        rows = self._connection.execute(
+            "select id from chunk where project_id=? and generation_digest=?"
+            " and source_path=(select source_path from chunk where id=? and project_id=?"
+            "  and generation_digest=?)"
+            " and chunk_order>(select chunk_order from chunk where id=? and project_id=?"
+            "  and generation_digest=?)"
+            " order by chunk_order limit ?",
+            (
+                project_id,
+                generation.generation_digest,
+                chunk_id,
+                project_id,
+                generation.generation_digest,
+                chunk_id,
+                project_id,
+                generation.generation_digest,
+                min(count, 8),
+            ),
+        ).fetchall()
+        return tuple(str(row["id"]) for row in rows)
+
     def views(
         self,
         project_id: str,

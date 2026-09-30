@@ -85,3 +85,35 @@ def test_multi_object_minimum_citations_raises_the_packed_chunk_cap() -> None:
     answer = _answer(count=40, words=150, minimum=MAX_PACKED_CHUNKS + 3)
     assert len(answer.citations) >= 1
     assert answer.tokens_used <= 1200
+
+
+@pytest.mark.unit
+def test_enumeration_questions_pack_more_candidates_within_the_same_budget() -> None:
+    from zekam.application.embedded_project_rag import _is_enumeration_question
+    from zekam.application.retrieval_service import MAX_PACKED_CHUNKS_ENUMERATION
+
+    assert MAX_PACKED_CHUNKS_ENUMERATION > MAX_PACKED_CHUNKS
+    for question in (
+        "backend'inde hangi Spring Batch job'lari tanimli?",
+        "hangi endpointler var? listele",
+        "tum servisleri say",
+        "Tüm job'lar neler?",
+    ):
+        assert _is_enumeration_question(question) is True
+    for question in ("HakedisHesaplamaJob nedir?", "hangi portta calisiyor?", "step sirasi nedir"):
+        assert _is_enumeration_question(question) is False
+
+
+@pytest.mark.unit
+def test_max_packed_chunks_parameter_widens_the_share_denominator() -> None:
+    hits = tuple(FusedHit(f"c{i}", 1.0 - i / 1000, (RetrievalChannel.DENSE,)) for i in range(40))
+    views = {f"c{i}": _view(f"c{i}", f"kelime{i} " * 400) for i in range(40)}
+    service = RetrievalService(object())  # type: ignore[arg-type]
+    narrow = service.build_answer(
+        "soru", hits, _trace(40), views=views, token_budget=1200, max_packed_chunks=5
+    )
+    wide = service.build_answer(
+        "soru", hits, _trace(40), views=views, token_budget=1200, max_packed_chunks=8
+    )
+    assert len(wide.citations) > len(narrow.citations)
+    assert wide.tokens_used <= 1200 and narrow.tokens_used <= 1200

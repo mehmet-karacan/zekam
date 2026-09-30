@@ -22,6 +22,8 @@ from zekam.application.knowledge_index import (
 from zekam.application.project_knowledge_index import ProjectIndexPlan
 from zekam.application.retrieval_service import (
     DEFAULT_RETRIEVAL_DEADLINE_SECONDS,
+    MAX_PACKED_CHUNKS,
+    MAX_PACKED_CHUNKS_ENUMERATION,
     QueryIntent,
     Reranker,
     RetrievalService,
@@ -220,6 +222,8 @@ MAX_REFERENCE_EXPANSION = 3
 #: Sorgu maliyeti sabit: seed basina en fazla bu kadar referans, toplamda en fazla bu kadar arama.
 MAX_REFERENCE_IDENTIFIERS_PER_SEED = 6
 MAX_REFERENCE_LOOKUPS = 12
+#: Uye listeleme sorularinda bulunan sinifin ayni dosyadaki sonraki chunk sayisi.
+MAX_NEIGHBOR_EXPANSION = 2
 _REFERENCE_SEED_CHUNKS = 3
 
 
@@ -246,6 +250,38 @@ def _defines_identifier(text: str, identifier: str) -> bool:
         rf"(?:public|protected|private|static)\s+[\w<>\[\],.? ]+\s+{re.escape(identifier)}\s*\("
     )
     return re.search(definition, code) is not None
+
+
+_ENUMERATION_PATTERN = re.compile(
+    r"(?:hangi\b(?:\s+\S+){0,4}?\s+\S*(?:lar|ler)i?\b|listele|\btum\b|\btüm\b|\bhepsi\b|\bkac\s+tane\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_enumeration_question(query: str) -> bool:
+    """`hangi job'lar`, `listele`, `tum ...` gibi cok nesneli listeleme sorulari."""
+
+    return _ENUMERATION_PATTERN.search(query) is not None
+
+
+_MEMBER_QUESTION_TERMS = (
+    "endpoint",
+    "metod",
+    "method",
+    "fonksiyon",
+    "function",
+    "alan",
+    "field",
+    "sunar",
+    "icerir",
+    "içerir",
+)
+_TYPE_DECLARATION = re.compile(r"(?:class|interface|record|enum)\s+([A-Z][A-Za-z0-9_]*)")
+
+
+def _is_member_question(query: str) -> bool:
+    lowered = query.casefold()
+    return any(term in lowered for term in _MEMBER_QUESTION_TERMS)
 
 
 def _tokens(value: str) -> frozenset[str]:
@@ -601,6 +637,56 @@ class EmbeddedProjectRAG:
                         )
         return (*hits, *added), tuple(referenced)
 
+    def _expand_neighbors(
+        self,
+        query: str,
+        hits: tuple[FusedHit, ...],
+        *,
+        project_id: str,
+        generation_digest: str,
+    ) -> tuple[tuple[FusedHit, ...], tuple[str, ...]]:
+        """Uye sorusunda, sorguda adi gecen sinifi tanimlayan chunk'in sonraki chunk'larini ekler.
+
+        Sinif govdesi birden cok chunk'a bolunmus olabilir (`X hangi endpoint'leri sunar?`).
+        Yalniz sorguda adi gecen bir tipin tanim chunk'i icin, ayni dosyadaki en fazla
+        ``MAX_NEIGHBOR_EXPANSION`` sonraki chunk eklenir. Baska hicbir yere komsu eklenmez.
+        """
+
+        if not hits or not _is_member_question(query):
+            return hits, ()
+        lowered_query = query.casefold()
+        seed_ids = tuple(hit.chunk_id for hit in hits[:_REFERENCE_SEED_CHUNKS])
+        seed_views = self.index.views(project_id, seed_ids, generation_digest=generation_digest)
+        known = {hit.chunk_id for hit in hits}
+        floor = min(hit.score for hit in hits)
+        added: list[FusedHit] = []
+        related: list[str] = []
+        for chunk_id in seed_ids:
+            view = seed_views.get(chunk_id)
+            if view is None:
+                continue
+            declared = {name.casefold() for name in _TYPE_DECLARATION.findall(view.text)}
+            if not any(name in lowered_query for name in declared):
+                continue
+            followers = self.index.following_chunk_ids(
+                project_id,
+                chunk_id,
+                count=MAX_NEIGHBOR_EXPANSION,
+                generation_digest=generation_digest,
+            )
+            for follower in followers:
+                if follower in related or len(related) >= MAX_NEIGHBOR_EXPANSION:
+                    continue
+                related.append(follower)
+                if follower not in known:
+                    known.add(follower)
+                    added.append(
+                        FusedHit(
+                            follower, floor * 0.998, (RetrievalChannel.EXACT,), exact_match=False
+                        )
+                    )
+        return (*hits, *added), tuple(related)
+
     def query(
         self,
         query: str,
@@ -669,6 +755,10 @@ class EmbeddedProjectRAG:
         hits, expanded_ids = self._expand_references(
             query, hits, project_id=project_id, generation_digest=generation.generation_digest
         )
+        hits, neighbor_ids = self._expand_neighbors(
+            query, hits, project_id=project_id, generation_digest=generation.generation_digest
+        )
+        expanded_ids = (*expanded_ids, *neighbor_ids)
         candidate_ids = tuple(hit.chunk_id for hit in hits)
         # Genisletilen chunk'lar cevap govdesidir; kimlik kapsami ve iliski kaniti yalniz
         # arama kanallarinin buldugu chunk'lardan hesaplanir (yapay kanit uretilemez).
@@ -822,6 +912,11 @@ class EmbeddedProjectRAG:
             ),
             views=views,
             token_budget=token_budget,
+            max_packed_chunks=(
+                MAX_PACKED_CHUNKS_ENUMERATION
+                if _is_enumeration_question(query)
+                else MAX_PACKED_CHUNKS
+            ),
         )
         citations: list[dict[str, Any]] = []
         if answer.citations:

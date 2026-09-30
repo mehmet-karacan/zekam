@@ -1037,3 +1037,86 @@ def test_r04_lookup_bounds_are_fixed_constants() -> None:
     assert MAX_REFERENCE_EXPANSION <= 3
     assert MAX_REFERENCE_IDENTIFIERS_PER_SEED * 3 >= MAX_REFERENCE_LOOKUPS
     assert MAX_REFERENCE_LOOKUPS <= 12
+
+
+def _rag_same_file(
+    tmp_path: Path, provider: QueryProvider, texts: tuple[str, ...]
+) -> tuple[SQLiteKnowledgeIndex, EmbeddedProjectRAG]:
+    """Ayni kaynak dosyasinin ardisik chunk'lari (sinif govdesi iki parcaya bolunmus)."""
+    index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
+    records = tuple(
+        KnowledgeIndexRecord(
+            chunk_id=f"same-{order}",
+            project_id=PROJECT,
+            source_revision=REVISION,
+            source_path=PATH,
+            source_digest=digest({"source": PATH}),
+            locator=Locator(
+                relative_path=PATH, line_start=1 + order * 10, line_end=10 + order * 10
+            ),
+            text=text,
+            content_digest=digest_of_bytes(text.encode("utf-8")),
+            chunk_order=order,
+            vector=_vector(),
+        )
+        for order, text in enumerate(texts)
+    )
+    index.build_generation(
+        records,
+        project_id=PROJECT,
+        source_revision=REVISION,
+        tree_digest=TREE,
+        source_manifest_digest=digest("manifest"),
+        embedding_profile_digest=digest("embedding"),
+        provider_profile_digest=provider.profile.profile_digest,
+        created_at="2026-09-02T00:00:00Z",
+    )
+    policy = EmbeddingPolicy(DataClassification.LOCAL_ONLY, provider.profile.profile_digest)
+    return index, EmbeddedProjectRAG(index, provider, policy)
+
+
+_CONTROLLER_PART_1 = (
+    "public class BatchJobController {\n"
+    '    @PostMapping("/stop")\n'
+    "    public String stop() { return null; }\n"
+)
+_CONTROLLER_PART_2 = (
+    '    @PostMapping("/start-job-manually")\n'
+    "    public String startManually() { return null; }\n"
+    "}\n"
+)
+
+
+def test_r04_member_question_adds_following_chunks_of_the_named_class(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    index, rag = _rag_same_file(tmp_path, provider, (_CONTROLLER_PART_1, _CONTROLLER_PART_2))
+    try:
+        result = _query(rag, "BatchJobController hangi HTTP endpoint'lerini sunar?")
+        cited = {item["chunk_id"] for item in result["citations"]}
+        assert {"same-0", "same-1"} <= cited
+        assert "same-1" in result["reference_expansion"]
+    finally:
+        index.close()
+
+
+def test_r04_non_member_question_does_not_add_neighbors(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    index, rag = _rag_same_file(tmp_path, provider, (_CONTROLLER_PART_1, _CONTROLLER_PART_2))
+    try:
+        result = _query(rag, "BatchJobController nedir?")
+        assert "same-1" not in result["reference_expansion"]
+    finally:
+        index.close()
+
+
+def test_r04_neighbors_only_follow_a_type_named_in_the_query(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    other = "public class OtherService {\n    public void run() {}\n"
+    index, rag = _rag_same_file(tmp_path, provider, (other, _CONTROLLER_PART_2))
+    try:
+        result = _query(rag, "BatchJobController hangi endpoint'leri sunar?")
+        assert "same-1" not in result["reference_expansion"] or all(
+            item["chunk_id"] != "same-0" for item in result["citations"]
+        )
+    finally:
+        index.close()

@@ -148,6 +148,15 @@ class KnowledgeIndexPort(Protocol):
         generation_digest: str,
     ) -> dict[str, ChunkView]: ...
 
+    def following_chunk_ids(
+        self,
+        project_id: str,
+        chunk_id: str,
+        *,
+        count: int,
+        generation_digest: str | None = None,
+    ) -> tuple[str, ...]: ...
+
     def source_identity(
         self, project_id: str, chunk_id: str, *, generation_digest: str
     ) -> dict[str, str]: ...

@@ -127,6 +127,10 @@ MIN_CONTEXT_WINDOW_TOKENS = 48
 #: shrank the share below ``MIN_CONTEXT_WINDOW_TOKENS`` and dropped all evidence.
 MAX_PACKED_CHUNKS = 5
 
+#: Listeleme sorulari ("hangi ... lari", "listele", "tum") birden cok dosyaya yayilir;
+#: paylasim ayni butcede bu kadar adaya bolunur.
+MAX_PACKED_CHUNKS_ENUMERATION = 8
+
 
 def _is_pure_identifier_lookup(query: str, identifiers: tuple[str, ...]) -> bool:
     """Return True only for a *pure single-object exact lookup*.
@@ -723,6 +727,7 @@ class RetrievalService:
         views: dict[str, ChunkView],
         token_budget: int,
         minimum_citations: int = 1,
+        max_packed_chunks: int = MAX_PACKED_CHUNKS,
     ) -> RetrievalAnswer:
         """Token butceli baglam kurar; kanit yetersizse abstain eder.
 
@@ -773,7 +778,7 @@ class RetrievalService:
         # fairness heuristic (``len(ordered)`` chunks, reserving a floor); it
         # never bumps the total, so model context capacity and output reserve
         # stay bounded.
-        packed_cap = max(MAX_PACKED_CHUNKS, minimum_citations)
+        packed_cap = max(max_packed_chunks, minimum_citations)
         shared_floor = max(
             1,
             token_budget // max(1, min(len(ordered), packed_cap)),
