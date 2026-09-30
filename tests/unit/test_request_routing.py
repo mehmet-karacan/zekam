@@ -247,3 +247,30 @@ def test_real_change_request_is_still_a_mutation_intent() -> None:
     route = _route("gpu-fusion içindeki BatchJobController'a yeni endpoint ekle")
 
     assert route.intent != "project-question"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "SKYRSM-5659 kapsaminda hangi degisiklikler yapildi?",
+        "SKYRSM-5659 icin hangi commit'ler var?",
+        "GPU 5077 ne degisti",
+        "TLCSKY-11306 diff ve gecmisi",
+    ],
+)
+def test_issue_change_question_routes_to_git_history_not_jira_detail(question: str) -> None:
+    route = _route(question)
+
+    assert route.status == "selected"
+    assert route.intent == "jira-history"
+    assert route.strategy == "project-history"
+    assert route.jira_issue_key is not None
+    assert route.project_refs or route.unavailable_project_refs
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["SKYRSM-5659 durumu nedir?", "GPU 5077 Jira işi", "SKYRSM-5077 detayları"],
+)
+def test_issue_status_question_stays_jira_detail(question: str) -> None:
+    assert _route(question).intent == "jira-detail"

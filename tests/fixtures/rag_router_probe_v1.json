@@ -1,0 +1,233 @@
+{
+ "schema": "zekam-rag-router-probe/v1",
+ "project": "gpu-fusion",
+ "source_revision": "2a5e3f19881af46eec44aa75d9f62920ad5ec47b",
+ "provenance": "Gold degerleri 2026-09-30'da yerel kaynaktan salt-okunur dogrulandi; testler kaynak kokunu bulursa ayni dogrulamayi tekrarlar. Kaynak revision degisirse gold gecmisi korunur, yeni gold ayri kaydedilir.",
+ "grants_authority": false,
+ "cases": [
+  {
+   "id": "Q1",
+   "question": "gpu-fusion backend'inde hangi Spring Batch job'lari tanimli?",
+   "kind": "enumeration",
+   "route": {
+    "status": "selected",
+    "intent": "project-question",
+    "strategy": "single-project-rag",
+    "project_refs": [
+     "gpu-fusion"
+    ]
+   },
+   "gold": {
+    "tokens": [
+     "EtlTransferJob",
+     "HakedisOlusturmaJob",
+     "ReadHakedisJob",
+     "HakedisHesaplamaJob",
+     "KuralCalistirimiJob"
+    ],
+    "files": [
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/job/EtlTransferJobConfig.java",
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/job/HakedisOlusturmaJobConfig.java",
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/job/HesaplamaJobConfig.java",
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/job/KuralCalistirimiJobConfig.java"
+    ]
+   }
+  },
+  {
+   "id": "Q2",
+   "question": "HakedisHesaplamaJob hangi step'leri hangi sirayla calistirir?",
+   "kind": "ordered-flow",
+   "route": null,
+   "gold": {
+    "ordered_tokens": [
+     "insertHakedisLogStart",
+     "birimHakedisOlustur",
+     "createIslemTmpTableForHakedis",
+     "createOrUpdatePrimKalemi",
+     "kesintiAggUret",
+     "islemHesaplamaPartition",
+     "clearIslemTmpTable",
+     "updateIslemTipiHakedis",
+     "updateHakedis",
+     "updateHakedisLogEnd"
+    ],
+    "files": [
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/flow/hesaplama/HakedisHesaplamaFlowBeanConfig.java"
+    ]
+   }
+  },
+  {
+   "id": "Q3",
+   "question": "BatchJobController hangi HTTP endpoint'lerini sunar?",
+   "kind": "endpoint-enumeration",
+   "route": null,
+   "gold": {
+    "tokens": [
+     "/batch-job",
+     "/stop",
+     "/start",
+     "/start-hakedis-olusturma-job",
+     "/start-job-manually"
+    ],
+    "files": [
+     "gpu-backend/src/main/java/tr/com/innova/gpu/batch/controller/BatchJobController.java"
+    ]
+   }
+  },
+  {
+   "id": "Q4",
+   "question": "SKYRSM-5659 kapsaminda hangi degisiklikler yapildi?",
+   "kind": "history-composition",
+   "route": {
+    "status": "selected",
+    "intent": "jira-history",
+    "strategy": "project-history",
+    "project_refs": [
+     "gpu-fusion"
+    ]
+   },
+   "gold": {
+    "git_commit_prefixes": [
+     "3139ed25",
+     "d026d692"
+    ],
+    "issue_key": "SKYRSM-5659"
+   }
+  },
+  {
+   "id": "Q5",
+   "question": "Audit tablo tanimi ekle ekraninda indekslenemeyen CLOB kolon Kayit ID secilirse ne oluyor",
+   "kind": "validation-behaviour",
+   "route": null,
+   "gold": {
+    "git_commit_prefixes": [
+     "3139ed25"
+    ]
+   }
+  },
+  {
+   "id": "Q6",
+   "question": "Audit yapisi olusturulurken Oracle'da ayrilmis kelime kolon adi (orn. DATE) girilirse ne olur?",
+   "kind": "validation-behaviour",
+   "route": null,
+   "gold": {
+    "git_commit_prefixes": [
+     "d026d692"
+    ],
+    "files": [
+     "gpu-backend/src/main/java/tr/com/innova/gpu/service/AuditDDLService.java"
+    ]
+   }
+  },
+  {
+   "id": "Q7",
+   "question": "gpu-fusion RabbitMQ veya Kafka ile hangi kuyruklari tuketiyor?",
+   "kind": "negative-evidence",
+   "route": {
+    "status": "selected",
+    "intent": "project-question",
+    "strategy": "single-project-rag",
+    "project_refs": [
+     "gpu-fusion"
+    ]
+   },
+   "gold": {
+    "absent_tokens": [
+     "RabbitListener",
+     "KafkaListener"
+    ]
+   }
+  },
+  {
+   "id": "Q8",
+   "question": "Hakedis nasil calisir?",
+   "kind": "clarification",
+   "route": null,
+   "gold": {}
+  },
+  {
+   "id": "Q9",
+   "question": "README projenin kurulumunu nasil anlatiyor?",
+   "kind": "insufficient-document",
+   "route": null,
+   "gold": {
+    "insufficient_files": [
+     "README.md"
+    ]
+   }
+  },
+  {
+   "id": "Q10",
+   "question": "Backend hangi portta ve hangi Spring profilleri var?",
+   "kind": "config-enumeration",
+   "route": null,
+   "index_policy": "excluded-by-secret-scan",
+   "gold": {
+    "tokens": [
+     "9001"
+    ],
+    "files": [
+     "gpu-backend/src/main/resources/application-dev.yaml"
+    ],
+    "profile_files": [
+     "gpu-backend/src/main/resources/application-dev.yaml",
+     "gpu-backend/src/main/resources/application-dev_new.yaml",
+     "gpu-backend/src/main/resources/application-dev-mkaracan.yaml",
+     "gpu-backend/src/main/resources/application-tt-test.yaml",
+     "gpu-backend/src/main/resources/application-tttest.yaml"
+    ]
+   }
+  },
+  {
+   "id": "Q1-TR-CURLY",
+   "question": "gpu-fusion backend\u2019inde hangi Spring Batch job\u2019lar\u0131 tan\u0131ml\u0131?",
+   "kind": "enumeration",
+   "route": {
+    "status": "selected",
+    "intent": "project-question",
+    "strategy": "single-project-rag",
+    "project_refs": [
+     "gpu-fusion"
+    ]
+   },
+   "gold": {
+    "same_as": "Q1"
+   }
+  },
+  {
+   "id": "Q5-TR",
+   "question": "Audit tablo tan\u0131m\u0131 ekle ekran\u0131nda indekslenemeyen CLOB kolon Kay\u0131t ID se\u00e7ilirse ne oluyor",
+   "kind": "validation-behaviour",
+   "route": null,
+   "gold": {
+    "same_as": "Q5"
+   }
+  },
+  {
+   "id": "Q6-TR",
+   "question": "Audit yap\u0131s\u0131 olu\u015fturulurken Oracle'da ayr\u0131lm\u0131\u015f kelime kolon ad\u0131 (\u00f6rn. DATE) girilirse ne olur?",
+   "kind": "validation-behaviour",
+   "route": null,
+   "gold": {
+    "same_as": "Q6"
+   }
+  },
+  {
+   "id": "Q10-NUMBER",
+   "question": "gpu-fusion backend portu 9001 mi; hangi Spring profilleri var?",
+   "kind": "config-enumeration",
+   "route": {
+    "status": "selected",
+    "intent": "project-question",
+    "strategy": "single-project-rag",
+    "project_refs": [
+     "gpu-fusion"
+    ]
+   },
+   "index_policy": "excluded-by-secret-scan",
+   "gold": {
+    "same_as": "Q10"
+   }
+  }
+ ]
+}

@@ -84,6 +84,11 @@ def _matched_change(text: str) -> tuple[str, ...]:
     return _matched(_UI_LABEL_AFTER_CHANGE.sub(" ", text), _CHANGE_TERMS)
 
 
+#: Ekli halleri de yakalar (degisiklikler, commit'ler, degisikligi); kok terimler yeterlidir.
+_HISTORY_PATTERN = re.compile(
+    r"(?<!\w)(?:değişiklik|degisiklik|değişti|degisti|commit|diff|geçmiş|gecmis|hangi kod)",
+    re.UNICODE,
+)
 _REVIEW_TERMS = ("review", "incele", "denetle", "kod inceleme")
 _TEST_TERMS = ("test et", "testleri", "doğrula", "dogrula", "acceptance")
 _PROJECT_CONTEXT_TERMS = (
@@ -413,15 +418,18 @@ def route_request(
         unavailable = tuple(
             member.project_ref for member in family.members if member.project_ref not in available
         )
+        # "X kapsaminda ne degisti / hangi commit" issue durumu degil, kod gecmisi sorusudur:
+        # kod vektor indeksi veya Jira MCP yerine bounded yerel Git gecmisi kullanilir.
+        history = _HISTORY_PATTERN.search(normalized) is not None
         return RequestRoute(
             "selected",
-            "jira-detail",
-            "jira-mcp",
+            "jira-history" if history else "jira-detail",
+            "project-history" if history else "jira-mcp",
             family.family_ref,
             tuple(member.project_ref for member in members),
             tuple(member.role for member in members),
             ("researcher",),
-            ("jira-key-resolved",),
+            ("jira-key-resolved", "history-question") if history else ("jira-key-resolved",),
             (resolution.jira_prefix,),
             unavailable,
             resolution.issue_key,

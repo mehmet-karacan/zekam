@@ -40,7 +40,8 @@ Görevin:
   Yalniz `resolved` sonucundaki `issue_key` ile OpenCode `jira` MCP uzerinden issue detayini
   getir. GPU sayisal tasklari SKYRSM, SKY sayisal tasklari TLCSKY mapping'inden cozulur;
   mapping eksik veya belirsizse issue key uydurma.
-- "<ISSUE-KEY> kapsaminda ne degisti" veya commit/diff sorusunda kod vektor aramasi yapma;
+- Route `project-history` (`jira-history`) veya "<ISSUE-KEY> kapsaminda ne degisti" / commit/diff
+  sorusunda kod vektor aramasi ve Jira MCP kullanma;
   cozulmus exact `issue_key` ve proje ile `zekam project history <project_ref> <issue_key> --json`
   calistir (bounded, salt okunur yerel HEAD gecmisi). `partial=true` ise gecmisin eksik veya
   kesik oldugunu belirt; her commit ayri bir degisikliktir, ayni issue'nun iki commit'i celiski
