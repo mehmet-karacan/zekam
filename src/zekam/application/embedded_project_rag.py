@@ -83,6 +83,7 @@ MAX_ANSWER_EXCERPT_CHARS = 1200
 
 
 _EXCERPT_NOISE_PREFIXES = ("import ", "package ", "#include", "using ", "from ")
+_QUESTION_FILLER = frozenset({"ve", "gerekir", "mi", "mu", "mı", "mü", "bir", "bu", "de", "da", "ne", "en"})
 _EXCERPT_STOPWORDS = frozenset(
     {
         *("hangi", "nedir", "nasil", "neler", "nerede", "ile", "icin", "veya", "ama"),
@@ -1012,8 +1013,20 @@ class EmbeddedProjectRAG:
             hit.chunk_id in views and identity_support_for(views[hit.chunk_id].text)
             for hit in backend.last_lexical
         )
+        content_terms = query_terms - _EXCERPT_STOPWORDS - _QUESTION_FILLER
         dense_identity_support = any(
-            hit.chunk_id in views and identity_support_for(views[hit.chunk_id].text)
+            hit.chunk_id in views
+            and identity_support_for(views[hit.chunk_id].text)
+            and (
+                # Kimliksiz (anlamsal) sorularda kimlik kaniti yoktur; yoğun kanalin ilk
+                # sonucu da sorunun kelimelerinden en az bir kismini kendi govdesinde
+                # tasimali. Aksi halde alakasiz ama vektor olarak yakin bir chunk
+                # (ornegin buyuk bir katalog dosyasi) "answered" uretir.
+                identifiers
+                or not content_terms
+                or len(content_terms & _tokens(views[hit.chunk_id].text)) / len(content_terms)
+                >= self.lexical_coverage_threshold / 2
+            )
             for hit in backend.last_dense[:2]
         )
         enough_evidence = (

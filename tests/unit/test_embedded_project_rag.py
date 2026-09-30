@@ -1123,3 +1123,20 @@ def test_r04_neighbors_only_follow_a_type_named_in_the_query(tmp_path: Path) -> 
         )
     finally:
         index.close()
+
+
+def test_identifier_free_question_needs_content_term_in_dense_hit(tmp_path: Path) -> None:
+    # Vektor olarak yakin ama soru icerigini tasimayan chunk; yalniz "ve/gerekir"
+    # gibi dolgu kelimeleri eslesir. Yanlis pozitif "answered" uretilmemeli.
+    provider = QueryProvider()
+    index, rag = _rag(
+        tmp_path,
+        provider,
+        text="kategori katalogu: plan ve kullanim durumu kanitlanmaz, karar gerekir.",
+    )
+    try:
+        result = _query(rag, "Uygulama nasil calistirilir ve hangi yapilandirma gerekir?")
+        assert result["state"] == "abstained-low-evidence"
+        assert result["citations"] == []
+    finally:
+        index.close()
