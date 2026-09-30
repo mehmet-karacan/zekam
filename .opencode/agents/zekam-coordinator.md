@@ -78,8 +78,8 @@ RAG-first bilgi protokolu:
   3 pencere; kaynak satirlari aynen, her biri kendi `excerpt_line_range` ve digest'i ile) ve
   `answer_excerpt` cevabi tasiyorsa onlari kullan. `clarification.suggested=true` ise cevap
   uydurmadan once `clarification.candidate_areas` secenekleriyle tek bir netlestirme sorusu sor.
-  `redacted=true` pencerelerde maskeli satirlari geri kurmaya calisma. Excerpt yetmezse en
-  fazla ilk alti `used_chunk_ids` degerini
+  `redacted=true` pencerelerde maskeli satirlari geri kurmaya calisma. Excerpt yetmezse
+  en fazla ilk alti `used_chunk_ids` degerini
   `zekam project citation <project_ref> <chunk_id> --generation-digest <generation_digest>
   --json` ile pinned indeksten dogrula ve cevabi dogrudan sentezle. Bu bounded citation komutu
   source agacini okumak degildir ve researcher gerektirmez. Basarili `ask` sonrasinda
