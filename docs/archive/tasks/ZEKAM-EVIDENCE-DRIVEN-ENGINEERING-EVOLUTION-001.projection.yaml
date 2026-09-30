@@ -2,11 +2,11 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:ca2476ddc685373a7f8506589286e421f4e39e4813c4896e129c128d0e0432aa
-task_id: ZEKAM-RAG-ROUTER-QUALITY-002
+authority_digest: sha256:9fb789564987597ec579702765d4e5b0c67b7665ac1bf6f2e898a8ab929a4b60
+task_id: ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam RAG Router Kanit Kalitesi ve Istemci Guvenilirligi Iyilestirmesi
-created_at: '2026-09-29T22:29:51+03:00'
+title: Zekam Kanıtlı Araştırma ve Proaktif Mühendislik Geliştirme Hattı
+created_at: '2026-09-27T00:00:00+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
 baseline_head: f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7
@@ -17,6 +17,4 @@ push_authorized: false
 read_only: true
 grants_authority: false
 approval_inherited: false
-baseline_commit_subject: 'performans: RAG kalan dogrulama kapilarini kapat ve canli
-  provider olcumu ekle'
 baseline_is_fixed_revision: true

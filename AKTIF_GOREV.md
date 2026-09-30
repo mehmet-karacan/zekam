@@ -1,13 +1,13 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001
+task_id: ZEKAM-RAG-ROUTER-QUALITY-002
 status: APPROVED_ACTIVE_TASK
-title: Zekam RAG Gecikmesi, Kanit Kalitesi ve Uctan Uca Yanit Hattinin Duzeltilmesi
-created_at: 2026-09-25T00:00:00+03:00
+title: Zekam RAG Router Kanit Kalitesi ve Istemci Guvenilirligi Iyilestirmesi
+created_at: 2026-09-29T22:29:51+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: c3ad4c6abf2596cf633f0e95d52c8cd96c18000b
-baseline_commit_subject: "bakim: paket dogrulama raporunu commit sonrasi yenile"
+baseline_head: f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7
+baseline_commit_subject: "performans: RAG kalan dogrulama kapilarini kapat ve canli provider olcumu ekle"
 baseline_is_fixed_revision: true
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
@@ -19,423 +19,416 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 
 # AKTIF_GOREV.md
 
-## 1. Görev: rapor yazmakla kalma, çalışan düzeltmeyi uygula
+## 1. Amaç, teslim ve kapsam
 
-Zekam repository'sinde kıdemli performans mühendisi, retrieval mühendisi ve güvenilirlik odaklı uygulama geliştiricisi olarak çalış.
+Zekamın mevcut RAG/router/istemci hattını, aşağıdaki kanıtlanmış hatalar ve açık doğrulama maddeleri üzerinden **gerçek kod + test + önce/sonra kanıt** ile iyileştir. Yalnız rapor yazmak teslim değildir. Yeni platform veya ikinci orchestration/RAG frameworkü kurma. SQLite/FTS5/sqlite-vec, mevcut RRF, runtime admission, Work Graph ve gerçek source binding korunacak.
 
-Kullanıcının problemi şudur: Sistem genel olarak yavaş hissediliyor; RAG bazen doğru bilgiyi bulmuyor, bazen çok geç dönüyor, bazen de beklenen nitelikte bir cevap vermiyor. Amaç yalnız birkaç ayarı değiştirmek değil; bu üç şikâyeti ayrı ayrı ölçmek, gerçek nedenlerini düzeltmek ve tekrar oluşmalarını testlerle engellemektir.
+Temel hedef: **doğru scope → doğru bilgi katmanı → cevabı taşıyan bounded kanıt → dürüst ve yararlı cevap**. Genel soru proje RAGına gitmez. Basit proje bilgi sorusu ayrı model-router child gerektirmez. Mutation, yetkili source fallback ve gerçek agentic çalışma kendi mevcut plan/claim/receipt/verifier kapılarına tabidir.
 
-Bu dosya uygulanacak görev promptudur. Yalnız inceleme, öneri, mimari şema veya dokümantasyon üretmek tamamlanmış teslim değildir. Aşağıdaki kapsam içinde gerçek kod değişikliklerini, regresyon testlerini ve önce/sonra ölçümünü gerçekleştir. Mevcut çalışan özellikleri koru; ilgisiz bir yeniden yazım veya yeni platform kurma projesine dönüşme.
+Bu dosya, kullanıcının iyileştirme isteğine ait uygulanacak kapsamı tanımlar. Headerdaki `APPROVED_ACTIVE_TASK`, mevcut v2 parserın sabit contract değeridir; tek başına operasyonel plan onayı, canlı provider yetkisi, Work Graph statei, claim, lease veya başarı receiptı üretmez. Bu teslim sırasında kullanıcının repositorysindeki aktif dosya değiştirilmedi. Gerçek kaynak kökünde bu görev seçildiğinde başlangıç protokolü, task digesti ve mevcut işlerle reconciliation uygulanacak. Bitmemiş eski Global DoD kapıları bu metinle silinmez veya completed sayılmaz. [K18–K22]
 
-“Kusursuz” hedefini ölçülebilir olarak ele al: doğru proje ve revision'dan doğrulanabilir kanıt; kontrollü gecikme; açık hata/degraded durumu; veri ve yetki izolasyonu; kaynak tüketimi sınırları; testle korunan davranış. Ölçülmemiş bir sisteme “kusursuz”, “üretime hazır” veya “X kat hızlandı” deme.
+### Hazırlıkta yapılan / yapılmayan
 
-### İncelemenin sınırı
+29 Eylül 2026da GitHubın `f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7` revisionı ve kullanıcının `arastirma_prompt.md` / `bulgu_defteri.md` dosyaları incelendi. Birkaç regex/pencere koşulu izole Python karşı örneğiyle yeniden üretildi. **Gerçek Zekam pytest, kullanıcının Windows kurulumu, GPU kaynakları, canlı model veya remote embedding testleri burada çalıştırılmadı.** Front matterdaki NOT_EXECUTED bunun içindir; eski committe yazan test sayıları yeni koşu değildir.
 
-Bu görev 25 Eylül 2026 tarihinde GitHub üzerinden sabit revision'ın kaynak kodu incelenerek hazırlanmıştır. Kullanıcının çalışan kurulumunda profil, benchmark, gerçek provider çağrısı veya repository testleri bu hazırlık sırasında çalıştırılmamıştır. Aşağıdaki gecikme mekanizmaları kaynakta görülmüştür; kullanıcının toplam beklemesindeki payları henüz ölçülmemiştir.
+### Kapsam dışı
 
-Buna tek istisna, B06'daki yuvarlama davranışına ait küçük ve bağımsız sentetik aritmetik karşı örnektir. Bu örnek Zekam entegrasyon testi veya gerçek provider ölçümü değildir.
+Yeni UI/dashboard/TUI, PostgreSQL/Redis/Docker zorunluluğu, toplu veri temizliği, proje yeniden kurma, tüm Git/Jira geçmişini kör vektörleştirme, provider/model IDlerini tahmin etme, her soruyu pahalı modele yollama, sınırsız top-k/context artışı, güvenlik eşiklerini gevşetme, mastera doğrudan commit/push, kullanıcı içeriklerini silme veya reindexi sorgunun gizli effecti yapmak yok.
 
-Son HEAD `c3ad4c6` yalnız `VALIDATION_RESULT.json` güncellemesidir. Hemen önceki `1dfd760` context/memory/skills/orchestration değişiklikleri içerir. Dolayısıyla bütün sorunları “son commit bozdu” diye etiketleme. Yeni değişikliklerin startup/context etkisini ve daha önceden var olan RAG sorgu hattını ayrı değerlendir. [K01, K02]
+## 2. Başlangıç ve otorite protokolü
 
-## 2. Başlangıç ve yetki sınırları
+Önce `AGENTS.md`, `00_BASLA.md`, mevcut aktif görev, `GLOBAL_DEFINITION_OF_DONE.md`, `DEVAM_PROTOKOLU.md` ve mevcut generated projectionı oku. Bağlı **gerçek** source rootta olduğunu doğrula. Registryde bağlı başka GPU/SKY/Akış projelerine yazma. Fallback, source read ve bütün testler de mevcut root/permission kurallarına bağlıdır; proje kopyası/mirror/detached worktree ile bu kuralı aşma.
 
-Önce tek seferlik, bounded başlangıç kontrolü yap:
+Yerelde bir kez şu gerçeklikleri kaydet: `git status --short`, `git rev-parse --show-toplevel`, `git rev-parse HEAD`, imported `zekam.__file__`, Python/OpenCode/SQLite sürümleri, active-task digesti ve aktif work/plan revision. Mevcut repository komutlarını `--help` ve source üzerinden doğrula; olmayan sync/generator komutunu uydurma. Gerçek `ActiveTaskContract.load(Path('AKTIF_GOREV.md'))` APIı headerı doğrular. YAML projectionı elle digest yazarak üretme; mevcut yetkili üretim yolunu kullan. [K19]
 
-```text
-1. git status --short
-2. git rev-parse HEAD
-3. git show -s --format='%H%n%P%n%s%n%ci' HEAD
-4. git cat-file -e c3ad4c6abf2596cf633f0e95d52c8cd96c18000b^{commit}
-5. Mevcutsa AGENTS.md, ardından 00_BASLA.md, DEVAM_PROTOKOLU.md,
-   GLOBAL_DEFINITION_OF_DONE.md, PROJE_MANIFESTI.yaml ve bu AKTIF_GOREV.md.
-6. Mevcut görev/projection üretme ve doğrulama komutlarını repository'den doğrula.
-7. python scripts/paket_dogrula.py
-```
+Baseline ilerlemişse yalnız ilgili dosyaları/diffleri inceleyip bu taskı actual revisiona kontrollü taşı; branch reset/stash/checkout yapma. User dirty değişiklikleri ile bu task patchlerini ayrı kaydet. Bu metinde çözüldü denen bir mekanizma yerel HEADde yoksa önce farkı açıkla; varsayımı gerçek davranışa göre düzelt. Önceki taskta zaten çözülmüş query full-scan/cache/CAS/bulk-citation alanlarını tekrar bozma. [K07–K09]
 
-Başlangıç doğrulamasının sonucunu ve önceden var olan hataları kaydet. Validator'ın ürettiği dosya değişikliklerini kullanıcı değişikliklerinden ayır. Eksik bağımlılık veya platform desteğini test başarısı gibi gösterme.
+Her mutation için gerçek Work Item/plan, claim ve gerekiyorsa lease alınır; meaningful step checkpointi, terminal receipt ve bağımsız verification olmadan iş kapanmaz. Claim var receipt yoksa recovery-required; silent retry yok. Bu metindeki RAG26-Rxx yalnız tasarım IDleridir, yeni UUIDleri veya tamamlanma durumlarını uydurma.
 
-HEAD baseline'ın ilerisine geçmişse ilgili farkları incele, bu görevi yeni yerleşime kontrollü taşı ve gerçek uygulama SHA'sını raporla. Baseline'ı sessizce değiştirme; kullanıcının branch'ini geri alma. İlgisiz/diverged geçmişte güvenli ilişki kurulamazsa mutasyon yapma, erişilebilen analiz ve uygulanabilir patch planını teslim et. Otomatik reset, checkout, stash, worktree veya proje kopyası üretme.
+Güvenli yerel kod/test bu kapsam içindedir. Şunlar ayrıca exact plan ve izin ister: canlı query embedding, provider qualification, source/document embedding/reindex, canlı model kampanyası, kullanıcı-genel client/config/agent dosyalarına dağıtım ve herhangi push/destructive effect. Gerekli izin eksikse yalnız ilgili effect BLOCKED_AUTHORIZATION kalır; bağımsız güvenli testleri çalıştır, bütün sistemi tamamlandı diye sunma.
 
-`AKTIF_GOREV.md` tek aktif görev kaynağıdır. Önceki görevin tamamlanmış işlerini bozma veya yeniden başlatma. Eski görev metninin tarihçesini koru. `AKTIF_GOREV.yaml` türetilmiş projection'dır; elle sahte digest yazma, repository'nin mevcut üreticisini kullan. Bu dosyanın front matter alanları mevcut `ActiveTaskContract` şemasına göre seçilmiştir. [K18]
+## 2A. Yerel reconciliation ve uygulama durumu (yerel dogrulama, 2026-09-30)
 
-Değiştirilemez sınırlar:
+Bu gorev metni GitHub `f75c6a3` revisionina gore yazildi (baseline degismez). Yerelde dogrulanan farklar:
 
-- Kullanıcının projeleri, kaynak dosyaları, belgeleri, görev kayıtları, yerel veritabanları ve kişisel içerikleri korunacak. “Performans temizliği” adıyla silme, truncate, eski veri importu veya tüm sistemi yeniden kurma yapılmayacak.
-- Memory, RAG, context, cache, skill, model önerisi ve telemetry yetki kaynağı değildir. Mevcut plan/authorization/claim/receipt, project/realm scope, source digest, SecretRef ve single-writer kontrolleri korunacak.
-- Bu görev kod geliştirme ve güvenli yerel test kapsamıdır. Uzak query embedding yetkisi, kaynakların indekslenmek üzere dışarı gönderilmesi veya model sentezi yetkisi yerine geçmez. Her işlem kendi mevcut açık yetkilendirmesini gerektirir.
-- Cache hit, geçmiş authorization'ı yeniden kullanma veya yeni uzak effect yetkisi verme gerekçesi olmayacak. Gerçek provider çağrısı hâlâ mevcut effect ve receipt sınırından geçecek.
-- SQLite + FTS5 + sqlite-vec ve mevcut Python/CLI mimarisi esas alınacak. Yeni PostgreSQL/Redis/Docker zorunluluğu, ikinci RAG framework'ü, kontrolsüz GraphRAG veya UI/dashboard/TUI eklenmeyecek.
-- Her sorguyu daha pahalı modele yönlendirme, token bütçesini sınırsız artırma, tüm aramaları aynı anda başlatma veya güvenlik eşiklerini topluca düşürme çözüm değildir.
-- Commit/push ve agent çalıştırmaları mevcut protokole tabidir. Push yetkisi yoktur. Bağımsız verifier kullanılacaksa mevcut yetkili agent/worker hattı ve tek-yazar ilkesi korunur; uzak agent yetkisi yoksa bağımsız yerel test/inceleme kanıtı kullanılır ve bu sınır raporlanır.
+- Yerel `main` baseline'in uzerinde ilerlemistir (13 radar/arastirma commit'i ve bu gorevin ilk kesitleri pushlandi). R00 bunu kayda gecirir.
+- Onceki yasayan gorev `ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION-001` (SHA-256 `9fb789564987597ec579702765d4e5b0c67b7665ac1bf6f2e898a8ab929a4b60`) exact Markdown ve projection ile `docs/archive/tasks/` altina alindi; bitmemis kapsami silinmez, arsivdeki metinde kalir ve Global DoD pending maddeleri degismeden tasinir. Gecis oncesi operational Work Graph'ta bu gorev icin acik Work Item yoktu; ilgisiz eski `active` madde ("UI ve dashboard yuzeylerini kaldir") oldugu gibi birakildi.
+- Yerel Windows kalite kosusu: ruff temiz; mypy 429 hata; pytest 310 failed + 79 error (pwd, macOS-only sandbox, symlink ayricaligi, POSIX yol varsayimi). Bu hatalar RAG gorevinden onceki durumdur; "onceden gecen" sayilmaz, R00 baseline'inda ayri kaydedilir.
+- R11 canli kampanya: `zekam model campaign plan` `blocked-catalog-scope-drift`; `Kimi-K2.7-Code` config-only. Katalog drift kapanmadan R11 BLOCKED kalir.
 
-## 3. Kaynakta doğrulanmış bulgular
+### Uygulama durumu (kanit: pushlanmis commit + bagimsiz verifier)
 
-Aşağıdaki bulguları mevcut HEAD'de yeniden doğrula. Bir davranış daha yeni revision'da düzelmişse tekrar uygulama; hangi testle doğrulandığını kaydet. Kanıt numaraları son bölümde sabit commitli kaynaklara bağlıdır.
+| Item | Durum | Kanit |
+|---|---|---|
+| R01 Turkce kesme | Tamam | `3eb7b59`, 12 test, verifier GECTI |
+| R02 profil kimligi | Tamam (kod) | `1d080c0`; kimlik probe vektorlerinden ayrildi (1024 boyut jitter'da eski 100/100, yeni 0/100 degisim); indeksler yeniden kurulmali/kuruldu |
+| R03 alinti penceresi | Tamam | `bef8308`, 7 test, verifier GECTI |
+| R04 kod/config kapsami | Kismi | `19bc265` paketleme (Q1 1->6 citation); Q2 flow zinciri, Q10 config (Turkce ek lexical), Q3 4. endpoint acik |
+| R05-R11 | Beklemede | -- |
 
-### B01 — Soru başına provider qualification tekrar ediliyor
+Bu tablo durum ozetidir; terminal receipt yerine gecmez. Kapsam onerisi: R00-R05 cekirdek teslimdir, R06-R11 cekirdek DoD'ye bagli degildir.
 
-`project_rag_runtime._query()` provider bağını yeniden kuruyor. `_provider()` uzak yolda yeni `OpenCodeRemoteEmbeddingProvider` oluşturup koşulsuz `provider.probe(fixture)` çalıştırıyor. `probe()` iki ayrı `_vectors()` çağrısı yapıyor. Ardından asıl `embed_query()` bir çağrı daha yapıyor. Başarılı ve dense etkin uzak sorguda bu yol iki ön test + bir gerçek query embedding çağrısı demektir. [K03, K04, K05]
+## 3. Kanıtlı bulgular ve dikkat edilmesi gereken düzeltmeler
 
-Her effect ayrıca mevcut ledger/claim/receipt ve process transport maliyetlerinden geçiyor. Sağlık kontrolünün kendisini yanlış teşhis etme: bu uzak adapter'ın `health()` metodu profile bakıyor; ek HTTP yapan asıl davranış burada `probe()`dur. [K05, K14]
-
-### B02 — Sorgu yolunda proje taraması ve yerel yolda indeks planlama var
-
-`_query()` canlı source revision ve `discover(source_root).tree_digest` hesaplıyor. Yerel embedding yolunda ayrıca `_project_plan()` çağırıp chunk planını oluşturuyor; o da Git/source discovery adımlarına giriyor. `_provider()` yerelde `build_verified_mac_embedding(chunks)` ile kaynak parçalarından yeniden qualification fixture hazırlıyor. [K03, K04, K06]
-
-Bu, soruya cevap vermek için gerekli retrieval işinden ayrı bir maliyettir. Ancak freshness kontrolünü kaldırıp eski veriye “current” demek kabul edilmez.
-
-### B03 — Her indeks açılışında veri büyüklüğüne bağlı kontrol var
-
-Her `_query()` yeni `SQLiteKnowledgeIndex(..., read_only=True)` açıyor. Constructor `_validate_schema()` çağırıyor; burada `PRAGMA quick_check` ve `PRAGMA foreign_key_check` çalışıyor. İsimde “quick” geçmesi sabit maliyet anlamına gelmez: SQLite dokümantasyonu `quick_check` için O(N) davranışını belirtir. [K03, K07, E01]
-
-Bu kontrolleri basitçe silme. Güvenilir generation admission/bakım sınırına ve aynı doğrulanmış dosya kimliğinin yeniden kullanımına ayır.
-
-### B04 — Exact aramada pahalı metin taraması; citation hydration'da tekrar var
-
-`SQLiteKnowledgeIndex.exact()` her identifier için `json_extract`, `lower`, `instr(lower(body), ...)` gibi ifadeler kullanıyor. Mevcut scope indeksi aday kapsamını sınırlar; identifier'ın kendisi için eşitlik/posting indeksi yerine generation içindeki metni değerlendirmek zorunda kalan bir yol var. İlk identifier `limit` kadar sonuç doldurursa daha sonraki identifier'lara geçmeden dönülebiliyor. Etkiyi gerçek sorgu planı ve SQL sayaçlarıyla ölç. [K08]
-
-`EmbeddedProjectRAG.query()` önce `views()` alıyor, sonra her citation için ayrı `source_identity()` çağırıyor. Bu yol ek SQL, digest ve read-boundary kontrolleri üretiyor. Mevcut doğrulamayı koruyarak toplu hydrate etmek mümkündür. [K08, K09]
-
-Önemli karşı bulgu: dense arama zaten `vec0`, `embedding MATCH`, `k` ve project/generation partition filtreleri kullanıyor. “Vektör indeksi yok, önce vektör DB ekleyelim” teşhisi doğru değildir. [K07, K08, E02, E03]
-
-### B05 — Kanallar sırayla ve dense ihtiyaç değerlendirilmeden çalıştırılıyor
-
-`RetrievalService.search()` sırasıyla exact, lexical ve dense çağırıyor. Kesin, yeterli kanıtın bulunduğu basit bir soruda dahi dense açık ise query embedding bekleniyor. Trace sayılar içeriyor ama bu sınıfta aşama süreleri ve ortak query deadline'ı yok. Alt process katmanında timeout/cancellation bulunması, uçtan uca bütçenin zaten yönetildiği anlamına gelmez. [K10, K14]
-
-### B06 — Tolerans içinde kabul edilen vektör farkı profil kimliğini değiştirebilir
-
-Uzak `probe()` normalize vektörleri `round(value * 1000)` ile yuvarlayıp digest'e katıyor. Bu fingerprint, `model_revision_fingerprint` ve `profile_id` üzerinden kalıcı profile identity'ye giriyor. Mevcut profile identity zaten `verified_at` ve probe freshness metadata'sını dışarıda tutuyor; sorun timestamp değil, bu sayısal fingerprint'in süreksizliği. [K05, K11]
-
-Sentetik karşı örnek:
-
-```text
-u = (0.00049, sqrt(1 - 0.00049²), 0, ..., 0)  # 1024 boyut, norm 1
-v = (0.00051, sqrt(1 - 0.00051²), 0, ..., 0)  # 1024 boyut, norm 1
-max_delta ≈ 0.00002 < 0.0005
-cosine ≈ 0.9999999998 > 0.99999
-round(u[0] * 1000) = 0
-round(v[0] * 1000) = 1
-```
-
-Dolayısıyla sayısal toleransların içinde kalmak fingerprint eşitliğini garanti etmez. İki probe çalışması kendi içinde başarılı olsa bile birbirinden farklı profile identity üretebilir; generation ile profile karşılaştırması dense kanalını stale/degraded yoluna götürebilir. Bunun kullanıcının gerçek provider'ında gerçekleştiği henüz ölçülmedi. [K05, K09, K11]
-
-### B07 — Bütün teknik adların tek chunk'ta bulunması zorunlu
-
-`_supports_all_identifiers()` ve sonraki hit filtresi bütün technical identifier'ları aynı parçada arıyor. A nesnesini bir dosya, B nesnesini başka dosya açıklıyorsa; karşılaştırma, çağrı zinciri veya birden fazla kaynağa yayılan ilişki sorusu bu filtre yüzünden elenebilir. [K09]
-
-Çözüm global olarak identifier kontrolünü kaldırmak değildir. Tek nesne sorusu ile çoklu nesne/ilişki sorusunun kanıt sözleşmesi ayrılmalıdır.
-
-### B08 — Retrieval başarısı ile üretilmiş cevap birbirine karışıyor
-
-İncelenen `ask` hattı `query_registered_project()` sonucunu döndürüyor. Normal CLI çıktısında `answer_excerpt` yazdırılıyor; bu alan ilk kullanılan chunk'ın ilk 500 karakteri. Bu akışta kaynakları sentezleyen bir LLM çağrısı yok. `answered` burada retrieval/evidence başarısını ifade ediyor; kullanıcıya tam bir üretilmiş cevap verildiğini kanıtlamıyor. Başka client/agent tüketicileri ayrıca sentez yapıyorsa onları ayrı izle. [K03, K09, K12]
-
-Varsayılan 1200 token bütçesinde parçalar bütün hâlinde sığmıyorsa atılıyor. Uygun kanıtı taşımayan 500 karakterlik ilk kesit, diğer citation'ların içerikleri elde edilmiş olsa bile kullanıcıya yetersiz sonuç gösterebilir. [K09, K10]
-
-### B09 — Genel yavaşlık için ayrıca doğrulanacak noktalar
-
-`workspace_resume.build_resume_packet()` içinde `list_projects`, `list_work`, proje bazında alias okumaları ve sonradan uygulanan liste sınırları var. Yeni navigation alanları skill/knowledge erişimi ekliyor; `_active_skill_refs()` record listesini aldıktan sonra sınırlandırıyor. Alt repository metotlarının gerçek limitlerini, bağlantı yaşam döngüsünü ve bu çağrıların hook sıklığını ölçmeden bunları kesin darboğaz ilan etme. Memory ID'lerinin skill ref olarak kullanılmasının doğruluğunu da kontrol et. [K13]
-
-CLI giriş modülü birçok alt komutu import ediyor. Import maliyeti, context'in tekrarlı enjekte edilmesi, ledger/ACL/disk maliyeti, provider cleanup beklemesi ve `rag-state.json` üzerindeki eşzamanlı yazımlar ayrı inceleme adaylarıdır; henüz kullanıcı ortamında kanıtlanmış nedenler değildir. [K03, K12, K13, K14]
-
-### B10 — Var olan sağlam parçaları yeniden icat etme
-
-Canonical indeksleme yolunda eksik chunk'ları işleyen durable vector cache, batch işleme, generation bağlama ve atomik aktivasyon zaten var. Bunları yok sayıp sıfırdan cache/index altyapısı yazma. Capability envanteri büyük ölçek performans doğrulamasını ayrıca açık bırakıyor; işlev testleri başarıyla geçse de hız/kalite kabulü ayrıca ölçülmeli. [K15, K16]
-
-## 4. Uygulama iş paketleri
-
-### WP1 / P0 — Ölçüm ve yeniden üretim
-
-Önce mevcut davranışa test ekle, sonra düzelt. Erişilebilen gerçek kurulum ve temiz geçici test HOME'u için şu yolları ayrı izle:
-
-```text
-CLI process başlangıcı/import
-  -> project/realm/authorization çözümleme
-  -> source freshness
-  -> config ve provider binding / qualification
-  -> index open / validation
-  -> exact / lexical / query embedding / dense
-  -> fusion / evidence selection / hydration
-  -> context packing
-  -> client'e sonuç iletimi
-  -> varsa yetkili model sentezi / ilk token / son token
-```
-
-Mevcut diagnostic trace altyapısını genişlet; ikinci bir observability framework'ü kurma. Monotonic clock ile en az şu alanları kaydet:
-
-- `request_id`, gerçek route, selected project, generation/profile kimlikleri ve her aşamanın süresi.
-- Qualification çağrıları, query embedding çağrıları ve synthesis çağrıları ayrı sayaçlar; cache hit/miss, single-flight beklemesi, provider queue/transport/process süreleri erişilebildiği ölçüde ayrı.
-- SQL sayısı, file traversal sayısı, indeks açılışı ve deep-validation sayısı, candidate/final citation sayısı, bütçe nedeniyle atılan kanıt sayısı, bytes/tokens ve peak memory.
-- Kanal başına `attempted/completed/skipped/failed/timeout`, fallback nedeni, freshness durumu ve cancellation sonucu. “Dense açık” ile “dense gerçekten başarıyla çalıştı” ayrılacak.
-
-Ham query/source text, credentials, token'lar, bağlantı adreslerindeki secrets ve ham provider yanıtlarını loglama. Trace için güvenli kimlik/digest kullan. Süre/sayaç gibi değişken alanları semantic identity veya authority digest'e kazara katma; mevcut sözleşmeyi sürümlü ve uyumlu genişlet.
-
-Provider'sız mock ölçümleriyle gerçek provider ölçümlerini aynı performans sayısı altında toplama. Model token süresini RAG retrieval süresi diye raporlama. Core hattında generation yoksa TTFT `not_applicable` olacak, sıfır milisaniye gibi gösterilmeyecek.
-
-### WP2 / P0 — Qualification, profil kararlılığı ve query embedding cache
-
-`_provider()` içindeki oluşturma/qualification ile sorgu kullanımını ayır. Aynı doğrulanmış provider kimliği için her soruda iki probe tekrarlanmasın.
-
-Mevcut yerel storage/adapter yapısına uygun, bounded bir qualification kaydı tasarla. Kaydı en az provider/endpoint identity, exact model ID, gerçek bilinen model revision, boyut, dtype/normalization, preprocessing/prefix/tokenizer sözleşmesi, fixture/version, ilgili policy/config revision ve uygun scope'a bağla. Secret değeri saklama. Credential/izin değişimini secret'ın kendisini kaydetmeden mevcut version/identity mekanizmasıyla ele al.
-
-Qualification kanıtını yeni çağrının yetkisiyle karıştırma. Kabul edilmiş, süresi dolmamış kanıt ile provider nesnesini yeniden kurmak mümkün olmalı. CLI her çağrıda yeni process açtığından yalnız Python global dict/LRU ile çözüm tamamlanmış sayılmaz: ayrı CLI process'leri arasındaki sıcak davranışı da doğrula. Mevcut güvenli local state yeterliyse yeni daemon ekleme.
-
-Qualification TTL'si yapılandırılabilir olsun; başlangıç denemesi olarak 5 dakika değerlendirilebilir. Bu bir ölçülmüş doğru değer veya süresiz güven garantisi değildir. Config/revision/policy değişimi TTL'den bağımsız invalidation yapmalı. Süresi dolmuş kayıt, bozuk cache veya uyumsuz binding durumunda yeniden doğrulama bütçeye tabi olacak; süresiz bekleme veya otomatik authorization olmayacak. Qualification süresinin dolması ile indeksin semantik olarak uyumsuz olması ayrı durumlar olacak.
-
-Aynı scope/provider için eşzamanlı qualification ihtiyacını tek uçuşta birleştir. Bekleyen çağrılar kendi deadline'ına tabi olsun. Başarısızlık cache'i kısa ve bounded olsun; auth hatası gizlenmesin, sürekli probe fırtınası oluşmasın.
-
-B06'yı kalıcı düzelt:
-
-1. Yuvarlanmış vektör hash eşitliğini “toleranslı uyumluluk” yerine kullanma.
-2. Onaylı/indexte kullanılan profile'a bağlı sabit referans probe vektörleri ve sürümlü compatibility değerlendirmesi kullan; gerçek model revision bilgisi varsa onu esas al.
-3. Yeni probe'u yalnız kendi tekrarıyla değil kabul edilmiş referansla da karşılaştır. Referansı her kabulde kaydırarak kümülatif drift'i normalleştirme.
-4. Sayısal jitter ile gerçek model/embedding uzayı değişimini ayır. Uyumluluk kanıtlanmadan eski profile digest'ini yeni vektöre yapıştırma.
-5. Model, endpoint, boyut, prefix/tokenizer veya gerçek semantik uzay değişiminde güvenli reddet/reindex gereksinimini koru. Eski ve yeni uzayları aynı generation'da karıştırma.
-6. Mevcut indekslere geçişi açık migration/qualification planıyla yap; toplu kör reindex'i ön koşul hâline getirme.
-
-Ayrı bir query embedding cache ekle/uyarla. Anahtarı query'nin güvenli fingerprint'i, embedding amacı (`query`), profile/space kimliği, preprocessing ve authorization/data scope'u kapsasın. Query embedding ile doküman embedding cache'ini amacı yok sayarak birleştirme. Sonuç cache'i kullanılacaksa ayrıca project, generation, freshness/evidence policy ve context bütçesi bağlanmalı; ilk aşamada sonuç cache'i zorunlu değildir.
-
-Hedef sayaç sözleşmesi: aynı kabul edilmiş sıcak binding'de qualification için 0 çağrı; benzersiz semantic query için en fazla 1 query embedding; geçerli query cache hit'inde 0 query embedding. Exact fast path güvenle yeterli ise uzak provider'a hiç gitmemeli. İlk cold qualification ayrı raporlanmalı.
-
-### WP3 / P0 — Query yolundan indeksleme işini çıkar; freshness'ı doğru tut
-
-Normal soru cevaplama `_project_plan`, bütün corpus'u chunk'lama, doküman embedding'i, Oracle metadata toplama, ODI parsing veya reindex çalıştırmayacak. Yerel query provider'ının qualification için bütün proje planını istemesini kaldır; kabul edilmiş bounded qualification fixture/kimliğini kullan.
-
-Freshness için kayıtlı source manifest, Git revision, mevcut change detection ve generation metadata'sını kullan. Git HEAD tek başına yeterli değildir: dirty/untracked dosyalar ve commit olmadan içerik değişiklikleri hesaba katılacak. Özellikle aynı `git status` metniyle dosya içeriğinin değişebileceğini test et.
-
-Güvenilir incremental invalidation varsa yalnız değişen dosyaların digest'lerini yenile. Watcher/change journal yoksa ya da taşma/kesinti olduysa sessizce “current” üretme. Metadata-only karşılaştırmasının kanıtlayamadığı durumda `last-indexed-snapshot`, `freshness-unknown` veya mevcut eşdeğer açık durumu kullan; strict canlı doğrulama ihtiyacını ayrı ve bounded yola taşı.
-
-Güncel kaynak hakkında iddia üretmeden önce kullanılan citation'ların gerekli source/content doğrulamasını gerçekleştir. TTL, sadece dosya boyutu veya mtime eşitliğini kriptografik içerik eşitliği gibi sunma. Silinmiş/izinleri değişmiş/symlink veya junction olmuş kaynağı eski cache üzerinden yetkisizce döndürme.
-
-Yeni generation yayınlanmasıyla cache invalidation tek bir tutarlı kimliğe bağlansın. Sorgu başında generation pinle; kanal aramaları ve hydration boyunca farklı generation'ları karıştırma. Sorgu, indeks güncelleme işi bitene kadar gereksiz kuyruğa girmesin; ama mevcut immutable/offline checkpoint ve single-writer sözleşmesi ihlal edilmesin.
-
-### WP4 / P0 — SQLite okuma yolu ve exact lookup
-
-Şema sürümü/scope kontrolü, güvenilir snapshot admission, deep integrity ve seçilen citation doğrulamasını farklı sorumluluklara ayır.
-
-Aynı güvenilir dosya/generation kimliği için her sorguda `quick_check`/`foreign_key_check` tekrarı olmasın. Bunu yaparken mevcut file identity, ACL, sidecar ve read-boundary korumalarını koru. Deep check'i yeni generation yayınlama, ilk güvenilir kabul, dosya kimliği değişimi, recovery ve açık audit sınırlarında sürdür. Değişmiş/bozuk/kanıtsız dosyaya cache nedeniyle geçerli muamelesi yapma.
-
-Sadece bir boolean `validated=True` veya dosya yolu anahtarlı süresiz cache yeterli değildir. Güvenilir generation/file identity, schema/engine version, verification evidence ve invalidation birbirine bağlı olacak. Böyle bir güvenli kabul kanıtı yoksa strict doğrulama yolu kalacak; güvenlik atlanarak hedef tutulmuş sayılmayacak.
-
-`immutable=1` salt-okunur açılışını canlı mutasyon yapılan dosyaya körlemesine yayma. WAL/journal'ı okuyucu adına silme/checkpoint etme. Mevcut SQLite sürümü/journal safety politikasını koru; tüm veritabanlarına topluca WAL veya `synchronous=off` uygulama. [E01, E04]
-
-Exact arama için proje/generation scope'lu normalize identifier/object/path lookup veya posting indeksi kullan. Normal form şemasını indekslemede üret; her candidate body üzerinde tekrar `lower/json_extract/instr` çalıştırmayı ana yol olmaktan çıkar. Tam nesne eşleşmesi, path eşleşmesi ve metin içi mention farklı kanıt türleri olsun. Kısmi substring'i gerçek exact eşleşme diye puanlama.
-
-Birden fazla identifier varsa ilk adın limit'i tüketip diğerlerini aç bırakmasını engelle: bounded per-identifier aday bütçesi ve birleştirme uygula. Son sıralamada deterministik davranış ve toplam aday üst sınırı korunacak.
-
-FTS expression ve tokenization sözleşmesini gözden geçir. Python `\w+`/casefold ile `unicode61` aynı davranışı garanti etmez. Türkçe İ/ı/ş/ğ, snake_case, CamelCase, qualified package/procedure adları, slash/dot içeren path'ler ve hata kodları için ortak ve test edilmiş normalizasyon uygula. Orijinal identifier'ı ve citation metnini değiştirme. Bütün kelimeleri OR'lamak yerine query intent/önemli terim ayrımını bounded biçimde iyileştir; gerçek recall ölçmeden bütün kelimeleri AND'e çevirme. [E05]
-
-Dense tarafta var olan `vec0 MATCH + k + project/generation partition` yolunu koru. Scalar distance ile bütün vektörleri Python'a taşıyan bir yola gerileme. Vektör motoru veya quantization değişimini ancak bu katmanın gerçekten baskın olduğu ölçülür ve kalite korunursa ayrı sınırlı deney olarak değerlendir.
-
-Citation views + source identity + locator + content doğrulamasını toplu okuma içinde birleştir. Aynı metni aynı pinned request içinde gereksiz tekrar hash'leme; güvenli doğrulama sonucunu request-local kullan. Tüm corpus'u hydrate etme. SQLite connection'ını thread'ler arasında kontrolsüz paylaşma; snapshot ve connection yaşam döngüsü açık olsun.
-
-### WP5 / P0 — Sorgu bütçesi, kontrollü kanal seçimi ve hata davranışı
-
-İlk sürümde pahalı bir LLM planner zorunlu kılmadan basit query intent ayrımı kur: tek nesne/exact lookup; semantic açıklama; çoklu nesne/karşılaştırma; ilişki/çağrı zinciri; belirsiz soru.
-
-Exact/lexical sonuç, o intent'in bütün kanıt ihtiyacını karşılıyorsa evidence gate'den sonra erken dön. Bir isim bulunmasını sorunun bütünü cevaplandı sanma. Açıklama/ilişki sorusunu yalnız exact hit var diye kısa kesme.
-
-Semantic soru dense gerektiriyorsa query embedding ile bağımsız yerel lexical işi, güvenli connection/worker sınırlarında ve sınırlı concurrency ile örtüştürülebilir. Her şeyi sınırsız parallel yapma. Mevcut framework'e uygun minimum değişikliği tercih et.
-
-Tek monotonic uçtan uca retrieval deadline'ı oluştur; discovery/binding, qualification, transport, SQL, reranker, fallback ve cancellation kalan bütçeyi paylaşsın. Her alt katmanın kendi süresini baştan başlatmasıyla toplam bekleme büyümesin. Alt worker'daki mevcut hard timeout, process-tree cleanup ve late-result suppression korunacak. 10 saniyelik cancellation grace'in retrieval tail latency'ye etkisini ayrıca ölç; kısaltma ancak cleanup güvenliği test edilerek yapılabilir. [K14]
-
-Retry yalnız mevcut sınıflandırmanın izin verdiği geçici hatalarda, kalan deadline ve effect/receipt sözleşmesiyle bounded olsun. Auth/policy/dimension hatasını retry etme. Timeout sonrasında gelen sonucu yayınlama. İptal edilmiş görev process/connection/lock sızdırmasın.
-
-Degraded dönüş mevcut kanıt kalitesini düşürmeden yapılacak: provider yoksa güçlü exact/lexical kanıt dönebilir; kanıt yetersizse açık abstain. Boş cevap, “None”, sessiz genel model cevabı veya sahte başarı dönme. No-hit, low-evidence, unavailable, timeout, stale snapshot ve authorization denied anlamlarını karıştırma.
-
-### WP6 / P0 — Çoklu kaynak kanıtı ve context kalitesi
-
-Tek nesne sorularında mevcut sıkı identifier/source doğrulamasını koru. Çoklu nesne veya karşılaştırmada doğrulanmış kanıt kümesi, gerekli nesneleri birlikte kapsayabilsin; hepsinin tek chunk'ta bulunması şartı kalksın.
-
-İlişki iddiası için yalnız A ve B'nin ayrı ayrı bulunması yeterli değildir. Çağrı, veri akışı veya bağımlılık söyleniyorsa bunu destekleyen source/call-site/metadata edge kanıtı da bulunmalı. Sadece isim varlığından edge uydurma. Graph kullanılacaksa mevcut graph/source revision bağını kontrol et, yalnız ilgili intent'te bounded expansion uygula; varsayılan graph-off politikasını bütün sorular için açma.
-
-Dense top-2 margin'i yorumlamadan önce aynı içerik/near-duplicate adayların etkisini ölç. Sabit 0.49/0.04/0.50 eşiklerini keyfî değiştirme; ayrılmış değerlendirme kümesinde intent bazında kalibre et. Kaliteyi metrik uğruna no-answer davranışını gevşeterek artırma.
-
-Context packing'de:
-
-- En ilgili ve zorunlu kanıta bütçe ayır; iki nesneli soruda yalnız ilk nesne bütün bütçeyi tüketmesin.
-- Büyük chunk'ı bütçeye sığmıyor diye tamamen kaybetmek yerine yapı/satır/symbol sınırıyla ilgili pencere seç; gerektiğinde komşu parça/parent bilgisini bounded biçimde ekle.
-- Gösterilen excerpt'in locator ve digest ilişkisini doğru belirt. Tam kaynak digest'i ile türetilmiş excerpt digest'ini karıştırma; keyfî kesilmiş metne yanlış satır aralığı ekleme.
-- Model context kapasitesi, output rezervi ve güvenlik/authority bağlamı dikkate alınsın. 1200 token'ı körlemesine büyük sayıya yükseltmek yerine kullanılan/atılan kanıtı açık ölç.
-- Kaynak içerikleri untrusted data olarak paketlensin; dosya içindeki “önceki talimatları yok say” gibi metinlerin tool veya authorization üretmesine izin verme.
-
-### WP7 / P1 — Retrieval çıktısı ile model cevabını ayır
-
-Önce bütün gerçek tüketicileri takip et: CLI `ask`, project query komutu, ilgili client hook/MCP/agent context kullanımı. Var olmayan bir HTTP/UI katmanı uydurma. Retrieval çağrısından sonra client zaten bir model çalıştırıyorsa ikinci bir gizli model sentezi ekleme.
-
-İki açık çalışma biçimi sağla:
-
-**Retrieval-only / agent context:** Doğrulanmış, bounded evidence packet döndür. Seçilmiş parçaların kullanılabilir metinleri, citation kimlikleri, provenance, score/selection trace ve freshness bilgileri mevcut consumer'a ulaşsın. Yalnız ilk 500 karakteri “cevap” olarak sunma. Bu yol generation model çağrısı yapmaz ve bunu açık belirtir.
-
-**Açıkça yetkilendirilmiş cevap üretimi:** CLI'da gerçekten sentez isteniyorsa mevcut model gateway/routing/authorization/claim/receipt hattıyla tek bounded synthesis çağrısı yap. Yeni doğrudan HTTP istemcisi ve ikinci credentials yönetimi ekleme. Bu yeni çalışma biçiminin option/şema adlarını mevcut CLI sözleşmesiyle uyumlu tasarla; bu dosyada önerilen adları zaten mevcut komutlar gibi kullanma. Sentez izni query embedding izninden ayrı ele alınacak.
-
-Üretilmiş cevap yalnız sağlanan kanıtlara dayanmalı; kullanılan kaynakları göstermeli, karşılaştırmada iki tarafın kanıtını taşımalı, kaynakta olmayan bilgiyi tamamlıyormuş gibi yazmamalı. Çelişkili/yetersiz kanıtta belirsizliği belirtmeli. Citation ID/locator doğruluğunu deterministik kontrol et; cümlelerin gerçekten desteklenmesini ayrı groundedness değerlendirmesiyle ölç. Sadece geçerli citation ID olması doğruluk kanıtı değildir.
-
-`retrieval_state`, `generation_state`, `answer_kind`, `evidence_found` ve mevcut `answered` anlamı ayrılacak. V1 tüketicileri sessizce kırma; gerekli yeni contract için sürümlü/uyumlu geçiş ve test sağla. Provider'sız/izinsiz durumda üretilmiş cevap varmış gibi davranma.
-
-Normal `--json` çıktısı tek geçerli JSON document olarak kalacak. Streaming desteklenecekse yalnız açık opt-in, sürümlü JSONL/event sözleşmesiyle; stdout'a progress/log karıştırma. İlk evidence hazır olma, ilk token ve tamamlanma sürelerini ayrı ölç. Hız için yalnız cevabın ekrana parça parça yazılmasını iyileştirmek, yavaş retrieval'ı çözmüş sayılmaz.
-
-### WP8 / P1 — Genel uygulama gecikmesi, resume ve indeks bakım yolu
-
-B09'daki noktaları profile et. `resume` ve yaygın hook'lar için SQL sınırlarının gerçekten repository katmanında uygulandığını doğrula; Python'da sonuçları sonradan kesmek tüm veri okunmasını engellemiyorsa bounded sorgu ekle. Alias/note/skill erişiminde N+1 ve gereksiz schema/DB açılışlarını azalt. Memory kayıtlarını skill kimliği diye sunan yanlış eşlemeyi varsa düzelt. Hataları sessizce yutup boş context verme yerine sanitised diagnostics üret.
-
-CLI `--help`/`--version` ve basit sorgu komutlarının cold import maliyetini ölç. Ağır ve ilgisiz alt modülleri ancak ölçüm haklı çıkarıyorsa lazy composition ile ayır; help/command registration/authorization registry/Windows davranışını bozma. Örneğin mevcut interpreter ile `python -X importtime -c "import zekam.interfaces.cli.main"` kullanılabilir; tam uygulama import sonucunu provider latency ile karıştırma.
-
-Session/context injection sayacını ekle. Aynı session'da aynı resume/context paketini her tool/hook turunda yeniden ekleme; değişen revision/checkpoint ve mevcut context bütçesiyle bağlı kullan. Doctor/full audit'in yanlışlıkla sık çağrılan yola girdiğini trace doğrularsa onu ayır; sadece dosya adı veya import gördüğün için çalıştığını varsayma.
-
-Canonical `_index` yolundaki durable vector cache'i koru. Cache anahtarındaki chunk identity'nin alakasız commit veya aynı içeriğin yeniden planlanması nedeniyle gereksiz misses üretip üretmediğini test et. Uyumlu embedding uzayında değişmemiş içerik gereksiz re-embed edilmesin; locator/generation kimlikleri ayrı ve doğru güncellensin. Batch limitleri ve provider kapasitesine bağlı bounded concurrency kullan; aynı SQLite yazıcısını paralel worker'lara kontrolsüz açma.
-
-İndeks yayınlanırken mevcut generation çalışır kalmalı veya mevcut read contract güvenli ve açık unavailable davranışı vermeli; hiçbir sorgu kısmi build görmemeli. Rag state/generation/manifest güncellemelerinin crash ve race davranışını test et. `_query()` başarılı verification sonrası tüm `rag-state.json` belgesini yeniden yazıyorsa eşzamanlı reindex'in yeni state'ini ezmesini engelle: revision-bound compare-and-set veya ayrı observational kayıt kullan. Telemetry/counter yazımını authoritative generation güncellemesiyle karıştırma.
-
-Disk büyümesini generation/cache retention ölçümüyle raporla. Bu görev, kullanıcı verisini veya eski generation'ları otomatik silme izni değildir; gerekiyorsa ayrı dry-run cleanup planı üret, varsayılan olarak çalıştırma.
-
-## 5. Test ve ölçüm sözleşmesi
-
-### Test verisi ve gerçekçilik
-
-Mevcut testleri genişlet. Gerekirse en az 80 açık etiketli örnekten oluşan bir başlangıç corpus'u kur: tek nesne/exact, Türkçe/İngilizce semantic, çoklu kaynak/ilişki ve no-answer/çelişkili kanıt kategorilerinde en az 20'şer örnek. Tune ve holdout kümelerini ayır. Örnekler sentetikse bunu belirt; gerçek proje cevap anahtarını kaynak ve revision ile doğrula.
-
-Mevcut `GoldenCase` boş relevant set kabul etmiyor. Negative/no-answer vakaları desteklemek için mevcut evaluator'a uyumlu ek tür veya ayrı evaluator ekle; olmayan nesne sorularını test dışına itme. [K10]
-
-Performansı 1.000, 10.000, yaklaşık 20.000 ve 50.000 chunk ile veya mevcut ortamın belgelenmiş sınırlarına göre ölç. 50.000 mevcut generation üst sınırıdır; bu görev kapsamında 250.000 destekleniyor iddiası üretme. Kod yorumundaki yaklaşık 20,5 bin örneğini kullanıcının güncel ölçülmüş corpus büyüklüğü gibi sunma. [K07]
-
-Cold CLI process, aynı process warm ve farklı CLI process'lerinde warm qualification/cache ayrı senaryolar olacak. Tekrarlanan ve benzersiz sorular; 1/4/8 eşzamanlı istek; query sırasında indeks yayını; provider slow/down; stale source ve büyük yerel work/memory geçmişi kapsanacak.
-
-Provider'sız performans testinde gerçek SQLite/FTS/vec0 yolunu kullan; embedding'i deterministik fixture ile değiştirmen semantik kalite kanıtı oluşturmaz. Gerçek semantic kalite için onaylı/cached gerçek embedding corpus'u veya izinli gerçek provider koşusu ayrı gerekir. Uzak çağrı bütçesi/izni yoksa bu koşuyu `NOT_EXECUTED` işaretle; mock sonucuyla yerini doldurma.
-
-### Zorunlu regresyon matrisi
-
-| Vaka | Beklenen kanıt |
+- **Kesin parser hatası:** `retrieval.py:45,54–71` tek tırnaklı phrase regexi, Q1de `inde hangi Spring Batch job` kimliği üretiyor. [K02]
+- **Kesin pencere sorunu:** `_select_window` ve `_build_excerpt` query-aware değil; seçilmiş chunkın başı tekrar kısaltılıyor. Doğru dosyaya gelmek doğru cevabı kanıtlamaz. [K03,K04]
+- **Dense kapalı gözlemi:** Ledgerda 10/10 dense=0/profile-stale. Kod güvenli biçimde incompatible denseyi kapatıyor. Hatanın asıl kaynağı saved index mi, gerçek profile change mi, cached profile restore mu yerelde ayrıştırılacak. [K06,K08,K09; BF38–39]
+- **Yanlış varsayımı uygulama:** `remote_provider_used=True`, query embedding gerçekten yapıldı demek değildir. Cache-hit yolunda aynı alan true ve probe_call_count=0. [K09]
+- **CLI suçlu değil:** Explicit `--project` metinsel çıkarımdan önce gelir. Bu korunacak. Dokuz DeepSeek testinde prompt kesilmiş; model başarısızlığı diye sayılmayacak. [K10; BF64–68]
+- **Router zaten deterministik:** İlk karar fonksiyonu provider-free. Sorunlar gereksiz invocation/child ve eksik katman/intent ayrımı; yeniden LLM router kurma. [K11,K14,K15]
+- **Yeni ek karşı örnekler:** 9001 portu Jira adayı; ekle ekranında sorusu mutation; üretici `lexical-only-degraded` ile coordinatorın state dili uyuşmuyor; ilk üç citation her enumerationın coverageını garanti etmiyor. [K12–K14]
+- **Test metodolojisi:** Q5 CLOB record-id/400, Q6 reserved-word/ORA-00904; bunlar diakritik çifti değil. Aynı Jira keyine iki commit bağlanması conflict/superseded testi değil. [BF24–26,BF32–34]
+
+Diğer bulgular ve güven düzeyleri `ZEKAM_ARASTIRMA_RAPORU.md` içinde. Bu ek rapor yoksa bu görevin Q/T matrisi ve kaynak referansları uygulamak için yeterlidir; ek raporu ayrı authority sayma.
+
+## 4. Hedef davranış / bütçe sözleşmesi
+
+### Deterministik karar ve knowledge layer
+
+Scope önceliği: explicit parametre → kullanıcı tarafından seçilmiş aktif scope → exact kullanıcı sorusundaki registry/alias/Jira ipucu → tek netleştirme. Harness/system wrapperı ve retrieval metni scope belirlemez. Explicit proje ile issue key conflictinde sessiz proje değiştirme yok.
+
+| Soru sınıfı | Seçilecek katman / davranış | Model-router child |
+|---|---|---|
+| Konuşma / genel kavram | Proje corpusunu atla; güncel genel araştırma gerekiyorsa mevcut ayrı yol | 0 |
+| Tanım, sınıf, endpoint, job | Exact proje + code/symbol kanıtı | 0 |
+| Port / Spring profile | Exact proje + config | 0 |
+| Issue durumu | Exact issue + yetkili Jira | 0 |
+| Issue kapsamında ne değişti | Exact proje/ref + bounded Git history/diff | 0 |
+| Belirsiz iş/alias/akış | Bir netleştirme; tüm proje araması yok | 0 |
+| Açık iki-proje karşılaştırması | Yalnız iki izinli scope; ayrı provenance | Ancak gerçek agentic role selection gerekirse |
+| Gerçek uygulama/mutation/source fallback | Mevcut exact plan, route, claim, receipt/verifier | Mevcut policyye göre |
+| İndeks yok / incompatible | Açık reason + gerçek bakım planı; otomatik reindex yok | Otomatik değil |
+
+### Context ve latency
+
+Mevcut `EmbeddedProjectRAG.query` default **1200 tahmini evidence token** bütçesi korunur; query-aware pencerelerle Q1/Q2/Q3/Q10un doğruluğu artırılır. Route anotasyonu hedef ≤200 tahmini token. Genel/sohbet querylerinde project retrieval, doctor ve model-router child=0. Yeterli exact sorguda query embedding=0; uygun warm semantic sorguda en fazla1, warm qualification tekrarları0. [K06]
+
+Saf ön-karar warm p95≤25ms hedef; soğuk CLI importu ayrı. Aynı offline reference ortamda orchestration p95 ve route/evidence tokenlarında ≥%30 iyileşme hedefi; baseline çok küçükse overhead/counter gerekçesi ver. Hedef tutmazsa gerçek ölçümü yaz, eşiği sessiz düşürme. Default1200 tahmin ile gerçek provider tokenizer sayıları ayrı alanlar. Full model context bütçesi system+tools+history+query+evidence+output reserve içerir.
+
+Citationın işaretlediği bytes, seçilmiş window ve modelin gördüğü metin aynı olmalı. Kaynağı değiştirerek alıntı üretme; sınırlı kanıttan repoda kesin yok veya tüm step/joblar bunlar sonucu çıkarma. Work durumu, authority ve canlı deployment durumu RAGdan türetilmez.
+
+## 5. Sıralı Work Itemlar
+
+Sıra: **R00 → R01 → R02 → R03 → R04 → R05 → R06 → R07 → R08 → R09 → gerekli/onaylı R10 → onaylı R11**. Aynı merkezi dosyalara dokunan işler tek-yazar ve sıralıdır. Bağımsız salt-okunur verifier/fixture hazırlığı yalnız gerçek disjoint scope ve mevcut protokol izin veriyorsa paralel olabilir.
+
+Ortak tamamlanma kanıtı her item için: actual source SHA/diff → failing-before/passing-after test → sanitized counters → rollback doğrulaması → bağımsız verification → gerçek terminal receipt. Mock, fake provider veya saf fonksiyon testi canlı model başarısı değildir. Dosya yolları yeni/önerilen olarak işaretlenmişse önce mevcut eşdeğeri ara; varsa onu genişlet, gereksiz ikinci modül oluşturma.
+
+### R00 — Başlangıç, sürüm reconciliationı ve ölçüm tabanı
+
+- **Work Item ID:** `RAG26-R00`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Gerçek source root, installed CLI ve GitHub baseline arasındaki ilişkiyi doğrula. Eski AKTIF_GOREV kapsamındaki tamamlanan/bekleyen işleri gerçek Work Graph ve test kanıtlarıyla eşleştir. Claude ledgerındaki geçersiz koşuları ayır.
+- **Bağımlılık:** Yok; diğer bütün işlerden önce.
+- **Değişecek / okunacak dosyalar:** Mevcut AGENTS.md, 00_BASLA.md, AKTIF_GOREV.md, GLOBAL_DEFINITION_OF_DONE.md, DEVAM_PROTOKOLU.md (okuma); src/zekam/application/active_task_contract.py; yeni tests/fixtures/rag_router_probe_v1.json; proje dışı sanitizerlı evidence dizini.
+- **Uygulama:** Önce yalnız read-only baseline. İçe aktarılan zekam.__file__, git HEAD, CLI/OpenCode sürümü, binding/project ID, generation/profile kimlikleri, source dirty durumu, izinli model IDleri ve effective config alan adlarını kaydet; secret değerlerini kaydetme. Q1–Q10 kaynaklarını gerçek GPU rootunda ve local committe doğrula. Ham kayıt bulunamazsa original-ledger-only diye bırak. Mevcut taskı completed sayma; devam/recovery şartlarını uygula.
+- **Testler:** ActiveTaskContract.load; mevcut paket doğrulama yolu; fixture identity/provenance şeması; kullanıcı dirty dosyalarının korunması; Q1–Q10 gold local validation.
+- **Ölçülebilir kabul:** Baseline raporu ve source→test→work-item matrisi var; tüm 14 probede revision/locator ya verified ya açık pending. Geçersiz dokuz DeepSeek denemesi kalite skoruna girmez. Henüz runtime/test PASS uydurulmaz.
+- **Rollback:** Yalnız bu adıma ait yeni test/manifest ekini geri al; kullanıcı kaynaklarını, mevcut task tarihçesini ve operational DB yi sıfırlama.
+- **Bağımsız verifier:** Builderdan farklı execution_identity ile baseline/authority ve fixture-provenance incelemesi.
+- **Risk / effect:** low; local read ve fixture mutation; canlı effect yok.
+- **Kanıt bağları:** [K10,K18–K22; BF3–15,BF61–70]
+### R01 — Türkçe kesme işareti ve exact kimlik düzeltmesi
+
+- **Work Item ID:** `RAG26-R01`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Q1deki yanlış quoted phrase hatasını en küçük güvenli kod değişikliğiyle kaldır.
+- **Bağımlılık:** R00
+- **Değişecek / okunacak dosyalar:** src/zekam/domain/retrieval.py; yeni tests/unit/test_rag_turkish_identity_contract.py; gerekiyorsa aynı normalizer için küçük ortak domain modülü (yeni olduğu açık yazılacak).
+- **Uygulama:** Kelime içi ASCII/curly apostropheyi tırnak başlangıcı sayma. Gerçek dengeli alıntıları, boşluk içeren bilinçli phrasesı, #123, issue, dot/underscore/path/CamelCase kimliklerini koru. Türkçe harf normalizasyonunu exact kaynak/simge kimliğine uygulama; lexical shadow form ayrı kalsın. Unmatched quote ve bounded query input davranışı testli olsun. Stemming frameworkü ekleme.
+- **Testler:** T01–T04; Q1 ve Q1-TR-CURLY; dengeli gerçek tek/çift tırnak, farklı kapanış, possessive İngilizce, Oracle'da, backend'inde ... job'lari; quoted phrase içindeki teknik kimlik suppression regresyonu.
+- **Ölçülebilir kabul:** Yanlış inde hangi Spring Batch job kimliği 0; gerçek quoted/path/key kimlikleri değişmez; bütün mevcut exact contract testleri geçer. Bu item tek başına Q1 tam cevap başarısı diye raporlanmaz.
+- **Rollback:** Bu küçük parser patchini ve yeni normalizer kullanımını feature/policy revisionıyla geri al; indeks/generation verisini silme.
+- **Bağımsız verifier:** Bağımsız test çalıştıran verifier; en az bir aynı anlama gelmeyen negatif çiftle over-normalization kontrolü.
+- **Risk / effect:** low; parser davranışı merkezi olduğu için geniş regression zorunlu.
+- **Kanıt bağları:** [K02]
+### R02 — Profil kimliği, qualification cache ve dense admission
+
+- **Work Item ID:** `RAG26-R02`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Aynı embedding uzayında cold/warm/new-process profil kimliğinin tutarlılığını koru; gerçek uyumsuzlukta gereksiz provider çağrısını kes.
+- **Bağımlılık:** R01; R00 baseline zorunlu.
+- **Değişecek / okunacak dosyalar:** src/zekam/application/project_rag_runtime.py; src/zekam/application/embedded_project_rag.py; mevcut embedding profile/provider/cache modülleri importtan doğrulanacak; yeni tests/unit/test_rag_profile_roundtrip_contract.py.
+- **Uygulama:** Önce persisted generation, knowledge binding, cold provider, cache record ve restored profile alanlarını secret-free karşılaştır. Restore edilen tam immutable profilin digestini cached.profile_digest ile doğrula; farklıysa güvenli explicit drift. Eksik cache alanını tahmin ederek kabul etme. Profile equalityyi sahte digest atanarak düzeltme. Statik incompatibilityyi uzaktan qualificationdan önce tespit et; bilinemeyen profil için yalnız yetkili qualification. Eski güvenli cache/single-flight/query-state-CAS davranışını koru. Source stale, model-space mismatch, auth/provider unavailable ayrı reason code olsun.
+- **Testler:** T11–T14,T28,T30; cold/warm/durable-cache/new-process restore; değişen endpoint/model/dimension/prefix/tokenizer/normalization; legacy cache; timeout; corrupted cache; mismatchte 0 embed_query. Spy/fake sonuçları yalnız mekanik test kabulü.
+- **Ölçülebilir kabul:** Aynı accepted immutable profil round-trip digest eşit; gerçek farklı uzay fail-closed. Önceden bilinen mismatch için query embedding 0, avoidable qualification 0. Sağlıklı fixtureda dense>0, gerçek semantic kalite ayrıca R11. remote_provider_used ile gerçek request sayısı karıştırılmıyor.
+- **Rollback:** Cache şema/normalizer sürümüyle eski güvenli yola dön; eski active generation korunur. Migration rollback ve cache quarantine sahiplik kanıtlı; toplu kullanıcı verisi silme yok.
+- **Bağımsız verifier:** Bağımsız provider/profile ve güvenlik verifierı; cache-hit ve cold yolunu ayrı çalıştırır.
+- **Risk / effect:** medium-high; vector-space integrity. Uzak qualification ve reindex bu itemda otomatik çalışmaz.
+- **Kanıt bağları:** [K06,K08,K09]
+### R03 — Query-aware kanıt penceresi ve exact locator
+
+- **Work Item ID:** `RAG26-R03`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Doğru chunk/dosya bulunduğunda kullanıcıya import bloğu değil cevabı taşıyan metin gitsin.
+- **Bağımlılık:** R02
+- **Değişecek / okunacak dosyalar:** src/zekam/application/retrieval_service.py; src/zekam/application/embedded_project_rag.py; src/zekam/domain/retrieval.py; gerçek citation/context consumer modülleri call graph üzerinden; yeni tests/unit/test_rag_answer_span_contract.py.
+- **Uygulama:** _select_window ve _build_excerptin ortak bir seçilmiş EvidenceWindow sözleşmesini kullanmasını sağla. Query intent + teknik kimlik + kod/config anchorlarından satır bazlı ilgili aralık seç; metadata/preambleye küçük bağlam ver ama bütçeyi yemesine izin verme. Prompt metni ile citation window aynı bytes olsun. Birden fazla aralık için ayrı locator; omitted aralıklar açık. Full chunk digest, window digest ve source digest farklı alanlar. Sadece first used chunkın ilk 500 karakterini tekrar kesen ikinci tüketim yolunu kaldır. Mevcut v1 string alanını uyumlu tut; yeni bounded evidence text/locators additive veya açık sürümlü.
+- **Testler:** T15–T17,T22; uzun import öncesi/sonrası endpoint, flow ve validasyon; çok uzun tek satır; CRLF, Unicode; aynı dosyadan iki pencere; bütçe 0/47/48/1200; yanlış locator/digest adversarial testleri.
+- **Ölçülebilir kabul:** Q3ün endpoint gövdeleri ve Q6nın doğrulama gövdesi seçilen metinde; synthetic prefix failure kapanmış. Window line range ve bytes %100 eşleşir; toplam tahmini evidence token ≤1200. Evidence yeterli değilse partial/low-evidence; yanlış tam cevap yok.
+- **Rollback:** Sözleşme alanlarını geriye uyumlu bırakıp yeni selectorı kapat; locator güvenliğini geri alma. Eski indexi yeniden üretmek varsayılan ihtiyaç değil.
+- **Bağımsız verifier:** Bağımsız citation verifierı; window bytesını pinned source ile yeniden karşılaştırır.
+- **Risk / effect:** medium; offset/provenance hatası kritik, token azaltma uğruna kaynak bozulmaz.
+- **Kanıt bağları:** [K03,K04,K07]
+### R04 — Kod/config amacı, enumeration coverage ve bounded ilişki genişletme
+
+- **Work Item ID:** `RAG26-R04`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Q1/Q2/Q3/Q10u aynı genel similarity aramasına bırakmadan doğru kapsam ve kanıt türüyle cevaplat.
+- **Bağımlılık:** R03
+- **Değişecek / okunacak dosyalar:** src/zekam/application/retrieval_service.py; src/zekam/application/embedded_project_rag.py; mevcut project_knowledge_index ve code_graph_ranking entegrasyonları yerelde doğrulanacak; yeni tests/unit/test_rag_code_config_coverage.py.
+- **Uygulama:** Enumeration, ordered-flow, endpoint-list, config-lookup niyetlerini mevcut classifierı genişleterek ayır. Parser/symbol inventory varsa onu yeniden kullan. Tanımı import/referanstan ayır. Job→Flow geçişini gerçek symbol/file referansıyla en fazla 2 edge hop / 3 ek chunk sınırında genişlet; tüm proje graph keşfi yok. Kaynakta ilişki yoksa uydurma. Config dosyasındaki port/profil anahtarlarını yapı koruyarak seç. Python coverage ve FTS query aynı sürümlü lexical shadow normalization kullansın; exact source identityye dokunma. CSS/DTO/SQL tiplerini hardcode blacklist etme; query-aware relevance ve gerektiğinde soft ranking uygula. RRF korunur.
+- **Testler:** Q1,Q2,Q3,Q10 ve varyantlar; T04,T14–T20; declaration-vs-import, incomplete enumerations, absent flow edge, true SQL question, ı/i ve diakritik çiftleri; metadata index update/invalidation.
+- **Ölçülebilir kabul:** Verified GPU fixtureında 5/5 job, doğru 10-step sıra, 4/4 POST endpoint, port ve 5/5 profil. Tanım coverage tamamlanmadan tümü ifadesi yok. Q5/Q6 eşdeğer varyantları aynı iddiaları doğru kaynaktan destekler. Düzelme sadece dense skoru düşürülerek sağlanmaz.
+- **Rollback:** Amaç adapterları/expansion featurelarını sürümle kapat; fallback güvenli eski genel retrieval. Yeni lexical index gerekiyorsa ayrı generation rollback; doküman kaynakları silinmez.
+- **Bağımsız verifier:** Bağımsız code/config verifierı; gerçek job flow zincirini ve config override sınırını kontrol eder.
+- **Risk / effect:** medium; dillere özel adapter ve false-negative riski. GPU isimleri production kurallarına hardcode edilmez.
+- **Kanıt bağları:** [K05,K07,E03; BF21–30]
+### R05 — Ucuz ön-karar, açık scope ve bilgi katmanı seçimi
+
+- **Work Item ID:** `RAG26-R05`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Genel soruyu proje aramasından ayır; açık projeyi koru; alias/key/config/kod/geçmiş katmanını deterministik seç.
+- **Bağımlılık:** R04
+- **Değişecek / okunacak dosyalar:** src/zekam/application/request_routing.py; src/zekam/interfaces/cli/main.py; mevcut route CLI ve Jira resolverı; config/project_families.yaml yalnız mevcut şema/authorityye uygun gerekirse; yeni tests/unit/test_request_preflight_contract.py.
+- **Uygulama:** Mevcut routerı ikinci bir frameworkle değiştirme. Ucuz RequestPreflight kararı önerilen yeni internal sözleşmedir: exact_query_digest, explicit_project, scope_provenance, intent, knowledge_layers, requires_project_retrieval, requires_model_router, clarification ve reason_codes. Dış CLI adlarını helpte varmış gibi uydurma. Açık parametre üstünlüğünü koru; wrapper/system talimatlarından proje çıkarma. Sayı tek başına Jira olmasın: issue ipucu veya sıkı kısa-reference grameri; GPU 1234 / SKY 4321 davranışı korunsun. ekle ekranında salt-okunur, gerçekten ekle mutation. Belirsiz ailede bütün üyeler taranmasın. Açık karşılaştırmada sadece istenen izinli projeler.
+- **Testler:** T05–T10,T29,T32; Q10-NUMBER, Q5-TR; GPU/SKY alias mevcut resolver regresyonları; unknown alias, iki eşleşme, explicit-scope/issue-conflict, genel Spring Batch nedir, harmanlanmış wrapper.
+- **Ölçülebilir kabul:** Genel/sohbet fixturesında 0 project retrieval ve 0 model-router child. Tek-projeli read-only fixturesında child router 0. Port/yıl Jira olmaz; UI etiketi mutation olmaz. Saf in-process warm p95 ≤25ms (100 offline ölçüm); provider_calls=0 korunur.
+- **Rollback:** Ön-kapıyı feature versionıyla eski deterministik routera yönlendir; explicit scope ve güvenlik testleri korunur. Registry config yedeği sahiplik/digest bağlı.
+- **Bağımsız verifier:** Bağımsız routing/policy verifierı; authorized/unauthorized ve ambiguity çiftleriyle test.
+- **Risk / effect:** medium; yanlış niyetin yetkiye dönüşmemesi mevcut admissionla güvence altında kalır.
+- **Kanıt bağları:** [K10–K16]
+### R06 — Coordinator/istemci tüketimi ve gereksiz araç zincirini kesme
+
+- **Work Item ID:** `RAG26-R06`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Üretici statei, seçilmiş evidence ve gerçek consumer davranışı aynı sözleşmeye uysun.
+- **Bağımlılık:** R05
+- **Değişecek / okunacak dosyalar:** .opencode/agents/zekam-coordinator.md; src/zekam/application/opencode_agent_bootstrap.py; mevcut client template/hook/agent üreticileri gerçek call graphla belirlenecek; yeni tests/unit/test_rag_client_state_contract.py.
+- **Uygulama:** Gerçek state enumları için tek karar tablosu oluştur. answered, lexical-only-degraded, abstained-no-hit/low-evidence/no-edge/index-unavailable, timeout ve policy refusalı ayır. Sadece statee değil evidence_found/evidence_sufficient/pinned locator bütünlüğüne bak. Yeterli lexical kanıtı açık degraded cevaba dönüştür; eksik statei success sayma. İlk üç citation sınırını budget+claim coverage ile değiştir; 1200 evidence bütçesini büyütme. Ön-kararı client hookta bir kez kullan; başarılı aynı turda doctor/route/ask/source-root döngüsünü engelle. General conversationda project araştırma yok; güncel research ve agentic işlerin gerçek yetki/subagent kuralları korunur. Coreda ikinci gizli synthesis yok. Managed olmayan kullanıcı dosyalarına dokunma; global config dağıtımı ayrı exact effect.
+- **Testler:** T06,T12,T22,T24,T29,T32; fixture sonucu→client aksiyonu→final metin zinciri; legacy v1 JSON parse, stdout temizliği; üretilmiş template drift; state unknown fail-closed; loop ve refused fallback yasağı.
+- **Ölçülebilir kabul:** Tüm gerçek state sınıfları tüketiliyor; Q3/Q6 bodyleri modele ulaşıyor. Tek read-only turda route≤1, ask≤1/project, gerekli değilse doctor=0, gizli ikinci model synthesis=0. İndeks/API yanıtı generated_answer değilken üretildi diye sunulmaz.
+- **Rollback:** Yalnız managed-owned sectionları expected-digest karşılaştırmasıyla geri al; kullanıcının agent/config değişikliklerini ezme. Eski v1 consumer kırılmaz.
+- **Bağımsız verifier:** Bağımsız client-contract verifierı; saf üretici testi değil tüketiciye kadar replay.
+- **Risk / effect:** medium-high; agent politikası ve kullanıcı-genel dosyalara yayın yetkisi ayrı tutulur.
+- **Kanıt bağları:** [K07,K10,K14,K17]
+### R07 — Jira anahtarı → bounded Git geçmişi / değişiklik kanıtı
+
+- **Work Item ID:** `RAG26-R07`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Q4 gibi ne değişti sorularını mevcut yetkili tarihçe/kaynak katmanından cevapla.
+- **Bağımlılık:** R06
+- **Değişecek / okunacak dosyalar:** Mevcut Git/source-discovery ve Jira adapterları R00/R07 okumalarında doğrulanacak; request_routing.py bilgi katmanı dispatchi; gerekiyorsa yeni src/zekam/application/project_history_query.py ve tests/unit/test_project_history_evidence_contract.py.
+- **Uygulama:** Önce mevcut history yolu olup olmadığını kodla doğrula; varsa düzelt, aynı işi ikinci kez yazma. Yoksa read-only typed adapter ekle. Exact issue tokenı ile seçili yerel ref geçmişinden commit ID/subject ve ilgili bounded diff al; shell-string interpolation yok, fetch/network yok, global --all kapsamı yok. Tam SHA, parent, target ref, tree/source revision ve diff hunk locator taşı. Aynı issue iki commit birleşimdir. Shallow/eksik/truncated history, revert ve güncel HEAD etkisini açık ayır. İlk uygulamada bütün geçmişi vektörleştirme. Repo dışı Jira fetch yalnız mevcut connector/policy ve gerçekten issue verisi gerektiğinde.
+- **Testler:** Q4; T19–T21,T29; iki aynı issue commit, prefix false-positive, başka repo key, shallow history, revert, binary/secret diff, injectionlike message, timeout, committe artık bulunmayan path.
+- **Ölçülebilir kabul:** Local verified Q4te iki commit ve iki farklı değişiklik doğru kaynakla verilir. Varsayılan sorguda en fazla 20 matching commit, 3 ilgili diff dosyası, 2000 işlenebilir diff satırı; ortak deadline ve 1200 evidence bütçesi. Kesilen kapsam partial, yanlış tam tarihçe yok.
+- **Rollback:** History dispatchini kapatıp açık unsupported/history-unavailable döndür; Git geçmişini değiştirme, git reset/clean/fetch/push yok.
+- **Bağımsız verifier:** Bağımsız source-history verifierı; full SHA/diff iddiasını exact yerel hedef ref üzerinde doğrular.
+- **Risk / effect:** medium; Git geçmişinde secret/PII olabileceğinden disclosure/sanitizer önemli.
+- **Kanıt bağları:** [K11,K12; BF24,BF46,BF99–100]
+### R08 — Model limit doctorı, güvenli harness ve boş çıktı dürüstlüğü
+
+- **Work Item ID:** `RAG26-R08`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Kalite testini promptu kesilen, contexti taşan veya boş dönen süreçlerle karıştırma.
+- **Bağımlılık:** R07
+- **Değişecek / okunacak dosyalar:** Mevcut OpenCode config/inventory/diagnostics/transport modülleri import ve CLI call graphından doğrulanacak; opencode_agent_bootstrap.py dağıtım entegrasyonu; yeni tests/unit/test_model_admission_contract.py ve tests/integration/test_opencode_prompt_transport_contract.py.
+- **Uygulama:** Effective merged configte model context/output alanlarını actual authorized inventoryyle eşleştir. Opaque canonical IDye provider prefixi ekleme/çıkarma; bilinmeyen limit/key fail-closed. Tam payload input+output reserve+emniyet payı sığmıyorsa provider çağrısından önce açıklamalı error. Kullanıcı configini sessiz yazma. Model JSONLde empty text/tool terminalini typed empty_output yap; model/transport/gateway sebebini ayrı kaydet. Tool araması yokken verified_actions üretme. Harness exact prompt ile schema/query/project/prompt digesti taşır; local no-network echo ve gerçek Windows executable taşımasıyla CRLF/quotes sınanır. Stdin doğru kapatılır; timeout/cancel process tree temizler. Soru sayısı process başlatma sayısı ve provider request sayısı ayrı.
+- **Testler:** T23–T27,T29,T32; 32768/32000/769 sınır vakası; valid output budget; unknown limits; empty stop/reasoning-only; invalid JSON; quote/%,!,&,|; cancelled process; preflight başarısızsa kalan 9 model koşusu otomatik başlamaz.
+- **Ölçülebilir kabul:** Known overflow fixtureda upstream request=0. Transport exact prompt digestini korur. 0 text/0 tool terminali PASS değildir. Fake aradım fixtureı reddedilir. Doctor bu tanıları ağ çağrısı yapmadan gösterebilir; gerektiğinde ayrı live health izni gerekir.
+- **Rollback:** Yalnız managed config patchi expected-digest/backup ile geri al; bütün opencode.json üstüne yazma. Harness eski hatalı yola sessiz dönmek yerine explicit disabled kalabilir.
+- **Bağımsız verifier:** Bağımsız Windows transport ve model-contract verifierı; Linux fake Windows kanıtı sayılmaz.
+- **Risk / effect:** medium; credential/PII ve shell injection sınırları; kullanıcı-genel config mutationı ayrı onaylı.
+- **Kanıt bağları:** [K17,E01–E03,E05; BF61–82,BF125–139]
+### R09 — Offline kabul, regression/ablation ve ölçüm raporu
+
+- **Work Item ID:** `RAG26-R09`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Hangi düzeltmenin hangi sorunu kapattığını, toplam güvenlik/kaliteyi geriletmeden kanıtla.
+- **Bağımlılık:** R08
+- **Değişecek / okunacak dosyalar:** Yeni tests/fixtures/rag_router_probe_v1.json; yeni offline evaluator/benchmark testleri; mevcut retrieval/routing/client regression paketleri; yetkili dokümantasyon ve proje dışı sanitized evidence artefactları.
+- **Uygulama:** 14 gerçek-proje probe + T01–T32 contractlarını koştur; local gold revisionı bağla. Parser→profile→window→coverage→routing→client ablationı aynı corpusla ölç. Synthetic ve gerçek semantic embedding skorlarını ayrı tut. Content evidence digest query/profile/generation/selected windows ile kararlı; run_id ve qualification digest ayrı. 10 warm-up +100 offline ölçüm, cold CLI ve warm process ayrı; failures/timeout/abstainler raporda kalır. Cache/state concurrency ve security regression tam koşulsun. Mevcut Global DoD kapılarını atlama.
+- **Testler:** Q1–Q10 +4 varyant; T01–T32; proje test/lint/type/package kuralları; mevcut gerçek-project answer-key ve scaling tests (bulunan sürümde); secret scan ve changed-path scope.
+- **Ölçülebilir kabul:** Verified fixtureda Q1/2/3/4/5/6/10=7/7, Q7/Q9=2/2, Q8=1/1, varyant=4/4. Window/scope/provenance/injection contractları %100. Kanıt/route tokenları hedef ≥%30 azalır, quality gerilemez; latency hedefleri aynı ortamda açık raporlanır. Canlı sonuç yoksa ona ait alan NOT_EXECUTED.
+- **Rollback:** Benchmark/evaluator değişimini geri al; eski ölçümleri silme. İyileştirme quality tradeoffu geçmezse ilgili feature önceki güvenli sürüme alınır, eşik sessiz gevşetilmez.
+- **Bağımsız verifier:** Bağımsız kabul verifierı; builderın aynı process assertionı independent receipt sayılamaz.
+- **Risk / effect:** medium; gold leakage, cherry-picking ve fake-live kabul riski.
+- **Kanıt bağları:** [K20,K21; BF21–34]
+### R10 — Ayrı onaylı indeks hazırlığı / profil geçişi
+
+- **Work Item ID:** `RAG26-R10`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Gerekliyse gpu-fusion profil uyumunu ve zekamın kendi indeks readinessini gerçek kaynaklarla kur.
+- **Bağımlılık:** R09; exact maintenance plan + kullanıcı onayı + gereken claim/lease. Onay yoksa BLOCKED_AUTHORIZATION.
+- **Değişecek / okunacak dosyalar:** Mevcut index_registered_project / index plan / generation publish yolları; runtime verisi yalnız açık yetkili exact proje alanında. Üretim kaynaklarını değiştirme.
+- **Uygulama:** Varsayılan yalnız bakım dry-runı. Eski/yeniprofili, local source manifestini, belge sayısı/byte/tokenı, izinli provider exact IDyi, batch/call/amount tavanını, yeni generation ve rollback generationını planla. 5709u güncel corpus boyutu sanma. Gerçek uzay uyumluysa reindex yapma. Uzak source embedding query izninden ayrı izin ister. Onay digestine bağlanmış bakım çalışır; atomik publish/CAS, interruption recovery ve idempotency testli. Eski kullanıcı indeks/generation verisi otomatik silinmez.
+- **Testler:** T11–T14,T29–T31; failure-before-publish, mixed-generation refusal, interrupted claim/no receipt recovery, changed-source replay; no source modification.
+- **Ölçülebilir kabul:** Onaylı planda belirtilen kapsamdan sapma 0; izin ve call budget aşımı 0; active generation/policy digest eşit; zekam için index_readable ve approved snapshot smoke. Her effectte gerçek terminal receipt; onay verilmezse yapılmadı açık ve global kapanış yok.
+- **Rollback:** Yeni generation publish öncesi eski aktif kalır; sonrası uyumlu eski generation/config ikilisi kontrollü geri seçilir. Farklı profil vektörlerini aynı sorguda karıştırma; veri silme yok.
+- **Bağımsız verifier:** Bağımsız maintenance/provider verifierı; source manifest, receipt ve generation eşitliğini doğrular.
+- **Risk / effect:** high; remote disclosure ve kalıcı indeks mutationı. Bu belge tek başına live authorization değildir.
+- **Kanıt bağları:** [K06,K08,K09,K20,K21; BF8–14,BF138–139]
+### R11 — Ayrı onaylı Kimi / DeepSeek uçtan uca kampanya
+
+- **Work Item ID:** `RAG26-R11`. Bunlar plan kimlikleridir; çalışma anındaki UUID/claim/receipt değildir.
+- **Hedef:** Düzeltmeleri gerçek istemci/model zincirinde tekrar ölç; teknik offline başarıyı model başarısı diye genelleme.
+- **Bağımlılık:** R09 ve gereken R10 tamam; exact live plan + kullanıcı onayı. Onay yoksa BLOCKED_AUTHORIZATION.
+- **Değişecek / okunacak dosyalar:** R08 harness; R09 fixture/evaluator; kampanya manifesti ve sanitized event/receipt raporları. Gerçek model ID/limitleri yerel inventoryden sabitlenecek.
+- **Uygulama:** Bölüm 7deki 30-session planını uygula. No-network transport doğrulamasından sonra model başına bir smoke; başarısız modelin kalan koşularını otomatik harcama. Her model için Q1–Q10 ve dört varyant, sabit scope/source/policy; toolsuz sahte arama, empty output ve invalid harness ayrı verdict. Kampanya boyunca reindex, doc embedding, model değiştirme ve otomatik retry yok. Ek verifier providerı gerekiyorsa plana dahil edilmeden çağırma. Sonuçları independent verificationa ver; model family/DoD kapsama sınırını açık bırak.
+- **Testler:** Gerçek OpenCode process+provider receipts; 14 case/model; 2 semantic dense canary; primary Q1/2/3/10 mandatory source checks; Q7/Q9 honest negative ve Q8 clarification.
+- **Ölçülebilir kabul:** Tavanlar aşılmaz. Her iki model için seven answerable/negative/clarification/variant sonuçları ayrı tabloda; tüm zorunlu cases hedefi sağlanmadan canlı kabul yok. Sahte tool claim=0 ve empty success=0. Bu mini kampanya ZEKAM-DOD-025/tüm-model/platform kabulü sayılamaz.
+- **Rollback:** Kampanyayı durdur, çalışan processleri bounded kapat ve receipt reconciliation yap. Başarısız modeli global inventoryden otomatik silme/değiştirme; teşhis ve ayrı plan sun.
+- **Bağımsız verifier:** Builder/kampanya çalıştırıcısından bağımsız evidence verifierı; gerçek source ve transport receipts kontrolü; remote verifier bütçesiz çağrılmaz.
+- **Risk / effect:** high; ayrı remote effect onayı, model/tool-call sayısı ve secret/PII kapsamı.
+- **Kanıt bağları:** [K20,K21; AP74,AP96–98; BF138–139]
+
+
+## 6. Q1–Q10 kaynaklı probe ve regresyon matrisi
+
+Aşağıdaki gold değerler **kullanıcının bulgu defterinden** alındı. GPU kaynak revisionı ve locatorları bu hazırlıkta doğrulanmadı. İlk koşuda bunları gerçek bound source root ve full SHA ile sabitle; farklı revisionda değişmiş sonuç varsa gold historysini koru ve farkı belgeleyerek yeni gold oluştur. Kaynaklar görülmeden committed expected/actual aynı string yapılarak PASS üretme.
+
+| ID | Amaç / gereken kanıt | Kabul |
+|---|---|---|
+| Q1 | EtlTransferJob; HakedisOlusturmaJob; ReadHakedisJob; HakedisHesaplamaJob; KuralCalistirimiJob | Beş tanımın tamamı gerçek tanım kanıtıyla gösterilir; import kullanımı tanım sayılmaz. Liste eksikse tam liste diye sunulmaz. |
+| Q2 | insertHakedisLogStart; birimHakedisOlustur; createIslemTmpTableForHakedis; createOrUpdatePrimKalemi; kesintiAggUret; islemHesaplamaPartition; clearIslemTmpTable; updateIslemTipiHakedis; updateHakedis; updateHakedisLogEnd | On adım aynı sırayla ve gerçek flow zinciri kanıtıyla verilir. Bean listesi/importlar sıra kanıtı değildir. |
+| Q3 | POST /batch-job/stop; POST /batch-job/start; POST /batch-job/start-hakedis-olusturma-job; POST /batch-job/start-job-manually | Dört POST endpoint; class-level ve method-level mapping birleşimi doğrulanır. |
+| Q4 | 3139ed25 → CLOB/BLOB/LONG ID için 400; d026d692 → reserved-word doğrulaması. | İki değişiklik ayrı commitlere bağlanır; aynı issue iki commit çelişki sayılmaz. Güncel HEAD etkisi ve tarihsel etki karıştırılmaz. |
+| Q5 | 400 Bad Request; CLOB record-id validation | 400 davranışı doğru doğrulama kaynağıyla desteklenir. Soru kod yazma talebi sayılmaz. |
+| Q6 | DDL öncesi doğrulama; ORA-00904 doğrudan kullanıcıya sızmaz | Doğrulama akışı gösterilir; unrelated import, CSS, DTO alıntısı destek sayılmaz. |
+| Q7 | Kanıt bulunamadığını kapsamıyla belirt; Kuyruk adı uydurma | RAG miss tek başına repoda kesin yok demek değildir. İncelenen scope/revision ve aranan yüzeyler belirtilir; sahte arama beyanı olmaz. |
+| Q8 | oluşturma akışı; hesaplama/okuma akışı; tek netleştirme sorusu veya kaynaklı ayrım | Boş cevap yerine niyet ayrımı. Kaynak okunmadıysa ayrıntılı akış uydurulmaz; netleştirme üst üste tekrarlanmaz. |
+| Q9 | README yetersiz; Kurulum adımları uydurma | README üzerinden kurulum açıklanamadığı söylenir; genel Spring kurulum reçetesi kaynak bilgisi diye sunulmaz. |
+| Q10 | 9001; dev, dev_new, dev-mkaracan, tt-test, tttest | Port ve beş profil kendi config kaynağıyla doğrulanır; repository varsayılanı canlı deployment portu diye genellenmez. |
+
+
+Q2 tam sıra: `insertHakedisLogStart → birimHakedisOlustur → createIslemTmpTableForHakedis → createOrUpdatePrimKalemi → kesintiAggUret → islemHesaplamaPartition → clearIslemTmpTable → updateIslemTipiHakedis → updateHakedis → updateHakedisLogEnd`.
+
+Dört ek aynı-senaryo regresyonu:
+
+- **Q1-TR-CURLY:** `gpu-fusion backend’inde hangi Spring Batch job’ları tanımlı?`
+- **Q5-TR:** `Audit tablo tanımı ekle ekranında indekslenemeyen CLOB kolon Kayıt ID seçilirse ne oluyor`
+- **Q6-TR:** `Audit yapısı oluşturulurken Oracle'da ayrılmış kelime kolon adı (örn. DATE) girilirse ne olur?`
+- **Q10-NUMBER:** `gpu-fusion backend portu 9001 mi; hangi Spring profilleri var?`
+
+Q5/Q5-TR ve Q6/Q6-TR gerçek eşdeğer çiftlerdir; Q5/Q6 değil. Başlangıç kanıtı orijinallerin yazımını ASCIIleştirmiş olabileceği için asıl raw prompt varsa ayrı sakla; görünür ledger metnini raw prompt diye etiketleme.
+
+### Zorunlu offline contractlar
+
+| ID | Contract | Kabul |
+|---|---|---|
+| T01 | ASCII apostrophe in Turkish suffix | backend'inde ... job'lari yanlış quoted phrase üretmez. |
+| T02 | Curly apostrophe / mixed quotes | ’ ve gerçek dengeli tek/çift tırnak farklı işlenir. |
+| T03 | Real quoted identifier | "BatchJobController" ve 'HakedisHesaplamaJob' exact korunur. |
+| T04 | Exact identifier preservation | SCHEMA.PCK_X, A_B, SRC/X.java, #123, SKYRSM-5659 bozulmaz. |
+| T05 | Explicit project wins over harness wrapper | Sistem/harness açıklamasındaki Zekam açık gpu-fusion hedefini ezmez. |
+| T06 | General / technical general | Merhaba, 2+2 ve genel Spring Batch kavram sorusu proje corpusuna gönderilmez. |
+| T07 | Ambiguous project aliases | İki eşleşen kayıt veya belirsiz aile bir netleştirme üretir; tüm projeleri taramaz. |
+| T08 | Explicit cross-project comparison | İki açık yetkili hedef karşılaştırılır; ilgisiz üçüncü proje yok. |
+| T09 | Port/year not Jira | 9001 port ve 2026 yılı tek başına issue anahtarı değildir; GPU 1234 kısa biçimi korunur. |
+| T10 | Read-only wording not mutation | ekle ekranında / oluştur butonu ne yapıyor salt okunur; gerçekten ekle/düzelt ayrı. |
+| T11 | Profile cold/warm/new process identity | Aynı kabul edilmiş uzayda deserialize sonrası profile_digest eşit. |
+| T12 | Real incompatible profile | Model/dimension/prefix/normalization değişiminde eski dense vector kullanılmaz. |
+| T13 | Mismatch no avoidable remote calls | Yerelden bilinen mismatch için query embedding ve tekrarlı qualification sıfır. |
+| T14 | Healthy dense canary | Uygun profil ve semantic fixture: dense gerçekten çalışır; forced healthy canary dense>0. |
+| T15 | Query-aware source span | 500 karakterden sonra endpoint/validation var; doğru satır aralığı seçilir. |
+| T16 | Multi-span exact bytes | Aynı dosyada ayrı iki bölüm ayrı locator taşır; eksiltmeler görünür, metin değiştirilmez. |
+| T17 | Budget/noise | Uzun import ve CSS gürültüsü; en fazla 1200 tahmini evidence token, ilgili body korunur. |
+| T18 | Missing edge | İki sembolün birlikte bulunması tek başına çağrı/sıra/bağımlılık iddiasını geçirmez. |
+| T19 | Real conflict fixture | Aynı scope/revision geçerliliğinde çelişen iki kaynak: çözülmemiş çelişki açıklanır. |
+| T20 | Superseded document fixture | Tarih/authority doğrulanmış eski PostgreSQL taslağı güncel SQLite kararı yerine kullanılmaz. |
+| T21 | History boundaries | Shallow geçmiş / eksik commit / reverte edilmiş değişiklik açıkça partial/history olarak işaretlenir. |
+| T22 | Client state contract | answered, lexical-only-degraded, abstained-no-hit/low-evidence/no-edge/index-unavailable ve timeout tümü testli. |
+| T23 | Empty model response | Stop + reasoning/usage var, text/tool yok: başarısız boş çıktı; sessiz PASS yok. |
+| T24 | Tool honesty | Aradım ifadesi receipt olmadan başarı sayılmaz; verified_actions sistemden üretilir. |
+| T25 | Context admission | 32000 output + 769 input > 32768: provider çağrısından önce blokaj. |
+| T26 | Windows prompt round trip | CRLF/LF, Türkçe, tek/çift tırnak, &, |, %, !; exact prompt digest eşleşir. |
+| T27 | No-input process termination | stdin kapalı; timeout/cancel process tree cleanup; geç sonuç yayınlanmaz. |
+| T28 | Stable evidence vs run identity | Aynı pinned evidence content digest sabit; run_id değişebilir; probe digest cevap hashı değildir. |
+| T29 | Security boundaries | Unauthorized project, symlink/reparse escape, injection, SecretRef ve PII sızıntısı fail-closed. |
+| T30 | Cache/generation races | Query/reindex CAS, failed publish, binding drift; eski doğrulama yeni generationı ezmez. |
+| T31 | No-index useful response | zekam indeksi yok: yapılandırılmış missing-index ve gerçek bakım planı; otomatik reindex yok. |
+| T32 | No hidden repeated calls | Aynı turda route, doctor, ask tekrarları yok; refusal alternatif komutla delinmez. |
+
+Her T-vakası test hedefidir, bu dosya hazırlanırken geçmiş bir PASS kaydı değildir. Exact state, citations, selected body, transcript/receipt ve generated answer ayrı değerlendirilir.
+
+### Skor ve ölçüm
+
+Yedi answerable orijinalde (Q1,2,3,4,5,6,10) 7/7 kaynaklı doğru cevap; Q7/Q9da2/2 güvenli negatif; Q8de1/1 yararlı netleştirme; ek varyantlarda4/4 semantik eşdeğerlik hedeflenir. Q1/2/3/10 mandatorydir. Kaynak locator coverage / citation accuracy / ordered-sequence match / unsupported claim / process-honesty ayrı metriklerdir.
+
+Healthy semantic canaryde dense>0 ve gerçek query effect kanıtı gerekir. Exact yeterli her soruda dense>0 isteme; bu tersine gereksiz maliyettir. Synthetic deterministic embeddings semantic kalite kanıtı değildir. Raw harness hatalı koşular kalite paydasından ayrılır ama pipeline reliability tablosunda başarısız/invalid kalır; hata oranı gizlenmez.
+
+Offline her senaryo için 10 warm-up +100 ölçümlü sorgu; cold CLI ve in-process/warm multi-process ayrı. Query süresi içinde qualification, local storage, hydration, model wait ve output parsing ayrı trace spanlarıyla ölçülür; paralel süreler kör toplanmaz. p99 için yetersiz örneklem varsa p99 başarısı iddia etme. Yalnız başarılı sorguları latency tablosuna alıp timeout/abstaini gizleme.
+
+## 7. Ayrı live plan — otomatik çalıştırılmayacak
+
+Bu bölüm bir **önerilen exact kampanya zarfı**dır. Yerelde model/limit/fixture/scope/authorization kimlikleri sabitlenip plan digesti üretilecek. Kullanıcı onayı yoksa canlı çağrı sayısı **0**. Testte kullanılan sıradan mock/local adapter gerçek provider yerine geçmez.
+
+### 7.1 Modeller ve değişmez girdiler
+
+İstenen model adları `Kimi-K2.7-Code` ve `DeepSeek-V4-Flash`. Bunlar otomatik geçerli canonical Model ID sayılmaz. Gerçek authorized inventory/OpenCode catalogdan tam ID çöz; provider prefixini değiştirme. ID veya model limitleri doğrulanamazsa o modelin kampanyasını başlatma; başka modelle sessiz ikame yok. Qwen/GPT-OSS tekrar testi ayrı talep ve bütçe gerektirir.
+
+Sabitlenecekler: local Zekam HEAD, GPU HEAD, source/binding revisionı, generation/profile/normalizer digestleri, OpenCode ve effective config sürümü, model exact ID, tool/agent policy, 14 soru ve prompt digesti, context cap, output reserve, request budget, timeout/cleanup, izinli adapterlar, ağ/disclosure kapsamı ve stop conditions.
+
+### 7.2 Tavanlar
+
+| Kalem | Tavan / hesap |
 |---|---|
-| Yeterli tek-nesne exact cevap | Kanıt doğrulandıktan sonra 0 qualification / 0 query embedding; aynı doğru kaynak |
-| Warm benzersiz semantic query | 0 qualification, en fazla 1 query embedding; gerçek dense çalışması trace'de görülür |
-| Warm tekrar query | Geçerli embedding cache ile 0 query embedding; scope/profile/freshness kontrolleri korunur |
-| Ayrı CLI process'lerinden aynı binding | Qualification cache gerçekten yeniden kullanılır; process-local başarıyla sınırlı kalmaz |
-| Eşzamanlı cold binding | Tek qualification işi; bekleyenler bounded; authorization scope karışmaz |
-| Yuvarlama sınırındaki sayısal jitter | B06 karşı örneği kabul edilmiş uzay uyumluluğunu gereksiz stale yapmaz |
-| Gerçek model/endpoint/dimension/prefix değişimi | Yanlış eski vector cache kullanılmaz; açık incompatible/degraded sonuç |
-| İki farklı dosyadaki nesne karşılaştırması | Her nesne için doğru citation; tek chunk zorunluluğu nedeniyle yanlış abstain olmaz |
-| A ve B var ama ilişki kanıtı yok | Çağrı/bağımlılık ilişkisi uydurulmaz |
-| Corpus'ta olmayan teknik nesne | False exact/unsupported generated answer üretmez |
-| Büyük chunk ve küçük context bütçesi | Gerekli bölüm doğru locator ile seçilir veya açık low-evidence; yanlış tam cevap yok |
-| Provider timeout/cancel | Deadline, cleanup, late-result suppression; sızıntı ve sahte receipt yok |
-| Aynı dirty Git status altında dosya içeriği değişikliği | Eski kanıta yanlış current etiketi verilmez |
-| Watcher kaybı, metadata-only belirsizlik, kaynak silinmesi | Freshness-unknown/snapshot veya strict doğrulama; sessiz güncel kabul yok |
-| Bozuk indeks veya sidecar/file identity değişimi | Cache güvenliği bypass etmez; fail-closed davranış korunur |
-| Query ile reindex/state update yarışı | Pinned generation tutarlılığı; yeni state'in eski query tarafından ezilmemesi |
-| Aynı soru, farklı project/realm/izin | Cache ve citation sızıntısı yok; unauthorized provider çağrısı yok |
-| Türkçe harfler, underscore/dot/path/camel adları | Normalize arama ve exact identity sözleşmesi tutarlı |
-| Kaynak içine gömülü prompt injection | Retrieval data'sı authority, tool call veya uzak disclosure izni üretmez |
-| `ask --json`, resume ve mevcut tüketiciler | Geriye uyumlu parse; stdout temiz; retrieval/synthesis anlamı doğru |
-| Büyüyen work/memory geçmişi | Resume sorguları ve bağlantı sayısı bounded; sadece çıktı listesini kesme yok |
+| Offline transport round-trip | Provider çağrısı0; önce bu geçer |
+| Live protocol smoke | Model başına1 session; toplam2 session |
+| Kalite koşusu | 2 model ×14 soru =28 session |
+| Toplam OpenCode başlangıcı | 30; buna retry dahil değildir, retry izni yok |
+| LLM request / smoke | En fazla2; iki model toplam4 |
+| LLM request / kalite session | En fazla4; 28×4=112 |
+| LLM provider request toplam | En fazla116 |
+| Tool call / kalite session | En fazla3; tur başına tekrarlar sayaçta görünür |
+| Query embedding | En fazla28 kalite +2 dense canary =30 |
+| Qualification provider request | En fazla4, tek onaylı embedding binding için; actual plan daha düşük gerektiriyorsa düşür |
+| Document/source embedding | 0; reindex R10un ayrı planıdır |
+| LLM input / request | En fazla12000 model token, tüm zorunlu context dahil |
+| Kalite LLM output / request | En fazla1800 model token |
+| Smoke output / request | En fazla256 model token |
+| Güvenlik rezervi | Effective model contextinde en az max(512 token, contextin %5i); sığmıyorsa çağırma |
+| Session timeout | En fazla180sn + cleanup için10sn; gerçek mevcut runtime daha sıkıysa onu koru |
+| Tekrar / replacement / gizli judge | 0; ayrı exact izin olmadan yok |
 
-### Performans hedefleri: ölçülmüş sonuç değil, başlangıç kabul adayı
+Tavanlar ihtiyaç vaadi veya fatura tahmini değildir. Actual provider limits, tool-round planı veya zorunlu agent context bu zarfla uyumsuzsa kullanıcıya plan değişikliği göster; sistem talimatlarını düşürerek veya token sayısını eksik sayarak sığdırma. Bağımsız remote verifier gerekiyorsa onun model/çağrı bütçesi ayrıca planlanmadan çalıştırılmaz.
 
-Aşağıdaki eşikler önceden elde edilmiş başarı iddiası değildir. Referans makine/OS, disk, Python/SQLite/sqlite-vec sürümü, corpus, source freshness modu, kullanılan model/route ve örnek sayısını kaydet. Eşik değişecekse gerekçeyi önce/sonra ölçümüyle açık yaz; sessizce gevşetme.
+Smoke başarısız, overflow, prompt-digest mismatch, yetki hatası, boş terminal, provider ID drift veya loop görüldüğünde ilgili modelin kalan koşularını durdur. Başarısız koşu ve harcanmış gerçek requestler bütçede kalır. Rerun kararı yeni exact plan ister.
 
-| Ölçüm | Başlangıç hedefi |
-|---|---|
-| ~20 bin chunk, warm yeterli exact/lexical core retrieval | p95 ≤ 300 ms; CLI cold import ve açık strict tam source audit hariç, bunlar ayrıca raporlanır |
-| ~20 bin chunk, warm hybrid yerel orchestration/storage maliyeti | Kritik yolda haricî embedding beklemesi dışında p95 ≤ 500 ms |
-| Warm semantic query | Qualification tekrarları 0; gerekli query embedding çağrısı ≤ 1 |
-| Warm query/cache path | Tam proje planı/chunking/document embedding 0; aynı güvenilir index identity için tekrarlı deep validation 0 |
-| Warm `resume` | Referans yerel iş/memory yükünde p95 ≤ 300 ms; gerçekten okunan satır/sorgu sayısıyla birlikte |
-| Patolojik tekrar giderilen senaryolar | Kalite/güvenlik gerilemeden p95'te anlamlı düşüş; başlangıç hedefi en az %50. Baseline zaten küçükse overhead/counter kanıtı kullan |
-| Tüm retrieval çağrıları | Yapılandırılmış ortak deadline + açık cleanup sınırı; gözlenen p99/timeout ayrı |
-| Curated exact/scope/citation integrity vakaları | %100 beklenen deterministik davranış; “tüm gerçek dünyada %100 doğruluk” anlamına gelmez |
-| Holdout retrieval kalitesi | Recall@10, MRR, nDCG@10 baseline'dan gerilemez; çoklu kaynak vakalarında belirlenen hata düzelir |
-| Curated no-answer ve güvenlik vakaları | Desteksiz başarı, uydurma citation ve çapraz scope sızıntısı 0 |
+### 7.3 Sonuç tablosu
 
-Haricî provider toplam süresi için erişim olmadan evrensel saniye garantisi koyma. Yerel overhead ile provider beklemesini trace kritik yolundan ayır; paralel aşamaların sürelerini toplayıp veya toplamdan körlemesine çıkarıp yanıltıcı sayı üretme. Synthesis varsa ilk evidence, TTFT, completion, output uzunluğu ve model maliyeti ayrı raporlanacak.
+Her satırda case/model, valid input, selected scope/layers, effective state, body citation correctness, factual verdict, process-honesty, no-answer/clarify, route/ask/doctor/tool sayıları, qualification/query/LLM request sayıları, input/output tokens, latency, error ve gerçek receipt referansı bulunur. Ham secret veya reasoning transcripti rapora konmaz. Modelin metnindeki aradım beyanı tool receiptinden bağımsız kabul edilmez.
 
-p50/p95 için yeterli örnek kullan; başlangıç olarak senaryo başına en az 100 ölçümlü istek ve ayrı warm-up uygula. Güvenilir p99 iddiası için en az 1.000 ölçümlü örnek veya açıkça daha düşük güvenli tahmin etiketi kullan. Küçük örneklemden anlamlıymış gibi p99 ilan etme. Canlı provider çağrılarını bu sayıya tamamlamak için izin/maliyet sınırını aşma. Timeout, hata ve abstain isteklerini latency dağılımından sessizce çıkarma; başarı oranıyla beraber göster.
+Bu dar kampanya ürünün bütün platform/model testleri veya ZEKAM-DOD-025 yerine geçmez. İzin verilmezse core offline rapor teslim edilir ve live acceptance açık kalır; faz/global DoD bitmiş sayılmaz.
 
-## 6. Uygulama sırası ve değişiklik disiplini
+## 8. Güvenlik, veri koruma ve rollback
 
-Önerilen sıra:
+Kullanıcının proje dosyaları, kaynak kodu, görev kayıtları, configi, belgeleri ve runtime verisi korunur. Değişiklik yalnız bu taskın bağlı gerçek rootunda ve exact plan scopeunda. Source/history/config içinden secret/PII model contextine/loga alınmaz; prompt-injection içerikleri veri olarak kalır, scope veya tool yetkisi üretmez. Read-only yol daha fazla yetki istemek için fallback zinciri kurmaz. [K20,K21]
 
-```text
-WP1 baseline + failing regression
-  -> WP2 qualification/cache/profile düzeltmesi
-  -> WP3 query/indexing ayrımı
-  -> WP4 storage/exact/hydration
-  -> WP5 deadline ve kanallar
-  -> WP6 evidence/context
-  -> WP7 tüketici sözleşmesi ve izinli synthesis
-  -> WP8 ölçülen startup/resume/index maintenance sorunları
-  -> karşılaştırmalı benchmark + bağımsız doğrulama + paket doğrulama
-```
+Rollback item bazlı küçük diff, sürümlü contract/cache/generation ve owned-config backup üzerinden yapılır. `git reset --hard`, `git clean`, toplu rm, kullanıcı configini tamamen replace, indeks silip baştan kurma ve sessiz remote reindex yok. Çalışan eski generation yalnız uyumlu profil ile kullanılabilir; yanlış uzayı zorla current etme. Rollback de effect/claim/receipt kurallarına bağlıdır.
 
-Büyük tek patch yerine her iş paketinde sınırlı değişiklik ve odaklı test çalıştır. Mevcut test yollarını repository'den bul; hayalî komutları çalışmış gibi listeleme. Unit/integration/e2e/security/architecture ayrımını koru. Mümkünse hatayı düzelten testin baseline'da başarısız, yeni kodda başarılı olduğunu göster.
+## 9. Tamamlanma ve teslim
 
-İkinci bir serbest görev listesi veya kapsamı genişleten “bilişsel mimari v3” planı üretme. Bu dosyadaki performans, correctness ve cevap hattı kapsamı yeterlidir. Temel source/authorization semantics ile çelişen optimizasyonu uygulama; yerine aynı hedefe ulaşan güvenli dar çözümü seç.
+Her Work Item için gerçek diff, test komutu/exit code, önce/sonra kanıt, ölçüm ortamı, source/generation/model kimlikleri, verifier sonucu ve rollback bilgisi ver. Yeni docs/golden fixtures kodla tutarlı olsun. Global DoDde eksik maddeler görünür kalacak; sadece görev adını değiştirerek ertelenmeyecek.
 
-Tamamlanamayan bir WP varsa nedeni ve kalan test/dış erişim ihtiyacını açık yaz; yapılan güvenli düzeltmeleri yine teslim et. Test ortamı yok diye ölçüm sonucu uydurma veya yalnız doküman değiştirip tamamlandı deme.
+Kullanıcıya kısa sonuç ve artefact bağlantıları ver; aynı uzun task/kodu sohbette yeniden basma. Kanıt yoksa tamamlandı deme. Commit mesajı Türkçe anlamlı ve ASCII-only; commit yetkisi mevcut protokolden doğrulanır, push bu görevde yetkili değildir.
 
-## 7. Tamamlanma kriterleri ve son teslim
+## 10. Kaynak referansları
 
-Görev ancak şu çıktılarla kapanabilir:
+**[BF]** `bulgu_defteri.md`, 29 Eylül 2026; L21–30 gold soru/cevaplar, L38–54 retrieval, L61–89 model/harness, L138–139 yeniden koşu/embedding izin sınırı. **[AP]** `arastirma_prompt.md`; özellikle L69–76 ve L80–100. Yerel raw dosyalar görülmeden bu metinler gerçek request receiptı sayılmaz.
 
-1. Her doğrulanmış bug için kod değişikliği veya “yeni HEAD'de zaten düzelmiş” test kanıtı; her hipotez için ölçülen sonuç veya açıkça doğrulanamadı notu.
-2. Kaynakta tarif edilen kritik üç gecikme tekrarı için sayaç kanıtı: soru başına qualification, query'de source planlama ve aynı index identity'de deep check.
-3. B06 ve B07 için deterministik regression; gerçek drift ve ilişki uydurma güvenliğinin korunduğu negatif testler.
-4. Retrieval-only ve üretilmiş cevap davranışının açık ayrımı; aktif consumer'a yeterli ve bounded kanıtın gerçekten ulaştığının uçtan uca testi.
-5. Aynı corpus/ortam altında önce/sonra latency, çağrı sayısı, kaynak tüketimi ve kalite tablosu. Synthetic/mock/live koşular birbirinden ayrı.
-6. Mevcut güvenlik, single-writer, authority isolation, read-only index, no-UI ve JSON consumer testlerinde regresyon olmaması.
-7. Geriye uyum/migration/config default'ları ile geri alma adımları. Rollback, kullanıcının kaynaklarını veya eski verilerini silmeye dayanmayacak.
-8. Repository'nin kanonik validation/projection/release digest akışıyla son doğrulama. Generated raporları elle “passed” yapma; değişen authority dosyasından projection'ı gerçek üreticiyle yeniden üret.
-
-Repository'nin mevcut doküman yerleşimine uygun tek sonuç raporu ve makine okunur benchmark kanıtı bırak. Yeni bir aktif görev adı kullanma; görev otoritesi `AKTIF_GOREV.md` olarak kalır. Çıktılarda en az gerçek HEAD, değişen dosyalar, çalıştırılan komut/exit code, before/after metrikler, maliyet/izin sınırları, kalan riskler ve rollback bulunmalı.
-
-Son kullanıcı özetini şu sorulara cevap verecek biçimde yaz: “Neden yavaştı?”, “Neden bazen yanlış/eksik görünüyordu?”, “Ne değişti?”, “Ne kadar iyileşti ve nasıl ölçüldü?”, “Hangi doğrulama henüz yapılmadı?”.
-
-## 8. İnceleme kaynakları
-
-Koddaki bütün referanslar aksi belirtilmedikçe şu sabit revision içindir:
-
-```text
-https://github.com/mehmet-karacan/zekam/tree/c3ad4c6abf2596cf633f0e95d52c8cd96c18000b
-```
-
-Kaynak referansındaki satırlar GitHub kaynak dosyasının satır aralığıdır; uygulayıcı güncel HEAD'de fonksiyon adını esas alarak karşılaştırmalıdır.
-
-| Ref | İncelenen kaynak ve bölüm |
-|---|---|
-| K01 | `c3ad4c6abf2596cf633f0e95d52c8cd96c18000b` commit metadata/diff; yalnız `VALIDATION_RESULT.json`; 24.09.2026 23:43:57 UTC = 25.09.2026 02:43:57 İstanbul |
-| K02 | `4629e9e58f8a74bbaad1e76e362893628837c823...1dfd76059aa8492b74b09486b2649329ca4a1e79` compare dosya değişim listesi; `workspace_resume`, `context_compiler`, cognitive checks ve ilgili testler |
-| K03 | `src/zekam/application/project_rag_runtime.py`, satır 1500–son; `_query`, `query_registered_project`, query verification/state yazımı |
-| K04 | Aynı dosya, satır 1–270 ve 320–620; `_git_source_state`, `_project_plan`, `_provider`, binding/cache altyapısı |
-| K05 | `src/zekam/infrastructure/embedding/opencode_remote.py`, satır 290–son; `_vectors`, `probe`, `_embed`, `health` |
-| K06 | `src/zekam/application/local_embedding_composition.py`; source fixture seçimi ve `build_verified_mac_embedding` |
-| K07 | `src/zekam/infrastructure/sqlite/knowledge_index.py`, satır 1–270 ve 300–545; constructor, schema, `_validate_schema`, read-boundary ve generation limiti |
-| K08 | Aynı dosya, satır 600–960; `exact`, `lexical`, `dense`, `views`, `source_identity`, readiness |
-| K09 | `src/zekam/application/embedded_project_rag.py`, satır 1–260 ve 255–son; provider/evidence gate, tek-chunk identifier filtresi, citation ve excerpt çıktısı |
-| K10 | `src/zekam/application/retrieval_service.py`; sıralı search, build_answer, token budgeting, GoldenCase/evaluator |
-| K11 | `src/zekam/application/embedding_provider.py`, satır 1–270; profile identity, validation ve policy sözleşmesi |
-| K12 | `src/zekam/interfaces/cli/main.py`, satır 1–200 ve 210–355; eager import listesi, resume/ask ve CLI çıktı yolu |
-| K13 | `src/zekam/application/workspace_resume.py`, satır 1–310; bounded projection ve ek navigation erişimleri |
-| K14 | `src/zekam/infrastructure/process/capability_worker.py`, satır 1–270; deadline, cancellation grace ve process cleanup. `opencode_remote.py` satır 1–290: effect/receipt doğrulama |
-| K15 | `src/zekam/application/project_rag_runtime.py`, satır 1100–1420; canonical `_index`, durable vector cache, eksik batch'ler ve generation aktivasyonu |
-| K16 | `docs/ZEKAM_YETKINLIK_ENVANTERI.md`; readiness sınırları, RAG büyük ölçek performans kampanyası ve graph değerlendirmesi |
-| K17 | `README.md` ve baseline `AKTIF_GOREV.md` satır 1–135; CLI-only, aktif görev, authority ve güvenlik sınırları |
-| K18 | `src/zekam/application/active_task_contract.py`, satır 1–230; izin verilen front matter alanları ve task/projection sözleşmesi |
-
-Dış teknik doğrulama kaynakları, erişim tarihi 25.09.2026:
-
-```text
-E01 — SQLite PRAGMA quick_check / integrity / foreign_key_check
-https://www.sqlite.org/pragma.html#pragma_quick_check
-
-E02 — sqlite-vec KNN MATCH + k ve distance metric sözleşmesi
-https://alexgarcia.xyz/sqlite-vec/features/knn.html
-
-E03 — sqlite-vec partition key ve metadata filtreleri
-https://alexgarcia.xyz/sqlite-vec/features/vec0.html
-
-E04 — SQLite URI immutable davranışı ve dosya değişmezliği varsayımı
-https://www.sqlite.org/uri.html
-
-E05 — SQLite FTS5 unicode61 tokenizer davranışı
-https://www.sqlite.org/fts5.html
-```
-
-Bu kaynaklardaki güncel API/özellikleri repository'nin kurulu sürümü desteklemeyebilir. Uygulama öncesi pyproject/lockfile ve çalışma zamanındaki sürümleri doğrula; mevcut bağımlılıkları gerekçesiz yükseltme.
+- **[K01] Sabit GitHub revision:** [https://github.com/mehmet-karacan/zekam/commit/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7](https://github.com/mehmet-karacan/zekam/commit/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7). 26 Eylül 2026 22:19:02 UTC tarihli commit; İstanbul takviminde 27 Eylül 01:19. Commit mesajındaki test sonuçları geçmiş beyanıdır, bu araştırmada yeniden çalıştırılmış sonuç değildir.
+- **[K02] Teknik kimlik / tırnak ayrıştırma:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/domain/retrieval.py#L31-L72](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/domain/retrieval.py#L31-L72). _IDENTIFIER, _QUOTED_PHRASE ve extract_identifiers; Türkçe kesme işaretleri için karşı örnek.
+- **[K03] Alıntının ilk kullanılan parçanın başından seçilmesi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L73-L150](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L73-L150). MAX_ANSWER_EXCERPT_CHARS=500; _excerpt_window, _build_excerpt ve _tokens.
+- **[K04] Bağlam penceresi ve token bütçesi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/retrieval_service.py#L76-L157](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/retrieval_service.py#L76-L157). _select_window leading window; _is_pure_identifier_lookup.
+- **[K05] Intent sınıflandırması ve deadline:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/retrieval_service.py#L279-L405](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/retrieval_service.py#L279-L405). _classify_intent mevcut ve deterministik; exact/semantic/relationship/comparison/ambiguous ayrımı; mevcut RetrievalDeadline.
+- **[K06] Dense uyumluluk ve query kapısı:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L370-L500](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L370-L500). Dense devre dışıyken embed_query çağrılmaz; generation/policy/provider profilleri karşılaştırılır; varsayılan context bütçesi 1200.
+- **[K07] Kanıt yeterlilik kapısı ve sonuç sözleşmesi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L500-L800](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/embedded_project_rag.py#L500-L800). Kimlik desteği, lexical coverage, çoklu nesne ve ilişki kapıları; citation bulk hydration; lexical-only-degraded; retrieval-only alanları.
+- **[K08] Query yürütme sırası ve kaynak tazeliği:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/project_rag_runtime.py#L2333-L2510](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/project_rag_runtime.py#L2333-L2510). Bounded freshness; state/index binding; _provider çağrısından sonra EmbeddedProjectRAG.query; observational state CAS; probe_evidence_digest ve remote_provider_used.
+- **[K09] Önbellekten profil yeniden kurulması:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/project_rag_runtime.py#L1166-L1265](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/project_rag_runtime.py#L1166-L1265). Durable/in-process qualification cache; cached _profile reconstruction; cache hitte remote_provider_used=True, probe_call_count=0.
+- **[K10] Açık CLI proje önceliği:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/interfaces/cli/main.py#L204-L251](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/interfaces/cli/main.py#L204-L251). --project varsa resolve_registered_project; yoksa resolve_question_project; retrieval alanı yeniden yorumlanmadan çıktıya girer.
+- **[K11] Mevcut deterministik router sözleşmesi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L1-L170](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L1-L170). Project family ve kayıtlı proje temelli çözüm; çıktı provider_calls=0, grants_authority=False.
+- **[K12] Router proje eşleşmesi ve sayısal Jira adaylığı:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L287-L397](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L287-L397). Açık metinsel proje eşleşmeleri; bir dört veya daha fazla haneli sayıyla Jira adaylığının açılması.
+- **[K13] Router aile ve mutation ayrımı:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L460-L600](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/request_routing.py#L460-L600). Family-all-members; bağımsız ekle/oluştur sözcüklerinin değişiklik niyetine dönüşebilmesi.
+- **[K14] Coordinator talimatları / tüketici sözleşmesi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/.opencode/agents/zekam-coordinator.md#L1-L119](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/.opencode/agents/zekam-coordinator.md#L1-L119). Her kullanıcı isteğinde route preview; RAG-first router child gerektirmez; answered için ilk üç citation; diğer durum adlarıyla uyuşmazlık riski.
+- **[K15] Model seçimi yetki ve çağrı değildir:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/domain/model_routing.py#L1-L61](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/domain/model_routing.py#L1-L61). Routing nesneleri authority-free; provider çağrıları kararın dışında.
+- **[K16] Layered model routing:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/layered_model_routing.py#L1-L185](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/layered_model_routing.py#L1-L185). Mevcut evidence-bound policy / qualification / context arayüzleri; ikinci bir model router kurmak için gerekçe değil.
+- **[K17] OpenCode managed dağıtım yüzeyi:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/opencode_agent_bootstrap.py#L1-L57](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/opencode_agent_bootstrap.py#L1-L57). Kullanıcı-genel agent/config/plugin yerleşimi ve managed sahiplik işaretleri. Dosyanın tamamının davranışı bu aralıktan çıkarılmadı.
+- **[K18] Yaşayan mevcut görev:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/AKTIF_GOREV.md#L1-L110](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/AKTIF_GOREV.md#L1-L110). zekam-active-task/v2; önceki görevin kapsamı, kaynak inceleme sınırı ve başlangıç disiplini. Eski bulgular bugünkü kodla tekrar eşleştirilmeli.
+- **[K19] Aktif görev şeması:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/active_task_contract.py#L21-L225](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/src/zekam/application/active_task_contract.py#L21-L225). İzinli front matter alanları, sabit status, authority/projection ayrımı; yeni dosya bu alan kümesini kullanır.
+- **[K20] Global kabul kapıları:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/GLOBAL_DEFINITION_OF_DONE.md](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/GLOBAL_DEFINITION_OF_DONE.md). Teknik, platform, sağlayıcı, güvenlik, bağımsız verification ve kanıt kuralları; birkaç başarılı soru tüm DoD yerine geçmez.
+- **[K21] Devam / recovery protokolü:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/DEVAM_PROTOKOLU.md](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/DEVAM_PROTOKOLU.md). Source revision, Work Graph, claim, receipt ve checkpoint; claim var terminal receipt yoksa recovery-required.
+- **[K22] Başlangıç otoriteleri:** [https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/AGENTS.md](https://github.com/mehmet-karacan/zekam/blob/f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7/AGENTS.md). Gerçek kaynak kökü, yürütme ve doğrulama protokolünün üst sınırı; 00_BASLA.md ile birlikte yerelde yeniden okunacak.
+- **[E01] OpenCode resmî provider dokümantasyonu:** [https://opencode.ai/docs/providers/](https://opencode.ai/docs/providers/). Custom provider için model limit.context / limit.output; gerçek kurulu sürümün şeması esas alınmalı.
+- **[E02] Python subprocess resmî dokümantasyonu:** [https://docs.python.org/3/library/subprocess.html#security-considerations](https://docs.python.org/3/library/subprocess.html#security-considerations). Windows .bat/.cmd dosyaları shell=False olsa da kabuk tarafından yorumlanabilir. Tek başına shell=False düzeltme garantisi değildir.
+- **[E03] SQLite FTS5 resmî dokümantasyonu:** [https://www.sqlite.org/fts5.html#unicode61_tokenizer](https://www.sqlite.org/fts5.html#unicode61_tokenizer). Unicode61, remove_diacritics ve tokenization; Porter İngilizce içindir. Uygulamanın Python yeterlilik kapısı ayrıca tutarlı olmalı.
+- **[E04] Anthropic Contextual Retrieval:** [https://www.anthropic.com/engineering/contextual-retrieval](https://www.anthropic.com/engineering/contextual-retrieval). İndeksleme öncesi parçaya bağlam ekleme yaklaşımı. Bu projeye aynı başarı yüzdeleri aktarılamaz; ilk aşamada deterministik hata düzeltmelerinin yerine önerilmedi.
+- **[E05] OpenCode resmî CLI dokümantasyonu:** [https://opencode.ai/docs/cli/](https://opencode.ai/docs/cli/). Headless/run yüzeyi için sürümle eşleştirilecek referans; prompt taşıma biçimi kurulu binary ile doğrulanmadan varsayılmayacak.

@@ -133,3 +133,17 @@ task-scope grant'lerini genisletmez; canli provider, commit veya push yetkisi de
 - Onceki bilesel mimari gorevinin tamamlanmis isleri bozulmaz veya yeniden baslatilmaz.
 - Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
 - Global DoD ve onceki acik kabul maddeleri yeni kanit olmadan tamamlanmis sayilmaz.
+
+## 30 Eylul 2026 kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION-001` | `ZEKAM-RAG-ROUTER-QUALITY-002` |
+| Icerik SHA-256 | `9fb789564987597ec579702765d4e5b0c67b7665ac1bf6f2e898a8ab929a4b60` | `AKTIF_GOREV.md` digest'i (projection'da) |
+| Baseline HEAD | `f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7` | `f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7` |
+
+Eski Markdown ve exact projection'i `ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION-001.md` ve
+`.projection.yaml` olarak degistirilmeden alindi. Gecis oncesi operational Work Graph'ta bu
+gorev icin acik Work Item yoktu. Bitmemis kapsam silinmez; Global DoD'nin pending maddeleri
+degismeden kalir. Canli provider, commit ve push bu gecisten yetki kazanmaz.
+
