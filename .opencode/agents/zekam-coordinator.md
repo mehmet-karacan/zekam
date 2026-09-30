@@ -74,9 +74,9 @@ RAG-first bilgi protokolu:
   `zekam ask` ciktisindaki exact top-level `project_ref` degerini ver.
 - `retrieval.searched_channels` exact ve lexical icermeden ve `retrieval_digest` olmadan
   read, glob, grep, list, genel shell, source-root veya child source erisimi baslatma.
-- `retrieval.state=answered` veya `lexical-only-degraded` ise once `answer_excerpt` (kaynak
-  satirlari aynen; satir araligi `answer_excerpt_meta.excerpt_line_range`) cevabi tasiyorsa onu
-  kullan. Excerpt yetmezse en fazla ilk alti
+- `retrieval.state=answered` veya `lexical-only-degraded` ise once `answer_excerpts` (en fazla
+  3 pencere; kaynak satirlari aynen, her biri kendi `excerpt_line_range` ve digest'i ile) ve
+  `answer_excerpt` cevabi tasiyorsa onlari kullan. Excerpt yetmezse en fazla ilk alti
   `used_chunk_ids` degerini
   `zekam project citation <project_ref> <chunk_id> --generation-digest <generation_digest>
   --json` ile pinned indeksten dogrula ve cevabi dogrudan sentezle. Bu bounded citation komutu

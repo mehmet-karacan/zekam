@@ -1094,6 +1094,9 @@ def test_r04_member_question_adds_following_chunks_of_the_named_class(tmp_path: 
         result = _query(rag, "BatchJobController hangi HTTP endpoint'lerini sunar?")
         cited = {item["chunk_id"] for item in result["citations"]}
         assert {"same-0", "same-1"} <= cited
+        excerpt_ids = {item["chunk_id"] for item in result["answer_excerpts"]}
+        assert {"same-0", "same-1"} <= excerpt_ids
+        assert "start-job-manually" in " ".join(item["text"] for item in result["answer_excerpts"])
         assert "same-1" in result["reference_expansion"]
     finally:
         index.close()

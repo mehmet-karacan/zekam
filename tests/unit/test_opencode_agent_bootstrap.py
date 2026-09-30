@@ -124,7 +124,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "--authorize-remote-query" in coordinator
     assert "subagent zorunlu degildir" in coordinator
     assert "en fazla ilk alti" in coordinator
-    assert "answer_excerpt" in coordinator
+    assert "answer_excerpts" in coordinator
     assert "en fazla bir preview" in coordinator
     assert "abstained-no-edge" in coordinator
     assert "zekam project history" in coordinator

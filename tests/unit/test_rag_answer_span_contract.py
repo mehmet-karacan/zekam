@@ -85,3 +85,61 @@ def test_build_excerpt_prefers_the_chunk_whose_window_matches_the_query() -> Non
     assert meta["chunk_id"] == "c2"
     assert '@PostMapping("/stop")' in text
     assert meta["excerpt_line_range"][0] > 1
+
+
+def _views(**texts: str) -> dict[str, SimpleNamespace]:
+    return {
+        chunk_id: SimpleNamespace(
+            text=text,
+            content_digest=f"sha256:{chunk_id}",
+            locator=SimpleNamespace(relative_path=f"{chunk_id}.java", line_start=1),
+        )
+        for chunk_id, text in texts.items()
+    }
+
+
+@pytest.mark.unit
+def test_multi_window_excerpts_are_bounded_exact_and_ordered_by_relevance() -> None:
+    from zekam.application.embedded_project_rag import (
+        MAX_ANSWER_EXCERPTS,
+        MAX_ANSWER_EXCERPTS_TOTAL_CHARS,
+        _build_excerpts,
+    )
+
+    views = _views(
+        c1="x\n" * 10,
+        c2=_CONTROLLER,
+        c3="BatchJobController endpoint\n" * 3,
+        c4="BatchJobController endpoint listesi\n" * 3,
+        c5="BatchJobController\n",
+    )
+    answer = SimpleNamespace(used_chunk_ids=tuple(views), citations=(object(),) * 5)
+    items = _build_excerpts(answer, views, "BatchJobController endpoint")
+    assert 1 <= len(items) <= MAX_ANSWER_EXCERPTS
+    assert sum(len(item["text"]) for item in items) <= MAX_ANSWER_EXCERPTS_TOTAL_CHARS
+    assert "c1" not in {item["chunk_id"] for item in items}
+    for item in items:
+        assert item["excerpt_digest"] != item["content_digest"]
+        assert item["text"] in views[item["chunk_id"]].text
+
+
+@pytest.mark.unit
+def test_related_chunks_get_a_relevance_floor_but_unrelated_zero_match_chunks_do_not() -> None:
+    from zekam.application.embedded_project_rag import _build_excerpts
+
+    views = _views(
+        head=_CONTROLLER, tail="@PostMapping\nvoid other() {}\n", noise="tamamen ilgisiz\n"
+    )
+    answer = SimpleNamespace(used_chunk_ids=("head", "tail", "noise"), citations=(object(),) * 3)
+    plain = _build_excerpts(answer, views, "BatchJobController")
+    related = _build_excerpts(answer, views, "BatchJobController", related_ids=("tail",))
+    assert [item["chunk_id"] for item in plain] == ["head"]
+    assert [item["chunk_id"] for item in related] == ["head", "tail"]
+
+
+@pytest.mark.unit
+def test_multi_window_excerpts_are_empty_without_citations() -> None:
+    from zekam.application.embedded_project_rag import _build_excerpts
+
+    answer = SimpleNamespace(used_chunk_ids=(), citations=())
+    assert _build_excerpts(answer, {}, "x") == []

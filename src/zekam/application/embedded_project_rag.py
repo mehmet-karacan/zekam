@@ -199,6 +199,69 @@ def _build_excerpt(
     return text, meta
 
 
+#: RAG26-R04: coklu-chunk kanit icin en fazla bu kadar pencere ve toplam karakter.
+MAX_ANSWER_EXCERPTS = 3
+MAX_ANSWER_EXCERPTS_TOTAL_CHARS = 2400
+
+
+def _build_excerpts(
+    answer: Any,
+    views: dict[str, Any],
+    query: str = "",
+    related_ids: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Kullanilan chunk'larin en alakali pencerelerini, toplami sinirli listeler.
+
+    Cevap birden cok chunk'a yayildiginda (`X hangi endpoint'leri sunar?` sinif govdesi iki
+    parcadir) tek ``answer_excerpt`` yetmez. Her oge kaynak satirlarini aynen tasir, kendi
+    digest/satir araligina sahiptir ve sorguyla hic eslesmeyen chunk'lar eklenmez; kaynak
+    referansi veya sinif iliskisiyle genisletilen (``related_ids``) chunk'lar tabana dahildir.
+    """
+
+    if not answer.used_chunk_ids or not answer.citations:
+        return []
+    ranked = sorted(
+        (
+            (
+                max(
+                    _excerpt_relevance(views[chunk_id].text, query),
+                    1 if chunk_id in related_ids else 0,
+                ),
+                -order,
+                chunk_id,
+            )
+            for order, chunk_id in enumerate(answer.used_chunk_ids)
+            if chunk_id in views
+        ),
+        reverse=True,
+    )
+    items: list[dict[str, Any]] = []
+    remaining = MAX_ANSWER_EXCERPTS_TOTAL_CHARS
+    for relevance, _, chunk_id in ranked:
+        if len(items) >= MAX_ANSWER_EXCERPTS or remaining < 200:
+            break
+        if relevance <= 0 and items:
+            break
+        view = views[chunk_id]
+        text, truncated, line_range = _excerpt_window(
+            view.text, min(MAX_ANSWER_EXCERPT_CHARS, remaining), query
+        )
+        remaining -= len(text)
+        items.append(
+            {
+                "chunk_id": chunk_id,
+                "text": text,
+                "truncated": truncated,
+                "excerpt_digest": digest_of_bytes(text.encode("utf-8")),
+                "excerpt_line_range": list(line_range),
+                "content_digest": view.content_digest,
+                "source_ref": view.locator.relative_path if view.locator else None,
+                "line_start": view.locator.line_start if view.locator else None,
+            }
+        )
+    return items
+
+
 #: RAG26-R04: "hangi step'leri hangi sirayla" gibi akis sorularinda, bulunan job
 #: yapilandirmasi akisi baska bir dosyada tanimli bean/metod adiyla referanslar.
 _FLOW_QUESTION_TERMS = (
@@ -1052,6 +1115,7 @@ class EmbeddedProjectRAG:
             "tokens_used": answer.tokens_used,
             "fallback_allowed": False,
             "answer_excerpt": excerpt,
+            "answer_excerpts": _build_excerpts(answer, views, query, expanded_ids),
             "answer_excerpt_meta": excerpt_meta,
             "reference_expansion": list(expanded_ids),
             "explanation": list(answer.explanation),
