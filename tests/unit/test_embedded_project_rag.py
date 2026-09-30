@@ -1140,3 +1140,37 @@ def test_identifier_free_question_needs_content_term_in_dense_hit(tmp_path: Path
         assert result["citations"] == []
     finally:
         index.close()
+
+
+def test_documentation_paths_are_recognised_and_generated_trees_excluded() -> None:
+    from zekam.application.embedded_project_rag import _is_documentation_path
+
+    assert _is_documentation_path("README.md")
+    assert _is_documentation_path("docs/OPERASYON.md")
+    assert _is_documentation_path("gpu-ui/Readme")
+    assert not _is_documentation_path("graft/src/foo.py.md")
+    assert not _is_documentation_path("node_modules/pkg/README.md")
+    assert not _is_documentation_path("src/app/main.py")
+
+
+def test_promote_documentation_keeps_first_hit_and_lifts_doc_chunks() -> None:
+    from types import SimpleNamespace
+
+    from zekam.application.embedded_project_rag import _promote_documentation
+    from zekam.domain.retrieval import RetrievalChannel, ScoredHit
+
+    paths = {"a": "src/a.json", "b": "src/b.json", "c": "docs/OPERASYON.md", "d": "README.md"}
+
+    class Index:
+        def views(self, project_id: str, ids: tuple[str, ...], *, generation_digest: str) -> Any:
+            return {
+                i: SimpleNamespace(locator=SimpleNamespace(relative_path=paths[i])) for i in ids
+            }
+
+    deep = tuple(
+        ScoredHit(i, RetrievalChannel.DENSE, n, 1.0 - n / 10) for n, i in enumerate("abcd", 1)
+    )
+    result = _promote_documentation(Index(), "p", "g", deep[:2], deep)  # type: ignore[arg-type]
+    assert [hit.chunk_id for hit in result] == ["a", "c"]
+    assert [hit.rank for hit in result] == [1, 2]
+    assert result[0].raw_score == deep[0].raw_score

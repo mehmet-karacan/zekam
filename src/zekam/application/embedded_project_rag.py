@@ -473,6 +473,22 @@ def _tokens(value: str) -> frozenset[str]:
     return frozenset(item.casefold() for item in _TOKEN.findall(value) if len(item) > 1)
 
 
+_ASCII_FOLD = str.maketrans("çğıöşüı", "cgiosui")
+_STEM_CHARS = 5
+
+
+def _stems(terms: frozenset[str]) -> frozenset[str]:
+    """Turkce ek/aksan farklarina dayanikli kok (ASCII-fold + ilk 5 karakter)."""
+    return frozenset(term.translate(_ASCII_FOLD)[:_STEM_CHARS] for term in terms)
+
+
+def _content_coverage(content_terms: frozenset[str], text: str) -> float:
+    if not content_terms:
+        return 0.0
+    wanted = _stems(content_terms)
+    return len(wanted & _stems(_tokens(text))) / len(wanted)
+
+
 def _supports_identifier(text: str, identifier: str) -> bool:
     """Require one answerable chunk to contain a single technical identity."""
     text_tokens = _tokens(text)
@@ -664,6 +680,70 @@ def build_embedded_project_generation(
     return bound_plan, generation
 
 
+_DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc", ".txt")
+_DOC_EXCLUDED_DIRS = frozenset(
+    {"graft", "node_modules", "vendor", "dist", "build", "out", "target", "archive"}
+)
+DOC_PRIOR_LIMIT = 3
+DOC_PRIOR_DEPTH = 100
+
+
+def _view_relative_path(view: Any) -> str:
+    locator = getattr(view, "locator", None)
+    if isinstance(locator, dict):
+        value = locator.get("relative_path")
+    else:
+        value = getattr(locator, "relative_path", None)
+    return str(value or "").replace("\\", "/")
+
+
+def _is_documentation_path(path: str) -> bool:
+    """README ve dokuman dosyalari; uretilmis/vendor agaclari haric."""
+    parts = [part for part in path.casefold().split("/") if part]
+    if not parts or any(part in _DOC_EXCLUDED_DIRS for part in parts[:-1]):
+        return False
+    name = parts[-1]
+    return name.startswith("readme") or name.endswith(_DOC_SUFFIXES)
+
+
+def _promote_documentation(
+    index: KnowledgeIndexPort,
+    project_id: str,
+    generation_digest: str,
+    hits: tuple[ScoredHit, ...],
+    deep: tuple[ScoredHit, ...],
+) -> tuple[ScoredHit, ...]:
+    """Kimliksiz genel sorularda derin sonuc listesindeki ilk dokuman chunk'larini one al.
+
+    Ilk sonuc korunur (kanit esikleri onun skoruna bakar); dokuman chunk'lari ondan
+    hemen sonra girer, kalan siralama degismez. Yalniz zaten bulunmus adaylar yeniden
+    siralanir; yeni kanit uretilmez.
+    """
+    if not deep:
+        return hits
+    views = index.views(
+        project_id, tuple(hit.chunk_id for hit in deep), generation_digest=generation_digest
+    )
+    docs = [
+        hit
+        for hit in deep
+        if hit.chunk_id in views
+        and _is_documentation_path(_view_relative_path(views[hit.chunk_id]))
+    ][:DOC_PRIOR_LIMIT]
+    if not docs:
+        return hits
+    seen: set[str] = set()
+    ordered: list[ScoredHit] = []
+    for hit in (*hits[:1], *docs, *hits[1:]):
+        if hit.chunk_id not in seen:
+            seen.add(hit.chunk_id)
+            ordered.append(hit)
+    return tuple(
+        replace(hit, rank=rank) if hit.rank != rank else hit
+        for rank, hit in enumerate(ordered[: max(len(hits), 1)], start=1)
+    )
+
+
 @dataclass(slots=True)
 class EmbeddedProjectSearchBackend:
     index: KnowledgeIndexPort
@@ -674,6 +754,7 @@ class EmbeddedProjectSearchBackend:
     source_type: str = "embedded-project-knowledge"
     dense_enabled: bool = True
     dense_failure_reason: str | None = None
+    doc_prior: bool = False
     last_exact: tuple[ScoredHit, ...] = ()
     last_lexical: tuple[ScoredHit, ...] = ()
     last_dense: tuple[ScoredHit, ...] = ()
@@ -688,13 +769,21 @@ class EmbeddedProjectSearchBackend:
         return self.last_exact
 
     def lexical(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
-        self.last_lexical = self.index.lexical(
-            self.project_id,
-            query,
-            limit=limit,
-            generation_digest=self.generation_digest,
+        depth = max(limit, DOC_PRIOR_DEPTH) if self.doc_prior else limit
+        found = self.index.lexical(
+            self.project_id, query, limit=depth, generation_digest=self.generation_digest
         )
+        self.last_lexical = self._with_documentation(found[:limit], found)
         return self.last_lexical
+
+    def _with_documentation(
+        self, hits: tuple[ScoredHit, ...], deep: tuple[ScoredHit, ...]
+    ) -> tuple[ScoredHit, ...]:
+        if not self.doc_prior:
+            return hits
+        return _promote_documentation(
+            self.index, self.project_id, self.generation_digest, hits, deep
+        )
 
     def dense(self, query: str, *, limit: int) -> tuple[ScoredHit, ...]:
         if not self.dense_enabled:
@@ -716,12 +805,11 @@ class EmbeddedProjectSearchBackend:
             self.dense_failure_reason = f"query-embedding-failed:{type(exc).__name__}"
             self.last_dense = ()
             return ()
-        self.last_dense = self.index.dense(
-            self.project_id,
-            batch.vectors[0],
-            limit=limit,
-            generation_digest=self.generation_digest,
+        depth = max(limit, DOC_PRIOR_DEPTH) if self.doc_prior else limit
+        found = self.index.dense(
+            self.project_id, batch.vectors[0], limit=depth, generation_digest=self.generation_digest
         )
+        self.last_dense = self._with_documentation(found[:limit], found)
         return self.last_dense
 
 
@@ -929,6 +1017,7 @@ class EmbeddedProjectRAG:
             self.embedding_policy,
             dense_enabled=provider_available,
             dense_failure_reason=None if provider_available else provider_failure_reason,
+            doc_prior=not extract_identifiers(query),
         )
         service = RetrievalService(
             backend,
@@ -963,10 +1052,10 @@ class EmbeddedProjectRAG:
             ),
             default=0.0,
         )
-        top_dense = backend.last_dense[0].raw_score if backend.last_dense else -1.0
-        dense_margin = (
-            top_dense - backend.last_dense[1].raw_score if len(backend.last_dense) > 1 else 0.0
-        )
+        # Dokuman onceligi sirayi degistirir; esik kararlari ham skor siralamasindan gelir.
+        dense_scores = sorted((hit.raw_score for hit in backend.last_dense), reverse=True)
+        top_dense = dense_scores[0] if dense_scores else -1.0
+        dense_margin = top_dense - dense_scores[1] if len(dense_scores) > 1 else 0.0
         # WP6 (B07): split the evidence contract by query intent instead of a
         # blanket "one chunk must hold every identifier" requirement.
         #   * single-object (EXACT_LOOKUP or one identifier): a single chunk must
@@ -1026,7 +1115,7 @@ class EmbeddedProjectRAG:
                 # (ornegin buyuk bir katalog dosyasi) "answered" uretir.
                 identifiers
                 or not content_terms
-                or len(content_terms & _tokens(views[hit.chunk_id].text)) / len(content_terms)
+                or _content_coverage(content_terms, views[hit.chunk_id].text)
                 >= self.lexical_coverage_threshold / 2
             )
             for hit in backend.last_dense[:2]
