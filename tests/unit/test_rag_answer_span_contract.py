@@ -92,7 +92,11 @@ def _views(**texts: str) -> dict[str, SimpleNamespace]:
         chunk_id: SimpleNamespace(
             text=text,
             content_digest=f"sha256:{chunk_id}",
-            locator=SimpleNamespace(relative_path=f"{chunk_id}.java", line_start=1),
+            locator=SimpleNamespace(
+                relative_path=f"{chunk_id}.java",
+                line_start=1,
+                as_dict=lambda chunk_id=chunk_id: {"relative_path": f"{chunk_id}.java"},
+            ),
         )
         for chunk_id, text in texts.items()
     }
@@ -143,3 +147,111 @@ def test_multi_window_excerpts_are_empty_without_citations() -> None:
 
     answer = SimpleNamespace(used_chunk_ids=(), citations=())
     assert _build_excerpts(answer, {}, "x") == []
+
+
+@pytest.mark.unit
+def test_leading_annotations_of_the_type_declaration_join_the_window() -> None:
+    from zekam.application.embedded_project_rag import _excerpt_window
+
+    text = (
+        "package x;\n" + "import a.B;\n" * 60 + "@RestController\n"
+        '@RequestMapping("/batch-job")\n'
+        "public class BatchJobController {\n"
+        '    @PostMapping("/stop")\n'
+        "    public void stop() {}\n"
+    )
+    window, _, (first, last) = _excerpt_window(text, 400, "BatchJobController stop")
+    assert '@RequestMapping("/batch-job")' in window
+    assert "@RestController" in window
+    lines = text.splitlines(keepends=True)
+    assert "".join(lines[first - 1 : last]) == window
+    assert len(window) <= 400
+
+
+@pytest.mark.unit
+def test_annotation_extension_is_bounded() -> None:
+    from zekam.application.embedded_project_rag import (
+        MAX_LEADING_ANNOTATION_LINES,
+        _excerpt_window,
+    )
+
+    text = ("x" * 20 + "\n") * 40 + "@A\n" * 20 + "public class Target {\n    void run() {}\n}\n"
+    window, truncated, _range = _excerpt_window(text, 200, "Target")
+    assert truncated is True
+    assert 0 < window.count("@A") <= MAX_LEADING_ANNOTATION_LINES
+
+
+@pytest.mark.unit
+def test_secret_looking_source_lines_never_reach_the_excerpt() -> None:
+    from zekam.application.embedded_project_rag import (
+        REDACTED_LINE,
+        _build_excerpt,
+        _build_excerpts,
+        _redact_secret_lines,
+    )
+
+    body = (
+        'class GeneralUtils {\n    String anahtar = "2025_UYDURMA_DEGER_1234";\n'
+        '    String api_key = "p9x7m2q4v8n6w1z3";\n    int port = 9001;\n}\n'
+    )
+    masked, redacted = _redact_secret_lines(body)
+    assert redacted is True
+    assert "2025_UYDURMA_DEGER_1234" not in masked
+    assert "p9x7m2q4v8n6w1z3" not in masked
+    assert masked.count(REDACTED_LINE) == 2
+    assert "int port = 9001;" in masked
+    views = _views(c1=body)
+    answer = SimpleNamespace(used_chunk_ids=("c1",), citations=(object(),))
+    text, meta = _build_excerpt(answer, views, "GeneralUtils port")
+    assert meta is not None and meta["redacted"] is True
+    assert "2025_UYDURMA_DEGER_1234" not in (text or "")
+    items = _build_excerpts(answer, views, "GeneralUtils port")
+    assert items and items[0]["redacted"] is True
+    assert "p9x7m2q4v8n6w1z3" not in items[0]["text"]
+
+
+@pytest.mark.unit
+def test_clean_source_is_returned_unredacted() -> None:
+    from zekam.application.embedded_project_rag import _redact_secret_lines
+
+    text = "public class Ok {\n    int port = 9001;\n}\n"
+    assert _redact_secret_lines(text) == (text, False)
+
+
+@pytest.mark.unit
+def test_short_ambiguous_question_suggests_one_clarification_from_real_citations() -> None:
+    from zekam.application.embedded_project_rag import _clarification
+
+    citations = [
+        {"source_ref": "gpu-backend/src/main/java/batch/flow/hesaplama/A.java"},
+        {"source_ref": "gpu-backend/src/main/java/batch/flow/olusturma/B.java"},
+        {"source_ref": "gpu-backend/src/main/java/batch/flow/olusturma/C.java"},
+    ]
+    result = _clarification("Hakedis nasil calisir?", (), citations)
+    assert result["suggested"] is True
+    assert result["reason"] == "short-ambiguous-query"
+    assert result["candidate_areas"] == ["flow/hesaplama", "flow/olusturma"]
+    specific = _clarification(
+        "HakedisHesaplamaJob hangi step'leri sirayla calistirir?", (), citations
+    )
+    assert specific["suggested"] is False and specific["candidate_areas"] == []
+    with_identifier = _clarification("Hakedis", ("HakedisHesaplamaJob",), citations)
+    assert with_identifier["suggested"] is False
+
+
+@pytest.mark.unit
+def test_enumeration_questions_get_more_windows_within_a_larger_fixed_total() -> None:
+    from zekam.application.embedded_project_rag import (
+        MAX_ANSWER_EXCERPTS,
+        MAX_ANSWER_EXCERPTS_ENUMERATION,
+        MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION,
+        _build_excerpts,
+    )
+
+    views = _views(**{f"c{i}": f"JobConfig{i} hangi job\n" * 20 for i in range(10)})
+    answer = SimpleNamespace(used_chunk_ids=tuple(views), citations=(object(),) * 10)
+    normal = _build_excerpts(answer, views, "hangi job")
+    listing = _build_excerpts(answer, views, "hangi job", enumeration=True)
+    assert len(normal) <= MAX_ANSWER_EXCERPTS
+    assert MAX_ANSWER_EXCERPTS < len(listing) <= MAX_ANSWER_EXCERPTS_ENUMERATION
+    assert sum(len(item["text"]) for item in listing) <= MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION

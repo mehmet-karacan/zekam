@@ -30,6 +30,7 @@ from zekam.application.retrieval_service import (
     RetrievalTrace,
     _classify_intent,
 )
+from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.retrieval import (
@@ -108,6 +109,36 @@ def _excerpt_line_score(line: str, terms: frozenset[str]) -> int:
     return sum(1 for term in terms if term in lowered)
 
 
+#: Turkce atama kaliplari (`anahtar = "..."`, `sifre: '...'`) genel tarayicida yok; yalniz
+#: CIKTI tarafinda, savunma katmani olarak maskelenir (indeks kurallari degismez).
+_TURKISH_CREDENTIAL_LINE = re.compile(
+    r"(?:anahtar|sifre|şifre|parola)\w*\s*[:=]\s*[\"'][^\"'\s]{6,}[\"']", re.IGNORECASE
+)
+REDACTED_LINE = "[REDACTED: secret-pattern]"
+
+
+def _redact_secret_lines(text: str) -> tuple[str, bool]:
+    """Gizli deger kalibi tasiyan satirlari maskeler; deger asla ciktiya gecmez."""
+
+    flagged = {item.line_number for item in scan_text(text, relative_path="answer-excerpt.txt")}
+    lines = text.splitlines(keepends=True)
+    for number, line in enumerate(lines, start=1):
+        if _TURKISH_CREDENTIAL_LINE.search(line):
+            flagged.add(number)
+    if not flagged:
+        return text, False
+    masked = [
+        REDACTED_LINE + ("\n" if line.endswith("\n") else "") if number in flagged else line
+        for number, line in enumerate(lines, start=1)
+    ]
+    return "".join(masked), True
+
+
+#: Pencere, sinif/metod tanimindan hemen once gelen anotasyon satirlarini (`@RequestMapping`)
+#: en fazla bu kadar geriye dogru dahil eder; taban yol/route bilgisi kaybolmaz.
+MAX_LEADING_ANNOTATION_LINES = 6
+
+
 def _excerpt_window(
     text: str, max_chars: int, query: str = ""
 ) -> tuple[str, bool, tuple[int, int]]:
@@ -151,6 +182,20 @@ def _excerpt_window(
             return text[:max_chars], True, (1, 1)
         return "".join(lines[:end]), True, (1, end)
     _, start, end = best
+    back = 0
+    while (
+        start > 0
+        and back < MAX_LEADING_ANNOTATION_LINES
+        and lines[start - 1].lstrip().startswith("@")
+    ):
+        start -= 1
+        back += 1
+    if back:
+        total = 0
+        end = start
+        while end < len(lines) and total + len(lines[end]) <= max_chars:
+            total += len(lines[end])
+            end += 1
     return "".join(lines[start:end]), True, (start + 1, end)
 
 
@@ -185,9 +230,11 @@ def _build_excerpt(
         key=lambda item: (_excerpt_relevance(item[1][1].text, query), -item[0]),
     )[1]
     text, truncated, line_range = _excerpt_window(view.text, MAX_ANSWER_EXCERPT_CHARS, query)
+    text, redacted = _redact_secret_lines(text)
     meta: dict[str, Any] = {
         "chunk_id": chunk_id,
         "truncated": truncated,
+        "redacted": redacted,
         # Derived digest of JUST the excerpt window — never confused with the
         # full chunk content_digest (kept distinct and clearly labelled).
         "excerpt_digest": digest_of_bytes(text.encode("utf-8")),
@@ -202,6 +249,38 @@ def _build_excerpt(
 #: RAG26-R04: coklu-chunk kanit icin en fazla bu kadar pencere ve toplam karakter.
 MAX_ANSWER_EXCERPTS = 3
 MAX_ANSWER_EXCERPTS_TOTAL_CHARS = 2400
+#: Listeleme sorulari daha cok dosyaya yayilir; pencere ve toplam karakter siniri genisler.
+MAX_ANSWER_EXCERPTS_ENUMERATION = 6
+MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION = 3600
+
+
+#: Kimliksiz ve en fazla bu kadar anlamli terimli sorular belirsiz sayilir.
+MAX_AMBIGUOUS_QUERY_TERMS = 2
+
+
+def _clarification(
+    query: str, identifiers: tuple[str, ...], citations: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Kisa, kimliksiz soruda tek netlestirme sorusu onerir; cevap uydurmaz.
+
+    Onerilen alanlar (`candidate_areas`) yalniz bulunan citation yollarindan gelir.
+    """
+
+    terms = _excerpt_terms(query)
+    suggested = not identifiers and 0 < len(terms) <= MAX_AMBIGUOUS_QUERY_TERMS
+    areas: list[str] = []
+    if suggested:
+        for item in citations:
+            path = str(item.get("source_ref") or "")
+            parts = path.split("/")
+            area = "/".join(parts[:-1][-2:]) or path
+            if area and area not in areas:
+                areas.append(area)
+    return {
+        "suggested": suggested,
+        "reason": "short-ambiguous-query" if suggested else None,
+        "candidate_areas": areas[:4],
+    }
 
 
 def _build_excerpts(
@@ -209,6 +288,7 @@ def _build_excerpts(
     views: dict[str, Any],
     query: str = "",
     related_ids: tuple[str, ...] = (),
+    enumeration: bool = False,
 ) -> list[dict[str, Any]]:
     """Kullanilan chunk'larin en alakali pencerelerini, toplami sinirli listeler.
 
@@ -235,10 +315,15 @@ def _build_excerpts(
         ),
         reverse=True,
     )
+    max_items = MAX_ANSWER_EXCERPTS_ENUMERATION if enumeration else MAX_ANSWER_EXCERPTS
     items: list[dict[str, Any]] = []
-    remaining = MAX_ANSWER_EXCERPTS_TOTAL_CHARS
+    remaining = (
+        MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION
+        if enumeration
+        else MAX_ANSWER_EXCERPTS_TOTAL_CHARS
+    )
     for relevance, _, chunk_id in ranked:
-        if len(items) >= MAX_ANSWER_EXCERPTS or remaining < 200:
+        if len(items) >= max_items or remaining < 200:
             break
         if relevance <= 0 and items:
             break
@@ -246,12 +331,14 @@ def _build_excerpts(
         text, truncated, line_range = _excerpt_window(
             view.text, min(MAX_ANSWER_EXCERPT_CHARS, remaining), query
         )
+        text, redacted = _redact_secret_lines(text)
         remaining -= len(text)
         items.append(
             {
                 "chunk_id": chunk_id,
                 "text": text,
                 "truncated": truncated,
+                "redacted": redacted,
                 "excerpt_digest": digest_of_bytes(text.encode("utf-8")),
                 "excerpt_line_range": list(line_range),
                 "content_digest": view.content_digest,
@@ -1115,7 +1202,10 @@ class EmbeddedProjectRAG:
             "tokens_used": answer.tokens_used,
             "fallback_allowed": False,
             "answer_excerpt": excerpt,
-            "answer_excerpts": _build_excerpts(answer, views, query, expanded_ids),
+            "answer_excerpts": _build_excerpts(
+                answer, views, query, expanded_ids, enumeration=_is_enumeration_question(query)
+            ),
+            "clarification": _clarification(query, identifiers, citations),
             "answer_excerpt_meta": excerpt_meta,
             "reference_expansion": list(expanded_ids),
             "explanation": list(answer.explanation),

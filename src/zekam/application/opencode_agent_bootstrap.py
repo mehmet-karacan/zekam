@@ -518,8 +518,10 @@ RAG-first bilgi protokolu:
   read, glob, grep, list, genel shell, source-root veya child source erisimi baslatma.
 - `retrieval.state=answered` veya `lexical-only-degraded` ise once `answer_excerpts` (en fazla
   3 pencere; kaynak satirlari aynen, her biri kendi `excerpt_line_range` ve digest'i ile) ve
-  `answer_excerpt` cevabi tasiyorsa onlari kullan. Excerpt yetmezse en fazla ilk alti
-  `used_chunk_ids` degerini
+  `answer_excerpt` cevabi tasiyorsa onlari kullan. `clarification.suggested=true` ise cevap
+  uydurmadan once `clarification.candidate_areas` secenekleriyle tek bir netlestirme sorusu sor.
+  `redacted=true` pencerelerde maskeli satirlari geri kurmaya calisma. Excerpt yetmezse en
+  fazla ilk alti `used_chunk_ids` degerini
   `zekam project citation <project_ref> <chunk_id> --generation-digest <generation_digest>
   --json` ile pinned indeksten dogrula ve cevabi dogrudan sentezle. Bu bounded citation komutu
   source agacini okumak degildir ve researcher gerektirmez. Basarili `ask` sonrasinda
