@@ -130,6 +130,8 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "zekam project history" in coordinator
     assert "clarification.suggested" in coordinator
     assert "coverage_notes" in coordinator
+    assert "kanit bulunamadi" in coordinator
+    assert "ilk ve tek yanit netlestirme sorusudur" in coordinator
     assert "`used_chunk_ids` degerini" in coordinator
     assert "`lexical-only-degraded`" in coordinator
     assert "`snapshot_only=true`" in coordinator

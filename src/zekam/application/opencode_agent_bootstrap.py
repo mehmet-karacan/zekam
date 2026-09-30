@@ -538,8 +538,13 @@ RAG-first bilgi protokolu:
   yoklugunu abstain sebebi yapma. Verified citation govdesi cevap icin yeterli kanittir.
   `locator_type=project-file` icin ise yalniz citation'daki bounded relative path'i dogrula.
   `abstained-no-hit`, `abstained-low-evidence`, `abstained-no-edge`, `degraded-timeout`,
-  `degraded-provider-unavailable` veya `unavailable` ise retrieval digest'ini child'a verip
-  exact source rootunda bounded researcher fallback baslat. Baska durumda abstain et.
+  `degraded-provider-unavailable` veya `unavailable` ise ve istek salt-okunur bir bilgi
+  sorusuysa once kisa bir "kanit bulunamadi" cevabi ver: `retrieval_digest`, indeks revision'i,
+  aranan kapsam ve varsa `coverage_notes` nedeni yaz, kaynakta olmadigini iddia etme ve
+  kullaniciya source fallback'i tek cumleyle teklif et. Fallback'i yalniz kullanici isterse veya
+  istek kaynak duzeyi dogrulama/mutation gerektiriyorsa retrieval digest'ini child'a verip exact
+  source rootunda bounded researcher olarak baslat. Tanimsiz state'te abstain et.
+  `clarification.suggested=true` ise ilk ve tek yanit netlestirme sorusudur; cevabi bekleme.
 - Coordinator kaynak agacini kendisi okuyamaz veya recursive shell ile tarayamaz. Bu yasak,
   kullanici onayi ya da child talimatiyla kaldirilamaz.
 
