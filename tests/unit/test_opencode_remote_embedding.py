@@ -379,9 +379,10 @@ def test_remote_profile_identity_is_stable_across_bounded_probe_jitter(tmp_path:
     assert baseline.evidence_digest != jittered.evidence_digest
 
 
-def test_remote_profile_identity_changes_when_probe_vectors_materially_change(
+def test_remote_profile_identity_ignores_probe_vectors_but_evidence_records_them(
     tmp_path: Path,
 ) -> None:
+    """RAG26-R02: identity = provider/endpoint/model/dimension, never probe vectors."""
     baseline = OpenCodeRemoteEmbeddingProvider(
         _configuration(tmp_path), _Executor(), dimension=3
     ).probe(_fixture())
@@ -389,8 +390,9 @@ def test_remote_profile_identity_changes_when_probe_vectors_materially_change(
         _configuration(tmp_path), _Executor(fault="profile-shift"), dimension=3
     ).probe(_fixture())
 
-    assert baseline.profile.profile_digest != shifted.profile.profile_digest
-    assert baseline.profile.model_revision_fingerprint != shifted.profile.model_revision_fingerprint
+    assert baseline.profile.profile_digest == shifted.profile.profile_digest
+    assert baseline.profile.model_revision_fingerprint == shifted.profile.model_revision_fingerprint
+    assert baseline.evidence_digest != shifted.evidence_digest
 
 
 def test_rounding_boundary_jitter_does_not_change_profile_identity(

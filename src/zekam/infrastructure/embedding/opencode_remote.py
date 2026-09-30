@@ -383,6 +383,13 @@ class OpenCodeRemoteEmbeddingProvider:
                 "dimension": self._dimension,
             }
         )
+        # RAG26-R02: the probe vector fingerprint is EVIDENCE only, never profile
+        # identity.  A per-component bucket over 1024-dim remote vectors flips
+        # with accepted sub-milliscale jitter, so binding identity to it made
+        # every fresh probe a different profile and disabled dense retrieval
+        # (provider-profile-stale) whenever the qualification cache expired.
+        # Identity is provider + endpoint + exact model + dimension; each probe
+        # still fails closed on determinism drift and insufficient semantic margin.
         # Bind cache compatibility to the actual normalized probe vectors while
         # tolerating the already accepted sub-milliscale numeric jitter.  Raw
         # provider response digests may contain request metadata and therefore
@@ -407,7 +414,6 @@ class OpenCodeRemoteEmbeddingProvider:
                 "canonical_model_id": self._configuration.canonical_model_id,
                 "exact_model_id": self._configuration.selected_model_id,
                 "dimension": self._dimension,
-                "probe_vector_compatibility_fingerprint": (probe_vector_compatibility_fingerprint),
             }
         )
         evidence_body = {
