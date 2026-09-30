@@ -38,6 +38,7 @@ from zekam.application.odi11g_smart_export import (
     import_smart_export,
 )
 from zekam.application.opencode_embedding import default_opencode_config_file
+from zekam.application.project_history_query import query_issue_history
 from zekam.application.project_rag_runtime import (
     bind_project_source,
     build_project_source_binding_plan,
@@ -440,6 +441,30 @@ def source_root_command(
         _print_json({"project": slug, "source_root": str(root)})
     else:
         console.print(str(root))
+
+
+@app.command("history")
+def history_command(
+    project: Annotated[str, typer.Argument(help="Proje slug")],
+    issue_key: Annotated[str, typer.Argument(help="Exact Jira anahtari (ornek SKYRSM-5659)")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Exact issue anahtari icin yerel HEAD gecmisini bounded ve salt okunur verir."""
+
+    try:
+        slug = _canonical_slug(project, home=home)
+        root = resolve_project_source(resolve_home(home), slug)
+        result = query_issue_history(root, issue_key).as_dict()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    result["project"] = slug
+    if output_json:
+        _print_json(result)
+    else:
+        console.print(f"{slug}	{issue_key}	commits={result['commit_count']}")
+        for item in result["commits"]:
+            console.print(f"{item['commit'][:8]}	{item['subject']}")
 
 
 @app.command("status")

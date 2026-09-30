@@ -90,6 +90,9 @@ def run_read_only(root: Path, *arguments: str) -> str:
             command,
             capture_output=True,
             text=True,
+            # Git ciktisi UTF-8'dir; locale kodlamasi (cp1254) Turkce mesajlari bozar.
+            encoding="utf-8",
+            errors="replace",
             timeout=COMMAND_TIMEOUT,
             check=False,
         )

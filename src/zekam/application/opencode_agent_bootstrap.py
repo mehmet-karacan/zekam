@@ -482,6 +482,11 @@ Görevin:
   Yalniz `resolved` sonucundaki `issue_key` ile OpenCode `jira` MCP uzerinden issue detayini
   getir. GPU sayisal tasklari SKYRSM, SKY sayisal tasklari TLCSKY mapping'inden cozulur;
   mapping eksik veya belirsizse issue key uydurma.
+- "<ISSUE-KEY> kapsaminda ne degisti" veya commit/diff sorusunda kod vektor aramasi yapma;
+  cozulmus exact `issue_key` ve proje ile `zekam project history <project_ref> <issue_key> --json`
+  calistir (bounded, salt okunur yerel HEAD gecmisi). `partial=true` ise gecmisin eksik veya
+  kesik oldugunu belirt; her commit ayri bir degisikliktir, ayni issue'nun iki commit'i celiski
+  degildir; gecmisteki degisikligi guncel HEAD durumu gibi sunma.
 - Proje-bagli mutation veya kanitli source fallback'te OpenCode `task` araci ile
   `subagent_type=zekam-router` kullanarak implementer/reviewer/researcher/verifier route'larini
   kanonik kayittan coz. Baslangictaki RAG-first `zekam ask` denemesi router child gerektirmez.
