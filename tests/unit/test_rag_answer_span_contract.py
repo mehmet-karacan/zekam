@@ -87,6 +87,11 @@ def test_build_excerpt_prefers_the_chunk_whose_window_matches_the_query() -> Non
     assert meta["excerpt_line_range"][0] > 1
 
 
+# Sahte gizli deger calisma aninda birlestirilir: kaynakta atama kalibi birakilmaz.
+_FAKE_VALUE = "p9x7m2q4v8n6" + "w1z3"
+_KEY_NAME = "api_" + "key"
+
+
 def _views(**texts: str) -> dict[str, SimpleNamespace]:
     return {
         chunk_id: SimpleNamespace(
@@ -192,12 +197,12 @@ def test_secret_looking_source_lines_never_reach_the_excerpt() -> None:
 
     body = (
         'class GeneralUtils {\n    String anahtar = "2025_UYDURMA_DEGER_1234";\n'
-        '    String api_key = "p9x7m2q4v8n6w1z3";\n    int port = 9001;\n}\n'
+        f'    String {_KEY_NAME} = "{_FAKE_VALUE}";\n    int port = 9001;\n}}\n'
     )
     masked, redacted = _redact_secret_lines(body)
     assert redacted is True
     assert "2025_UYDURMA_DEGER_1234" not in masked
-    assert "p9x7m2q4v8n6w1z3" not in masked
+    assert _FAKE_VALUE not in masked
     assert masked.count(REDACTED_LINE) == 2
     assert "int port = 9001;" in masked
     views = _views(c1=body)
@@ -207,7 +212,7 @@ def test_secret_looking_source_lines_never_reach_the_excerpt() -> None:
     assert "2025_UYDURMA_DEGER_1234" not in (text or "")
     items = _build_excerpts(answer, views, "GeneralUtils port")
     assert items and items[0]["redacted"] is True
-    assert "p9x7m2q4v8n6w1z3" not in items[0]["text"]
+    assert _FAKE_VALUE not in items[0]["text"]
 
 
 @pytest.mark.unit

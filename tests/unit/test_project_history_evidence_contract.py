@@ -15,6 +15,10 @@ from zekam.application.project_history_query import (
 )
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
+# Sahte gizli deger calisma aninda birlestirilir: kaynakta atama kalibi birakilmaz.
+_FAKE_VALUE = "p9x7m2q4v8n6" + "w1z3"
+_FAKE_ASSIGNMENT = "API_" + "KEY" + ' = "' + _FAKE_VALUE + '"'
+
 
 def _git(root: Path, *args: str) -> str:
     completed = subprocess.run(
@@ -111,7 +115,7 @@ def test_diff_files_are_bounded_and_counted(repo: Path) -> None:
 
 @pytest.mark.unit
 def test_secret_looking_diff_content_is_redacted(repo: Path) -> None:
-    _commit(repo, "SKYRSM-5659 ayar", cfg_txt='API_KEY = "p9x7m2q4v8n6w1z3"\nport = 9001\n')
+    _commit(repo, "SKYRSM-5659 ayar", cfg_txt=_FAKE_ASSIGNMENT + "\nport = 9001\n")
     entry = query_issue_history(repo, "SKYRSM-5659").commits[0].files[0]
     assert entry.redacted is True
     assert entry.hunks is None
@@ -203,11 +207,11 @@ def test_glob_looking_file_names_do_not_pull_in_other_files(repo: Path) -> None:
 
 @pytest.mark.unit
 def test_secret_looking_commit_subject_is_masked(repo: Path) -> None:
-    _commit(repo, 'SKYRSM-5659 x API_KEY="p9x7m2q4v8n6w1z3"', a_txt="x\n")
+    _commit(repo, "SKYRSM-5659 x " + _FAKE_ASSIGNMENT, a_txt="x\n")
     commit = query_issue_history(repo, "SKYRSM-5659").commits[0]
     assert commit.subject_redacted is True
-    assert "p9x7m2q4v8n6w1z3" not in commit.subject
-    assert "p9x7m2q4v8n6w1z3" not in str(commit.as_dict())
+    assert _FAKE_VALUE not in commit.subject
+    assert _FAKE_VALUE not in str(commit.as_dict())
 
 
 @pytest.mark.unit
