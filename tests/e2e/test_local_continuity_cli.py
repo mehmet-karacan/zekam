@@ -16,6 +16,7 @@ from uuid import uuid4
 import pytest
 import typer
 from tests.integration.test_local_continuity_source_authority import authority as authority
+from tests.param_ids import short_id
 from tests.unit.test_local_continuity_environment import environment as environment
 from tests.unit.test_local_continuity_startup import NOW, ROOT, SOURCE_REF, _stage_start
 from tests.unit.test_local_startup_composition import composition as composition
@@ -480,6 +481,7 @@ def test_unregistered_freeze_v2_leaf_denial_precedes_runtime_and_file_reads(
         b"[" * 16000 + b"]" * 16000,
         b"x" * 32769,
     ],
+    ids=short_id,
 )
 def test_bad_candidate_document_is_sanitized_before_dispatch(
     dispatch: dict[str, Any], payload: bytes
@@ -583,6 +585,7 @@ def test_candidate_exact_schema_secret_order_and_refs_reject_before_dispatch(
         b"[" * 16000 + b"]" * 16000,
         b"x" * 32769,
     ],
+    ids=short_id,
 )
 def test_bad_summary_is_sanitized_and_never_dispatched(
     dispatch: dict[str, Any], payload: bytes

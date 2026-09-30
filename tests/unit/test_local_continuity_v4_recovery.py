@@ -6,6 +6,7 @@ from typing import Any, cast
 from uuid import UUID, uuid5
 
 import pytest
+from tests.param_ids import short_id
 
 import zekam.application.local_continuity_v4_recovery as recovery_module
 from zekam.application.local_continuity import ContinuityBinding, ContinuityTail
@@ -250,6 +251,7 @@ def test_result_contract_cannot_be_constructed_with_malformed_or_extra_fields() 
 @pytest.mark.parametrize(
     "raw",
     (None, b"x" * 32_769, b"\xff", b"[]", b'{"b":1,"a":2}'),
+    ids=short_id,
 )
 def test_forged_result_bytes_fail_exact_type_size_utf8_and_canonical_checks(
     raw: object,

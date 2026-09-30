@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 import yaml
+from tests.param_ids import short_id
 
 from zekam.application.active_task_contract import ActiveTaskContract
 from zekam.application.config import core_root, default_config_file, load_settings
@@ -276,6 +277,7 @@ def test_binding_task_policy_drift_rejected(environment: Fixture, field: str) ->
         "x: [" + ",".join("0" for _ in range(5000)) + "]",
         "#" * (MAX_CONFIG_BYTES + 1),
     ],
+    ids=short_id,
 )
 def test_bounded_strict_config_rejections(environment: Fixture, payload: str) -> None:
     gate, binding = environment
@@ -396,6 +398,7 @@ def test_duplicate_json_in_active_config_rejected(environment: Fixture) -> None:
 @pytest.mark.parametrize(
     "body",
     ["{", "[]", '{"value": NaN}', '{"value": Infinity}', '"text"', " " * (MAX_CONFIG_BYTES + 1)],
+    ids=short_id,
 )
 def test_active_config_json_is_bounded_and_strict(environment: Fixture, body: str) -> None:
     gate, binding = environment
