@@ -406,3 +406,30 @@ def test_probe_response_rejects_non_deterministic_duplicate(tmp_path: Path) -> N
 
     assert not metrics.verified
     assert metrics.duplicate_max_delta == 1.0
+
+
+def test_model_limit_field_is_accepted_when_it_is_exact_and_positive(tmp_path: Path) -> None:
+    models = {
+        EMBEDDING: {"name": "Embedding"},
+        NON_EMBEDDING: {"name": "Code", "limit": {"context": 32768, "output": 4096}},
+    }
+    configuration = _load(_write(tmp_path / "opencode.json", _document(models=models)))
+    assert configuration.selected_model_id == EMBEDDING
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [
+        {"context": 0, "output": 10},
+        {"context": 100, "output": -1},
+        {"context": "100", "output": 10},
+        {"context": True, "output": 10},
+        {"context": 100},
+        {"context": 100, "output": 10, "extra": 1},
+        [100, 10],
+    ],
+)
+def test_malformed_model_limit_fails_closed(tmp_path: Path, limit: object) -> None:
+    models = {EMBEDDING: {"name": "Embedding", "limit": limit}}
+    with pytest.raises(ConfigurationError):
+        _load(_write(tmp_path / "opencode.json", _document(models=models)))

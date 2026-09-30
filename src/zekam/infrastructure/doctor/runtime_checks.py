@@ -369,6 +369,23 @@ class EvolutionCheck:
         )
 
 
+def _models_without_context_need() -> frozenset[str]:
+    """Kanonik envanterde embedding/rerank/ses olan model kimlikleri (sohbet baglami yok)."""
+
+    try:
+        from zekam.application.model_registry import load_inventory
+        from zekam.domain.model_inventory import Modality
+
+        skipped = {Modality.EMBEDDING, Modality.RERANK, Modality.AUDIO_TRANSCRIPTION}
+        names: set[str] = set()
+        for record in load_inventory().records:
+            if record.modality in skipped:
+                names.update((record.access_name, record.backend_model))
+        return frozenset(names)
+    except Exception:
+        return frozenset()
+
+
 @dataclass(frozen=True, slots=True)
 class OpenCodeModelLimitCheck:
     """Config'te baglam/cikti limiti tanimsiz OpenCode modellerini salt okunur raporlar."""
@@ -385,7 +402,7 @@ class OpenCodeModelLimitCheck:
             return _unavailable(self.check_id, type(exc).__name__)
         if not isinstance(config, dict):
             return _unavailable(self.check_id, "InvalidConfigShape")
-        missing = models_missing_limits(config)
+        missing = models_missing_limits(config, exclude=_models_without_context_need())
         findings: tuple[Finding, ...] = ()
         if missing:
             findings = (

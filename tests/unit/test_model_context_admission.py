@@ -122,3 +122,11 @@ def test_doctor_check_is_skipped_when_config_is_unreadable(tmp_path: Path) -> No
 
     result = OpenCodeModelLimitCheck(config_path=tmp_path / "missing.json").run()
     assert result.status is CheckStatus.SKIPPED
+
+
+@pytest.mark.unit
+def test_models_without_context_need_can_be_excluded_from_the_missing_report() -> None:
+    assert models_missing_limits(_CONFIG, exclude=frozenset({"no-limit-model"})) == (
+        ("litellm", "half-limit"),
+    )
+    assert models_missing_limits(_CONFIG, exclude=frozenset({"no-limit-model", "half-limit"})) == ()

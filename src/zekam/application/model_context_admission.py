@@ -71,14 +71,21 @@ def model_limits(config: Mapping[str, Any], provider_id: str, model_id: str) -> 
     return ModelLimits(context=context, output=output)
 
 
-def models_missing_limits(config: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
-    """Limiti tanimsiz (provider, model) ciftleri; doctor icin salt okunur rapor."""
+def models_missing_limits(
+    config: Mapping[str, Any], *, exclude: frozenset[str] = frozenset()
+) -> tuple[tuple[str, str], ...]:
+    """Limiti tanimsiz (provider, model) ciftleri; doctor icin salt okunur rapor.
+
+    ``exclude``: baglam limiti gerektirmeyen model kimlikleri (embedding, rerank, ses).
+    """
 
     missing: list[tuple[str, str]] = []
     for provider_id, provider in sorted((config.get("provider") or {}).items()):
         if not isinstance(provider, Mapping):
             continue
         for model_id in sorted(provider.get("models") or {}):
+            if model_id in exclude:
+                continue
             if model_limits(config, provider_id, model_id) is None:
                 missing.append((provider_id, model_id))
     return tuple(missing)

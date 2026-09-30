@@ -46,7 +46,7 @@ MAX_OPENCODE_CONFIG_BYTES = 256 * 1024
 _ENV_PLACEHOLDER = re.compile(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$")
 _PROVIDER_FIELDS = frozenset({"npm", "name", "options", "models"})
 _OPTION_FIELDS = frozenset({"baseURL", "apiKey", "timeout", "chunkTimeout"})
-_MODEL_FIELDS = frozenset({"name"})
+_MODEL_FIELDS = frozenset({"name", "limit"})
 
 OPENCODE_EMBEDDING_SECRET_REF_NAME = "opencode-litellm-embedding"
 AIHUB_PROVIDER_HOST = "aihub-api.turktelekom.com.tr"
@@ -192,6 +192,23 @@ def _mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _validate_provider_model(raw_model: Any) -> None:
+    """Model kaydi yalniz `name` ve dogrulanmis `limit` (context/output pozitif tam sayi) tasir."""
+
+    model = _mapping(raw_model, label="provider model")
+    _strict_fields(model, _MODEL_FIELDS, label="provider model")
+    name = model.get("name")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        raise ConfigurationError("OpenCode provider model name gecersiz")
+    if "limit" in model:
+        limit = _mapping(model["limit"], label="provider model limit")
+        _strict_fields(limit, frozenset({"context", "output"}), label="provider model limit")
+        for field_name in ("context", "output"):
+            value = limit.get(field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ConfigurationError("OpenCode provider model limit pozitif tam sayi olmali")
+
+
 def _strict_fields(document: Mapping[str, Any], allowed: frozenset[str], *, label: str) -> None:
     if set(document) - allowed:
         raise ConfigurationError(f"OpenCode {label} bilinmeyen alan tasiyor")
@@ -286,11 +303,7 @@ def load_opencode_aihub_catalog(
     for model_id, raw_model in models.items():
         if not isinstance(model_id, str) or not model_id.strip():
             raise ConfigurationError("OpenCode provider model id gecersiz")
-        model = _mapping(raw_model, label="provider model")
-        _strict_fields(model, _MODEL_FIELDS, label="provider model")
-        name = model.get("name")
-        if name is not None and (not isinstance(name, str) or not name.strip()):
-            raise ConfigurationError("OpenCode provider model name gecersiz")
+        _validate_provider_model(raw_model)
         model_ids.append(model_id)
     return OpenCodeModelCatalog(
         provider_id=provider_id,
@@ -498,11 +511,7 @@ def load_opencode_embedding_configuration(
     for model_id, raw_model in models.items():
         if not isinstance(model_id, str) or not model_id.strip():
             raise ConfigurationError("OpenCode provider model id gecersiz")
-        model = _mapping(raw_model, label="provider model")
-        _strict_fields(model, _MODEL_FIELDS, label="provider model")
-        name = model.get("name")
-        if name is not None and (not isinstance(name, str) or not name.strip()):
-            raise ConfigurationError("OpenCode provider model name gecersiz")
+        _validate_provider_model(raw_model)
         model_ids.append(model_id)
     if selected_model_id not in model_ids:
         raise ClassifiedConfigurationError(
