@@ -197,3 +197,53 @@ def test_route_digest_is_deterministic_and_question_is_not_echoed() -> None:
 
     assert first == second
     assert "question" not in first
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "gpu-fusion backend portu 9001 mi; hangi Spring profilleri var?",
+        "gpu-fusion uygulamasi 2026 yilinda hangi portta calisiyor?",
+        "sky-backend servisi 8080 yerine 9001 portunu kullaniyor mu?",
+    ],
+)
+def test_port_and_year_numbers_are_not_jira_candidates(question: str) -> None:
+    route = _route(question)
+
+    assert route.intent != "jira-detail"
+    assert route.jira_issue_key is None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "GPU 5077",
+        "GPU projesi 5077",
+        "gpu task 5077",
+        "GPU 5077 Jira işi",
+        "Sky #11306",
+    ],
+)
+def test_short_project_reference_still_resolves_to_jira(question: str) -> None:
+    assert _route(question).intent == "jira-detail"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "gpu-fusion Audit tablo tanimi ekle ekraninda CLOB kolon secilirse ne oluyor?",
+        "gpu-fusion'da oluştur butonu ne yapıyor?",
+        "gpu-fusion düzelt sayfasında hangi alanlar var?",
+    ],
+)
+def test_ui_label_with_change_word_is_read_only_not_mutation(question: str) -> None:
+    route = _route(question)
+
+    assert route.intent == "project-question"
+    assert route.strategy == "single-project-rag"
+
+
+def test_real_change_request_is_still_a_mutation_intent() -> None:
+    route = _route("gpu-fusion içindeki BatchJobController'a yeni endpoint ekle")
+
+    assert route.intent != "project-question"

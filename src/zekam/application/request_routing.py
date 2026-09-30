@@ -71,6 +71,19 @@ _CHANGE_TERMS = (
     "oluştur",
     "olustur",
 )
+#: `ekle ekraninda`, `olustur butonu`, `duzelt sayfasi` are UI labels, not requests
+#: to change anything; the change word only counts when it is not a screen/control name.
+_UI_LABEL_AFTER_CHANGE = re.compile(
+    r"(?<!\w)(?:ekle|oluştur|olustur|düzelt|duzelt|değiştir|degistir)\s+"
+    r"(?:ekran|buton|sayfa|form|menü|menu|dialog|pencere|panel|sekme|tab)\w*",
+    re.UNICODE,
+)
+
+
+def _matched_change(text: str) -> tuple[str, ...]:
+    return _matched(_UI_LABEL_AFTER_CHANGE.sub(" ", text), _CHANGE_TERMS)
+
+
 _REVIEW_TERMS = ("review", "incele", "denetle", "kod inceleme")
 _TEST_TERMS = ("test et", "testleri", "doğrula", "dogrula", "acceptance")
 _PROJECT_CONTEXT_TERMS = (
@@ -247,6 +260,28 @@ def load_project_families(path: Path | None = None) -> ProjectFamilyCatalog:
     return ProjectFamilyCatalog(tuple(families), digest({"schema": SCHEMA, "families": canonical}))
 
 
+_REFERENCE_FILLERS = frozenset(
+    {"proje", "projesi", "task", "taski", "tasklari", "issue", "jira", "isi", "iş", "işi"}
+    | {"no", "numarali", "numaralı", "kaydi", "kaydı", "talebi", "#"}
+)
+
+
+def _number_follows_alias(text: str, aliases: Iterable[str], number: str) -> bool:
+    """A short reference is `<alias> [filler] <number>` (`GPU 5077`, `Sky #11306`).
+
+    Ports, years and counts elsewhere in a sentence (`backend portu 9001 mi`) are
+    not issue references; only a number directly after the alias (allowing a small
+    filler word) counts.
+    """
+    for alias in aliases:
+        pattern = rf"(?<!\w){re.escape(alias)}\s+(?:(\S+)\s+)?#?{re.escape(number)}(?!\w)"
+        for match in re.finditer(pattern, text, re.UNICODE):
+            filler = match.group(1)
+            if filler is None or filler in _REFERENCE_FILLERS:
+                return True
+    return False
+
+
 def _contains(text: str, phrase: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.UNICODE) is not None
 
@@ -338,13 +373,17 @@ def route_request(
     ]
     exact_issue = _ISSUE_KEY.findall(question)
     long_numbers = _LONG_NUMBER.findall(normalized)
+    reference_aliases = tuple(
+        {alias for _, _, alias in family_matches} | {alias for _, _, alias in direct_matches}
+    )
     jira_candidate = bool(exact_issue) or (
-        bool(family_matches or direct_matches)
+        bool(reference_aliases)
         and len(long_numbers) == 1
         and (
-            len(long_numbers[0]) >= 4
+            _number_follows_alias(normalized, reference_aliases, long_numbers[0])
             or _contains(normalized, "jira")
             or _contains(normalized, "task")
+            or _contains(normalized, "issue")
         )
     )
     if jira_candidate:
@@ -458,7 +497,7 @@ def route_request(
         if not matched_families:
             project_context = _matched(normalized, _PROJECT_CONTEXT_TERMS)
             role_context = _matched(normalized, _UI_TERMS + _BACKEND_TERMS)
-            if role_context and _matched(normalized, _CHANGE_TERMS):
+            if role_context and _matched_change(normalized):
                 project_context = tuple(dict.fromkeys((*project_context, *role_context)))
             status = "clarification-required" if project_context else "general"
             return RequestRoute(
@@ -535,7 +574,7 @@ def route_request(
             catalog.catalog_digest,
         )
 
-    if _matched(normalized, _CHANGE_TERMS) and len(selected_available) > 1:
+    if _matched_change(normalized) and len(selected_available) > 1:
         return RequestRoute(
             "clarification-required",
             "code-change",
@@ -552,7 +591,7 @@ def route_request(
             catalog.catalog_digest,
         )
     agents: tuple[str, ...]
-    if _matched(normalized, _CHANGE_TERMS):
+    if _matched_change(normalized):
         intent = "code-change"
         strategy = "project-agentic"
         agents = ("builder", "reviewer", "verifier")
