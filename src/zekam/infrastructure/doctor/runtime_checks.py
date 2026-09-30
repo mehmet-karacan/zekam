@@ -6,12 +6,15 @@ Kanonik tablo yoksa kontrol `skipped` doner — sahte `passed` uretmez.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from zekam.application.config import DatabaseSettings
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
+from zekam.application.model_context_admission import models_missing_limits
+from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.opencode_spool import inspect_spool
 from zekam.domain.model_inventory import CANONICAL_MODEL_COUNT
 from zekam.domain.observability import CANONICAL_COMMANDS, missing_commands
@@ -360,6 +363,51 @@ class EvolutionCheck:
                 "permissions": plan["permissions"],
                 "admission_bindings": plan["admission_bindings"],
                 "runtime": plan["runtime"],
+                "provider_calls": 0,
+                "network_calls": 0,
+            },
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeModelLimitCheck:
+    """Config'te baglam/cikti limiti tanimsiz OpenCode modellerini salt okunur raporlar."""
+
+    config_path: Path | None = None
+    check_id: str = "runtime.opencode-model-limits"
+    category: str = CATEGORY
+
+    def run(self) -> CheckResult:
+        path = self.config_path or default_opencode_config_file()
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return _unavailable(self.check_id, type(exc).__name__)
+        if not isinstance(config, dict):
+            return _unavailable(self.check_id, "InvalidConfigShape")
+        missing = models_missing_limits(config)
+        findings: tuple[Finding, ...] = ()
+        if missing:
+            findings = (
+                Finding(
+                    code="runtime.opencode-model-limits-missing",
+                    severity=Severity.WARNING,
+                    title=f"{len(missing)} OpenCode modelinde limit.context/limit.output yok",
+                    detail=", ".join(f"{provider}/{model}" for provider, model in missing),
+                    next_action=(
+                        "Exact model limitlerini opencode.json'a ekleyin; limit model adindan "
+                        "tahmin edilmez ve bilinmeyen limit canli cagriyi engeller"
+                    ),
+                ),
+            )
+        return CheckResult(
+            check_id=self.check_id,
+            category=self.category,
+            status=CheckStatus.PASSED if not findings else CheckStatus.DEGRADED,
+            summary=f"model limitleri: {len(missing)} tanimsiz",
+            findings=findings,
+            evidence={
+                "missing_limit_models": [f"{provider}/{model}" for provider, model in missing],
                 "provider_calls": 0,
                 "network_calls": 0,
             },
