@@ -317,7 +317,11 @@ class SkillPackage:
                 continue
             if not path.is_file():
                 raise PolicyViolation("Skill package special file rejected")
-            files[path.relative_to(root).as_posix()] = path.read_bytes()
+            relative = path.relative_to(root)
+            # Uretilmis bytecode paketin parcasi degildir; yerel calistirma digest'i degistirmemeli.
+            if "__pycache__" in relative.parts or relative.suffix in {".pyc", ".pyo"}:
+                continue
+            files[relative.as_posix()] = path.read_bytes()
             if len(files) > MAX_FILES:
                 raise ValidationFailed("Skill package file count invalid")
         return cls.parse(root.name, files)

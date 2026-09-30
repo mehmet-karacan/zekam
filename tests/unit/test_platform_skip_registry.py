@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tests.platform_skips import PLATFORM_SKIPS
 
 ROOT = Path(__file__).resolve().parents[2]

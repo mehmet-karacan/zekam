@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -486,3 +487,18 @@ def test_normalizer_change_requires_explicit_rebaseline(
         "reason": "normalizer-version-changed",
         "network_calls": 0,
     }
+
+
+def test_generated_bytecode_never_changes_the_package_digest(tmp_path: Path) -> None:
+    baseline = SkillPackage.read_directory(ROOT.resolve())
+    copy = tmp_path / "jira-is-kaydi"
+    shutil.copytree(ROOT.resolve(), copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    cache = copy / "scripts" / "__pycache__"
+    cache.mkdir()
+    (cache / "jira_content.cpython-313.pyc").write_bytes(b"bytecode")
+    (copy / "scripts" / "stray.pyc").write_bytes(b"bytecode")
+
+    with_cache = SkillPackage.read_directory(copy.resolve())
+
+    assert set(with_cache.files) == set(baseline.files)
+    assert with_cache.package_digest == baseline.package_digest

@@ -185,8 +185,11 @@ def test_source_manifest_models_exact_forced_include_tree(tmp_path: Path) -> Non
         target.mkdir()
         (target / "resource.bin").write_bytes(source_name.encode())
     (repository / "AKTIF_GOREV.md").write_bytes(b"task")
+    (repository / "docs").mkdir()
+    (repository / "docs" / "RADAR_RUNBOOK.md").write_bytes(b"runbook")
     (staged / "module.py").write_bytes(b"module\r\n")
     (staged / "AKTIF_GOREV.md").write_bytes(b"task")
+    (staged / "RADAR_RUNBOOK.md").write_bytes(b"runbook")
     (staged / "PACKAGE_RELEASE_MANIFEST.json").write_bytes(b"different-recursive-body")
 
     source_digest = _package_source_bundle(package, repository)
