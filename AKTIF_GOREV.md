@@ -62,7 +62,7 @@ Bu gorev metni GitHub `f75c6a3` revisionina gore yazildi (baseline degismez). Ye
 |---|---|---|
 | R00 baseline | Kismi | Gecis, arsiv ve yerel kalite kosusu kaydi bu bolumde; kaynak-root/CLI surum kaydi ayri receipt bekler |
 | R01 Turkce kesme | Tamam | `3eb7b59`, 12 test, verifier GECTI |
-| R02 profil kimligi | Tamam | `1d080c0`; kimlik probe vektorlerinden ayrildi (1024 boyut jitter'da eski 100/100, yeni 0/100 degisim); gpu-fusion taze probe'ta dense=20 dogrulandi; 4 indeksin yeniden kurulumu suruyor/kuruldu |
+| R02 profil kimligi | Tamam | `1d080c0`; kimlik probe vektorlerinden ayrildi (1024 boyut jitter'da eski 100/100, yeni 0/100 degisim); gpu-fusion taze probe'ta dense=20 dogrulandi; 4 indeks yeni kimlikle yeniden kuruldu, 14 probe'un tamaminda dense=20 |
 | R03 alinti penceresi | Tamam | `bef8308`, `a86c376`; sorgu-farkindalikli satir penceresi, sinif anotasyonlari, cok parcali `answer_excerpts`, cikti tarafinda gizli deger maskesi |
 | R04 kod/config kapsami | Kismi-ileri | `19bc265`, `347b9e3`, `6268af0`, `9ed461d`, `a86c376`: paketleme, referans tanim genisletme, komsu chunk, listeleme; gpu-fusion Q1 5/5, Q2 10/10 sirali, Q3 4/4. Q10 (config) BLOCKED_BY_POLICY: `application-*.yaml` sifre kalibi nedeniyle indekslenmez; dislama nedeninin sonuca yazilmasi acik |
 | R05 on-karar | Kismi | `60e2cbc`, `403347d`: port/yil Jira degil, UI etiketi mutation degil, issue degisiklik sorusu `project-history`; client hook'ta tek preflight ve sayac olcumu acik |
@@ -70,7 +70,7 @@ Bu gorev metni GitHub `f75c6a3` revisionina gore yazildi (baseline degismez). Ye
 | R07 Git gecmisi | Tamam | `bf8ee54`: `zekam project history`, 24 test, verifier bulgulari duzeltildi; gpu-fusion SKYRSM-5659 -> `d026d692` ve `3139ed25` |
 | R08 model admission | Kismi | `825a34b`: `model_context_admission` + doctor `runtime.opencode-model-limits` (12 modelde limit eksik raporlanir); kullanici opencode.json'una limit yazilmasi ayri onay bekler |
 | R09 offline kabul | Kismi | `403347d`: `rag_router_probe_v1.json` (kaynak dogrulamali) + 50 test; bagimsiz kabul dogrulamasi GECTI (kosullu) ve riskleri kaydetti; ablation/latency raporu repo disinda |
-| R10 bakim | Kismi | gpu-fusion, akis, schema-transform-platform yeniden kuruldu; sky-microservis kurulumu suruyor; ai-db-change-analyzer, zekam, sky-spring-ui kaynak bagi olmadigi icin indekslenmedi |
+| R10 bakim | Tamam (mevcut projeler) | gpu-fusion, akis, schema-transform-platform, sky-microservis eski generation'lar silinerek yeniden kuruldu (ready); ai-db-change-analyzer, zekam, sky-spring-ui kaynak bagi olmadigi icin indekslenmedi (once `zekam project bind`) |
 | R11 canli kampanya | BLOCKED_AUTHORIZATION | `zekam model campaign plan` blocked-catalog-scope-drift; ayri exact plan ve kullanici onayi gerekir |
 
 Bu tablo durum ozetidir; terminal receipt yerine gecmez. Bagimsiz kabul dogrulamasinin acik riskleri: kisa belirsiz soruda netlestirme yalniz oneri olarak sunulur; kimliksiz sorularda zayif lexical eslesme + dense ile `answered` donme (Q10/uzun anlamsiz soru) yanlis-pozitif riski; Q5/Q6 icin dogru dosya citation'da ama alinti penceresi ilgili satirlari kacirabiliyor. Kapsam onerisi: R00-R05 cekirdek teslimdir, R06-R11 cekirdek DoD'ye bagli degildir.
