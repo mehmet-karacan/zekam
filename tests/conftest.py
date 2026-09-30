@@ -12,6 +12,7 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 import pytest
+from tests.platform_skips import PLATFORM_SKIPS
 
 from zekam.application.composition import ApplicationContext, build_context
 from zekam.application.config import Settings, load_settings
@@ -40,6 +41,54 @@ if sys.platform != "darwin":
         "unit/test_wp16_v4_remaining_coverage.py",
         "unit/test_wp16_v4_sqlite_remaining_batch.py",
     ]
+
+# Simetrik kural: macOS/POSIX cihazda Windows'a ozgu testler beklenmez (Windows cihazda
+# macOS/POSIX testlerinin beklenmedigi gibi). Bu dosyalar yalniz Windows API'lerini sinar.
+if sys.platform != "win32":
+    collect_ignore += [
+        "e2e/test_cli_opencode_windows.py",
+        "unit/test_local_journal_outbox_windows.py",
+        "unit/test_windows_task_scheduler.py",
+    ]
+
+
+def _can_create_symlink() -> bool:
+    """Bu makinede (ayricalik/Developer Mode dahil) symlink kurulabilir mi?"""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        target = Path(directory) / "target"
+        target.write_text("x", encoding="utf-8")
+        try:
+            (Path(directory) / "link").symlink_to(target)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Platforma ozgu testleri uyumsuz platformda atlar (cross-platform beklenmez).
+
+    Veri `tests/platform_skips.py` icindedir; her nodeid neden etiketiyle tutulur. Uyumlu
+    platformda (macOS'ta posix-mac-only, symlink yapilabilen makinede needs-symlink)
+    hicbir sey atlanmaz.
+    """
+    skip_posix = sys.platform == "win32"
+    skip_symlink = not _can_create_symlink()
+    reasons: dict[str, str] = {}
+    if skip_posix:
+        for reason, nodeids in PLATFORM_SKIPS["posix-mac-only"].items():
+            reasons.update(dict.fromkeys(nodeids, f"macOS/POSIX'e ozgu: {reason}"))
+    if skip_symlink:
+        for reason, nodeids in PLATFORM_SKIPS["needs-symlink"].items():
+            reasons.update(dict.fromkeys(nodeids, f"bu makinede {reason}"))
+    if not reasons:
+        return
+    for item in items:
+        reason = reasons.get(item.nodeid)
+        if reason is not None:
+            item.add_marker(pytest.mark.skip(reason=reason))
+
 
 #: Testlerin sizdirmamasi gereken ortam degiskenleri.
 _ISOLATED_ENV_KEYS = (
