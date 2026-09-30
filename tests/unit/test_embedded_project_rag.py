@@ -949,3 +949,91 @@ def test_wp7_b1_generated_answer_contract_ready_but_defaults_retrieval_only(
         assert result["answer_kind"] != AnswerKind.GENERATED_ANSWER.value
     finally:
         index.close()
+
+
+_JOB_CONFIG = (
+    "public class HesaplamaJobConfig {\n"
+    "    @Bean\n"
+    "    public Job hakedisHesaplamaJob() {\n"
+    '        return new JobBuilder("HakedisHesaplamaJob", jobRepository)\n'
+    "                .start(hakedisHesaplamaFlow)\n"
+    "                .build().build();\n"
+    "    }\n"
+    "}\n"
+)
+_FLOW_CONFIG = (
+    "public class HakedisHesaplamaFlowBeanConfig {\n"
+    "    @Bean\n"
+    "    public Flow hakedisHesaplamaFlow() {\n"
+    '        return new FlowBuilder<Flow>("hakedisHesaplamaFlow")\n'
+    "                .start(insertHakedisLogStartStep())\n"
+    "                .next(birimHakedisOlusturStep())\n"
+    "                .next(updateHakedisLogEndStep())\n"
+    "                .build();\n"
+    "    }\n"
+    "}\n"
+)
+
+
+def test_r04_flow_question_expands_to_the_referenced_definition(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    index, rag = _rag_multi(tmp_path, provider, text_a=_JOB_CONFIG, text_b=_FLOW_CONFIG)
+    try:
+        result = _query(rag, "HakedisHesaplamaJob hangi step'leri hangi sirayla calistirir?")
+        assert "chunk-b" in result["reference_expansion"] or any(
+            item["chunk_id"] == "chunk-b" for item in result["citations"]
+        )
+        assert any(item["chunk_id"] == "chunk-b" for item in result["citations"])
+    finally:
+        index.close()
+
+
+def test_r04_non_flow_question_never_expands(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    index, rag = _rag_multi(tmp_path, provider, text_a=_JOB_CONFIG, text_b=_FLOW_CONFIG)
+    try:
+        result = _query(rag, "HakedisHesaplamaJob nedir?")
+        assert result["reference_expansion"] == []
+    finally:
+        index.close()
+
+
+def test_r04_reference_without_a_definition_adds_nothing(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    unrelated = "public class Other {\n    public void nothing() {}\n}\n"
+    index, rag = _rag_multi(tmp_path, provider, text_a=_JOB_CONFIG, text_b=unrelated)
+    try:
+        result = _query(rag, "HakedisHesaplamaJob hangi step'leri hangi sirayla calistirir?")
+        assert result["reference_expansion"] == []
+        assert all(item["chunk_id"] != "chunk-b" for item in result["citations"])
+    finally:
+        index.close()
+
+
+def test_r04_commented_out_definition_is_not_a_definition(tmp_path: Path) -> None:
+    provider = QueryProvider()
+    commented = (
+        "public class Old {\n"
+        "    // public Flow hakedisHesaplamaFlow() { return null; }\n"
+        "    /* public Flow hakedisHesaplamaFlow() { return null; } */\n"
+        "    void other() { hakedisHesaplamaFlow(); }\n"
+        "}\n"
+    )
+    index, rag = _rag_multi(tmp_path, provider, text_a=_JOB_CONFIG, text_b=commented)
+    try:
+        result = _query(rag, "HakedisHesaplamaJob hangi step'leri hangi sirayla calistirir?")
+        assert result["reference_expansion"] == []
+    finally:
+        index.close()
+
+
+def test_r04_lookup_bounds_are_fixed_constants() -> None:
+    from zekam.application.embedded_project_rag import (
+        MAX_REFERENCE_EXPANSION,
+        MAX_REFERENCE_IDENTIFIERS_PER_SEED,
+        MAX_REFERENCE_LOOKUPS,
+    )
+
+    assert MAX_REFERENCE_EXPANSION <= 3
+    assert MAX_REFERENCE_IDENTIFIERS_PER_SEED * 3 >= MAX_REFERENCE_LOOKUPS
+    assert MAX_REFERENCE_LOOKUPS <= 12

@@ -32,6 +32,8 @@ from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.retrieval import (
     AnswerState,
+    FusedHit,
+    RetrievalChannel,
     ScoredHit,
     answer_semantics,
     extract_identifiers,
@@ -193,6 +195,57 @@ def _build_excerpt(
         "source_ref": view.locator.relative_path if view.locator else None,
     }
     return text, meta
+
+
+#: RAG26-R04: "hangi step'leri hangi sirayla" gibi akis sorularinda, bulunan job
+#: yapilandirmasi akisi baska bir dosyada tanimli bean/metod adiyla referanslar.
+_FLOW_QUESTION_TERMS = (
+    "step",
+    "adim",
+    "adım",
+    "sirayla",
+    "sırayla",
+    "akis",
+    "akış",
+    "flow",
+    "zincir",
+    "asama",
+    "aşama",
+)
+_REFERENCE_IDENTIFIER = re.compile(
+    r"(?<![\w.])([a-z][A-Za-z0-9]*(?:Flow|Step|Job|Tasklet|Reader|Writer|Processor))\b"
+)
+#: Bir referansi cozmek icin en fazla bu kadar ek chunk eklenir (bounded, tek hop).
+MAX_REFERENCE_EXPANSION = 3
+#: Sorgu maliyeti sabit: seed basina en fazla bu kadar referans, toplamda en fazla bu kadar arama.
+MAX_REFERENCE_IDENTIFIERS_PER_SEED = 6
+MAX_REFERENCE_LOOKUPS = 12
+_REFERENCE_SEED_CHUNKS = 3
+
+
+def _is_flow_question(query: str) -> bool:
+    lowered = query.casefold()
+    return any(term in lowered for term in _FLOW_QUESTION_TERMS)
+
+
+def _reference_identifiers(text: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_REFERENCE_IDENTIFIER.findall(text)))
+
+
+_JAVA_COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def _defines_identifier(text: str, identifier: str) -> bool:
+    """Chunk, `identifier`i yalniz cagirmakla kalmayip metod/bean olarak tanimlar.
+
+    Yorum satirlari ve blok yorumlari tanim sayilmaz.
+    """
+
+    code = _JAVA_COMMENTS.sub(" ", text)
+    definition = (
+        rf"(?:public|protected|private|static)\s+[\w<>\[\],.? ]+\s+{re.escape(identifier)}\s*\("
+    )
+    return re.search(definition, code) is not None
 
 
 def _tokens(value: str) -> frozenset[str]:
@@ -483,6 +536,71 @@ class EmbeddedProjectRAG:
         value["retrieval_digest"] = digest(value)
         return value
 
+    def _expand_references(
+        self,
+        query: str,
+        hits: tuple[FusedHit, ...],
+        *,
+        project_id: str,
+        generation_digest: str,
+    ) -> tuple[tuple[FusedHit, ...], tuple[str, ...]]:
+        """Akis sorusunda, en iyi chunk'larin referans verdigi tanimlari ekler.
+
+        Yalniz gercek kaynak referansi kullanilir: tek hop, en fazla
+        ``MAX_REFERENCE_EXPANSION`` ek chunk. Isim birlikteligi yeterli degildir; ek chunk
+        referansi metod/bean olarak TANIMLAMALIDIR. Kaynakta tanim yoksa hicbir sey eklenmez.
+        """
+
+        if not hits or not _is_flow_question(query):
+            return hits, ()
+        seed_ids = tuple(hit.chunk_id for hit in hits[:_REFERENCE_SEED_CHUNKS])
+        seed_views = self.index.views(project_id, seed_ids, generation_digest=generation_digest)
+        known = {hit.chunk_id for hit in hits}
+        floor = min(hit.score for hit in hits)
+        added: list[FusedHit] = []
+        referenced: list[str] = []
+        lookups = 0
+        for chunk_id in seed_ids:
+            view = seed_views.get(chunk_id)
+            if view is None:
+                continue
+            identifiers_in_seed = _reference_identifiers(view.text)[
+                :MAX_REFERENCE_IDENTIFIERS_PER_SEED
+            ]
+            for identifier in identifiers_in_seed:
+                if len(referenced) >= MAX_REFERENCE_EXPANSION or lookups >= MAX_REFERENCE_LOOKUPS:
+                    break
+                lookups += 1
+                found = self.index.exact(
+                    project_id, (identifier,), limit=4, generation_digest=generation_digest
+                )
+                candidates = tuple(item.chunk_id for item in found if item.chunk_id != chunk_id)
+                if not candidates:
+                    continue
+                views = self.index.views(
+                    project_id, candidates, generation_digest=generation_digest
+                )
+                for candidate in candidates:
+                    candidate_view = views.get(candidate)
+                    if candidate_view is None or not _defines_identifier(
+                        candidate_view.text, identifier
+                    ):
+                        continue
+                    if candidate in referenced or len(referenced) >= MAX_REFERENCE_EXPANSION:
+                        continue
+                    referenced.append(candidate)
+                    if candidate not in known:
+                        known.add(candidate)
+                        added.append(
+                            FusedHit(
+                                candidate,
+                                floor * 0.999,
+                                (RetrievalChannel.EXACT,),
+                                exact_match=False,
+                            )
+                        )
+        return (*hits, *added), tuple(referenced)
+
     def query(
         self,
         query: str,
@@ -547,7 +665,14 @@ class EmbeddedProjectRAG:
             retrieval_deadline_seconds=self.retrieval_deadline_seconds,
         )
         hits, trace = service.search(query)
+        searched_ids = frozenset(hit.chunk_id for hit in hits)
+        hits, expanded_ids = self._expand_references(
+            query, hits, project_id=project_id, generation_digest=generation.generation_digest
+        )
         candidate_ids = tuple(hit.chunk_id for hit in hits)
+        # Genisletilen chunk'lar cevap govdesidir; kimlik kapsami ve iliski kaniti yalniz
+        # arama kanallarinin buldugu chunk'lardan hesaplanir (yapay kanit uretilemez).
+        evidence_ids = tuple(chunk_id for chunk_id in candidate_ids if chunk_id in searched_ids)
         views = self.index.views(
             project_id,
             candidate_ids,
@@ -602,7 +727,7 @@ class EmbeddedProjectRAG:
         else:
             # Multi-object: the hits already represent verified candidates.  We
             # require that the evidence SET collectively covers every identifier.
-            _, coverage_missing = _collective_identifier_coverage(views, candidate_ids, identifiers)
+            _, coverage_missing = _collective_identifier_coverage(views, evidence_ids, identifiers)
 
             def identity_support_for(text: str) -> bool:
                 return True
@@ -646,7 +771,7 @@ class EmbeddedProjectRAG:
         if (
             intent.value == QueryIntent.RELATIONSHIP.value
             and identifiers
-            and not _relationship_edge_evidence(views, candidate_ids)
+            and not _relationship_edge_evidence(views, evidence_ids)
         ):
             enough_evidence = False
             if identifiers and not coverage_missing:
@@ -665,7 +790,10 @@ class EmbeddedProjectRAG:
                 hit
                 for hit in hits
                 if hit.chunk_id in views
-                and _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+                and (
+                    hit.chunk_id in expanded_ids
+                    or _supports_all_identifiers(views[hit.chunk_id].text, identifiers)
+                )
             )
         elif identifiers:
             # Multi/relationship: no per-chunk-everything filter.  Keep hits that
@@ -830,6 +958,7 @@ class EmbeddedProjectRAG:
             "fallback_allowed": False,
             "answer_excerpt": excerpt,
             "answer_excerpt_meta": excerpt_meta,
+            "reference_expansion": list(expanded_ids),
             "explanation": list(answer.explanation),
         }
         # WP7 / B08: additive answer-semantics fields.  The legacy ``state`` and
