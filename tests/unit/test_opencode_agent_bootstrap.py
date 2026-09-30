@@ -123,7 +123,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "yalniz temel `zekam-researcher` agent'ini cagir" in coordinator
     assert "--authorize-remote-query" in coordinator
     assert "subagent zorunlu degildir" in coordinator
-    assert "en fazla ilk uc" in coordinator
+    assert "en fazla ilk alti" in coordinator
+    assert "answer_excerpt" in coordinator
+    assert "en fazla bir preview" in coordinator
+    assert "abstained-no-edge" in coordinator
     assert "`used_chunk_ids` degerini" in coordinator
     assert "`lexical-only-degraded`" in coordinator
     assert "`snapshot_only=true`" in coordinator
