@@ -2,7 +2,7 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:fc5bb65d082a40f459e67b3354d18c6bcb9509cf50660f1a008e8a149d86bc0c
+authority_digest: sha256:a87d88cd6763bef24af934ff4a7a833df49fab8386d2cdac4d9b0edd51e9e7dd
 task_id: ZEKAM-RAG-ROUTER-QUALITY-002
 status: APPROVED_ACTIVE_TASK
 title: Zekam RAG Router Kanit Kalitesi ve Istemci Guvenilirligi Iyilestirmesi
