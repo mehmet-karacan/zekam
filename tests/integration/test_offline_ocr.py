@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,11 +14,31 @@ from zekam.infrastructure.knowledge.document_parsers import (
     _tesseract_version,
 )
 
+
+def _tesseract_ready() -> bool:
+    """Tesseract yalniz calisiyor ve `tur` ile `eng` dilleri kuruluysa hazirdir."""
+
+    executable = shutil.which("tesseract")
+    if executable is None:
+        return False
+    try:
+        listing = subprocess.run(
+            [executable, "--list-langs"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return {"tur", "eng"} <= set(listing)
+
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
-        shutil.which("tesseract") is None,
-        reason="Gercek OCR entegrasyonu icin optional Tesseract binary gerekli",
+        not _tesseract_ready(),
+        reason="Gercek OCR entegrasyonu icin calisan Tesseract ve tur+eng dilleri gerekli",
     ),
 ]
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "knowledge"

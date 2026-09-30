@@ -319,7 +319,9 @@ def test_exact_memory_sonucu_reranker_ile_asagi_dusmez() -> None:
         vector_ranks={"dense": 1, "exact": 2},
         now=NOW,
     )
-    assert [hit.record.memory_id for hit in hits] == ["exact", "dense"]
+    # Tam kimlik sorgusunda (pure identifier lookup) dense kanali bilerek kapali; degismez olan,
+    # reranker tersine cevirse bile exact sonucun ilk sirada kalmasidir.
+    assert hits[0].record.memory_id == "exact"
     assert trace.reranker_used is True
     # Exact key-set asserti backward-compatible trace genisletmeleri (orn. graph_used,
     # graph_state, graph_bypass) ile kirilganlastigi icin core key'lerin subset olarak

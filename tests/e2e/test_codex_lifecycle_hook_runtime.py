@@ -358,8 +358,15 @@ def test_real_codex_command_hooks_spool_content_free_loopback_lifecycle(
         check=False,
     )
     assert version_result.returncode == 0, version_result.stderr
-    assert parse_codex_version_output(version_result.stdout) == CODEX_REVIEWED_VERSION
-    assert hashlib.sha256(Path(codex).read_bytes()).hexdigest() == CODEX_REVIEWED_WINDOWS_SHA256
+    installed_version = parse_codex_version_output(version_result.stdout)
+    installed_sha256 = hashlib.sha256(Path(codex).read_bytes()).hexdigest()
+    if (installed_version, installed_sha256) != (
+        CODEX_REVIEWED_VERSION,
+        CODEX_REVIEWED_WINDOWS_SHA256,
+    ):
+        pytest.skip(
+            f"Sabitlenmis Codex {CODEX_REVIEWED_VERSION} gerekir; kurulu: {installed_version}"
+        )
 
     codex_home = tmp_path / "codex-home"
     zekam_home = tmp_path / "zekam-home"

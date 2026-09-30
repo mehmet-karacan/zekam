@@ -18,6 +18,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
+from zekam.infrastructure.process import bounded_stream as stream
 from zekam.infrastructure.process import capability_worker as worker
 
 
@@ -252,39 +253,40 @@ def test_bounded_encode_cancel_and_wait_contracts() -> None:
 
     overflow = threading.Event()
     overflow.set()
-    assert worker._wait_for(cast(Any, _FakeProcess()), time.monotonic() + 1, overflow) == "overflow"
+    assert stream.wait_for(cast(Any, _FakeProcess()), time.monotonic() + 1, overflow) == "overflow"
     assert (
-        worker._wait_for(cast(Any, _FakeProcess(code=0)), time.monotonic() + 1, threading.Event())
+        stream.wait_for(cast(Any, _FakeProcess(code=0)), time.monotonic() + 1, threading.Event())
         == "exited"
     )
     assert (
-        worker._wait_for(cast(Any, _FakeProcess()), time.monotonic() - 1, threading.Event())
+        stream.wait_for(cast(Any, _FakeProcess()), time.monotonic() - 1, threading.Event())
         == "deadline"
     )
 
 
+@pytest.mark.skipif(not hasattr(os, "getpgid"), reason="POSIX-only kill fallback (os.getpgid)")
 def test_bounded_reader_and_posix_kill_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     read_descriptor, write_descriptor = os.pipe()
     os.write(write_descriptor, b"abcdef")
     os.close(write_descriptor)
-    with os.fdopen(read_descriptor, "rb") as stream:
-        reader = worker._BoundedReader(stream, 3)
+    with os.fdopen(read_descriptor, "rb") as pipe:
+        reader = stream.BoundedReader(pipe, 3)
         reader.read()
     assert bytes(reader.buffer) == b"abcd" and reader.overflow.is_set()
 
     already = _FakeProcess(code=0)
-    worker.CapabilityProcessWorker._hard_kill_tree(worker._ProcessTree(cast(Any, already)))
+    stream.hard_kill_tree(stream.ProcessTree(cast(Any, already)))
     assert not already.killed
     live = _FakeProcess()
-    monkeypatch.setattr("zekam.infrastructure.process.capability_worker.os.getpgid", lambda _: 1234)
+    monkeypatch.setattr("zekam.infrastructure.process.bounded_stream.os.getpgid", lambda _: 1234)
 
     def fail_killpg(*_: Any) -> None:
         raise OSError("gone")
 
-    monkeypatch.setattr("zekam.infrastructure.process.capability_worker.os.killpg", fail_killpg)
-    worker.CapabilityProcessWorker._hard_kill_tree(worker._ProcessTree(cast(Any, live)))
+    monkeypatch.setattr("zekam.infrastructure.process.bounded_stream.os.killpg", fail_killpg)
+    stream.hard_kill_tree(stream.ProcessTree(cast(Any, live)))
     assert live.killed
 
 
@@ -413,7 +415,7 @@ def test_provider_failure_message_sanitizes_unknown_errors() -> None:
 @pytest.mark.skipif(os.name == "nt", reason="This batch explicitly covers POSIX only")
 def test_posix_worker_environment_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-cross")
-    environment = worker._worker_env()
+    environment = stream.worker_env()
     assert "UNRELATED_SECRET" not in environment
     assert environment["PYTHONUTF8"] == "1"
     assert str(Path(worker.__file__).resolve().parents[3]) in environment["PYTHONPATH"]

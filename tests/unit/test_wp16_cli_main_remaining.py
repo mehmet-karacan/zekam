@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -28,6 +29,22 @@ class _Console:
 
     def print_json(self, value: str) -> None:
         self.json.append(value)
+
+
+@pytest.fixture(autouse=True)
+def _route_json_to_fake_console(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI JSON'u artik locale-bagimsiz `_print_json` (typer.echo) ile yazar; bu dosyadaki
+    testler sahte konsolun `json` listesini dinledigi icin cikti oraya yonlendirilir."""
+
+    original = cli._print_json
+
+    def capture(document: object) -> None:
+        if hasattr(cli.console, "json"):
+            cli.console.json.append(json.dumps(document, sort_keys=True, default=str))
+        else:
+            original(document)
+
+    monkeypatch.setattr(cli, "_print_json", capture)
 
 
 @dataclass(frozen=True)

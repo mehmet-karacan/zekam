@@ -29,13 +29,17 @@ def test_registered_local_client_reaches_doctor(tmp_path: Path) -> None:
     result = clients_check.run()
 
     assert result.status is CheckStatus.PASSED
-    assert result.evidence == {
+    evidence = dict(result.evidence)
+    # `installed`, PATH'te bulunan istemcilere baglidir (makineye ozgu); sabit degildir.
+    installed = evidence.pop("installed")
+    assert "opencode" in installed
+    assert set(installed) <= {"claude-code", "codex", "opencode"}
+    assert evidence == {
         "configured": 1,
         "clients": ["claude-code", "codex", "opencode"],
         "supported": ["claude-code", "codex", "opencode"],
         "enabled": ["opencode"],
         "disabled": ["claude-code", "codex"],
-        "installed": ["codex", "opencode"],
         "missing": [],
         "healthy": ["opencode"],
     }

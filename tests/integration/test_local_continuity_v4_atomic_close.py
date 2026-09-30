@@ -699,7 +699,7 @@ def _v4_writer(
 def _materialize_and_complete(
     path: Path, frozen: FrozenClose, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -788,7 +788,7 @@ def _materialize_runtime_variant(
     mode: str,
     resolved_unknown_delivery: bool,
 ) -> None:
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -1626,7 +1626,7 @@ def test_progressed_non_success_runtime_states_replay_without_repair(
         projections=_Projections(),
     )
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -1958,7 +1958,7 @@ def test_no_effect_lease_recovery_is_exact_attention_replay(
         projections=_Projections(),
     )
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     assert (
         runtime.claim_next(
@@ -1997,7 +1997,7 @@ def test_replay_rejects_running_job_and_claimed_delivery_expired_by_system_time(
         projections=_Projections(),
     )
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2076,7 +2076,7 @@ def test_completed_job_with_pending_deliveries_remains_pending(
         projections=_Projections(),
     )
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2200,7 +2200,7 @@ def test_replay_pending_scope_uses_effect_binding_when_job_payload_drifts(
 ) -> None:
     path = tmp_path / "bound-effect-payload-drift.db"
     seed = _seed(path)
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     payload = {
         "operation": "continuity.compile",
@@ -2391,7 +2391,7 @@ def test_receiptless_compile_claim_cannot_form_failed_attention_graph(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2508,7 +2508,7 @@ def test_failed_required_delivery_is_attention_state(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2687,7 +2687,7 @@ def test_running_compile_claim_cannot_postdate_lease_expiry(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2739,7 +2739,7 @@ def test_effect_recovery_case_requires_canonical_creation_time(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2791,7 +2791,7 @@ def test_compile_outbox_claim_cannot_precede_completed_job(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2865,7 +2865,7 @@ def test_real_runtime_distinct_causal_timestamps_remain_accepted(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -2948,7 +2948,7 @@ def _unknown_effect_recovery_graph(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),
@@ -3110,7 +3110,7 @@ def test_expired_outbox_recovery_after_expiry_remains_accepted(
     seed = _seed(path)
     writer = _v4_writer(path, seed)
     frozen = writer.freeze_with_preclose(_request(seed))
-    monkeypatch.setattr(runtime_module, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(runtime_module, "RUNTIME_SCHEMA_VERSIONS", frozenset({4}))
     runtime = SQLiteLocalRuntimeStore(path, existing_only=True)
     work = runtime.claim_next(
         supported_operations=("continuity.compile",),

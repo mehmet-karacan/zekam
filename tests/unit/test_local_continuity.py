@@ -39,6 +39,7 @@ from zekam.domain.context_continuity import (
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
 from zekam.infrastructure.clients.codex_lifecycle import parse_codex_hook_input
 from zekam.infrastructure.local_continuity_source import ProjectContinuitySourceResolver
+from zekam.infrastructure.local_file_security import private_or_sandbox_readonly_directory
 from zekam.infrastructure.sqlite.local_continuity import SQLiteContinuityStore
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
@@ -63,7 +64,9 @@ def _resolver(binding: ContinuityBinding) -> ProjectContinuitySourceResolver:
 def continuity(tmp_path: Path) -> tuple[SQLiteContinuityStore, ContinuityBinding, LocalContext]:
     if not (ROOT / SOURCE_REF).is_file():
         pytest.skip("Bounded read-only Akilli Kasa source unavailable")
-    text = (ROOT / SOURCE_REF).read_text()
+    if not private_or_sandbox_readonly_directory(ROOT):
+        pytest.skip("Akilli Kasa source root is not a private/sandbox-readonly directory here")
+    text = (ROOT / SOURCE_REF).read_bytes().decode("utf-8")
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True
     ).stdout.strip()
@@ -192,10 +195,9 @@ def test_real_source_context_and_checkpoint_survive_reopen_without_authority(
     before = store.resume(binding, checkpoint)
     reopened = SQLiteContinuityStore(store.path, source_resolver=_resolver(binding))
     assert reopened.resume(binding, checkpoint) == before
-    assert (
-        before["context"]["context"]["fragments"]["health-source"]
-        == (ROOT / SOURCE_REF).read_text()
-    )
+    assert before["context"]["context"]["fragments"]["health-source"] == (
+        ROOT / SOURCE_REF
+    ).read_bytes().decode("utf-8")
     assert before["grants_authority"] is before["approval_inherited"] is False
     assert before["reacquire_required"] is True
     assert before["uncovered_events"] == 0
@@ -417,7 +419,10 @@ def test_real_spool_missing_delta_blocks_ack_then_drains_and_resumes(
     store, binding, context = continuity
     spool = ClientLifecycleSpool(tmp_path / "home", client_id="codex")
     service = LocalLifecycleContinuity(
-        store, spool, binding, source_probe=lambda: digest((ROOT / SOURCE_REF).read_text())
+        store,
+        spool,
+        binding,
+        source_probe=lambda: digest((ROOT / SOURCE_REF).read_bytes().decode("utf-8")),
     )
     manifest = service.hydrate(context, key="start")
     with pytest.raises(PolicyViolation, match="hook evidence missing"):
@@ -690,7 +695,10 @@ def test_doctor_is_read_only_and_exact_backfill_reports_missing_delta(
     store, binding, context = continuity
     spool = ClientLifecycleSpool(tmp_path / "home", client_id="codex")
     service = LocalLifecycleContinuity(
-        store, spool, binding, source_probe=lambda: digest((ROOT / SOURCE_REF).read_text())
+        store,
+        spool,
+        binding,
+        source_probe=lambda: digest((ROOT / SOURCE_REF).read_bytes().decode("utf-8")),
     )
     before = store.path.read_bytes()
     report = service.doctor()
@@ -751,7 +759,7 @@ def test_source_locator_resolves_exact_actual_lines_and_rejects_content_tamper(
     continuity: Any,
 ) -> None:
     _, binding, context = continuity
-    lines = "".join((ROOT / SOURCE_REF).read_text().splitlines(keepends=True)[:2])
+    lines = "".join((ROOT / SOURCE_REF).read_bytes().decode("utf-8").splitlines(keepends=True)[:2])
     source = context.selected_provenance[0].provenance_body | {
         "source_ref": f"{SOURCE_REF}#L1-L2",
         "digest": digest(lines),

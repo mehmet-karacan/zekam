@@ -26,6 +26,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.context_continuity import AuthorityLevel, ContextCandidateKind
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.security import AuthorizationState, OutboundState
+from zekam.infrastructure.process import bounded_stream as stream
 from zekam.infrastructure.process import capability_worker as worker
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
 
@@ -729,26 +730,26 @@ class _Kernel:
 def test_capability_worker_windows_job_and_assignment_edges(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    empty = worker._WindowsJob(None)
+    empty = stream._WindowsJob(None)
     empty.close()
     kernel = _Kernel()
-    monkeypatch.setattr(worker, "_windows_kernel32", lambda: kernel)
-    owned = worker._WindowsJob(7)
+    monkeypatch.setattr(stream, "_windows_kernel32", lambda: kernel)
+    owned = stream._WindowsJob(7)
     owned.close()
     assert owned.handle is None and kernel.closed
-    monkeypatch.setattr(worker, "_windows_kernel32", lambda: _Kernel(create=0))
+    monkeypatch.setattr(stream, "_windows_kernel32", lambda: _Kernel(create=0))
     with pytest.raises(PolicyViolation, match="olusturulamadi"):
-        worker._create_windows_job()
+        stream._create_windows_job()
     failed = _Kernel(configure=0)
-    monkeypatch.setattr(worker, "_windows_kernel32", lambda: failed)
+    monkeypatch.setattr(stream, "_windows_kernel32", lambda: failed)
     with pytest.raises(PolicyViolation, match="yapilandirilamadi"):
-        worker._create_windows_job()
+        stream._create_windows_job()
     with pytest.raises(PolicyViolation, match="kapali"):
-        worker._assign_windows_job(worker._WindowsJob(None), cast(Any, SimpleNamespace()))
+        stream._assign_windows_job(stream._WindowsJob(None), cast(Any, SimpleNamespace()))
     for kernel in (_Kernel(assign=0), _Kernel(check=0)):
-        monkeypatch.setattr(worker, "_windows_kernel32", lambda kernel=kernel: kernel)
+        monkeypatch.setattr(stream, "_windows_kernel32", lambda kernel=kernel: kernel)
         with pytest.raises(PolicyViolation):
-            worker._assign_windows_job(worker._WindowsJob(1), cast(Any, SimpleNamespace(_handle=2)))
+            stream._assign_windows_job(stream._WindowsJob(1), cast(Any, SimpleNamespace(_handle=2)))
 
 
 class _Process:
@@ -777,15 +778,15 @@ def test_capability_worker_finish_and_windows_kill_edges(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process = _Process()
-    tree = worker._ProcessTree(cast(Any, process), worker._WindowsJob(1))
-    monkeypatch.setattr(worker._WindowsJob, "close", lambda self: setattr(self, "handle", None))
+    tree = stream.ProcessTree(cast(Any, process), stream._WindowsJob(1))
+    monkeypatch.setattr(stream._WindowsJob, "close", lambda self: setattr(self, "handle", None))
     joined: list[float] = []
     thread = SimpleNamespace(join=lambda *, timeout: joined.append(timeout))
-    worker.CapabilityProcessWorker._finish_pipes(tree, cast(Any, thread))
+    stream.finish_pipes(tree, (cast(Any, thread),))
     assert process.killed and joined == [5]
     live = _Process()
-    tree2 = worker._ProcessTree(cast(Any, live), worker._WindowsJob(1))
-    worker.CapabilityProcessWorker._hard_kill_tree(tree2)
+    tree2 = stream.ProcessTree(cast(Any, live), stream._WindowsJob(1))
+    stream.hard_kill_tree(tree2)
     assert live.killed
 
 
@@ -799,22 +800,22 @@ def test_capability_worker_start_and_assignment_success_matrix(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("no process")),
     )
     with pytest.raises(PolicyViolation, match="baslatilamadi"):
-        worker.CapabilityProcessWorker._start(spec)
+        stream.start_process_tree(spec.argv, spec.cwd)
 
     kernel = _Kernel()
-    monkeypatch.setattr(worker, "_windows_kernel32", lambda: kernel)
-    job = worker._create_windows_job()
+    monkeypatch.setattr(stream, "_windows_kernel32", lambda: kernel)
+    job = stream._create_windows_job()
     assert job.handle == 1
-    worker._assign_windows_job(job, cast(Any, SimpleNamespace(_handle=2)))
+    stream._assign_windows_job(job, cast(Any, SimpleNamespace(_handle=2)))
 
     fake = _Process(code=0)
-    monkeypatch.setattr(worker, "_worker_env", lambda: {})
+    monkeypatch.setattr(stream, "worker_env", lambda: {})
     monkeypatch.setattr(os, "name", "nt")
     monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 1, raising=False)
-    monkeypatch.setattr(worker, "_create_windows_job", lambda: worker._WindowsJob(1))
+    monkeypatch.setattr(stream, "_create_windows_job", lambda: stream._WindowsJob(1))
     monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: fake)
-    monkeypatch.setattr(worker, "_assign_windows_job", lambda *_args: None)
-    tree = worker.CapabilityProcessWorker._start(spec)
+    monkeypatch.setattr(stream, "_assign_windows_job", lambda *_args: None)
+    tree = stream.start_process_tree(spec.argv, spec.cwd)
     assert tree.windows_job is not None
 
 
@@ -825,14 +826,21 @@ def test_capability_worker_finish_without_optional_resources_and_windows_fallbac
     cast(Any, process).stdin = None
     cast(Any, process).stdout = None
     joined: list[int] = []
-    worker.CapabilityProcessWorker._finish_pipes(
-        worker._ProcessTree(cast(Any, process)),
-        cast(Any, SimpleNamespace(join=lambda *, timeout: joined.append(timeout))),
+    stream.finish_pipes(
+        stream.ProcessTree(cast(Any, process)),
+        (
+            cast(
+                Any,
+                SimpleNamespace(
+                    join=lambda *, timeout: joined.append(timeout),
+                ),
+            ),
+        ),
     )
     assert joined == [5]
     live = _Process()
     monkeypatch.setattr(os, "name", "nt")
-    worker.CapabilityProcessWorker._hard_kill_tree(worker._ProcessTree(cast(Any, live)))
+    stream.hard_kill_tree(stream.ProcessTree(cast(Any, live)))
     assert live.killed
 
 
@@ -867,18 +875,18 @@ def test_capability_worker_last_reader_start_kill_and_child_branches(
 ) -> None:
     chunks = iter((b"x", b""))
     monkeypatch.setattr(os, "read", lambda *_args: next(chunks))
-    reader = worker._BoundedReader(cast(Any, SimpleNamespace(fileno=lambda: 1)), 3)
+    reader = stream.BoundedReader(cast(Any, SimpleNamespace(fileno=lambda: 1)), 3)
     reader.buffer.extend(b"xxxx")
     reader.read()
     assert reader.overflow.is_set()
 
     spec = worker.CapabilityWorkerSpec(("worker",), tmp_path, 1)
-    monkeypatch.setattr(worker, "_worker_env", lambda: {})
+    monkeypatch.setattr(stream, "worker_env", lambda: {})
     monkeypatch.setattr(os, "name", "nt")
     monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 1, raising=False)
     closed: list[bool] = []
     monkeypatch.setattr(
-        worker,
+        stream,
         "_create_windows_job",
         lambda: cast(Any, SimpleNamespace(close=lambda: closed.append(True))),
     )
@@ -888,12 +896,12 @@ def test_capability_worker_last_reader_start_kill_and_child_branches(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("no process")),
     )
     with pytest.raises(PolicyViolation):
-        worker.CapabilityProcessWorker._start(spec)
+        stream.start_process_tree(spec.argv, spec.cwd)
     assert closed == [True]
 
     live = _Process()
     job = cast(Any, SimpleNamespace(close=lambda: setattr(live, "code", 0)))
-    worker.CapabilityProcessWorker._hard_kill_tree(worker._ProcessTree(cast(Any, live), job))
+    stream.hard_kill_tree(stream.ProcessTree(cast(Any, live), job))
     assert not live.killed
 
     base = {

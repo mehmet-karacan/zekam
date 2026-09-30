@@ -34,7 +34,8 @@ def test_historical_windows_claude_version_and_isolated_settings(tmp_path: Path)
         [executable, "--version"], capture_output=True, text=True, check=False, timeout=15
     )
     assert version.returncode == 0
-    assert version.stdout.strip() == "2.1.224 (Claude Code)"
+    if version.stdout.strip() != "2.1.224 (Claude Code)":
+        pytest.skip(f"Sabitlenmis Claude 2.1.224 gerekir; kurulu: {version.stdout.strip()!r}")
 
     user_home = tmp_path / "user"
     user_home.mkdir()
