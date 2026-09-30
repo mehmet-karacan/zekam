@@ -260,3 +260,30 @@ def test_enumeration_questions_get_more_windows_within_a_larger_fixed_total() ->
     assert len(normal) <= MAX_ANSWER_EXCERPTS
     assert MAX_ANSWER_EXCERPTS < len(listing) <= MAX_ANSWER_EXCERPTS_ENUMERATION
     assert sum(len(item["text"]) for item in listing) <= MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION
+
+
+@pytest.mark.unit
+def test_config_question_without_config_evidence_gets_an_explicit_coverage_note() -> None:
+    from zekam.application.embedded_project_rag import _coverage_notes
+
+    java_only = [{"source_ref": "a/GeneralUtils.java"}, {"source_ref": "pom.xml"}]
+    for question in (
+        "Backend hangi portta ve hangi Spring profilleri var?",
+        "gpu-fusion backend portu 9001 mi; hangi Spring profilleri var?",
+        "application ayarlari nedir",
+        "config dosyasinda ne var?",
+    ):
+        notes = _coverage_notes(question, java_only)
+        assert [item["code"] for item in notes] == ["config-not-in-evidence"], question
+        assert "cikarma" in notes[0]["detail"]
+
+
+@pytest.mark.unit
+def test_no_coverage_note_when_config_evidence_exists_or_question_is_not_about_config() -> None:
+    from zekam.application.embedded_project_rag import _coverage_notes
+
+    with_yaml = [{"source_ref": "src/main/resources/application-dev.yaml"}]
+    assert _coverage_notes("hangi portta calisiyor?", with_yaml) == []
+    assert _coverage_notes("HakedisHesaplamaJob hangi step'leri calistirir?", []) == []
+    assert _coverage_notes("BatchJobController hangi endpoint'leri sunar?", []) == []
+    assert _coverage_notes("Hakedis nasil calisir?", []) == []

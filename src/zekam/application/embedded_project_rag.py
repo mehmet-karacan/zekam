@@ -254,6 +254,38 @@ MAX_ANSWER_EXCERPTS_ENUMERATION = 6
 MAX_ANSWER_EXCERPTS_TOTAL_CHARS_ENUMERATION = 3600
 
 
+_CONFIG_QUESTION_PATTERN = re.compile(
+    r"(?<!\w)(?:port|portu|portta|profil|profile|profilleri|yaml|yml|properties|"
+    r"config|konfig\w*|ayar\w*|environment)(?!\w)",
+    re.IGNORECASE,
+)
+_CONFIG_SUFFIXES = (".yaml", ".yml", ".properties", ".toml", ".ini", ".env", ".conf")
+
+
+def _coverage_notes(query: str, citations: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Kanitin kapsam bosluklarini dogrudan sorgu ve citation'lardan turetir (indeks okumaz).
+
+    Config sorusunda hicbir citation config dosyasi degilse bunu acikca yazar: gizli deger
+    kalibi tasiyan config dosyalari indekslenmez; cevap config degeri uydurmaz.
+    """
+
+    notes: list[dict[str, str]] = []
+    if _CONFIG_QUESTION_PATTERN.search(query) and not any(
+        str(item.get("source_ref") or "").lower().endswith(_CONFIG_SUFFIXES) for item in citations
+    ):
+        notes.append(
+            {
+                "code": "config-not-in-evidence",
+                "detail": (
+                    "Sorgu config (port/profil/ayar) ile ilgili ama kanitta config dosyasi yok; "
+                    "gizli deger kalibi tasiyan config dosyalari indekslenmez. Config degerini "
+                    "kaynak kodundan veya tesadufi eslesmeden cikarma."
+                ),
+            }
+        )
+    return notes
+
+
 #: Kimliksiz ve en fazla bu kadar anlamli terimli sorular belirsiz sayilir.
 MAX_AMBIGUOUS_QUERY_TERMS = 2
 
@@ -1206,6 +1238,7 @@ class EmbeddedProjectRAG:
                 answer, views, query, expanded_ids, enumeration=_is_enumeration_question(query)
             ),
             "clarification": _clarification(query, identifiers, citations),
+            "coverage_notes": _coverage_notes(query, citations),
             "answer_excerpt_meta": excerpt_meta,
             "reference_expansion": list(expanded_ids),
             "explanation": list(answer.explanation),
