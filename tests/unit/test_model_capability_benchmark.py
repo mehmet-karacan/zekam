@@ -224,11 +224,11 @@ def test_public_fixture_text_does_not_disclose_hidden_answer_concepts() -> None:
         assert not any(term in public_text for term in hidden_terms)
 
 
-def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
+def test_live_manifest_prepares_exact_static_slots_per_model(tmp_path: Path) -> None:
     plan = _plan(tuple(f"model-{index}" for index in range(7)))
     _, _, fixtures = _loaded()
     # The real campaign builder/inventory mapping is exercised in campaign E2E.
-    # Here a production seven-model plan is covered by the CLI integration tests;
+    # Slot count is 24 per eligible model; the eligible set follows the configured scope;
     # arbitrary fake ids must fail closed instead of producing partial authority.
     scope = load_campaign_scope()
     config = tmp_path / "opencode.json"
@@ -265,13 +265,13 @@ def test_live_manifest_prepares_exact_static_168_slots(tmp_path: Path) -> None:
         if target.excluded_reason is None
         and (record := inventory.by_id(target.canonical_model_id)) is not None
         and record.invocation_modality in {Modality.CHAT, Modality.CODE, Modality.COMPLETION}
-    )[:7]
-    assert len(eligible) == 7
-    prepared_plan = replace(plan, model_ids=eligible)
+    )
+    assert eligible
+    prepared_plan = replace(plan, model_ids=eligible, max_parallelism=len(eligible))
     prepared = prepare_capability_live_manifest(prepared_plan, fixtures, campaign)
-    assert len(prepared.slots) == 168
-    assert len({slot.template_digest for slot in prepared.slots}) == 168
-    assert len({slot.derivation_digest for slot in prepared.slots}) == 168
+    assert len(prepared.slots) == 24 * len(eligible)
+    assert len({slot.template_digest for slot in prepared.slots}) == len(prepared.slots)
+    assert len({slot.derivation_digest for slot in prepared.slots}) == len(prepared.slots)
     for candidate_task in prepared_plan.registry.tasks:
         prompts = "\n".join(
             str(slot.prepared.call.payload)
