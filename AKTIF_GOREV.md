@@ -54,7 +54,7 @@ Bu gorev metni GitHub `f75c6a3` revisionina gore yazildi (baseline degismez). Ye
 - Yerel `main` baseline'in uzerinde ilerlemistir (13 radar/arastirma commit'i ve bu gorevin ilk kesitleri pushlandi). R00 bunu kayda gecirir.
 - Onceki yasayan gorev `ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION-001` (SHA-256 `9fb789564987597ec579702765d4e5b0c67b7665ac1bf6f2e898a8ab929a4b60`) exact Markdown ve projection ile `docs/archive/tasks/` altina alindi; bitmemis kapsami silinmez, arsivdeki metinde kalir ve Global DoD pending maddeleri degismeden tasinir. Gecis oncesi operational Work Graph'ta bu gorev icin acik Work Item yoktu; ilgisiz eski `active` madde ("UI ve dashboard yuzeylerini kaldir") oldugu gibi birakildi.
 - Yerel Windows kalite kosusu: ruff temiz; mypy 429 hata; pytest 310 failed + 79 error (pwd, macOS-only sandbox, symlink ayricaligi, POSIX yol varsayimi). Bu hatalar RAG gorevinden onceki durumdur; "onceden gecen" sayilmaz, R00 baseline'inda ayri kaydedilir.
-- R11 canli kampanya: `zekam model campaign plan` `blocked-catalog-scope-drift`; `Kimi-K2.7-Code` config-only. Katalog drift kapanmadan R11 BLOCKED kalir.
+- R11 canli kampanya: katalog/kapsam drift'i kapandi; kapsam yapilandirilmis modellerle hizalandi (commit 05d267e) ve `zekam model campaign plan` `planned` durumunda (config/scope farki bos, 5 uygun sohbet/kod modeli). Kimi hedefi `moonshotai/Kimi-K2.7-Code`. Yeni kampanya ayri onay ister.
 
 ### Uygulama durumu (kanit: pushlanmis commit + bagimsiz verifier)
 
