@@ -42,6 +42,15 @@ def _work_document(item: Any, projects: dict[str, str]) -> dict[str, Any]:
 
 
 def _rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict[str, Any]:
+    """Proje RAG ozeti; tek bir projenin bozuk/buyuk state'i tum resume'u dusurmez."""
+    try:
+        return _read_rag_summary(home, project_id=project_id, project_slug=project_slug)
+    except PolicyViolation as exc:
+        # Gorunur kalir: state attention-required, neden kodu ile; ilgisiz projeler etkilenmez.
+        return {"state": "attention-required", "reason": _bounded(exc, limit=120)}
+
+
+def _read_rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict[str, Any]:
     state_path = home / "projeler" / project_slug / "runtime" / "rag-state.json"
     try:
         if not state_path.is_file():

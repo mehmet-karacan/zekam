@@ -366,3 +366,33 @@ def test_wp8_d1_concurrent_same_generation_write_still_commits(tmp_path: Path) -
     assert committed is True
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
     assert persisted["query_verified_at"] == "2026-01-01T00:00:00Z"
+
+
+def test_oversized_project_rag_state_degrades_only_that_project(tmp_path: Path) -> None:
+    """Tek projenin sismis rag-state'i resume paketini dusurmez; neden gorunur kalir."""
+    home = _operational_home(tmp_path)
+    _seed_projects_with_aliases(home / "state" / "operational.db", 2)
+    state_path = home / "projeler" / "proj-0" / "runtime" / "rag-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps({"filler": "x" * (workspace_resume._RAG_STATE_LIMIT + 1)}), encoding="utf-8"
+    )
+
+    packet = build_resume_packet(home)
+
+    rag = {item["project_ref"]: item["rag"] for item in packet["projects"]}
+    assert rag["proj-0"]["state"] == "attention-required"
+    assert "bounded" in rag["proj-0"]["reason"]
+    assert rag["proj-1"] == {"state": "unavailable"}
+
+
+def test_malformed_project_rag_state_degrades_without_raising(tmp_path: Path) -> None:
+    home = _operational_home(tmp_path)
+    _seed_projects_with_aliases(home / "state" / "operational.db", 1)
+    state_path = home / "projeler" / "proj-0" / "runtime" / "rag-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("{not json", encoding="utf-8")
+
+    packet = build_resume_packet(home)
+
+    assert packet["projects"][0]["rag"]["state"] == "attention-required"
