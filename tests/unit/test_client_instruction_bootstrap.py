@@ -125,3 +125,22 @@ def test_default_policy_only_plans_opencode_instruction_file(tmp_path: Path) -> 
     assert [(item.client_id, item.path) for item in plan.files] == [
         ("opencode", home / ".config" / "opencode" / "AGENTS.md")
     ]
+
+
+def test_managed_body_scopes_startup_checks_and_keeps_hard_boundaries(tmp_path: Path) -> None:
+    home = _home(tmp_path)
+    plan = plan_client_instruction_bootstrap(user_home=home, integration_policy=_all_enabled())
+    for item in plan.files:
+        body = item.content
+        # G01/G02: selamlama ve proje icermeyen soruda doctor/ask yok.
+        assert "selamlama ve genel sohbet haric" in body
+        assert "Selamlama ve proje icermeyen genel soru icin doctor veya ask cagirma" in body
+        assert "Genel veya proje-baglamli soruyu once" not in body
+        assert "calismadan once `zekam doctor --json`" not in body
+        # 00_BASLA kapsami repository isiyle sinirli, sinirlar silinmedi.
+        assert "repository isinde (mutation, research, devam/recovery)" in body
+        assert "yalniz registry'de cozulmus exact gercek source rootunda" in body
+        assert "claim-before-effect" in body and "terminal receipt" in body
+        assert "Secret, PII ve raw transcript" in body
+        assert "zekam doctor --hazirla --json" in body
+        assert "kullanici onayi iste" in body

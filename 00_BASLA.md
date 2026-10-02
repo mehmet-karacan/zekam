@@ -5,19 +5,29 @@ kurum içi model, başka bir CLI veya gelecekteki istemci aynı sırayı izler.
 
 ## 1. Oturum başlatma
 
-Aşağıdaki işlemleri konuşma geçmişinden bağımsız yap:
+Kapsam: Aşağıdaki başlangıç sırası repository üzerinde iş yapılacağı oturumlar içindir
+(mutation, kaynak fallback'i, çok-kaynaklı research, devam/recovery). Selamlama, teşekkür,
+proje içermeyen kavram sorusu ve yeterli pinned citation ile cevaplanan salt-okunur bilgi
+sorusu için bu sıra, doctor, subagent veya bütün belgeleri okuma gerektirmez; route kararı
+`.opencode/agents/zekam-coordinator.md` ve ilgili route referansındadır. Küçük yetkili bir
+değişiklikte yalnız ilgili bağlam ve gerekli test yüklenir; tarihsel belgeler zorunlu okuma
+değildir.
+
+Repository işinde aşağıdaki işlemleri konuşma geçmişinden bağımsız yap:
 
 1. Repository kökünü ve `PROJE_MANIFESTI.yaml` dosyasını bul.
 2. `git status --short`, branch, HEAD ve son beş commit'i oku.
-3. `python scripts/paket_dogrula.py` çalıştır.
+3. Paket/şablon/release bütünlüğüne dokunan işte `python scripts/paket_dogrula.py` çalıştır.
 4. Bağlayıcı `AKTIF_GOREV.md` dosyasını oku; `AKTIF_GOREV.yaml` projeksiyonunun exact
    digest eşleşmesini ve yerel operational store durumunu doğrula.
 5. `DEVAM_PROTOKOLU.md` içindeki stale/recovery kurallarını uygula.
 6. Aktif işin bağımlılıklarını, logical resource'larını, lease ve receipt durumunu doğrula.
-7. `AKTIF_GOREV.md` ile `GLOBAL_DEFINITION_OF_DONE.md` kapsamını yükle;
-   `NIHAI_UYGULAMA_PROMPTU.md` dosyasını yalnız superseded baseline/reference olarak oku.
+7. `AKTIF_GOREV.md` ile `GLOBAL_DEFINITION_OF_DONE.md` kapsamını yükle.
+   `NIHAI_UYGULAMA_PROMPTU.md` superseded tarihsel kaynaktır; otomatik yüklenmez ve
+   authority değildir, yalnız tarihsel gerekçe aranırken açılır.
 8. Yalnız aktif iş için gerekli bounded context'i derle; bütün repository'yi prompta yığma.
-9. İş agentic ise en az bir gerçek subagent planla. Koordinatör subagent sayılmaz.
+9. İş agentic mutation veya research ise en az bir gerçek subagent planla; risk gerektirdiğinde
+   builder'dan bağımsız verifier kullan. Koordinatör subagent sayılmaz.
 10. Uygulamadan önce exact plan, test ve rollback kapsamını üret.
 
 ## 2. Gerçek durum kuralı

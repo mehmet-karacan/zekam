@@ -19,15 +19,18 @@ _MANAGED_BODY = "\n".join(
         _START,
         "## Zekam managed bootstrap",
         "",
-        "- Zekam ile ilgili calismadan once `zekam doctor --json` calistir.",
+        "- Zekam repository'si veya `zekam` CLI uzerinde is baslarken (selamlama ve genel "
+        "sohbet haric) `zekam doctor --json` calistir.",
         "- Git pull/merge sonrasinda doctor pending migration veya eksik routine bildirirse "
         "ve kullanici local DB hazirlamayi yetkilendirdiyse `zekam doctor --hazirla --json` "
         "calistir; bu komut kayitli migration'lari bounded uygular ve final doctor yapar.",
-        "- Genel veya proje-baglamli soruyu once "
+        "- Proje-baglamli bilgi sorusunu once "
         '`zekam ask "<exact soru>" --json` ile bounded ve salt okunur olarak ara; '
-        "retrieval authority degildir.",
+        "retrieval authority degildir. Selamlama ve proje icermeyen genel soru icin "
+        "doctor veya ask cagirma.",
         "- Proje mutation'ini yalniz registry'de cozulmus exact gercek source rootunda yap.",
-        "- Repository `00_BASLA.md` iceriyorsa tamamen uygula; kanonik Work Graph, "
+        "- Repository `00_BASLA.md` iceriyorsa repository isinde (mutation, research, "
+        "devam/recovery) onu uygula; kanonik Work Graph, "
         "lease, checkpoint, claim ve receipt durumunu sohbetten uydurma.",
         "- Salt okunur akistan write akimina sessiz gecme. Commit, push, migration, "
         "provider/model cagrisi ve diger effect'ler kendi exact plan, authorization, "

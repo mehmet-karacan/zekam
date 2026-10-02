@@ -1,10 +1,14 @@
 # Zekam Agent Talimatı
 
-1. İlk olarak `00_BASLA.md` dosyasını uygula.
+1. Repository üzerinde iş (mutation, kaynak fallback'i, çok-kaynaklı research, devam/recovery)
+   başlarken `00_BASLA.md` dosyasını uygula. Selamlama, proje içermeyen genel soru ve
+   yeterli pinned citation ile cevaplanan salt-okunur soru için bu başlangıç, doctor veya
+   subagent töreni gerekmez; route kuralları coordinator rolündedir.
 2. Yaşayan ve bağlayıcı görev authority'si `AKTIF_GOREV.md` dosyasıdır;
    `AKTIF_GOREV.yaml` yalnız bunun salt-okunur üretilmiş projeksiyonudur.
 3. Devam ve recovery kuralları `DEVAM_PROTOKOLU.md` içindedir.
-4. Agentic işte en az bir gerçek subagent kullan; koordinatör sayılmaz.
+4. Agentic mutation/research işinde en az bir gerçek subagent kullan; koordinatör sayılmaz.
+   Riskli veya çok kaynaklı mutation'da builder'dan bağımsız verifier atlanmaz.
 5. Kod mutation'ini bagli exact gercek project source rootunda yap; kopya, mirror, audit-work
    klasoru, detached worktree veya gecici proje klonu olusturma.
 5a. Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka
