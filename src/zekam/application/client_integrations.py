@@ -25,6 +25,7 @@ from zekam.application.client_hook_bootstrap import (
 )
 from zekam.application.client_instruction_bootstrap import (
     plan_client_instruction_bootstrap,
+    read_instruction_text,
     remove_managed_instruction_section,
 )
 from zekam.application.composition import ApplicationContext
@@ -484,9 +485,7 @@ def _render_instruction_cleanup(config_path: Path, operation: dict[str, Any]) ->
     if _file_digest(config_path) != operation.get("before_digest"):
         raise PolicyViolation("Client instruction config changed before cleanup")
     try:
-        updated, removed = remove_managed_instruction_section(
-            config_path.read_text(encoding="utf-8")
-        )
+        updated, removed = remove_managed_instruction_section(read_instruction_text(config_path))
     except (OSError, UnicodeDecodeError, ConfigurationError) as exc:
         raise PolicyViolation("Client instruction cleanup ownership drift") from exc
     if not removed:
@@ -831,9 +830,7 @@ def _user_instruction_inventory(native_user_root: Path) -> tuple[dict[str, Any],
             conflict = "instruction-file-identity-invalid"
         else:
             try:
-                _updated, managed = remove_managed_instruction_section(
-                    path.read_text(encoding="utf-8")
-                )
+                _updated, managed = remove_managed_instruction_section(read_instruction_text(path))
             except (OSError, UnicodeDecodeError, ConfigurationError):
                 conflict = "instruction-section-unowned-or-drifted"
             if _contains_secret_assignment(path):
@@ -950,6 +947,110 @@ def integration_status(
     return body | {"status_digest": digest(body)}
 
 
+_NATIVE_CONFIG_OPERATIONS = frozenset(
+    {
+        "detach-opencode-config",
+        "detach-client-hook-config",
+        "detach-client-instruction-config",
+        "write-client-hook-config",
+        "write-client-instruction-config",
+    }
+)
+_PENDING_SCHEMA = "zekam-cli-integration-pending/v1"
+
+
+def _pending_root(home: Path) -> Path:
+    return home / "state" / "manifests" / "client-integration-pending"
+
+
+def _native_backup_path(quarantine_root: Path, receipt_key: str, relative_path: str) -> Path:
+    suffix = digest(relative_path).removeprefix("sha256:")[:16]
+    return quarantine_root / "native-config" / f"{receipt_key}-{suffix}.json"
+
+
+def _load_pending_journal(path: Path) -> dict[str, Any] | None:
+    if not path.is_file() or path.is_symlink():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    stored = loaded.pop("journal_digest", None)
+    if stored != digest(loaded) or loaded.get("schema") != _PENDING_SCHEMA:
+        return None
+    return loaded
+
+
+def _publish_pending_journal(path: Path, journal: dict[str, Any]) -> None:
+    _atomic_write(path, canonical_json(journal | {"journal_digest": digest(journal)}).encode())
+
+
+def _pending_recovery(
+    context: ApplicationContext, native_user_root: Path
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, str], ...]]:
+    """Classify journals left by a crashed apply; terminal journals are ignored.
+
+    Only journals with at least one already-applied or conflicting file are surfaced, so a
+    crash before the first write replays under the same plan digest.
+    """
+
+    root = _pending_root(context.home)
+    if not root.is_dir() or root.is_symlink():
+        return (), ()
+    identity = _root_identity(native_user_root, must_exist=True)
+    manifests = context.home / "state" / "manifests" / "client-integrations"
+    rows: list[dict[str, Any]] = []
+    conflicts: list[dict[str, str]] = []
+    for path in sorted(root.glob("*.json")):
+        journal = _load_pending_journal(path)
+        if journal is None:
+            conflicts.append(
+                {
+                    "relative_path": path.relative_to(context.home).as_posix(),
+                    "reason": "pending-recovery-journal-invalid",
+                }
+            )
+            continue
+        key = str(journal.get("plan_digest", "")).removeprefix("sha256:")
+        if (
+            journal.get("state") != "intent"
+            or journal.get("native_user_root_identity_digest") != identity
+            or (manifests / f"{key}.json").is_file()
+        ):
+            continue
+        states: list[dict[str, Any]] = []
+        for item in journal.get("native_operations", []):
+            current = _file_digest(native_user_root / str(item["relative_path"]))
+            backup_ref = item["backup_ref"]
+            backup_ok = (
+                item["before_digest"] is None
+                if backup_ref is None
+                else _file_digest(context.home / str(backup_ref)) == item["before_digest"]
+            )
+            if current == item["before_digest"]:
+                state = "not-applied"
+            elif current == item["after_digest"] and backup_ok:
+                state = "applied"
+            else:
+                state = "conflict"
+            states.append(
+                {
+                    "relative_path": item["relative_path"],
+                    "before_digest": item["before_digest"],
+                    "after_digest": item["after_digest"],
+                    "backup_ref": backup_ref,
+                    "state": state,
+                    "operation_body": item["operation_body"],
+                }
+            )
+        if all(item["state"] == "not-applied" for item in states):
+            continue
+        rows.append({"journal_id": key, "operations": states})
+    return tuple(rows), tuple(conflicts)
+
+
 @dataclass(frozen=True, slots=True)
 class IntegrationSyncPlan:
     context: ApplicationContext
@@ -965,6 +1066,7 @@ class IntegrationSyncPlan:
     native_write_payloads: Mapping[str, bytes]
     pending_project_cleanup: tuple[dict[str, Any], ...]
     registered_projects: tuple[tuple[str, Path], ...]
+    pending_recovery: tuple[dict[str, Any], ...] = ()
 
     @property
     def body(self) -> dict[str, Any]:
@@ -1006,6 +1108,7 @@ class IntegrationSyncPlan:
             "operations": list(self.operations),
             "conflicts": list(self.conflicts),
             "pending_project_cleanup": list(self.pending_project_cleanup),
+            "pending_recovery": list(self.pending_recovery),
             "apply": False,
             "provider_calls": 0,
             "network_calls": 0,
@@ -1080,7 +1183,17 @@ def build_sync_plan(
         instruction_plan = plan_client_instruction_bootstrap(
             user_home=native_user_root,
             integration_policy=after,
+            collect_conflicts=True,
         )
+        for instruction_conflict in instruction_plan.conflicts:
+            conflicts.append(
+                {
+                    "relative_path": instruction_conflict.path.relative_to(
+                        native_user_root
+                    ).as_posix(),
+                    "reason": instruction_conflict.reason,
+                }
+            )
         for instruction in instruction_plan.files:
             if instruction.action == "unchanged":
                 continue
@@ -1102,7 +1215,19 @@ def build_sync_plan(
                     "relative_path": relative,
                     "before_digest": _file_digest(instruction.path),
                     "after_digest": digest_of_bytes(payload),
-                    "ownership_proof": "reviewed-managed-section-render",
+                    "ownership_proof": (
+                        "known-legacy-managed-digest"
+                        if instruction.action == "migrate"
+                        else "reviewed-managed-section-render"
+                    ),
+                    "instruction_action": instruction.action,
+                    "migrated_from_version": (
+                        instruction.previous_version if instruction.action == "migrate" else None
+                    ),
+                    "previous_body_digest": instruction.previous_body_digest,
+                    "target_body_digest": instruction.body_digest,
+                    "preserved_prefix_digest": instruction.prefix_digest,
+                    "preserved_suffix_digest": instruction.suffix_digest,
                 }
             )
             native_write_payloads[relative] = payload
@@ -1309,6 +1434,10 @@ def build_sync_plan(
                     "requires_separate_project_plan": True,
                 }
             )
+    pending_recovery: tuple[dict[str, Any], ...] = ()
+    if scope == "user":
+        pending_recovery, pending_conflicts = _pending_recovery(context, native_user_root)
+        conflicts.extend(pending_conflicts)
     return IntegrationSyncPlan(
         context=context,
         scope=scope,
@@ -1323,6 +1452,7 @@ def build_sync_plan(
         native_write_payloads=native_write_payloads,
         pending_project_cleanup=tuple(pending_project_cleanup),
         registered_projects=registered_projects,
+        pending_recovery=pending_recovery,
     )
 
 
@@ -1379,16 +1509,44 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
     config_path = plan.context.home / USER_CONFIG_FILE
     config_backup: Path | None = None
     native_config_backups: list[tuple[Path, Path | None]] = []
+    native_digests: dict[Path, tuple[str | None, str]] = {}
     receipt_key = plan.plan_digest.removeprefix("sha256:")
+    journal_path = _pending_root(plan.context.home) / f"{receipt_key}.json"
+    native_operations = [
+        operation
+        for operation in plan.operations
+        if operation["operation"] in _NATIVE_CONFIG_OPERATIONS
+    ]
+    journal: dict[str, Any] = {
+        "schema": _PENDING_SCHEMA,
+        "plan_digest": plan.plan_digest,
+        "native_user_root_identity_digest": _root_identity(plan.native_user_root, must_exist=True),
+        "state": "intent",
+        "native_operations": [
+            {
+                "relative_path": str(operation["relative_path"]),
+                "before_digest": operation["before_digest"],
+                "after_digest": operation["after_digest"],
+                "backup_ref": (
+                    _native_backup_path(
+                        quarantine_root, receipt_key, str(operation["relative_path"])
+                    )
+                    .relative_to(plan.context.home)
+                    .as_posix()
+                    if (plan.native_user_root / str(operation["relative_path"])).exists()
+                    else None
+                ),
+                "operation_body": operation,
+            }
+            for operation in native_operations
+        ],
+    }
     try:
+        if native_operations:
+            # Claim-before-effect: intent journal, ilk native yazimdan once atomik yayinlanir.
+            _publish_pending_journal(journal_path, journal)
         for operation in plan.operations:
-            if operation["operation"] not in {
-                "detach-opencode-config",
-                "detach-client-hook-config",
-                "detach-client-instruction-config",
-                "write-client-hook-config",
-                "write-client-instruction-config",
-            }:
+            if operation["operation"] not in _NATIVE_CONFIG_OPERATIONS:
                 continue
             native_config = plan.native_user_root / str(operation["relative_path"])
             if operation["operation"] == "detach-opencode-config":
@@ -1410,13 +1568,19 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
             if native_config.exists():
                 backup_root = quarantine_root / "native-config"
                 backup_root.mkdir(parents=True, exist_ok=True)
-                suffix = digest(str(operation["relative_path"])).removeprefix("sha256:")[:16]
-                native_config_backup = backup_root / f"{receipt_key}-{suffix}.json"
+                native_config_backup = _native_backup_path(
+                    quarantine_root, receipt_key, str(operation["relative_path"])
+                )
                 _assert_quarantine_destination(quarantine_root, native_config_backup)
                 if native_config_backup.exists() or native_config_backup.is_symlink():
-                    raise PolicyViolation("Native client config cleanup backup collision")
-                _atomic_write(native_config_backup, native_config.read_bytes())
+                    # Ayni plan crash sonrasi tekrar kosuyorsa yalniz birebir onceki icerik
+                    # olan (atomik yazilmis) yedek yeniden kullanilir.
+                    if _file_digest(native_config_backup) != operation["before_digest"]:
+                        raise PolicyViolation("Native client config cleanup backup collision")
+                else:
+                    _atomic_write(native_config_backup, native_config.read_bytes())
             native_config_backups.append((native_config, native_config_backup))
+            native_digests[native_config] = (operation["before_digest"], operation["after_digest"])
             _atomic_write(native_config, rendered)
             if _file_digest(native_config) != operation["after_digest"]:
                 raise PolicyViolation("Native client config cleanup readback drift")
@@ -1452,25 +1616,40 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                 config_backup = backup_root / f"{receipt_key}.yaml"
                 _assert_quarantine_destination(quarantine_root, config_backup)
                 if config_backup.exists():
-                    raise PolicyViolation("CLI integration config backup collision")
-                _atomic_write(config_backup, config_path.read_bytes())
+                    if _file_digest(config_backup) != plan.config_before_digest:
+                        raise PolicyViolation("CLI integration config backup collision")
+                else:
+                    _atomic_write(config_backup, config_path.read_bytes())
             _atomic_write(config_path, plan.config_after_bytes)
             if _file_digest(config_path) != digest_of_bytes(plan.config_after_bytes):
                 raise PolicyViolation("CLI integration user config readback drift")
     except BaseException as error:
         rollback_failed = False
+        config_after = (
+            None if plan.config_after_bytes is None else digest_of_bytes(plan.config_after_bytes)
+        )
         if config_backup is not None and config_backup.exists():
             try:
-                _atomic_write(config_path, config_backup.read_bytes())
-            except OSError:
+                # Yalniz kendi yazdigimiz policy'yi geri al; arada degisen icerik ezilmez.
+                if _file_digest(config_path) == config_after:
+                    _atomic_write(config_path, config_backup.read_bytes())
+                elif _file_digest(config_path) != plan.config_before_digest:
+                    raise OSError("user config changed during apply; edit preserved")
+            except (OSError, PolicyViolation):
                 rollback_failed = True
         for native_config, native_config_backup in reversed(native_config_backups):
             try:
+                before_digest, after_digest = native_digests[native_config]
+                current_digest = _file_digest(native_config)
+                if current_digest == before_digest:
+                    continue
+                if current_digest != after_digest:
+                    raise OSError("native config changed during apply; edit preserved")
                 if native_config_backup is None:
                     native_config.unlink(missing_ok=True)
                 else:
                     _atomic_write(native_config, native_config_backup.read_bytes())
-            except OSError:
+            except (OSError, PolicyViolation):
                 rollback_failed = True
         for source, destination, expected in reversed(moved):
             try:
@@ -1482,7 +1661,37 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                 rollback_failed = True
         if rollback_failed:
             raise PolicyViolation("CLI integration recovery-required; backup retained") from error
+        if native_operations:
+            _publish_pending_journal(journal_path, journal | {"state": "compensated"})
         raise
+    adopted_operations: list[dict[str, Any]] = []
+    adopted_backups: list[dict[str, Any]] = []
+    adopted_journals: list[str] = []
+    recovery_conflicts: list[dict[str, Any]] = []
+    for row in plan.pending_recovery:
+        recovery_conflicts.extend(
+            {
+                "journal_id": row["journal_id"],
+                "relative_path": item["relative_path"],
+                "reason": "native-config-changed-after-crash-user-edit-preserved",
+                "backup_ref": item["backup_ref"],
+            }
+            for item in row["operations"]
+            if item["state"] == "conflict"
+        )
+        applied = [item for item in row["operations"] if item["state"] == "applied"]
+        for item in applied:
+            adopted_operations.append(
+                dict(item["operation_body"]) | {"adopted_from_pending": row["journal_id"]}
+            )
+            adopted_backups.append(
+                {
+                    "relative_path": item["relative_path"],
+                    "backup_ref": item["backup_ref"],
+                    "before_digest": item["before_digest"],
+                }
+            )
+        adopted_journals.append(str(row["journal_id"]))
     receipt_body: dict[str, Any] = {
         "schema": "zekam-cli-integration-sync-receipt/v1",
         "receipt_id": receipt_key,
@@ -1514,14 +1723,27 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                 "before_digest": _file_digest(backup) if backup is not None else None,
             }
             for source, backup in native_config_backups
-        ],
-        "operations": list(plan.operations),
+        ]
+        + adopted_backups,
+        "operations": list(plan.operations) + adopted_operations,
+        "recovered_pending_journals": adopted_journals,
+        "recovery_conflicts": recovery_conflicts,
         "provider_calls": 0,
         "network_calls": 0,
         "grants_authority": False,
     }
     receipt = receipt_body | {"receipt_digest": digest(receipt_body)}
     _atomic_write(manifest_path, canonical_json(receipt).encode("utf-8"))
+    # Terminal receipt yayinlandi; ilgili intent journal'lari artik pending degildir.
+    if native_operations:
+        _publish_pending_journal(journal_path, journal | {"state": "completed"})
+    for journal_id in adopted_journals:
+        adopted_path = _pending_root(plan.context.home) / f"{journal_id}.json"
+        adopted = _load_pending_journal(adopted_path)
+        if adopted is not None and adopted_path != journal_path:
+            _publish_pending_journal(
+                adopted_path, adopted | {"state": "adopted", "adopted_by": receipt_key}
+            )
     return receipt
 
 

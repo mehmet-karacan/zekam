@@ -32,6 +32,17 @@ class PolicyViolation(ZekamError):
     code = "policy-violation"
 
 
+class BlockedContext(PolicyViolation):
+    """Zorunlu guvenlik/is baglami sigmiyor; kesilerek cagri yapilmaz (blocked-context).
+
+    ``code`` PolicyViolation ile ayni kalir (geriye uyum); ayrim ``reason`` ile yapilir.
+    """
+
+    def __init__(self, message: str, *, reason: str = "required-context-does-not-fit") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 class AuthorizationRequired(ZekamError):
     """Islem exact authorization olmadan yurutulemez."""
 

@@ -12,7 +12,7 @@ from uuid import UUID
 
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.context_scoring import ContextCompilerMetricsV2
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import BlockedContext, PolicyViolation, ValidationFailed
 
 MAX_FRESHNESS_SECONDS = 30 * 24 * 60 * 60
 EVIDENCE_KINDS = frozenset(
@@ -290,8 +290,12 @@ class ContextSelection:
     load_level: ContextLoadLevel = DEFAULT_LOAD_LEVEL
     source_kind: ContextSourceKind = DEFAULT_SOURCE_KIND
     budget_mode: ContextBudgetMode = DEFAULT_BUDGET_MODE
+    # Olcum izi (5.2): token_count'un hangi tokenizer profiline ait oldugu. as_dict'e girmez,
+    # bu yuzden manifest digest'i ve eski kayitlar degismez.
+    tokenizer_profile_digest: str = DEFAULT_TOKENIZER_PROFILE_DIGEST
 
     def __post_init__(self) -> None:
+        parse_digest(self.tokenizer_profile_digest)
         if not isinstance(self.kind, ContextCandidateKind):
             raise ValidationFailed("Context selection kind registry disinda")
         _safe_logical(self.source_ref, "Context selection source")
@@ -336,6 +340,32 @@ class ContextSelection:
             "bounded_size": self.token_count,
             "authority": False,
             "budget_mode": self.budget_mode.value,
+            "measurement": self.measurement_trace(),
+        }
+
+    def measurement_trace(self) -> dict[str, Any]:
+        """Etkin yuk olcumu: Zekam'in derledigi icerik exact bilinir (known_loaded).
+
+        Token degeri aday tokenizer profilinin sayisidir; byte sayisi yalniz profil
+        `utf8-byte-count` ise exact'tir. Sağlayici usage'i burada yoktur ve uydurulmaz.
+        """
+
+        byte_profile = self.tokenizer_profile_digest == DEFAULT_TOKENIZER_PROFILE_DIGEST
+        return {
+            "quality": "known_loaded",
+            "source_kind": self.source_kind.value,
+            "logical_ref": self.source_ref,
+            "content_digest": self.content_digest,
+            "load_reason": self.reason,
+            "load_reason_codes": list(self.reason_codes),
+            "load_level": self.load_level.value,
+            "bytes": self.token_count if byte_profile else None,
+            "chars": None,
+            "token_estimate": self.token_count,
+            "token_method": "utf8-byte-count" if byte_profile else "candidate-tokenizer-profile",
+            "token_method_version": "1" if byte_profile else self.tokenizer_profile_digest,
+            "provider_usage_tokens": None,
+            "grants_authority": False,
         }
 
 
@@ -482,7 +512,7 @@ def compile_context(
         key=lambda row: (-row.score(now)[0], -row.score(now)[1], row.candidate_id),
     )
     if sum(item.token_count for item in required) > token_budget:
-        raise PolicyViolation("Required context token budget'e sigmiyor")
+        raise BlockedContext("Required context token budget'e sigmiyor")
     optional = sorted(
         (item for item in eligible if not item.required),
         key=lambda row: (-row.score(now)[0], -row.score(now)[1], row.candidate_id),
@@ -506,6 +536,7 @@ def compile_context(
                 item.candidate_digest,
                 item.authority,
                 ("required",) if item.required else ("authority", "freshness", "stable-id"),
+                tokenizer_profile_digest=item.tokenizer_profile_digest,
             )
         )
         remaining -= item.token_count

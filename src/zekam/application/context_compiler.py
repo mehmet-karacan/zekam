@@ -34,7 +34,7 @@ from zekam.domain.context_scoring import (
     ScopeProximity,
     SourceRevisionState,
 )
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import BlockedContext, PolicyViolation, ValidationFailed
 
 
 def _ppm(numerator: int, denominator: int) -> int:
@@ -234,14 +234,14 @@ def compile_context_v2(
     ranked.sort(key=lambda item: _sort_key(_score(item, features[item.candidate_id])))
     required_tokens = sum(item.token_count for item in ranked if item.required)
     if required_tokens > token_budget:
-        raise PolicyViolation("Required context token budget'e sigmiyor")
+        raise BlockedContext("Required context token budget'e sigmiyor")
     selected: list[ContextSelection] = []
     remaining = token_budget
     for candidate in ranked:
         score = _score(candidate, features[candidate.candidate_id])
         if candidate.token_count > remaining:
             if candidate.required:
-                raise PolicyViolation("Required context token budget'e sigmiyor")
+                raise BlockedContext("Required context token budget'e sigmiyor")
             omissions.append(
                 ContextOmission(candidate.candidate_id, OmittedReason.BUDGET, candidate.token_count)
             )
@@ -259,6 +259,7 @@ def compile_context_v2(
                 candidate_digest=candidate.candidate_digest,
                 authority=candidate.authority,
                 reason_codes=_reason_codes(candidate, features[candidate.candidate_id]),
+                tokenizer_profile_digest=candidate.tokenizer_profile_digest,
             )
         )
         remaining -= candidate.token_count
@@ -434,14 +435,17 @@ def compile_context_plane_v2(
     ranked.sort(key=_plane_sort_key)
     required_tokens = sum(item.token_count for item in ranked if item.required)
     if required_tokens > token_budget:
-        raise PolicyViolation("Required context token budget'e sigmiyor")
+        raise BlockedContext("Required context token budget'e sigmiyor")
     selected: list[ContextSelection] = []
     remaining = token_budget
     for candidate in ranked:
         score = _score(candidate, features[candidate.candidate_id])
         if not _disclosure_allowed(candidate.load_level, max_load_level):
             if candidate.required:
-                raise PolicyViolation("Required context disclosure seviyesi kapali")
+                raise BlockedContext(
+                    "Required context disclosure seviyesi kapali",
+                    reason="required-disclosure-closed",
+                )
             omissions.append(
                 ContextOmission(
                     candidate.candidate_id,
@@ -452,7 +456,7 @@ def compile_context_plane_v2(
             continue
         if candidate.token_count > remaining:
             if candidate.required:
-                raise PolicyViolation("Required context token budget'e sigmiyor")
+                raise BlockedContext("Required context token budget'e sigmiyor")
             omissions.append(
                 ContextOmission(candidate.candidate_id, OmittedReason.BUDGET, candidate.token_count)
             )
@@ -473,6 +477,7 @@ def compile_context_plane_v2(
                 load_level=candidate.load_level,
                 source_kind=candidate.source_kind,
                 budget_mode=budget_mode,
+                tokenizer_profile_digest=candidate.tokenizer_profile_digest,
             )
         )
         remaining -= candidate.token_count
