@@ -2,14 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:4fb7ec0c2973e8d7ce6413dd2af11b02708e4fad4df3cd92358b5aa071bf60e0
-task_id: ZEKAM-UNIT-TEST-AND-CONTEXT-001
+authority_digest: sha256:bf0417ceeced34af568e23a15ce7247e4dd9e9d5108ba40b27281f5758eeab1a
+task_id: ZEKAM-RAG-ROUTER-QUALITY-002
 status: APPROVED_ACTIVE_TASK
-title: Zekam Unit Test Engineering ve Yalin Baglam Skill Entegrasyonu
-created_at: '2026-10-02T22:55:59+03:00'
+title: Zekam RAG Router Kanit Kalitesi ve Istemci Guvenilirligi Iyilestirmesi
+created_at: '2026-09-29T22:29:51+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: 4042ad598814a5d12bb1e9493d03ec169050427b
+baseline_head: f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
@@ -17,6 +17,6 @@ push_authorized: false
 read_only: true
 grants_authority: false
 approval_inherited: false
-baseline_commit_subject: 'duzeltme: tek projenin sismis RAG state''i resume paketini
-  dusurmesin'
+baseline_commit_subject: 'performans: RAG kalan dogrulama kapilarini kapat ve canli
+  provider olcumu ekle'
 baseline_is_fixed_revision: true

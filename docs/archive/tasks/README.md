@@ -147,3 +147,26 @@ Eski Markdown ve exact projection'i `ZEKAM-EVIDENCE-DRIVEN-ENGINEERING-EVOLUTION
 gorev icin acik Work Item yoktu. Bitmemis kapsam silinmez; Global DoD'nin pending maddeleri
 degismeden kalir. Canli provider, commit ve push bu gecisten yetki kazanmaz.
 
+
+## 2 Ekim 2026 kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-RAG-ROUTER-QUALITY-002` | `ZEKAM-UNIT-TEST-AND-CONTEXT-001` |
+| Icerik SHA-256 | `bf0417ceeced34af568e23a15ce7247e4dd9e9d5108ba40b27281f5758eeab1a` | `4fb7ec0c2973e8d7ce6413dd2af11b02708e4fad4df3cd92358b5aa071bf60e0` |
+| Onceki Git blob | `8236447ccaf068ae30ae1075f3609cb7b51cb1bc` | Uygulanmaz |
+| Baseline HEAD | `f75c6a34cfbb27390ed54a7ffb978bf8d3a444d7` | `4042ad598814a5d12bb1e9493d03ec169050427b` |
+
+Gecis kullanicinin acik onayi ile yapildi (Downloads dosyasi yeni yasayan gorev olarak
+aktiflestirildi; commit edilmemis `.gitignore`, `.ignore` ve
+`ZEKAM-COGNITIVE-ARCHITECTURE-001.md` degisiklikleri korundu). Onceki MD ve exact
+projection'i degistirilmeden bu dizine alindi; yeni projection yalniz yeni yasayan
+Markdown'in exact byte digestinden uretildi ve `ActiveTaskContract.verify_projection` ile
+dogrulandi.
+
+### Carry-forward
+
+- `ZEKAM-RAG-ROUTER-QUALITY-002` acik isleri ve Global DoD eksikleri acik kalir; yeni
+  gorevle tamamlandi sayilmaz. Ortusen R06/R08 kayitlari yeniden is yaratmadan iliskilendirilir.
+- Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
+- Canli provider, commit ve push bu gecisten yetki kazanmaz; push yetkisi yoktur.
