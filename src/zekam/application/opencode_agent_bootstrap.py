@@ -321,13 +321,23 @@ export const ZekamLifecycle = async ({ directory }) => {
     }
   }
   const preCompact = async (session) => {
-    const process = Bun.spawn(
-      [zekamExecutable, "opencode", "pre-compact", "--session", session],
-      { stdout: "ignore", stderr: "ignore" },
-    )
-    const exitCode = await waitChild(process)
-    if (exitCode !== 0) {
+    // Ledger buyudukce pre-compact yavaslar; ACK once yerel durable spool'a yazilir,
+    // senkron teslim gecikirse spool sonradan ayni delivery-id ile teslim eder.
+    let queued
+    try {
+      queued = enqueueSync(["opencode", "pre-compact", "--session", session])
+    } catch {
       throw new Error("Zekam canonical pre-compact checkpoint ACK failed")
+    }
+    try {
+      const process = Bun.spawn(
+        [zekamExecutable, ...queued.deliveryArgs],
+        { stdout: "ignore", stderr: "ignore" },
+      )
+      if (await waitChild(process, 120_000) === 0) unlinkSync(queued.path)
+      else console.warn("Zekam pre-compact ACK spool'da teslim bekliyor")
+    } catch {
+      console.warn("Zekam pre-compact ACK spool'da teslim bekliyor")
     }
   }
   const resumePacket = (session, excludeCurrent = true) => {
