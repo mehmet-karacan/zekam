@@ -36,6 +36,7 @@ from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConfigurationError, ValidationFailed
 from zekam.domain.identifiers import assert_portable, new_uuid7, validate_slug
 from zekam.infrastructure.sqlite.operational_schema import RUNTIME_SCHEMA_VERSIONS, status
+from zekam.infrastructure.sqlite.unit_test_ledger import SQLiteUnitTestLedger
 
 _WORK_STATES: Final = frozenset(
     {"proposed", "ready", "active", "blocked", "verification", "completed", "cancelled", "archived"}
@@ -236,6 +237,23 @@ class SQLiteOperationalUnitOfWork:
         if self._connection is None or self._committed:
             raise ConfigurationError("Operational unit-of-work aktif degil")
         return self._connection
+
+    def unit_test_ledger(self) -> SQLiteUnitTestLedger:
+        """Unit-test ledger bound to this unit-of-work's transaction (operational v6+)."""
+
+        connection = self._db()
+        row = connection.execute(
+            "select value from zekam_meta where key='schema_version'"
+        ).fetchone()
+        try:
+            version = int(row[0]) if row is not None else 0
+        except (TypeError, ValueError):
+            version = 0
+        if version < 6:
+            raise ConfigurationError(
+                "Operational SQLite migration-required: unit-test ledger icin v6 gerekli"
+            )
+        return SQLiteUnitTestLedger(connection)
 
     def commit(self) -> None:
         connection = self._db()

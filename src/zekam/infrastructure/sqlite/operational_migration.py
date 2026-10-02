@@ -1,4 +1,4 @@
-"""Explicit externally admitted, verified operational schema-v3 to v4 migration.
+"""Explicit externally admitted, verified operational schema migrations (v3 to v4/v5, v5 to v6).
 
 V4 remains dormant: this boundary installs schema only and never creates an
 attachment, process generation, receipt, hook, decoder, or runtime writer.
@@ -87,6 +87,9 @@ class OperationalMigrationReceipt:
     source_v3_logical_digest: str
     source_v3_original_digest: str
     source_v3_size_bytes: int
+    # The ``source_v3_*`` fields are historical names: they carry the digests and size of the
+    # pre-migration source, whatever its version (3 for v3-to-v4/v5, 5 for v5-to-v6).
+    source_version: int = 3
 
 
 @contextmanager
@@ -492,31 +495,42 @@ def _expected_bindings(
     )
 
 
+_FORWARD_PATHS = {3: frozenset({4, 5}), 5: frozenset({6})}
+
+
+def _assert_forward_path(source_version: int, target_version: int) -> None:
+    if (
+        type(source_version) is not int
+        or type(target_version) is not int
+        or target_version not in _FORWARD_PATHS.get(source_version, frozenset())
+    ):
+        raise ConfigurationError("Operational migration source/target pair unsupported")
+
+
 def _migrate_connection(
     connection: sqlite3.Connection,
     *,
     source_logical_digest: str,
     source_original_digest: str,
     target_version: int = 4,
+    source_version: int = 3,
 ) -> None:
-    if target_version not in {4, 5}:
-        raise ConfigurationError("Operational migration target must be v4 or v5")
-    if schema._validate_connection(connection) != 3:
-        raise ConfigurationError("Operational migration exact schema-v3 required")
+    _assert_forward_path(source_version, target_version)
+    if schema._validate_connection(connection) != source_version:
+        raise ConfigurationError(f"Operational migration exact schema-v{source_version} required")
     schema._assert_quiescent(connection, require_terminal_close=True)
     from zekam.infrastructure.sqlite.operational_backup import _logical_rows_digest
 
     if _logical_rows_digest(connection) != source_logical_digest:
         raise ConfigurationError("Operational migration live logical digest drift")
-    if schema._original_rows_digest(connection, 3) != source_original_digest:
-        raise ConfigurationError("Operational migration original-v3 digest drift")
-    schema._apply_migration(connection, 4)
-    if target_version == 5:
-        schema._apply_migration(connection, 5)
+    if schema._original_rows_digest(connection, source_version) != source_original_digest:
+        raise ConfigurationError(f"Operational migration original-v{source_version} digest drift")
+    for next_version in range(source_version + 1, target_version + 1):
+        schema._apply_migration(connection, next_version)
     if schema._validate_connection(connection) != target_version:
         raise ConfigurationError("Operational migration target validation failed")
-    if schema._original_rows_digest(connection, 3) != source_original_digest:
-        raise ConfigurationError("Operational migration mutated original-v3 rows")
+    if schema._original_rows_digest(connection, source_version) != source_original_digest:
+        raise ConfigurationError(f"Operational migration mutated original-v{source_version} rows")
 
 
 def _migrate_v3_forward(
@@ -527,8 +541,9 @@ def _migrate_v3_forward(
     admission: OperationalMigrationAdmission,
     spool_targets: tuple[MigrationSpoolTarget, ...],
     target_version: int,
+    source_version: int = 3,
 ) -> OperationalMigrationReceipt:
-    """Apply a reviewed v3 forward path while all writers are fenced."""
+    """Apply a reviewed forward path while all writers are fenced."""
     if os.name == "nt":
         return _migrate_v3_forward_windows(
             database,
@@ -537,9 +552,9 @@ def _migrate_v3_forward(
             admission=admission,
             spool_targets=spool_targets,
             target_version=target_version,
+            source_version=source_version,
         )
-    if target_version not in {4, 5}:
-        raise ConfigurationError("Operational migration target must be v4 or v5")
+    _assert_forward_path(source_version, target_version)
     if any(
         type(path) is not _PATH_TYPE or not path.is_absolute()
         for path in (database, backup, migration_lock)
@@ -589,9 +604,9 @@ def _migrate_v3_forward(
                     try:
                         _assert_anchor_path(database, database_parent)
                         connection.execute("begin")
-                        if schema._validate_connection(connection) != 3:
+                        if schema._validate_connection(connection) != source_version:
                             raise ConfigurationError(
-                                "Operational migration exact schema-v3 required"
+                                f"Operational migration exact schema-v{source_version} required"
                             )
                         schema._assert_quiescent(connection, require_terminal_close=True)
                         if _binding_rows(connection) != _expected_bindings(spool_targets):
@@ -603,7 +618,9 @@ def _migrate_v3_forward(
                         )
 
                         source_logical_digest = _logical_rows_digest(connection)
-                        source_original_digest = schema._original_rows_digest(connection, 3)
+                        source_original_digest = schema._original_rows_digest(
+                            connection, source_version
+                        )
                     finally:
                         connection.close()
                     try:
@@ -662,6 +679,7 @@ def _migrate_v3_forward(
                             source_logical_digest=source_logical_digest,
                             source_original_digest=source_original_digest,
                             target_version=target_version,
+                            source_version=source_version,
                         )
                         _assert_anchor_path(database, database_parent)
                         writer.commit()
@@ -678,7 +696,9 @@ def _migrate_v3_forward(
                     try:
                         _assert_anchor_path(database, database_parent)
                         verification.execute("begin")
-                        postcommit_original = schema._original_rows_digest(verification, 3)
+                        postcommit_original = schema._original_rows_digest(
+                            verification, source_version
+                        )
                     finally:
                         verification.close()
                     if (
@@ -699,6 +719,7 @@ def _migrate_v3_forward(
                         source_v3_logical_digest=source_logical_digest,
                         source_v3_original_digest=source_original_digest,
                         source_v3_size_bytes=created.size_bytes,
+                        source_version=source_version,
                     )
                     admission.release_admission()
                     return receipt
@@ -718,11 +739,11 @@ def _migrate_v3_forward_windows(
     admission: OperationalMigrationAdmission,
     spool_targets: tuple[MigrationSpoolTarget, ...],
     target_version: int,
+    source_version: int = 3,
 ) -> OperationalMigrationReceipt:
     """Windows-native public migration with ACL, identity, and lock fencing."""
 
-    if target_version not in {4, 5}:
-        raise ConfigurationError("Operational migration target must be v4 or v5")
+    _assert_forward_path(source_version, target_version)
     paths = (database, backup, migration_lock)
     if any(type(path) is not _PATH_TYPE or not path.is_absolute() for path in paths):
         raise ConfigurationError("Operational migration paths must be absolute")
@@ -775,8 +796,10 @@ def _migrate_v3_forward_windows(
                 connection = schema._connect(database, read_only=True)
                 try:
                     connection.execute("begin")
-                    if schema._validate_connection(connection) != 3:
-                        raise ConfigurationError("Operational migration exact schema-v3 required")
+                    if schema._validate_connection(connection) != source_version:
+                        raise ConfigurationError(
+                            f"Operational migration exact schema-v{source_version} required"
+                        )
                     schema._assert_quiescent(connection, require_terminal_close=True)
                     if _binding_rows(connection) != _expected_bindings(spool_targets):
                         raise ConfigurationError("Operational migration spool coverage mismatch")
@@ -785,7 +808,9 @@ def _migrate_v3_forward_windows(
                     )
 
                     source_logical_digest = _logical_rows_digest(connection)
-                    source_original_digest = schema._original_rows_digest(connection, 3)
+                    source_original_digest = schema._original_rows_digest(
+                        connection, source_version
+                    )
                 finally:
                     connection.close()
                 if backup.exists() or backup.is_symlink():
@@ -796,13 +821,15 @@ def _migrate_v3_forward_windows(
                     try:
                         backup_connection.execute("begin")
                         backup_version = schema._validate_connection(backup_connection)
-                        backup_original = schema._original_rows_digest(backup_connection, 3)
+                        backup_original = schema._original_rows_digest(
+                            backup_connection, source_version
+                        )
                     finally:
                         backup_connection.close()
                     backup_logical = logical_database_digest(backup)
                     backup_size = backup.stat().st_size
                     if (
-                        backup_version != 3
+                        backup_version != source_version
                         or backup_logical != source_logical_digest
                         or backup_original != source_original_digest
                     ):
@@ -838,6 +865,7 @@ def _migrate_v3_forward_windows(
                         source_logical_digest=source_logical_digest,
                         source_original_digest=source_original_digest,
                         target_version=target_version,
+                        source_version=source_version,
                     )
                     writer.commit()
                     committed = True
@@ -852,7 +880,7 @@ def _migrate_v3_forward_windows(
                 verification = schema._connect(database, read_only=True)
                 try:
                     verification.execute("begin")
-                    postcommit_original = schema._original_rows_digest(verification, 3)
+                    postcommit_original = schema._original_rows_digest(verification, source_version)
                 finally:
                     verification.close()
                 for snapshot in parent_snapshots:
@@ -873,6 +901,7 @@ def _migrate_v3_forward_windows(
                     source_v3_logical_digest=source_logical_digest,
                     source_v3_original_digest=source_original_digest,
                     source_v3_size_bytes=backup_size,
+                    source_version=source_version,
                 )
                 admission.release_admission()
                 return receipt
@@ -921,4 +950,30 @@ def migrate_v3_to_v5(
         admission=admission,
         spool_targets=spool_targets,
         target_version=5,
+    )
+
+
+def migrate_v5_to_v6(
+    database: Path,
+    backup: Path,
+    *,
+    migration_lock: Path,
+    admission: OperationalMigrationAdmission,
+    spool_targets: tuple[MigrationSpoolTarget, ...],
+) -> OperationalMigrationReceipt:
+    """Atomically add the append-only unit-test ledger to an exact v5 operational database.
+
+    Same fencing, quiescence, pre-migration backup and post-commit verification as the
+    v3 paths. The migration only adds tables, so every v5 row is preserved and rollback is
+    the verified backup (restorable with ``restore_backup(..., target_version=5)``).
+    """
+
+    return _migrate_v3_forward(
+        database,
+        backup,
+        migration_lock=migration_lock,
+        admission=admission,
+        spool_targets=spool_targets,
+        target_version=6,
+        source_version=5,
     )

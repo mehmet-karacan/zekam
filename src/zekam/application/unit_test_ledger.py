@@ -62,3 +62,9 @@ class UnitTestLedger(Protocol):
     def record_terminal(self, terminal: UnitTestTerminal, *, now: datetime) -> LedgerWrite: ...
 
     def list_terminals(self, request_digest: str) -> tuple[UnitTestTerminal, ...]: ...
+
+
+class UnitTestLedgerUnitOfWork(Protocol):
+    """Operational unit-of-work uzantisi; mevcut Protocol'u degistirmez."""
+
+    def unit_test_ledger(self) -> UnitTestLedger: ...

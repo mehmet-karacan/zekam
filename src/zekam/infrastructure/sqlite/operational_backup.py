@@ -293,7 +293,12 @@ class SQLiteOperationalBackup:
         destination_parent_descriptor: int | None = None,
     ) -> OperationalBackupReceipt:
         if restoring and not (allow_v4_restore and target_version == 4):
-            _validate_target_version(target_version)
+            if target_version in {5, 6}:
+                # Same-version restore of an exact v5/v6 snapshot (rollback of a migration).
+                if type(target_version) is not int:
+                    raise ConfigurationError("Operational SQLite unsupported target version")
+            else:
+                _validate_target_version(target_version)
         if not source.is_file() or source.is_symlink():
             raise ConfigurationError("SQLite backup source integrity/schema gate gecmedi")
         if os.name == "nt":
@@ -402,9 +407,9 @@ class SQLiteOperationalBackup:
                 target_connection.execute("begin immediate")
                 _assert_quiescent(target_connection, restoring=True)
                 if source_version < target_version:
-                    if target_version == 4:
+                    if target_version >= 4:
                         raise ConfigurationError(
-                            "SQLite restore cannot replace explicit v3 to v4 migration"
+                            "SQLite restore cannot replace explicit operational migration"
                         )
                     _apply_forward_path(target_connection, source_version, target_version)
                 target_connection.commit()
@@ -530,9 +535,9 @@ class SQLiteOperationalBackup:
                 target_connection.execute("begin immediate")
                 _assert_quiescent(target_connection, restoring=True)
                 if source_version < target_version:
-                    if target_version == 4:
+                    if target_version >= 4:
                         raise ConfigurationError(
-                            "SQLite restore cannot replace explicit v3 to v4 migration"
+                            "SQLite restore cannot replace explicit operational migration"
                         )
                     _apply_forward_path(target_connection, source_version, target_version)
                 target_connection.commit()

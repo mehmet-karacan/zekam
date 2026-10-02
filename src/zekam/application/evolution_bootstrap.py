@@ -162,8 +162,8 @@ def build_evolution_bootstrap_plan(
     current = operational_status(database)
     if not current.exists or not current.integrity_ok or not current.schema_ok:
         raise ConfigurationError("Evolution bootstrap current operational authority ister")
-    if current.schema_version not in {3, 5}:
-        raise ConfigurationError("Evolution bootstrap operational schema v3 veya v5 ister")
+    if current.schema_version not in {3, 5, 6}:
+        raise ConfigurationError("Evolution bootstrap operational schema v3, v5 veya v6 ister")
     evolution = build_evolution_plan(context)
     bindings = evolution.get("admission_bindings")
     supervisor = evolution.get("supervisor")
@@ -642,12 +642,12 @@ def apply_evolution_bootstrap(
                 "source_v3_logical_digest": receipt.source_v3_logical_digest,
                 "source_v3_original_digest": receipt.source_v3_original_digest,
             }
-        elif current.schema_version == 5:
+        elif current.schema_version in {5, 6}:
             if not backup.is_file() or logical_database_digest(backup) != source_digest:
                 raise PolicyViolation("Evolution bootstrap migrated backup readback drift")
             migration_receipt = {
                 "state": "already-migrated",
-                "schema_version": 5,
+                "schema_version": current.schema_version,
                 "schema_ok": current.schema_ok,
                 "backup_ref": f"ZEKAM_HOME/backups/{backup.name}",
                 "source_v3_logical_digest": source_digest,

@@ -49,18 +49,12 @@ def _open(path: Path) -> sqlite3.Connection:
 
 def _prepare(tmp_path: Path) -> tuple[Path, str]:
     path = tmp_path / "operational.sqlite"
-    assert schema.bootstrap(path).schema_ok
+    result = schema.bootstrap_v6(path)
+    assert result.schema_ok and result.schema_version == 6
     store = SQLiteOperationalStore(path)
     with store.unit_of_work() as uow:
         project = uow.create_project(slug="demo", display_name="Demo")
         uow.commit()
-    connection = _open(path)
-    try:
-        connection.execute("begin immediate")
-        apply_unit_test_ledger_ddl(connection)
-        connection.commit()
-    finally:
-        connection.close()
     return path, project.id
 
 
@@ -116,7 +110,7 @@ def test_no_postgresql_or_native_driver_needed() -> None:
 
 def test_migration_is_additive_on_real_operational_schema_and_pinned(tmp_path: Path) -> None:
     path = tmp_path / "operational.sqlite"
-    schema.bootstrap(path)
+    schema.bootstrap_v5(path)
     before = _open(path)
     rows_before = before.execute("select count(*) from project").fetchone()[0]
     names_before = {r[0] for r in before.execute("select name from sqlite_master")}
