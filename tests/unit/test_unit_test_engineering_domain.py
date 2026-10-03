@@ -195,6 +195,26 @@ def test_not_applicable_is_visible_and_excluded_but_not_universal() -> None:
     assert both.verdict is EvaluationVerdict.INCONCLUSIVE
 
 
+def test_request_binding_fields_are_digest_bound_and_optional_for_legacy_rows() -> None:
+    base = request()
+    bound = UnitTestRequest.with_defaults(
+        project_id=base.project_id,
+        source_binding_id=base.source_binding_id,
+        source_revision=base.source_revision,
+        source_files=base.source_files,
+        percent="80",
+        budget=base.budget,
+        work_item_id="work-1",
+        plan_id="plan-1",
+        run_id="run-1",
+        source_snapshot_id="snapshot-1",
+        graph_generation_digest=digest("graph"),
+    )
+    assert bound.request_digest != base.request_digest
+    assert bound.to_payload()["work_item_id"] == "work-1"
+    assert "work_item_id" not in base.to_payload()
+
+
 def test_observation_invariants() -> None:
     with pytest.raises(ValidationFailed):
         CoverageObservation(A, CoverageMetric.LINE, CoverageState.MEASURED, 1, 1, 3)

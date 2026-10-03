@@ -747,4 +747,9 @@ def _clone(
         forbidden_paths=origin.forbidden_paths,
         regression_scope=origin.regression_scope,
         defaults_applied=applied,
+        work_item_id=origin.work_item_id,
+        plan_id=origin.plan_id,
+        run_id=origin.run_id,
+        source_snapshot_id=origin.source_snapshot_id,
+        graph_generation_digest=origin.graph_generation_digest,
     )

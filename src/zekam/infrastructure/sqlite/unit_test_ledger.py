@@ -209,6 +209,11 @@ def _request_from_row(body_json: str) -> UnitTestRequest:
         forbidden_paths=tuple(body["forbidden_paths"]),
         regression_scope=tuple(body["regression_scope"]),
         defaults_applied=tuple(body["defaults_applied"]),
+        work_item_id=body.get("work_item_id"),
+        plan_id=body.get("plan_id"),
+        run_id=body.get("run_id"),
+        source_snapshot_id=body.get("source_snapshot_id"),
+        graph_generation_digest=body.get("graph_generation_digest"),
     )
 
 

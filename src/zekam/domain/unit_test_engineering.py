@@ -236,10 +236,25 @@ class UnitTestRequest:
     forbidden_paths: tuple[str, ...] = ()
     regression_scope: tuple[str, ...] = ()
     defaults_applied: tuple[str, ...] = field(default_factory=tuple)
+    work_item_id: str | None = None
+    plan_id: str | None = None
+    run_id: str | None = None
+    source_snapshot_id: str | None = None
+    graph_generation_digest: str | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.project_id, "project_id")
         _identifier(self.source_binding_id, "source_binding_id")
+        for label, value in (
+            ("work_item_id", self.work_item_id),
+            ("plan_id", self.plan_id),
+            ("run_id", self.run_id),
+            ("source_snapshot_id", self.source_snapshot_id),
+        ):
+            if value is not None:
+                _identifier(value, label)
+        if self.graph_generation_digest is not None:
+            _digest_value(self.graph_generation_digest, "graph_generation_digest")
         if type(self.source_revision) is not str or not self.source_revision.strip():
             raise ValidationFailed("source_revision bos olamaz")
         if not isinstance(self.metric, CoverageMetric) or not isinstance(
@@ -276,6 +291,11 @@ class UnitTestRequest:
         allowed_test_paths: Iterable[str] = (),
         forbidden_paths: Iterable[str] = (),
         regression_scope: Iterable[str] = (),
+        work_item_id: str | None = None,
+        plan_id: str | None = None,
+        run_id: str | None = None,
+        source_snapshot_id: str | None = None,
+        graph_generation_digest: str | None = None,
     ) -> UnitTestRequest:
         """Kullanici yalniz "bu dosyalarda %N" derse: LINE + PER_FILE; planda gorunur."""
 
@@ -299,10 +319,15 @@ class UnitTestRequest:
             forbidden_paths=tuple(forbidden_paths),
             regression_scope=tuple(regression_scope),
             defaults_applied=tuple(applied),
+            work_item_id=work_item_id,
+            plan_id=plan_id,
+            run_id=run_id,
+            source_snapshot_id=source_snapshot_id,
+            graph_generation_digest=graph_generation_digest,
         )
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "contract": CONTRACT_VERSION,
             "project_id": self.project_id,
             "source_binding_id": self.source_binding_id,
@@ -321,6 +346,17 @@ class UnitTestRequest:
             "regression_scope": list(self.regression_scope),
             "defaults_applied": list(self.defaults_applied),
         }
+        for name in (
+            "work_item_id",
+            "plan_id",
+            "run_id",
+            "source_snapshot_id",
+            "graph_generation_digest",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                payload[name] = value
+        return payload
 
     @property
     def request_digest(self) -> str:
