@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from zekam.infrastructure.unit_test_runner.maven_plan import PlanStatus, build_unit_test_plan
+from zekam.application.unit_test_measurement import RunStatus
+from zekam.infrastructure.unit_test_runner.maven_plan import (
+    ExecutionClass,
+    PlanStatus,
+    build_unit_test_plan,
+)
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "unit_test_engineering_java"
 
@@ -19,6 +24,8 @@ def test_real_maven_fixture_is_ready_or_explicitly_not_supported() -> None:
     assert result.status is PlanStatus.READY, result.reasons
     assert result.plan is not None
     assert any(module.engine.value == "junit-platform" for module in result.plan.modules)
+    assert result.plan.goals == ("test", "jacoco:report")
+    assert result.plan.execution_class is ExecutionClass.PLUGIN_EXECUTION
 
 
 @pytest.mark.skipif(shutil.which("mvn") is None, reason="Maven bu cihazda kurulu degil")
@@ -53,3 +60,13 @@ def test_real_maven_fixture_executes_unit_and_jacoco_path() -> None:
         timeout_seconds=120,
     )
     assert measured.status.value in {"accepted", "below-target"}, measured
+    assert measured.binding is not None
+    assert measured.evidence.run_status is RunStatus.COMPLETED
+    assert measured.evidence.exit_code == 0
+    assert measured.evidence.test_counts
+    assert measured.evidence.observations
+    assert all(
+        observation.covered is not None and observation.total is not None
+        for observation in measured.evidence.observations
+    )
+    assert measured.record_digest.startswith("sha256:")
