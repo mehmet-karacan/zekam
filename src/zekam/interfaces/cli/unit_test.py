@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Annotated
+from uuid import UUID
 
 import typer
 
@@ -20,10 +22,16 @@ from zekam.application.unit_test_outcome import (
     EXIT_POLICY,
     EXIT_RUNTIME,
     EXIT_USAGE,
+    exit_code_for_reason,
     gate_document,
     terminal_document,
 )
-from zekam.domain.canonical import digest
+from zekam.application.unit_test_plateau import LoopLimits, UnitTestApprovals
+from zekam.application.unit_test_runtime import (
+    UnitTestRuntimeBinding,
+    compose_unit_test_runtime,
+)
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.unit_test_engineering import (
     CoverageMetric,
@@ -73,6 +81,11 @@ def _plan_request(
     total_elapsed_seconds: int,
     allowed_test_paths: tuple[str, ...],
     forbidden_paths: tuple[str, ...],
+    work_item_id: str | None = None,
+    plan_id: str | None = None,
+    run_id: str | None = None,
+    source_snapshot_id: str | None = None,
+    graph_generation_digest: str | None = None,
 ) -> tuple[UnitTestRequest, dict[str, object]]:
     intent_document: dict[str, object] = {}
     inferred_files = source_files
@@ -141,6 +154,11 @@ def _plan_request(
             policy=resolved_policy,
             allowed_test_paths=allowed_test_paths,
             forbidden_paths=forbidden_paths,
+            work_item_id=work_item_id,
+            plan_id=plan_id,
+            run_id=run_id,
+            source_snapshot_id=source_snapshot_id,
+            graph_generation_digest=graph_generation_digest,
         )
     except (TypeError, ValueError, ZekamError) as exc:
         _finish(
@@ -191,6 +209,38 @@ def _execution_plan(
     return document
 
 
+def _plan_document(
+    request: UnitTestRequest,
+    *,
+    intent: dict[str, object],
+    model: str | None,
+    execution: dict[str, object],
+) -> dict[str, object]:
+    document: dict[str, object] = {
+        "schema": "zekam-unit-test-plan/v1",
+        "request": request.to_payload(),
+        "request_digest": request.request_digest,
+        "budget": {
+            "max_attempts": request.budget.max_attempts,
+            "process_timeout_seconds": request.budget.process_timeout_seconds,
+            "total_elapsed_seconds": request.budget.total_elapsed_seconds,
+        },
+        "intent": intent,
+        "execution": execution,
+        "model_requested": model,
+        "provider_calls": 0,
+        "provider_free": True,
+        "authorization": "not-granted",
+        "run_requires": [
+            "exact-plan-digest",
+            "explicit-run-authorization",
+            "local-runtime-ready",
+        ],
+    }
+    document["plan_digest"] = digest(document)
+    return document
+
+
 @app.command("plan")
 def plan_command(
     request_text: Annotated[str | None, typer.Option("--request")] = None,
@@ -209,6 +259,13 @@ def plan_command(
     forbidden_path: Annotated[list[str] | None, typer.Option("--forbidden-path")] = None,
     project_root: Annotated[str | None, typer.Option("--project-root")] = None,
     target_module: Annotated[list[str] | None, typer.Option("--target-module")] = None,
+    work_item_id: Annotated[str | None, typer.Option("--work-item-id")] = None,
+    plan_id: Annotated[str | None, typer.Option("--plan-id")] = None,
+    run_id: Annotated[str | None, typer.Option("--run-id")] = None,
+    source_snapshot_id: Annotated[str | None, typer.Option("--source-snapshot-id")] = None,
+    graph_generation_digest: Annotated[
+        str | None, typer.Option("--graph-generation-digest")
+    ] = None,
 ) -> None:
     """Exact, provider-free plan uretir; plan yetki veya calistirma baslatmaz."""
 
@@ -227,26 +284,20 @@ def plan_command(
         total_elapsed_seconds=total_elapsed_seconds,
         allowed_test_paths=tuple(allowed_test_path or ()),
         forbidden_paths=tuple(forbidden_path or ()),
+        work_item_id=work_item_id,
+        plan_id=plan_id,
+        run_id=run_id,
+        source_snapshot_id=source_snapshot_id,
+        graph_generation_digest=graph_generation_digest,
     )
-    plan_payload: dict[str, object] = {
-        "schema": "zekam-unit-test-plan/v1",
-        "request": request.to_payload(),
-        "request_digest": request.request_digest,
-        "budget": {
-            "max_attempts": request.budget.max_attempts,
-            "process_timeout_seconds": request.budget.process_timeout_seconds,
-            "total_elapsed_seconds": request.budget.total_elapsed_seconds,
-        },
-        "intent": intent,
-        "execution": _execution_plan(project_root, tuple(target_module or ())),
-        "model_requested": model,
-        "provider_calls": 0,
-        "provider_free": True,
-        "authorization": "not-granted",
-        "run_requires": ["exact-plan-digest", "explicit-run-authorization", "local-runtime-ready"],
-    }
-    plan_payload["plan_digest"] = digest(plan_payload)
-    _emit(plan_payload)
+    _emit(
+        _plan_document(
+            request,
+            intent=intent,
+            model=model,
+            execution=_execution_plan(project_root, tuple(target_module or ())),
+        )
+    )
 
 
 def _read_request(
@@ -357,8 +408,41 @@ def _control_gate(action: str, request_digest: str | None) -> None:
 def run_command(
     plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
     authorize: Annotated[bool, typer.Option("--authorize")] = False,
+    project_id: Annotated[str | None, typer.Option("--project-id")] = None,
+    source_binding_id: Annotated[str | None, typer.Option("--source-binding-id")] = None,
+    source_revision: Annotated[str | None, typer.Option("--source-revision")] = None,
+    source: Annotated[list[str] | None, typer.Option("--source")] = None,
+    percent: Annotated[str | None, typer.Option("--percent")] = None,
+    metric: Annotated[str | None, typer.Option("--metric")] = None,
+    policy: Annotated[str | None, typer.Option("--policy")] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    max_attempts: Annotated[int, typer.Option("--max-attempts")] = 3,
+    process_timeout_seconds: Annotated[int, typer.Option("--process-timeout-seconds")] = 600,
+    total_elapsed_seconds: Annotated[int, typer.Option("--total-elapsed-seconds")] = 1800,
+    project_root: Annotated[str | None, typer.Option("--project-root")] = None,
+    target_module: Annotated[list[str] | None, typer.Option("--target-module")] = None,
+    maven_plan_digest: Annotated[str | None, typer.Option("--maven-plan-digest")] = None,
+    realm_id: Annotated[str | None, typer.Option("--realm-id")] = None,
+    project_uuid: Annotated[str | None, typer.Option("--project-uuid")] = None,
+    work_item_id: Annotated[str | None, typer.Option("--work-item-id")] = None,
+    coordinator_assignment_id: Annotated[
+        str | None, typer.Option("--coordinator-assignment-id")
+    ] = None,
+    plan_id: Annotated[str | None, typer.Option("--plan-id")] = None,
+    run_id: Annotated[str | None, typer.Option("--run-id")] = None,
+    source_snapshot_id: Annotated[str | None, typer.Option("--source-snapshot-id")] = None,
+    graph_generation_digest: Annotated[
+        str | None, typer.Option("--graph-generation-digest")
+    ] = None,
+    step_id: Annotated[str | None, typer.Option("--step-id")] = None,
+    write_tests: Annotated[bool, typer.Option("--write-tests")] = False,
+    build: Annotated[bool, typer.Option("--build")] = False,
+    remote_model: Annotated[bool, typer.Option("--remote-model")] = False,
+    allow_network: Annotated[bool, typer.Option("--allow-network")] = False,
+    max_remote_calls: Annotated[int, typer.Option("--max-remote-calls")] = 0,
+    home: Annotated[str | None, typer.Option("--home")] = None,
 ) -> None:
-    """Calistirma kapisi; runtime composition tamamlanmadan effect baslatmaz."""
+    """Exact plan/yetki/baglarla gercek local loop'u calistirir."""
 
     if not plan_digest:
         _finish(
@@ -370,17 +454,125 @@ def run_command(
             gate_document("policy-violation", reasons=("explicit-run-authorization-missing",)),
             EXIT_POLICY,
         )
-    _finish(
-        gate_document(
-            "setup-required",
-            reasons=("unit-test-runtime-composition-not-ready",),
-            next_steps=(
-                "Maven/JaCoCo + canonical agent gateway + durable control compositionini "
-                "tamamlayin.",
-            ),
-        ),
-        EXIT_ENVIRONMENT_MISSING,
+    if not project_root or not maven_plan_digest:
+        _finish(
+            gate_document("environment-missing", reasons=("project-root-or-maven-plan-missing",)),
+            EXIT_ENVIRONMENT_MISSING,
+        )
+    request, intent = _plan_request(
+        request_text=None,
+        project_id=project_id,
+        source_binding_id=source_binding_id,
+        source_revision=source_revision,
+        source_files=tuple(source or ()),
+        percent=percent,
+        metric=metric,
+        policy=policy,
+        max_attempts=max_attempts,
+        process_timeout_seconds=process_timeout_seconds,
+        total_elapsed_seconds=total_elapsed_seconds,
+        allowed_test_paths=(),
+        forbidden_paths=(),
+        work_item_id=work_item_id,
+        plan_id=plan_id,
+        run_id=run_id,
+        source_snapshot_id=source_snapshot_id,
+        graph_generation_digest=graph_generation_digest,
     )
+    execution = _execution_plan(project_root, tuple(target_module or ()))
+    expected = _plan_document(request, intent=intent, model=model, execution=execution)
+    if expected["plan_digest"] != plan_digest:
+        _finish(
+            gate_document("policy-violation", reasons=("exact-plan-digest-mismatch",)),
+            EXIT_POLICY,
+        )
+    if execution.get("status") != "ready":
+        _finish(
+            gate_document(
+                "environment-missing",
+                reasons=tuple(str(item) for item in execution.get("reasons", ()))
+                or ("maven-plan-not-ready",),
+            ),
+            EXIT_ENVIRONMENT_MISSING,
+        )
+    try:
+        parsed_realm = UUID(realm_id or "")
+        parsed_project = UUID(project_uuid or "")
+        parsed_work = UUID(work_item_id or "")
+        parsed_coordinator = UUID(coordinator_assignment_id or "")
+        parsed_plan = UUID(plan_id) if plan_id else None
+        parsed_maven_digest = parse_digest(maven_plan_digest or "")
+        executable = _resolve_opencode_executable()
+        context = build_context(home=home)
+        store = SQLiteOperationalStore(context.settings.database.sqlite_path(context.home))
+        binding = UnitTestRuntimeBinding(
+            realm_id=parsed_realm,
+            project_id=parsed_project,
+            work_item_id=parsed_work,
+            coordinator_assignment_id=parsed_coordinator,
+            project_root=Path(project_root).resolve(strict=True),
+            object_store_root=(context.home / context.settings.object_store_relative).resolve(),
+            lock_dir=(context.home / "runtime" / "unit-test-locks").resolve(),
+            opencode_executable=executable,
+            approved_maven_plan_digest=parsed_maven_digest,
+            target_modules=tuple(target_module or ()),
+            allow_network=allow_network,
+            remote_model=remote_model,
+            plan_id=parsed_plan,
+            step_id=step_id,
+        )
+        approvals = UnitTestApprovals(
+            write_tests=write_tests,
+            build=build,
+            network=allow_network,
+            remote_model=remote_model,
+            approved_budget=request.budget,
+            approved_limits=LoopLimits(max_remote_calls=max_remote_calls),
+        )
+        limits = LoopLimits(max_remote_calls=max_remote_calls)
+        with store.unit_of_work() as uow:
+            def register_artifact(artifact_digest: str, size_bytes: int, media_type: str) -> None:
+                uow.register_artifact(
+                    artifact_digest=artifact_digest,
+                    media_type=media_type,
+                    size_bytes=size_bytes,
+                    classification="local-private",
+                )
+
+            runtime = compose_unit_test_runtime(
+                request,
+                ledger=uow.unit_test_ledger(),
+                binding=binding,
+                artifact_registrar=register_artifact,
+            )
+            outcome = runtime.loop.run(request, approvals=approvals, limits=limits)
+            uow.commit()
+    except (OSError, TypeError, ValueError, ZekamError) as exc:
+        _finish(gate_document("environment-missing", reasons=(str(exc),)), EXIT_ENVIRONMENT_MISSING)
+        return
+    document = {
+        "schema": "zekam-unit-test-run/v1",
+        "request_digest": outcome.request_digest,
+        "terminal": terminal_document(outcome.terminal),
+        "attempts": outcome.attempts,
+        "executed_attempts": outcome.executed_attempts,
+        "detail": list(outcome.detail),
+        "provider_calls": 0 if not runtime.gateway.remote else max_remote_calls,
+    }
+    _emit(document)
+    code = exit_code_for_reason(outcome.terminal.stop_reason)
+    if code:
+        raise typer.Exit(code)
+
+
+def _resolve_opencode_executable() -> Path:
+    found = shutil.which("opencode")
+    if found is None:
+        raise OSError("OpenCode executable PATH'te yok")
+    path = Path(found).resolve(strict=True)
+    if not path.is_file():
+        raise OSError("OpenCode executable regular dosya degil")
+    return path
 
 
 @app.command("pause")
