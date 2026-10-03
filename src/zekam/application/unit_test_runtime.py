@@ -49,6 +49,7 @@ class UnitTestRuntimeBinding:
     search_path: str | None = None
     allow_network: bool = False
     remote_model: bool = False
+    model_id: str | None = None
     plan_id: UUID | None = None
     step_id: str | None = None
 
@@ -63,6 +64,8 @@ class UnitTestRuntimeBinding:
             raise ConfigurationError("OpenCode executable exact dosya olmali")
         if self.allow_network and not self.remote_model:
             raise ValidationFailed("network yalniz explicit remote model baglaminda acilabilir")
+        if self.model_id is not None and not self.model_id.strip():
+            raise ValidationFailed("model_id bos olamaz")
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +130,7 @@ def compose_unit_test_runtime(
         request.request_digest,
         registrar=artifact_registrar,
     )
-    adapter = opencode_adapter(str(binding.opencode_executable))
+    adapter = opencode_adapter(str(binding.opencode_executable), model_id=binding.model_id)
     adapters = dict.fromkeys(AgentSpecialty, adapter)
     gateway = CanonicalUnitTestAgentGateway(
         work=WorkBinding(

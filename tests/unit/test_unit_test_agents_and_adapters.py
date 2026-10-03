@@ -10,6 +10,7 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from tests.unit.unit_test_loop_support import (
@@ -42,19 +43,40 @@ from zekam.application.unit_test_agents import (
 from zekam.application.unit_test_loop_state import MeasuredRun
 from zekam.application.unit_test_measurement import MeasurementStatus
 from zekam.domain.canonical import digest
-from zekam.domain.clients import DispatchOutcome
+from zekam.domain.clients import DispatchOutcome, DispatchRequest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.unit_test_engineering import (
     UnitTestBudget,
     UnitTestRequest,
     UnitTestStopReason,
 )
+from zekam.infrastructure.clients.adapters import opencode_adapter
 from zekam.infrastructure.unit_test_runner.loop_adapters import (
     MavenEnvironmentObserver,
     MavenUnitTestMeasurer,
 )
 
 RD = digest("request")
+
+
+def test_opencode_adapter_binds_exact_model_to_subprocess_argv() -> None:
+    model_id = "litellm/openai/codepilot-qwen3-next"
+    adapter = opencode_adapter("opencode", model_id=model_id)
+    request = DispatchRequest(
+        assignment_id=uuid4(),
+        invocation_id=uuid4(),
+        client_id="opencode",
+        role="builder",
+        instruction_digest=RD,
+        context_manifest_digest=RD,
+        timeout_seconds=60,
+    )
+    argv = adapter.build_spec(request).argv
+    assert argv[argv.index("--model") + 1] == model_id
+    assert adapter.descriptor.supports("model-selection")
+
+    with pytest.raises(PolicyViolation, match="secret-free"):
+        opencode_adapter("opencode", model_id="sk_" + "live_" + "A" * 28)
 
 
 def task(spec: AgentSpecialty = AgentSpecialty.BUILDER, **context: Any) -> AgentTask:

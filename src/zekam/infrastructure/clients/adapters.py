@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.clients import (
     CanonicalDispatchPermit,
@@ -74,6 +75,19 @@ class SubprocessClientAdapter:
     launcher: tuple[str, ...] = ()
     #: Adapter'a ozel, secret icermeyen ortam degiskenleri.
     env: tuple[tuple[str, str], ...] = ()
+    #: OpenCode gibi model secimini destekleyen istemciler icin exact model kimligi.
+    model_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.model_id is not None and (
+            not isinstance(self.model_id, str)
+            or not 1 <= len(self.model_id) <= 256
+            or self.model_id != self.model_id.strip()
+            or any(ord(char) < 32 for char in self.model_id)
+            or self.model_id.startswith(("sk_", "api_", "Bearer "))
+            or scan_text(self.model_id, relative_path="client/model-id", rules=SECRET_RULES)
+        ):
+            raise PolicyViolation("Model kimligi bounded, secret-free exact metin olmali")
 
     @property
     def capability_manifest(self) -> ClientCapabilityManifest:
@@ -101,6 +115,7 @@ class SubprocessClientAdapter:
         )
 
     def build_spec(self, request: DispatchRequest) -> ProcessSpec:
+        model = () if self.model_id is None else ("--model", self.model_id)
         return ProcessSpec(
             argv=(
                 *self.launcher,
@@ -109,6 +124,7 @@ class SubprocessClientAdapter:
                 str(request.assignment_id),
                 "--invocation-id",
                 str(request.invocation_id),
+                *model,
                 "--role",
                 request.role,
                 "--instruction-digest",
@@ -228,6 +244,7 @@ def opencode_adapter(
     version: str | None = None,
     lifecycle_contract_verified: bool = False,
     permission_manifest: ClientPermissionManifest | None = None,
+    model_id: str | None = None,
 ) -> SubprocessClientAdapter:
     capabilities = {"chat", "code", "structured-result", "model-selection", "parallel-dispatch"}
     if lifecycle_contract_verified:
@@ -242,7 +259,8 @@ def opencode_adapter(
             capabilities=frozenset(capabilities),
             version=version,
             permission_manifest=permission_manifest,
-        )
+        ),
+        model_id=model_id,
     )
 
 

@@ -509,6 +509,7 @@ def run_command(
             target_modules=tuple(target_module or ()),
             allow_network=allow_network,
             remote_model=remote_model,
+            model_id=model,
             plan_id=parsed_plan,
             step_id=step_id,
         )
