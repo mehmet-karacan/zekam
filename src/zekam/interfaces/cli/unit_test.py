@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -31,6 +32,7 @@ from zekam.domain.unit_test_engineering import (
     UnitTestRequest,
 )
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+from zekam.infrastructure.unit_test_runner.maven_plan import build_unit_test_plan
 
 app = typer.Typer(
     name="test",
@@ -153,6 +155,42 @@ def _plan_request(
     return request, intent_document
 
 
+def _execution_plan(
+    project_root: str | None, target_modules: tuple[str, ...]
+) -> dict[str, object]:
+    """Maven/JaCoCo hazirligini salt okunur statik plandan raporlar."""
+
+    if project_root is None:
+        return {"status": "not-requested", "provider_calls": 0}
+    try:
+        root = Path(project_root).resolve(strict=True)
+        result = build_unit_test_plan(root, target_modules=target_modules)
+    except (OSError, ValueError, ZekamError) as exc:
+        return {
+            "status": "environment-missing",
+            "project_root": project_root,
+            "reasons": [str(exc)],
+            "provider_calls": 0,
+        }
+    document: dict[str, object] = {
+        "status": result.status.value,
+        "project_root": str(root),
+        "reasons": list(result.reasons),
+        "setup_plan": list(result.setup_plan),
+        "provider_calls": 0,
+    }
+    if result.plan is not None:
+        document.update(
+            {
+                "plan_digest": result.plan.plan_digest,
+                "execution_class": result.plan.execution_class.value,
+                "network_possible": result.plan.network_possible,
+                "target_modules": list(result.plan.target_modules),
+            }
+        )
+    return document
+
+
 @app.command("plan")
 def plan_command(
     request_text: Annotated[str | None, typer.Option("--request")] = None,
@@ -169,6 +207,8 @@ def plan_command(
     total_elapsed_seconds: Annotated[int, typer.Option("--total-elapsed-seconds")] = 1800,
     allowed_test_path: Annotated[list[str] | None, typer.Option("--allowed-test-path")] = None,
     forbidden_path: Annotated[list[str] | None, typer.Option("--forbidden-path")] = None,
+    project_root: Annotated[str | None, typer.Option("--project-root")] = None,
+    target_module: Annotated[list[str] | None, typer.Option("--target-module")] = None,
 ) -> None:
     """Exact, provider-free plan uretir; plan yetki veya calistirma baslatmaz."""
 
@@ -198,6 +238,7 @@ def plan_command(
             "total_elapsed_seconds": request.budget.total_elapsed_seconds,
         },
         "intent": intent,
+        "execution": _execution_plan(project_root, tuple(target_module or ())),
         "model_requested": model,
         "provider_calls": 0,
         "provider_free": True,

@@ -47,6 +47,31 @@ def test_run_needs_exact_plan_and_explicit_authorization() -> None:
     assert "exact-plan-digest-missing" in result.stdout
 
 
+def test_plan_reports_maven_readiness_without_running_provider_or_maven(tmp_path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "test",
+            "plan",
+            "--project-root",
+            str(tmp_path),
+            "--project-id",
+            "project-1",
+            "--source-binding-id",
+            "binding-1",
+            "--source-revision",
+            "revision-1",
+            "--source",
+            "src/main/java/Foo.java",
+            "--percent",
+            "90",
+        ],
+    )
+    assert result.exit_code == 0
+    assert '"provider_calls": 0' in result.stdout
+    assert '"status": "not-supported"' in result.stdout
+
+
 def test_pause_is_fail_closed_until_durable_control_is_composed() -> None:
     result = runner.invoke(app, ["test", "pause", "sha256:" + "a" * 64])
     assert result.exit_code == EXIT_ENVIRONMENT_MISSING
