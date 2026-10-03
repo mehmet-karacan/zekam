@@ -71,6 +71,7 @@ from zekam.interfaces.cli import sandbox as sandbox_commands
 from zekam.interfaces.cli import scheduler as scheduler_commands
 from zekam.interfaces.cli import skill as skill_commands
 from zekam.interfaces.cli import surface as surface_commands
+from zekam.interfaces.cli import unit_test as unit_test_commands
 from zekam.interfaces.cli import work as work_commands
 from zekam.interfaces.cli import worker as worker_commands
 from zekam.interfaces.cli.session import REALM_HELP, fail_from
@@ -134,6 +135,7 @@ app.add_typer(skill_commands.app)
 app.add_typer(integration_commands.app)
 app.add_typer(mcp_commands.app)
 app.add_typer(memory_commands.app)
+app.add_typer(unit_test_commands.app)
 
 
 def _version_callback(value: bool) -> None:

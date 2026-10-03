@@ -521,3 +521,32 @@ class SQLiteUnitTestLedger:
         return tuple(
             UnitTestTerminal(request_digest, UnitTestStopReason(r[0]), r[1], r[2]) for r in rows
         )
+
+    # -- salt okunur okuma modeli (status/report/resume) --------------------------------
+
+    def get_request(self, request_digest: str) -> UnitTestRequest | None:
+        row = self._db.execute(
+            "select body_json from unit_test_request where request_digest=?", (request_digest,)
+        ).fetchone()
+        return None if row is None else _request_from_row(str(row[0]))
+
+    def list_requests(
+        self, *, limit: int = 20, project_id: str | None = None
+    ) -> tuple[tuple[str, UnitTestRequest, str], ...]:
+        """En yeni once (request_digest, request, created_at); sinirli."""
+
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise ValidationFailed("Liste siniri 1..200 olmali")
+        if project_id is None:
+            rows = self._db.execute(
+                "select request_digest, body_json, created_at from unit_test_request"
+                " order by created_at desc, request_digest desc limit ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "select request_digest, body_json, created_at from unit_test_request"
+                " where project_id=? order by created_at desc, request_digest desc limit ?",
+                (project_id, limit),
+            ).fetchall()
+        return tuple((str(r[0]), _request_from_row(str(r[1])), str(r[2])) for r in rows)

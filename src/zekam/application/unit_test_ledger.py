@@ -64,6 +64,16 @@ class UnitTestLedger(Protocol):
     def list_terminals(self, request_digest: str) -> tuple[UnitTestTerminal, ...]: ...
 
 
+class UnitTestLedgerReader(Protocol):
+    """Salt okunur okuma modeli; status/report/resume yazma yetkisi uretmez."""
+
+    def get_request(self, request_digest: str) -> UnitTestRequest | None: ...
+
+    def list_requests(
+        self, *, limit: int = 20, project_id: str | None = None
+    ) -> tuple[tuple[str, UnitTestRequest, str], ...]: ...
+
+
 class UnitTestLedgerUnitOfWork(Protocol):
     """Operational unit-of-work uzantisi; mevcut Protocol'u degistirmez."""
 
