@@ -76,6 +76,15 @@ _SEVERITY_ORDER = (
 )
 
 
+@dataclass(slots=True)
+class MeasurementDiagnostics:
+    """Istege bagli sink: sinirli console kuyrugu ve basarisiz test id'leri (yetki degil)."""
+
+    output_tail: str = ""
+    output_bytes: int = 0
+    failed_cases: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class PlanBlocked:
     """Plan hazir degil: olcum yok; setup plani/ayri izin gerekir."""
@@ -198,6 +207,7 @@ def measure_unit_tests(
     maven_version: str | None = None,
     environ: Mapping[str, str] | None = None,
     lock_wait_seconds: float = 0.0,
+    diagnostics: MeasurementDiagnostics | None = None,
 ) -> MeasurementRecord | PlanBlocked:
     """Plani calistirir ve olcumu kabul/red kaydina cevirir."""
 
@@ -218,12 +228,22 @@ def measure_unit_tests(
         environ=environ,
         lock_wait_seconds=lock_wait_seconds,
     )
+    if diagnostics is not None:
+        diagnostics.output_tail = run.output_tail
+        diagnostics.output_bytes = run.output_bytes
     empty = MeasurementEvidence(run.status, run.exit_code, TestRunKind.UNAVAILABLE, (), ())
     if run.status is not RunStatus.COMPLETED:
         return assemble_measurement(request, None, empty)
 
     outputs = collect_outputs(root, plan.modules, run.start_ns)
     kind, summary = _summarize_targets(outputs, plan.target_modules)
+    if diagnostics is not None and summary is not None:
+        diagnostics.failed_cases = tuple(
+            f"{case.classname}#{case.name}"
+            for suite in summary.suites
+            for case in suite.cases
+            if case.outcome.value in {"failed", "error"}
+        )[:32]
     reports, broken = _parse_reports(outputs)
     observations = _observations(request, discovery, reports, broken)
     unexpected, missing = _plugin_findings(run, plan.expected_plugin_executions)
