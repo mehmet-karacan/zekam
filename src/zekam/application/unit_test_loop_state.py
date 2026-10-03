@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
+from zekam.application.unit_test_ledger import UnitTestLedgerReader
 from zekam.application.unit_test_measurement import MeasurementRecord
 from zekam.application.unit_test_plan import BehaviorPlan, ScenarioBoard
 from zekam.application.unit_test_plateau import (
@@ -65,6 +66,33 @@ class InMemoryLoopControl:
         if self._event.is_set():
             return ControlSignal.CANCEL
         return ControlSignal.PAUSE if self._pause else ControlSignal.RUN
+
+
+@dataclass(slots=True)
+class LedgerLoopControl:
+    """Operational ledger terminal'lerinden okunan durable pause/cancel kapisi."""
+
+    ledger: UnitTestLedgerReader
+    request_digest: str
+    allow_resume: bool = False
+    _event: threading.Event = field(default_factory=threading.Event)
+
+    @property
+    def cancel_event(self) -> threading.Event:
+        return self._event
+
+    def signal(self) -> ControlSignal:
+        if self._event.is_set():
+            return ControlSignal.CANCEL
+        terminals = self.ledger.list_terminals(self.request_digest)
+        if not terminals:
+            return ControlSignal.RUN
+        reason = terminals[-1].stop_reason
+        if reason is UnitTestStopReason.USER_CANCELLED:
+            return ControlSignal.CANCEL
+        if reason is UnitTestStopReason.USER_PAUSED and not self.allow_resume:
+            return ControlSignal.PAUSE
+        return ControlSignal.RUN
 
 
 @dataclass(frozen=True, slots=True)

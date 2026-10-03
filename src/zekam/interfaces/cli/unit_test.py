@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -15,6 +16,7 @@ from zekam.application.unit_test_intent import (
     UnitTestIntentKind,
     classify_unit_test_request,
 )
+from zekam.application.unit_test_loop_state import LedgerLoopControl
 from zekam.application.unit_test_outcome import (
     EXIT_CLARIFICATION,
     EXIT_ENVIRONMENT_MISSING,
@@ -38,6 +40,8 @@ from zekam.domain.unit_test_engineering import (
     CoveragePolicy,
     UnitTestBudget,
     UnitTestRequest,
+    UnitTestStopReason,
+    UnitTestTerminal,
 )
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.unit_test_runner.maven_plan import build_unit_test_plan
@@ -388,22 +392,6 @@ def report_command(
     _emit(document)
 
 
-def _control_gate(action: str, request_digest: str | None) -> None:
-    if not request_digest:
-        _finish(
-            gate_document("usage-error", reasons=("request-digest-missing",)),
-            EXIT_USAGE,
-        )
-    _finish(
-        gate_document(
-            "setup-required",
-            reasons=(f"{action}-durable-control-not-composed",),
-            next_steps=("LoopControl ile operational control kaydini baglayin.",),
-        ),
-        EXIT_ENVIRONMENT_MISSING,
-    )
-
-
 @app.command("run")
 def run_command(
     plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
@@ -440,6 +428,7 @@ def run_command(
     remote_model: Annotated[bool, typer.Option("--remote-model")] = False,
     allow_network: Annotated[bool, typer.Option("--allow-network")] = False,
     max_remote_calls: Annotated[int, typer.Option("--max-remote-calls")] = 0,
+    resume: Annotated[bool, typer.Option("--resume")] = False,
     home: Annotated[str | None, typer.Option("--home")] = None,
 ) -> None:
     """Exact plan/yetki/baglarla gercek local loop'u calistirir."""
@@ -502,6 +491,8 @@ def run_command(
         parsed_coordinator = UUID(coordinator_assignment_id or "")
         parsed_plan = UUID(plan_id) if plan_id else None
         parsed_maven_digest = parse_digest(maven_plan_digest or "")
+        if project_id != str(parsed_project):
+            raise ValueError("project-id ile project-uuid ayni exact bag olmali")
         executable = _resolve_opencode_executable()
         context = build_context(home=home)
         store = SQLiteOperationalStore(context.settings.database.sqlite_path(context.home))
@@ -531,6 +522,7 @@ def run_command(
         )
         limits = LoopLimits(max_remote_calls=max_remote_calls)
         with store.unit_of_work() as uow:
+            ledger = uow.unit_test_ledger()
             def register_artifact(artifact_digest: str, size_bytes: int, media_type: str) -> None:
                 uow.register_artifact(
                     artifact_digest=artifact_digest,
@@ -541,9 +533,14 @@ def run_command(
 
             runtime = compose_unit_test_runtime(
                 request,
-                ledger=uow.unit_test_ledger(),
+                ledger=ledger,
                 binding=binding,
                 artifact_registrar=register_artifact,
+                control=LedgerLoopControl(
+                    ledger,
+                    request.request_digest,
+                    allow_resume=resume,
+                ),
             )
             outcome = runtime.loop.run(request, approvals=approvals, limits=limits)
             uow.commit()
@@ -575,22 +572,101 @@ def _resolve_opencode_executable() -> Path:
     return path
 
 
-@app.command("pause")
-def pause_command(request_digest: Annotated[str | None, typer.Argument()] = None) -> None:
-    """Pause kapisini fail-closed tutar; mevcut CLI sahte control yazmaz."""
+def _record_control(
+    action: str,
+    request_digest: str | None,
+    *,
+    home: str | None,
+) -> None:
+    """Pause/cancel'i ayni operational ledger'e durable terminal olarak yazar."""
 
-    _control_gate("pause", request_digest)
+    if not request_digest:
+        _finish(
+            gate_document("usage-error", reasons=("request-digest-missing",)),
+            EXIT_USAGE,
+        )
+    try:
+        context = build_context(home=home)
+        store = SQLiteOperationalStore(context.settings.database.sqlite_path(context.home))
+        with store.unit_of_work() as uow:
+            ledger = uow.unit_test_ledger()
+            request = ledger.get_request(request_digest)
+            if request is None:
+                _finish(
+                    gate_document("not-found", reasons=("request-not-found",)),
+                    EXIT_NOT_FOUND,
+                )
+            if action == "resume":
+                terminals = ledger.list_terminals(request_digest)
+                if terminals and terminals[-1].stop_reason is UnitTestStopReason.USER_CANCELLED:
+                    _finish(
+                        gate_document(
+                            "policy-violation",
+                            reasons=("cancelled-request-cannot-resume",),
+                        ),
+                        EXIT_POLICY,
+                    )
+                _emit(
+                    {
+                        "schema": "zekam-unit-test-control/v1",
+                        "action": "resume",
+                        "request_digest": request_digest,
+                        "status": "ready",
+                        "next_steps": [
+                            "Ayni exact plan baglariyla zekam test run --resume calistirin."
+                        ],
+                        "provider_calls": 0,
+                    }
+                )
+                return
+            reason = (
+                UnitTestStopReason.USER_PAUSED
+                if action == "pause"
+                else UnitTestStopReason.USER_CANCELLED
+            )
+            terminal = UnitTestTerminal(request_digest, reason, None)
+            ledger.record_terminal(terminal, now=datetime.now(UTC))
+            uow.commit()
+    except (OSError, TypeError, ValueError, ZekamError) as exc:
+        _finish(gate_document("environment-missing", reasons=(str(exc),)), EXIT_ENVIRONMENT_MISSING)
+        return
+    _emit(
+        {
+            "schema": "zekam-unit-test-control/v1",
+            "action": action,
+            "request_digest": request_digest,
+            "status": "recorded",
+            "terminal": terminal_document(terminal),
+            "provider_calls": 0,
+        }
+    )
+
+
+@app.command("pause")
+def pause_command(
+    request_digest: Annotated[str | None, typer.Argument()] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Pause istegini operational ledger'e durable terminal olarak yazar."""
+
+    _record_control("pause", request_digest, home=home)
 
 
 @app.command("resume")
-def resume_command(request_digest: Annotated[str | None, typer.Argument()] = None) -> None:
-    """Resume kapisini fail-closed tutar; mevcut CLI sahte calistirma yapmaz."""
+def resume_command(
+    request_digest: Annotated[str | None, typer.Argument()] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Resume icin exact run baglarini yeniden kullanmaya hazirlik verir."""
 
-    _control_gate("resume", request_digest)
+    _record_control("resume", request_digest, home=home)
 
 
 @app.command("cancel")
-def cancel_command(request_digest: Annotated[str | None, typer.Argument()] = None) -> None:
-    """Cancel kapisini fail-closed tutar; mevcut CLI sahte terminal yazmaz."""
+def cancel_command(
+    request_digest: Annotated[str | None, typer.Argument()] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Cancel istegini operational ledger'e final terminal olarak yazar."""
 
-    _control_gate("cancel", request_digest)
+    _record_control("cancel", request_digest, home=home)

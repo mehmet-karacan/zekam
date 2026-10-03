@@ -25,6 +25,7 @@ from tests.unit.unit_test_loop_support import (
 )
 
 from zekam.application.unit_test_agents import AgentSpecialty
+from zekam.application.unit_test_loop_state import ControlSignal, LedgerLoopControl
 from zekam.application.unit_test_measurement import RunStatus
 from zekam.application.unit_test_plateau import LoopLimits, UnitTestApprovals
 from zekam.domain.clients import DispatchOutcome
@@ -32,10 +33,34 @@ from zekam.domain.unit_test_engineering import (
     AttemptState,
     UnitTestBudget,
     UnitTestStopReason,
+    UnitTestTerminal,
 )
 
 S1_PATH = f"{TEST_DIR}/S1Test.java"
 S2_PATH = f"{TEST_DIR}/S2Test.java"
+
+
+class _TerminalReader:
+    def __init__(self, terminals: tuple[UnitTestTerminal, ...] = ()) -> None:
+        self.terminals = terminals
+
+    def list_terminals(self, request_digest: str) -> tuple[UnitTestTerminal, ...]:
+        return self.terminals
+
+
+def test_ledger_loop_control_reads_pause_resume_and_cancel_from_durable_terminals() -> None:
+    request_digest = "sha256:" + "a" * 64
+    reader = _TerminalReader()
+    control = LedgerLoopControl(reader, request_digest)
+    assert control.signal() is ControlSignal.RUN
+
+    reader.terminals = (UnitTestTerminal(request_digest, UnitTestStopReason.USER_PAUSED, None),)
+    assert control.signal() is ControlSignal.PAUSE
+    resumed = LedgerLoopControl(reader, request_digest, allow_resume=True)
+    assert resumed.signal() is ControlSignal.RUN
+
+    reader.terminals = (UnitTestTerminal(request_digest, UnitTestStopReason.USER_CANCELLED, None),)
+    assert control.signal() is ControlSignal.CANCEL
 
 
 def evidence(h: Harness, digest_value: str) -> dict[str, Any]:

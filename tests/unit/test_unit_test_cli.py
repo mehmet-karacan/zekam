@@ -1,9 +1,15 @@
+from datetime import UTC, datetime
+
 from typer.testing import CliRunner
 
+from zekam.application.composition import build_context
 from zekam.application.unit_test_outcome import (
     EXIT_CLARIFICATION,
     EXIT_ENVIRONMENT_MISSING,
 )
+from zekam.domain.unit_test_engineering import UnitTestBudget, UnitTestRequest
+from zekam.infrastructure.sqlite import operational_schema as schema
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli.main import app
 
 runner = CliRunner()
@@ -75,4 +81,37 @@ def test_plan_reports_maven_readiness_without_running_provider_or_maven(tmp_path
 def test_pause_is_fail_closed_until_durable_control_is_composed() -> None:
     result = runner.invoke(app, ["test", "pause", "sha256:" + "a" * 64])
     assert result.exit_code == EXIT_ENVIRONMENT_MISSING
-    assert "durable-control" in result.stdout
+    assert "migration-required" in result.stdout
+
+
+def test_pause_resume_cancel_cli_writes_durable_terminals(tmp_path) -> None:
+    context = build_context(home=tmp_path)
+    database = context.settings.database.sqlite_path(context.home)
+    schema.bootstrap_v6(database)
+    store = SQLiteOperationalStore(database)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="demo", display_name="Demo")
+        request = UnitTestRequest.with_defaults(
+            project_id=project.id,
+            source_binding_id="binding-1",
+            source_revision="revision-1",
+            source_files=["src/main/java/Foo.java"],
+            percent="80",
+            budget=UnitTestBudget(2, 60, 600),
+        )
+        uow.unit_test_ledger().register_request(request, now=datetime.now(UTC))
+        uow.commit()
+
+    paused = runner.invoke(app, ["test", "pause", request.request_digest, "--home", str(tmp_path)])
+    assert paused.exit_code == 0, paused.stdout
+    assert '"status": "recorded"' in paused.stdout
+    resumed = runner.invoke(
+        app, ["test", "resume", request.request_digest, "--home", str(tmp_path)]
+    )
+    assert resumed.exit_code == 0, resumed.stdout
+    assert '"status": "ready"' in resumed.stdout
+    cancelled = runner.invoke(
+        app, ["test", "cancel", request.request_digest, "--home", str(tmp_path)]
+    )
+    assert cancelled.exit_code == 0, cancelled.stdout
+    assert '"reason": "user-cancelled"' in cancelled.stdout
