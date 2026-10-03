@@ -1,5 +1,5 @@
 {
-  "agent_template_digest": "sha256:fa2d3943c4742dabb27f989490cac60463a08646b10b5011dc76f0ae87aabec3",
+  "agent_template_digest": "sha256:fa2d3943c4742dabb27f989cac60463a08646b10b5011dc76f0ae87aabec3",
   "build_provenance_digest": "sha256:9cab223c268a67ec069549b5fbcd53b15d8866dce276e720e93d91c50668eddc",
   "config_bundle_digest": "sha256:1abf555c1eab5b360ce80758d2319ca289b8d039e19bf9647517f53396f70136",
   "entrypoints": [
