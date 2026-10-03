@@ -540,6 +540,70 @@ class SQLiteOperationalUnitOfWork:
             config_digest,
         )
 
+    def assert_unit_test_bindings(
+        self,
+        *,
+        project_id: str,
+        realm_id: str,
+        work_item_id: str,
+        source_binding_id: str,
+        source_snapshot_id: str,
+        source_revision: str,
+        run_id: str | None = None,
+    ) -> None:
+        """Verify the exact operational source/work/run tuple before test effects."""
+
+        connection = self._db()
+        project = connection.execute(
+            "select id from project where id=? and status='active'", (project_id,)
+        ).fetchone()
+        realm = connection.execute(
+            "select project_id from project_knowledge_realm where project_id=? and realm_id=?",
+            (project_id, realm_id),
+        ).fetchone()
+        work = connection.execute(
+            "select id,project_id,state from work_item where id=?", (work_item_id,)
+        ).fetchone()
+        binding = connection.execute(
+            "select id,project_id,active from source_binding where id=?", (source_binding_id,)
+        ).fetchone()
+        snapshot = connection.execute(
+            "select s.id,s.source_binding_id,s.revision_ref from source_snapshot s "
+            "where s.id=? and s.source_binding_id=?",
+            (source_snapshot_id, source_binding_id),
+        ).fetchone()
+        latest = connection.execute(
+            "select id from source_snapshot where source_binding_id=? "
+            "order by captured_at desc,id desc limit 1",
+            (source_binding_id,),
+        ).fetchone()
+        if (
+            project is None
+            or realm is None
+            or work is None
+            or work["project_id"] != project_id
+            or work["state"] in {"cancelled", "completed", "archived"}
+            or binding is None
+            or binding["project_id"] != project_id
+            or binding["active"] != 1
+            or snapshot is None
+            or snapshot["revision_ref"] != source_revision
+            or latest is None
+            or latest["id"] != source_snapshot_id
+        ):
+            raise ValidationFailed("Unit-test source/work/realm binding stale or mismatched")
+        if run_id is not None:
+            run = connection.execute(
+                "select work_item_id,source_snapshot_id,status from run where id=?", (run_id,)
+            ).fetchone()
+            if (
+                run is None
+                or run["work_item_id"] != work_item_id
+                or run["source_snapshot_id"] != source_snapshot_id
+                or run["status"] in {"completed", "cancelled", "failed"}
+            ):
+                raise ValidationFailed("Unit-test run binding stale or mismatched")
+
     def create_work(
         self,
         *,

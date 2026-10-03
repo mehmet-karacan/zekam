@@ -11,6 +11,7 @@ from uuid import UUID
 
 import typer
 
+from zekam.application.code_graph import graph_store_path
 from zekam.application.composition import build_context
 from zekam.application.unit_test_intent import (
     UnitTestIntentKind,
@@ -43,6 +44,7 @@ from zekam.domain.unit_test_engineering import (
     UnitTestStopReason,
     UnitTestTerminal,
 )
+from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.unit_test_runner.maven_plan import build_unit_test_plan
 
@@ -448,6 +450,14 @@ def run_command(
             gate_document("environment-missing", reasons=("project-root-or-maven-plan-missing",)),
             EXIT_ENVIRONMENT_MISSING,
         )
+    if not source_snapshot_id or not graph_generation_digest:
+        _finish(
+            gate_document(
+                "policy-violation",
+                reasons=("source-snapshot-and-graph-generation-binding-missing",),
+            ),
+            EXIT_POLICY,
+        )
     request, intent = _plan_request(
         request_text=None,
         project_id=project_id,
@@ -523,6 +533,25 @@ def run_command(
         )
         limits = LoopLimits(max_remote_calls=max_remote_calls)
         with store.unit_of_work() as uow:
+            uow.assert_unit_test_bindings(
+                project_id=str(parsed_project),
+                realm_id=str(parsed_realm),
+                work_item_id=str(parsed_work),
+                source_binding_id=request.source_binding_id,
+                source_snapshot_id=source_snapshot_id,
+                source_revision=request.source_revision,
+                run_id=run_id,
+            )
+            project_record = uow.resolve_project(str(parsed_project))
+            graph_path = graph_store_path(context.home, project_record.slug)
+            with SQLiteCodeGraphStore(graph_path, read_only=True) as graph:
+                generation = graph.generation(str(parsed_project))
+                if (
+                    generation.state != "ready"
+                    or generation.generation_digest != graph_generation_digest
+                    or generation.source_revision != request.source_revision
+                ):
+                    raise ValueError("graph generation stale or request source revision mismatch")
             ledger = uow.unit_test_ledger()
             def register_artifact(artifact_digest: str, size_bytes: int, media_type: str) -> None:
                 uow.register_artifact(
