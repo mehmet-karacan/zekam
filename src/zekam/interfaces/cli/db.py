@@ -29,6 +29,17 @@ error_console = Console(stderr=True)
 _HOME_HELP = f"{PRODUCT.data_root_env} kokunu gecici olarak ezer"
 
 
+def _expected_head() -> int:
+    return max(sqlite_repository.RUNTIME_SCHEMA_VERSIONS)
+
+
+def _migration_label(current: int | None) -> str:
+    expected = _expected_head()
+    if current == 5 and expected == 6:
+        return "v5 -> v6 (operational-unit-test-engineering-v6)"
+    return f"v{current} -> v{expected}"
+
+
 @app.command("status")
 def status_command(
     output_json: Annotated[bool, typer.Option("--json", help="JSON yazar")] = False,
@@ -43,7 +54,7 @@ def status_command(
         document = {
             "backend": "sqlite",
             "head": sqlite_status.schema_version,
-            "expected_head": max(sqlite_repository.RUNTIME_SCHEMA_VERSIONS),
+            "expected_head": _expected_head(),
             "supported_heads": sorted(sqlite_repository.RUNTIME_SCHEMA_VERSIONS),
             "integrity_ok": sqlite_status.integrity_ok,
             "schema_ok": sqlite_status.schema_ok,
@@ -85,11 +96,14 @@ def plan_command(
         if (
             current_sqlite.integrity_ok
             and current_sqlite.schema_ok
-            and current_sqlite.schema_version in sqlite_repository.RUNTIME_SCHEMA_VERSIONS
+            and current_sqlite.schema_version == _expected_head()
         ):
             console.print("[green]Bekleyen migration yok.[/green]")
             return
-        console.print("uygulanacak: 0001_operational_authority")
+        console.print(f"uygulanacak: {_migration_label(current_sqlite.schema_version)}")
+        console.print(
+            "Bu migration explicit operational migration orchestrator ve owner admission ister."
+        )
         return
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
@@ -111,17 +125,18 @@ def upgrade_command(
         if (
             current_sqlite.integrity_ok
             and current_sqlite.schema_ok
-            and current_sqlite.schema_version in sqlite_repository.RUNTIME_SCHEMA_VERSIONS
+            and current_sqlite.schema_version == _expected_head()
         ):
             console.print("[green]Bekleyen migration yok.[/green]")
             return
         if not apply:
-            console.print("uygulanacak: 0001_operational_authority")
+            console.print(f"uygulanacak: {_migration_label(current_sqlite.schema_version)}")
             console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
             return
-        sqlite_repository.bootstrap(path)
-        console.print("[green]uygulandi:[/green] 0001_operational_authority")
-        return
+        raise ZekamError(
+            "Migration owner admission olmadan CLI upgrade ile uygulanamaz; "
+            "explicit operational migration orchestrator gerekir."
+        )
     except ZekamError as exc:
         error_console.print(f"[red]Hata:[/red] {exc}")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
