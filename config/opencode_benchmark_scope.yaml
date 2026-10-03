@@ -12,6 +12,10 @@ targets:
     canonical_model_ids: [224d14fe-d5d1-45aa-8430-392621c555fb]
     modality: code
     workload: code
+  - configured_model_id: openai/codepilot-qwen3
+    canonical_model_ids: [2d13d348-ab24-4738-a19c-6b4be323f836]
+    modality: code
+    workload: code
   - configured_model_id: openai/codepilot-qwen3-next
     canonical_model_ids: [f7e99dcb-88d6-4c05-8d51-f6f6c8e447f4]
     modality: code
@@ -53,6 +57,10 @@ targets:
     canonical_model_ids: [ff35d826-952e-4731-b752-1c80c8cf8d8c]
     modality: guardrail
     workload: safety
+  - configured_model_id: Qwen/Qwen3-14B
+    canonical_model_ids: [5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f]
+    modality: chat
+    workload: code
   - configured_model_id: deepseek-ai/DeepSeek-V4-Flash
     canonical_model_ids: [61cd22f6-1687-45c2-9e5a-598d40a05e9d]
     modality: chat
