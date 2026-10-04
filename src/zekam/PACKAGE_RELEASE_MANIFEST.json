@@ -1,12 +1,12 @@
 {
-  "agent_template_digest": "sha256:5c6d61db9156e6b683ff4ce35294baafee7c4d18d85558471505c3dc4b33d703",
+  "agent_template_digest": "sha256:e8eb15de0f7373c490de79893d0c65fbf7d3de1417584c8cd6fa34aacfe17df3",
   "build_provenance_digest": "sha256:9cab223c268a67ec069549b5fbcd53b15d8866dce276e720e93d91c50668eddc",
-  "config_bundle_digest": "sha256:d1e33dd42154b1f9567f0795088acdd804bac6955354a86a9555ba00b27dff8a",
+  "config_bundle_digest": "sha256:9982ff307915b3d0550f41a7a3036596c90ea42da2d10ce7beff8b257e08c8b3",
   "entrypoints": [
     "zekam"
   ],
   "local_schema_bundle_digest": "sha256:33e1ea663d9a00815c687c15098e316f2d7ed46c05b4643da01340de07cf6a98",
-  "package_source_bundle_digest": "sha256:31541a14b7af863766f20e9ef767dee85a0964094c24c1e75cac55485c5861e0",
+  "package_source_bundle_digest": "sha256:386204b4f6dbc551dbf00aac5ee5e2c267726c74b1cdedb6f2068a3ee4c65a6d",
   "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
   "python": ">=3.12",
   "schema": "zekam-package-manifest/v3",

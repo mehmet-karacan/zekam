@@ -64,6 +64,7 @@ SCOPE_SCHEMA = "zekam-opencode-benchmark-scope/v1"
 PROVIDER_ID = "litellm"
 PROVIDER_FAMILY = "aihub"
 AUDIO_EXCLUSION_REASON = "audio-user-scope-excluded"
+TEMPORARY_UNAVAILABLE_REASON_PREFIX = "temporarily-unavailable-"
 BENCHMARK_SECRET_REF_NAME = "opencode-litellm-benchmark"
 
 
@@ -109,7 +110,13 @@ class ScopeTarget:
             if self.excluded_reason != AUDIO_EXCLUSION_REASON:
                 raise PolicyViolation("Audio target exact kullanici exclusion reason ister")
         elif self.excluded_reason is not None:
-            raise PolicyViolation("Audio disi target sessizce excluded edilemez")
+            if not self.excluded_reason.startswith(TEMPORARY_UNAVAILABLE_REASON_PREFIX):
+                raise PolicyViolation("Audio disi target exact temporary exclusion reason ister")
+            suffix = self.excluded_reason.removeprefix(TEMPORARY_UNAVAILABLE_REASON_PREFIX)
+            if not suffix or any(
+                character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in suffix
+            ):
+                raise PolicyViolation("Audio disi target exact temporary exclusion reason ister")
 
 
 @dataclass(frozen=True, slots=True)

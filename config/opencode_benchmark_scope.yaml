@@ -33,6 +33,7 @@ targets:
     canonical_model_ids: [b5d7a6bd-0341-4407-846f-abd3026db96d]
     modality: vision_language
     workload: vision
+    excluded_reason: temporarily-unavailable-aihub-2026-10-04
     reviewed_modality_conflict: true
   - configured_model_id: openai/BAAI/bge-m3
     canonical_model_ids: [7622a967-8c01-4172-af52-e16b4a5b3fd0]
@@ -49,14 +50,17 @@ targets:
     canonical_model_ids: [d088c86d-4eae-4345-b2c8-4298ae2ffc59]
     modality: embedding
     workload: retrieval
+    excluded_reason: temporarily-unavailable-aihub-2026-10-04
   - configured_model_id: moonshotai/Kimi-K2.7-Code
     canonical_model_ids: [6a9f0333-c9b5-4bb9-b638-35c59594ca4d]
     modality: chat
     workload: code
+    excluded_reason: temporarily-unavailable-aihub-2026-10-04
   - configured_model_id: Qwen/Qwen3Guard-Gen-8B
     canonical_model_ids: [ff35d826-952e-4731-b752-1c80c8cf8d8c]
     modality: guardrail
     workload: safety
+    excluded_reason: temporarily-unavailable-aihub-2026-10-04
   - configured_model_id: Qwen/Qwen3-14B
     canonical_model_ids: [5e62acda-c5a7-4ea7-8f2a-cab9b8d7bb0f]
     modality: chat
@@ -65,3 +69,4 @@ targets:
     canonical_model_ids: [61cd22f6-1687-45c2-9e5a-598d40a05e9d]
     modality: chat
     workload: reasoning
+    excluded_reason: temporarily-unavailable-aihub-2026-10-04

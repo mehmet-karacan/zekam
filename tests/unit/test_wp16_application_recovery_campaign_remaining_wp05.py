@@ -60,6 +60,7 @@ from zekam.application.local_continuity_v4_writer import (
 )
 from zekam.application.opencode_benchmark_campaign import (
     AUDIO_EXCLUSION_REASON,
+    TEMPORARY_UNAVAILABLE_REASON_PREFIX,
     OpenCodeCampaignScope,
     ScopeTarget,
     ScopeVerifier,
@@ -424,6 +425,11 @@ def test_campaign_scope_value_objects_fail_closed_matrix() -> None:
         ).excluded_reason
         == AUDIO_EXCLUSION_REASON
     )
+    temporary = _scope_target(
+        Modality.CHAT,
+        excluded_reason=f"{TEMPORARY_UNAVAILABLE_REASON_PREFIX}aihub-2026-10-04",
+    )
+    assert temporary.excluded_reason == "temporarily-unavailable-aihub-2026-10-04"
     verifier = ScopeVerifier("model", "exec")
     good = _scope_target()
     campaign_changes: tuple[dict[str, object], ...] = (
