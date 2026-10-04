@@ -23,22 +23,24 @@ def test_real_maven_fixture_is_ready_or_explicitly_not_supported() -> None:
         return
     assert result.status is PlanStatus.READY, result.reasons
     assert result.plan is not None
-    assert any(module.engine.value == "junit-platform" for module in result.plan.modules)
+    assert result.discovery is not None
+    assert any(module.engine.value == "junit-platform" for module in result.discovery.modules)
     assert result.plan.goals == ("test", "jacoco:report")
     assert result.plan.execution_class is ExecutionClass.PLUGIN_EXECUTION
 
 
 @pytest.mark.skipif(shutil.which("mvn") is None, reason="Maven bu cihazda kurulu degil")
-def test_real_maven_fixture_executes_unit_and_jacoco_path() -> None:
+def test_real_maven_fixture_executes_unit_and_jacoco_path(tmp_path: Path) -> None:
     """Gercek Maven varsa process/rapor yolunu kosar; yoksa yukaridaki test acik blocker verir."""
 
-    from zekam.infrastructure.unit_test_runner.execution import ExecutionAuthorization
-
-    from zekam.application.unit_test_measurement import measure_unit_tests
     from zekam.domain.unit_test_engineering import UnitTestBudget, UnitTestRequest
-    from zekam.infrastructure.unit_test_runner.maven_plan import discover_project
+    from zekam.infrastructure.unit_test_runner.maven_plan import (
+        ExecutionAuthorization,
+        discover_project,
+    )
+    from zekam.infrastructure.unit_test_runner.measurement import measure_unit_tests
 
-    planned = build_unit_test_plan(FIXTURE, target_modules=())
+    planned = build_unit_test_plan(FIXTURE, target_modules=("",))
     assert planned.plan is not None
     request = UnitTestRequest.with_defaults(
         project_id="fixture-project",
@@ -51,9 +53,13 @@ def test_real_maven_fixture_executes_unit_and_jacoco_path() -> None:
     measured = measure_unit_tests(
         request,
         planned,
-        ExecutionAuthorization(planned.plan.plan_digest, planned.plan.execution_class),
+        ExecutionAuthorization(
+            planned.plan.plan_digest,
+            planned.plan.execution_class,
+            allow_network=True,
+        ),
         discover_project(FIXTURE),
-        lock_dir=FIXTURE / ".zekam-locks",
+        lock_dir=tmp_path / ".zekam-locks",
         run_id="fixture-run",
         attempt_id="fixture-attempt",
         test_candidate_digest=request.request_digest,
