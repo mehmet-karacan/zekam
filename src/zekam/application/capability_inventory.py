@@ -163,6 +163,27 @@ CAPABILITIES: tuple[Capability, ...] = (
         "import, real provider execution, baselines and release gates remain gated.",
     ),
     Capability(
+        "unit-test-engineering",
+        "Evidence-bound unit-test generation, measurement and durable continuation",
+        "partial",
+        (
+            "test plan",
+            "test run",
+            "test status",
+            "test report",
+            "test pause/resume/cancel",
+            "unit-test-engineering skill lifecycle",
+        ),
+        ("zekam-coordinator", "zekam-builder", "zekam-verifier"),
+        (
+            "tests/unit/test_unit_test_engineering_domain.py",
+            "tests/unit/test_unit_test_cli.py",
+            "tests/unit/test_unit_test_ledger_sqlite.py",
+            "tests/integration/test_real_maven_unit_test_fixture.py",
+        ),
+        "Maven fixture execution and live model qualification remain explicitly gated.",
+    ),
+    Capability(
         "semantic-memory",
         "Memory candidates, hygiene, promotion and retrieval",
         "partial",
