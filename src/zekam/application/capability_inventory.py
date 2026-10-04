@@ -181,7 +181,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             "tests/unit/test_unit_test_ledger_sqlite.py",
             "tests/integration/test_real_maven_unit_test_fixture.py",
         ),
-        "Maven fixture execution and live model qualification remain explicitly gated.",
+        "Live model qualification remains explicitly gated; Maven fixture execution is verified on Windows.",
     ),
     Capability(
         "semantic-memory",
