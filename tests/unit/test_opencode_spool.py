@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+import zekam.application.opencode_spool as spool_module
 from zekam.application.opencode_spool import (
     apply_legacy_candidate_cleanup,
     drain_plugin_spool,
@@ -144,3 +145,29 @@ def test_drain_recovers_invalid_lock_without_wedging(
     assert not lock.exists()
     quarantine = root / "quarantine"
     assert len(tuple(quarantine.glob("invalid-drain-lock.*"))) == 1
+
+
+def test_drain_recovers_dead_owner_before_future_lease_expiry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = plugin_spool_root(tmp_path)
+    lock = root / ".drain.lock"
+    lock.mkdir(parents=True)
+    (lock / "owner.json").write_text(
+        json.dumps(
+            {
+                "schema": "zekam-opencode-drain-owner/v2",
+                "pid": 999_999,
+                "ownerToken": str(uuid4()),
+                "startedAt": NOW.isoformat(),
+                "expiresAt": (NOW + dt.timedelta(minutes=5)).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(spool_module, "_process_alive", lambda _pid: False)
+
+    receipt = drain_plugin_spool(tmp_path, now=NOW)
+
+    assert receipt.recovered_stale_lock is True
+    assert not lock.exists()

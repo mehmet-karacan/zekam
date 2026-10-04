@@ -476,7 +476,10 @@ def drain_plugin_spool(
         except ValidationFailed:
             lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
         else:
-            if _process_alive(pid) or expires_at > observed_at:
+            # A dead owner is recoverable even when its lease expiry is still in
+            # the future. Waiting for the full lease after a crashed drain can
+            # wedge the spool for minutes; a live owner remains fail-closed.
+            if _process_alive(pid):
                 raise PolicyViolation("OpenCode drain lock halen aktif")
             lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
         recovered = True
