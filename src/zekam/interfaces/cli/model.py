@@ -16,8 +16,10 @@ from zekam.application.native_benchmark_campaign import (
     run_native_campaign,
 )
 from zekam.application.opencode_benchmark_campaign import (
+    PreparedCampaignManifest,
     discover_campaign,
     load_campaign_scope,
+    prepare_campaign_manifest,
 )
 from zekam.application.opencode_embedding import (
     default_opencode_config_file,
@@ -26,6 +28,7 @@ from zekam.application.opencode_embedding import (
 from zekam.application.portable_benchmark import inspect_portable_benchmark
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ZekamError
+from zekam.infrastructure.opencode_provider_ledger import execute_reviewed_campaign
 from zekam.infrastructure.sqlite.local_model_benchmark import SQLiteLocalBenchmarkLab
 
 app = typer.Typer(name="model", help="Yerel model kanit ve benchmark yuzeyi")
@@ -52,6 +55,60 @@ def _emit(document: dict[str, object], *, output_json: bool, summary: str) -> No
         console.print_json(json.dumps(document, ensure_ascii=False))
     else:
         console.print(summary)
+
+
+def _reviewed_campaign_plan() -> tuple[dict[str, object], PreparedCampaignManifest | None]:
+    """Rebuild the exact reviewed preflight and its prepared provider manifest."""
+
+    scope = load_campaign_scope()
+    config_file = default_opencode_config_file()
+    catalog = load_opencode_aihub_catalog(config_file, provider_id=scope.provider_id)
+    reviewed_ids = {target.configured_model_id for target in scope.targets}
+    configured_ids = set(catalog.configured_model_ids)
+    base: dict[str, object] = {
+        "schema": "zekam-opencode-benchmark-plan-preflight/v1",
+        "campaign_kind": "reviewed-opencode-aihub",
+        "configured_model_count": len(configured_ids),
+        "reviewed_model_count": len(scope.targets),
+        "canonical_target_count": sum(len(target.canonical_model_ids) for target in scope.targets),
+        "audio_excluded_count": sum(
+            len(target.canonical_model_ids)
+            for target in scope.targets
+            if target.excluded_reason is not None
+        ),
+        "config_only_model_ids": sorted(configured_ids - reviewed_ids),
+        "scope_only_model_ids": sorted(reviewed_ids - configured_ids),
+        "provider_calls": 0,
+        "network_calls": 0,
+        "apply": False,
+        "grants_authority": False,
+    }
+    if configured_ids != reviewed_ids:
+        return (
+            base
+            | {
+                "state": "blocked-catalog-scope-drift",
+                "exact_call_budget": None,
+                "authorization_ready": False,
+                "plan_digest": None,
+                "preflight_digest": digest(base),
+            },
+            None,
+        )
+    discovery = discover_campaign(
+        config_file=config_file,
+        verifier_provenance_digest=digest("zekam-reviewed-opencode-campaign-verifier-v1"),
+    )
+    plan_body = base | {
+        "state": "planned",
+        "exact_call_budget": discovery.provider_call_budget,
+        "authorization_ready": True,
+        "discovery": discovery.as_dict(),
+    }
+    return (
+        plan_body | {"plan_digest": digest(plan_body)},
+        prepare_campaign_manifest(discovery, config_file=config_file),
+    )
 
 
 @app.command("benchmark")
@@ -145,53 +202,7 @@ def campaign_plan_command(
                 raise ZekamError(
                     "OpenCode reviewed campaign fixes repetitions=5 and has no portable root"
                 )
-            scope = load_campaign_scope()
-            config_file = default_opencode_config_file()
-            catalog = load_opencode_aihub_catalog(config_file, provider_id=scope.provider_id)
-            reviewed_ids = {target.configured_model_id for target in scope.targets}
-            configured_ids = set(catalog.configured_model_ids)
-            base: dict[str, object] = {
-                "schema": "zekam-opencode-benchmark-plan-preflight/v1",
-                "campaign_kind": "reviewed-opencode-aihub",
-                "configured_model_count": len(configured_ids),
-                "reviewed_model_count": len(scope.targets),
-                "canonical_target_count": sum(
-                    len(target.canonical_model_ids) for target in scope.targets
-                ),
-                "audio_excluded_count": sum(
-                    len(target.canonical_model_ids)
-                    for target in scope.targets
-                    if target.excluded_reason is not None
-                ),
-                "config_only_model_ids": sorted(configured_ids - reviewed_ids),
-                "scope_only_model_ids": sorted(reviewed_ids - configured_ids),
-                "provider_calls": 0,
-                "network_calls": 0,
-                "apply": False,
-                "grants_authority": False,
-            }
-            if configured_ids != reviewed_ids:
-                document = base | {
-                    "state": "blocked-catalog-scope-drift",
-                    "exact_call_budget": None,
-                    "authorization_ready": False,
-                    "plan_digest": None,
-                    "preflight_digest": digest(base),
-                }
-            else:
-                discovery = discover_campaign(
-                    config_file=config_file,
-                    verifier_provenance_digest=digest(
-                        "zekam-reviewed-opencode-campaign-verifier-v1"
-                    ),
-                )
-                plan_body = base | {
-                    "state": "planned",
-                    "exact_call_budget": discovery.provider_call_budget,
-                    "authorization_ready": True,
-                    "discovery": discovery.as_dict(),
-                }
-                document = plan_body | {"plan_digest": digest(plan_body)}
+            document, _manifest = _reviewed_campaign_plan()
     except ZekamError as exc:
         error_console.print(f"Hata: {exc}")
         raise typer.Exit(70) from exc
@@ -214,18 +225,51 @@ def campaign_run_command(
     output_json: Annotated[bool, typer.Option("--json")] = False,
     home: Annotated[str | None, typer.Option("--home")] = None,
 ) -> None:
-    """Execute/replay one exact provider-free campaign in the durable ledger."""
+    """Execute one exact native or reviewed OpenCode campaign.
+
+    A reviewed OpenCode plan digest is routed to the provider-contract runner;
+    it can never be accepted by the provider-free native runner.
+    """
 
     try:
-        contracts = build_native_campaign(repetitions=repetitions, portable_root=portable_root)
-        expected = contracts.plan.plan_digest
         if not apply:
             raise ZekamError("Campaign run --uygula ister")
         if plan_digest is None:
             raise ZekamError("Campaign run exact --plan-digest ister")
         parse_digest(plan_digest)
+        contracts = build_native_campaign(repetitions=repetitions, portable_root=portable_root)
+        expected = contracts.plan.plan_digest
         if plan_digest != expected:
-            raise ZekamError("Campaign plan digest stale veya farkli")
+            if portable_root is not None or repetitions != 5:
+                raise ZekamError(
+                    "Reviewed OpenCode campaign fixes repetitions=5 and has no portable root"
+                )
+            reviewed_document, manifest = _reviewed_campaign_plan()
+            if (
+                reviewed_document.get("plan_digest") != plan_digest
+                or manifest is None
+                or reviewed_document.get("state") != "planned"
+            ):
+                raise ZekamError("Campaign plan digest stale veya farkli")
+            database = resolve_home(home) / "benchmarklar" / "opencode-campaign.db"
+            document = execute_reviewed_campaign(
+                database,
+                default_opencode_config_file(),
+                manifest,
+            )
+            document = document | {
+                "plan_digest": plan_digest,
+                "preflight_digest": plan_digest,
+            }
+            _emit(
+                document,
+                output_json=output_json,
+                summary=(
+                    f"state={document['state']} provider_calls={document['provider_calls']} "
+                    f"skipped_health_failed={document['skipped_health_failed']}"
+                ),
+            )
+            return
         lab = _campaign_lab(home)
         if not lab.path.exists():
             lab.bootstrap()

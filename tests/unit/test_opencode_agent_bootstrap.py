@@ -9,11 +9,15 @@ import pytest
 import yaml
 
 from zekam.application.opencode_agent_bootstrap import (
+    _AGENT_MODALITIES,
+    _BASE_AGENT_TEMPLATES,
+    _MODEL_AGENT_ROLES,
     DEFAULT_AGENT,
     apply_opencode_agent_bootstrap,
     opencode_template_bundle,
     plan_opencode_agent_bootstrap,
 )
+from zekam.application.opencode_benchmark_campaign import load_campaign_scope
 from zekam.domain.errors import ConfigurationError, PolicyViolation
 
 
@@ -219,7 +223,13 @@ def test_every_generated_agent_template_allows_shell_without_prompt() -> None:
         if name.startswith("agents/")
     }
 
-    assert len(agent_templates) == 51
+    scope = load_campaign_scope()
+    expected_bound = sum(
+        len(target.canonical_model_ids) * len(_MODEL_AGENT_ROLES)
+        for target in scope.targets
+        if target.excluded_reason is None and target.modality in _AGENT_MODALITIES
+    )
+    assert len(agent_templates) == len(_BASE_AGENT_TEMPLATES) + expected_bound
     for name, body in agent_templates.items():
         parsed = yaml.safe_load(body.split("---", 2)[1])
         assert isinstance(parsed, dict), name

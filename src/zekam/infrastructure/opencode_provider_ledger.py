@@ -8,19 +8,30 @@ import hashlib
 import json
 import os
 import sqlite3
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from zekam.application.embedding_provider import EmbeddingProbeFixture, EmbeddingPurpose
+from zekam.application.model_benchmark_service import default_fixture_file, load_fixture_registry
 from zekam.application.model_registry import load_inventory
+from zekam.application.opencode_benchmark_campaign import (
+    CampaignCallKind,
+    PreparedCampaignManifest,
+    normalize_provider_response,
+)
 from zekam.application.opencode_embedding import (
     OpenCodeCredentialStore,
     OpenCodeEndpointResolver,
     default_opencode_config_file,
     load_opencode_embedding_configuration,
+)
+from zekam.application.opencode_remote_benchmark import (
+    DeterministicProviderNeutralVerifier,
+    load_remote_fixture,
 )
 from zekam.application.provider_adapter import (
     ProviderCall,
@@ -352,6 +363,7 @@ class SQLiteProviderLedgerHost:
 class LiveProcessClient:
     configuration: Any
     transport: ProcessIsolatedJsonProviderTransport
+    endpoint_mapping: Mapping[tuple[str, str], str] = field(default_factory=dict, repr=False)
 
     def invoke(
         self,
@@ -362,11 +374,13 @@ class LiveProcessClient:
         consumed_by: str,
     ) -> ProviderCallResult:
         del consumed_by
-        endpoint = OpenCodeEndpointResolver(
-            self.configuration.provider_id,
-            f"opencode:{self.configuration.provider_id}:embeddings",
-            self.configuration.embedding_endpoint,
-        ).resolve(call.endpoint_ref, call.operation)
+        endpoint = self.endpoint_mapping.get((call.endpoint_ref, call.operation))
+        if endpoint is None:
+            endpoint = OpenCodeEndpointResolver(
+                self.configuration.provider_id,
+                f"opencode:{self.configuration.provider_id}:embeddings",
+                self.configuration.embedding_endpoint,
+            ).resolve(call.endpoint_ref, call.operation)
         if (
             call.endpoint_path_hint is None
             or call.endpoint_binding_digest
@@ -569,6 +583,159 @@ def execute(database: Path, config_file: Path) -> dict[str, Any]:
         "database_sha256": f"sha256:{database_digest}",
         "credential_source": "environment",
         "secret_value_recorded": False,
+    }
+
+
+def execute_reviewed_campaign(
+    database: Path,
+    config_file: Path,
+    manifest: PreparedCampaignManifest,
+) -> dict[str, Any]:
+    """Run the reviewed OpenCode manifest through the durable provider boundary.
+
+    The caller owns the reviewed plan-digest check.  This function only accepts the
+    already prepared, exact manifest and never retries a provider effect.  Health is
+    evaluated before benchmark calls for each model; a failed health call therefore
+    produces an explicit skipped benchmark set rather than a silent partial pass.
+    """
+
+    inventory = load_inventory()
+    configuration = load_opencode_embedding_configuration(
+        config_file,
+        provider_id=manifest.discovery.scope.provider_id,
+        selected_model_id="openai/BAAI/bge-m3",
+        inventory=inventory,
+    )
+    if (
+        configuration.credential_locator not in os.environ
+        or not os.environ[configuration.credential_locator].strip()
+    ):
+        raise PolicyViolation("OpenCode credential locator run oncesi hazir degil")
+    if len(manifest.calls) != manifest.discovery.provider_call_budget:
+        raise PolicyViolation("Reviewed campaign manifest exact provider budget disinda")
+
+    realm_id = uuid4()
+    project_id = uuid4()
+    host = SQLiteProviderLedgerHost(database, realm_id)
+    client = LiveProcessClient(
+        configuration,
+        ProcessIsolatedJsonProviderTransport(),
+        endpoint_mapping=manifest.endpoint_mapping,
+    )
+    fixtures = load_fixture_registry()
+    fixtures_by_digest = {item.fixture_digest: item for item in fixtures.fixtures}
+    fixture_root = default_fixture_file().parent.resolve(strict=True)
+    evaluator = DeterministicProviderNeutralVerifier()
+    health: dict[str, bool] = {}
+    results: list[dict[str, Any]] = []
+    skipped = 0
+
+    for item in manifest.calls:
+        if item.kind is CampaignCallKind.BENCHMARK and not health.get(
+            item.canonical_model_id, False
+        ):
+            skipped += 1
+            results.append(
+                {
+                    "call_id": item.call_id,
+                    "kind": item.kind.value,
+                    "model_id": item.canonical_model_id,
+                    "status": "skipped-health-failed",
+                    "provider_calls": 0,
+                }
+            )
+            continue
+
+        prepared = item.prepared
+        work = _work(realm_id, project_id)
+        host.register(work)
+        secret_ref = SecretRef.create(
+            realm_id=realm_id,
+            name=prepared.plan.secret_ref_name,
+            provider=prepared.plan.provider_ref,
+            purpose="reviewed OpenCode AIHub campaign",
+            allowed_operations=(prepared.plan.operation,),
+            store_backend=SecretBackend.ENVIRONMENT,
+            store_locator=configuration.credential_locator,
+            project_id=project_id,
+        )
+        authorization = Authorization.issue(
+            realm_id=realm_id,
+            actor_id=uuid4(),
+            plan_digest=prepared.plan.authorization_plan_digest,
+            effect_digest=prepared.plan.effect_request.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(prepared.plan.target, prepared.plan.call_resource),
+                allowed_effects=(EffectKind.PROVIDER_CALL.value,),
+                provider_refs=(prepared.plan.provider_ref,),
+                secret_ref_ids=(secret_ref.id,),
+                data_classifications=prepared.plan.data_classifications,
+            ),
+            risk="critical",
+            lifetime=dt.timedelta(minutes=5),
+        )
+        runner = RuntimeProviderContractRunner(
+            host=cast(ProviderExecutionHost, host), work=work, client=client
+        )
+        execution = runner.invoke(
+            prepared,
+            secret_ref=secret_ref,
+            authorization=authorization,
+            consumed_by=f"cli:model-campaign:{item.kind.value}:{item.call_id}",
+        )
+        fixture = fixtures_by_digest[item.fixture_digest]
+        artifact = load_remote_fixture(fixture, allow_root=fixture_root)
+        try:
+            normalized = normalize_provider_response(
+                item.modality,
+                execution.provider_result.response,
+                artifact=artifact,
+            )
+            evaluation = evaluator.verify(artifact, normalized)
+            passed = bool(evaluation.approved)
+            evaluation_body: Mapping[str, Any] = evaluation.evidence_body()
+        except (PolicyViolation, ValidationFailed, ValueError, TypeError) as exc:
+            # The provider effect succeeded, but its response contract did not.
+            # Keep the durable success receipt and turn this into a model failure so
+            # health admission can safely gate the remaining calls.
+            passed = False
+            evaluation_body = {
+                "approved": False,
+                "failure_category": "response-contract",
+                "error_type": type(exc).__name__,
+            }
+        if item.kind is CampaignCallKind.HEALTH:
+            health[item.canonical_model_id] = passed
+        results.append(
+            {
+                "call_id": item.call_id,
+                "kind": item.kind.value,
+                "model_id": item.canonical_model_id,
+                "status": "passed" if passed else "failed",
+                "receipt_id": str(execution.receipt.id),
+                "response_digest": execution.provider_result.response_digest,
+                "evaluation": dict(evaluation_body),
+                "provider_calls": 1,
+            }
+        )
+
+    completed = all(item["status"] in {"passed", "skipped-health-failed"} for item in results)
+    return {
+        "schema": "zekam-opencode-benchmark-campaign-run/v1",
+        "state": "completed" if completed else "failed-contracts",
+        "campaign_kind": "reviewed-opencode-aihub",
+        "manifest_digest": manifest.manifest_digest,
+        "exact_call_budget": manifest.discovery.provider_call_budget,
+        "provider_calls": sum(int(item["provider_calls"]) for item in results),
+        "network_calls": sum(int(item["provider_calls"]) for item in results),
+        "skipped_health_failed": skipped,
+        "health_passed_model_count": sum(health.values()),
+        "results": results,
+        "durable_ledger": host.summary(),
+        "credential_source": "environment",
+        "secret_value_recorded": False,
+        "qualifies_production_models": False,
+        "grants_authority": False,
     }
 
 
