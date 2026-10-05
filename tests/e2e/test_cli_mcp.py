@@ -26,6 +26,7 @@ def test_mcp_add_projects_one_registration_to_all_installed_clients(
         "schema: zekam-config/v1\n"
         "cli:\n"
         "  integrations:\n"
+        "    version: 2\n"
         "    opencode: true\n"
         "    codex: true\n"
         "    claude-code: true\n",
@@ -178,6 +179,7 @@ def test_mcp_rollback_removes_adopted_entry_without_persisting_old_value(
         "schema: zekam-config/v1\n"
         "cli:\n"
         "  integrations:\n"
+        "    version: 2\n"
         "    opencode: true\n"
         "    codex: true\n"
         "    claude-code: true\n",
@@ -260,6 +262,10 @@ def test_mcp_remove_preserves_unrelated_config_and_can_be_rolled_back(
     native.mkdir()
     runner = CliRunner()
     assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
     monkeypatch.setattr(
         mcp_integrations,
@@ -380,6 +386,7 @@ def test_mcp_update_narrows_clients_and_removes_old_projection(
         "schema: zekam-config/v1\n"
         "cli:\n"
         "  integrations:\n"
+        "    version: 2\n"
         "    opencode: true\n"
         "    codex: true\n"
         "    claude-code: true\n",
@@ -458,6 +465,7 @@ def test_mcp_codex_drift_fails_closed_and_clean_v2_uses_servers(
         "schema: zekam-config/v1\n"
         "cli:\n"
         "  integrations:\n"
+        "    version: 2\n"
         "    opencode: true\n"
         "    codex: true\n"
         "    claude-code: true\n",

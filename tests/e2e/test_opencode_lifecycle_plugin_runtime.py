@@ -46,6 +46,12 @@ tool.schema = { string: () => ({ max: () => ({}) }) }
 """,
         encoding="utf-8",
     )
+    (root / ".ai").mkdir(exist_ok=True)
+    (root / ".ai" / "repository-context.json").write_text(
+        json.dumps({"schema": "zekam-repository-context/v2", "project": "zekam"}),
+        encoding="utf-8",
+    )
+    (root / "PROJE_MANIFESTI.yaml").write_text("project:\n  slug: zekam\n", encoding="utf-8")
     fake_source = root / "fake-zekam.js"
     fake_source.write_text(
         """if (Bun.argv.includes("resume")) {
@@ -80,6 +86,7 @@ process.exit(Number.isInteger(code) ? code : 1)
 const count = Number(Bun.env.EMIT_COUNT ?? "1")
 const prefix = Bun.env.SESSION_PREFIX ?? "runtime"
 const plugin = await ZekamLifecycle({ directory: process.cwd() })
+if (Bun.env.EXPECT_INACTIVE === "1") process.exit(Object.keys(plugin).length === 0 ? 0 : 5)
 const results = await Promise.allSettled(
   Array.from({ length: count }, (_, index) => plugin.event({
     event: { type: "session.created", properties: { id: `${prefix}-${index}` } },
@@ -179,6 +186,12 @@ def test_real_opencode_process_loads_plugin_and_emits_provider_free_lifecycle(
     project = tmp_path / "project"
     plugin_root.mkdir(parents=True)
     project.mkdir()
+    (project / ".ai").mkdir()
+    (project / ".ai" / "repository-context.json").write_text(
+        json.dumps({"schema": "zekam-repository-context/v2", "project": "zekam"}),
+        encoding="utf-8",
+    )
+    (project / "PROJE_MANIFESTI.yaml").write_text("project:\n  slug: zekam\n", encoding="utf-8")
     model_cache = Path.home() / ".cache" / "opencode" / "models.json"
     if not model_cache.is_file():
         pytest.fail("OpenCode provider-free model metadata cache bulunamadi")
@@ -401,7 +414,7 @@ def test_two_bun_processes_share_one_windows_safe_lock(tmp_path: Path) -> None:
     assert not (spool / ".drain.lock").exists()
 
 
-def test_retry_is_durable_and_precompact_remains_fail_closed(tmp_path: Path) -> None:
+def test_retry_is_durable_and_precompact_never_blocks_but_stays_queued(tmp_path: Path) -> None:
     bun = _bun_executable()
     runner, fake_executable = _write_runtime_files(tmp_path)
     home = tmp_path / "home"
@@ -427,7 +440,12 @@ def test_retry_is_durable_and_precompact_remains_fail_closed(tmp_path: Path) -> 
         FAKE_ZEKAM_EXIT_CODE="1",
         RUN_PRECOMPACT="1",
     )
-    assert fail_closed.returncode == 17
+    # Gozlem arizasi native compaction'i bloklamaz (runner: throw yok => 3); teslim edilemeyen
+    # ACK durable spool'da gorunur ve telafi edilebilir kalir.
+    assert fail_closed.returncode == 3
+    assert "spool'da teslim bekliyor" in fail_closed.stderr
+    spooled = [item.read_text(encoding="utf-8") for item in _spool(fail_closed_home).glob("*.json")]
+    assert any("pre-compact" in item for item in spooled)
 
 
 def test_live_owner_is_preserved_and_dead_owner_is_quarantined(tmp_path: Path) -> None:
@@ -470,3 +488,80 @@ def test_live_owner_is_preserved_and_dead_owner_is_quarantined(tmp_path: Path) -
     assert list(spool.glob("*.json")) == []
     assert not (spool / ".drain.lock").exists()
     assert len(list((spool / "quarantine").glob(".drain.lock.*"))) == 1
+
+
+def _inactive_run(tmp_path: Path, workdir: Path) -> tuple[subprocess.CompletedProcess[str], Path]:
+    runner, fake_executable = _write_runtime_files(tmp_path)
+    home = tmp_path / "home-should-stay-absent"
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ZEKAM_EXECUTABLE": str(fake_executable),
+            "ZEKAM_HOME": str(home),
+            "EXPECT_INACTIVE": "1",
+        }
+    )
+    result = subprocess.run(
+        [_bun_executable(), str(runner)],
+        cwd=workdir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    return result, home
+
+
+def test_plugin_is_inert_outside_a_zekam_workspace(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    other = tmp_path_factory.mktemp("not-zekam")
+
+    result, home = _inactive_run(tmp_path, other)
+
+    assert result.returncode == 0, result.stderr
+    assert not home.exists()
+
+
+def test_plugin_is_inert_when_marker_is_not_a_zekam_context(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    other = tmp_path_factory.mktemp("lookalike")
+    (other / ".ai").mkdir()
+    (other / ".ai" / "repository-context.json").write_text(
+        json.dumps({"schema": "other/v1", "project": "zekam-old"}), encoding="utf-8"
+    )
+    (other / "PROJE_MANIFESTI.yaml").write_text("project: {}\n", encoding="utf-8")
+
+    result, home = _inactive_run(tmp_path, other)
+
+    assert result.returncode == 0, result.stderr
+    assert not home.exists()
+
+
+def test_plugin_is_active_in_a_subdirectory_of_the_workspace(tmp_path: Path) -> None:
+    runner, fake_executable = _write_runtime_files(tmp_path)
+    nested = tmp_path / "src" / "pkg"
+    nested.mkdir(parents=True)
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "ZEKAM_EXECUTABLE": str(fake_executable),
+            "ZEKAM_HOME": str(tmp_path / "home"),
+            "RUN_SYSTEM_TRANSFORM": "1",
+        }
+    )
+
+    result = subprocess.run(
+        [_bun_executable(), str(runner)],
+        cwd=nested,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.splitlines()[-1])["system"]

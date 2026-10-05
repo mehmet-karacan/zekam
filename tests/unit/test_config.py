@@ -18,6 +18,7 @@ from zekam.application.config import (
     default_config_file,
     load_settings,
 )
+from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrationPolicy
 from zekam.domain.errors import ConfigurationError, PolicyViolation
 
 pytestmark = pytest.mark.unit
@@ -43,9 +44,11 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     assert settings.diagnostic_trace.enabled is False
     assert settings.diagnostic_trace.encryption_key_ref is None
     assert settings.cli.integrations.body() == {
-        "opencode": True,
+        "version": 2,
+        "opencode": False,
         "codex": False,
         "claude-code": False,
+        "gemini": False,
     }
 
 
@@ -300,7 +303,8 @@ def test_missing_or_directory_client_executable_fails_closed(home_root: Path) ->
     for target in (home_root / "missing.exe", home_root):
         _write(
             home_root / USER_CONFIG_FILE,
-            f"schema: {CONFIG_SCHEMA}\nclients:\n  - name: opencode\n    executable: '{target}'\n",
+            f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n"
+            f"    opencode: true\nclients:\n  - name: opencode\n    executable: '{target}'\n",
         )
         with pytest.raises(ConfigurationError):
             load_settings(home=home_root, environ={})
@@ -326,13 +330,15 @@ def test_disabled_client_missing_executable_does_not_block_policy_or_cleanup(
 def test_cli_integration_partial_override_and_all_disabled_are_exact(home_root: Path) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n    codex: true\n",
     )
     enabled = load_settings(home=home_root, environ={})
     assert enabled.cli.integrations.body() == {
-        "opencode": True,
+        "version": 2,
+        "opencode": False,
         "codex": True,
         "claude-code": False,
+        "gemini": False,
     }
 
     _write(
@@ -341,14 +347,14 @@ def test_cli_integration_partial_override_and_all_disabled_are_exact(home_root: 
         "    opencode: false\n    codex: false\n    claude-code: false\n",
     )
     disabled = load_settings(home=home_root, environ={})
-    assert not any(disabled.cli.integrations.body().values())
+    assert not any(disabled.cli.integrations.clients().values())
 
 
 @pytest.mark.parametrize("invalid", ["'false'", "0", "null", "[]", "''"])
 def test_cli_integration_rejects_non_boolean_values(home_root: Path, invalid: str) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: {invalid}\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n    codex: {invalid}\n",
     )
     with pytest.raises(ConfigurationError, match="gercek boolean"):
         load_settings(home=home_root, environ={})
@@ -357,14 +363,15 @@ def test_cli_integration_rejects_non_boolean_values(home_root: Path, invalid: st
 def test_cli_integration_rejects_unknown_fields_and_duplicate_yaml_keys(home_root: Path) -> None:
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    gemini: true\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n    cursor: true\n",
     )
     with pytest.raises(ConfigurationError, match="Desteklenmeyen"):
         load_settings(home=home_root, environ={})
 
     _write(
         home_root / USER_CONFIG_FILE,
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n    codex: false\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n"
+        "    codex: true\n    codex: false\n",
     )
     with pytest.raises(ConfigurationError, match="Duplicate YAML key"):
         load_settings(home=home_root, environ={})
@@ -451,3 +458,56 @@ def test_operator_database_environment_does_not_leak_into_tests() -> None:
         "ZEKAM_DATABASE_SSLMODE",
     )
     assert [key for key in izole if key in os.environ] == []
+
+
+def test_legacy_unversioned_integrations_never_enable_global_install(home_root: Path) -> None:
+    _write(
+        home_root / USER_CONFIG_FILE,
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n"
+        "    opencode: true\n    codex: true\n    claude-code: true\n",
+    )
+    legacy = load_settings(home=home_root, environ={}).cli.integrations
+
+    assert legacy.legacy
+    assert legacy.legacy_selection == ("opencode", "codex", "claude-code")
+    assert not any(legacy.clients().values())
+    assert (
+        legacy.policy_digest
+        == ClientIntegrationPolicy.from_mapping(
+            {"opencode": True, "codex": True, "claude-code": True}
+        ).policy_digest
+    )
+    reconciled = legacy.with_change()
+    assert not reconciled.legacy
+    assert reconciled.body() == {
+        "version": 2,
+        "opencode": False,
+        "codex": False,
+        "claude-code": False,
+        "gemini": False,
+    }
+    assert reconciled.policy_digest != legacy.policy_digest
+
+
+def test_gemini_is_typed_and_project_projection_targets_are_shared() -> None:
+    policy = ClientIntegrationPolicy.from_mapping({"version": 2, "gemini": True})
+
+    assert policy.enabled("gemini") and not policy.enabled("opencode")
+    assert policy.project_local_projection("codex")
+    assert policy.project_local_projection("claude-code")
+    assert not policy.project_local_projection("opencode")
+    assert not policy.project_local_projection("gemini")
+    with pytest.raises(ConfigurationError):
+        ClientIntegrationPolicy.from_mapping({"version": 3})
+
+
+def test_mcp_registration_rejects_gemini_until_a_projection_exists() -> None:
+    from zekam.domain.mcp_integration import McpServerRegistration, McpTransport
+
+    with pytest.raises(ConfigurationError):
+        McpServerRegistration(
+            name="srv",
+            transport=McpTransport.STDIO,
+            command=("srv",),
+            clients=(ClientIntegrationId.GEMINI,),
+        )

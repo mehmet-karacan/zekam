@@ -802,7 +802,7 @@ def sync_receipt(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[str,
 def registry_status(context: ApplicationContext, *, native_user_root: Path) -> dict[str, Any]:
     entries, receipt = _current_registry(context)
     clients = []
-    for client in ClientIntegrationId:
+    for client in _CLIENT_PATHS:
         clients.append(
             {
                 "client": client.value,

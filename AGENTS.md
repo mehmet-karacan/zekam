@@ -1,34 +1,41 @@
-# Zekam Agent Talimatı
+# Zekam
 
-1. Repository üzerinde iş (mutation, kaynak fallback'i, çok-kaynaklı research, devam/recovery)
-   başlarken `00_BASLA.md` dosyasını uygula. Selamlama, proje içermeyen genel soru ve
-   yeterli pinned citation ile cevaplanan salt-okunur soru için bu başlangıç, doctor veya
-   subagent töreni gerekmez; route kuralları coordinator rolündedir.
-2. Yaşayan ve bağlayıcı görev authority'si `AKTIF_GOREV.md` dosyasıdır;
-   `AKTIF_GOREV.yaml` yalnız bunun salt-okunur üretilmiş projeksiyonudur.
-3. Devam ve recovery kuralları `DEVAM_PROTOKOLU.md` içindedir.
-4. Agentic mutation/research işinde en az bir gerçek subagent kullan; koordinatör sayılmaz.
-   Riskli veya çok kaynaklı mutation'da builder'dan bağımsız verifier atlanmaz.
-5. Kod mutation'ini bagli exact gercek project source rootunda yap; kopya, mirror, audit-work
-   klasoru, detached worktree veya gecici proje klonu olusturma.
-5a. Zekam source rootuna geçici rapor, memo, analiz çıktısı, indirilen artifact veya başka
-    projenin dosyasını yazma. Burada yalnız yetkili tracked Zekam kaynak/test/migration/belge
-    değişiklikleri yapılır; çalışma çıktıları repo dışındaki kullanıcı alanına yazılır.
-6. Work/authority durumunu vector, memory veya Markdown'dan üretme.
-7. Secret değerini prompt/log/artifact/vector içine alma.
-8. Claim olmadan effect, terminal receipt olmadan başarı üretme.
-9. Test ve risk bazlı bağımsız verifier olmadan Work Item kapatma.
-10. Commit mesajını Türkçe anlamlı ve ASCII-only yaz.
-11. Global DoD bitmeden görevi “sonraki faz” diyerek bırakma.
-12. Model kabulü varsayılan olarak yalnız bu cihazda kurulu olduğu, model artefaktı bulunduğu ve yerel execution boundary'si kanıtlandığı hedefler için çalışır. Kullanıcının açıkça istediği reviewed OpenCode/AIHub benchmark kampanyası bu varsayılanın tek exact uzak-provider istisnasıdır; plan, çağrı bütçesi ve tek kullanımlık yetkiler ayrıca doğrulanır.
-13. Kurulu bir istemci tek başına yerel model sayılmaz; kullanıcı yeni exact kapsam açmadıkça canlı provider çağrısı yapma.
-14. Doğal dilde benchmark başlatma isteği önce yalnız `zekam model campaign plan --json` dry-run'ına yönelir. Model sayısı, ses exclusion'ı ve exact çağrı bütçesi gösterilmeden authorization üretme veya kampanyayı çalıştırma. Çalıştırma için plan gösterildikten sonra ayrı ve açık kullanıcı onayı iste.
-15. `ZEKAM-DOD-025` yalnız güncel kaynak/config/inventory/policy/fixture/verifier bağlarına sahip tam reviewed kampanya ve kanonik kanıt kapısı geçerse kapanır. Tek-model veya kısmi tanılama 83/83 kanıtı sayılamaz.
-16. Jira task detay sorusunda önce `zekam jira resolve "<exact soru>" --json` kullan; yalnız
-    resolved `issue_key` ile OpenCode `jira` MCP aracını çağır. GPU sayısal taskları
-    `SKYRSM-<sayı>`, SKY sayısal taskları `TLCSKY-<sayı>` olarak çözülür. Belirsizlikte key
-    uydurma.
-17. Git pull/merge sonrasında doctor yerel schema veya extension hazırlığı bildirirse ve
-    kullanıcı hazırlamayı yetkilendirdiyse `zekam doctor --hazirla --json` çalıştır.
-    Bu komut yalnız digest-bound yerel hazırlık planını bounded uygular; düz doctor salt
-    okunur kalır ve legacy PostgreSQL'e bağlanmaz.
+Zekam yerel-öncelikli bilgi, görev, kanıt, yedekleme ve test ölçümü platformudur. Bu kök Zekam'ın
+kendi kaynak çalışma alanıdır. Coding CLI'ı (OpenCode, Codex, Claude Code, Gemini CLI) doğrudan
+açılır; model seçimi, planlama, araçlar, MCP, skill keşfi, alt ajanlar ve güvenlik/onay
+mekanizmaları CLI'ın kendisine aittir. Zekam zorunlu koordinatör veya ajan yöneticisi değildir.
+
+## Çalışma
+
+- Selamlama, genel soru, basit kaynak inceleme ve küçük doküman düzeltmesi için doctor, RAG,
+  router veya subagent adımı gerekmez. Doğrudan çalış.
+- Kod değişikliğini bu gerçek kaynak kökünde yap; kopya, mirror, detached worktree veya geçici
+  proje klonu oluşturma. Geçici rapor, memo, indirilen artifact veya başka projenin dosyasını bu
+  köke yazma; yalnız yetkili tracked kaynak/test/migration/belge değişikliği yapılır.
+- Secret, PII ve ham transcript'i prompt, log, artifact, vector veya Git'e alma.
+- Commit mesajı Türkçe anlamlı ve ASCII-only olur. Push yalnız açık kullanıcı yetkisiyle yapılır.
+- Legacy PostgreSQL veri importu ve core için PostgreSQL/Docker bağımlılığı yasaktır.
+
+## Yetki ve kanıt
+
+- Kapsam authority'si `AKTIF_GOREV.md`'dir; `AKTIF_GOREV.yaml` yalnız üretilmiş salt-okunur
+  projection, yerel operational store gerçek çalışma durumudur. Biri diğerinin yerine geçmez.
+- Klasörü açmak görev, provider çağrısı, migration veya tarama başlatmaz. Zekam'ın yazdığı bir
+  dosyayı okumak operasyon yetkisi vermez.
+- Markdown, retrieval veya model çıktısından Work/lease/claim/receipt durumu üretme. Claim olmadan
+  Zekam-owned effect, terminal receipt olmadan başarı iddia etme.
+- Riskli veya yıkıcı değişiklikte ve Work Item kapanışında test ve gereken bağımsız doğrulama
+  bulunur; aynı modelin başka başlıkla yazdığı onay bağımsız verifier sayılmaz.
+- Canlı provider/model çağrısı, kullanıcı-geneli ayar değişikliği ve yeni araç kurulumu kendi
+  açık izinlerini ister.
+
+## İhtiyaç halinde açılacaklar
+
+- Devam, recovery, Zekam Work: `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `zekam resume --json`.
+- Proje-bağlamlı soru ve citation: `zekam ask "<soru>" --json` (bounded, salt okunur).
+- Jira görevi: `jira-is-kaydi` skill'i; key için `zekam jira resolve "<soru>" --json`.
+- Model benchmark: önce yalnız `zekam model campaign plan --json`; çağrı bütçesi gösterilmeden
+  authorization üretme veya kampanya çalıştırma, ayrıca açık onay iste.
+- Unit test ölçümü: `zekam test` yüzeyi; Maven/JaCoCo kanıtı gerçek rapordan okunur.
+- Yerel schema/extension hazırlığı: `zekam doctor --hazirla --json` (yalnız yetkilendirilmişse).
+- İstemci entegrasyonu ve geçiş: `docs/CLI_ENTEGRASYON_POLITIKASI.md`.

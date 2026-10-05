@@ -17,6 +17,8 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 
 | Yetkinlik | Durum | Bugün kullanılabilen yüzey | Kalan açık |
 |---|---|---|---|
+| Native CLI proje-yerel giriş (OpenCode/Codex/Claude Code/Gemini) | `partial` | `AGENTS.md` + `CLAUDE.md`/`GEMINI.md` (`@AGENTS.md`); `integration status/sync` legacy global temizlik planı | Kaynak ve fixture-home geçişi test edildi; dört CLI için gerçek kabul (A01-A21, A31-A32) koşulmadı; gerçek kullanıcı-home temizliği ayrı exact yetki bekliyor |
+| Native yardımcı yol (test ölçümü + süreklilik) | `partial` | `test measure/evidence`, `continuity native start/checkpoint/close/resume` | OpenCode gerektirmez; `target-met` Work kapatmaz; checkpoint anlatı alanları istemci beyanıdır (doğrulanmamış) |
 | Project RAG ve doğrulanmış citation | `ready` | `ask`, `project index/query/citation/status` | Büyük ölçek performans kampanyası bu kabul dışında |
 | Intent + proje ailesi + Jira router | `ready` | `route families/preview/explain`, `jira resolve` | Agent dispatch hâlâ coordinator politikasınca yürütülür |
 | OpenCode continuity ve otomatik resume | `ready` | `resume`, `opencode event/pre-compact/resume/install` | Semantik özetin kalitesi agent'ın checkpoint yazmasına bağlı |

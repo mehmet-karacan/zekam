@@ -1,17 +1,17 @@
 # Zekam — Her Model ve Her Oturum İçin Başlangıç Protokolü
 
-Bu dosya Zekam repository'sinin tek zorunlu ilk okumasıdır. Codex, Claude Code, OpenCode,
-kurum içi model, başka bir CLI veya gelecekteki istemci aynı sırayı izler.
+Bu dosya Zekam Work, devam ve recovery işleri için başlangıç protokolüdür; her oturumun
+zorunlu ilk okuması değildir. Ortak ince giriş `AGENTS.md`'dir. Codex, Claude Code, OpenCode,
+Gemini CLI, kurum içi model veya başka bir istemci Zekam Work yürütürken aynı sırayı izler.
 
 ## 1. Oturum başlatma
 
 Kapsam: Aşağıdaki başlangıç sırası repository üzerinde iş yapılacağı oturumlar içindir
 (mutation, kaynak fallback'i, çok-kaynaklı research, devam/recovery). Selamlama, teşekkür,
 proje içermeyen kavram sorusu ve yeterli pinned citation ile cevaplanan salt-okunur bilgi
-sorusu için bu sıra, doctor, subagent veya bütün belgeleri okuma gerektirmez; route kararı
-`.opencode/agents/zekam-coordinator.md` ve ilgili route referansındadır. Küçük yetkili bir
-değişiklikte yalnız ilgili bağlam ve gerekli test yüklenir; tarihsel belgeler zorunlu okuma
-değildir.
+sorusu için bu sıra, doctor, subagent veya bütün belgeleri okuma gerektirmez. Küçük yetkili
+bir değişiklikte yalnız ilgili bağlam ve gerekli test yüklenir; tarihsel belgeler zorunlu okuma
+değildir. Klasörü açmak bu sırayı başlatmaz; kullanıcının seçtiği görev başlatır.
 
 Repository işinde aşağıdaki işlemleri konuşma geçmişinden bağımsız yap:
 
@@ -26,8 +26,9 @@ Repository işinde aşağıdaki işlemleri konuşma geçmişinden bağımsız ya
    `NIHAI_UYGULAMA_PROMPTU.md` superseded tarihsel kaynaktır; otomatik yüklenmez ve
    authority değildir, yalnız tarihsel gerekçe aranırken açılır.
 8. Yalnız aktif iş için gerekli bounded context'i derle; bütün repository'yi prompta yığma.
-9. İş agentic mutation veya research ise en az bir gerçek subagent planla; risk gerektirdiğinde
-   builder'dan bağımsız verifier kullan. Koordinatör subagent sayılmaz.
+9. Alt ajan kullanımı host yeteneğine ve işin ihtiyacına bağlıdır; sayaç doldurmak için ajan
+   açılmaz. Riskli veya yıkıcı değişiklikte ve Work Item kapanışında builder'dan bağımsız
+   doğrulama atlanmaz; aynı modelin başka başlıkla yazdığı onay bağımsız verifier sayılmaz.
 10. Uygulamadan önce exact plan, test ve rollback kapsamını üret.
 
 ## 2. Gerçek durum kuralı

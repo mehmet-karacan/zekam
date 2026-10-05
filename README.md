@@ -73,14 +73,20 @@ zekam capabilities --json
 Zekam salt CLI/JSON/machine-readable bir yüzeydir; UI, dashboard, browser veya TUI gibi
 görsel ürün katmanı eklemez (`tests/architecture/test_no_ui_surface.py`).
 
-Managed OpenCode yaşam döngüsü eklentisi bu paketi her yeni oturumun sistem bağlamına ve
-compaction bağlamına otomatik ekler. Kurulum veya güncelleme önce planlanır, sonra gösterilen
-exact plan digest'iyle claim/receipt kapısından uygulanır:
+Native CLI'lar (OpenCode, Codex, Claude Code, Gemini CLI) Zekam kökünde doğrudan açılır; ince
+`AGENTS.md` girişi proje-yerel keşfedilir, global kurulum gerekmez. Eski managed OpenCode
+yaşam döngüsü eklentisi yalnız açık `cli.integrations.version: 2` + `opencode: true` seçimiyle
+kurulur (opt-in, legacy); Zekam çalışma alanı dışında hiçbir etki üretmez. Kurulum önce
+planlanır, sonra gösterilen exact plan digest'iyle claim/receipt kapısından uygulanır:
 
 ```bash
 zekam opencode install
 zekam opencode install --plan-digest <digest> --uygula
 ```
+
+Native oturumdan süreklilik ve test ölçümü OpenCode gerektirmez
+(`zekam continuity native ...`, `zekam test measure/evidence`); bkz.
+[docs/NATIVE_YARDIMCI_YOL.md](docs/NATIVE_YARDIMCI_YOL.md).
 
 Paket salt okunurdur ve yetki taşımaz. Semantik checkpoint yoksa Zekam tamamlanan işi
 uydurmaz; `semantic_state=missing` veya yalnız açık iş varsa `work-only` döndürür. Hazır,
@@ -138,21 +144,22 @@ zekam skill export <paket-koku> --project-root <proje-koku>
 ```
 
 `propose`, `evaluate` ve `export` varsayılan olarak yalnız digest-bağlı plan üretir. Apply
-adımları yeni provider, ağ veya araç yetkisi vermez. Varsayılan policy yalnız OpenCode'u açar ve
-skill'i `.opencode/skills` altına dağıtır. Codex `.agents/skills`, Claude Code ise
-`.claude/skills` projection'ını ancak açık kullanıcı seçimiyle alır; üçü de yalnız
-`instruction-distribution-only` olarak raporlanır. Bir paketin yüklenmesi doğrulanmış sonuç veya
+adımları yeni provider, ağ veya araç yetkisi vermez. Varsayılan projection `.agents/skills` (Codex; OpenCode ve Gemini de
+tarar) ve `.claude/skills` (Claude Code) altınadır; ayrı `.opencode/skills` kopyası yalnız açık v2
+`opencode: true` seçimiyle eklenir. Üçü de yalnız `instruction-distribution-only`
+olarak raporlanır. Bir paketin yüklenmesi doğrulanmış sonuç veya
 effect admission yerine geçmez.
 
 ## CLI entegrasyon politikası
 
-OpenCode varsayılan olarak etkin; Codex ve Claude Code opt-in'dir. Kurulu executable envanteri
-bu tercihi kendiliğinden değiştirmez. Durum ve provider-free reconcile planı şöyle görülür:
+`cli.integrations` (v2) yalnız kullanıcı-geneli yönetilen kurulumu seçer ve varsayılan olarak
+hiçbirini açmaz; dört istemci (OpenCode, Codex, Claude Code, Gemini) eşit proje-yerel giriş
+desteği alır. Kurulu executable envanteri bu tercihi kendiliğinden değiştirmez. Durum ve provider-free reconcile planı şöyle görülür:
 
 ```bash
 zekam integration status --json
-zekam integration sync --scope user --enable codex --json
-zekam integration sync --scope user --enable codex --plan-digest <digest> --uygula --json
+zekam integration sync --scope user --json
+zekam integration sync --scope user --plan-digest <digest> --uygula --json
 zekam integration sync --scope project --project-root <exact-kok> --json
 zekam integration rollback --receipt <receipt-id> --json
 ```

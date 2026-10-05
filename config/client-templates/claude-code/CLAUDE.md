@@ -1,12 +1,5 @@
-# Zekam Claude Code Başlangıç Şablonu
+# Zekam Claude Code uyumluluk girisi
 
-Bu opt-in şablonu ayrı ürün kuralları tanımlamaz. Etkinleştirildiğinde şu sırayı uygula:
+Kullanici dosyasi varsa uzerine yazma. Ortak giris `AGENTS.md` dosyasidir.
 
-@00_BASLA.md
 @AGENTS.md
-@DEVAM_PROTOKOLU.md
-@PROJE_MANIFESTI.yaml
-@AKTIF_GOREV.md
-
-Claude Code capability/permission ayarları Zekam'nin policy, authorization, logical lock,
-sandbox, claim ve receipt sınırlarının yerine geçmez.

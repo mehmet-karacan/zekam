@@ -76,7 +76,7 @@ def test_direct_zekam_cli_hook_delivery_preserves_isolated_spool_and_privacy(
     zekam_home = tmp_path / "zekam-home"
     zekam_home.mkdir()
     (zekam_home / "config.yaml").write_text(
-        "schema: zekam-config/v1\ncli:\n  integrations:\n    claude-code: true\n",
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    claude-code: true\n",
         encoding="utf-8",
     )
     environment = dict(os.environ)

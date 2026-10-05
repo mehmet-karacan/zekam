@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from zekam.domain.canonical import digest
-from zekam.domain.client_integration import ClientIntegrationId
+from zekam.domain.client_integration import LEGACY_CLIENT_INTEGRATIONS, ClientIntegrationId
 from zekam.domain.errors import ConfigurationError, ValidationFailed
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -31,7 +31,7 @@ class McpServerRegistration:
     url: str | None = None
     env_vars: tuple[str, ...] = ()
     bearer_token_env_var: str | None = None
-    clients: tuple[ClientIntegrationId, ...] = tuple(ClientIntegrationId)
+    clients: tuple[ClientIntegrationId, ...] = LEGACY_CLIENT_INTEGRATIONS
     enabled: bool = True
 
     def __post_init__(self) -> None:
@@ -45,6 +45,8 @@ class McpServerRegistration:
             raise ConfigurationError("MCP environment variable referansi gecersiz")
         if len(set(self.clients)) != len(self.clients) or not self.clients:
             raise ConfigurationError("MCP en az bir tekil istemci ister")
+        if any(client not in LEGACY_CLIENT_INTEGRATIONS for client in self.clients):
+            raise ConfigurationError("MCP projection bu istemciyi desteklemiyor")
         if self.bearer_token_env_var is not None and not _ENV.fullmatch(self.bearer_token_env_var):
             raise ConfigurationError("MCP bearer token environment referansi gecersiz")
         if self.transport is McpTransport.STDIO:

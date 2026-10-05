@@ -74,6 +74,10 @@ _SUFFIX = "\n\n# Sonum\n\nSon not.\n"
 def _context(tmp_path: Path) -> ApplicationContext:
     home = tmp_path / "zekam-home"
     home.mkdir()
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
     return build_context(home=home, environ={})
 
 

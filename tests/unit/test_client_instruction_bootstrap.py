@@ -117,14 +117,13 @@ def test_apply_rejects_stale_plan_and_preserves_new_user_content(tmp_path: Path)
     assert target.read_text(encoding="utf-8") == "sonradan eklendi"
 
 
-def test_default_policy_only_plans_opencode_instruction_file(tmp_path: Path) -> None:
+def test_default_policy_plans_no_global_instruction_file(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     plan = plan_client_instruction_bootstrap(user_home=home)
 
-    assert [(item.client_id, item.path) for item in plan.files] == [
-        ("opencode", home / ".config" / "opencode" / "AGENTS.md")
-    ]
+    assert plan.files == ()
+    assert plan.conflicts == ()
 
 
 def test_managed_body_scopes_startup_checks_and_keeps_hard_boundaries(tmp_path: Path) -> None:

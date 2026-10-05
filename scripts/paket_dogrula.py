@@ -33,7 +33,10 @@ REQUIRED_FILES = [
     "PROJE_MANIFESTI.yaml",
     "AKTIF_GOREV.yaml",
     "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
     "config/client-templates/claude-code/CLAUDE.md",
+    "config/client-templates/gemini/GEMINI.md",
     "opencode.json",
     ".ai/repository-context.json",
     "mimari/ANA_MIMARI.md",
@@ -280,8 +283,10 @@ def main() -> int:
         if manifest["project"]["slug"] != "zekam" or manifest["project"]["cli"] != "zekam":
             errors.append("Repository/package/CLI zekam kimligiyle uyusmuyor.")
         sub = manifest["subagents"]
-        if sub["agentic_operations_minimum"] != 1:
-            errors.append("Agentic minimum subagent 1 olmali.")
+        if sub["agentic_operations_minimum"] != 0:
+            errors.append("Interaktif native yolda zorunlu subagent minimumu 0 olmali.")
+        if sub.get("interactive_native_requires_subagent") is not False:
+            errors.append("Native interaktif oturum subagent zorunlu kilinmamali.")
         if sub["coordinator_counts_as_subagent"] is not False:
             errors.append("Koordinator subagent sayilmamali.")
         if sub["fixed_global_maximum"] is not None:

@@ -154,9 +154,11 @@ def _write_config(home: Path) -> Path:
         "  network_default: deny\n"
         "cli:\n"
         "  integrations:\n"
-        "    opencode: true\n"
+        "    version: 2\n"
+        "    opencode: false\n"
         "    codex: false\n"
-        "    claude-code: false\n",
+        "    claude-code: false\n"
+        "    gemini: false\n",
         encoding="utf-8",
         newline="\n",
     )

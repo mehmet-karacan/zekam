@@ -57,7 +57,7 @@ from zekam.interfaces.cli.client import app as client_app
 def _enable_codex(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     (home / USER_CONFIG_FILE).write_text(
-        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    codex: true\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n    codex: true\n",
         encoding="utf-8",
     )
 

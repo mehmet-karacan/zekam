@@ -124,7 +124,12 @@ def _client_integrations(
     """
 
     executable = {client.name: str(client.executable) for client in context.settings.clients}
-    commands = {"opencode": "opencode", "codex": "codex", "claude-code": "claude"}
+    commands = {
+        "opencode": "opencode",
+        "codex": "codex",
+        "claude-code": "claude",
+        "gemini": "gemini",
+    }
     policy = context.settings.cli.integrations
     return tuple(
         (
@@ -133,7 +138,7 @@ def _client_integrations(
             enabled,
             name in executable,
         )
-        for name, enabled in policy.body().items()
+        for name, enabled in policy.clients().items()
     )
 
 

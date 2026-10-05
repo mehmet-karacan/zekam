@@ -18,7 +18,16 @@ from rich.console import Console
 
 from zekam.application.composition import build_context
 from zekam.application.config import PersistenceBackend
+from zekam.application.home import resolve_home
 from zekam.application.local_continuity_close import CloseCandidateBundle, CloseSummary
+from zekam.application.local_continuity_native import (
+    NativeClient,
+    NativeContinuityError,
+    checkpoint_native_session,
+    close_native_session,
+    resume_native_checkpoint,
+    start_native_session,
+)
 from zekam.application.local_continuity_source_authority import (
     MAX_COMMAND_BYTES,
     PortableSourcePlanRecord,
@@ -51,6 +60,15 @@ local_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(local_app)
+native_app = typer.Typer(
+    name="native",
+    help=(
+        "Native oturumdan (Claude/Codex/Gemini/OpenCode) ortak start/checkpoint/close/resume; "
+        "ikinci store yok, yetki uretmez"
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(native_app)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,9 +171,30 @@ def _reject_json_constant(value: str) -> None:
     raise ValidationFailed("Local close nonfinite JSON value rejected")
 
 
+# POSIX: O_NOFOLLOW/O_NONBLOCK kernel-level guards. Windows has neither flag (``os.O_NOFOLLOW``
+# raises AttributeError there), so links/reparse points are rejected by an explicit lstat check
+# before open and the bounded fstat identity re-check below still applies.
+_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_BINARY", 0)
+)
+_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _reject_link_or_reparse(path: Path) -> None:
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode) or (
+        int(getattr(info, "st_file_attributes", 0)) & int(_REPARSE_POINT)
+    ):
+        raise PolicyViolation("Local close JSON link or reparse point rejected")
+
+
 def _json_document(path: Path) -> _JSONDocument:
     # Read a single bounded regular-file buffer; no automatic repair or path writes.
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    _reject_link_or_reparse(path)
+    descriptor = os.open(path, _OPEN_FLAGS)
     with os.fdopen(descriptor, "rb") as stream:
         before = os.fstat(stream.fileno())
         if not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= 32768:
@@ -488,6 +527,183 @@ def local_close_tick(
         )
 
     _execute(ctx, "close-tick", action, mutating=True)
+
+
+def _native_client(
+    client: str, version: str | None, native_session_id: str | None, model: str | None
+) -> NativeClient:
+    return NativeClient(client, version, native_session_id, model)
+
+
+def _native_execute(action: Callable[[], dict[str, Any]]) -> None:
+    try:
+        Console().print_json(json.dumps(action(), allow_nan=False))
+    except NativeContinuityError as exc:
+        # Reason codes are static ASCII identifiers; caller input is never echoed.
+        Console(stderr=True).print_json(json.dumps({"error": exc.code, "reason": exc.reason}))
+        raise typer.Exit(70) from None
+    except (ZekamError, OSError, sqlite3.Error, ValueError, TypeError) as exc:
+        code = "policy-violation" if isinstance(exc, PolicyViolation) else "native-rejected"
+        Console(stderr=True).print_json(
+            json.dumps({"error": code, "message": "Native continuity input or state rejected"})
+        )
+        raise typer.Exit(70) from None
+
+
+_CLIENT_HELP = "Istemci adi (claude-code, codex, gemini, opencode ...); Zekam tahmin etmez"
+_HOME_HELP = "ZEKAM_HOME (varsayilan: ortam degiskeni/varsayilan kok)"
+
+
+@native_app.command("start")
+def native_start(
+    client: Annotated[str, typer.Option("--client", help=_CLIENT_HELP)],
+    project: Annotated[str, typer.Option("--project", help="Exact proje slug/id/alias")],
+    work_item: Annotated[str | None, typer.Option("--work-item")] = None,
+    client_version: Annotated[str | None, typer.Option("--client-version")] = None,
+    native_session_id: Annotated[
+        str | None,
+        typer.Option(
+            "--native-session-id", help="Istemcinin gercek session kimligi; yoksa uydurulmaz"
+        ),
+    ] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Native oturumu proje/Work baglariyla mevcut durable ledger'a kaydeder."""
+
+    _native_execute(
+        lambda: start_native_session(
+            resolve_home(home),
+            client=_native_client(client, client_version, native_session_id, model),
+            project_ref=project,
+            work_item_id=work_item,
+        )
+    )
+
+
+def _native_lifecycle(
+    action: Callable[..., dict[str, Any]],
+    *,
+    session_id: str,
+    client: str,
+    project: str,
+    work_item: str | None,
+    source_root: Path,
+    evidence_ref: list[str] | None,
+    completed: str | None,
+    pending: str | None,
+    next_safe_action: str | None,
+    client_version: str | None,
+    native_session_id: str | None,
+    model: str | None,
+    home: str | None,
+) -> None:
+    _native_execute(
+        lambda: action(
+            resolve_home(home),
+            session_id=session_id,
+            client=_native_client(client, client_version, native_session_id, model),
+            project_ref=project,
+            work_item_id=work_item,
+            source_root=source_root,
+            evidence_refs=tuple(evidence_ref or ()),
+            completed=completed,
+            pending=pending,
+            next_safe_action=next_safe_action,
+        )
+    )
+
+
+@native_app.command("checkpoint")
+def native_checkpoint(
+    session_id: Annotated[str, typer.Option("--session-id")],
+    client: Annotated[str, typer.Option("--client", help=_CLIENT_HELP)],
+    project: Annotated[str, typer.Option("--project")],
+    source_root: Annotated[Path, typer.Option("--source-root", help="Exact mutlak git koku")],
+    work_item: Annotated[str | None, typer.Option("--work-item")] = None,
+    evidence_ref: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--evidence-ref", help="object:sha256:<hex> veya unit-test:sha256:<request-digest>"
+        ),
+    ] = None,
+    completed: Annotated[str | None, typer.Option("--completed")] = None,
+    pending: Annotated[str | None, typer.Option("--pending")] = None,
+    next_safe_action: Annotated[str | None, typer.Option("--next-safe-action")] = None,
+    client_version: Annotated[str | None, typer.Option("--client-version")] = None,
+    native_session_id: Annotated[str | None, typer.Option("--native-session-id")] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Calisma/proje/Work bagi, kaynak revision, kanit referanslari ve beyanlari kaydeder."""
+
+    _native_lifecycle(
+        checkpoint_native_session,
+        session_id=session_id,
+        client=client,
+        project=project,
+        work_item=work_item,
+        source_root=source_root,
+        evidence_ref=evidence_ref,
+        completed=completed,
+        pending=pending,
+        next_safe_action=next_safe_action,
+        client_version=client_version,
+        native_session_id=native_session_id,
+        model=model,
+        home=home,
+    )
+
+
+@native_app.command("close")
+def native_close(
+    session_id: Annotated[str, typer.Option("--session-id")],
+    client: Annotated[str, typer.Option("--client", help=_CLIENT_HELP)],
+    project: Annotated[str, typer.Option("--project")],
+    source_root: Annotated[Path, typer.Option("--source-root", help="Exact mutlak git koku")],
+    work_item: Annotated[str | None, typer.Option("--work-item")] = None,
+    evidence_ref: Annotated[list[str] | None, typer.Option("--evidence-ref")] = None,
+    completed: Annotated[str | None, typer.Option("--completed")] = None,
+    pending: Annotated[str | None, typer.Option("--pending")] = None,
+    next_safe_action: Annotated[str | None, typer.Option("--next-safe-action")] = None,
+    client_version: Annotated[str | None, typer.Option("--client-version")] = None,
+    native_session_id: Annotated[str | None, typer.Option("--native-session-id")] = None,
+    model: Annotated[str | None, typer.Option("--model")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Son checkpoint'i yazip oturumu kapatir; Work'u kapatmaz, basari iddia etmez."""
+
+    _native_lifecycle(
+        close_native_session,
+        session_id=session_id,
+        client=client,
+        project=project,
+        work_item=work_item,
+        source_root=source_root,
+        evidence_ref=evidence_ref,
+        completed=completed,
+        pending=pending,
+        next_safe_action=next_safe_action,
+        client_version=client_version,
+        native_session_id=native_session_id,
+        model=model,
+        home=home,
+    )
+
+
+@native_app.command("resume")
+def native_resume(
+    source_root: Annotated[Path, typer.Option("--source-root", help="Exact mutlak git koku")],
+    session_id: Annotated[str | None, typer.Option("--session-id")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
+) -> None:
+    """Son native checkpoint'i baglar/revision/kanit acisindan yeniden dogrular (salt okunur)."""
+
+    _native_execute(
+        lambda: resume_native_checkpoint(
+            resolve_home(home), source_root=source_root, session_id=session_id
+        )
+    )
 
 
 @app.command("inspect")

@@ -12,7 +12,6 @@ from zekam.application.opencode_agent_bootstrap import (
     _AGENT_MODALITIES,
     _BASE_AGENT_TEMPLATES,
     _MODEL_AGENT_ROLES,
-    DEFAULT_AGENT,
     apply_opencode_agent_bootstrap,
     opencode_template_bundle,
     plan_opencode_agent_bootstrap,
@@ -74,18 +73,10 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     stored = json.loads(config.read_text(encoding="utf-8"))
-    assert stored["default_agent"] == DEFAULT_AGENT
+    assert "default_agent" not in stored
     assert stored["plugin"] == ["./plugins/zekam-lifecycle.js"]
     assert stored["provider"]["litellm"]["options"]["timeout"] == 60
-    assert stored["permission"] == {
-        "*": "allow",
-        "edit": "allow",
-        "bash": "allow",
-        "todowrite": "allow",
-        "webfetch": "allow",
-        "external_directory": {"*": "allow"},
-        "task": "allow",
-    }
+    assert stored["permission"] == {"edit": "ask"}
     agents = user_home / ".config" / "opencode" / "agents"
     installed = {item.name for item in agents.iterdir()}
     assert {
@@ -165,7 +156,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "session.error" in plugin.read_text(encoding="utf-8")
     assert '"--task-label"' not in plugin.read_text(encoding="utf-8")
     plugin_body = plugin.read_text(encoding="utf-8")
-    assert plugin_body.startswith("// zekam-managed-plugin/v2")
+    assert plugin_body.startswith("// zekam-managed-plugin/v3")
     assert "opencode-plugin-spool" in plugin_body
     assert '"experimental.session.compacting"' in plugin_body
     assert '"experimental.chat.system.transform"' in plugin_body
@@ -204,16 +195,11 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert not repeat.config_update_required
 
 
-def test_repository_managed_agents_never_prompt_for_shell() -> None:
-    agents = Path(__file__).parents[2] / ".opencode" / "agents"
-    paths = sorted(agents.glob("zekam-*.md"))
+def test_repository_has_no_project_local_managed_agents() -> None:
+    root = Path(__file__).parents[2]
 
-    assert len(paths) == 7
-    for path in paths:
-        frontmatter = path.read_text(encoding="utf-8").split("---", 2)[1]
-        parsed = yaml.safe_load(frontmatter)
-        assert isinstance(parsed, dict), path.name
-        assert parsed["permission"]["*"] == "allow", path.name
+    assert not (root / ".opencode" / "agents").exists()
+    assert (root / "docs" / "archive" / "opencode-agents" / "zekam-coordinator.md.txt").is_file()
 
 
 def test_every_generated_agent_template_allows_shell_without_prompt() -> None:
@@ -343,8 +329,9 @@ def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
     apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     body = plugin.read_text(encoding="utf-8")
-    assert body.startswith("// zekam-managed-plugin/v2")
+    assert body.startswith("// zekam-managed-plugin/v3")
     assert "opencode-plugin-spool" in body
+    assert body.index("isZekamWorkspace(directory)") < body.index("mkdir(quarantine")
 
 
 def test_unmanaged_plugin_that_looks_similar_is_preserved(tmp_path: Path) -> None:
@@ -387,18 +374,8 @@ def test_conflicting_owned_agent_fails_closed(tmp_path: Path) -> None:
         apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
 
-def test_repository_policy_allows_all_opencode_effects() -> None:
+def test_repository_manifest_keeps_exact_source_root_boundaries() -> None:
     root = Path(__file__).resolve().parents[2]
-    config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
-    permission = config["permission"]
-    assert permission["*"] == "allow"
-    assert permission["edit"] == "allow"
-    assert permission["external_directory"]["*"] == "allow"
-    assert permission["bash"] == "allow"
-    assert permission["todowrite"] == "allow"
-    assert permission["webfetch"] == "allow"
-    assert permission["task"] == "allow"
-
     manifest = (root / "PROJE_MANIFESTI.yaml").read_text(encoding="utf-8")
     assert "mutation_workspace: exact-bound-real-source-root" in manifest
     assert "project_copy_or_mirror: deny" in manifest
@@ -409,18 +386,10 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def test_repository_coordinator_copy_equals_canonical_template() -> None:
-    generated = opencode_template_bundle()["agents/zekam-coordinator.md"]
-    copy = (_repo_root() / ".opencode" / "agents" / "zekam-coordinator.md").read_text(
-        encoding="utf-8"
-    )
-    assert copy == generated
-
-
-def test_opencode_auto_instructions_exclude_superseded_prompt_but_keep_it_as_history() -> None:
+def test_opencode_project_config_imposes_no_coordinator_permissions_or_eager_instructions() -> None:
     root = _repo_root()
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
-    assert config["instructions"] == ["00_BASLA.md", "DEVAM_PROTOKOLU.md"]
+    assert set(config) == {"$schema"}
     assert (root / "NIHAI_UYGULAMA_PROMPTU.md").is_file()
     startup = (root / "00_BASLA.md").read_text(encoding="utf-8")
     assert "otomatik yüklenmez" in startup
@@ -430,23 +399,18 @@ def test_startup_entry_scopes_ceremony_and_keeps_hard_boundaries() -> None:
     root = _repo_root()
     startup = (root / "00_BASLA.md").read_text(encoding="utf-8")
     agents = (root / "AGENTS.md").read_text(encoding="utf-8")
-    # G01/G02/G03: sohbet ve yeterli citation icin tören yok; giris + scoped referans birlikte.
-    for text in (startup, agents):
-        assert "Selamlama" in text
-        assert "pinned citation" in text
-    assert ".opencode/agents/zekam-coordinator.md" in startup
-    # G06: kucuk yetkili degisiklikte tarihsel belgeler zorunlu degil.
+    assert "Selamlama" in startup and "Selamlama" in agents
+    assert "pinned citation" in startup
     assert "tarihsel belgeler zorunlu okuma" in startup
-    # G07: gercek subagent ve bagimsiz verifier korunur.
-    assert "gerçek subagent" in startup and "bağımsız verifier" in startup
-    assert "gerçek subagent" in agents and "bağımsız verifier" in agents
-    # Silinmemesi gereken sinirlar.
+    flat = " ".join(startup.split())
+    assert "bağımsız doğrulama" in flat and "bağımsız verifier" in agents
+    assert "gerçek subagent" not in startup and "zekam-coordinator" not in startup
     assert "exact gercek source rootunda" in startup
     assert "Push varsayılan olarak yasaktır" in startup
-    assert "DEVAM_PROTOKOLU.md" in startup and "DEVAM_PROTOKOLU.md" in agents
-    assert "Secret değerini prompt/log/artifact/vector içine alma" in agents
-    assert "Claim olmadan effect" in agents
-    assert "Test ve risk bazlı bağımsız verifier" in agents
+    assert "Push yalnız açık kullanıcı yetkisiyle" in agents
+    assert len(agents.splitlines()) < 60
+    for name in ("CLAUDE.md", "GEMINI.md"):
+        assert "@AGENTS.md" in (root / name).read_text(encoding="utf-8")
 
 
 def test_coordinator_keeps_scoped_routes_for_acceptance_g01_to_g11() -> None:

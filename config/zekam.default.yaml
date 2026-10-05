@@ -37,13 +37,17 @@ diagnostic_trace:
   export_allowed: false
   redaction_profile: strict-v1
 
-# Entegrasyon tercihi executable envanterinden ayridir. OpenCode varsayilandir;
-# Codex ve Claude Code yalniz acik kullanici secimiyle etkinlesir.
+# Entegrasyon tercihi executable envanterinden ayridir. Buradaki true degerleri yalniz
+# kullanici-geneli yonetilen Zekam girisini (instruction/hook/agent/MCP bootstrap) secer;
+# varsayilan hicbirini kurmaz. Native CLI Zekam kokunde proje-yerel girisi kendisi kesfeder.
+# Kullanici katmani `version: 2` tasimiyorsa true degerleri legacy sayilir ve global kurulum
+# uretmez; `zekam integration sync` bunu v2'ye uzlastirir. Burada `version` yazilmaz.
 cli:
   integrations:
-    opencode: true
+    opencode: false
     codex: false
     claude-code: false
+    gemini: false
 
 # Yerel istemciler yalniz ad ve mevcut absolute executable path metadata'si tasir.
 clients: []

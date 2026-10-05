@@ -49,12 +49,12 @@ def _require_regular_directory(path: Path, label: str) -> None:
         raise ConfigurationError(f"{label} regular directory olmali")
 
 
-_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v2
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v3
 import { tool } from "@opencode-ai/plugin"
 import { renameSync, unlinkSync, writeFileSync } from "node:fs"
-import { lstat, mkdir, readFile, readdir, rename, rm, unlink } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises"
 import { hostname } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 const pending = new Map()
 const hydratedSessions = new Set()
@@ -81,7 +81,34 @@ const portable = (value, directory) => {
   return relative.slice(0, 512)
 }
 
+const isZekamWorkspace = async (start) => {
+  let current
+  try {
+    current = await realpath(start)
+  } catch {
+    return false
+  }
+  for (let depth = 0; depth < 12; depth += 1) {
+    try {
+      const context = JSON.parse(
+        await readFile(join(current, ".ai", "repository-context.json"), "utf8"),
+      )
+      await lstat(join(current, "PROJE_MANIFESTI.yaml"))
+      return context?.project === "zekam" &&
+        String(context?.schema ?? "").startsWith("zekam-repository-context/")
+    } catch (error) {
+      if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) return false
+    }
+    const parent = dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
+  return false
+}
+
 export const ZekamLifecycle = async ({ directory }) => {
+  // Zekam calisma alani disinda hicbir dizin, spool veya subprocess etkisi uretme.
+  if (!(await isZekamWorkspace(directory))) return {}
   const userHome = Bun.env.USERPROFILE ?? Bun.env.HOME ?? directory
   const home = Bun.env.ZEKAM_HOME ?? join(userHome, ".zekam")
   const zekamCommand = process.platform === "win32" ? "zekam.exe" : "zekam"
@@ -327,7 +354,8 @@ export const ZekamLifecycle = async ({ directory }) => {
     try {
       queued = enqueueSync(["opencode", "pre-compact", "--session", session])
     } catch {
-      throw new Error("Zekam canonical pre-compact checkpoint ACK failed")
+      console.warn("Zekam pre-compact ACK yazilamadi; native compaction bloklanmadi")
+      return
     }
     try {
       const process = Bun.spawn(
@@ -727,6 +755,29 @@ _AGENT_MODALITIES = frozenset(
 )
 
 
+# Onceki surumlerin exact digest'leri: yalniz mevcut kurulumlari sahiplik kaniti ile
+# temizlemek icin.
+LEGACY_LIFECYCLE_PLUGIN_DIGESTS = frozenset(
+    (
+        "sha256:a0405df40baf6a6308902ff813803906d565de791799b59cc4c5002f7d546837",
+        "sha256:9a19794a0bad1a1f5ca8afe6f6c275a4bdc5f8ed954b6317b7b408f24867010f",
+        "sha256:d9b447b0abbe549a378f4360354f09b004b5455e183695dcb6df7a5ac0368c7c",
+        "sha256:8e664b7616c967a11dc5ccbcd53567daecd96b0d0c52c41c2696dbf44dacd063",
+        "sha256:113679a7df42958c24c1abcac4d44924c9deb97b466a4558dfe8e888eef9a90c",
+        "sha256:3fd4e6c4177b82f6ddb51d3534624a66c9c2775550d6a5ce4f633c6454793990",
+        "sha256:9a1ab03cf2537f3dc92384eac21d990dd62bbc11bee8c842069f2b662071b37d",
+    )
+)
+
+
+def is_known_lifecycle_plugin(payload: bytes) -> bool:
+    """Yalniz bilinen veya mevcut Zekam plugin govdesini sahiplik kaniti sayar."""
+
+    return payload == _LIFECYCLE_PLUGIN.encode() or (
+        digest_of_bytes(payload) in LEGACY_LIFECYCLE_PLUGIN_DIGESTS
+    )
+
+
 def _model_bound_agent_templates() -> dict[str, str]:
     """Reviewed OpenCode hedeflerini gercek agent model alanina baglar."""
 
@@ -903,29 +954,8 @@ def plan_opencode_agent_bootstrap(
     plugin_config_missing = _LIFECYCLE_PLUGIN_SPEC not in plugins
     if plugin_config_missing:
         plugins.append(_LIFECYCLE_PLUGIN_SPEC)
-    configured_permission = updated.get("permission", {})
-    if not isinstance(configured_permission, Mapping):
-        raise ConfigurationError("OpenCode permission config nesnesi gecersiz")
-    permission = dict(configured_permission)
-    permission.update(
-        {
-            "*": "allow",
-            "edit": "allow",
-            "bash": "allow",
-            "todowrite": "allow",
-            "webfetch": "allow",
-            "external_directory": {"*": "allow"},
-            "task": "allow",
-        }
-    )
-    config_update_required = (
-        updated.get("default_agent") != DEFAULT_AGENT
-        or plugin_config_missing
-        or permission != configured_permission
-    )
-    updated["default_agent"] = DEFAULT_AGENT
+    config_update_required = plugin_config_missing
     updated["plugin"] = plugins
-    updated["permission"] = permission
 
     create: list[str] = []
     update: list[str] = []

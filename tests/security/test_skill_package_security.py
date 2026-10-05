@@ -146,7 +146,7 @@ def test_managed_client_projection_is_shared_scoped_and_drift_safe(tmp_path: Pat
         apply_projection_plan(drifted, authorized_plan_digest=drifted.plan_digest)
 
 
-def test_default_projection_is_opencode_only(tmp_path: Path) -> None:
+def test_default_projection_uses_shared_agents_and_claude_roots_only(tmp_path: Path) -> None:
     project = (tmp_path / "project").resolve()
     project.mkdir()
     package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
@@ -154,11 +154,13 @@ def test_default_projection_is_opencode_only(tmp_path: Path) -> None:
     plan = build_projection_plan(project, package)
 
     states = {str(item["client"]): str(item["state"]) for item in plan.targets}
-    assert states == {"opencode": "new", "codex": "absent", "claude-code": "absent"}
+    # OpenCode ve Gemini `.agents`/`.claude` dizinlerini kendisi tarar; ayri kopya uretilmez.
+    assert states == {"opencode": "absent", "codex": "new", "claude-code": "new"}
     apply_projection_plan(plan, authorized_plan_digest=plan.plan_digest)
-    assert (project / ".opencode" / "skills" / package.name).is_dir()
-    assert not (project / ".agents").exists()
-    assert not (project / ".claude").exists()
+    assert (project / ".agents" / "skills" / package.name).is_dir()
+    assert (project / ".claude" / "skills" / package.name).is_dir()
+    assert not (project / ".opencode").exists()
+    assert not (project / ".gemini").exists()
 
 
 def test_cross_client_projection_single_canonical_revision_and_no_authority(
@@ -194,20 +196,20 @@ def test_cross_client_projection_single_canonical_revision_and_no_authority(
     assert plan.body["network_calls"] == 0
 
 
-def test_cross_client_managed_default_and_opt_in_policy_preserved(tmp_path: Path) -> None:
+def test_cross_client_projection_defaults_shared_and_opt_in_adds_client_dir(
+    tmp_path: Path,
+) -> None:
     project = (tmp_path / "project").resolve()
     project.mkdir()
     package = SkillPackage.parse("zekam-arastirma-uygulama", _files())
 
-    # OpenCode is the default managed projection; Codex/Claude are opt-in.
     default = build_projection_plan(project, package)
-    assert default.targets[0]["client"] == "opencode"
-    assert default.targets[0]["enabled"] is True
-    assert default.targets[0]["state"] == "new"
-    assert default.targets[1]["enabled"] is False  # codex opt-in
-    assert default.targets[2]["enabled"] is False  # claude opt-in
+    by_client = {str(target["client"]): target for target in default.targets}
+    assert by_client["opencode"]["enabled"] is False
+    assert by_client["codex"]["enabled"] is True and by_client["codex"]["state"] == "new"
+    assert by_client["claude-code"]["enabled"] is True
 
-    # opt-in policy enables all three, keeping a single canonical revision.
+    # Yalniz acik v2 global opt-in, istemciye ozgu `.opencode` kopyasini da ekler.
     opt_in = build_projection_plan(project, package, policy=ALL_ENABLED)
     assert all(target["enabled"] for target in opt_in.targets)
     assert len({target["artifact_digest"] for target in opt_in.targets}) == 1

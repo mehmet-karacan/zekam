@@ -117,6 +117,7 @@ Context bütçesi dolduğunda:
 
 ## Çapraz istemci uyumu
 
-`AGENTS.md`, opt-in `config/client-templates/claude-code/CLAUDE.md`, `.opencode/` ve
-`.ai/repository-context.json` aynı kurala yönlenir.
-Hiçbiri ayrı ürün politikası tanımlamaz.
+`AGENTS.md` ortak ince girişdir; proje-yerel `CLAUDE.md` ve `GEMINI.md` yalnız ona
+yönlenen uyumluluk dosyalarıdır. `opencode.json` ve `.ai/repository-context.json` aynı kurala
+bağlanır. Hiçbiri ayrı ürün politikası tanımlamaz ve host'un model, araç, MCP, skill veya
+alt ajan seçimini zorlamaz.

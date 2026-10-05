@@ -8,6 +8,7 @@ raporlanir (yukleme gozlenmedi). Istemcinin gizli system prompt'u ve tool serial
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -26,12 +27,26 @@ _GLOBAL_FILES = {
     ClientIntegrationId.CODEX: Path(".codex") / "AGENTS.md",
     ClientIntegrationId.CLAUDE_CODE: Path(".claude") / "CLAUDE.md",
     ClientIntegrationId.OPENCODE: Path(".config") / "opencode" / "AGENTS.md",
+    ClientIntegrationId.GEMINI: Path(".gemini") / "GEMINI.md",
 }
 _PROJECT_FILES = {
     ClientIntegrationId.CODEX: "AGENTS.md",
     ClientIntegrationId.CLAUDE_CODE: "CLAUDE.md",
     ClientIntegrationId.OPENCODE: "AGENTS.md",
+    ClientIntegrationId.GEMINI: "GEMINI.md",
 }
+# Resmi belgelerde her istemcinin proje-yerel skill'i taradigi dizinler (kesif gozlenmedi).
+_PROJECT_SKILL_DIRS = {
+    ClientIntegrationId.CODEX: (Path(".agents") / "skills",),
+    ClientIntegrationId.CLAUDE_CODE: (Path(".claude") / "skills",),
+    ClientIntegrationId.OPENCODE: (
+        Path(".agents") / "skills",
+        Path(".claude") / "skills",
+        Path(".opencode") / "skills",
+    ),
+    ClientIntegrationId.GEMINI: (Path(".agents") / "skills", Path(".gemini") / "skills"),
+}
+_MAX_SKILLS = 256
 _IMPORT = re.compile(r"(?m)^@(?P<target>[^\s`]+)\s*$")
 _FENCE = re.compile(r"(?s)```.*?```")
 
@@ -101,6 +116,96 @@ def _collect_imports(
         )
 
 
+def _skill_metadata(path: Path, root: Path) -> bytes | None:
+    """SKILL.md on yazisi (frontmatter); govde ve referanslar yalniz aktivasyonda yuklenir."""
+
+    data = _read_bounded(path, root)
+    if data is None:
+        return None
+    text = data.decode("utf-8", errors="replace")
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end < 0:
+        return None
+    return text[: end + 4].encode("utf-8")
+
+
+def _skill_entries(
+    *, client: ClientIntegrationId, project_root: Path, role: str | None, route: str | None
+) -> list[EffectiveLoadEntry]:
+    entries: list[EffectiveLoadEntry] = []
+    for relative in _PROJECT_SKILL_DIRS[client]:
+        base = project_root / relative
+        try:
+            if base.is_symlink() or not base.is_dir():
+                continue
+            children = sorted(base.iterdir(), key=lambda item: item.name.casefold())[:_MAX_SKILLS]
+        except OSError:
+            continue
+        for child in children:
+            metadata = _skill_metadata(child / "SKILL.md", project_root)
+            if metadata is None:
+                continue
+            entries.append(
+                measured_instruction_entry(
+                    source_kind=InstructionSourceKind.SKILL,
+                    logical_ref=f"project/{relative.as_posix()}/{child.name}",
+                    data=metadata,
+                    load_reason="skill-metadata-discovery",
+                    role=role,
+                    route=route,
+                )
+            )
+    return entries
+
+
+def duplicate_skill_discovery(report: EffectiveContextReport) -> dict[str, tuple[str, ...]]:
+    """Ayni skill adinin birden fazla kesif dizininde bulundugu durumlar (A21 tanisi)."""
+
+    by_name: dict[str, list[str]] = {}
+    for entry in report.entries:
+        if entry.source_kind != InstructionSourceKind.SKILL.value:
+            continue
+        by_name.setdefault(entry.logical_ref.rsplit("/", 1)[-1], []).append(entry.logical_ref)
+    return {name: tuple(refs) for name, refs in by_name.items() if len(refs) > 1}
+
+
+def _config_instruction_entries(
+    *, project_root: Path, role: str | None, route: str | None
+) -> list[EffectiveLoadEntry]:
+    """OpenCode `opencode.json` `instructions` listesi; AGENTS.md ile ayni metin tekrar yuklenir."""
+
+    raw = _read_bounded(project_root / "opencode.json", project_root)
+    if raw is None:
+        return []
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    configured = document.get("instructions") if isinstance(document, dict) else None
+    if not isinstance(configured, list):
+        return []
+    entries: list[EffectiveLoadEntry] = []
+    for item in configured:
+        if not isinstance(item, str):
+            continue
+        data = _read_bounded((project_root / item).resolve(strict=False), project_root)
+        if data is None:
+            continue
+        entries.append(
+            measured_instruction_entry(
+                source_kind=InstructionSourceKind.INSTRUCTION_IMPORT,
+                logical_ref=f"project/{item}",
+                data=data,
+                load_reason="client-config-instruction",
+                role=role,
+                route=route,
+            )
+        )
+    return entries
+
+
 def measure_instruction_load(
     *,
     user_home: Path,
@@ -157,6 +262,14 @@ def measure_instruction_load(
             seen=seen,
             depth=1,
             entries=entries,
+        )
+    if project_root is not None:
+        if client is ClientIntegrationId.OPENCODE:
+            entries.extend(
+                _config_instruction_entries(project_root=project_root, role=role, route=route)
+            )
+        entries.extend(
+            _skill_entries(client=client, project_root=project_root, role=role, route=route)
         )
     entries.append(
         unobservable_entry(

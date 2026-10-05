@@ -17,7 +17,8 @@ def test_registered_local_client_reaches_doctor(tmp_path: Path) -> None:
     executable = tmp_path / "opencode.exe"
     executable.write_bytes(b"MZ")
     (tmp_path / USER_CONFIG_FILE).write_text(
-        f"schema: {CONFIG_SCHEMA}\nclients:\n  - name: opencode\n    executable: '{executable}'\n",
+        f"schema: {CONFIG_SCHEMA}\ncli:\n  integrations:\n    version: 2\n    opencode: true\n"
+        f"clients:\n  - name: opencode\n    executable: '{executable}'\n",
         encoding="utf-8",
     )
 
@@ -33,13 +34,13 @@ def test_registered_local_client_reaches_doctor(tmp_path: Path) -> None:
     # `installed`, PATH'te bulunan istemcilere baglidir (makineye ozgu); sabit degildir.
     installed = evidence.pop("installed")
     assert "opencode" in installed
-    assert set(installed) <= {"claude-code", "codex", "opencode"}
+    assert set(installed) <= {"claude-code", "codex", "gemini", "opencode"}
     assert evidence == {
         "configured": 1,
-        "clients": ["claude-code", "codex", "opencode"],
-        "supported": ["claude-code", "codex", "opencode"],
+        "clients": ["claude-code", "codex", "gemini", "opencode"],
+        "supported": ["claude-code", "codex", "gemini", "opencode"],
         "enabled": ["opencode"],
-        "disabled": ["claude-code", "codex"],
+        "disabled": ["claude-code", "codex", "gemini"],
         "missing": [],
         "healthy": ["opencode"],
     }

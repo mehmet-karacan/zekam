@@ -35,6 +35,45 @@ class Capability:
 
 CAPABILITIES: tuple[Capability, ...] = (
     Capability(
+        "native-cli-workspace-entry",
+        "Thin project-local entry for OpenCode, Codex, Claude Code and Gemini CLI "
+        "without global installation",
+        "partial",
+        (
+            "AGENTS.md",
+            "CLAUDE.md (@AGENTS.md)",
+            "GEMINI.md (@AGENTS.md)",
+            "integration status/sync (legacy global cleanup plan)",
+        ),
+        (),
+        (
+            "tests/integration/test_native_cli_migration.py",
+            "tests/unit/test_config.py",
+            "tests/unit/test_opencode_agent_bootstrap.py",
+        ),
+        "Source implementation and fixture-home migration are tested; real per-client "
+        "acceptance (A01-A21, A31-A32) has not been run, the real user-home cleanup plan "
+        "awaits separate exact authorization, and no CLI/model is qualified.",
+    ),
+    Capability(
+        "native-helper-path",
+        "Client-independent unit-test measurement and local continuity for native sessions",
+        "partial",
+        (
+            "test measure",
+            "test evidence",
+            "continuity native start/checkpoint/close/resume",
+        ),
+        (),
+        (
+            "tests/integration/test_native_unit_test_helper.py",
+            "tests/integration/test_native_unit_test_cli.py",
+            "tests/integration/test_native_continuity.py",
+        ),
+        "Measurement requires the explicit --authorize --build flags; target-met never closes "
+        "a Work Item. Checkpoint narrative fields are client-declared and stay unverified.",
+    ),
+    Capability(
         "project-rag",
         "Project-scoped hybrid RAG and verified citations",
         "ready",
@@ -181,7 +220,9 @@ CAPABILITIES: tuple[Capability, ...] = (
             "tests/unit/test_unit_test_ledger_sqlite.py",
             "tests/integration/test_real_maven_unit_test_fixture.py",
         ),
-        "Live model qualification remains explicitly gated; Maven fixture execution is verified on Windows.",
+        "Automatic OpenCode batch (test run) is an explicit opt-in path and is separate "
+        "from the native helper (test measure/evidence). Live model qualification remains "
+        "explicitly gated; Maven fixture execution is verified on Windows.",
     ),
     Capability(
         "semantic-memory",

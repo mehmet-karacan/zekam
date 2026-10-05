@@ -311,7 +311,7 @@ def _parse_clients(
         executable = row["executable"]
         if not isinstance(name, str) or not isinstance(executable, str) or not executable:
             raise ConfigurationError("Client name ve executable metin olmali")
-        require_present = name in policy.body() and policy.enabled(name)
+        require_present = name in policy.clients() and policy.enabled(name)
         client = ClientSettings(
             name=name,
             executable=Path(executable),

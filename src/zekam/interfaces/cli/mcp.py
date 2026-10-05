@@ -23,7 +23,7 @@ from zekam.application.mcp_integrations import (
     registry_status,
     sync_receipt,
 )
-from zekam.domain.client_integration import ClientIntegrationId
+from zekam.domain.client_integration import LEGACY_CLIENT_INTEGRATIONS, ClientIntegrationId
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.mcp_integration import McpServerRegistration, McpTransport
 from zekam.interfaces.cli.session import HOME_HELP
@@ -52,7 +52,7 @@ def _registration(
 ) -> McpServerRegistration:
     selected = tuple(
         ClientIntegrationId(item)
-        for item in (clients or [item.value for item in ClientIntegrationId])
+        for item in (clients or [item.value for item in LEGACY_CLIENT_INTEGRATIONS])
     )
     if url is not None:
         if command is not None or arguments:

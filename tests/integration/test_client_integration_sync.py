@@ -263,7 +263,7 @@ def test_user_opencode_disable_quarantines_exact_artifacts_and_rolls_back(
     assert rolled_back["state"] == "rolled-back-and-read-back"
     assert config.read_bytes() == before
     assert (native / ".config" / "opencode" / "plugins" / "zekam-lifecycle.js").is_file()
-    assert build_context(home=context.home, environ={}).settings.cli.integrations.opencode is True
+    assert build_context(home=context.home, environ={}).settings.cli.integrations.opencode is False
     replay = build_rollback_plan(
         build_context(home=context.home, environ={}),
         receipt_id=str(receipt["receipt_id"]),
@@ -272,13 +272,19 @@ def test_user_opencode_disable_quarantines_exact_artifacts_and_rolls_back(
     assert apply_rollback_plan(replay, authorized_plan_digest=replay.plan_digest) == rolled_back
 
 
-def test_project_legacy_shared_projection_requires_replacement_then_quarantines(
+def test_project_default_keeps_shared_projection_and_quarantines_opencode_copy(
     tmp_path: Path,
 ) -> None:
     context = _context(tmp_path)
     native = _native_home(tmp_path)
     project = tmp_path / "project"
     project.mkdir()
+    (project / ".ai").mkdir()
+    (project / ".ai" / "repository-context.json").write_text(
+        json.dumps({"schema": "zekam-repository-context/v2", "project": "zekam"}),
+        encoding="utf-8",
+    )
+    (project / "PROJE_MANIFESTI.yaml").write_text("project:\n  slug: zekam\n", encoding="utf-8")
     package = _skill()
     _trust_package(context, package, project)
     initial = build_projection_plan(
@@ -301,11 +307,12 @@ def test_project_legacy_shared_projection_requires_replacement_then_quarantines(
         project_root=project,
     )
     assert plan.conflicts == ()
-    assert {item["client"] for item in plan.operations} == {"codex", "claude-code"}
+    # OpenCode `.agents` ve `.claude` dizinlerini tarar; yalniz ayri `.opencode` kopyasi temizlenir.
+    assert {item["client"] for item in plan.operations} == {"opencode"}
     receipt = apply_sync_plan(plan, authorized_plan_digest=plan.plan_digest)
-    assert (project / ".opencode" / "skills" / package.name).is_dir()
-    assert not (project / ".agents" / "skills" / package.name).exists()
-    assert not (project / ".claude" / "skills" / package.name).exists()
+    assert not (project / ".opencode" / "skills" / package.name).exists()
+    assert (project / ".agents" / "skills" / package.name).is_dir()
+    assert (project / ".claude" / "skills" / package.name).is_dir()
 
     rollback = build_rollback_plan(
         context,
@@ -314,8 +321,33 @@ def test_project_legacy_shared_projection_requires_replacement_then_quarantines(
         project_root=project,
     )
     apply_rollback_plan(rollback, authorized_plan_digest=rollback.plan_digest)
-    assert (project / ".agents" / "skills" / package.name).is_dir()
-    assert (project / ".claude" / "skills" / package.name).is_dir()
+    assert (project / ".opencode" / "skills" / package.name).is_dir()
+
+
+def test_foreign_project_skill_projections_are_cleanup_residue(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+    native = _native_home(tmp_path)
+    project = tmp_path / "other-project"
+    project.mkdir()
+    package = _skill()
+    _trust_package(context, package, project)
+    initial = build_projection_plan(
+        project,
+        package,
+        policy=ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True),
+    )
+    apply_projection_plan(initial, authorized_plan_digest=initial.plan_digest)
+
+    plan = build_sync_plan(
+        context,
+        scope="project",
+        native_user_root=native,
+        project_root=project,
+    )
+
+    # Zekam calisma alani olmayan projede Zekam-managed projection temizlik kalintisidir.
+    assert plan.conflicts == ()
+    assert {item["client"] for item in plan.operations} == {"opencode", "codex", "claude-code"}
 
 
 def test_drifted_native_artifact_is_conflict_and_dry_run_is_read_only(tmp_path: Path) -> None:

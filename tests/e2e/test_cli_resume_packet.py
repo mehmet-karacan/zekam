@@ -17,6 +17,10 @@ def test_resume_packet_combines_work_checkpoint_projects_and_capabilities(tmp_pa
 
     initialized = runner.invoke(app, ["init", "--home", str(home)])
     assert initialized.exit_code == 0, initialized.output
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
     added = runner.invoke(
         app,
         ["project", "add", str(source), "--slug", "demo", "--uygula", "--home", str(home)],
@@ -105,7 +109,7 @@ def test_capabilities_expose_ready_partial_and_scaffold_without_claiming_authori
     assert result.exit_code == 0, result.output
     document = json.loads(result.output)
     assert document["schema"] == "zekam-capability-inventory/v1"
-    assert document["counts"] == {"ready": 7, "partial": 7, "scaffold": 1}
+    assert document["counts"] == {"ready": 7, "partial": 9, "scaffold": 1}
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert all(item["verified_by"] for item in document["capabilities"])
@@ -123,6 +127,10 @@ def test_resume_packet_exposes_navigation_fields_sourced_from_canonical_refs(
     source.mkdir()
 
     init = runner.invoke(app, ["init", "--home", str(home)])
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
     assert init.exit_code == 0, init.output
     added = runner.invoke(
         app,

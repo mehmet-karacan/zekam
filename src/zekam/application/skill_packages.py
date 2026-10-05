@@ -183,7 +183,7 @@ def build_projection_plan(
     targets: list[dict[str, object]] = []
     for relative, clients, client in _target_specs(package):
         support = "instruction-distribution-only"
-        enabled = policy.enabled(client)
+        enabled = policy.projection_enabled(client)
         target = project_root / relative
         _assert_contained(project_root, target)
         ownership = target / ".zekam-managed.json"

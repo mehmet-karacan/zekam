@@ -30,7 +30,11 @@ from zekam.application.client_instruction_bootstrap import (
 )
 from zekam.application.composition import ApplicationContext
 from zekam.application.config import USER_CONFIG_FILE, load_config_document
-from zekam.application.opencode_agent_bootstrap import DEFAULT_AGENT, opencode_template_bundle
+from zekam.application.opencode_agent_bootstrap import (
+    DEFAULT_AGENT,
+    is_known_lifecycle_plugin,
+    opencode_template_bundle,
+)
 from zekam.application.skill_packages import projected_artifact_digest
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.client_integration import (
@@ -53,15 +57,28 @@ _USER_SKILL_ROOTS = {
 }
 _OPENCODE_CONFIG = Path(".config") / "opencode" / "opencode.json"
 _OPENCODE_PLUGIN_REF = "./plugins/zekam-lifecycle.js"
+# Eski `opencode install` bu blogu permission'a yaziyordu; yalniz BIREBIR esit blok sahiplik
+# kaniti sayilir. Kullanici alanli/farkli bloklar dokunulmadan birakilir.
+_LEGACY_PERMISSION_OVERRIDE = {
+    "*": "allow",
+    "edit": "allow",
+    "bash": "allow",
+    "todowrite": "allow",
+    "webfetch": "allow",
+    "external_directory": {"*": "allow"},
+    "task": "allow",
+}
 _KNOWN_CLIENTS = {
     ClientIntegrationId.OPENCODE: ("opencode",),
     ClientIntegrationId.CODEX: ("codex",),
     ClientIntegrationId.CLAUDE_CODE: ("claude-code",),
+    ClientIntegrationId.GEMINI: ("gemini",),
 }
 _EXECUTABLE_COMMANDS = {
     ClientIntegrationId.OPENCODE: "opencode",
     ClientIntegrationId.CODEX: "codex",
     ClientIntegrationId.CLAUDE_CODE: "claude",
+    ClientIntegrationId.GEMINI: "gemini",
 }
 _SECRET_ASSIGNMENT = re.compile(
     rb"(?i)(?:password|passwd|secret|token|api[-_ ]?key|apikey|private[-_ ]?key)"
@@ -453,6 +470,10 @@ def _render_opencode_cleanup(config_path: Path, operation: dict[str, Any]) -> by
             document["plugin"] = remaining
         else:
             document.pop("plugin")
+    if operation.get("remove_legacy_permission"):
+        if document.get("permission") != _LEGACY_PERMISSION_OVERRIDE:
+            raise PolicyViolation("OpenCode legacy permission override drift")
+        document.pop("permission")
     if operation.get("remove_default_agent"):
         if document.get("default_agent") != DEFAULT_AGENT:
             raise PolicyViolation("OpenCode managed default agent drift")
@@ -523,6 +544,28 @@ def _assert_quarantine_destination(root: Path, destination: Path) -> None:
         if not _real_directory(current):
             raise PolicyViolation("CLI integration quarantine parent identity invalid")
         current = current.parent
+
+
+def _is_zekam_workspace(project_root: Path) -> bool:
+    """Zekam kendi calisma alani: projection hedefleri varsayilan olarak korunur."""
+
+    try:
+        context = json.loads(
+            (project_root / ".ai" / "repository-context.json").read_text(encoding="utf-8")
+        )
+        manifest = (project_root / "PROJE_MANIFESTI.yaml").is_file()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return (
+        manifest
+        and isinstance(context, dict)
+        and context.get("project") == "zekam"
+        and str(context.get("schema", "")).startswith("zekam-repository-context/")
+    )
+
+
+def _projection_gate(policy: ClientIntegrationPolicy, project_root: Path) -> Any:
+    return policy.projection_enabled if _is_zekam_workspace(project_root) else policy.enabled
 
 
 def _managed_skill(
@@ -699,7 +742,7 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
         else:
             payload = plugin.read_bytes()
             actual = digest_of_bytes(payload)
-            plugin_exact = payload == bundle["plugins/zekam-lifecycle.js"].encode()
+            plugin_exact = is_known_lifecycle_plugin(payload)
             plugin_conflict = None if plugin_exact else "plugin-content-unowned-or-drifted"
         rows.append(
             {
@@ -742,7 +785,8 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
                 plugins = document.get("plugin", [])
                 plugin_ref = isinstance(plugins, list) and _OPENCODE_PLUGIN_REF in plugins
                 default_ref = document.get("default_agent") == DEFAULT_AGENT
-                if plugin_ref or default_ref:
+                permission_ref = document.get("permission") == _LEGACY_PERMISSION_OVERRIDE
+                if plugin_ref or default_ref or permission_ref:
                     config_conflict: str | None = None
                     if _contains_secret_assignment(config):
                         config_conflict = "secret-bearing-native-config-preserved"
@@ -758,6 +802,7 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
                             "artifact_digest": _file_digest(config),
                             "remove_plugin_reference": plugin_ref,
                             "remove_default_agent": default_ref,
+                            "remove_legacy_permission": permission_ref,
                             "conflict": config_conflict,
                         }
                     )
@@ -902,6 +947,7 @@ def integration_status(
             "instruction-projection",
             "reviewed-lifecycle-hook",
         ),
+        ClientIntegrationId.GEMINI: ("project-local-entry",),
     }
     states: list[ClientIntegrationState] = []
     for client in ClientIntegrationId:
@@ -1292,6 +1338,7 @@ def build_sync_plan(
                     "before_digest": artifact,
                     "remove_plugin_reference": bool(row.get("remove_plugin_reference")),
                     "remove_default_agent": bool(row.get("remove_default_agent")),
+                    "remove_legacy_permission": bool(row.get("remove_legacy_permission")),
                     "ownership_proof": "exact-linked-managed-artifact-and-reference",
                 }
                 rendered = _render_opencode_cleanup(
@@ -1368,7 +1415,7 @@ def build_sync_plan(
                 )
                 continue
             client = ClientIntegrationId(str(row["client"]))
-            if after.enabled(client):
+            if _projection_gate(after, project_root)(client):
                 continue
             if client is ClientIntegrationId.CODEX and "opencode" in row["marker_clients"]:
                 replacement = (
@@ -1419,7 +1466,9 @@ def build_sync_plan(
                 row
                 for row in rows
                 if row["conflict"] is not None
-                or not after.enabled(ClientIntegrationId(str(row["client"])))
+                or not _projection_gate(after, registered_root)(
+                    ClientIntegrationId(str(row["client"]))
+                )
             ]
             if not relevant:
                 continue
@@ -1492,13 +1541,13 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
         project_root=plan.project_root,
         enable=tuple(
             key
-            for key, value in plan.after_policy.body().items()
-            if value and not plan.before_policy.body()[key]
+            for key, value in plan.after_policy.clients().items()
+            if value and not plan.before_policy.clients()[key]
         ),
         disable=tuple(
             key
-            for key, value in plan.after_policy.body().items()
-            if not value and plan.before_policy.body()[key]
+            for key, value in plan.after_policy.clients().items()
+            if not value and plan.before_policy.clients()[key]
         ),
         registered_projects=plan.registered_projects,
     )

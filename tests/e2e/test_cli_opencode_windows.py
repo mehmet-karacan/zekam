@@ -14,6 +14,11 @@ from zekam.interfaces.cli.main import app
 def test_opencode_plugin_event_and_precompact_have_durable_local_ack(tmp_path: Path) -> None:
     runner = CliRunner()
     home = tmp_path / ".zekam"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
 
     event = runner.invoke(
         app,
@@ -142,6 +147,10 @@ def test_opencode_install_supports_read_only_plan_and_explicit_apply(
     zekam_home = tmp_path / "zekam-home"
     initialized = runner.invoke(app, ["init", "--home", str(zekam_home)])
     assert initialized.exit_code == 0, initialized.output
+    (zekam_home / "config.yaml").write_text(
+        "schema: zekam-config/v1\ncli:\n  integrations:\n    version: 2\n    opencode: true\n",
+        encoding="utf-8",
+    )
 
     planned = runner.invoke(app, ["opencode", "install", "--home", str(zekam_home)])
     assert planned.exit_code == 0, planned.output

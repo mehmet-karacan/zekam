@@ -68,17 +68,19 @@ Bu paket komutların implementasyonunu tarif eder; paket tek başına henüz exe
 
 ## C.1. CLI entegrasyonu
 
-Yeni kurulumda yalnız OpenCode entegrasyonu etkindir. Codex veya Claude Code executable'ının
-kurulu ya da `clients` listesinde kayıtlı olması opt-in değildir. Kalıcı seçim örneği:
+Yeni kurulumda hiçbir istemci için kullanıcı-geneli Zekam girişi kurulmaz
+(`cli.integrations` v2, hepsi `false`). Native CLI Zekam kökünde proje-yerel `AGENTS.md`
+girişini kendisi keşfeder. Eski sürümsüz `cli.integrations` değerleri global kurulum
+üretmez; sahipliği ispatlı eski global parçaların temizliği önce planlanır:
 
 ```bash
-zekam integration sync --scope user --enable codex --json
-zekam integration sync --scope user --enable codex --plan-digest <digest> --uygula --json
+zekam integration sync --scope user --json
+zekam integration sync --scope user --plan-digest <digest> --uygula --json
 ```
 
 İkinci komutta yalnız ilk komutun gösterdiği exact digest kullanılabilir. Ardından bağlı proje
-projection'ı ayrı planlanır. User-scope opt-in exact yönetilen instruction ve reviewed hook
-parçalarını üretir. Kapatılan istemcinin yalnız Zekam tarafından yönetildiği digest ile
+projection'ı ayrı planlanır. Açık v2 user-scope opt-in exact yönetilen instruction ve reviewed
+hook parçalarını üretir. Kapatılan istemcinin yalnız Zekam tarafından yönetildiği digest ile
 doğrulanmış artifact'ları karantinaya alınır veya paylaşılan config içinden exact parça ayrılır;
 kullanıcı CLI programı ve ayarları silinmez. Conflict varsa apply fail-closed kalır. Geri alma
 için apply receipt kimliğiyle önce

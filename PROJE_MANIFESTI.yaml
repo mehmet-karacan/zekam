@@ -41,7 +41,8 @@ architecture:
   - ops
 subagents:
   deterministic_operations_minimum: 0
-  agentic_operations_minimum: 1
+  agentic_operations_minimum: 0
+  interactive_native_requires_subagent: false
   coordinator_counts_as_subagent: false
   fixed_global_maximum: null
   parallelism: computed-per-run
@@ -148,7 +149,8 @@ commit_policy:
   title_format: '<tur>: <kisa emir cumlesi>'
   push_default: deny
 entrypoints:
-  first_read: 00_BASLA.md
+  first_read: AGENTS.md
+  work_protocol: 00_BASLA.md
   main_task: AKTIF_GOREV.md
   continuation: DEVAM_PROTOKOLU.md
   work_graph: kalite/UYGULAMA_IS_GRAFIGI.yaml
