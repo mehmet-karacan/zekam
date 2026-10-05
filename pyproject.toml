@@ -104,7 +104,15 @@ target-version = "py312"
 src = ["src", "tests"]
 # Paket dogrulayicinin icerigi SHA256SUMS.txt ile sabitlenmistir; bicimlendirme
 # degisikligi teslim checksum'ini bozar.
-extend-exclude = ["scripts/paket_dogrula.py", "legacy-preserved"]
+extend-exclude = [
+    "scripts/paket_dogrula.py",
+    "legacy-preserved",
+    # Skill paket/projection digest'ine bagli dosyalar: bicimlendirme aktif revizyonu kaydirir.
+    ".agents",
+    ".claude",
+    ".opencode",
+    "src/zekam/skills/jira-is-kaydi/scripts",
+]
 
 [tool.ruff.lint]
 select = [

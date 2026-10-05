@@ -151,3 +151,25 @@ Ruff ve mypy değişen dosyalarda temiz.
   (5x5x2), eski kolun izole yeniden kurulumu ve önceden sabitlenmiş kabul ölçütü yok; sonuç
   kalite iddiasını kanıtlamaz. Yük karşılaştırması (`NATIVE_DEGERLENDIRME_PLANI.md`) tek ölçülen
   kısım. Kullanıcı bütçe/kapsam verirse plan olduğu gibi çalıştırılır.
+
+## Jira skill aktivasyonu (5 Ekim 2026, kullanici talebiyle)
+
+Onceki "acik birakildi" karari kapandi. Kaynak paket aktif v1'den ilerlemisti (ayrica ruff-format,
+uc projeksiyon kopyasinin script'ini de degistirmisti; yonetilen baytlar `a32ee7f`'ten geri
+yuklendi ve `pyproject.toml` ruff exclude'una digest'e bagli yollar eklendi).
+
+- v11 aday revizyonu `skill propose --uygula` ile kaydedildi (`0fcb9d76…`, paket `3debb5f0…`).
+  Onceki bir `propose` denemem (v2 kimlik cakismasi) runtime'da `effect-unknown` kaydi biraktigi
+  icin once salt-okunur readback ile (revizyon sayisi degismedi) `failed` olarak cozuldu ve 3
+  bekleyen outbox olayi `outbox-once` ile teslim edildi.
+- Uc **bagimsiz** subagent: evaluator, verifier ve reviewer ayri aktor/execution kimlikleriyle,
+  birbirinin raporunu okumadan statik dosya kanitina dayali karar verdi. Evaluator aday 5/5,
+  baseline 0/5; verifier aday 5/5, baseline 2/5 (kayit muhafazakar 2/5 aldi); kritik bulgu 0/0.
+  Reviewer onayladi; engelleyici bulgu yok.
+- Her adim governed claim/receipt zinciriyle kaydedildi (evaluator/verifier/record, review/record,
+  activate; activasyon onceki aktif olay uzerine CAS). `skill list`: aktif surum 11.
+- `skill export` apply: `.agents` ve `.claude` guncellendi, `.opencode` kopyasi karantinaya alindi.
+  `integration sync --scope project`: 0 conflict, 0 islem.
+- Sinirlar: degerlendirme statik (5 vaka, canli Jira davranisi denenmedi); `SKILL.md:27`
+  ("atanan") ile varsayilan assignee kurali arasindaki gerilim ve frontmatter `version: "1"`
+  sonraki revizyonda netlestirilmeli; kuruma ozgu degerler Jira metadata'sina karsi dogrulanmadi.

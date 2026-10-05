@@ -31,9 +31,13 @@ Talep kaynaklı özet: `Talep ID: <kimlik> - <Anlamlı Başlık>`
 
 Defect kaynaklı özet: `Defect ID: <kimlik> - <Anlamlı Başlık>`
 
+Defect ID kaynakta yoksa özet öneki `Defect ID: xxx -` olarak kullanılır. Bu kural yalnız
+defect özetleri içindir; Talep özetlerinde kimlik yoksa önek eklenmez.
+
 - Özet NFC olmalı, satır sonu ve biçim makrosu içermemeli, önek ve boşluklar dâhil 1–254
   karakter olmalıdır. 255 karakterde kırpma yapma; anlamlı biçimde yeniden yaz.
 - Dış kimlik yoksa önek uydurma; doğrudan anlamlı başlık yaz.
+- Defect özetinde kaynakta ID yoksa yukarıdaki `Defect ID: xxx -` istisnasını uygula.
 - Türkçe başlıkta `ve`, `ile`, `veya`, `için` bağlaçlarını bağlaç konumunda küçük tut.
 - `RTXIX_SYSADM`, `extraction_id`, `ODI 12C`, API, SQL, ürün adı, sürüm ve kullanıcıca verilen
   teknik tokenları aynen koru.
@@ -46,8 +50,180 @@ Defect kaynaklı özet: `Defect ID: <kimlik> - <Anlamlı Başlık>`
 - Epic Name: kısa tema adı.
 - Description: amaç, kapsam, kaynak, mevcut durum, açık konu, kabul/sonraki adım.
 - Comment: yalnız yeni gelişme, karar, engel veya istenen kısa kayıt; açıklamayı tekrar etmez.
-- Issue type, priority, labels, components, assignee, status ve security yalnız doğrulanmış veri
-  veya açık kullanıcı isteğiyle ele alınır.
+- Assignee belirtilmemişse varsayılan olarak isteği yapan/doğrulanmış mevcut Jira kullanıcısıdır;
+  başka kullanıcıya atama yalnız açık kullanıcı isteğiyle yapılır.
+- Issue type, priority, labels, components, status ve security yalnız doğrulanmış veri veya açık
+  kullanıcı isteğiyle ele alınır.
+
+## Epic açıklama formatı
+
+Epic açıklaması genel iş alanını anlatır; tek bir Talep veya Defect bilgisine sıkıştırılmaz.
+Talep, Defect, operasyonel iş, teknik ihtiyaç ve ilişkili Jira kayıtları aynı açıklamada ayrı
+etiketlerle gösterilebilir. Aşağıdaki sıra, boş bölümleri çıkartılarak kullanılır:
+
+```text
+h1. Amaç
+*İstenen sonuç:* ...
+*Başarı ölçütü:* ...
+
+h1. İş ve Kaynak Bağlamı
+||Tür||Kimlik / Açıklama||
+|Talep|...|
+|Defect|...|
+|Operasyonel iş|...|
+
+h1. Kapsam
+* Dahil olan iş alanı ...
+* Dahil olan sistem, ekip veya süreç ...
+
+h1. İş Değeri
+* Kullanıcı, operasyon veya raporlama etkisi ...
+
+h1. Mevcut Durum ve Hedef
+||Konu||Mevcut||Hedef||
+|...|...|...|
+
+h1. Alt İşler ve İlişkiler
+* Analiz: ...
+* Tasarım/geliştirme: ...
+* Test/devreye alım: ...
+
+h1. Açık Konular ve Varsayımlar
+* *Doğrulanacak:* ...
+* *Karar bekleyen:* ...
+
+h1. Kabul Kriterleri
+# ...
+# ...
+```
+
+`h1.`/`h2.`, `*kalın*`, `*` veya `#` listeleri ve Jira Wiki tabloları güvenli temel biçimdir.
+`{code}` veya `{panel}` yalnız içerik gerçekten kod/panel gerektiriyor ve hedef Jira alanında
+destek doğrulanıyorsa kullanılmalıdır. Summary ve Epic Name düz metin kalır; Wiki işaretleri
+bu alanlara taşınmaz.
+
+## Talep kaynağı bloğu
+
+Talep kaynaklı Epic açıklamalarında, Epic'e özel yorumdan önce aşağıdaki panelli blok yer alır.
+PDF, ekran veya gönderilen belgelerde bulunan talep alanları bu yapıya aktarılır. Kaynaktaki
+etiketler, değerler ve bölüm sırası korunur; kaynakta bulunmayan bilgi eklenmez.
+
+```text
+{panel:title=Talep Bilgileri|borderStyle=solid}
+||Alan||Değer||
+|*Oluşturan*|<kaynakta varsa>|
+|*Talep Oluşturma Tarihi*|<kaynakta varsa>|
+|*Talep Adı*|<kaynakta varsa>|
+|*Talep No*|<kaynakta varsa>|
+{panel}
+
+{panel:title=Talep Açıklaması|borderStyle=solid}
+{noformat}
+<kaynakta bulunan talep açıklaması, anlamı değiştirilmeden>
+{noformat}
+{panel}
+
+{panel:title=Talep Sahibi Bilgileri|borderStyle=solid}
+||Kişi ve İletişim||Değer||Organizasyon ve Yönetim||Değer||
+|<kaynak alan>|<kaynak değer>|<kaynak alan>|<kaynak değer>|
+|<kaynak alan>|<kaynak değer>|<kaynak alan>|<kaynak değer>|
+{panel}
+
+----
+```
+
+Bu blok yalnız kaynak belgede bulunan bilgileri taşır; ek yorum, açıklama veya alan eklenmez.
+`----` sonrasında Epic'e özel açıklama doğrudan profil başlığıyla başlar; ayrıca `Epic
+Açıklaması` başlığı eklenmez. Aynı yapı Epic altındaki task açıklamalarında da kullanılabilir.
+
+## Talep Epic ve task aşama standardı
+
+Talep kaynaklı Epic ve task Description alanlarında talep kaynağı bloğundan sonra `----`
+ayıracı kullanılır. Ayraçtan sonraki bölüm, kaydın aşamasını tek kısa açıklamayla belirtir;
+talep bilgileri ve kaynak metin tekrar edilmez.
+
+```text
+----
+
+h2. Çalışma Açıklaması
+
+Bu task kapsamında, talepte belirtilen ihtiyacın mevcut sistem, veri kaynakları ve teknik
+gereksinimler açısından analiz edilmesi sağlanacaktır.
+```
+
+Aşama cümlesi gerektiğinde aşağıdaki karşılıkla değiştirilir:
+
+- Analiz: ihtiyacın ve gereksinimlerin analiz edilmesi.
+- Geliştirme: belirlenen gereksinimlere uygun geliştirmelerin yapılması.
+- Kontrol: çıktı ve geliştirmelerin belirlenen kriterlere uygunluğunun kontrol edilmesi.
+- Test: çözümün tanımlı senaryolar üzerinden test edilmesi ve doğrulanması.
+
+Bu standartta faza özel ek bölümler otomatik eklenmez. Kapsam, kabul kriteri, teknik ayrıntı,
+karar veya ilerleme bilgisi yalnız kullanıcı istediğinde Description'a eklenir veya olay
+gerçekleştiğinde Comment olarak kaydedilir.
+
+## Defect standardı
+
+Defect, bağımsız Jira kaydı olarak açılır veya güncellenir; Epic bağlantısı kurulmaz. `SKYRSM-5111`
+sabit Jira Epic standardıdır ve defect Description alanına taşınmaz.
+
+### Defect Summary
+
+Summary düz metin olmalı ve aşağıdaki biçim kullanılmalıdır:
+
+```text
+Defect ID: <kaynakta doğrulanan ID> - <Sistem / Ürün> - <Modül veya Adım> - <Etkilenen Nesne> <Kısa Hata Özeti>
+```
+
+Kaynakta Defect ID yoksa:
+
+```text
+Defect ID: xxx - <Sistem / Ürün> - <Modül veya Adım> - <Etkilenen Nesne> <Kısa Hata Özeti>
+```
+
+### Defect Description
+
+Yeni defect açıklamasında çözüm veya kapanış bilgisi bulunmaz. Kaynakta bulunan bilgiler
+aşağıdaki bölümlere, bulunmayan bölümler çıkarılarak aktarılır:
+
+```text
+{panel:title=Defect Bilgileri|borderStyle=solid}
+||Alan||Değer||Alan||Değer||
+|*Defect ID*|<kaynak ID veya xxx>|*Severity*|<varsa>| 
+|*Defect Type*|<varsa>|*Defect Main Type*|<varsa>|
+|*Tespit Tarihi*|<varsa>|*Tespit Eden*|<varsa>|
+|*Tekrarlanabilir*|<varsa>|*Etkilenen İş Birimi*|<varsa>|
+|*Kaynak Sistem*|<varsa>|*Vendor*|<varsa>|
+{panel}
+
+{panel:title=Hata Açıklaması|borderStyle=solid}
+{noformat}
+<gözlenen hata ve etkisi>
+{noformat}
+{panel}
+
+{panel:title=Teknik Bulgular|borderStyle=solid}
+*Etkilenen Adım:* <varsa>
+*Etkilenen Nesne:* <tablo, paket, ekran veya servis>
+*Hata Mesajı:* <varsa>
+*Kanıt:* <sorgu, log, ekran görüntüsü veya ek>
+{panel}
+```
+
+Solution Type, Solution Method, Fixed By, Closing Date, Closed in Version, Actual Fix Time,
+Last Tested By, Last Fixed By ve benzeri çözüm/kapanış alanları yeni defect standardına dahil
+edilmez. Mevcut defect güncellemesinde yalnız kullanıcı açıkça isterse alan olarak değiştirilir
+veya gerçekleşen gelişme yorum olarak eklenir. Defect ID Jira tarafından atanacaksa kullanıcı
+tarafından uydurulmaz; kaynakta yoksa `xxx` kullanılır.
+
+### Defect oluşturma/güncelleme alan sahipliği
+
+- Issue type Jira metadata'sından `Defect` veya `Bug` olarak doğrulanır; `Task` kullanılmaz.
+- Proje, Summary, Description ve Priority doğrulanır; Assignee yalnız kullanıcı belirttiyse
+  değiştirilir, aksi halde doğrulanmış mevcut kullanıcı kullanılır.
+- Status yeni kayıt için Jira varsayılanında bırakılır; güncellemede açıkça istenmedikçe
+  değiştirilmez.
+- `Defect ID`, `Modified`, `History` ve durum geçmişi sistem/audit alanlarıdır; elle yazılmaz.
 
 ## Profil başlıkları
 
