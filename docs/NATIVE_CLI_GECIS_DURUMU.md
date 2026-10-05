@@ -139,3 +139,15 @@ Ruff ve mypy değişen dosyalarda temiz.
   Canli kalite karsilastirmasi calistirilmadi.
 - Unit test hermetikligi: `test_unit_test_cli::test_pause_...` gercek home yerine gecici home
   kullaniyor (onceden var olan bagimlilik giderildi).
+
+## Kapanış kararları (5 Ekim 2026, delegasyonla)
+
+- **Jira skill kopyaları:** Seçenek B. Yeni revizyon aktivasyonu bağımsız onaylayan (kullanıcı),
+  ≥5 gerçek deneme ve rollback planı ister; CLI'da activation komutu yok ve gerçek Jira verisi
+  gerekir. Kaynak paket değiştirilmedi; üç eski kopya, OpenCode tarafından tek girişe indiği için
+  işlevsel zarar üretmiyor. `integration sync --scope project` conflict'i bilinen açık kayıt
+  olarak duruyor.
+- **Canlı paired kalite karşılaştırması:** Çalıştırılmadı. Maliyet ve tekrar sayısı sabit
+  (5x5x2), eski kolun izole yeniden kurulumu ve önceden sabitlenmiş kabul ölçütü yok; sonuç
+  kalite iddiasını kanıtlamaz. Yük karşılaştırması (`NATIVE_DEGERLENDIRME_PLANI.md`) tek ölçülen
+  kısım. Kullanıcı bütçe/kapsam verirse plan olduğu gibi çalıştırılır.
