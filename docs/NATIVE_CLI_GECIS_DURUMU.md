@@ -38,6 +38,17 @@ doğrulanmadı). Yenileme `skill export` ister; o da aktif yetkili skill revizyo
 görevin açık activation işi) — bu görevde yapılmadı. Diğer kayıtlı projelerin temizliği ayrı
 `--scope project` planlarıdır; yapılmadı.
 
+## Kapsam kararı (kullanıcı, 5 Ekim 2026)
+
+Gemini CLI bu görevde **öncelik dışı**: kurulu değil, kabul koşulmayacak; Codex ve Claude Code
+ile aynı proje-yerel `AGENTS.md`/`GEMINI.md` yaklaşımının yeterli olacağı varsayıldı. Kod ve
+dosyalar (typed identity, `GEMINI.md`) duruyor; "Gemini çalışıyor" iddiası kurulmaz.
+
+Kullanıcı-geneli talimat dosyaları (`~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`,
+`~/.codex/AGENTS.md`) temizlik sonrası Zekam içeriği taşımıyor (ilk ikisi sıfır bayt, üçüncüsü
+yok); yeni yönlendirme eklenmedi. Kayıtlı projelerden yalnız `akis` kökünde `AGENTS.md` var ve
+Zekam referansı içermiyor; dokunulmadı.
+
 ## 3. CLI/model qualification
 
 Hiçbir istemci/model/sürüm kombinasyonunda canlı kabul koşulmadı (`not-run`; Gemini:
