@@ -51,6 +51,18 @@ Zekam referansı içermiyor; dokunulmadı.
 
 ## 3. CLI/model qualification
 
+Gercek, minimum kapsamli kabul (5 Ekim 2026, Windows 11):
+
+| Istemci/surum | Yontem | Sonuc |
+|---|---|---|
+| Codex `0.160.0` | `codex debug prompt-input` (provider cagrisi yok) 5 dizinde | Zekam koku ve alt dizini: ince giris tam 1 kez; home, baska kayitli proje ve sentetik dizin: Zekam girisi yok; eski managed bootstrap yok |
+| Claude Code `2.1.268` | `claude -p` ile 3-6 kucuk canli cagri (model cagrisi, toplam ~USD 1) | Kok ve alt dizinler (`src`, `docs`): giris yuklu (`@AGENTS.md` yolu calisiyor); baska kayitli proje: yuklu degil. Ilk soru bicimi `src`te tutarsiz `NO` verdi, katı alinti sorusu 3 dizinde tutarli; model-yaniti sinirliligi kayitli |
+| OpenCode `1.18.34` | `opencode debug skill/config` (provider cagrisi yok) | Uc proje skill dizini de taraniyor; ayni ada sahip kopyalar **tek girise** iniyor (hangi kopyanin kazandigi kosuya gore degisti, kopyalar ozdes oldugundan zararsiz); kullanici global skill'i ayni adli proje skill'ini golgeleyebilir |
+| Gemini | - | Kapsam disi (kullanici karari) |
+
+Bu, tam senaryo kabulu degildir: gorev/plan/MCP/subagent davranislari ve baska modeller
+denenmedi; `ready`/qualified denmez.
+
 Hiçbir istemci/model/sürüm kombinasyonunda canlı kabul koşulmadı (`not-run`; Gemini:
 `not-installed`). "Dört CLI tam destekli" iddiası kurulamaz.
 
@@ -62,8 +74,8 @@ Durumlar: `test` = otomatik provider-free test; `gözlem` = salt okunur yerel g�
 | ID | Durum | Kanıt |
 |---|---|---|
 | A01 | gözlem | vendor yolları; shim yok |
-| A02 | model | `test_native_context_measurement.py` (keşif modeli) |
-| A03 | test (Bun) | `test_plugin_is_inert_outside_a_zekam_workspace` |
+| A02 | gözlem (Codex, Claude) | `codex debug prompt-input`; `claude -p` kök+alt dizin; OpenCode doğrudan oturum denenmedi |
+| A03 | gözlem + test | Codex/Claude: home ve başka kayıtlı projede giriş yok; plugin: `test_plugin_is_inert_outside_a_zekam_workspace` |
 | A04 | test (Bun) | `test_plugin_is_inert_when_marker_is_not_a_zekam_context`; birebir kopya klasörü ayırt edilemez (kopyalar zaten yasak) |
 | A05 | kısmi | mevcut reparse/exact-root testleri; Windows'ta symlink ayrıcalığı olmadığından symlink testleri atlanır |
 | A06 | test | varsayılan config + `test_legacy_*` (ZEKAM_HOME/kurulum global açmaz) |
@@ -80,8 +92,8 @@ Durumlar: `test` = otomatik provider-free test; `gözlem` = salt okunur yerel g�
 | A17 | test | `pending_project_cleanup` ayrı root planı (sync testleri) |
 | A18 | test | `..._second_plan_is_noop`, `..._do_not_regrow...` |
 | A19 | test | `test_config.py` Gemini identity; v1 digest eşitliği |
-| A20 | gözlem + model | Claude `2.1.268` < `2.1.277` → `@AGENTS.md` fallback; destek durumu dürüst |
-| A21 | model | `duplicate_skill_discovery`; OpenCode çift keşfi gerçek sürümde **ölçülmedi** |
+| A20 | gözlem | Claude `2.1.268` < `2.1.277`: `@AGENTS.md` fallback gerçek çağrıda çalıştı |
+| A21 | gözlem | OpenCode `1.18.34`: aynı ad tek girişe iniyor (kazanan koşuya göre değişti); kullanıcı global skill'i gölgeleyebilir |
 | A22–A23 | model | ince giriş boyut testi; skill/referans yerinde (Jira skill `references/`) |
 | A24 | test | `test_native_continuity.py` |
 | A25–A27 | test | `test_native_unit_test_helper.py`, `..._cli.py` (gerçek Maven/JaCoCo fixture) |
@@ -89,7 +101,7 @@ Durumlar: `test` = otomatik provider-free test; `gözlem` = salt okunur yerel g�
 | A29 | test | checkpoint alanları `verified=false`; sonradan ingest pre-effect yetki üretmez |
 | A30 | kısmi | ilgili regresyon süitleri (bkz. son rapor) |
 | A31 | test | `ClientIntegrationState`: installed/enabled/ready ayrı |
-| A32 | not-run | temiz yeni oturum doğrulaması kullanıcıda; history silinmez |
+| A32 | kısmi | yeni süreçlerde (codex/claude) eski global bootstrap yok; history silinmedi; etkileşimli yeni oturum doğrulaması kullanıcıda |
 
 ## Açık kalanlar
 
@@ -109,6 +121,21 @@ düzeltmelerden sonra **bir daha uçtan uca koşulmadı**.
 
 Kalan, bu görevden bağımsız/önceden var: `test_rag_router_probe_fixture` (dış GPU kaynak
 dizini yok), `test_unit_test_cli::test_pause_...` (gerçek home DB'sine bağlı),
-`test_ci_pytest` (kullanıcı home'unda `!!!!!…` adlı artık girdi nedeniyle nested pytest
-toplayamıyor), `paket_dogrula` git-history secret-pattern bulguları (test fixture'ları).
+`test_ci_pytest` (gecici bir `!!!!!…` dosya adi nedeniyle bir kosuda dustu; sonradan
+yeniden kosuldu ve gecti — kalici bir home kalintisi degil), `paket_dogrula` git-history secret-pattern bulguları (test fixture'ları).
 Ruff ve mypy değişen dosyalarda temiz.
+
+## Kapanis guncellemesi (kalan isler)
+
+- **Jira skill drift'i (neden dogrulandi):** Kaynak paketi (`src/zekam/skills/jira-is-kaydi`) aktif
+  revizyondan sonra degismis (`SKILL.md`, `references/kurum-icerik-standardi.md`, script; ayrica
+  `89da67b` ruff-format commit'i). Projection'lar aktif revizyonun digest'ine (`9394e78…`) bagli.
+  Cozum yeni bir skill revizyonu (propose → degerlendirme → yetkili activation) gerektirir; bu,
+  onceki gorevin acik review/activation isidir ve degerlendirme uydurulamaz. **Acik birakildi.**
+  Denenen digest'i-geri-alma yaklasimi yetmedi (uc dosya farkli) ve geri alindi.
+- **Diger kayitli projeler:** User-scope plan yalniz `zekam` icin pending raporluyor; digerlerinde
+  Zekam-managed projection kalintisi yok, ek plan gerekmedi.
+- **Paired degerlendirme (provider-free kisim):** bkz. `NATIVE_DEGERLENDIRME_PLANI.md` on olcum.
+  Canli kalite karsilastirmasi calistirilmadi.
+- Unit test hermetikligi: `test_unit_test_cli::test_pause_...` gercek home yerine gecici home
+  kullaniyor (onceden var olan bagimlilik giderildi).

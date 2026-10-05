@@ -78,10 +78,12 @@ def test_plan_reports_maven_readiness_without_running_provider_or_maven(tmp_path
     assert '"status": "not-supported"' in result.stdout
 
 
-def test_pause_is_fail_closed_until_durable_control_is_composed() -> None:
-    result = runner.invoke(app, ["test", "pause", "sha256:" + "a" * 64])
+def test_pause_is_fail_closed_until_durable_control_is_composed(tmp_path) -> None:
+    # Bos, migrate edilmemis gecici home: gercek kullanici home'una bagli olmamali.
+    result = runner.invoke(app, ["test", "pause", "sha256:" + "a" * 64, "--home", str(tmp_path)])
     assert result.exit_code == EXIT_ENVIRONMENT_MISSING
-    assert "migration-required" in result.stdout
+    assert "environment-missing" in result.stdout
+    assert "current schema gerektiriyor" in result.stdout
 
 
 def test_pause_resume_cancel_cli_writes_durable_terminals(tmp_path) -> None:

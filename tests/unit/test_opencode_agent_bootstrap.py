@@ -166,7 +166,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "ZEKAM_RESUME_PACKET_V1" in plugin_body
     assert "output.context.push(packet)" in plugin_body
     assert '"pre-compact"' in plugin_body
-    assert "canonical pre-compact checkpoint ACK failed" in plugin_body
+    assert "native compaction bloklanmadi" in plugin_body
     assert "attempts >= 5" in plugin_body
     assert "ownerToken" in plugin_body
     assert "process.kill(pid, 0)" in plugin_body

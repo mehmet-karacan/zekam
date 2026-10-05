@@ -51,3 +51,21 @@ aynı skill adının birden çok keşif dizininde bulunmasını raporlar.
 Canlı CLI/model çağrısı ve kurulum, mevcut açık yetki kapsamı dışında çalıştırılmaz. Yetki
 yoksa provider-free testler tamamlanır ve ilgili satır `not-run` /
 `authorization-required` olarak kalır.
+
+## On olcum (provider-free, yalniz boyut; 5 Ekim 2026)
+
+A kolu = `f37ab30` giris dosyalari (sentetik, repo disi gecici dizinde), B kolu = guncel kok.
+`measure_instruction_load` ile keşfedilen proje girişi (instruction + eager import/config
+instructions); OpenCode A'da `default_agent` coordinator ajan govdesi de eklendi. Birim bayt;
+"token" sutunu `ceil(bayt/4)` kaba tahminidir, gercek tokenizer degildir.
+
+| Istemci | A (bayt) | B (bayt) | Not |
+|---|---|---|---|
+| OpenCode | 23040 (AGENTS + 00_BASLA + DEVAM + coordinator) | 2800 | A'da config `instructions` ve default agent zorunlu yukluyordu |
+| Codex | 3368 | 2800 | A'da yalniz AGENTS.md |
+| Claude Code | 0 (kokte CLAUDE.md yok; `2.1.268` AGENTS.md'yi dogrudan okumaz) | 2820 | B'de uyumluluk dosyasi + import |
+
+Bu yalniz **yuk** olcumudur: kalite, guvenlik ihlali, dogru gorev/skill bulma olculmedi, bu yuzden
+"daha iyi" iddiasi yoktur. Claude A=0, A'nin Claude'da Zekam baglami hic yuklemedigini; B'nin
+bunu bilincli olarak eklediğini gosterir (yuk artisi). Canli kolay-karsilastirma senaryolari
+(5 gorev x 5 tekrar) calistirilmadi; yetki ve butce ayri.
