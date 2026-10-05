@@ -19,8 +19,10 @@ Her iki model metin ve gorsel girdi destekler (duyuru).
   tokeni uretti, `finish_reason=length`); kisa cevaplar icin `max_tokens` yuksek tutulmali.
 - **Kullanici OpenCode yapilandirmasi** (`~/.config/opencode/opencode.json`, yedek
   `~/.zekam/quarantine/manual/`): `model = litellm/GLM-5.3-Flash-IT`,
-  `small_model = litellm/Qwen3.8-27B-IT`; iki model `provider.litellm.models` altina eklendi
-  (metin+gorsel girdi). Baglam/cikti limiti **eklenmedi** (kaynakta yok, uydurulmadi). Eski model
+  `small_model = litellm/Qwen3.8-27B-IT`; iki model `provider.litellm.models` altina yalniz `name` ile eklendi. `modalities` alani
+  eklenmedi: Zekam'in strict OpenCode model parser'i (`opencode_embedding.py`) bilinmeyen alani
+  reddeder ve `zekam model campaign` bozulur (ilk denemede bozuldu, geri alindi). Gorsel girdi
+  bildirimi icin parser'in `modalities`i kabul etmesi gerekir (acik is). Baglam/cikti limiti **eklenmedi** (kaynakta yok, uydurulmadi). Eski model
   girdileri kaldirilmadi; kaldirma 15 Ekim sonrasi kullanici kararidir. `opencode debug config`
   yeni degerleri cozdu.
 
