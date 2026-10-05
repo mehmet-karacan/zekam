@@ -35,6 +35,7 @@ from zekam.application.opencode_agent_bootstrap import (
     is_known_lifecycle_plugin,
     opencode_template_bundle,
 )
+from zekam.application.opencode_legacy_agent_digests import LEGACY_AGENT_TEMPLATE_DIGESTS
 from zekam.application.skill_packages import projected_artifact_digest
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.client_integration import (
@@ -716,9 +717,12 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
                 else:
                     payload = candidate.read_bytes()
                     actual = digest_of_bytes(payload)
+                    known_legacy = actual in LEGACY_AGENT_TEMPLATE_DIGESTS.get(
+                        candidate.name, frozenset()
+                    )
                     agent_conflict = (
                         None
-                        if expected is not None and payload == expected.encode()
+                        if (expected is not None and payload == expected.encode()) or known_legacy
                         else "agent-content-unowned-or-drifted"
                     )
                 if agent_conflict is None:

@@ -255,3 +255,52 @@ def test_customized_permission_block_is_never_touched(tmp_path: Path) -> None:
 
     stored = json.loads(config.read_text(encoding="utf-8"))
     assert stored["permission"]["bash"] == "ask"
+
+
+def test_previously_reviewed_codex_hook_version_is_owned_and_detached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import zekam.application.client_hook_bootstrap as hooks_module
+
+    native = tmp_path / "native-user"
+    native.mkdir()
+    monkeypatch.setitem(hooks_module._VERSIONS, "codex", "0.153.1")
+    old = plan_client_hook_bootstrap(
+        user_home=native,
+        python_executable=Path(sys.executable).resolve(strict=True),
+        policy=ClientIntegrationPolicy(codex=True),
+    )
+    apply_client_hook_bootstrap(old)
+    monkeypatch.undo()
+
+    document = json.loads((native / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    cleaned, removed = hooks_module.remove_managed_hook_entries(document, client_id="codex")
+    assert removed >= 1
+    assert all(groups == [] for groups in cleaned["hooks"].values())
+
+    document["hooks"]["Stop"][0]["hooks"][0]["command"] += " --extra"
+    with pytest.raises(Exception, match="ownership conflict"):
+        hooks_module.remove_managed_hook_entries(document, client_id="codex")
+
+
+def test_edited_agent_copy_is_conflict_even_with_reviewed_history(tmp_path: Path) -> None:
+    from zekam.application.client_integrations import _user_opencode_inventory
+    from zekam.application.opencode_legacy_agent_digests import LEGACY_AGENT_TEMPLATE_DIGESTS
+    from zekam.domain.canonical import digest_of_bytes
+
+    native = tmp_path / "native-user"
+    agents = native / ".config" / "opencode" / "agents"
+    agents.mkdir(parents=True)
+    current = opencode_template_bundle()["agents/zekam-coordinator.md"]
+    assert len(LEGACY_AGENT_TEMPLATE_DIGESTS["zekam-coordinator.md"]) >= 2
+    agents.joinpath("zekam-coordinator.md").write_text(current + "x", encoding="utf-8")
+    assert (
+        digest_of_bytes((current + "x").encode())
+        not in (LEGACY_AGENT_TEMPLATE_DIGESTS["zekam-coordinator.md"])
+    )
+
+    rows = _user_opencode_inventory(native)
+
+    assert [row["conflict"] for row in rows if row["artifact_type"] == "agent"] == [
+        "agent-content-unowned-or-drifted"
+    ]

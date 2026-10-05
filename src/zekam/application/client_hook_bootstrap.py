@@ -19,6 +19,9 @@ _REPARSE_POINT = 0x400
 _COMMAND_MARKER = "-m zekam.interfaces.cli.client hook --client "
 _LEGACY_COMMAND_PREFIX = "python " + _COMMAND_MARKER
 _VERSIONS = {"codex": "0.154.0", "claude-code": "2.1.224"}
+# Gecmis gozden gecirilmis surumler (git gecmisi): yalniz cleanup sahiplik kaniti icindir;
+# yeni hook'lar daima guncel surumle uretilir.
+_LEGACY_VERSIONS = {"codex": ("0.150.1", "0.153.1"), "claude-code": ()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,16 +114,20 @@ def _exact_managed_hook(group: Any, client_id: str, event: str) -> bool:
         argv = shlex.split(command)
     except ValueError:
         return False
-    expected_suffix = [
-        "-m",
-        "zekam.interfaces.cli.client",
-        "hook",
-        "--client",
-        client_id,
-        "--client-version",
-        _VERSIONS[client_id],
-    ]
-    if len(argv) != len(expected_suffix) + 1 or argv[1:] != expected_suffix:
+    reviewed = {_VERSIONS[client_id], *_LEGACY_VERSIONS[client_id]}
+    if not any(
+        argv[1:]
+        == [
+            "-m",
+            "zekam.interfaces.cli.client",
+            "hook",
+            "--client",
+            client_id,
+            "--client-version",
+            version,
+        ]
+        for version in reviewed
+    ):
         return False
     if not Path(argv[0]).is_absolute():
         return False

@@ -15,15 +15,28 @@ Gemini/skill/config instruction kapsaması, native yardımcı yol (`test measure
 
 ## 2. Yerel geçiş (bu cihaz)
 
-**Uygulanmadı.** Kullanıcı-geneli temizlik planı gösterilmedi/onaylanmadı. Salt okunur gözlem:
-`opencode`, `codex` ve `claude` vendor yollarına çözülüyor (Zekam shim/alias/profile girdisi
-yok); `gemini` kurulu değil; Codex `0.160.0`, Claude Code `2.1.268` (doğrudan `AGENTS.md`
-desteği için gereken `2.1.277`'den eski; bu yüzden `CLAUDE.md` + `@AGENTS.md` yolu şart).
-Kullanıcı `config.yaml` `cli.integrations` değerleri sürümsüz (legacy); yeni kodla global kurulum
-üretmez, temizlik planı `zekam integration sync --scope user --json` ile okunabilir. Zekam kök
-projesinde `integration sync --scope project` dry-run'ı üç Jira skill kopyası için
-`managed-artifact-metadata-drift` conflict'i raporluyor (bu görevden önce var olduğu
-doğrulanmadı; apply yapılmadı, conflict açık).
+**Uygulandı (5 Ekim 2026), kullanıcı delegasyonuyla.** Salt okunur planda üç conflict çıktı:
+koordinatör ajanı ve Codex hook'u gözden geçirilmiş *eski sürümlerdi* (git geçmişiyle
+eşleştirildi: ajan şablonu `bd151ed`, Codex hook `0.153.1`); bunlar için geçmiş digest/sürüm
+sahipliği koda eklendi (`opencode_legacy_agent_digests.py`, `_LEGACY_VERSIONS`).
+`~/.config/opencode/opencode.json` secret içerdiği için araç onu bilerek yeniden yazmıyor; bu
+dosyadan yalnız birebir Zekam'a ait üç anahtar (`default_agent`, `plugin`, legacy `permission`)
+tek seferlik, byte-roundtrip'i doğrulanmış JSON düzenlemesiyle çıkarıldı (yedek:
+`~/.zekam/quarantine/manual/`, secret değeri çıktıya yazılmadı). Ardından exact plan digest'iyle
+`integration sync --scope user --uygula` çalıştırıldı: 13 işlem, receipt üretildi; 6 ajan +
+plugin karantinada, Codex/Claude hook ve OpenCode/Claude instruction bölümleri çıkarıldı,
+kullanıcı metni korundu. Readback: dört istemci `disabled-clean`, ikinci plan 0 işlem, 0 conflict.
+Eski oturumların yüklenmiş bağlamı silinmez; doğrulama temiz yeni oturumda yapılır.
+
+Vendor çözümleme: `opencode`/`codex`/`claude` vendor yollarında, Zekam shim/alias/profile
+girdisi yok; `gemini` kurulu değil; Codex `0.160.0`, Claude Code `2.1.268` (< `2.1.277`,
+bu yüzden `CLAUDE.md` + `@AGENTS.md` yolu şart).
+
+Açık: Zekam kökündeki üç Jira skill kopyası `managed-artifact-metadata-drift` conflict'i
+veriyor (onceki bir ruff-format commit'i `89da67b` sonrası artifact digest'i kaymış olabilir;
+doğrulanmadı). Yenileme `skill export` ister; o da aktif yetkili skill revizyonu ister (önceki
+görevin açık activation işi) — bu görevde yapılmadı. Diğer kayıtlı projelerin temizliği ayrı
+`--scope project` planlarıdır; yapılmadı.
 
 ## 3. CLI/model qualification
 
