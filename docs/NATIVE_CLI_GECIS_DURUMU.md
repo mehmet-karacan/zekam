@@ -173,3 +173,10 @@ yuklendi ve `pyproject.toml` ruff exclude'una digest'e bagli yollar eklendi).
 - Sinirlar: degerlendirme statik (5 vaka, canli Jira davranisi denenmedi); `SKILL.md:27`
   ("atanan") ile varsayilan assignee kurali arasindaki gerilim ve frontmatter `version: "1"`
   sonraki revizyonda netlestirilmeli; kuruma ozgu degerler Jira metadata'sina karsi dogrulanmadi.
+
+## Canli paired degerlendirme (5 Ekim 2026)
+
+`GLM-5.3-Flash-IT` ile 30 kosu tamamlandi; sonuc ve sinirlar `NATIVE_DEGERLENDIRME_PLANI.md`
+"Sonuclar" bolumunde (B kalite %93,3 vs A %73,3, token ve gecikme B lehine, guvenlik ihlali 0/0,
+her kolda 1 takilma). Onceki "calistirilmadi" kaydi bu kapsamda kapandi; S4/S5 ve diger
+CLI/modeller acik.
