@@ -319,36 +319,59 @@ class OpenCodeForwardBatch:
         )
 
 
-def record_event(
-    home: Path,
-    *,
-    event_type: str,
-    session_id: str,
-    delivery_id: str | None = None,
-    parent_session_id: str | None = None,
-    agent: str | None = None,
-    model_ref: str | None = None,
-    tool: str | None = None,
-    resource: str | None = None,
-    status: str | None = None,
-    error_category: str | None = None,
-    completed_summary: str | None = None,
-    pending_summary: str | None = None,
-    next_action: str | None = None,
-    task_label: str | None = None,
-    now: dt.datetime | None = None,
-) -> OpenCodeLifecycleEvent:
-    normalized_delivery = _bounded(delivery_id, label="delivery_id")
-    normalized_resource = _relative_resource(resource)
-    normalized_completed = _safe_summary(completed_summary, label="completed_summary")
-    normalized_pending = _safe_summary(pending_summary, label="pending_summary")
-    normalized_next = _safe_summary(next_action, label="next_action")
-    normalized_label = _safe_summary(task_label, label="task_label")
-    root = lifecycle_root(home)
-    root.mkdir(parents=True, exist_ok=True)
-    lock = _acquire_lock(root)
-    try:
-        existing = _verified_events(root, quarantine_invalid=True)
+class OpenCodeLifecycleWriter:
+    """Hold one lifecycle writer lock while appending a bounded batch."""
+
+    def __init__(self, home: Path) -> None:
+        self._root = lifecycle_root(home)
+        self._lock: BinaryIO | None = None
+        self._existing: list[dict[str, Any]] = []
+
+    def __enter__(self) -> OpenCodeLifecycleWriter:
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._lock = _acquire_lock(self._root)
+        try:
+            self._existing = _verified_events(self._root, quarantine_invalid=True)
+        except BaseException:
+            _release_lock(self._lock)
+            self._lock = None
+            raise
+        return self
+
+    def __exit__(self, _exc_type: object, _exc_value: object, _traceback: object) -> None:
+        lock = self._lock
+        self._lock = None
+        if lock is not None:
+            _release_lock(lock)
+
+    def record(
+        self,
+        *,
+        event_type: str,
+        session_id: str,
+        delivery_id: str | None = None,
+        parent_session_id: str | None = None,
+        agent: str | None = None,
+        model_ref: str | None = None,
+        tool: str | None = None,
+        resource: str | None = None,
+        status: str | None = None,
+        error_category: str | None = None,
+        completed_summary: str | None = None,
+        pending_summary: str | None = None,
+        next_action: str | None = None,
+        task_label: str | None = None,
+        now: dt.datetime | None = None,
+    ) -> OpenCodeLifecycleEvent:
+        if self._lock is None:
+            raise RuntimeError("OpenCode lifecycle writer context disinda kullanildi")
+        normalized_delivery = _bounded(delivery_id, label="delivery_id")
+        normalized_resource = _relative_resource(resource)
+        normalized_completed = _safe_summary(completed_summary, label="completed_summary")
+        normalized_pending = _safe_summary(pending_summary, label="pending_summary")
+        normalized_next = _safe_summary(next_action, label="next_action")
+        normalized_label = _safe_summary(task_label, label="task_label")
+        existing = self._existing
         if normalized_delivery is not None:
             replay = next(
                 (item for item in existing if item.get("delivery_id") == normalized_delivery),
@@ -400,20 +423,59 @@ def record_event(
             sequence=sequence,
             previous_digest=previous_digest,
         )
-        content = json.dumps(event.document(), ensure_ascii=False, sort_keys=True) + "\n"
-        descriptor, temporary = tempfile.mkstemp(prefix=".event-", dir=root)
+        document = event.document()
+        content = json.dumps(document, ensure_ascii=False, sort_keys=True) + "\n"
+        descriptor, temporary = tempfile.mkstemp(prefix=".event-", dir=self._root)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
                 output.write(content)
                 output.flush()
                 os.fsync(output.fileno())
-            Path(temporary).replace(root / f"{event.sequence:020d}-{event.event_id}.json")
+            Path(temporary).replace(self._root / f"{event.sequence:020d}-{event.event_id}.json")
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
+        existing.append(document)
         return event
-    finally:
-        _release_lock(lock)
+
+
+def record_event(
+    home: Path,
+    *,
+    event_type: str,
+    session_id: str,
+    delivery_id: str | None = None,
+    parent_session_id: str | None = None,
+    agent: str | None = None,
+    model_ref: str | None = None,
+    tool: str | None = None,
+    resource: str | None = None,
+    status: str | None = None,
+    error_category: str | None = None,
+    completed_summary: str | None = None,
+    pending_summary: str | None = None,
+    next_action: str | None = None,
+    task_label: str | None = None,
+    now: dt.datetime | None = None,
+) -> OpenCodeLifecycleEvent:
+    with OpenCodeLifecycleWriter(home) as writer:
+        return writer.record(
+            event_type=event_type,
+            session_id=session_id,
+            delivery_id=delivery_id,
+            parent_session_id=parent_session_id,
+            agent=agent,
+            model_ref=model_ref,
+            tool=tool,
+            resource=resource,
+            status=status,
+            error_category=error_category,
+            completed_summary=completed_summary,
+            pending_summary=pending_summary,
+            next_action=next_action,
+            task_label=task_label,
+            now=now,
+        )
 
 
 def _event_from_document(document: dict[str, Any]) -> OpenCodeLifecycleEvent:

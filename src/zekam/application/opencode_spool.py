@@ -751,7 +751,7 @@ def drain_plugin_spool(
 
     if limit < 1 or limit > 500:
         raise ValidationFailed("OpenCode spool drain limiti 1..500 olmali")
-    from zekam.application.opencode_lifecycle import record_event
+    from zekam.application.opencode_lifecycle import OpenCodeLifecycleWriter
 
     observed_at = now or dt.datetime.now(dt.UTC)
     root = plugin_spool_root(home)
@@ -796,48 +796,48 @@ def drain_plugin_spool(
 
     processed = acknowledged = quarantined = 0
     try:
-        for path in sorted(root.iterdir(), key=lambda item: item.name):
-            if processed >= limit:
-                break
-            if not path.is_file() or not path.name.endswith(".json"):
-                continue
-            processed += 1
-            try:
-                decoded = _decode_event_args(json.loads(path.read_text(encoding="utf-8")))
-                record_event(
-                    home,
-                    event_type=str(decoded["event_type"]),
-                    session_id=str(decoded["session_id"]),
-                    delivery_id=decoded.get("delivery_id"),
-                    parent_session_id=decoded.get("parent_session_id"),
-                    agent=decoded.get("agent"),
-                    model_ref=decoded.get("model_ref"),
-                    tool=decoded.get("tool"),
-                    resource=decoded.get("resource"),
-                    status=decoded.get("status"),
-                    error_category=decoded.get("error_category"),
-                    completed_summary=decoded.get("completed_summary"),
-                    pending_summary=decoded.get("pending_summary"),
-                    next_action=decoded.get("next_action"),
-                    task_label=decoded.get("task_label"),
-                )
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ZekamError):
-                path.replace(quarantine / f"invalid-spool-item.{uuid4()}.json")
-                quarantined += 1
-            else:
-                path.unlink()
-                acknowledged += 1
+        with OpenCodeLifecycleWriter(home) as writer:
+            for path in sorted(root.iterdir(), key=lambda item: item.name):
+                if processed >= limit:
+                    break
+                if not path.is_file() or not path.name.endswith(".json"):
+                    continue
+                processed += 1
+                try:
+                    decoded = _decode_event_args(json.loads(path.read_text(encoding="utf-8")))
+                    writer.record(
+                        event_type=str(decoded["event_type"]),
+                        session_id=str(decoded["session_id"]),
+                        delivery_id=decoded.get("delivery_id"),
+                        parent_session_id=decoded.get("parent_session_id"),
+                        agent=decoded.get("agent"),
+                        model_ref=decoded.get("model_ref"),
+                        tool=decoded.get("tool"),
+                        resource=decoded.get("resource"),
+                        status=decoded.get("status"),
+                        error_category=decoded.get("error_category"),
+                        completed_summary=decoded.get("completed_summary"),
+                        pending_summary=decoded.get("pending_summary"),
+                        next_action=decoded.get("next_action"),
+                        task_label=decoded.get("task_label"),
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError, ZekamError):
+                    path.replace(quarantine / f"invalid-spool-item.{uuid4()}.json")
+                    quarantined += 1
+                else:
+                    path.unlink()
+                    acknowledged += 1
 
-        for path in sorted(root.iterdir(), key=lambda item: item.name):
-            matched = _TEMPORARY.fullmatch(path.name)
-            if matched is None or not path.is_file() or _is_link_or_reparse(path):
-                continue
-            try:
-                UUID(matched.group(1))
-            except ValueError:
-                continue
-            path.replace(quarantine / f"abandoned-spool-temp.{uuid4()}.tmp")
-            quarantined += 1
+            for path in sorted(root.iterdir(), key=lambda item: item.name):
+                matched = _TEMPORARY.fullmatch(path.name)
+                if matched is None or not path.is_file() or _is_link_or_reparse(path):
+                    continue
+                try:
+                    UUID(matched.group(1))
+                except ValueError:
+                    continue
+                path.replace(quarantine / f"abandoned-spool-temp.{uuid4()}.tmp")
+                quarantined += 1
     finally:
         try:
             _, _, current_token = _lock_owner(lock)
