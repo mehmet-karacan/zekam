@@ -122,7 +122,23 @@ hostlar icin ortak yol `continuity native`'dir. `continuity local freeze*` komut
 okuyucusu Windows'ta `getattr` + `lstat` reparse kontroluyle calisacak sekilde duzeltildi
 (`os.O_NOFOLLOW` Windows'ta yoktur ve onceden AttributeError verirdi).
 
-## 3. Windows dogrulamasi
+## 3. OpenCode spool recovery
+
+Spool durumu payload/path icermeden okunur:
+`zekam opencode spool-status`. Typed stale adaylar icin once
+`zekam opencode spool-cleanup` ile plan digest'ini al, sonra ayni digest'i
+`--uygula --beklenen-plan-digest` ile kullan. Islem yalniz geri alinabilir quarantine yapar;
+raw delete yapmaz. Windows'ta aday owner PID'si yeniden kullanilmissa owner `startedAt` ile
+process creation time karsilastirilir; process identity okunamazsa aday fail-closed korunur.
+
+Bos veya parse edilemeyen owner dosyali en az 24 saatlik orphan adaylar ayri planlanir:
+`zekam opencode spool-recover-invalid`, ardindan exact digest ile `--uygula`. Aktif drain lock'u,
+gencler veya gecerli owner kimligi bu yoldan tasinmaz. Kuyruk kayitlari icin
+`zekam opencode spool-drain --limit 10..500` bounded calistirilir; her kosu terminal receipt
+uretir ve kesinti sonraki kosuda stale lock recovery ile devam eder. `healthy=false` yalniz
+quarantine sayisinin sifir oldugu anlamina gelmez; queued kayitlar bitmeden saglikli sayilmaz.
+
+## 4. Windows dogrulamasi
 
 - `os.O_NOFOLLOW/O_NONBLOCK` Windows'ta yoktur: `continuity._json_document` icin gercek testler
   (`tests/unit/test_continuity_json_document_portability.py`) bayraklarin cozumlenmesini, sinirlari,
@@ -133,7 +149,7 @@ okuyucusu Windows'ta `getattr` + `lstat` reparse kontroluyle calisacak sekilde d
   `test_native_unit_test_cli.py`, `test_native_continuity.py`. Bu belgedeki Windows kaniti diger
   isletim sistemleri icin capraz platform kaniti sayilmaz; mevcut CI matrisi korunur.
 
-## 4. Acik kalanlar
+## 5. Acik kalanlar
 
 - `ZEKAM-DOD`/capability matrisi: `capability_inventory.py` ve
   `docs/ZEKAM_YETKINLIK_ENVANTERI.md` henuz native yardimci ve otomatik OpenCode batch'i ayri satir
