@@ -79,6 +79,64 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def _process_started_at(pid: int) -> dt.datetime | None:
+    """Read a Windows process creation time when the host exposes it."""
+
+    if pid <= 0 or os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    ctypes_api: Any = ctypes
+    kernel32 = ctypes_api.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    )
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return None
+    try:
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel_time = wintypes.FILETIME()
+        user_time = wintypes.FILETIME()
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+        ticks = (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+        return dt.datetime(1601, 1, 1, tzinfo=dt.UTC) + dt.timedelta(
+            microseconds=ticks / 10
+        )
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _process_is_owner(pid: int, owner_started_at: dt.datetime | None) -> bool:
+    """Fail closed when process incarnation cannot be compared."""
+
+    if owner_started_at is None:
+        return _process_alive(pid)
+    observed_started_at = _process_started_at(pid)
+    if observed_started_at is None:
+        return _process_alive(pid)
+    return abs((observed_started_at - owner_started_at).total_seconds()) <= 2
+
+
 @dataclass(frozen=True, slots=True)
 class LegacyCandidate:
     name: str
@@ -292,9 +350,24 @@ def _candidate(
         owner = json.loads(owner_path.read_text(encoding="utf-8"))
         pid = int(owner["pid"])
         owner_token = str(UUID(str(owner["ownerToken"])))
-    except (KeyError, TypeError, ValueError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ):
         return None
-    if owner_token != token or pid <= 0 or _process_alive(pid):
+    started_at: dt.datetime | None = None
+    if "startedAt" in owner:
+        try:
+            started_at = dt.datetime.fromisoformat(str(owner["startedAt"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if started_at.tzinfo is None or started_at.utcoffset() is None:
+            return None
+    if owner_token != token or pid <= 0 or _process_is_owner(pid, started_at):
         return None
     modified_at = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.UTC)
     age_seconds = int((now - modified_at).total_seconds())

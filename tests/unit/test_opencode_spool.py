@@ -93,6 +93,22 @@ def test_live_or_malformed_candidate_is_never_moved(tmp_path: Path) -> None:
     assert live.exists() and malformed.exists()
 
 
+def test_reused_pid_is_not_treated_as_live_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = _candidate(tmp_path)
+    owner = json.loads((candidate / "owner.json").read_text(encoding="utf-8"))
+    owner["startedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
+    (candidate / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
+    monkeypatch.setattr(spool_module, "_process_alive", lambda _pid: True)
+    monkeypatch.setattr(spool_module, "_process_started_at", lambda _pid: NOW)
+
+    plan = plan_legacy_candidate_cleanup(tmp_path, now=NOW)
+
+    assert len(plan.candidates) == 1
+    assert plan.invalid_count == 0
+
+
 def test_unrecognized_spool_entry_blocks_cleanup(tmp_path: Path) -> None:
     root = plugin_spool_root(tmp_path)
     root.mkdir(parents=True)
