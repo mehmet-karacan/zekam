@@ -26,9 +26,11 @@ from zekam.application.opencode_agent_bootstrap import (
 )
 from zekam.application.opencode_lifecycle import record_event, resume_projection
 from zekam.application.opencode_spool import (
+    apply_invalid_legacy_candidate_cleanup,
     apply_legacy_candidate_cleanup,
     drain_plugin_spool,
     inspect_spool,
+    plan_invalid_legacy_candidate_cleanup,
     plan_legacy_candidate_cleanup,
 )
 from zekam.domain.errors import ConfigurationError, ZekamError
@@ -139,6 +141,30 @@ def spool_cleanup_command(
             if expected_plan_digest is None:
                 raise ZekamError("--uygula exact --beklenen-plan-digest ister")
             document = apply_legacy_candidate_cleanup(
+                resolved_home,
+                expected_plan_digest=expected_plan_digest,
+            ).as_dict()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    console.print_json(json.dumps(document, ensure_ascii=False, default=str))
+
+
+@app.command("spool-recover-invalid")
+def spool_recover_invalid_command(
+    expected_plan_digest: Annotated[str | None, typer.Option("--beklenen-plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Eski malformed drain adaylarini raw delete olmadan karantinaya tasir."""
+
+    resolved_home = resolve_home(home)
+    try:
+        if not apply:
+            document = plan_invalid_legacy_candidate_cleanup(resolved_home).as_dict()
+        else:
+            if expected_plan_digest is None:
+                raise ZekamError("--uygula exact --beklenen-plan-digest ister")
+            document = apply_invalid_legacy_candidate_cleanup(
                 resolved_home,
                 expected_plan_digest=expected_plan_digest,
             ).as_dict()

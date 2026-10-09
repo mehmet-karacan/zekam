@@ -21,6 +21,7 @@ _CANDIDATE = re.compile(r"^\.drain\.candidate\.([0-9a-fA-F-]{36})$")
 _TEMPORARY = re.compile(r"^.+\.json\.([0-9a-fA-F-]{36})\.tmp$")
 _LOCK_NAME = ".drain.lock"
 _MINIMUM_STALE_SECONDS = 300
+_INVALID_MINIMUM_STALE_SECONDS = 24 * 60 * 60
 
 
 def plugin_spool_root(home: Path) -> Path:
@@ -179,6 +180,72 @@ class LegacyCleanupReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class InvalidLegacyCandidate:
+    name: str
+    candidate_ref: str
+    reason: str
+    age_seconds: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "candidate_ref": self.candidate_ref,
+            "reason": self.reason,
+            "age_seconds": self.age_seconds,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidLegacyCleanupPlan:
+    home: Path
+    candidates: tuple[InvalidLegacyCandidate, ...]
+    lock_present: bool
+    observed_at: dt.datetime
+    plan_digest: str
+
+    def as_dict(self) -> dict[str, Any]:
+        reason_counts: dict[str, int] = {}
+        for item in self.candidates:
+            reason_counts[item.reason] = reason_counts.get(item.reason, 0) + 1
+        return {
+            "schema": "zekam-opencode-invalid-legacy-cleanup-plan/v1",
+            "candidate_count": len(self.candidates),
+            "candidate_refs": [item.candidate_ref for item in self.candidates],
+            "reason_counts": dict(sorted(reason_counts.items())),
+            "lock_present": self.lock_present,
+            "minimum_stale_seconds": _INVALID_MINIMUM_STALE_SECONDS,
+            "observed_at": self.observed_at,
+            "plan_digest": self.plan_digest,
+            "reversible": True,
+            "raw_delete": False,
+            "grants_authority": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidLegacyCleanupReceipt:
+    plan_digest: str
+    receipt_digest: str
+    moved: int
+    quarantine_refs: tuple[str, ...]
+    reason_counts: dict[str, int]
+    completed_at: dt.datetime
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-opencode-invalid-legacy-cleanup-receipt/v1",
+            "plan_digest": self.plan_digest,
+            "receipt_digest": self.receipt_digest,
+            "moved": self.moved,
+            "quarantine_refs": list(self.quarantine_refs),
+            "reason_counts": dict(sorted(self.reason_counts.items())),
+            "completed_at": self.completed_at,
+            "reversible": True,
+            "raw_delete": False,
+            "grants_authority": False,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SpoolDrainReceipt:
     processed: int
     acknowledged: int
@@ -234,6 +301,43 @@ def _candidate(
     if age_seconds < minimum_stale_seconds:
         return None
     return LegacyCandidate(path.name, _ref(path.name), pid, age_seconds)
+
+
+def _invalid_candidate(
+    path: Path,
+    *,
+    now: dt.datetime,
+    minimum_stale_seconds: int,
+) -> InvalidLegacyCandidate | None:
+    """Select only old malformed candidates with no usable owner identity.
+
+    A valid owner document is never auto-quarantined here, even when its process
+    is live, its token does not match the directory, or it is too young. Those
+    cases need the existing exact cleanup/manual recovery path.
+    """
+
+    matched = _CANDIDATE.fullmatch(path.name)
+    if matched is None or not path.is_dir() or _is_link_or_reparse(path):
+        return None
+    modified_at = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.UTC)
+    age_seconds = int((now - modified_at).total_seconds())
+    if age_seconds < minimum_stale_seconds:
+        return None
+    entries = tuple(sorted(item.name for item in path.iterdir()))
+    if not entries:
+        return InvalidLegacyCandidate(path.name, _ref(path.name), "empty", age_seconds)
+    if entries != ("owner.json",):
+        return None
+    owner_path = path / "owner.json"
+    if not owner_path.is_file() or _is_link_or_reparse(owner_path):
+        return None
+    try:
+        json.loads(owner_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return InvalidLegacyCandidate(
+            path.name, _ref(path.name), "malformed-owner-json", age_seconds
+        )
+    return None
 
 
 def plan_legacy_candidate_cleanup(
@@ -375,6 +479,124 @@ def apply_legacy_candidate_cleanup(
     )
 
 
+def plan_invalid_legacy_candidate_cleanup(
+    home: Path,
+    *,
+    now: dt.datetime | None = None,
+    minimum_stale_seconds: int = _INVALID_MINIMUM_STALE_SECONDS,
+) -> InvalidLegacyCleanupPlan:
+    """Plan reversible quarantine for old candidates without usable owner data."""
+
+    if minimum_stale_seconds < _INVALID_MINIMUM_STALE_SECONDS:
+        raise ValidationFailed("Invalid legacy candidate stale siniri 24 saatten kucuk olamaz")
+    observed_at = now or dt.datetime.now(dt.UTC)
+    root = plugin_spool_root(home)
+    candidates: list[InvalidLegacyCandidate] = []
+    lock_present = False
+    if root.exists():
+        if not root.is_dir() or _is_link_or_reparse(root):
+            raise ConfigurationError("OpenCode plugin spool regular directory olmali")
+        lock_present = (root / _LOCK_NAME).exists()
+        for path in sorted(root.iterdir(), key=lambda item: item.name):
+            if path.name in {"quarantine", _LOCK_NAME} or (
+                path.is_file() and path.name.endswith(".json")
+            ):
+                continue
+            item = _invalid_candidate(
+                path,
+                now=observed_at,
+                minimum_stale_seconds=minimum_stale_seconds,
+            )
+            if item is not None:
+                candidates.append(item)
+    body = {
+        "schema": "zekam-opencode-invalid-legacy-cleanup-plan/v1",
+        "candidate_refs": [item.candidate_ref for item in candidates],
+        "reasons": [
+            {"candidate_ref": item.candidate_ref, "reason": item.reason}
+            for item in candidates
+        ],
+        "lock_present": lock_present,
+        "minimum_stale_seconds": minimum_stale_seconds,
+    }
+    return InvalidLegacyCleanupPlan(
+        home=home,
+        candidates=tuple(candidates),
+        lock_present=lock_present,
+        observed_at=observed_at,
+        plan_digest=digest(body),
+    )
+
+
+def apply_invalid_legacy_candidate_cleanup(
+    home: Path,
+    *,
+    expected_plan_digest: str,
+    now: dt.datetime | None = None,
+) -> InvalidLegacyCleanupReceipt:
+    """Quarantine only the exact old malformed-candidate plan; never raw-delete."""
+
+    plan = plan_invalid_legacy_candidate_cleanup(home, now=now)
+    if plan.plan_digest != expected_plan_digest:
+        raise PolicyViolation("OpenCode invalid legacy cleanup plan digest drift")
+    if plan.lock_present:
+        raise PolicyViolation("OpenCode invalid legacy cleanup active drain lock mevcut")
+    root = plugin_spool_root(home)
+    quarantine = root / "quarantine"
+    quarantine.mkdir(parents=True, exist_ok=True)
+    if _is_link_or_reparse(quarantine):
+        raise ConfigurationError("OpenCode quarantine link veya reparse point olamaz")
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for item in plan.candidates:
+            source = root / item.name
+            observed = _invalid_candidate(
+                source,
+                now=plan.observed_at,
+                minimum_stale_seconds=_INVALID_MINIMUM_STALE_SECONDS,
+            )
+            if observed != item:
+                raise PolicyViolation("OpenCode invalid legacy cleanup candidate drift")
+            target = quarantine / f"invalid-drain-candidate.{uuid4()}"
+            source.replace(target)
+            moved.append((source, target))
+    except BaseException:
+        for source, target in reversed(moved):
+            if target.exists() and not source.exists():
+                target.replace(source)
+        raise
+    completed_at = dt.datetime.now(dt.UTC)
+    quarantine_refs = tuple(_ref(target.name) for _, target in moved)
+    reason_counts: dict[str, int] = {}
+    for item in plan.candidates:
+        reason_counts[item.reason] = reason_counts.get(item.reason, 0) + 1
+    body = {
+        "schema": "zekam-opencode-invalid-legacy-cleanup-receipt/v1",
+        "plan_digest": plan.plan_digest,
+        "moved": len(moved),
+        "candidate_refs": [item.candidate_ref for item in plan.candidates],
+        "quarantine_refs": list(quarantine_refs),
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "completed_at": completed_at.isoformat(),
+        "reversible": True,
+        "raw_delete": False,
+        "grants_authority": False,
+    }
+    receipt_digest = digest(body)
+    _atomic_json(
+        quarantine / f"invalid-cleanup-receipt-{receipt_digest.removeprefix('sha256:')}.json",
+        body | {"receipt_digest": receipt_digest},
+    )
+    return InvalidLegacyCleanupReceipt(
+        plan.plan_digest,
+        receipt_digest,
+        len(moved),
+        quarantine_refs,
+        reason_counts,
+        completed_at,
+    )
+
+
 _EVENT_FLAGS = {
     "--type": "event_type",
     "--session": "session_id",
@@ -472,7 +694,7 @@ def drain_plugin_spool(
     lock = root / _LOCK_NAME
     if lock.exists():
         try:
-            pid, expires_at, _ = _lock_owner(lock)
+            pid, _expires_at, _ = _lock_owner(lock)
         except ValidationFailed:
             lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
         else:

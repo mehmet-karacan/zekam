@@ -10,9 +10,11 @@ import pytest
 
 import zekam.application.opencode_spool as spool_module
 from zekam.application.opencode_spool import (
+    apply_invalid_legacy_candidate_cleanup,
     apply_legacy_candidate_cleanup,
     drain_plugin_spool,
     inspect_spool,
+    plan_invalid_legacy_candidate_cleanup,
     plan_legacy_candidate_cleanup,
     plugin_spool_root,
 )
@@ -104,6 +106,49 @@ def test_unrecognized_spool_entry_blocks_cleanup(tmp_path: Path) -> None:
             expected_plan_digest=plan.plan_digest,
             now=NOW,
         )
+
+
+def test_old_malformed_candidates_are_quarantined_with_a_receipt(tmp_path: Path) -> None:
+    root = plugin_spool_root(tmp_path)
+    root.mkdir(parents=True)
+    empty = root / f".drain.candidate.{uuid4()}"
+    empty.mkdir()
+    malformed = root / f".drain.candidate.{uuid4()}"
+    malformed.mkdir()
+    (malformed / "owner.json").write_text("{broken", encoding="utf-8")
+    old = (NOW - dt.timedelta(days=2)).timestamp()
+    os.utime(empty, (old, old))
+    os.utime(malformed, (old, old))
+
+    plan = plan_invalid_legacy_candidate_cleanup(tmp_path, now=NOW)
+    receipt = apply_invalid_legacy_candidate_cleanup(
+        tmp_path,
+        expected_plan_digest=plan.plan_digest,
+        now=NOW,
+    )
+
+    assert len(plan.candidates) == 2
+    assert receipt.moved == 2
+    assert not empty.exists() and not malformed.exists()
+    assert receipt.reason_counts == {"empty": 1, "malformed-owner-json": 1}
+    receipt_path = next((root / "quarantine").glob("invalid-cleanup-receipt-*.json"))
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert document["raw_delete"] is False
+    assert document["reversible"] is True
+    assert inspect_spool(tmp_path, now=NOW).invalid_legacy_candidates == 0
+
+
+def test_recent_malformed_candidate_is_not_recovery_eligible(tmp_path: Path) -> None:
+    root = plugin_spool_root(tmp_path)
+    root.mkdir(parents=True)
+    malformed = root / f".drain.candidate.{uuid4()}"
+    malformed.mkdir()
+    (malformed / "owner.json").write_text("{broken", encoding="utf-8")
+
+    plan = plan_invalid_legacy_candidate_cleanup(tmp_path, now=NOW)
+
+    assert plan.candidates == ()
+    assert inspect_spool(tmp_path, now=NOW).invalid_legacy_candidates == 1
 
 
 def test_status_contains_counts_and_digests_but_not_candidate_names(tmp_path: Path) -> None:
