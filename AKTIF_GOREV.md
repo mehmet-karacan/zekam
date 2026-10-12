@@ -511,6 +511,18 @@ retrieval ve cevap kaniti WP-03.02..05 kapsaminda aciktir. Daha genis fixture
 testindeki uc onceden var olan hata, dis `gpu-fusion` kaynaginda artik bulunmayan
 `AuditDDLService.java` dosyasina baglidir; o kullanici kaynagina dokunulmadi.
 
+**13 Ekim 2026 ara durum — WP-03.02 salt okunur kapsam kaniti:**
+`natural_request_scope.py` acik proje, route, Jira, Work ve oturum sinyallerinin
+onceligini/celiskisini yan etkisiz bir karar olarak cozer. `natural_request_evidence.py`
+mevcut operasyonel SQLite kaydindan acik Work/proje bagini ve kayitli proje kaynak
+kokundeki tam dosyanin SHA-256 degerini gercekten yeniden okur; icerik dondurmez.
+Kaynak disina cikis, link, gizli ayar dosyasi, ikili icerik, bayat digest, arsivli
+proje ve kilitli Work okuma negatif testlerle kapatildi. Bagimsiz OpenCode
+incelemesinin hardlink, SQLite kilidi ve arsivli proje bulgulari giderildi;
+27 hedefli test gecti, Windows sembolik baglanti yetkisi nedeniyle bir test atlandi.
+WP-03.02 henuz tamamlanmadi: native cok turlu oturumun dogrulanmis sinyali
+uretmesi ve gercek son kullanici kabul akisinda bagin olculmesi aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  
