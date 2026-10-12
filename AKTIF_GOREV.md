@@ -523,6 +523,17 @@ incelemesinin hardlink, SQLite kilidi ve arsivli proje bulgulari giderildi;
 WP-03.02 henuz tamamlanmadi: native cok turlu oturumun dogrulanmis sinyali
 uretmesi ve gercek son kullanici kabul akisinda bagin olculmesi aciktir.
 
+**13 Ekim 2026 ara durum — WP-03.03 kapsamli sorgu adapteri:**
+`natural_request_retrieval.py` secilmemis/belirsiz kapsamda sorgu yapmaz;
+tek proje icin yalniz o kayitli projenin RAG sorgusunu acar. Coklu aile
+eslesmesi yalniz acik karsilastirma ifadesiyle proje basina ayri sonuc verir.
+Kayitsiz proje, eksik indeks ve engellenmis kapsam yeniden indeksleme
+baslatmadan raporlanir. Gercek kayitli projenin eksik indeksinde dosya agaci
+degismedi; 18 yeni test ve komsu regresyon testleri gecti. Alt katmandaki
+`query_registered_project` sorgu dogrulama gozlemi yazabildiginden cikti bunu
+acikca bildirir. WP-03.03 native dispatcher baglantisi ve gercek coklu indeks
+kabul testi tamamlanana kadar aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  
