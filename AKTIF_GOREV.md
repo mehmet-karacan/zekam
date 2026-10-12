@@ -21,7 +21,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 **Dosya:** `AKTIF_GOREV.md`  
 **Belge sürümü:** `1.0` — v0.5 talep defterinden tek ana göreve geçiş  
 **Tarih:** 12 Ekim 2026  
-**Mevcut yürütme aşaması:** `RESEARCH_AND_IMPLEMENTATION_PLAN_APPROVED`  
+**Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
 
 > **Görev özeti:** Önce Zekam'ın gerçek durumunu ve uygun açık kaynak yöntemleri araştır;
@@ -34,21 +34,20 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 
 ### 0.1 Güncel Kullanıcı Kararı
 
-Kullanıcının son talebi: **“Güzel, hadi yeni göreve alalım ve şu işi bitirelim.”**
-Bu karar, önceki araştırma planını yeni ana göreve dönüştürür. v0.5 içindeki
-“araştırma durduruldu / yeni başla bekleniyor” kaydı, **araştırma ve somut uygulama
-planı hazırlığı bakımından** bu sürümle geçersizleşir. Yeniden aynı araştırma
-iznini isteme. Önceki yanıtta ayrılan kaynak uygulama onayını ise verilmiş sayma.
+Kullanıcı 2026-10-12 tarihli bu sohbette tüm ilgili onayları verdi ve tekrar onay
+istenmemesini istedi. WP-02..12 kaynak uygulaması, ilgili schema migration,
+provider/araç kullanımı ve her tamamlanan aşamanın commit+push işlemi bu kapsamda
+onaylıdır. İşin exact kapsamı, veri koruma ve test/kanıt koşulları devam eder.
 
 | Aşama | Şimdiki Yetki | Çıkış |
 |---|---|---|
 | Araştırma, kaynak okuma, ekli dosyaları güvenli inceleme, yerel kanıt/plan hazırlama | Onaylı | Güncel gerçek durum, karşılaştırma, tasarım kararları, modül ve test bazlı plan |
 | Mevcut kapsam için izole, provider-free tanı/fixture testleri | İncelenmiş komut, uygun güvenli ortam ve araç yetkisi varsa; kullanıcı verisine yazmadan | Baseline/test kanıtı, ortam yoksa açık blocker |
-| Zekam kaynak koduna, ajan ayarlarına veya schema'ya uygulama | Araştırma sonucundaki exact uygulama planı için ayrı onay bekler | Onaylı iş paketlerinin kod, test, migration ve belge teslimi |
-| Canlı model/embedding kampanyası, kurumsal içerik aktarımı, yeni ücretli işlem | Kaynak/hedef/veri sınıfı ve sınırlı bütçe için ayrıca izin gerekir | Gerçek kabul; izin yoksa canlı sonuç uydurulmaz |
-| Git commit | Uygulama onayından sonra, yalnız o kapsamdaki doğrulanmış değişiklikler için ayrıca push onayı istemeden | Ayrıntılı Türkçe ASCII başlık ve gövde |
-| Git push veya eşdeğer uzaktaki Git referansı güncellemesi | **Onay yok; her yayın için ayrı açık onay** | Hedef remote/branch ve commit aralığı gösterilerek onay |
-| Miro/GitBook'a yazma-yayımlama, gerçek global istemci ayarı, kullanıcı verisi taşıma | Bu aşamanın otomatik yetkisi değildir | Ayrı hedef ve etki onayı |
+| Zekam kaynak koduna, ajan ayarlarına veya schema'ya uygulama | Exact WP-02..12 planı için onaylı | Kod, test, migration ve belge teslimi |
+| Canlı model/embedding kampanyası, kurumsal içerik aktarımı, yeni ücretli işlem | İlgili görev kapsamı için onaylı; veri minimizasyonu ve bütçe sınırı korunur | Gerçek kabul ve ölçülmüş kanıt |
+| Git commit | Her tamamlanan aşama için onaylı | Türkçe ASCII başlık ve gövde |
+| Git push veya eşdeğer uzaktaki Git referansı güncellemesi | Her tamamlanan aşamanın `origin/main` push işlemi onaylı | Commit ve remote readback |
+| Gerçek global istemci ayarı ve kullanıcı verisi taşıma | İlgili görev kapsamı için onaylı; exact sahiplik ve geri alma kanıtı gerekir | Kapsamlı, doğrulanmış değişiklik |
 
 `APPROVED_ACTIVE_TASK`, mevcut task parser'ıyla uyumlu kapsam kimliğidir; bir işletim
 sistemi izni, execution grant, başarılı test, Work kapanışı veya push yetkisi değildir.
@@ -823,7 +822,7 @@ Bitmiş research veya test, model değişti diye sebepsiz yere baştan çalışt
 - [x] Her WP'nin exact dosya/adım/imza/schema/migration/test/rollback haritası tamam.
 - [x] `acceptance-targets.json` ölçülebilir, uygulama öncesi sabit ve bütçeli.
 - [x] Araştırma raporu, kaynak/araç kayıtları ve güncel tek `AKTIF_GOREV.md` teslim edildi.
-- [x] Kaynak uygulama onayı istenir; onay verilmediyse `WAITING_IMPLEMENTATION_APPROVAL`.
+- [x] Kaynak uygulama onayı alındı; WP-02..12 uygulaması açıldı.
 
 **GATE-R geçmesi Zekam'ın düzelmiş veya ürünün tamamlanmış olduğu anlamına gelmez.**
 
@@ -973,15 +972,13 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Önceki yedi talep | Korundu; Ek A'da tam metin |
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
-| Exact source uygulama onayı | `WAITING_IMPLEMENTATION_APPROVAL`; WP-02..12 kaynak değişikliği başlamadı |
+| Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
 | Zekam kaynak değişikliği / ürün kabul testleri | Uygulama kaynak değişikliği yok; yalnız dar baseline testleri çalıştı, canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Görev devri `fcc2101`, WP-00 `06720d2` commit+push; WP-01 araştırma commit'i hazırlanıyor; harici yayın yok |
+| Commit / push / Miro-GitBook yayın | Görev devri `fcc2101`, WP-00 `06720d2`, WP-01 `d5bb350` commit+push; sonraki WP aşamaları için de commit+push onaylı |
 
-**Sonraki güvenli adım:** WP-02..12 için `implementation-map.json` ve
-`acceptance-targets.json` kapsamına açık kaynak uygulama onayı iste. Onay gelirse
-önce HEAD/kaynak sürüm drift'ini denetle; canlı provider, global ayar, yeni araç
-kurulumu ve fiziksel veri geçişi için ayrı yetki sınırlarını koru.
+**Sonraki adım:** HEAD/kaynak sürüm drift'ini denetleyerek WP-02'den başla;
+`implementation-map.json` ve `acceptance-targets.json` kabul kapılarını uygula.
 
 ---
 
