@@ -437,12 +437,17 @@ claim/receipt gerekir. İzole ölçüm ve test doğrulaması, kullanıcıya CLI 
 
 **İncelenecek/değişecek konumlar:** GitHub kaynakları; seçilmiş resmi kütüphane/model belgeleri; v2 araştırma/üretim katalogları. Mevcut modül dosyaları başlangıç haritasından seçilecek.
 
-- [ ] **WP-01.01** — Graft ve uygun alternatifleri tarama/AST/graph/chunk/cache/index/query/resume açısından kaynak/test seviyesinde karşılaştır. Mevcut Zekam referans süresiyle aynı protokolü kullan.
-- [ ] **WP-01.02** — Embedding model değişikliği gerekip gerekmediğini mevcut model baseline'ına karşı değerlendir. Türkçe teknik soru ve kod sembolü corpus'u, lisans, batch/token limiti, cihaz uygunluğu ve maliyet kaydı olsun.
-- [ ] **WP-01.03** — Native startup, host-neutral tool/agent execution, `.env` safe parsing ve shell/push politikası için resmi host sözleşmelerini doğrula. Desteği isimsiz “tüm modeller” vaadine dönüştürme.
-- [ ] **WP-01.04** — Her WP için exact mevcut/yeni dosya, imza/şema, migration, bağımlılık, test, ölçüm hedefi ve rollback seçimini `implementation-map.json` içinde tamamla. Placeholder ile uygulama kapısını geçme.
-- [ ] **WP-01.05** — Davranışsal ve performans kabul hedeflerini uygulamadan önce sabitle. Scope/host/güvenlik değişikliği kararlarını D-01..D-08'e bağla; kararsızlık olmayan rutin iç tercihler için sürekli soru sorma.
-- [ ] **WP-01.06** — Araştırma ve uygulanabilir planı tek seferde teslim et; açık uygulama onayını bekle. Onay gelince aynı araştırmayı baştan yapma; yalnız source/version drift farkını doğrula.
+- [x] **WP-01.01** — Graft ve uygun alternatifleri tarama/AST/graph/chunk/cache/index/query/resume açısından kaynak/test seviyesinde karşılaştır. Mevcut Zekam referans süresiyle aynı protokolü kullan.
+- [x] **WP-01.02** — Embedding model değişikliği gerekip gerekmediğini mevcut model baseline'ına karşı değerlendir. Türkçe teknik soru ve kod sembolü corpus'u, lisans, batch/token limiti, cihaz uygunluğu ve maliyet kaydı olsun.
+- [x] **WP-01.03** — Native startup, host-neutral tool/agent execution, `.env` safe parsing ve shell/push politikası için resmi host sözleşmelerini doğrula. Desteği isimsiz “tüm modeller” vaadine dönüştürme.
+- [x] **WP-01.04** — Her WP için exact mevcut/yeni dosya, imza/şema, migration, bağımlılık, test, ölçüm hedefi ve rollback seçimini `implementation-map.json` içinde tamamla. Placeholder ile uygulama kapısını geçme.
+- [x] **WP-01.05** — Davranışsal ve performans kabul hedeflerini uygulamadan önce sabitle. Scope/host/güvenlik değişikliği kararlarını D-01..D-08'e bağla; kararsızlık olmayan rutin iç tercihler için sürekli soru sorma.
+- [x] **WP-01.06** — Araştırma ve uygulanabilir planı tek seferde teslim et; açık uygulama onayını bekle. Onay gelince aynı araştırmayı baştan yapma; yalnız source/version drift farkını doğrula.
+
+WP-01 ölçüm sınırı: Zekam'ın sentetik grafik, kaynak keşfi ve chunk planı süreleri
+ölçüldü. Graft/Aider/Serena aynı korpusta çalıştırılmadı; yeni araç kurulumu
+onayı yok. Tam RAG/provider süresi ve model kalitesi ölçülmüş baseline değildir.
+Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı kanıt paketinde.
 
 **Üretilen sözleşme/çıktı:** `research-findings.md/json`, `comparison-matrix.json`, `design-decisions.md/json`, `implementation-map.json`, `acceptance-targets.json`, bu görev dosyasının kanıta dayalı revizyonu.
 
@@ -812,13 +817,13 @@ Bitmiş research veya test, model değişti diye sebepsiz yere baştan çalışt
 
 ### 12.1 Araştırma Sonu — GATE-R
 
-- [ ] WP-00 baseline ve tüm 31 CAP/23 GAP için gerçek kaynak/koşu durumu var.
-- [ ] Graft ve uygun alternatifler lisans/sürüm/kod/ölçüm sınırıyla karşılaştırıldı.
-- [ ] D-01..D-08 kararları; uygulamayı bloke eden gerçek kararlar ayrı ve sınırlı.
-- [ ] Her WP'nin exact dosya/adım/imza/schema/migration/test/rollback haritası tamam.
-- [ ] `acceptance-targets.json` ölçülebilir, uygulama öncesi sabit ve bütçeli.
-- [ ] Araştırma raporu, kaynak/araç kayıtları ve güncel tek `AKTIF_GOREV.md` teslim edildi.
-- [ ] Kaynak uygulama onayı istenir; onay verilmediyse `WAITING_IMPLEMENTATION_APPROVAL`.
+- [x] WP-00 baseline ve tüm 31 CAP/23 GAP için gerçek kaynak/koşu durumu var.
+- [x] Graft ve uygun alternatifler lisans/sürüm/kod/ölçüm sınırıyla karşılaştırıldı.
+- [x] D-01..D-08 kararları; uygulamayı bloke eden gerçek kararlar ayrı ve sınırlı.
+- [x] Her WP'nin exact dosya/adım/imza/schema/migration/test/rollback haritası tamam.
+- [x] `acceptance-targets.json` ölçülebilir, uygulama öncesi sabit ve bütçeli.
+- [x] Araştırma raporu, kaynak/araç kayıtları ve güncel tek `AKTIF_GOREV.md` teslim edildi.
+- [x] Kaynak uygulama onayı istenir; onay verilmediyse `WAITING_IMPLEMENTATION_APPROVAL`.
 
 **GATE-R geçmesi Zekam'ın düzelmiş veya ürünün tamamlanmış olduğu anlamına gelmez.**
 
@@ -958,6 +963,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 0.1–0.5 | 2026-10-12 | İlk talep defteri, yedi gereksinim, kullanıcı doğal dil örnekleri ve 31 CAP karar listesi; tam geçmiş Ek A'da |
 | 1.0 | 2026-10-12 | Tek ana task kimliği ve parser-uyumlu header; araştırma onayı, ayrı uygulama kapısı; 27 plan maddesi, 31 CAP, 23 GAP, 13 WP, 40 doğal dil senaryosu ve test/rollback/kanıt sözleşmeleri |
 | 1.1 | 2026-10-12 | WP-00 metadata/kaynak envanteri, 31 CAP ve 23 GAP durum eşlemesi, dar test baseline ve geçiş risk haritası repo dışı kanıta işlendi; canlı kabul ve WP-01 açık |
+| 1.2 | 2026-10-12 | WP-01 Graft/Aider/Serena ve model karşılaştırması, D-01..08, 13 WP uygulama haritası ve 27 kabul hedefi tamamlandı; kaynak uygulama onayı bekleniyor |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -965,16 +971,17 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 |---|---|
 | Görev dosyası ve girdi manifesti | Aktif; projection ve paket manifesti doğrulandı |
 | Önceki yedi talep | Korundu; Ek A'da tam metin |
-| Geniş repo/açık kaynak araştırması | WP-00 tamamlandı; WP-01 açık kaynak karşılaştırması sürüyor |
+| Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
-| Exact source uygulama onayı | Bekleniyor; GATE-R sonrasında |
+| Exact source uygulama onayı | `WAITING_IMPLEMENTATION_APPROVAL`; WP-02..12 kaynak değişikliği başlamadı |
 | Zekam kaynak değişikliği / ürün kabul testleri | Uygulama kaynak değişikliği yok; yalnız dar baseline testleri çalıştı, canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Görev devri commit+push: `fcc2101`; araştırma checkpoint'i hazırlanıyor; harici yayın yok |
+| Commit / push / Miro-GitBook yayın | Görev devri `fcc2101`, WP-00 `06720d2` commit+push; WP-01 araştırma commit'i hazırlanıyor; harici yayın yok |
 
-**Sonraki güvenli adım:** Repo dışı `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12`
-kanıt paketindeki WP-00 sonucunu kullanarak WP-01 karşılaştırmasını, exact uygulama
-haritasını ve kabul hedeflerini tamamla. Kaynak uygulama onayı GATE-R sonrasında beklenir.
+**Sonraki güvenli adım:** WP-02..12 için `implementation-map.json` ve
+`acceptance-targets.json` kapsamına açık kaynak uygulama onayı iste. Onay gelirse
+önce HEAD/kaynak sürüm drift'ini denetle; canlı provider, global ayar, yeni araç
+kurulumu ve fiziksel veri geçişi için ayrı yetki sınırlarını koru.
 
 ---
 
