@@ -534,6 +534,14 @@ degismedi; 18 yeni test ve komsu regresyon testleri gecti. Alt katmandaki
 acikca bildirir. WP-03.03 native dispatcher baglantisi ve gercek coklu indeks
 kabul testi tamamlanana kadar aciktir.
 
+**13 Ekim 2026 ara durum — WP-03.04 native kesif talimati:**
+OpenCode GLM salt okunur incelemesi, `AGENTS.md` girisini, mevcut `zekam ask`
+komutunu ve proje-yerel skill taramasini dogruladi. `AGENTS.md` ajanlara acik,
+yetkili dogal dil isteginde eslesen Zekam komutunu kendisinin calistirip kaniti
+dogal dille ozetlemesini soyler; kullanicidan komut/digest/UUID/JSON yazmasini
+istemez. Native istemcide taze oturum, gercek skill secimi ve komut cagrisinin
+olculmesi henuz yapilmadigi icin WP-03.04 aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  

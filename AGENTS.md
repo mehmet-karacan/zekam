@@ -9,6 +9,10 @@ mekanizmaları CLI'ın kendisine aittir. Zekam zorunlu koordinatör veya ajan y�
 
 - Selamlama, genel soru, basit kaynak inceleme ve küçük doküman düzeltmesi için doctor, RAG,
   router veya subagent adımı gerekmez. Doğrudan çalış.
+- Kullanıcı doğal dilde Zekam proje araması, Jira iş kaydı, Work durumu veya test ölçümü
+  gerektiren açık bir istek yaparsa ve gerekli yetki varsa, eşleşen `zekam` komutunu kendin
+  çalıştır ve kanıtı doğal dilde özetle. Bu isteklerde kullanıcıdan komut, digest, UUID veya
+  JSON yazmasını isteme. Klasörü açmak tek başına tetikleyici değildir.
 - Kod değişikliğini bu gerçek kaynak kökünde yap; kopya, mirror, detached worktree veya geçici
   proje klonu oluşturma. Geçici rapor, memo, indirilen artifact veya başka projenin dosyasını bu
   köke yazma; yalnız yetkili tracked kaynak/test/migration/belge değişikliği yapılır.
