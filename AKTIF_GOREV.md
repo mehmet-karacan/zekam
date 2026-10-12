@@ -420,11 +420,11 @@ claim/receipt gerekir. İzole ölçüm ve test doğrulaması, kullanıcıya CLI 
 
 **İncelenecek/değişecek konumlar:** `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `pyproject.toml`, `src/zekam/application/active_task_contract.py`, `capability_inventory.py`, `interfaces/cli/main.py`, `scripts/audit_runtime_reachability.py`, `tests/`, `legacy-preserved/` ve güncel metadata.
 
-- [ ] **WP-00.01** — Repo dosyalarının tam metadata envanterini, aktif import/entrypoint graphını ve wheel dışı/tarihsel modülleri ayır. Dosya sayısı test sayısı değildir; unreachable modülü çalışan yetenek sayma.
-- [ ] **WP-00.02** — 31 CAP ve 23 GAP için mevcut davranışı, kaynağı, test varlığını, gerçek koşu sonucunu ve doğal dil yolunu ayrı kaydet. Önceden var olan arızaları yeni regresyonlardan ayır.
-- [ ] **WP-00.03** — Kullanıcı verisini değiştirmeyen küçük baseline test grubunu komutları inceleyerek uygun izole ortamda çalıştır. Model/Jira/Oracle bağlantısı veya tam provider kampanyası kendiliğinden başlamasın.
-- [ ] **WP-00.04** — Cold, unchanged, single-change indeksleme ve sorgu aşamalarını ölçebilecek mevcut araçları belirle; gerçek cihaz yoksa “ölçülemedi” yaz. Ölçülmeyen yavaşlık için kök neden uydurma.
-- [ ] **WP-00.05** — Görev/projection schema, tarihsel hash biçimi, eski agent/non-agent ayrımı, source/wheel drift ve kullanıcı veri yerleşimi için migration risk haritası çıkar.
+- [x] **WP-00.01** — Repo dosyalarının tam metadata envanterini, aktif import/entrypoint graphını ve wheel dışı/tarihsel modülleri ayır. Dosya sayısı test sayısı değildir; unreachable modülü çalışan yetenek sayma.
+- [x] **WP-00.02** — 31 CAP ve 23 GAP için mevcut davranışı, kaynağı, test varlığını, gerçek koşu sonucunu ve doğal dil yolunu ayrı kaydet. Önceden var olan arızaları yeni regresyonlardan ayır.
+- [x] **WP-00.03** — Kullanıcı verisini değiştirmeyen küçük baseline test grubunu komutları inceleyerek uygun izole ortamda çalıştır. Model/Jira/Oracle bağlantısı veya tam provider kampanyası kendiliğinden başlamasın.
+- [x] **WP-00.04** — Cold, unchanged, single-change indeksleme ve sorgu aşamalarını ölçebilecek mevcut araçları belirle; gerçek cihaz yoksa “ölçülemedi” yaz. Ölçülmeyen yavaşlık için kök neden uydurma.
+- [x] **WP-00.05** — Görev/projection schema, tarihsel hash biçimi, eski agent/non-agent ayrımı, source/wheel drift ve kullanıcı veri yerleşimi için migration risk haritası çıkar.
 
 **Üretilen sözleşme/çıktı:** `baseline.json`, `capability-assessment.json`, `source-runtime-map.json`, `gap-ledger.json`, test/env/provenance kayıtları; hiçbir `passed` kaydı kanıtsız olmaz.
 
@@ -957,23 +957,24 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 |---|---|---|
 | 0.1–0.5 | 2026-10-12 | İlk talep defteri, yedi gereksinim, kullanıcı doğal dil örnekleri ve 31 CAP karar listesi; tam geçmiş Ek A'da |
 | 1.0 | 2026-10-12 | Tek ana task kimliği ve parser-uyumlu header; araştırma onayı, ayrı uygulama kapısı; 27 plan maddesi, 31 CAP, 23 GAP, 13 WP, 40 doğal dil senaryosu ve test/rollback/kanıt sözleşmeleri |
+| 1.1 | 2026-10-12 | WP-00 metadata/kaynak envanteri, 31 CAP ve 23 GAP durum eşlemesi, dar test baseline ve geçiş risk haritası repo dışı kanıta işlendi; canlı kabul ve WP-01 açık |
 
 ### 15.3 Şimdiki Gerçek Durum
 
 | Alan | Durum |
 |---|---|
-| Görev dosyası ve girdi manifesti | Hazırlandı; yerel yapısal doğrulama ayrı kayıtta |
+| Görev dosyası ve girdi manifesti | Aktif; projection ve paket manifesti doğrulandı |
 | Önceki yedi talep | Korundu; Ek A'da tam metin |
-| Geniş repo/açık kaynak araştırması | Bu yeni görev kapsamında henüz yürütülmedi |
+| Geniş repo/açık kaynak araştırması | WP-00 tamamlandı; WP-01 açık kaynak karşılaştırması sürüyor |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bekleniyor; GATE-R sonrasında |
-| Zekam kaynak değişikliği / ürün kabul testleri | Yapılmadı / çalıştırılmadı |
+| Zekam kaynak değişikliği / ürün kabul testleri | Uygulama kaynak değişikliği yok; yalnız dar baseline testleri çalıştı, canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Yapılmadı |
+| Commit / push / Miro-GitBook yayın | Görev devri commit+push: `fcc2101`; araştırma checkpoint'i hazırlanıyor; harici yayın yok |
 
-**İlk güvenli adım:** Gerçek checkout ve eski task/projection/Work durumunu WP-00'a göre
-kayıpsız doğrula; 31 CAP envanterini ve mevcut test baseline'ını çıkar. WP-01 araştırma
-kollarını bu bulgularla başlat. Araştırma kapısı tamamlanmadan planı varsayımlarla kodlama.
+**Sonraki güvenli adım:** Repo dışı `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12`
+kanıt paketindeki WP-00 sonucunu kullanarak WP-01 karşılaştırmasını, exact uygulama
+haritasını ve kabul hedeflerini tamamla. Kaynak uygulama onayı GATE-R sonrasında beklenir.
 
 ---
 
