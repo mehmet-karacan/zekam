@@ -489,7 +489,7 @@ kaydedildi. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 
 **İncelenecek/değişecek konumlar:** `src/zekam/application/request_routing.py`, `jira_issue_routing.py`, `project_rag_runtime.py`; family/Jira config; mevcut skill/host tool dağıtımı. Gerekirse öneri `natural_language_dispatch.py`.
 
-- [ ] **WP-03.01** — Modelin yorumladığı niyeti allowlisted capability ve deterministic project/scope doğrulamasına çevir; intent'i execution izni sayma. Genel soru Zekam/gpu diye yanlış hedeflenmesin.
+- [x] **WP-03.01** — Modelin yorumladığı niyeti allowlisted capability ve deterministic project/scope doğrulamasına çevir; intent'i execution izni sayma. Genel soru Zekam/gpu diye yanlış hedeflenmesin.
 - [ ] **WP-03.02** — Açık proje, Jira prefix'i, mevcut Work ve oturum referansı için öncelik/çatışma politikasını testlerle sabitle. “Bunu da GPU için ekle” çok turlu örneğinde gerçek dosya ve önceki scope bağını doğrula.
 - [ ] **WP-03.03** — Tek projenin sorgusunu yalnız o projeye yönlendir; açık karşılaştırmada ayrı scoped results birleştir. Kayıtsız/belirsiz proje için en az gerekli açıklamayı sor, tüm repo embedding başlatma.
 - [ ] **WP-03.04** — Native ajanın discovery'de doğru tool/skill'i seçmesini ve iç komutları kendisinin çalıştırmasını bağla. Kullanıcıya programatik isim, digest veya JSON yazdıran yol kabulden kalsın.
@@ -498,6 +498,18 @@ kaydedildi. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 **Üretilen sözleşme/çıktı:** Öneri `NaturalRequestContext → ValidatedIntent/ProjectScope → CapabilityInvocation` sözleşmesi; `tests/unit/test_natural_language_dispatch.py`, `tests/e2e/test_natural_language_project_workflow.py`.
 
 **Kabul ve negatif testler:** Testler: Türkçe Unicode/typo/paraphrase, alias çakışması, GPU/SKY UI-backend, Jira sayı-vs-port, genel soru, çok turlu dosya, missing index, no-remote-permission; E2E native session ölçümü.
+
+**13 Ekim 2026 ara durum — WP-03.01 tamam, WP-03 acik:**
+`natural_language_dispatch.py` mevcut `route_request` kararini, guvensiz
+`ModelIntentProposal` girdisini ve exact allowlist'i salt okunur planda birlestirir.
+Niyet/proje celiskisi aciklama durumuna gecer; `ready` ve `grants_authority`
+her zaman `false`, gercek arac cagrisı yoktur. Genel GPU sorusunda model genel
+niyet bildirdiginde proje secimi yapilmaz. `test_natural_language_dispatch.py`
+ve mevcut router testleri birlikte 92/92 gecti; Ruff ve hedefli mypy temiz.
+Model ciktisinin native istemciden beslenmesi, cok turlu baglam, gercek scoped
+retrieval ve cevap kaniti WP-03.02..05 kapsaminda aciktir. Daha genis fixture
+testindeki uc onceden var olan hata, dis `gpu-fusion` kaynaginda artik bulunmayan
+`AuditDDLService.java` dosyasina baglidir; o kullanici kaynagina dokunulmadi.
 
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
