@@ -12,7 +12,7 @@ komutlarıyla isteğe bağlı kullanılır. Karar kaydı: [ADR-NATIVE-CLI-001](a
 | `AGENTS.md` | Ortak ince giriş (amaç, yetki/kanıt sınırı, ihtiyaç halinde açılacaklar) | Codex, OpenCode; Claude Code ve Gemini yeni sürümlerinde doğrudan okuyabilir (sürüm/koşul gerçek kurulumda ayrıca doğrulanır) |
 | `CLAUDE.md` | Yalnız `@AGENTS.md` | Claude Code (resmî uyumluluk yolu) |
 | `GEMINI.md` | Yalnız `@AGENTS.md` | Gemini CLI (native import) |
-| `opencode.json` | Yalnız `$schema`; default agent, geniş `allow`, eager `instructions` yok | OpenCode |
+| `opencode.json` | `$schema` + v2 `permissions` (`shell *` allow, doğrudan `git push` ve `git push *` deny); default agent ve eager `instructions` yok. Dolaylı shell yayını için tam garanti verilmez. | OpenCode |
 
 Klasörü açmak görev, provider çağrısı, migration veya tarama başlatmaz. Bir istemcinin Zekam
 dosyasını başka bağlamda (üst dizin, JIT) görmesi mümkündür; vaat edilen sınır, Zekam'ın

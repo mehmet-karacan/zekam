@@ -469,6 +469,19 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
 
 **Kabul ve negatif testler:** Testler: kök/alt/başka proje/fresh session, duplicate entry, global conflict, rollback, shell allow fiili davranışı, onaysız direct/indirect publication ve onaylı scope dışı yayın reddi.
 
+**13 Ekim 2026 ara durum — WP-02 acik:** `integration entry` exact kayitli Zekam
+kokunde ve alt dizinde kanonik `AGENTS.md`'ye baglanan ince girisi planlar ve
+claim/receipt ile uygular; Zekam disi kaynakta inerttir. Conflict, drift,
+idempotent tekrar ve global istemci ayarlarina yazmama fixture testleri vardir.
+Istenci yetenek matrisi dosya tespiti ile native kabul kanitini ayri tutar; Claude
+Code ve Gemini bu makinede bulunmadigindan gercek oturum kabulu henuz yoktur.
+OpenCode v2 yerel `shell *` izni ve dogrudan `git push *` reddi gercek hostta
+sinandi; dolayli shell yayini engellenmis sayilmaz. Bu nedenle WP-02.01 ve
+WP-02.03 kutulari kapanmadi. Ortak MCP icin mevcut plan/apply/readback/rollback
+testleri genisletildi. Global sahiplik envanterinde tasinabilir kanitli artifact
+bulunmadi; uc proje skill conflict'i korunarak repo disinda salt okunur plan
+kaydedildi. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  

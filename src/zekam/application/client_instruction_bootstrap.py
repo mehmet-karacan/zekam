@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from collections.abc import Mapping
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-from zekam.domain.canonical import digest_of_bytes
+from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrationPolicy
 from zekam.domain.errors import ConfigurationError
 
@@ -209,7 +210,9 @@ def _assert_safe_path(user_home: Path, path: Path) -> None:
         current = current / segment
         if current.exists() and (_unsafe(current) or not current.is_dir()):
             raise ConfigurationError("Client bootstrap parent symlink/reparse olamaz")
-    if path.exists() and (_unsafe(path) or not path.is_file()):
+    # `exists()` kirik symlink icin False verir; reparse/symlink kontrolu
+    # varlik kontrolunden bagimsiz kalmali.
+    if _unsafe(path) or (path.exists() and not path.is_file()):
         raise ConfigurationError("Client bootstrap hedefi regular file olmali")
 
 
@@ -360,3 +363,410 @@ def apply_client_instruction_bootstrap(plan: ClientInstructionBootstrapPlan) -> 
             temporary.unlink(missing_ok=True)
             raise
         verify_instruction_readback(item.path, item)
+
+
+# ---------------------------------------------------------------------------
+# Proje-yerel ince giris (WP-02.01)
+#
+# Zekam workspace kokunde ve alt dizinlerinde kalin instruction/skill kopyasi
+# degil, tek kanonik `AGENTS.md` kaynagina ince `@` girisi uretilir. Ayni kaynaga
+# tekrar eden kalin kopyalar conflict olarak raporlanir; kanonik generator bu
+# dosyalarin tek sahibi oldugu icin tekrar eden instruction/skill kopyalari buradan
+# tekillestirilir. Zekam disi oturumda (workspace marker'i yoksa) plan inerttir:
+# hic dosya hedeflenmez, hic yazim olmaz (NL-002 / inert davranis).
+# ---------------------------------------------------------------------------
+
+#: Tek kanonik giris kaynagi; ince shim'ler yalniz bu dosyaya `@` ile girer.
+PROJECT_ENTRY_CANONICAL_SOURCE = "AGENTS.md"
+
+# Istemciden bagimsiz ince giris shim'leri. OpenCode ve Codex `AGENTS.md`'yi dogrudan
+# kesfeder; Claude Code ve Gemini `@` import'u kullanir. Bunlar kalin kopya degildir.
+_PROJECT_ENTRY_SHIMS: tuple[tuple[ClientIntegrationId, str], ...] = (
+    (ClientIntegrationId.CLAUDE_CODE, "CLAUDE.md"),
+    (ClientIntegrationId.GEMINI, "GEMINI.md"),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectLocalEntryFilePlan:
+    """Tek proje-yerel ince giris hedefi (kok veya alt dizin)."""
+
+    client_id: str
+    path: Path
+    content: str
+    action: str  # "create" | "unchanged"
+    body_digest: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectLocalEntryConflict:
+    client_id: str
+    path: Path
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectLocalEntryPlan:
+    """Proje-yerel ince giris plani; inert ise hic hedef tasimaz."""
+
+    project_root: Path
+    inert: bool
+    files: tuple[ProjectLocalEntryFilePlan, ...]
+    conflicts: tuple[ProjectLocalEntryConflict, ...] = ()
+
+    @property
+    def changes_required(self) -> bool:
+        return any(item.action != "unchanged" for item in self.files)
+
+
+def thin_entry_body(entry_dir: Path, canonical_root: Path) -> str:
+    """`entry_dir` icinde kanonik `AGENTS.md`'ye goreli `@` import'u uretir."""
+
+    target = canonical_root / PROJECT_ENTRY_CANONICAL_SOURCE
+    relative = os.path.relpath(target, start=entry_dir)
+    return f"# Zekam\n\n@{relative.replace(os.sep, '/')}\n"
+
+
+def _is_zekam_workspace_root(project_root: Path) -> bool:
+    """Workspace marker'i ile dogrulanmis Zekam calisma alani kokunu dondurur.
+
+    Yalniz dosya adi degil; `.ai/repository-context.json`'nin `project == "zekam"`
+    ve schema onegi + `PROJE_MANIFESTI.yaml` varligi birlikte aranir. Ayni klasor
+    adini tasiyan ilgisiz proje/kopya bosun sayilip inert kalir (WP-02.01).
+    """
+
+    if not project_root.is_dir():
+        return False
+    try:
+        context = json.loads(
+            (project_root / ".ai" / "repository-context.json").read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(context, dict) or context.get("project") != "zekam":
+        return False
+    if not str(context.get("schema", "")).startswith("zekam-repository-context/"):
+        return False
+    return (project_root / "PROJE_MANIFESTI.yaml").is_file()
+
+
+def _assert_project_local_target(project_root: Path, path: Path) -> None:
+    if not path.is_absolute() or (
+        project_root not in path.parents and path.parent != project_root
+    ):
+        raise ConfigurationError("Project entry hedefi proje koku altinda olmali")
+    current = project_root
+    for segment in path.relative_to(project_root).parts[:-1]:
+        current = current / segment
+        if current.exists() and (_unsafe(current) or not current.is_dir()):
+            raise ConfigurationError("Project entry parent symlink/reparse olamaz")
+    if path.exists() and (_unsafe(path) or not path.is_file()):
+        raise ConfigurationError("Project entry hedefi regular file olmali")
+
+
+def _entry_file_plan(
+    client_id: ClientIntegrationId, path: Path, expected_body: str
+) -> ProjectLocalEntryFilePlan | ProjectLocalEntryConflict:
+    expected_digest = digest_of_bytes(expected_body.encode("utf-8"))
+    if not path.exists():
+        return ProjectLocalEntryFilePlan(
+            client_id=client_id.value,
+            path=path,
+            content=expected_body,
+            action="create",
+            body_digest=expected_digest,
+        )
+    try:
+        existing = read_instruction_text(path)
+    except (OSError, UnicodeDecodeError):
+        return ProjectLocalEntryConflict(client_id.value, path, "entry-file-unreadable")
+    if _lf(existing) == _lf(expected_body):
+        # Mevcut govde kanonik ince giristir (EOL farki gonderel); plan disaktaki
+        # birebir baytlari ve digest'ini tasiyarak okunur kalir.
+        return ProjectLocalEntryFilePlan(
+            client_id=client_id.value,
+            path=path,
+            content=existing,
+            action="unchanged",
+            body_digest=digest_of_bytes(existing.encode("utf-8")),
+        )
+    # Mevcut ama kanonik ince govde degil: kullanici icerigi/kalin kopya drift.
+    return ProjectLocalEntryConflict(
+        client_id.value, path, "entry-content-not-canonical-thin-entry"
+    )
+
+
+def plan_project_local_entry(
+    *,
+    project_root: Path,
+    subdirectory: Path | None = None,
+    collect_conflicts: bool = True,
+) -> ProjectLocalEntryPlan:
+    """Proje-yerel ince giris planlar; Zekam disi kokte inerttir.
+
+    `subdirectory` verildiginde giris o alt dizinde uretilir ve kanonik kaynaga
+    goreli `@` ile baglanir (kokte tek `AGENTS.md`, kopya yok). Plan salt okunurdur;
+    yazim ancak `apply_project_local_entry` ile yapilir.
+    """
+
+    if not project_root.is_absolute():
+        raise ConfigurationError("Project entry absolute proje koku ister")
+    entry_dir = project_root if subdirectory is None else subdirectory
+    if entry_dir != project_root:
+        if not entry_dir.is_absolute():
+            raise ConfigurationError("Project entry alt dizini absolute olmali")
+        try:
+            entry_dir.relative_to(project_root)
+        except ValueError as exc:
+            raise ConfigurationError(
+                "Project entry alt dizini proje koku icinde olmali"
+            ) from exc
+    for path in (entry_dir, *entry_dir.parents):
+        if _unsafe(path):
+            raise ConfigurationError("Project entry dizini symlink/reparse olamaz")
+        if not path.is_dir():
+            raise ConfigurationError("Project entry dizini regular directory olmali")
+
+    if not _is_zekam_workspace_root(project_root):
+        return ProjectLocalEntryPlan(project_root=project_root, inert=True, files=())
+
+    expected_canonical = project_root / PROJECT_ENTRY_CANONICAL_SOURCE
+    if not expected_canonical.is_file() or _unsafe(expected_canonical):
+        conflict = ProjectLocalEntryConflict(
+            ClientIntegrationId.OPENCODE.value, expected_canonical, "canonical-source-missing"
+        )
+        if not collect_conflicts:
+            raise ManagedInstructionConflict(
+                "Proje girisi kanonik kaynagi eksik", reason="canonical-source-missing"
+            )
+        return ProjectLocalEntryPlan(
+            project_root=project_root, inert=False, files=(), conflicts=(conflict,)
+        )
+
+    body = thin_entry_body(entry_dir, project_root)
+    files: list[ProjectLocalEntryFilePlan] = []
+    conflicts: list[ProjectLocalEntryConflict] = []
+    for client_id, name in _PROJECT_ENTRY_SHIMS:
+        target = entry_dir / name
+        _assert_project_local_target(project_root, target)
+        outcome = _entry_file_plan(client_id, target, body)
+        if isinstance(outcome, ProjectLocalEntryFilePlan):
+            files.append(outcome)
+        elif collect_conflicts:
+            conflicts.append(outcome)
+        else:
+            raise ManagedInstructionConflict(
+                "Proje girisi sahiplik drift", reason=outcome.reason
+            )
+    return ProjectLocalEntryPlan(
+        project_root=project_root,
+        inert=False,
+        files=tuple(files),
+        conflicts=tuple(conflicts),
+    )
+
+
+def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
+    """Salt planlanmis proje-yerel ince giris hedeflerini yazar.
+
+    Plan conflict tasimasi hic dosyaya yazmadan baslangicta red edilir.
+    Hicbir hedef degistirilmeden once tum hedefler preflight ile dogrulanir
+    (no-partial-write): plan sonrasi drift olan herhangi bir hedef, ILK hedef
+    bile yazilmadan tum planin red edilmesini saglar.
+
+    Not: preflight + per-file write akisi tam transaction atomisitesi degildir;
+    yazma sirasindaki OS hatasi (disk dolusu, ACL, I/O) onceki hedefleri geri
+    almaz. Fail-closed readback drift hata verir; OS hata icin rollback garanti
+    edilmez.
+    """
+
+    if plan.conflicts:
+        raise ConfigurationError(
+            "Project entry plani conflict tasiyor; hic dosya yazilmedi: "
+            + "; ".join(f"{conflict.path.name}:{conflict.reason}" for conflict in plan.conflicts)
+        )
+    # Preflight: hicbir hedef degistirilmeden once plan'daki TUM dosyalarin
+    # mevcut durumu yeniden dogrulanir. Boylece siradaki (sonraki) dosya drift
+    # olsa bile ilki yazilip partial state uretilmez.
+    _preflight_project_local_entry(plan)
+    for item in plan.files:
+        if item.action == "unchanged":
+            continue
+        item.path.parent.mkdir(parents=True, exist_ok=True)
+        _assert_project_local_target(plan.project_root, item.path)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{item.path.name}.", dir=item.path.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(item.content.encode("utf-8"))
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(item.path)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        if read_instruction_text(item.path) != item.content:
+            raise ConfigurationError("Project entry readback drift")
+
+
+def _preflight_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
+    """Plan'daki tum hedefleri hic yazim yapmadan dogrular (no-partial-write).
+
+    Conflict varsa hic dosya degisikligi olmadan red edilir. Conflict yoksa
+    her hedefin mevcut durumu planla karsilastirilir: plan sonrasi drift (stale)
+    olan hedef varlikta, ILK hedef bile yazilmadan tum plan red edilir. Boylece
+    apply, "ilk dosya yazilir, ikinci dosya driftli" partial state uretebilir
+    duruma gelmez. Not: bu preflight + per-file write akisi tam transaction
+    atomisitesi degildir; yazma sirasindaki OS hatasi (disk dolusu, ACL, I/O)
+    onceki hedefleri geri almaz. Readback drift fail-closed hata verir; OS
+    hata icin rollback garanti edilmez.
+    """
+
+    if plan.conflicts:
+        raise ConfigurationError(
+            "Project entry plani conflict tasiyor; hic dosya yazilmedi: "
+            + "; ".join(f"{conflict.path.name}:{conflict.reason}" for conflict in plan.conflicts)
+        )
+    for item in plan.files:
+        _assert_project_local_target(plan.project_root, item.path)
+        if not item.path.exists():
+            continue
+        current = read_instruction_text(item.path)
+        expected_body = thin_entry_body(item.path.parent, plan.project_root)
+        # Plan'daki `unchanged` karsilastirmasiyla ayni LF-normalize eslesme;
+        # CRLF mevcut govde plan'da "unchanged" kabul edildigi icin apply'da
+        # "stale" sayilip byte-exact kanonik LF govdeyle karsilastirilmaz.
+        if _lf(current) != _lf(expected_body):
+            raise ConfigurationError(
+                "Project entry plani dosya drift nedeniyle stale; hic dosya yazilmedi"
+            )
+
+
+def project_entry_intent_document(plan: ProjectLocalEntryPlan) -> dict[str, object]:
+    """Stabil, determinist plan govdesi (`plan_digest`'in kapsami).
+
+    `action`/`apply` gibi istege bagli degisen alanlari tasimaz; yalnizca
+    kanonik hedef govde (path + govde digest/icerigi) ve conflict kimligi
+    uzerinden alinir. Boylece plan -> apply -> replay zincirinde ayni
+    `plan_digest` yeniden uretilir ve claim idempotency payload'i drift
+    ugratmaz.
+    """
+
+    return {
+        "project_root": str(plan.project_root),
+        "inert": plan.inert,
+        "files": [
+            {
+                "client_id": item.client_id,
+                "path": str(item.path),
+                "body_digest": item.body_digest,
+                "content": item.content,
+            }
+            for item in plan.files
+        ],
+        "conflicts": [
+            {
+                "client_id": conflict.client_id,
+                "path": str(conflict.path),
+                "reason": conflict.reason,
+            }
+            for conflict in plan.conflicts
+        ],
+    }
+
+
+def project_entry_plan_digest(plan: ProjectLocalEntryPlan) -> str:
+    """Stabil plan govdesinin `sha256:` digest'i (exact plan digest)."""
+
+    return digest(project_entry_intent_document(plan))
+
+
+def project_entry_plan_document(
+    plan: ProjectLocalEntryPlan, *, apply: bool
+) -> dict[str, object]:
+    """CLI icin salt-okunur, provider'siz plan JSON govdesi.
+
+    `plan_digest` yalnizca stabil intent govdesi uzerinden alinir; `action`
+    gibi mevcut dosya durumuna bagli alanlar digest kapsami disinda bilgi
+    olarak tasinir. Boylece plan -> apply -> replay zincirinde ayni
+    `plan_digest` yeniden uretilir.
+    """
+
+    intent = project_entry_intent_document(plan)
+    files: list[dict[str, object]] = [
+        {
+            "client_id": item.client_id,
+            "path": str(item.path),
+            "body_digest": item.body_digest,
+            "content": item.content,
+            "action": item.action,
+        }
+        for item in plan.files
+    ]
+    document: dict[str, object] = {
+        "schema": "zekam-project-local-entry-plan/v1",
+        **intent,
+        "files": files,
+        "apply": apply,
+        "changes_required": plan.changes_required,
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return document | {"plan_digest": project_entry_plan_digest(plan)}
+
+
+def project_entry_effect_document(plan: ProjectLocalEntryPlan) -> dict[str, object]:
+    """Claim/receipt zincirine giren stabil effect govdesi.
+
+    `action` gibi istege bagli degisen alan tasimaz; idempotency replay'inde
+    payload drift'i ugratmaz.
+    """
+
+    document: dict[str, object] = {
+        "schema": "zekam-cli-integration-entry-effect/v1",
+        **project_entry_intent_document(plan),
+    }
+    return document | {"plan_digest": project_entry_plan_digest(plan)}
+
+
+def project_entry_receipt(plan: ProjectLocalEntryPlan) -> dict[str, object]:
+    """Apply tamamlandiktan sonraki terminal receipt govdesi.
+
+    Govde stabil plan intent'inden deterministik oldugu icin replay ayni
+    receipt'i yeniden uretir; terminal readback ile her hedefin kanonik ince
+    govdeye ulastigi dogrulanir (fail-closed).
+    """
+
+    if plan.conflicts:
+        raise ConfigurationError(
+            "Project entry receipt conflict tasiyor; terminal state kanitlanamadi"
+        )
+    for item in plan.files:
+        current = read_instruction_text(item.path)
+        if _lf(current) != _lf(item.content):
+            raise ConfigurationError(
+                "Project entry terminal readback drift; receipt kanitlanamadi"
+            )
+    body: dict[str, object] = {
+        "schema": "zekam-project-local-entry-receipt/v1",
+        "plan_digest": project_entry_plan_digest(plan),
+        "project_root": str(plan.project_root),
+        "inert": plan.inert,
+        "state": "inert-noop" if plan.inert else "applied-and-read-back",
+        "files": [
+            {
+                "client_id": item.client_id,
+                "path": str(item.path),
+                "body_digest": item.body_digest,
+            }
+            for item in plan.files
+        ],
+        "apply": True,
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"receipt_digest": digest(body)}

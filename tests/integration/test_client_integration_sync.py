@@ -10,6 +10,10 @@ from pathlib import Path
 import pytest
 
 import zekam.application.client_integrations as client_integrations
+from zekam.application.capability_profile import (
+    CLIENT_CAPABILITY_MATRIX_SCHEMA,
+    CapabilityStatus,
+)
 from zekam.application.client_hook_bootstrap import (
     apply_client_hook_bootstrap,
     plan_client_hook_bootstrap,
@@ -612,3 +616,92 @@ def test_user_sync_compensates_native_writes_when_policy_publish_fails(
     assert not (native / ".codex" / "hooks.json").exists()
     assert not (native / ".config" / "opencode" / "AGENTS.md").exists()
     assert not (context.home / "config.yaml").exists()
+
+
+def test_integration_status_exposes_capability_matrix_wired_to_host_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Matris kullanim disinda kalan scaffold degil: `integration_status` govdesine
+    # girer ve host kaniti (gozlenen native surum) ile generator surumunu ayri tasir.
+    context = _context(tmp_path)
+    native = _native_home(tmp_path)
+    monkeypatch.setattr(
+        client_integrations,
+        "_observed_host_versions",
+        lambda rows: {"opencode": "unknown-version", "codex": "unknown-version"},
+    )
+
+    status = integration_status(context, native_user_root=native)
+
+    matrix = status["capability_matrix"]
+    assert matrix["schema"] == CLIENT_CAPABILITY_MATRIX_SCHEMA
+    assert matrix["matrix_digest"]
+    assert matrix["read_only"] is True
+    assert matrix["grants_authority"] is False
+    clients = {item["client"]: item for item in matrix["clients"]}
+    assert set(clients) == {"opencode", "codex", "claude-code", "gemini"}
+
+    # Probe sabitken yeniden uretilen status ayni digest'i verir (determinist).
+    assert (
+        integration_status(build_context(home=context.home, environ={}), native_user_root=native)[
+            "status_digest"
+        ]
+        == status["status_digest"]
+    )
+
+    # Host kaniti ayri alanlarda: kurulu istemci gozlenen surumu tasir,
+    # kurulu olmayan istemcinin host surumu yok.
+    assert clients["opencode"]["host_present"] is True
+    assert clients["opencode"]["host_version"] == "unknown-version"
+    assert clients["codex"]["host_version"] == "unknown-version"
+    assert clients["claude-code"]["host_present"] is False
+    assert clients["claude-code"]["host_version"] is None
+    assert clients["gemini"]["host_present"] is False
+    assert clients["gemini"]["host_version"] is None
+
+    def _cells(profile: dict) -> dict:
+        return {cell["capability"]: cell for cell in profile["capabilities"]}
+
+    # Binary varligi tek basina native davranis kaniti sayilmaz.
+    for client in ("opencode", "codex"):
+        cells = _cells(clients[client])
+        for capability in ("instruction", "hook", "mcp"):
+            assert cells[capability]["status"] == CapabilityStatus.DECLARED.value
+            assert cells[capability]["evidence_level"] == "unobserved"
+    # Kurulu olmayan: hicbir hucre `ready`+`observed` degil; generator surumu
+    # yine de reviewed-generator bazinda tanimlidir.
+    for client in ("claude-code", "gemini"):
+        assert clients[client]["version_basis"] == "reviewed-generator"
+        for cell in clients[client]["capabilities"]:
+            assert not (
+                cell["status"] == CapabilityStatus.READY.value
+                and cell["evidence_level"] == "observed"
+            )
+    # Her durumda shell `ready` degil (WP-02.03 host-native policy'e bagli).
+    for profile in clients.values():
+        assert _cells(profile)["shell"]["status"] != CapabilityStatus.READY.value
+
+
+def test_observed_host_versions_never_executes_discovered_programs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Status must remain an inventory read, even if PATH contains a program.
+    context = _context(tmp_path)
+    stub = tmp_path / "stub.exe"
+    stub.write_bytes(b"MZ")
+    monkeypatch.setattr(
+        client_integrations.shutil,
+        "which",
+        lambda name: str(stub) if name == "opencode" else None,
+    )
+    def forbidden_run(*_args, **_kwargs):
+        raise AssertionError("status launched a client executable")
+
+    monkeypatch.setattr(client_integrations.subprocess, "run", forbidden_run)
+
+    rows = client_integrations._executable_inventory(context)
+    assert {row["client"]: row["executable_present"] for row in rows}["opencode"] is True
+
+    observed = client_integrations._observed_host_versions(rows)
+
+    assert observed == {"opencode": "unknown-version"}

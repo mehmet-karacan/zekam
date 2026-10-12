@@ -8,6 +8,14 @@ from typing import Annotated
 
 import typer
 
+from zekam.application.client_instruction_bootstrap import (
+    apply_project_local_entry,
+    plan_project_local_entry,
+    project_entry_effect_document,
+    project_entry_plan_digest,
+    project_entry_plan_document,
+    project_entry_receipt,
+)
 from zekam.application.client_integrations import (
     apply_rollback_plan,
     apply_sync_plan,
@@ -226,6 +234,65 @@ def rollback_command(
                 idempotency_key=f"integration-rollback-v1:{plan_digest}",
                 apply_effect=lambda: apply_rollback_plan(plan, authorized_plan_digest=plan_digest),
                 replay_effect=lambda: rollback_receipt(plan, authorized_plan_digest=plan_digest),
+                logical_resources=(mutation_resource,),
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("entry")
+def entry_command(
+    project_root: Annotated[
+        Path, typer.Option("--project-root", exists=True, file_okay=False)
+    ],
+    subdirectory: Annotated[
+        Path | None, typer.Option("--subdirectory", file_okay=False)
+    ] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Proje-yerel ince giris (kok/alt dizin) plan veya digest-bound apply.
+
+    Yalniz registry'de kayitli exact kaynak koku kabul edilir; HOME/genel
+    yazim yapilmaz. Apply yalniz exact plan digest'i ve claim/receipt zinciriyle
+    yapilir; conflict varsa hic dosya degisikligi olmadan red edilir.
+    """
+
+    try:
+        bound = _bound_project_root(home, project_root)
+        if subdirectory is not None and not subdirectory.exists():
+            raise PolicyViolation("Entry subdirectory mevcut bir dizin olmali")
+        plan = plan_project_local_entry(project_root=bound, subdirectory=subdirectory)
+        plan_digest_value = project_entry_plan_digest(plan)
+        if not apply:
+            _emit(project_entry_plan_document(plan, apply=False))
+            return
+        if plan_digest is None:
+            raise PolicyViolation("Integration entry --plan-digest ister")
+        if plan_digest != plan_digest_value:
+            raise PolicyViolation("Integration entry exact plan digest ister")
+        _learning, lifecycle, resolved_home = _paths(home)
+        mutation_resource = integration_mutation_resource(
+            scope="project",
+            native_user_root=Path.home(),
+            project_root=bound,
+        )
+        def _apply_and_receipt() -> dict[str, object]:
+            apply_project_local_entry(plan)
+            return project_entry_receipt(plan)
+
+        _emit(
+            _run_claimed_effect(
+                lifecycle,
+                resolved_home,
+                operation="integration.entry-v1",
+                effect=project_entry_effect_document(plan),
+                idempotency_key=f"integration-entry-v1:{plan_digest}",
+                apply_effect=_apply_and_receipt,
+                replay_effect=lambda: project_entry_receipt(plan),
                 logical_resources=(mutation_resource,),
             )
         )

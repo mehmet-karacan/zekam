@@ -16,11 +16,13 @@ import re
 import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from zekam.application.source_discovery import DiscoveryReport
 from zekam.domain.canonical import digest
+from zekam.domain.client_integration import ClientIntegrationId
 
 #: Uretici surumu. Kurallar degisirse artirilir ve eski profiller stale olur.
 PROFILER_VERSION = "zekam-capability-profiler/v1"
@@ -513,4 +515,450 @@ def profile_from_mapping(document: Mapping[str, Any]) -> CapabilityProfile:
         modules=tuple(document.get("modules", [])),
         file_count=int(document["file_count"]),
         total_bytes=int(document["total_bytes"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Surum bazli, istemci-bazli native yetenek destegi matrisi (WP-02.02)
+#
+# Her istemci icin instruction/hook/MCP/shell/subagent destegi AYRI AYRI,
+# surum + kanit seviyesi + destek siniri olarak kaydedilir. Destek yoksa
+# manual komut ezberi degil, acik destek siniri ve kurulabilir adapter plani
+# verilir. `observed` kaniti yoksa `ready` iddia edilmez (NL-039 / GAP-07).
+#
+# Kanit duzeni: matristeki surum, Zekam tarafi GENERATOR (instruction section /
+# hook / MCP projection / agent bootstrap / proje-yerel ince giris) kodunun
+# review kanitini tasiyan surumudur (`version_basis="reviewed-generator"`).
+# `host_present`/`host_version` ise BU hostta gozlenen native CLI kurulumunun
+# acik kanitidir ve generator surumundan ayri tutulur. `ready` ancak
+# `observed` kanitla; `observed` kaniti yalniz host kanitiyla tasinir.
+# Hostta kurulu olmayan istemci icin generator kanitli hucreler `declared`
+# kalir, hicbir hucre `ready`+`observed` iddia edilmez.
+# ---------------------------------------------------------------------------
+
+CLIENT_CAPABILITY_MATRIX_SCHEMA: Final = "zekam-client-capability-matrix/v1"
+
+#: WP-02.02 icin surum bazli kaydi zorunlu olan yetenek boyutlari.
+SUPPORTED_CAPABILITIES: Final = (
+    "instruction",
+    "hook",
+    "mcp",
+    "shell",
+    "subagent",
+)
+
+class CapabilityStatus(StrEnum):
+    """Bir yetenek boyutundaki destek durumu; `ready` ancak `observed` kanitla."""
+
+    NOT_SUPPORTED = "not-supported"
+    DECLARED = "declared"
+    PARTIAL = "partial"
+    READY = "ready"
+
+    @classmethod
+    def all(cls) -> frozenset[str]:
+        return frozenset(item.value for item in cls)
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitySupport:
+    """Tek istemci icin tek yetenek boyutunun surum/kanit/sinir kaydi."""
+
+    capability: str
+    status: str
+    version: str
+    evidence_level: str  # "observed" | "declared" | "unobserved"
+    support_limit: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "capability": self.capability,
+            "status": self.status,
+            "version": self.version,
+            "evidence_level": self.evidence_level,
+            "support_limit": self.support_limit,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ClientCapabilityProfile:
+    """Tek desteklenen istemcinin surum bazli yetenek matris satiri.
+
+    `version`/`version_basis` generator (reviewed) surumudur. `host_present` ve
+    `host_version` bu hosttaki native CLI kurulumunun gozlenen kanitidir ve
+    generator surumundan BAYRAK ve surum olarak ayri tutulur.
+    """
+
+    client: str
+    version: str
+    version_basis: str
+    capabilities: tuple[CapabilitySupport, ...]
+    adapter_plan: tuple[str, ...]
+    support_limit: str
+    host_present: bool = False
+    host_version: str | None = None
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "client": self.client,
+            "version": self.version,
+            "version_basis": self.version_basis,
+            "host_present": self.host_present,
+            "host_version": self.host_version,
+            "capabilities": [item.as_dict() for item in self.capabilities],
+            "adapter_plan": list(self.adapter_plan),
+            "support_limit": self.support_limit,
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.body()
+
+
+@dataclass(frozen=True, slots=True)
+class ClientCapabilityMatrix:
+    """Surum bazli, istemci-bazli native yetenek destegi matrisi.
+
+    `observed_hosts` host kaniti: bu hostta gozlenen native CLI kimlikleri ve
+    surumlari. `observed_hosts` disinda hic istemci `observed` kaniti tasiyamaz.
+    """
+
+    schema: str
+    generated_from: str
+    clients: tuple[ClientCapabilityProfile, ...]
+    observed_hosts: tuple[str, ...] = ()
+    read_only: bool = True
+    grants_authority: bool = False
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "generated_from": self.generated_from,
+            "supported_capabilities": list(SUPPORTED_CAPABILITIES),
+            "observed_hosts": list(self.observed_hosts),
+            "clients": [item.body() for item in self.clients],
+            "read_only": self.read_only,
+            "grants_authority": self.grants_authority,
+        }
+
+    @property
+    def matrix_digest(self) -> str:
+        return digest(self.body())
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.body() | {"matrix_digest": self.matrix_digest}
+
+
+def _cap(
+    capability: str,
+    status: CapabilityStatus,
+    version: str,
+    evidence_level: str,
+    support_limit: str,
+) -> CapabilitySupport:
+    return CapabilitySupport(
+        capability=capability,
+        status=status.value,
+        version=version,
+        evidence_level=evidence_level,
+        support_limit=support_limit,
+    )
+
+
+def _client_profile(
+    client: ClientIntegrationId,
+    *,
+    version: str,
+    version_basis: str,
+    instruction: CapabilitySupport,
+    hook: CapabilitySupport,
+    mcp: CapabilitySupport,
+    shell: CapabilitySupport,
+    subagent: CapabilitySupport,
+    adapter_plan: tuple[str, ...],
+    support_limit: str,
+) -> ClientCapabilityProfile:
+    capabilities = (instruction, hook, mcp, shell, subagent)
+    assert [item.capability for item in capabilities] == list(SUPPORTED_CAPABILITIES)
+    return ClientCapabilityProfile(
+        client=client.value,
+        version=version,
+        version_basis=version_basis,
+        capabilities=capabilities,
+        adapter_plan=adapter_plan,
+        support_limit=support_limit,
+    )
+
+
+def _downgrade_without_host(profile: ClientCapabilityProfile) -> ClientCapabilityProfile:
+    """Host kaniti yoksa generator kanitli hucreleri `declared`e duzeltir.
+
+    `ready` ancak `observed` kanitla ve `observed` kaniti yalniz host kanitiyla
+    tasinir; hostta kurulu olmayan istemci icin generator kanitli hucreler
+    `declared`/`unobserved` kalir ve acik destek siniri korunur.
+    """
+
+    capabilities = tuple(
+        CapabilitySupport(
+            capability=item.capability,
+            status=CapabilityStatus.DECLARED.value,
+            version=item.version,
+            evidence_level="unobserved",
+            support_limit=item.support_limit,
+        )
+        if item.status == CapabilityStatus.READY.value and item.evidence_level == "observed"
+        else item
+        for item in profile.capabilities
+    )
+    return ClientCapabilityProfile(
+        client=profile.client,
+        version=profile.version,
+        version_basis=profile.version_basis,
+        capabilities=capabilities,
+        adapter_plan=profile.adapter_plan,
+        support_limit=profile.support_limit,
+    )
+
+
+def client_capability_matrix(
+    *,
+    observed_hosts: Mapping[str, str] | None = None,
+) -> ClientCapabilityMatrix:
+    """Desteklenen dort istemci icin surum bazli yetenek destegi matrisi.
+
+    Durumlar Zekam generator'larinin review kanitina baglidir; generator surumu
+    (`version_basis="reviewed-generator"`) bu hosttaki native kurulumdan ayri
+    kaydedilir (`host_present`/`host_version`). `observed_hosts` (native CLI
+    kimligi -> gozlenen surum) binary varligi kanitidir. Binary varligi native
+    davranisin basarili oldugunu kanitlamaz; generator hucreleri acceptance
+    kosusuna kadar `declared`/`unobserved` kalir (NL-039 / GAP-07).
+    """
+
+    observed_hosts = dict(observed_hosts or {})
+    observed = {
+        ClientIntegrationId(client_id): str(version)
+        for client_id, version in observed_hosts.items()
+    }
+
+    # -- OpenCode ----------------------------------------------------------
+    opencode = _client_profile(
+        ClientIntegrationId.OPENCODE,
+        version="managed-instructions/v1+agent-bootstrap+plugin-v3",
+        version_basis="reviewed-generator",
+        instruction=_cap(
+            "instruction",
+            CapabilityStatus.READY,
+            "managed-instructions/v1",
+            "observed",
+            "project-local AGENTS.md + managed global section (digest-owned)",
+        ),
+        hook=_cap(
+            "hook",
+            CapabilityStatus.READY,
+            "opencode-lifecycle-plugin/v3",
+            "observed",
+            "lifecycle events (SessionStart/PreCompact/PostCompact/Stop/SessionEnd) via plugin",
+        ),
+        mcp=_cap(
+            "mcp",
+            CapabilityStatus.READY,
+            "mcp-integrations/opencode-config",
+            "observed",
+            "opencode.json mcpserver projection; credential'lar kopyalanmaz",
+        ),
+        shell=_cap(
+            "shell",
+            CapabilityStatus.DECLARED,
+            "host-native-permission/v1",
+            "declared",
+            "shell `allow` hedefi WP-02.03 host-native policy'ye bagli; buradan garanti verilemez",
+        ),
+        subagent=_cap(
+            "subagent",
+            CapabilityStatus.PARTIAL,
+            "host-native-task/v1",
+            "declared",
+            "named agent dispatch host'ta var; Zekam child identity/verifier WP-08'e bagli",
+        ),
+        adapter_plan=(
+            "global bootstrap opt-in: zekam integration sync --scope user",
+            "project-local giris: AGENTS.md (dogrudan kesif)",
+        ),
+        support_limit="global artifact'lar opt-in; project-local giris global kurulum gerektirmez",
+    )
+
+    # -- Codex -------------------------------------------------------------
+    codex = _client_profile(
+        ClientIntegrationId.CODEX,
+        version="managed-instructions/v1+hook@0.154.0+config.toml-mcp",
+        version_basis="reviewed-generator",
+        instruction=_cap(
+            "instruction",
+            CapabilityStatus.READY,
+            "managed-instructions/v1",
+            "observed",
+            "project-local AGENTS.md + managed global section (digest-owned)",
+        ),
+        hook=_cap(
+            "hook",
+            CapabilityStatus.READY,
+            "hook@0.154.0",
+            "observed",
+            ".codex/hooks.json managed lifecycle hook (reviewed version)",
+        ),
+        mcp=_cap(
+            "mcp",
+            CapabilityStatus.READY,
+            "mcp-integrations/codex-config-toml",
+            "observed",
+            ".codex/config.toml mcpserver projection; credential'lar kopyalanmaz",
+        ),
+        shell=_cap(
+            "shell",
+            CapabilityStatus.DECLARED,
+            "host-native-permission/v1",
+            "declared",
+            "shell `allow` hedefi WP-02.03 host-native policy'ye bagli; buradan garanti verilemez",
+        ),
+        subagent=_cap(
+            "subagent",
+            CapabilityStatus.NOT_SUPPORTED,
+            "host-native",
+            "unobserved",
+            "Zekam child subagent kimligi/verifier bu host icin kanitlanmadi (WP-08)",
+        ),
+        adapter_plan=(
+            "global bootstrap opt-in: zekam integration sync --scope user",
+            "project-local giris: AGENTS.md (dogrudan kesif)",
+        ),
+        support_limit="global artifact'lar opt-in; project-local giris global kurulum gerektirmez",
+    )
+
+    # -- Claude Code -------------------------------------------------------
+    # Bu hostta Claude Code kurulu degil: generator surumu `reviewed-generator`
+    # kanitla kalir; `observed` kaniti yalniz host kurulumu olursa eklenir.
+    claude = _client_profile(
+        ClientIntegrationId.CLAUDE_CODE,
+        version="managed-instructions/v1+hook@2.1.224+claude.json-mcp",
+        version_basis="reviewed-generator",
+        instruction=_cap(
+            "instruction",
+            CapabilityStatus.READY,
+            "managed-instructions/v1",
+            "observed",
+            "project-local CLAUDE.md (@AGENTS.md) + managed global section (digest-owned)",
+        ),
+        hook=_cap(
+            "hook",
+            CapabilityStatus.READY,
+            "hook@2.1.224",
+            "observed",
+            ".claude/settings.json managed lifecycle hook (reviewed version)",
+        ),
+        mcp=_cap(
+            "mcp",
+            CapabilityStatus.READY,
+            "mcp-integrations/claude-json",
+            "observed",
+            ".claude.json mcpserver projection; credential'lar kopyalanmaz",
+        ),
+        shell=_cap(
+            "shell",
+            CapabilityStatus.DECLARED,
+            "host-native-permission/v1",
+            "declared",
+            "shell `allow` hedefi WP-02.03 host-native policy'ye bagli; buradan garanti verilemez",
+        ),
+        subagent=_cap(
+            "subagent",
+            CapabilityStatus.NOT_SUPPORTED,
+            "host-native",
+            "unobserved",
+            "Zekam child subagent kimligi/verifier bu host icin kanitlanmadi (WP-08)",
+        ),
+        adapter_plan=(
+            "global bootstrap opt-in: zekam integration sync --scope user",
+            "project-local giris: CLAUDE.md (@AGENTS.md import)",
+        ),
+        support_limit="global artifact'lar opt-in; project-local giris global kurulum gerektirmez",
+    )
+
+    # -- Gemini CLI --------------------------------------------------------
+    # Zekam tarafinda Gemini icin managed global artifact uretilmez; giris yalniz
+    # project-local. Bu hostta Gemini kurulu degil: generator surumu `reviewed-generator`
+    # kanitla kalir; `observed` kaniti yalniz host kurulumu olursa eklenir.
+    gemini = _client_profile(
+        ClientIntegrationId.GEMINI,
+        version="project-local-entry-only",
+        version_basis="reviewed-generator",
+        instruction=_cap(
+            "instruction",
+            CapabilityStatus.READY,
+            "managed-instructions/v1",
+            "observed",
+            "project-local GEMINI.md (@AGENTS.md import); managed global artifact yok",
+        ),
+        hook=_cap(
+            "hook",
+            CapabilityStatus.NOT_SUPPORTED,
+            "host-native",
+            "unobserved",
+            "Zekam tarafinda Gemini icin managed lifecycle hook uretmez (acik sinir)",
+        ),
+        mcp=_cap(
+            "mcp",
+            CapabilityStatus.NOT_SUPPORTED,
+            "host-native",
+            "unobserved",
+            "MCP projection hedefi bu host icin tanimlanmadi; manuel MCP ayari degistirilmez",
+        ),
+        shell=_cap(
+            "shell",
+            CapabilityStatus.DECLARED,
+            "host-native-permission/v1",
+            "declared",
+            "shell `allow` hedefi WP-02.03 host-native policy'ye bagli; buradan garanti verilemez",
+        ),
+        subagent=_cap(
+            "subagent",
+            CapabilityStatus.NOT_SUPPORTED,
+            "host-native",
+            "unobserved",
+            "Zekam child subagent kimligi/verifier bu host icin kanitlanmadi (WP-08)",
+        ),
+        adapter_plan=(
+            "project-local giris: GEMINI.md (@AGENTS.md import)",
+            "global artifact: uretilmez; `gemini: true` yeni global kurulum uretmez",
+        ),
+        support_limit="yalniz project-local giris; global Zekam artifact'i yok",
+    )
+
+    # Binary presence records a host identity, not successful native behavior.
+    # Reviewed generator cells remain declared until a separate acceptance run.
+    def _with_host(
+        profile: ClientCapabilityProfile, client: ClientIntegrationId
+    ) -> ClientCapabilityProfile:
+        if client not in observed:
+            return _downgrade_without_host(profile)
+        declared = _downgrade_without_host(profile)
+        return ClientCapabilityProfile(
+            client=profile.client,
+            version=profile.version,
+            version_basis=profile.version_basis,
+            capabilities=declared.capabilities,
+            adapter_plan=profile.adapter_plan,
+            support_limit=profile.support_limit,
+            host_present=True,
+            host_version=observed[client],
+        )
+
+    return ClientCapabilityMatrix(
+        schema=CLIENT_CAPABILITY_MATRIX_SCHEMA,
+        generated_from=PROFILER_VERSION,
+        clients=(
+            _with_host(opencode, ClientIntegrationId.OPENCODE),
+            _with_host(codex, ClientIntegrationId.CODEX),
+            _with_host(claude, ClientIntegrationId.CLAUDE_CODE),
+            _with_host(gemini, ClientIntegrationId.GEMINI),
+        ),
+        observed_hosts=tuple(client.value for client in ClientIntegrationId if client in observed),
     )

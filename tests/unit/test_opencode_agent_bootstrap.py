@@ -389,7 +389,17 @@ def _repo_root() -> Path:
 def test_opencode_project_config_imposes_no_coordinator_permissions_or_eager_instructions() -> None:
     root = _repo_root()
     config = json.loads((root / "opencode.json").read_text(encoding="utf-8"))
-    assert set(config) == {"$schema"}
+    # WP-02.03: yalnız en azami v2 shell/publish siniri eklenir. `default_agent`
+    # (koordinator dayatma) ve eager `instructions` hâlâ yoktur.
+    assert config["$schema"] == "https://opencode.ai/config.json"
+    assert set(config) == {"$schema", "permissions"}
+    assert "default_agent" not in config
+    assert "instructions" not in config
+    rules = config["permissions"]
+    assert [rule["action"] for rule in rules] == ["shell", "shell", "shell"]
+    assert rules[0] == {"action": "shell", "resource": "*", "effect": "allow"}
+    assert rules[1] == {"action": "shell", "resource": "git push", "effect": "deny"}
+    assert rules[-1] == {"action": "shell", "resource": "git push *", "effect": "deny"}
     assert (root / "NIHAI_UYGULAMA_PROMPTU.md").is_file()
     startup = (root / "00_BASLA.md").read_text(encoding="utf-8")
     assert "otomatik yüklenmez" in startup

@@ -394,6 +394,11 @@ def test_mcp_update_narrows_clients_and_removes_old_projection(
     )
     monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
     monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    # Hermetik: host'ta kurulu OpenCode surumundan bagimsiz; test v1 duz formati
+    # hedefler (narrowing/old-projection removal surum formatindan bagimsizdir).
+    # ``_opencode_uses_v2`` PATH'ten binary calistirir; okunur status'ta bunu
+    # sabitlemek, gercek calistirilabilir dosyaya sormayi engeller.
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: False)
 
     add_args = [
         "mcp",
@@ -512,3 +517,119 @@ def test_mcp_codex_drift_fails_closed_and_clean_v2_uses_servers(
     sync = runner.invoke(app, ["mcp", "sync", "--home", str(home), "--json"])
     assert sync.exit_code == 70
     assert "Codex MCP entry user drift" in sync.output
+
+
+def test_mcp_v2_projection_ownership_readback_and_rollback_preserve_foreign(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP-02.04: tek MCP kaydi OpenCode v2 hostuna projekte edilir.
+
+    Plan (yazmaz) -> sahiplik -> apply -> readback -> rollback akisinda:
+    * kullanici credential'i (yabanci girdideki secret) kopyalanmaz,
+    * yabanci girdi silinmez,
+    * managed girdi readback'te dogru yerdedir,
+    * rollback managed girdiyi geri alir, yabanci girdi saglam kalir.
+
+    Hermetik: ``_opencode_uses_v2`` PATH'ten binary calistirilmadan sabitlenir.
+    """
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    (home / "config.yaml").write_text(
+        "schema: zekam-config/v1\n"
+        "cli:\n"
+        "  integrations:\n"
+        "    version: 2\n"
+        "    opencode: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    user_secret = "user-owned-secret-value"
+    opencode.write_text(
+        json.dumps(
+            {
+                "$schema": "https://opencode.ai/config.json",
+                "unrelated": {"keep": True},
+                "mcp": {
+                    "servers": {
+                        "user-owned": {
+                            "type": "local",
+                            "command": ["user-server"],
+                            "environment": {"SECRET": user_secret},
+                            "enabled": True,
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = opencode.read_bytes()
+
+    add_args = [
+        "mcp",
+        "add",
+        "managed-server",
+        "--command",
+        "managed-server",
+        "--env-var",
+        "SAMPLE_TOKEN",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    planned = runner.invoke(app, add_args)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["apply"] is False
+    # Plan (dry-run) native dosyaya dokunmaz.
+    assert opencode.read_bytes() == original
+
+    applied = runner.invoke(
+        app, [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"]
+    )
+    assert applied.exit_code == 0, applied.output
+    receipt = json.loads(applied.output)
+
+    # Readback: managed girdi v2 `mcp.servers` altinda; yabanci girdi + credential korunur.
+    document = json.loads(opencode.read_text(encoding="utf-8"))
+    servers = document["mcp"]["servers"]
+    managed = servers["managed-server"]
+    assert managed["command"] == ["managed-server"]
+    assert managed["environment"]["SAMPLE_TOKEN"] == "{env:SAMPLE_TOKEN}"
+    foreign = servers["user-owned"]
+    assert foreign["environment"]["SECRET"] == user_secret
+    assert document["unrelated"] == {"keep": True}
+    # Managed girdi kullanici credential'ini kopyalamamali.
+    assert user_secret not in json.dumps(managed)
+
+    # Rollback: managed girdi geri alinir; yabanci girdi + credential saglam kalir.
+    rollback_args = [
+        "mcp",
+        "rollback",
+        "--receipt",
+        receipt["receipt_digest"],
+        "--home",
+        str(home),
+        "--json",
+    ]
+    rollback_plan = json.loads(runner.invoke(app, rollback_args).output)
+    rollback_result = runner.invoke(
+        app,
+        [*rollback_args[:-1], "--plan-digest", rollback_plan["plan_digest"], "--uygula", "--json"],
+    )
+    assert rollback_result.exit_code == 0, rollback_result.output
+    restored = json.loads(opencode.read_text(encoding="utf-8"))
+    restored_servers = restored["mcp"]["servers"]
+    assert "managed-server" not in restored_servers
+    assert restored_servers["user-owned"]["environment"]["SECRET"] == user_secret
+    assert restored["unrelated"] == {"keep": True}

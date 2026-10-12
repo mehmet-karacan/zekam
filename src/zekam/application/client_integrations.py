@@ -19,6 +19,7 @@ from typing import Any
 import yaml
 
 from zekam.application.active_task_contract import ActiveTaskContract
+from zekam.application.capability_profile import client_capability_matrix
 from zekam.application.client_hook_bootstrap import (
     plan_client_hook_bootstrap,
     remove_managed_hook_entries,
@@ -356,19 +357,28 @@ def _trusted_package_projections(
     )
 
 
+def _effective_executable(
+    client: ClientIntegrationId, configured_path: str | Path | None
+) -> Path | None:
+    """Yonetilen yol veya PATH kesfiyle gozlenen native CLI calistiricisi."""
+
+    if configured_path is not None:
+        configured = Path(configured_path)
+        if configured.is_file():
+            return configured
+    discovered = shutil.which(_EXECUTABLE_COMMANDS[client])
+    if discovered is None:
+        return None
+    return Path(discovered).resolve(strict=False)
+
+
 def _executable_inventory(context: ApplicationContext) -> tuple[dict[str, Any], ...]:
     registered = {item.name: item for item in context.settings.clients}
     rows: list[dict[str, Any]] = []
     for client in ClientIntegrationId:
         configured = registered.get(client.value)
         configured_path = None if configured is None else configured.executable
-        discovered = shutil.which(_EXECUTABLE_COMMANDS[client])
-        detected_path = None if discovered is None else Path(discovered).resolve(strict=False)
-        effective = (
-            configured_path
-            if configured_path is not None and configured_path.is_file()
-            else detected_path
-        )
+        effective = _effective_executable(client, configured_path)
         present = effective is not None and effective.is_file()
         rows.append(
             {
@@ -391,6 +401,18 @@ def _real_directory(path: Path) -> bool:
         return False
     attributes = getattr(path.lstat(), "st_file_attributes", 0)
     return not bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _observed_host_versions(
+    executable_rows: tuple[dict[str, Any], ...],
+) -> dict[str, str]:
+    """Report detected executables without running code from PATH during status."""
+
+    return {
+        str(row["client"]): "unknown-version"
+        for row in executable_rows
+        if row["executable_present"]
+    }
 
 
 def _root_identity(path: Path, *, must_exist: bool) -> str:
@@ -986,6 +1008,11 @@ def integration_status(
         "clients": [item.as_dict() for item in states],
         "managed_inventory": list(inventory),
         "executable_inventory": list(executable_rows),
+        # Uretici kurallari host surumunden ayri tutulur. Calistirilabilir dosya
+        # tespiti native davranis kabulunun yerine gecmez; matris salt okunurdur.
+        "capability_matrix": client_capability_matrix(
+            observed_hosts=_observed_host_versions(executable_rows)
+        ).as_dict(),
         "native_user_root_identity_digest": _root_identity(native_user_root, must_exist=True),
         "user_scanned": True,
         "project_scanned": project_root is not None,
