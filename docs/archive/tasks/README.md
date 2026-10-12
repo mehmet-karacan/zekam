@@ -191,3 +191,35 @@ bu dizine alindi; yeni projection `ActiveTaskContract.render_projection` ile ure
   qualification eksikleri tamamlandi sayilmaz; ortusen isler yeni gorevde iliskilendirilir.
 - Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
 - Canli provider, gercek kullanici-geneli ayar degisikligi ve push yetkisi gecisten dogmaz.
+
+## 12 Ekim 2026 Dogal Dil yetkinlik tamamlama kapsam gecisi
+
+| Alan | Onceki sozlesme | Yasayan sozlesme |
+|---|---|---|
+| Gorev | `ZEKAM-NATIVE-CLI-WORKSPACE-001` | `ZEKAM-NATURAL-LANGUAGE-CAPABILITY-COMPLETION-001` |
+| Icerik SHA-256 | `038ef262817e972fd5d8990f9e812d6f8b184d87d789cdd285b43bb463cb6e31` | `5b6200e7e1b96fc32deca919d753688ed0f9b15e32e515ee16d07589a6dd4672` |
+| Onceki Git blob | `4e7670dbdc2b9fac7fb3ccb62dac0c35f0c23f83` | Uygulanmaz |
+| Onceki YAML blob | `638755d37a40ca44640503c1fea8bdd5115cbaf5` | Uygulanmaz |
+| Baseline HEAD | `f37ab301510bbe0045dab265de36ea1475775f33` | `b29e2c9e89a400176d722a430af4fcebc7a270cc` |
+
+Gecis kullanicinin acik gorev verisiyle yapildi (Downloads dosyasi yeni yasayan gorev olarak
+aktiflestirildi). Onceki MD ve exact projection'i degistirilmeden bu dizine
+`ZEKAM-NATIVE-CLI-WORKSPACE-001.md` ve `.projection.yaml` olarak alindi; kopyalanan byte'lar
+kaynakla dogrulandi. Yeni projection yalniz yasayan Markdown'in exact byte digest'inden
+`ActiveTaskContract.render_projection` ile uretildi ve `verify_projection` ile dogrulandi;
+`authority_digest` `sha256:5b6200e7e1b96fc32deca919d753688ed0f9b15e32e515ee16d07589a6dd4672`.
+Yasayan `AKTIF_GOREV.md` header'indaki `push_authorized: false` alani bu geciste
+degistirilmedi; bu alan task dosyasindan otomatik yayin yetkisi turetilmesini engeller.
+Kullanicinin bu sohbette verdigi asama bazli commit/push talebi ayri kayittir. Yeni task
+digest'i onceki task-scope grant'lerini drifted yapar; canli provider izni devralinmaz.
+
+### Carry-forward
+
+- Onceki `ZEKAM-NATIVE-CLI-WORKSPACE-001` gorevinin acik isleri (W02-W07 kabul aciklari,
+  CLI/model qualification, yerel gecis uygulama adimi) tamamlanmis sayilmaz; ortusen isler
+  yeni gorevin REQ/CAP/WP kayitlariyla iliskilendirilir, ayni is ikinci kez uretilmez.
+- Onceki gorevin yayimlanmamis kalite/manifest bulgulari korunur; shipped package manifest
+  yalniz `package_source_bundle_digest` bileseni yeni yasayan Markdown digest'iyle guncellendi.
+- Legacy PostgreSQL veri erisimi ve core icin PostgreSQL/Docker bagimliligi yasaktir.
+- Canli provider ve gercek kullanici-geneli ayar degisikligi bu gecisten yetki kazanmaz.
+  Commit/push icin bu sohbetteki asama bazli acik kullanici talebi esas alinir.

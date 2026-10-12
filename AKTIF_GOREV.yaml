@@ -2,14 +2,14 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:038ef262817e972fd5d8990f9e812d6f8b184d87d789cdd285b43bb463cb6e31
-task_id: ZEKAM-NATIVE-CLI-WORKSPACE-001
+authority_digest: sha256:5b6200e7e1b96fc32deca919d753688ed0f9b15e32e515ee16d07589a6dd4672
+task_id: ZEKAM-NATURAL-LANGUAGE-CAPABILITY-COMPLETION-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Native CLI ve Yalin Proje Baglami Gecisi
-created_at: '2026-10-05T02:20:49+03:00'
+title: Zekam Dogal Dil ve Tum Yetkinliklerin Tamamlanmasi
+created_at: '2026-10-12T21:09:52+03:00'
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: f37ab301510bbe0045dab265de36ea1475775f33
+baseline_head: b29e2c9e89a400176d722a430af4fcebc7a270cc
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
 docker_required_for_zekam_core: false
@@ -17,5 +17,4 @@ push_authorized: false
 read_only: true
 grants_authority: false
 approval_inherited: false
-baseline_commit_subject: 'config: gecersiz reranker hedeflerini ertele'
 baseline_is_fixed_revision: true

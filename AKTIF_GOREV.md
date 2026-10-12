@@ -1,13 +1,12 @@
 ---
 schema: zekam-active-task/v2
-task_id: ZEKAM-NATIVE-CLI-WORKSPACE-001
+task_id: ZEKAM-NATURAL-LANGUAGE-CAPABILITY-COMPLETION-001
 status: APPROVED_ACTIVE_TASK
-title: Zekam Native CLI ve Yalin Proje Baglami Gecisi
-created_at: 2026-10-05T02:20:49+03:00
+title: Zekam Dogal Dil ve Tum Yetkinliklerin Tamamlanmasi
+created_at: 2026-10-12T21:09:52+03:00
 baseline_repository: mehmet-karacan/zekam
 baseline_branch: main
-baseline_head: f37ab301510bbe0045dab265de36ea1475775f33
-baseline_commit_subject: "config: gecersiz reranker hedeflerini ertele"
+baseline_head: b29e2c9e89a400176d722a430af4fcebc7a270cc
 baseline_is_fixed_revision: true
 legacy_postgresql_data_import: FORBIDDEN
 postgresql_runtime_dependency: FORBIDDEN
@@ -17,337 +16,1504 @@ push_authorized: false
 runtime_test_evidence_at_task_creation: NOT_EXECUTED
 ---
 
-# AKTIF_GOREV.md
-## Native CLI, yalnız Zekam çalışma alanı ve amaca odaklı bağlam
-
-## 1. Uygulanacak karar
-
-**Bu dosya araştırma istemi değil, araştırmaya dayalı uygulama görevidir.** Kullanıcı bu dosyayı uygulamak üzere verdiğinde güncel kaynakla ilgili farkları doğrula; aşağıdaki değişiklikleri gerçek Zekam repository'sinde geliştir, test et ve kanıtlarıyla teslim et. Aynı araştırmayı baştan yapıp yalnız öneri raporuyla dönme. Teknik ayrıntıları mevcut mimariye göre seç; belirtilen sonuçları ve güvenlik sınırlarını değiştirme.
-
-**Zekam, coding CLI'ın önüne geçen zorunlu bir ajan yöneticisi olmayacak. Kullanıcının seçtiği CLI doğrudan çalışacak; Zekam kendi çalışma alanında amaç, gerekli yerel bilgi, isteğe bağlı yardımcı araçlar ve doğrulanabilir süreklilik sağlayacak.**
-
-Kullanıcı Zekam kökünde doğrudan `opencode`, `codex`, `claude` veya `gemini` açabilmeli. Başka bir projede aynı executable'ı açtığında Zekam otomatik olarak devreye girmemeli. CLI'ın kendi model seçimi, planlama, kaynak okuma/düzenleme, araçları, MCP bağlantıları, skill keşfi, subagent'ları, oturum yönetimi ve güvenlik mekanizmaları korunmalı. Zekam yeni native özellikleri yeniden uygulamaya veya kendi araç listesine sığdırmaya çalışmamalı.
-
-Bu geçiş Zekam'ın bilgi, görev, kanıt, yedekleme veya test mühendisliği yeteneklerini silmek değildir. **Yürütme yöntemini host'a bırak, Zekam'a özgü veriyi ve deterministik kontrolleri gerektiğinde kullanılabilir tut.**
-
-### 1.1 Birlikte teslim edilecek sonuçlar
-
-- Dört CLI için ince, doğru keşfedilen, yalnız Zekam çalışma alanına ait giriş; global müdahale ve zorunlu koordinatör olmadan kullanım.
-- Mevcut global ve başka projelere dağıtılmış Zekam parçalarından, kullanıcı içeriğini koruyan planlı geçiş; tekrar dağıtımı engelleyen üretici değişiklikleri ve geri alma.
-- Amaca, gerekli yerel gerçeklere ve kabul kanıtına odaklanan bağlam/skill düzeni; istemciden bağımsız yardımcı araçlar, süreklilik ve mevcut unit-test ölçümünün kullanılabilirliği.
-
-Bu belgenin ayrıntıları geliştirme sözleşmesidir. **Belgenin tamamını her yeni oturumun system prompt'una veya her skill'e yerleştirme.** Geliştirme sırasında ilgili bölüm okunur; ürünün sürekli yüklediği giriş çok daha küçük kalır.
-
-### 1.2 Yetki ve kanıt sınırı
-
-`APPROVED_ACTIVE_TASK`, mevcut parserın görev statüsüdür; kendiliğinden operasyonel yetki, claim, lease, provider çağrısı veya tamamlanma kanıtı değildir. Kullanıcının bu dosyayı uygulama için vermesi, bu repository'deki kapsam içi geliştirmeyi seçer. Gerçek kullanıcı-geneli ayarları değiştirmek, başka projelere yazmak, yeni araç/bağımlılık kurmak veya canlı model kampanyası başlatmak kendi açık izinlerini gerektirir. Push yetkisi yoktur.
-
-Araştırma sırasında güncel GitHub kaynakları hedefli olarak salt okunur incelendi ve resmî belgeler karşılaştırıldı. Kullanıcının makinesindeki CLI sürümleri, kurulum dosyaları, model hesapları ve runtime davranışı gözlemlenmedi. Repository testleri, gerçek CLI kabul koşuları ve Maven/JaCoCo bu hazırlıkta çalıştırılmadı. Dokümandaki kaynak bulguları ile uygulamada üretilecek runtime kanıtını karıştırma.
-
-## 2. Görevi kayıpsız devral
-
-Önce mevcut `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, yaşayan görev/projection ve ilgili durum kayıtlarını oku. Bu yeni görevde açıkça değiştirilen eski koordinatör/dağıtım/talimat politikalarını geçiş hedefi olarak ele al; eski kuralın kendisini değiştirmeyi yasaklayan döngüye girme. Güvenlik sınırlarını veya operasyonel yetki kontrollerini bu gerekçeyle atlama.
-
-Önceki `ZEKAM-UNIT-TEST-AND-CONTEXT-001` görevinin ve YAML projeksiyonunun exact byte/digest kaydını mevcut arşiv yaklaşımıyla koru. Açık işlerini, canlı model qualification eksiklerini ve bağlantılı önceki backlog'u yeni görevle tamamlandı sayma. Örtüşen sadeleştirme işlerini ilişkilendir; aynı işi ikinci kez üretme. Yeni dosya kullanıcı tarafından köke önceden konmuşsa eski committed sürümü Git'ten ayır; kaybolmuş yerel değişikliği geri getirmiş gibi sunma.
-
-Yeni görev için mevcut `ActiveTaskContract.load(Path('AKTIF_GOREV.md'))` doğrulamasını ve repository'deki deterministik projection üreticisini kullan. Elle yeni bir authority YAML'ı veya uydurma source digest yazma. Mevcut şemanın izin vermediği header alanları ekleme. [R10]
-
-Yerel baseline olarak gerçek kaynak kökü, HEAD/branch, `git status --short`, yüklenen `zekam` paketinin konumu, Python ve kurulu CLI sürümleri, görev digest'i ve ilgili aktif iş/lease durumunu kaydet. Araştırma HEAD'ine reset etme; ilerlemiş kaynakta ilgili diff'i esas al. Kullanıcı değişikliklerini koru; toplu stash, `reset --hard`, kopya proje, mirror veya detached worktree oluşturma. Geçici kabul fixture'ları kullanıcı projesi kopyası değil, ayrı Zekam-owned sentetik girdiler olmalı.
-
-Önceden var olan test/ortam arızalarını yeni regresyonlardan ayır. Kapsam dışı bütün Global DoD/backlog'un kapanmasını bu işin önkoşulu yapma; ilgili güvenlik ve kalite kapıları korunur. Gerekli yetki yoksa yalnız o etkili adımı beklet, güvenli bağımsız geliştirmeyi sürdür.
-
-## 3. Araştırmanın karara etkisi
-
-### 3.1 Resmî kaynak karşılaştırması
-
-| Bulgular | Bu görev için karar |
-|---|---|
-| OpenAI'nin 11 Eylül 2026 tarihli GPT-6 Astra rehberi, uzun/çakışan skill açıklamalarının ve gereksiz yöntem reçetelerinin yeniden değerlendirilmesini öneriyor. [E01] | Skill'leri topluca silme. Hedef, gerekli bilgi ve sınırları koru; gereksiz yönlendirmeyi azalt. Evrensel “uzun skill modeli kötüleştirir” yasası veya ölçülmemiş başarı yüzdesi ileri sürme. |
-| Agent Skills standardı metadata, etkinleşen gövde ve gerektiğinde açılan kaynakları ayırıyor. [E11] | Başlangıçta küçük keşif bilgisi; gerçek ihtiyaçta ilgili prosedür/kod/referans. Format limitini ideal talimat uzunluğu sanma. |
-| Codex kullanıcı-geneli talimatlarla Git kökü–çalışma dizini zincirini birlikte kullanıyor; instruction keşfi oturum başında yapılıyor. [E02] | Global kalıntıları ve override dosyalarını denetle; yalnız `cd` ile eski oturum bağlamının temizlendiğini varsayma. |
-| Claude Code'un doğrudan `AGENTS.md` okuması v2.1.277+ ve discovery koşullarına bağlı; yerel `CLAUDE.md` içindeki `@AGENTS.md` uyumluluk yolu belgelenmiş. Eager import dosyaları yine başlangıç bağlamına giriyor. [E05] | İnce ortak giriş ve gerektiğinde ince compatibility import. Belge bölmek tek başına token tasarrufu değildir. Global ayarla zorla yeni modu açma. |
-| Gemini workspace/ancestor bağlamını ve dosya erişiminde JIT keşfi kullanıyor. [E07] | Dosyanın görülmesini, Zekam otomasyonunun yetkili olarak etkinleşmesinden ayır. Klasör adı kontrolünü güvenlik sınırı yapma. |
-| OpenCode `AGENTS.md` ile config `instructions` içeriğini birleştiriyor; AGENTS içindeki `@file` referansını otomatik import etmiyor. [E09] | Dört CLI'a aynı import sözdizimini körlemesine yazma. Ortak giriş gerçekten anlamlı metin içersin; config aynı metni tekrar eklemesin. |
-| Codex `.agents/skills`; Gemini `.agents/skills` ve `.gemini/skills`; OpenCode `.agents`, `.claude`, `.opencode` skill konumlarını keşfedebiliyor. [E03,E08,E10] | Her istemci dizinine bağımsız kopya koymak yerine mevcut generator üzerinde kontrollü projection; çapraz keşif/duplicate testi zorunlu. |
-| Claude rehberi sürekli geçerli kısa proje bilgisini görev-özel skill rehberinden ayırıyor. [E04,E06] | Jira, benchmark, RAG hata reçeteleri ve test mühendisliği ayrıntıları her açılışa yüklenmez. |
-
-Bunlar kaynak bulgularıdır. Aşağıdaki proje sınırı, geçiş ve kabul tasarımı Zekam için seçilmiş mühendislik kararlarıdır; kaynakların Zekam üzerinde ölçülmüş performans iddiası değildir.
-
-### 3.2 Gerçek kaynakta değişmesi gereken yerler
-
-| Doğrulanan durum | Sonuç |
-|---|---|
-| `opencode.json`, `zekam-coordinator` default agent'ını ve geniş `allow` izinlerini tanımlıyor; `00_BASLA.md` ve `DEVAM_PROTOKOLU.md` dosyalarını ayrıca yüklüyor. [R02] | Default agent ve Zekam'ın dağıttığı genel izin override'ları kaldırılacak; talimat yükü tekilleştirilecek. |
-| Koordinatör doğrudan kaynak okumayı/düzenlemeyi yasaklıyor, child başarısızsa ana ajanın işi yapmasını engelliyor ve OpenCode'a özel router akışını dayatıyor. [R03] | Native ana ajanın yetkili çalışması engellenmeyecek; zorunlu rol ve model yönlendirme katmanı kaldırılacak. |
-| OpenCode bootstrap global agent/plugin konumlarına göre çalışıyor; lifecycle plugin başlangıcında global spool dizini oluşturuyor. [R04] | Yalnız prompt'u koşula bağlamak yetmez. Otomatik yan etki üreten kurulum ve lifecycle girişleri de değişecek. |
-| Instruction ve hook bootstrap'ları global dosyaları yönetiyor. Hook CLI, hata durumunda `PreCompact` için `continue: false` döndürebiliyor. [R05,R06,R07] | Yeni varsayılanda global hook yok; gözlem hatası native yaşam döngüsünü yönetmeyecek. |
-| Typed entegrasyon kimliklerinde Gemini yok; eski varsayılan OpenCode açık, Codex/Claude kapalı. [R08] | Dört istemcili proje-yerel destek, schema/policy/consumer katmanlarıyla birlikte gelecek. Eski boolean'ları topluca true yapmak çözüm değil. |
-| `.ai/repository-context.json`, eski ana prompt'u, YAML active_work'ü ve sabit subagent sayısını içeriyor. [R09] | Metadata ve tüketicileri yeni authority ve native politika ile uzlaştırılacak. |
-| Unit test runtime binding'i gerçek OpenCode executable'ı istiyor ve composition `opencode_adapter` kuruyor. [R16] | Diğer CLI'lardan kullanılacak ölçüm/kanıt yolu bu bağımlılıktan ayrılacak; mevcut explicit batch yolu korunacak. |
-| Mevcut continuity CLI, yerel session/source ve admission bileşenlerini zaten kullanıyor. [R15] | İkinci bir süreklilik veritabanı kurma; var olan akışın native istemcilerden kullanılabilirliğini tamamla. |
-| Paired scaffolding evaluator zaten kalite/güvenilirlik/token/gecikme/maliyet kapıları ve rollback bağı kuruyor. [R13] | Yeni benchmark platformu yerine mevcut değerlendiriciyi kullan. |
-
-**Önceki bulguyu tekrarlama:** Güncel `opencode.json` içinde `NIHAI_UYGULAMA_PROMPTU.md` artık yoktur. Tarihsel prompt referansı hâlâ bulunan `.ai` metadata'sını ve diğer gerçek tüketicileri düzelt; zaten yapılmış değişikliği yeniden yapılacak iş gibi sunma. [R02,R09,R11]
-
-Bu inceleme bir PATH wrapper'ının kullanıcı bilgisayarında kurulu olduğunu kanıtlamaz. Kanıtlı sorunlar config, talimat, global dağıtım ve runtime bağımlılıklarıdır. Alias/shim varlığını yerelde ayrı envanterle belirle.
-
-## 4. Hedef mimari ve davranış sözleşmesi
-
-### 4.1 Sorumluluk sınırları
-
-| Alan | Sahibi |
-|---|---|
-| İnteraktif oturum, model seçimi, native araçlar, planning, MCP, alt ajan çalıştırma | Kullanıcının açtığı CLI ve kendi güvenlik politikası |
-| Proje amacı, yerel geliştirme bilgisi, görev kapsamı ve seçili skill referansları | İnce Zekam çalışma alanı bağlamı |
-| Zekam veri/işlemleri, ölçüm, yetkili Work geçişi, source binding, claim/receipt ve recovery | Mevcut Zekam servisleri ve deterministik kontroller |
-| Sonucun doğruluğu ve tamamlanma kanıtı | Gerçek kaynak/test sonuçları ve riskin gerektirdiği bağımsız doğrulama |
-
-Zekam yeni bir TUI, browser/dashboard, zorunlu daemon, genel model gateway'i, CLI proxy'si veya ikinci ajan framework'ü olmayacak. `zekam` kendi yardımcı CLI'ı olarak kalabilir; vendor executable'larını gölgeleyemez.
-
-**Native-first, “bütün native araç çağrıları Zekam tarafından teknik olarak denetleniyor” anlamına gelmez.** Araya girmeyen Zekam, bağımsız CLI'ın her filesystem/shell etkisini engelleyemez. Native sandbox/approval host'un, Zekam servislerinin admission kontrolleri Zekam'ın sorumluluğudur. Markdown bir güvenlik duvarı değildir. [E05]
-
-Zekam kontrollü bir Work için gerekli ön yetki ve claim gerçekten kurulmuşsa ilgili native çalışmanın kapsamını ve sonucu bağlanabilir. Sadece sonradan bir rapor içeri alındı diye daha önceki bütün araç çağrılarına pre-effect yetki veya receipt uydurma. Kanıt kaydı, gözlemlenen source/test sonucunu ve gözlemlenemeyen yürütme bölümünü ayırsın. Yetkisiz veya eksik kanıtlı Work doğrulanmış olarak kapanmasın.
-
-### 4.2 “Kendi klasöründe çalışmak” için kesin kapsam
-
-Üç kökü birbirine karıştırma: Zekam'ın gerçek çalışma alanı/kaynak kökü, kalıcı veri kökü `ZEKAM_HOME`, üzerinde iş yapılan hedef projenin kaynak kökü. Bunlar farklı amaçlardır. Mevcut manifest, project identity ve exact binding yapılarını kullan; yalnız bu iş için ikinci registry veya `.zekam/state` authority'si oluşturma.
-
-| Senaryo | Beklenen davranış |
-|---|---|
-| Güvenilen Zekam kökünde yeni native CLI oturumu | İnce proje girişi keşfedilir. Klasör açılması tek başına görev, provider çağrısı, migration veya tarama başlatmaz. |
-| Aynı Zekam projesinin alt dizininde yeni oturum | Doğru köke ulaşılır, aynı giriş tekrar tekrar yüklenmez. |
-| Başka proje, home, üst/yan dizin veya benzer isimli `zekam-old` | Zekam otomatik araç, spool, job, hook veya config mutation'ı üretmez. |
-| Registry'de kayıtlı GPU/SKY/Akış gibi ayrı proje | Registry kaydı o projeye otomatik Zekam instruction/skill dağıtma izni değildir. |
-| Zekam oturumundan yetkili başka proje üzerinde çalışma | Hedef exact root ve host'un izinleriyle çözülür. Hedefe Zekam bootstrap kopyalanmaz, proje klonlanmaz. |
-| Kullanıcı başka dizinden açıkça `zekam` komutu çalıştırır | Yalnız istenen yardımcı işlem kendi yetkileriyle çalışır; bu genel otomatik etkinleşme sayılmaz. |
-| Zekam runtime/DB henüz hazır değil | Native CLI ve salt kaynak inceleme çalışabilir. Zekam işlemleri eksikliği dürüstçe bildirir; sahte state veya başarı üretmez. |
-
-Kök eşleşmesini basename veya string prefix ile yapma. Yol normalizasyonu, filesystem kimliği, proje sınırı, nested repository, symbolic link/junction/reparse ve belirsiz binding durumlarını mevcut güvenlik yaklaşımıyla ele al. Belirsiz otomatik kapsam pasif kalır. Zekam-owned etkili işlemde belirsizlik fail-closed'dur.
-
-Bir shell alt sürecinin `cwd`'sini tüm host oturumunun başlangıç kimliği sanma. Güvenilir session-origin bilgisi yoksa kapsamı bildiğini iddia etme. Proje içi talimatın okunması ya da bir arama sonucunda Zekam'ın bulunması otomatik operasyon yetkisi üretmez. Gemini gibi JIT/ancestor discovery kullanan bir host dosyayı başka bir bağlamda da görebilir; vaat edilen sınır “dosya hiçbir zaman görülmez” değil, **Zekam'ın kapsam dışına kendiliğinden kurulup çalışmamasıdır**. [E02,E07]
-
-Eski bir oturumda yüklenmiş bağlamı klasör değiştirerek silemezsin. Geçiş kabulü temiz yeni oturumda yapılır; native history veya session dosyaları otomatik silinmez. Önceden ayrı yetkilendirilmiş scheduler/evolution işleri ise CLI açılışından ayrıdır; bu görev onları topluca kapatmaz, global dağıtımı yeniden üretmelerini engeller.
-
-### 4.3 İnce ve gerçekten native giriş
-
-`AGENTS.md`, yalnız sürekli gerekli amaç, önemli yerel farklılıklar, yetki/kanıt ayrımı ve görev halinde açılacak kısa yönlendirmeyi içersin. `00_BASLA.md` ve `DEVAM_PROTOKOLU.md` de uyumlulaştırılsın: küçük girişten bütün tarihsel talimatlara koşulsuz zincir kurmak sadeleştirme değildir.
-
-Giriş; selamlama, genel soru ve basit kaynak incelemesinde doctor/RAG/router/subagent töreni istemesin. Kullanıcının açıkça seçtiği görev için ilgili kabul ve yetki bağlamı yüklenir; klasörü açan her kullanıcıya eski aktif görev kendiliğinden uygulanmaz. `AKTIF_GOREV.md` kapsam authority'si, YAML salt okunur projection, operational store gerçek çalışma durumudur. Bunlar birbirinin yerine geçmez.
-
-Dört istemci için bu teslimin yerel giriş yaklaşımı:
-
-- **Codex/OpenCode:** ortak `AGENTS.md`. OpenCode config aynı başlangıcı ayrıca yeniden yüklemez; `@file` metninin OpenCode'da otomatik çalışacağı varsayılmaz. [E02,E09]
-- **Claude Code:** ortak içeriğe giden ince proje-yerel `CLAUDE.md` compatibility import'u kullanılabilir; `@AGENTS.md` resmî uyumluluk yoludur. Mevcut kullanıcı dosyası varsa üzerine yazma. Yeni doğrudan AGENTS desteğini gerçek sürüm ve discovery koşullarıyla raporla, sürüm yükseltmeyi zorunlu kurulum yapma. [E05]
-- **Gemini CLI:** ince proje-yerel `GEMINI.md`, ortak girişe native import veya aynı kanonik kaynaktan üretilen eşdeğer kısa içerik. Kullanıcının `context.fileName` ayarlarını global değiştirme; mevcut AGENTS+GEMINI keşfi varsa çift yükü ayrıca sınama. [E07]
-
-Gerekli hedef dosyalar mevcut generator/sahiplik düzeninden türesin. Bağımsız dört sistem prompt'u oluşturma. Kullanıcı-geneli `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` veya vendor config'ine yeni yönlendirme ekleme. Managed-only/override gibi kullanıcının seçtiği host politikası Zekam bağlamını kapatıyorsa bunu teşhis et; politikayı sessizce aşma.
-
-### 4.4 Skill ve agent düzeni
-
-Skill metni işin ne olduğunu, ne zaman kullanılacağını, gerekli girdileri, sonucun nasıl doğrulanacağını ve gerçekten zorunlu sınırları anlatsın. Modelin zaten bildiği genel kod yazma dersleri, her görevde aynı sıra/ajan sayısı, marka bazlı düşünme reçeteleri ve geçmiş hataların bütün detayları sürekli yüke dönüşmesin. Kırılgan migration, exact komut formatı, finansal/hesaplama kuralı ve güvenlik prosedürü gerektiği referansta korunur.
-
-Mevcut skill paket/revision/activation yapısını kullan. Skill açıklaması “her görevde kullan” türü geniş bir tetikleyici olmasın. İlgili olmayan isteklerde etkinleşmeme de test edilsin. Gövde yalnız native aktivasyonda, referans yalnız ihtiyaçta açılır. Tarihsel hata öğrenimi önce regression testi veya yerel açıklama adayıdır; otomatik global prompt maddesi değildir.
-
-Projede `.agents/skills` ortak yüzey, gerektiğinde `.claude/skills` ince managed projection için başlangıç adayıdır; `.gemini/skills` veya `.opencode/skills` kopyasını yalnız gerçek ihtiyaç varsa üret. OpenCode'un birden fazla dizini taradığı gerçeği nedeniyle **eşit metin = tek keşif** varsayımı yapma. Gerçek sürüm aynı kanonik skill'i tek etkin girişe indirmiyorsa mevcut generator içinde fiziksel projection adlarını ve yalnız Zekam-owned alias'lara uygulanan dar, proje-yerel native filtreyi düzenle. Kullanıcının bütün Claude/Agent skill keşfini kapatan genel ayar kullanma. Seçilen düzenin dört istemcideki discovery sonucunu kaydet. [E03,E06,E08,E10]
-
-Kanonik skill kimliği ile gerekirse farklılaşan fiziksel projection adını açıkça ilişkilendir; kullanıcı skill'iyle ad çakışmasında conflict üret. Symlink ile hızlı çözüm adına mevcut reparse/sahiplik sınırlarını gevşetme. Üretilmiş kopyalar elle bağımsız geliştirilmesin. Yeni dördüncü istemci eski üç-target receipt'lerin yorumunu değiştirmesin. [R12]
-
-Her agentic işte en az bir child kuralı, zorunlu koordinatör ve ana ajanın kaynak okumaması kuralı yeni interactive modun varsayılanı olmayacak. Native ana ajan kapsam içi inceleme ve değişikliği yapabilir. Alt ajanlar ihtiyaç ve gerçek host yeteneğine göre kullanılır; sırf sayaç doldurmak için ajan açılmaz. Riskli/yıkıcı değişiklikte gerekli bağımsız review korunur. Aynı modelin başka başlıkla yazdığı paragrafı bağımsız verifier sayma. Bu ilkeyle çelişen manifest/domain doğrulayıcılarını ve testleri açık kapsamlı politika değişikliğiyle güncelle; testleri yalnız susturmak için kaldırma.
-
-### 4.5 Süreklilik ve yardımcı araçlar
-
-`resume`, `capabilities`, proje çözümleme/bilgi/citation, knowledge, backup ve mevcut Work servisleri kullanılabilir kalsın. Aktif görev, tamamlanan iş, bekleyen iş ve next-safe-action yeni bir CLI/model tarafından kanonik kayıt ve kaynak revision'ından anlaşılabilsin. Bütün transcript'in kopyalanmasına veya OpenCode lifecycle plugin'inin yüklü olmasına bağlı kalmasın.
-
-`continuity.py`, mevcut yerel continuity servisleri ve admission yolunu incele. Yerel start/checkpoint/close işlemlerinin native oturumdan erişilen gerçek bir ortak yolu varsa onu kullan; eksikse yalnız gerekli küçük CLI/JSON girişini mevcut servis üzerine ekle. İkinci session store veya tam transcript adapter framework'ü kurma. Yeni komut gerekiyorsa uygulama, `--help`, test ve runbook birlikte teslim edilir; varmış gibi komut çağrısı yazılmaz. [R14,R15]
-
-Checkpoint, en az çalışma/proje/görev bağı, kaynak revision'ı, kanıt referansları, tamamlanan/bekleyen ve sonraki güvenli aksiyonu ayırsın. Varsa gerçek native session ve client sürümü metadata olur; yoksa uydurma OpenCode session kimliği üretme. Dışarıdan gelen doğal dil özetleri doğrulanmış Work geçişi değildir. Eksik test veya receipt sahte başarıya dönüşmez.
-
-Girişte sürekli bütün projelerin RAG indekslerini tarama ve her soruya zorunlu `ask` bariyeri koyma. Soru açıkça yerel kaynak doğrulaması istiyorsa yetkili native arama/okuma kullanılabilir. Zekam RAG/citation seçildiğinde freshness, kaynak revision'ı, redaction ve kanıt kuralları korunur. Jira mapping ve kurum-özel araç bilgisi ilgili skill/referansta kalır; başka host'ta OpenCode MCP adı varmış gibi çağrı uydurulmaz.
-
-### 4.6 Unit Test Engineering: küçük ama gerçek native yol
-
-Mevcut unit-test emeği korunacak. İlk hedef yeni dört headless model backend'i yazmak değil, **kullanıcının zaten açtığı native ajanla test üretirken Zekam'ın ölçüm, kapsam ve kanıt servislerini kullanabilmektir**.
-
-`unit_test_runtime.py` içindeki agent gateway ile Maven ölçüm/environment/ledger bileşenlerini ayır. Native yardımcı yolda OpenCode executable bulunması önkoşul olmasın. Mevcut `test` yüzeyine uyumlu biçimde onaylı ölçüm, kanıt okuma/kaydetme ve kontrollü tekrar ölçüm erişimini sağla. Bu yol gerçek süreç/test raporu üzerinden çalışsın; yalnız “native destekli” yazan bir adapter sınıfı olmasın. [R16,R17]
-
-Native ajan planlar/üretir, mevcut runner ölçer; yalnız tool çıktısındaki başarı yazısına güvenilmez. Test keşfi, taze Surefire/JaCoCo raporu, hedef dosya/sayaç anlamı, kaynak ve test içerik digest'leri, exit status, timeout ve source drift doğrulanır. Eski rapor, test bulunamaması veya sadece `exit 0` hedefe ulaşıldığı anlamına gelmez. Coverage için assertionsız/tekrarlı test, exclusion manipülasyonu, private metoda reflection veya production API'yi gereksiz açma yapılmaz.
-
-Kullanıcının verdiği coverage hedefi ve test-only sınırı korunur; ölçüm→eksik analizi→üretim→yeniden ölçüm, onaylı bütçe içinde ilerler. Production davranışı veya testability refactor ayrı onay ister. Anlamlı davranış/regression testi, salt coverage artırmadığı için değersiz sayılmaz. Bunlar önceki test görevinin gereksinimleridir; bu görev onları yeniden sıfırdan kurmaz.
-
-Açıkça seçilen eski otomatik OpenCode batch yürütücüsü korunabilir; yetkisi, bağımlılığı ve qualification durumu açıkça görünür. Codex/Claude/Gemini oturumunda yardımcı ölçüm istendi diye sessizce OpenCode veya başka model başlatılamaz. Otomatik batch özelliği ile native interactive workflow desteği aynı yetkinlik satırında yanıltıcı biçimde birleştirilmez.
-
-## 5. Güvenli geçiş ve yeniden globalleşmeyi engelleme
-
-### 5.1 Tek seferlik temizlikten fazlası
-
-Mevcut `client_integrations.py` plan/apply, sahiplik, karantina ve receipt yaklaşımını genişlet. [R05,R06,R12] Bütün gerçek üreticileri çağrı grafiğinden bul: integration sync, OpenCode install, init/setup, doctor hazırlığı, skill prepare/export, template/release üretimi ve varsa evolution/worker üzerinden dağıtım. Yalnız bugünkü dosyaları silip bir sonraki güncellemede yeniden oluşturan sistem teslim etme.
-
-Yeni default politika dört istemciye eşit **proje-yerel giriş desteği** verir; global otomatik kurulum vermez. Destekleniyor, seçili, kurulu, keşfedildi, çalıştırılarak doğrulandı farklı alanlardır. Eski `cli.integrations` boolean'larını yeni kapsamla sürümlü ve deterministik uzlaştır. Eski config veya eksik policy yeni kurulumda OpenCode global bootstrap'ını açmasın. Gemini'nin typed identity, parser, status, generator, projection ve ilgili validasyonları birlikte tamamlanmalı. Önceden üretilen digest/receipt kayıtları yeni alan eklenerek geriye dönük değiştirilmez. [R08,R12]
-
-### 5.2 Salt okunur envanter ve exact plan
-
-Gerçek effective home/config köklerini ve mevcut environment yönlendirmelerini salt okunur çöz; yalnız hardcoded `~/.config` varsayımına güvenme. Zekam'ın yazdığı instruction bölümlerini, default agent/plugin referanslarını, hook girdilerini, skill projection'larını ve bilinen diğer-proje dağıtımlarını envanterle. Değerleri, credential'ları veya ham kişisel ayarları rapora dökme; kaynak yolu sınıfı, sahiplik kanıtı, digest, planlanan işlem ve conflict yeterlidir.
-
-Dry-run config, DB, lock, spool, karantina veya dizin oluşturmasın. Plan; kapsamı, exact dosya/bölüm snapshot'ını, önce/sonra değişikliğini, bağımlılığı, backup/rollback'ı ve etkilenmeyen kullanıcı içeriğini belirlesin. Gerçek kullanıcı-geneli apply için plan gösterildikten sonra ayrı exact yetki gerekir. Bu geliştirme görevi o onay verilmeden real home temizleme yetkisi sayılmaz. Fixture home'larında geçiş testleri geliştirme kapsamında yapılır.
-
-### 5.3 Neler kaldırılır, neler korunur?
-
-Yalnız Zekam tarafından üretildiği içerik/sürüm/receipt zinciriyle doğrulanan global müdahaleler kaldırılır veya native discovery dışında güvenli karantinaya alınır. Mevcut marker tek başına sahiplik kanıtı sayılmaz. Bilinen legacy içerik digest'leri ve skill revision/export bağı korunur. Bilinmeyen veya kullanıcı tarafından düzenlenmiş içerik conflict'tir. [R05,R06,R12]
-
-Kullanıcının özel AGENTS/CLAUDE/GEMINI içeriği, skill'leri, MCP ayarları, vendor executable'ı, provider/model bağlantısı, kimlik bilgileri, native memory/session geçmişi ve bütün kullanıcı projeleri korunur. Shared config'te yalnız sahipliği ispatlanmış Zekam girdilerini çıkar; kullanıcı alanlarının semantiğini, mümkün olan yerde exact byte düzenini ve satır sonlarını koru. Bilinmeyen JSON/JSONC/TOML biçimini güvenilir parse edemiyorsan yeniden yazma.
-
-Başka registry projelerindeki Zekam kalıntıları ayrı project-root planlarına ayrılır; user-scope apply gizlice bütün projeleri değiştirmez. Root'taki bütün `.agents`/`.claude` dizinini ya da bütün `AGENTS.md` dosyasını silme. Alias, shell profile veya PATH shim tespit edilirse executable çözümünü gözlemle; sahipliği belirsiz kullanıcı fonksiyonunu silme.
-
-### 5.4 Kesinti, eski oturum ve lifecycle
-
-Eski hook/plugin/outbox kaydını yok sayarak terminal başarı üretme. Aktif owner/lease ve pending olay varsa ilgili scope için güvenli geçiş sırası kur. Gerekiyorsa o scope'u beklet; kullanıcı oturumunu zorla kapatma. Mevcut governed drain/recovery yolunu kullan; `client drain --uygula` gibi public olarak reddedilen bir yoldan iç worker yetkisini taklit etme. [R07]
-
-Yeni varsayılanda lifecycle hook kurma. Açık ihtiyaçla opsiyonel proje-yerel gözlem eklentisi korunursa exact workspace guard her mkdir/spool/subprocess/DB yazısından önce çalışmalı; startup, stop, compaction veya native araç sonucunu kontrol eden katman olmamalı. Gözlem arızası host'u durdurmaz; fakat Zekam kendi eksik kanıtlı Work'ünü başarıyla kapatmaz. Gözlem eksikliği görünür ve telafi edilebilir kalır.
-
-Plan sonrası drift varsa apply reddedilir. Her atomik kapsam için backup, readback, idempotence, kesinti sonrası devam ve rollback testi bulunur. Kullanıcı değişmiş dosyaya rollback ile üzerine yazma. Rollback global eski davranışı geri getiriyorsa bunu açıkça raporla; hem eski entegrasyon geri yüklenmiş hem native-only garanti korunmuş gibi sonuç üretme. Başarılı temizlikten sonra yeni native oturumla doğrulama gerekir; history silmek çözüm değildir.
-
-## 6. Kaynak üzerinde uygulama haritası
-
-Aşağıdaki liste başlangıç haritasıdır; çağrı grafiğini ve ilgili testleri yerelde izle. Kaynakta zaten yapılmış işi tekrar üretme, yalnız görülen dosyaları değiştirip diğer generator'ları unutma.
-
-| Alan | Kapsam |
-|---|---|
-| `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `.ai/repository-context.json`, ilgili manifest/DoD kuralları | İnce giriş, doğru authority, task-specific yükleme, risk bazlı subagent/review politikası. |
-| `opencode.json`, `.opencode/agents/`, `config/client-templates/` | Zorunlu coordinator/default izinlerden çıkış; ince yerel adapter; tarihsel metin keşif dışı. |
-| `src/zekam/domain/client_integration.py` | Dört istemci, kapsam/destek/kurulum/qualification ayrımı ve geriye uyumlu politika. |
-| `application/client_integrations.py`, `client_instruction_bootstrap.py`, `client_hook_bootstrap.py`, `opencode_agent_bootstrap.py` | Tüm üreticiler, sahiplik, migration, scope ve rollback. |
-| `interfaces/cli/integration.py`, `opencode.py`, `client.py` ve bunları çağıran kurulum/hazırlık akışları | Yeni varsayılan, eski komutların açık deprecation/cleanup yolu; yeniden globalleşmenin engellenmesi. |
-| `application/skill_packages.py`, skill yaşam döngüsü ve mevcut paket kaynakları | Tek kanonik paket, Gemini projection, çapraz discovery ve historical receipt uyumluluğu. |
-| Mevcut context compiler/recipe ve `application/scaffolding_ablation.py` | Gerçek effective-context tanısı, ilgili/yinelenen yük ayrımı, paired değerlendirme. |
-| `interfaces/cli/continuity.py`, `application/local_continuity_*`, mevcut resume/store bileşenleri | Native istemciden gerçek checkpoint/close/continuation yolu; ek authority yok. |
-| `application/unit_test_runtime.py`, `interfaces/cli/unit_test.py`, `infrastructure/unit_test_runner/` | Ölçüm–agent gateway ayrımı, native yardımcı yol, mevcut Maven/JaCoCo kanıtı. |
-| `docs/CLI_ENTEGRASYON_POLITIKASI.md`, `docs/ZEKAM_YETKINLIK_ENVANTERI.md`, README ve ilgili testler | Gerçek kullanım, destek sınırı, geçiş/runbook, deprecation ve dürüst kabul durumu. |
-
-Zekam kimliği, kalıcı veri kökü, mevcut SQLite/CAS/knowledge kayıtları ve kullanıcı içerikleri korunur. Yeni PostgreSQL bağımlılığı veya eski PostgreSQL veri importu yoktur. Docker, Redis, zorunlu sunucu veya UI eklenmez. Bu geçişi geniş çaplı dizin taşıma/yeniden adlandırma projesine dönüştürme.
-
-## 7. İş paketleri ve ilerleme
-
-| Paket | Teslim | Bağımlılık |
+# Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
+
+**Dosya:** `AKTIF_GOREV.md`  
+**Belge sürümü:** `1.0` — v0.5 talep defterinden tek ana göreve geçiş  
+**Tarih:** 12 Ekim 2026  
+**Mevcut yürütme aşaması:** `RESEARCH_AND_IMPLEMENTATION_PLAN_APPROVED`  
+**Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
+
+> **Görev özeti:** Önce Zekam'ın gerçek durumunu ve uygun açık kaynak yöntemleri araştır;
+> yedi kullanıcı talebini ve 31 yetkinliği kapsayan, uygulanabilir ve ölçülebilir onarım
+> planını tamamla. Uygulama onayından sonra aynı görev kapsamında kontrollü dilimlerle
+> geliştir, gerçek doğal dil senaryolarıyla doğrula ve kanıtlarıyla kapat. Yalnız rapor,
+> yeni komut adları veya `ready` etiketleri üretmek, ürünü tamamlamak değildir.
+
+## 0. Yetki, Aşama Ve Devir Sözleşmesi
+
+### 0.1 Güncel Kullanıcı Kararı
+
+Kullanıcının son talebi: **“Güzel, hadi yeni göreve alalım ve şu işi bitirelim.”**
+Bu karar, önceki araştırma planını yeni ana göreve dönüştürür. v0.5 içindeki
+“araştırma durduruldu / yeni başla bekleniyor” kaydı, **araştırma ve somut uygulama
+planı hazırlığı bakımından** bu sürümle geçersizleşir. Yeniden aynı araştırma
+iznini isteme. Önceki yanıtta ayrılan kaynak uygulama onayını ise verilmiş sayma.
+
+| Aşama | Şimdiki Yetki | Çıkış |
 |---|---|---|
-| W01: Devralma ve baseline | Önceki görev arşivi, mevcut durum, gerçek producer/discovery haritası, hedefli baseline test sonucu. | Yok |
-| W02: Kapsam ve politika | Native host sınırı, exact workspace çözümü, yeni typed policy, global kurulum üretimini kapatan çekirdek. | W01 |
-| W03: Dört ince giriş | Root bootstrap ve metadata, yerel compatibility dosyaları, doğru skill projection/discovery, çelişen zorunlu rol kurallarının uzlaşması. | W02 |
-| W04: Güvenli migration | Dry-run, exact apply/receipt, kullanıcı verisi koruması, legacy projection/hook/agent cleanup, crash/rollback/regrowth testleri. | W02; W03 ile koordine |
-| W05: Kullanılabilir yardımcı yol | Native continuity ve test ölçümü; OpenCode zorunluluğu olmadan gerçek helper akışı, mevcut explicit batch regresyonu. | W02 |
-| W06: Bağlam ve kabul | Görev-özel skill/reference dönüşümü, effective-context kontrolü, negative tests ve paired değerlendirme girişi. | W03–W05 |
-| W07: Son doğrulama ve devir | İlgili CI/kalite kapıları, güncel kullanım/transition runbook'u, capability matrisi ve açık deployment/qualification durumu. | W06 |
+| Araştırma, kaynak okuma, ekli dosyaları güvenli inceleme, yerel kanıt/plan hazırlama | Onaylı | Güncel gerçek durum, karşılaştırma, tasarım kararları, modül ve test bazlı plan |
+| Mevcut kapsam için izole, provider-free tanı/fixture testleri | İncelenmiş komut, uygun güvenli ortam ve araç yetkisi varsa; kullanıcı verisine yazmadan | Baseline/test kanıtı, ortam yoksa açık blocker |
+| Zekam kaynak koduna, ajan ayarlarına veya schema'ya uygulama | Araştırma sonucundaki exact uygulama planı için ayrı onay bekler | Onaylı iş paketlerinin kod, test, migration ve belge teslimi |
+| Canlı model/embedding kampanyası, kurumsal içerik aktarımı, yeni ücretli işlem | Kaynak/hedef/veri sınıfı ve sınırlı bütçe için ayrıca izin gerekir | Gerçek kabul; izin yoksa canlı sonuç uydurulmaz |
+| Git commit | Uygulama onayından sonra, yalnız o kapsamdaki doğrulanmış değişiklikler için ayrıca push onayı istemeden | Ayrıntılı Türkçe ASCII başlık ve gövde |
+| Git push veya eşdeğer uzaktaki Git referansı güncellemesi | **Onay yok; her yayın için ayrı açık onay** | Hedef remote/branch ve commit aralığı gösterilerek onay |
+| Miro/GitBook'a yazma-yayımlama, gerçek global istemci ayarı, kullanıcı verisi taşıma | Bu aşamanın otomatik yetkisi değildir | Ayrı hedef ve etki onayı |
 
-Paketler tam bir yeni orkestrasyon reçetesi değildir. Bağımsız dosya/kaynaklarda uygun paralellik kullan; aynı yazılabilir kaynağa birden fazla kontrolsüz writer koyma. Küçük bir düzeltme için bütün rollerin törenini tekrarlama. Her pakette gerçekten biten değişikliği, kanıtı ve kalan engeli kaydet. Yalnız README veya config değiştirip runtime/migration boşluklarını sonraya bırakmak teslim değildir.
+`APPROVED_ACTIVE_TASK`, mevcut task parser'ıyla uyumlu kapsam kimliğidir; bir işletim
+sistemi izni, execution grant, başarılı test, Work kapanışı veya push yetkisi değildir.
+**Araştırma onayı ile uygulama onayı, ajan Shell hedef politikası ile bu hazırlığın
+izinleri birbirine karıştırılmayacak.** Bir izin eksikse yalnız ilgili etkili adımı
+beklet; bağımsız ve güvenli işleri durdurma.
 
-## 8. Kabul testleri
+### 0.2 Mevcut Repository Görevini Kayıpsız Devral
 
-Mevcut test araçlarını ve sentetik fixture'ları genişlet. Negatif senaryolar, doğru metnin dosyada bulunmasını değil mümkün olduğunda gerçek davranışı test etsin. Aşağıdaki satırlar kabul sonuçlarıdır; her satır için test veya gözlem yolu ve sonucu kaydedilir.
+1. Gerçek checkout'taki `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, mevcut
+   `AKTIF_GOREV.md`, generated YAML ve operational Work/lease durumunu oku.
+2. Bu hazırlıkta okunan eski repo görevi `ZEKAM-NATIVE-CLI-WORKSPACE-001` idi.
+   Kullanıcının koyduğu yeni dosyayı eski committed görevle karıştırma. Eski task,
+   projection, açık işler ve kullanıcı değişikliklerini mevcut arşiv yöntemiyle koru.
+3. Yeni göreve geçiş önceki işleri tamamlanmış saymaz. Örtüşen işleri bu görevdeki
+   REQ/CAP/WP kayıtlarına bağla; ikinci kez aynı işi açma veya eski işi silme.
+4. Header'ın alanları mevcut `ActiveTaskContract` sözleşmesine göre seçildi. Sürüm,
+   aşama ve yetki açıklamaları gövdededir; parser'ın bilmediği alanları frontmatter'a ekleme.
+   Repo üzerinde kabul edildiğinde gerçek parser ve mevcut projection üreticisini kullan;
+   YAML'a elle onay, digest veya ilerleme yazma.
+5. `baseline_head` araştırma karşılaştırma sabitidir; kaynak ilerlediyse diff'i incele.
+   Eski commit'e reset etme. Gerçek HEAD/branch, dirty durum, paket import konumu,
+   Python/OS/CLI sürümleri ve scope digest'ini yürütme başlangıcında tekrar kaydet.
+6. Gerçek kaynak kökü dışında kopya proje, mirror veya detached worktree oluşturma.
+   Araştırma raporları, indirilen dış kaynak ve fixture'lar Zekam kaynak köküne atılmaz.
+   Kaynakta yalnız ayrıca onaylı tracked değişiklikler yapılır.
+7. Ek A'daki eski metin salt tarihsel kanıttır. Eski durdurma ifadeleri, örnek onaylar
+   ve geçmiş durumlar bu bölümün yerine geçmez; otomatik başlangıç bağlamına yüklenmez.
 
-| ID | Senaryo | Kabul |
+## 1. Amaç Ve Kullanıcının Beklediği Deneyim
+
+Zekam, kendi çalışma klasöründe açılan destekli coding istemcisinde, kullanıcıya komut
+öğretmeden projeleri tanıyan, doğru bilgiye hızlı ulaşan, belgeleri güncelleyebilen,
+araştıran, görevleri yöneten, testleri geliştiren ve kesintiden devam edebilen bir
+mühendislik yardımcısı olmalıdır. Hedef tek bir model veya CLI'a bağımlı yeni bir ürün
+kurmak değil; mevcut Zekam'ın değerli yeteneklerini **gerçekten çalışan bütünleşik
+akışlar** hâline getirmektir.
+
+Kullanıcı örnekleri: “GPU'da bunu açıkla”, “Bu GTD'yi GPU bilgisine ekle”, “SKY'nin şu
+tercihini hatırla”, “Bu defectte ne değişmiş?”, “Şu sınıfın testlerini iyileştir”,
+“Kaldığın yerden devam et”, “Yaptıklarını commit et ama push yapma.”
+
+CLI/MCP/API teknik araç olarak kalabilir; `zekam ask` veya `project index` çalıştırmak
+**insanın zorunlu görevi değildir**. Ajan gerekli araçları kendisi çağırır. Sadece
+prompt'ta “otomatik yap” yazılması doğal dil entegrasyonunun çalıştığını kanıtlamaz.
+
+### 1.1 Üç Ayrı Kabul Ekseni
+
+- **Davranış:** Kullanıcının doğal dil isteği doğru proje, işlem ve sonuçla karşılanıyor mu?
+- **Doğruluk:** Sonuç gerçek kaynak, taze test/ölçüm ve geçerli kanıtla doğrulanıyor mu?
+- **Süreklilik:** Kesinti, model/istemci değişimi ve hata sonrası kayıtlar korunarak devam ediyor mu?
+
+Bir eksenin başarısı diğerlerini otomatik geçirmez. `declared-ready`, kodda bulunma,
+komuta bağlanma, fixture testi, canlı çalışma ve kullanıcı cihazı kabulü ayrı alanlardır.
+
+## 2. Girdiler Ve Kaynakların Güven Sınırı
+
+### 2.1 Mevcut Girdiler
+
+Aşağıdaki hash'ler bu görev dosyasının hazırlığında mevcut gerçek byte'lardan hesaplandı.
+Dosya adı aynı fakat içerik farklıysa yeni girdiyi ayrı revision olarak kaydet.
+- **AKTIF_GOREV.md (önceki v0.5)** — 42,954 byte; SHA-256 `cde119a8b4ee1d9d8ece297e0981588b48802a3cf0b6515db6ae4b4eb05b7967`.
+- **ZEKAM_MIMARI_PAKETI_v2.zip** — 1,559,448 byte; SHA-256 `d84446d48fd41adac2072314b47d5cf1751a854efa563e4b9ebdeca953d3bb4e`.
+- **ZEKAM_MIMARI_REFERANSI.md** — 465,497 byte; SHA-256 `a44205c086003c9b553bb7fc79bc1c910cd9e1981dde6caf65429cb66d04beb1`.
+- **gpu-db-ddl-sync-master@87c867aa5ba.zip** — 40,314,652 byte; SHA-256 `35f098fa6025e0d5328e62d5a768a93bf99c7f49970821eb869e19d6f245e704`.
+
+- Mimari pakette `kataloglar/yetkinlikler.json`, `aciklar_ve_kararlar.json`,
+  `arayuz_sozlesmeleri.json`, `kabul_senaryolari.json`, `kaynak_haritasi.json`,
+  `yeniden_insa_kapsami.json` ve üretim/güncelleme bölümleri öncelikli referanstır.
+- v2 metadata'sındaki `full_repository_content_audit=false`,
+  `runtime_tests_executed=false`, `full_reconstruction_proven=false` korunur.
+  Paketin yapısal doğrulama sayıları Zekam ürün test sonucu değildir.
+- GPU/SKY gerçek proje kökleri, ODD/GTD örnekleri, gerçek Jira/Confluence kayıtları ve
+  ODI exportları yalnız gerçekten erişilen/gösterilen girdilerden çözülür. Bu dosyada
+  bunların erişilebilirliği veya belirli bir örnek kaydın varlığı varsayılmıyor.
+- Graft karşılaştırma adayı: `https://github.com/trailhq/graft`. Bu dosyanın hazırlanması,
+  Graft'ın daha iyi veya Zekam'la uyumlu olduğunu kanıtlamaz.
+- Ekli Jenkins ZIP'i salt-okunur referanstır. İçindeki script, pipeline, DDL, build,
+  hook veya bağlantı kodu kendiliğinden çalıştırılmaz; hazır embedding çözümü içerdiği
+  varsayılmaz. Uygulanabilir örüntü yoksa bu da araştırma sonucudur.
+
+### 2.2 Bu Hazırlıkta Canlı Okunan Dar Repo Kesiti
+
+`main` ref'i, `AGENTS.md`, eski aktif görevin ilk bölümü ve `active_task_contract.py`
+parser kesiti okundu. Okunan ref, mimari paketin sabit commit'iyle aynıydı. Bu,
+repo'nun tamamının yeniden denetlendiği anlamına gelmez. Bölüm 15 kaynak bağlarını verir.
+Geniş araştırma ve uygulama aşağıdaki iş paketlerinin **yapılacak işidir**.
+
+## 3. Kapsam Ve Değişmezler
+
+### 3.1 Kapsam
+
+Yedi kullanıcı talebi eksiksiz korunur. Tüm 31 CAP kaydı taranır; `partial`,
+`documented-partial`, `scaffold` ve gerçek akışı eksik teknik yetenekler tamamlanacak
+planlara bağlanır. `ready` beyanlı özellikler doğal dil, entegrasyon ve regresyon
+bakımından tekrar sınanır. Tarihsel özellikte değerli davranış korunur; eski dosyalar
+veya PostgreSQL dönemi motoru sırf var diye yeniden etkinleştirilmez.
+
+### 3.2 Kapsam Dışı
+
+- Yeni Zekam UI/dashboard/web ürünü, zorunlu bulut servisi veya ayrı operational DB motoru.
+- Kullanıcının diğer repository'lerini bu görev bahanesiyle yeniden geliştirmek.
+  GPU/SKY kaynakları araştırma/fixture/kabul girdisi olabilir; source mutation ayrıca kapsam ister.
+- Bağımsız `ai-test-engineering` ürününü bu göreve taşımak veya deposunu değiştirmek.
+  Zekam ile yetki kontrollü entegrasyon gerekiyorsa ayrı karar kaydı; ikinci ürün kopyası yok.
+- Harici eklentilerin hepsini kalıcı runtime bağımlılığı yapmak.
+- Eski veriyi temizlemek, kullanıcı global ayarlarını değiştirmek veya uzaktaki içeriği
+  yayımlamak için araştırma izninden yetki türetmek.
+
+### 3.3 Zorunlu Koruma Kuralları
+
+- Çalışan kullanıcı kaynakları, belgeler, görev/geçmiş kayıtları ve dosya sahipliği korunur.
+- Core local-first kalır; SQLite operational authority ve mevcut CAS/derived index/
+  analytics ayrımı korunur. PostgreSQL/Docker core önkoşulu yapılmaz; legacy DB importu yoktur.
+- “Kendi klasöründe çalışsın” öncelikle **etkinleşme sınırıdır**. Mevcut `ZEKAM_HOME`'u
+  kaynak köküne taşımak ayrıca fiziksel yerleşim ve yedek/rollback kararı gerektirir.
+  Bu ayrımı görünür kıl; kullanıcı verisini sessizce taşıma ve kullanıcı beklentisini unutma.
+- Windows gerçek kullanıcı kabulünün öncelikli platformudur. Mevcut diğer platformların
+  kodu/taahhüdü sessizce silinmez; doğrulanmayan platform için başarı iddia edilmez.
+- Model adı, sağlayıcı öneki ve erişim kimliği tahmin edilmez. Konfigürasyon esas alınır;
+  tek modele bağlayan sabit tercih veya eski tarihli katalog canlı gerçeklik sayılmaz.
+- Kimlik/digest ve immutable migration sözleşmeleri korunur. Gerekli additive değişiklik
+  kaynak/projection/consumer/test ile birlikte ele alınır; eski migration byte'ları değiştirilmez.
+- Bilgi/RAG/model çıktısı onay veya Work state değildir. `unknown` etki sessiz retry
+  edilmez; kesinti receipt/readback ile uzlaştırılır. Harici sistemlerde mutlak
+  exactly-once garantisi sunulmaz.
+- Kullanıcıya CLI komutu, digest, UUID, token veya klasör çözümleme işi yüklenmez.
+  Bilinen alanlar mevcut kayıttan çözülür; yalnız gerçekten eksik karar sorulur.
+- Eksik özellik “opsiyonel”, “gelecek faz” veya “unsupported” yapılarak gizlice kapsamdan
+  çıkarılmaz. Teknik engel ve erteleme etkisi raporlanır; kapsam değişikliği kullanıcı kararıdır.
+
+## 4. Korunan Kullanıcı Gereksinimleri
+
+Ek A'da v0.5'in tam metni korunmuştur. Aşağıdaki kayıtlar onun güncel uygulanabilir
+özetidir. Yedi gereksinimin durumu `research-approved`; kaynak uygulama durumu
+`implementation-approval-pending` olarak ayrı izlenir.
+
+### ZKM-REQ-001 — Zekam Klasöründe İstemci Bağımsız Başlangıç
+
+OpenCode, Codex, Claude Code, Gemini ve destek kanıtı bulunan diğer istemciler Zekam
+kökünde açıldığında ince proje girişini, yetenek keşfini, aktif iş ve son güvenilir
+checkpoint'i tanısın. Grok adı tek başına test edilmiş bir coding CLI değildir;
+client/model ayrımını koru. Repo kökü, alt dizin, farklı dizin ve global home test edilsin.
+Aynı klasör adını taşıyan ilgisiz proje, kopya veya path alias'ı güvenlik sınırı sayılmasın.
+Geçerli mevcut iş/onay varsa devam edilebilir; klasör açılması yeni işlem onayı üretmez.
+Eski native-first yaklaşımın iyi tarafını koru; gerektiğinde değişen politikayı açık ADR ile uzlaştır.
+
+### ZKM-REQ-002 — Kaynak Odaklı Hızlı Ve Artımlı Embedding
+
+Önce tarama, parse, chunk, provider qualification, embedding, yazım ve sorgu maliyetini
+ayrı ölç. Her dosyanın envanter/metadata kaydı ile embedding seçimini ayır. `.java`,
+`.js`, `.jsx`, `.ts`, `.tsx`, `.sql`, `.pks`, `.pkb`, `.py` gibi kaynak türleri ve güvenli
+seçilmiş belgeler teknoloji politikasına göre işlensin. Uzantısı kaynak gibi görünen
+üretilmiş/minify/bundle/vendor dosyası otomatik uygun sayılmasın. Değişmeyen içerik
+ve chunk'lar yeniden embed edilmesin; delete/rename, model/profil değişimi, resume ve
+generation atomikliği çözülsün. Kaynak kod profili, açıkça verilmiş GTD/ODD veya ODI XML'i
+engelleyen tek bir küresel uzantı filtresine dönüşmesin.
+
+`.env`/`.properties` yalnız güvenli local-only yapı/anahtar analizi için değerlendirilsin.
+Shell ile `source`, import veya expression evaluation yapılmasın; bağlantı bilgilerinden
+kendiliğinden DB bağlantısı veya ağ çağrısı çıkarılmasın. Şifre/token/private URL veya
+hassas anahtar adı model, log, embedding, rapor, cache ve dış araştırma sorgusuna girmesin.
+Dosya envanteri secret değerinin kalıcı hash'ini veya içeriğini ifşa etmeyi gerektirmez.
+
+### ZKM-REQ-003 — Önce Proje, Sonra Yalnız İlgili RAG
+
+Registry/alias/family, açık proje, Jira anahtarı ve doğrulanmış son görev bağlamını çöz.
+Çelişkiyi tahminle bastırma. Zekam checkout'u, kullanıcının iş projesi diye otomatik
+seçilmesin. GPU/SKY çözümlemesinde tüm projelerin chunk içeriği taranmasın. Açık çoklu
+proje sorusu ayrı scoped fan-out olabilir. Tanımsız proje, eski indeks, kanıt yokluğu,
+provider erişimsizliği ve gerçekten belirsiz istek ayrı sonuçlardır. Tek proje sorgusunda
+başka projeye sessiz fallback veya kullanıcı yetkisi dışı retrieval yapılmasın.
+
+### ZKM-REQ-004 — Shell Allow, Push Onayı Ve Türkçe ASCII Commit
+
+Destekli ajan/alt ajan tanımlarında hedef shell/terminal politikası **`allow`** olacak;
+onaylı proje işinde her zararsız komutta yeniden izin istenmeyecek. Native izin anahtarları
+her hostun gerçek şemasından üretilsin; bütün istemcilere aynı JSON kopyalanmasın.
+Commit, yapılan işin ne/neden/nasıl değiştiğini, testleri ve kalan riski anlatan **Türkçe
+anlamlı, sadece ASCII** başlık ve gövde içersin. Push ayrı açık onay istesin.
+
+**Uygulanabilirlik kapısı:** Sınırsız shell ve doğrudan credential erişimi varken yalnız
+bir prompt veya `git push` metin eşlemesiyle bütün uzak yazmaların engellendiği iddia
+edilemez. Native deny/ask istisnası, aracılı yayın aracı, credential/transport sınırı ve
+eşdeğer API/alt süreç yayın yollarını araştır ve test et. Güvenilir sınır desteklenmiyorsa
+“push kesin kontrollü” denmesin; dar mimari karar gereksinimi raporlansın. Bu teknik
+sınır, kullanıcının `allow` talebini sessizce `deny` yapma gerekçesi değildir.
+
+Bağımsız verifier'ın kimliği/evidence bağımsızlığı shell erişimiyle yok olmaz; yaptığı
+öz değişikliği kendi kendine doğrulaması bağımsız inceleme sayılmaz. Global izin
+gevşetme, sırları dışarı gönderme ve güvenlik kontrollerini kaldırma bu tercihten çıkmaz.
+
+### ZKM-REQ-005 — Dosya/Klasör/Belgeyi Doğal Dille Proje Bilgisine Al
+
+“Bu GTD'yi GPU için güncelle” denince varsayılan hedef proje bilgi kaynağı ve indeksidir;
+belgenin orijinalini, Jira kaydını veya üretim kodunu değiştirmek değildir. Dosya/klasör/
+arşiv, ODD/GTD, talep/defect ve ODI 11g export XML/ZIP ayrı provenance ve parser taşır.
+ODD/GTD açılımları/şablonları tahmin edilmez; gerçek format üzerinden analiz edilir.
+Başlık, tablo, sayfa veya satır/simge locator'ı, kaynak revision ve içerik kimliği korunur.
+Desteklenmeyen/şifreli/okunamayan içerik metadata olarak görünür; “indekslendi” denmez.
+Yeni generation tamamlanmadan eski çalışan indeks bırakılır; rename ve sürüm geçmişi
+kaybolmaz. Projeler arasında kaynak, cache, permission veya rapor sızıntısı olmaz.
+
+### ZKM-REQ-006 — Graft Ve Uygun Açık Kaynak Alternatifleri
+
+Graft'ın kaynak, lisans, güncel commit, algoritma, test ve gerçek davranışını incele.
+Graft + en az iki işlevsel alternatifin aynı iş yükünde neyi çözdüğünü karşılaştır;
+uygun alternatif bulunamıyorsa arama kanıtını ve kapsam boşluğunu yaz, isim uydurma.
+Graph çözümünü sırf adı dolayısıyla embedding motoru sayma. HF model/dataset araştırması,
+GitBook doküman yaklaşımı, Context7 sürüm belgeleri ve gerektiğinde Exa/Firecrawl ile
+kanıtı tamamla. En iyi kararı `uyarla / bileşen kullan / referansla yetin / reddet` diye
+kaydet. Star sayısı, demo veya farklı donanımdaki pazarlama ölçümü üstünlük kanıtı değildir.
+
+### ZKM-REQ-007 — Kullanıcıya Komut Ezberletmeyen Doğal Dil Akışı
+
+İstemci isteği anlayabilir; proje/işlem/izin doğrulaması deterministik katmanda yapılır.
+`intent → project/scope → capability → plan → effect admission → execution → evidence
+→ açıklama/checkpoint` bağlantısı gerçek araç çağrılarıyla çalışsın. Büyük monolitik
+ikinci bir orchestrator zorunlu tutulmasın. Host desteği yoksa dürüstçe bildirilsin.
+Kullanıcıya normal durumda sonucu anlat; hata varsa neden ve gerekli kullanıcı kararını
+söyle. Retrieval kanıtını üretilmiş açıklama diye, öneriyi uygulanmış değişiklik diye sunma.
+
+### ZKM-REQ-008 — Kısmi Yetkinliklerin Tamamlanması Ve Tüm Kataloğun Kabulü
+
+Kullanıcının “kısmi olanları da tamamlayalım” isteği bu yeni kapsam kaydıdır.
+CAP-01..CAP-31'in her biri mevcut beyan, runtime erişimi, doğal dil akışı, veri sözleşmesi,
+güvenlik, test ve canlı kabul açısından incelensin. Her eksik için bir WP, somut
+uygulama adımı, acceptance ve blocker kaydı olsun. Kısmi özellikleri sadece etiket
+ve doküman değiştirerek bitirme. Tarihsel mekanizmanın yerine davranışsal eşdeğer
+mevcut yol varsa kanıtla; ürünü sırf geçmişte vardı diye eski mimariye döndürme.
+
+## 5. Araştırma Yöntemi Ve Eklenti Kullanımı
+
+### 5.1 Ortak Yöntem
+
+1. Önce pinned Zekam kaynak gerçeği ve mevcut testlerden başlangıç davranışını çıkar.
+2. Açık kaynak adaylarını sınırlı ve bağımsız araştırma kollarında bul; teknik iddiaları
+   resmi belge/kaynak/testte doğrula. Her dosya/URL için revision ve okunan kapsamı kaydet.
+3. Aynı corpus, makine ve ölçüm yönteminde karşılaştır. Lisans, kurulum, model/host
+   bağımsızlığı, veri ifşası, Windows desteği ve rollback uygunluğu birlikte değerlendir.
+4. Seçilen yaklaşımı mevcut modüllere uyarlayan ADR ve exact uygulama planı üret.
+   Dış projenin tümünü vendörleme veya mevcut sistemi kanıtsız yeniden yazma.
+5. Araştırma kapısı tamamlanınca aynı araştırmayı tekrar tekrar yapmak yerine eksik
+   kararları ve uygulama onayı kapsamını tek pakette sun.
+
+| Araç/Eklenti | Gerçek Kullanım Amacı | Zorunlu Sınır |
 |---|---|---|
-| A01 | Dört vendor executable'ın normal açılışı | Zekam shim/alias/wrapper zorunluluğu yok; native executable kimliği değişmiyor. |
-| A02 | Zekam kökü ve aynı projenin alt dizini | Doğru ince giriş keşfediliyor, duplicate bootstrap yok. |
-| A03 | Sibling/parent/home ve ayrı kayıtlı proje | Zekam kaynaklı otomatik process, config, spool, job ve provider etkisi yok. |
-| A04 | `zekam-old`, benzer prefix, nested repo, farklı filesystem kökü | Yanlış otomatik kapsam kabul edilmiyor. |
-| A05 | Symlink/junction/reparse veya drift | Mevcut exact-root sınırı aşılamıyor; belirsizlik aktif yetkiye dönüşmüyor. |
-| A06 | Sadece `ZEKAM_HOME` tanımlı veya Zekam kurulu | Bu durum başka projede otomatik entegrasyonu açmıyor. |
-| A07 | Zekam oturumundan açıkça yetkili dış hedef | Doğru source root kullanılıyor; hedefe bootstrap veya proje kopyası üretilmiyor. |
-| A08 | Runtime/DB eksikliği ve zararsız kaynak inceleme | Native CLI kilitlenmiyor; Zekam Work başarı kaydı uydurulmuyor. |
-| A09 | Native model/tool/plan/MCP/subagent seçimi | Zekam default coordinator, model-bound router veya genel `allow` ile bunları zorlamıyor. |
-| A10 | Stop/compaction ve opsiyonel gözlem hatası | Yeni default hook'suz; varsa local gözlem host kararını bloklamıyor, eksik kanıt görünür. |
-| A11 | Eski config veya policy alanı yok | Upgrade/init/install/doctor/sync tekrar global bootstrap üretmiyor. |
-| A12 | Migration dry-run | Dosya/DB/lock/spool/dizin yan etkisi yok; exact plan mevcut. |
-| A13 | Known-owned global artifact apply | Yalnız onaylı Zekam bölüm/girdileri taşınıyor; kullanıcı verisi korunuyor. |
-| A14 | Marker var, içerik drift/unknown | Sahiplik varsayılmıyor; güvenli conflict ve açıklama var. |
-| A15 | Shared config ve özel instruction prefix/suffix | Kullanıcı semantiği ve korunan metin aynı; credential/PII rapora düşmüyor. |
-| A16 | Plan sonrası drift, crash, retry ve rollback | Stale plan reddediliyor; idempotent recovery var; kullanıcı değişikliğine overwrite yok. |
-| A17 | Diğer proje projection cleanup | Ayrı root planı/onayı olmadan user-scope apply oraya yazmıyor. |
-| A18 | Bütün dağıtım üreticileri sonrası ikinci sync/upgrade | Temizlenen global parçalar tekrar oluşmuyor; ikinci plan no-op. |
-| A19 | Gemini kimliği ve legacy receipts | Parser/status/generator uyumlu; eski digest/receipt değişmiyor. |
-| A20 | Claude sürüm/fallback/import ve host override | Gerçek koşula uygun giriş; global policy override yok; destek durumu dürüst. |
-| A21 | Skill'in çoklu keşif dizinleri | Aynı kanonik skill için çakışan etkin giriş yok; kullanıcı skill'i kaybolmuyor. |
-| A22 | İlgisiz soru, selamlama, küçük doküman düzeltmesi | Gereksiz doctor/router/RAG/agent zinciri veya bütün aktif görev yükü yok. |
-| A23 | İlgili test/Jira/recovery isteği | İhtiyaç duyulan skill/reference bulunuyor; gerekli exact prosedür kaybolmuyor. |
-| A24 | Bir host'ta checkpoint, diğerinde resume | Aynı doğrulanmış iş ve source revision anlaşılabiliyor; hayalî session/review yok. |
-| A25 | OpenCode executable yokken native test helper | Mevcut runner ile gerçek ölçüm ve sonuç kaydı çalışıyor; başka model sessizce açılmıyor. |
-| A26 | Eski explicit OpenCode batch yolu | Açık seçildiğinde mevcut izinler ve runtime davranışı korunuyor. |
-| A27 | Eksik/eski JaCoCo, test yok, yanlış hedef veya source drift | Başarı/coverage üretmiyor; nedeni ve next-safe-action doğru. |
-| A28 | Geçersiz yetki/claim, target dışı yazma, eksik receipt | Zekam-owned işlem ve doğrulanmış Work kapanışı reddediliyor. |
-| A29 | Native gözlem ile kanonik kanıt ayrımı | Sonradan ingest, geçmişe dönük pre-effect yetki/bağımsız verifier sayılmıyor. |
-| A30 | RAG/knowledge/backup ve kullanıcı kayıtları | Mevcut kapsam içi regresyonlar geçiyor; veri veya kaynak sahipliği kaybı yok. |
-| A31 | Kurulu ama test edilmemiş CLI/model | `ready` veya qualified denmiyor; installed/discovered/verified ayrı. |
-| A32 | Temiz yeni oturum ve eski session | Yeni davranış kanıtlanıyor; eski bağlamın history silinerek temizlendiği iddia edilmiyor. |
+| GitHub | Zekam kaynak/test/geçmiş, Graft ve alternatiflerin kod kanıtı | Repo kimliği ve ref doğrula; özel dosyayı public arama motoruna taşıma |
+| Exa | Kod indeksleme, araştırma, bellek/ajan yaklaşımı için aday keşfi | Sonuç keşiftir, doğrulama değildir; yalnız gerekli public sorgular |
+| Firecrawl | Seçilmiş public teknik sayfanın yapılandırılmış okunması | Kredi/bağlantı eksikliğini kaydet; başarılı scrape uydurma, bütçesiz crawl yok |
+| Context7 | Seçilen kütüphanenin gerçek sürüm/API sözleşmesi | Önce library ID çöz; örnek snippet performans kanıtı değildir |
+| Hugging Face | Embedding/reranker model kartı, lisans, revision, code/çok dil veri seti | Modeli indirmek/çalıştırmak ayrı kaynak ve bütçe kararı; yetenek adı tahmin etme |
+| GitBook | Erişilebilir referans içerik ve yerel bölümlü dokümantasyon tasarımı | Metadata rehberi Zekam'a entegrasyon kanıtı değil; remote write/publish ayrı |
+| Miro | Gerekiyorsa teknik çizim yapısı ve yerel export modeli | Mevcut yerel Mermaid diyagramları korunur; pano yazma ayrı onay |
 
-Windows yol/izin/komut davranışları hedefli olarak test edilsin. Desteklenen diğer işletim sistemleri için var olan CI matrix'i korunur; yalnız bir işletim sisteminde koşmuş testi çapraz platform kanıtı sayma. `os.O_NOFOLLOW` benzeri platforma özel mevcut kod yolunu native continuity'de kullanırken gerçek platform desteğini doğrula. [R15]
+Araçların kurulu/çağrılabilir/bağlı/yetkili/doğrulanmış olması ayrı kaydedilir. ChatGPT'deki
+bir eklenti, Zekam/OpenCode/Codex runtime'ında otomatik bulunmaz. Kullanılacak ortamda
+şema/discovery ile gerçek fonksiyonlar öğrenilir; geçmişteki araç adları körlemesine
+çağrılmaz. Kredi veya bağlantı eksikliği tek başına tüm işi durdurmaz; uygun mevcut okuma
+yolu kullanılır ve provenance'da hangi aracın sonuç verdiği belirtilir.
 
-### 8.1 Sadeleşmenin gerçekten işe yaradığını ölç
+### 5.2 Araştırma Kayıt Sözleşmesi
 
-Mevcut `ScaffoldingAblationService` ve uyumlu evidence yapılarını kullan. [R13] Karşılaştırma: mevcut ağır akış ile yeni native/ince akış; gerekliyse üçüncü bir minimal referans. Aynı görev, kaynak snapshot'ı, model/CLI sürümü, araç erişimi, güvenlik sınırı, bütçe ve kabul ölçütü altında karşılaştır. Eski global ayarları gerçek kullanıcı home'una geri kurarak benchmark yapma; izole sentetik ortam kullan.
+Her bulgu: `finding_id, requirement_ids, capability_ids, source_kind, repository/url,
+commit/version, path/section/line-range, retrieved_at, tool, content/slice_digest,
+observation, inference, evidence_level, limitations, decision_ref`.
+Her araç kaydı: `tool_name, operation, purpose, input_classification, outcome,
+source_refs, observed_usage, auth_or_quota_blocker`. Secret/payload kopyası yok.
+Aynı kaynağı farklı araçla okumak bağımsız doğrulama veya iki ayrı kanıt sayılmaz.
 
-Kapsamı küçük ama ayırt edici tut: genel soru, küçük source düzeltmesi, çok dosyalı inceleme, devam/recovery ve gerçek unit-test ölçüm görevi. Sonuç kalitesi ve güvenlik ihlalini birincil; gereksiz tool/subagent sayısı, effective context yükü, süre ve maliyeti ikincil ölçüt yap. Exact tokenizer yoksa byte/karakter ölçüsünü token diye sunma. Ölçülemeyen latency/maliyet için sıfır yazma.
+## 6. 31 Yetkinliğin Kapanış Matrisi
 
-Yalnız AGENTS satır sayısını ölçme: global talimat, root/ancestor dosyası, eager import, config instruction, agent prompt'u, skill açıklamaları ve gerektiğinde yüklü gövdenin katkılarını ayır. Kullanıcı metnini dökmeden kaynak sınıfı/digest/yüklenme nedeni ve ölçüm niteliği raporlanmalı. Host introspection gerçek context'i göstermiyorsa bunun tahmin/modelleme olduğunu belirt.
+Aşağıdaki **eski beyanlar**, doğrudan v2 `yetkinlikler.json` girdisinden korunmuştur.
+Bu yeni görevde henüz hiçbiri yeniden çalıştırılarak kabul edilmedi. Her kayıt için
+sonraki durum, test run/evidence ve ilgili model×client×OS kapsamıyla güncellenir.
 
-Başarı eşikleri ve tekrar sayısı sonuçları gördükten sonra seçilmez. Mevcut değerlendirme politikasına uygun, bütçeli ve tekrarlanabilir plan üret; tek başarılı örnekten evrensel üstünlük çıkarma. Token azalırken doğru görevin/skill'in bulunamaması veya kritik güvenlik bilgisinin kaybı başarı değildir. Eski rol kısıtını kaldırmak kullanıcı mimari kararıdır; ölçüm yapılmadıysa kalite artışı iddiası yine kurulamaz.
+| CAP | Yetkinlik | V2 Beyanı | Ana İş Paketi | Tamamlanma Ölçütü |
+|---|---|---|---|---|
+| CAP-01 | Native CLI Girişi | `partial` | WP-02 | Yeni oturumda Zekam bağlamı; dış kökte yan etki yok; gerçek client kabulü |
+| CAP-02 | Native Test Ve Süreklilik Yardımcıları | `partial` | WP-07 / WP-09 | Başka client ile aynı işi ve gerçek ölçüm kanıtını devralma |
+| CAP-03 | Proje RAG Ve Alıntılar | `ready` | WP-05 | Doğru scope, taze citation ve doğal dil açıklaması; kalite/latency kanıtı |
+| CAP-04 | İstek, Proje Ailesi Ve Jira Yönlendirmesi | `ready` | WP-03 | Alias/family/role/Jira çelişkilerinde doğru ve izole yönlendirme |
+| CAP-05 | OpenCode Sürekliliği | `ready` | WP-07 | Kapanma/compaction/reopen sonrası gerçek checkpoint ve no-duplicate effect |
+| CAP-06 | İş Ve Proje Kayıtları | `partial` | WP-07 | Oluştur/plan/geçiş/geçmiş/bağımlılık/kapanış uçtan uca bağlı |
+| CAP-07 | Markdown Bilgi Yaşam Döngüsü | `ready` | WP-04 / WP-05 | İçeri al/güncelle/ara/arşivle/geri al; source locator ve history |
+| CAP-08 | ODI 11g Ön Kontrol Ve Bağlama | `partial` | WP-06 | 11g gerçek export nesne/ilişki doğrulaması; bozuk XML ve secret redaksiyonu |
+| CAP-09 | Kanıtlı Proje Araştırması | `ready` | WP-08 | Host-neutral araştırma, kaynak doğrulaması, bağımsız verifier, kayıtlı rapor |
+| CAP-10 | Fikir Üretimi Ve Terfi | `scaffold` | WP-10 | Aday üret/değerlendir/kaydet/öneriden işe geçir; scope ve tekrar kontrolü |
+| CAP-11 | Analitik Raporlar | `partial` | WP-11 | Gerçek çalışma/usage/error kayıtlarından okunabilir doğal dil raporu |
+| CAP-12 | Model Benchmark Ve Yönlendirme Kanıtı | `partial` | WP-08 | Gerçek model qualification ile mock sonuçlarının kesin ayrımı |
+| CAP-13 | Unit Test Mühendisliği | `partial` | WP-09 | Test-only üretim + Maven/JaCoCo + kalıcı resume + kalite/plateau kanıtı |
+| CAP-14 | Semantik Bellek | `partial` | WP-10 | Karar/deneyim arama, doğrulama, güncellik, çelişki ve güvenli promotion |
+| CAP-15 | Jira Anahtarı Çözümü | `partial` | WP-03 / WP-06 | Key çözümünden gerçek issue içeriğine bağ; hayali issue üretme yok |
+| CAP-16 | Yedek Ve Kurtarma | `ready` | WP-11 | Yeni hedefe restore, logical/source/receipt bütünlüğü ve kurtarma deneyi |
+| CAP-17 | Ölçülü Otonom Gelişim | `ready` | WP-10 / WP-11 | Aday→ölçüm→shadow/canary→kontrollü activation/rollback; gerçek durum |
+| CAP-18 | Kişisel Skill Yaşam Döngüsü | `documented-partial` | WP-10 | Skill propose/evaluate/approve/activate/invoke/deprecate/rollback bağlı |
+| CAP-19 | Yapısal Kod Grafiği | `documented-partial` | WP-06 | Sembol/reference/impact sorgusunda gerçek statik kanıt ve belirsizlik ayrımı |
+| CAP-20 | Proje Keşfi Ve Teknoloji Profili | `technical` | WP-04 | Tam metadata envanteri; doğru teknoloji/modül ve seçici içerik profili |
+| CAP-21 | Yetki, Onay Ve Kanıt Kapıları | `technical` | WP-02 | İzin tercihi, task scope, claim/receipt ve yayın onayı birlikte korunur |
+| CAP-22 | Kuyruk, Lease, Fencing Ve Outbox | `technical` | WP-07 | Race, lease expiry, fencing, outbox, crash, replay ve recovery kabulü |
+| CAP-23 | Ortak MCP Registry | `technical` | WP-02 | Tek kanonik MCP tanımı; native projection drift/rollback ve config koruma |
+| CAP-24 | Jira Ve Confluence Okuma | `technical` | WP-06 | Jira/Confluence yetkili okuma, pagination/version/citation ve hata sınırları |
+| CAP-25 | Model Kimliği Ve Provider Taşıması | `technical` | WP-08 | Config-driven exact model kimliği; host/provider bağımsız taşıma |
+| CAP-26 | Oracle Metadata Ve PL/SQL Bağlamı | `technical` | WP-06 | Oracle metadata/PLSQL ilişkisi; varsayılan row data ve DDL çalıştırma yok |
+| CAP-27 | CAS, Ham Olay Ve Analitik | `technical` | WP-11 | CAS/olay/analytics ayrımı, digest ve yeniden üretim; türetilmiş state yetkisiz |
+| CAP-28 | Kurulum, Paketleme Ve Doctor | `technical` | WP-12 | Temiz paket kurulumunda tüm public yollar ve doctor gerçek gap raporu |
+| CAP-29 | Kaynak Sahipliği, Sandbox Ve Git | `technical` | WP-02 / WP-12 | Kullanıcı diff/sahiplik korunumu, kapsamlı ASCII commit, push gate |
+| CAP-30 | Ajan Rolleri Ve Bağımsız Doğrulama | `historical-and-retained` | WP-08 | Gerçek child identity ve bağımsız review; aynı kaynağa tek writer |
+| CAP-31 | Ölçülü Döngü, Radar Ve Tournament Sözleşmeleri | `historical-or-contract` | WP-10 | Radar/tournament/döngü kanıta bağlı bütçe/plateau ve aday çıktısı |
 
-Canlı CLI/model çağrısı, kurulum veya ağ gerektiren kabul yalnız mevcut açık yetki kapsamında çalıştırılır. Mevcut oturumu kullanmak, bütün hesap ve modellerle sınırsız benchmark izni değildir. İzin/kurulum yoksa provider-free testleri tamamla ve ilgili qualification satırını `not-run`/`not-installed`/`authorization-required` olarak ayır; sessiz skip ile passed üretme.
+Her CAP için kayıt alanları: `declared_status`, `implementation_status`,
+`natural_language_status`, `test_status`, `live_acceptance_status`, `source_revision`,
+`work_packages`, `evidence_refs`, `remaining_gaps`, `blocked_reason`. Gerekli mevcut
+alanları koruyarak contract sürümü belirle. En az `not-run`, `passed`, `failed`,
+`blocked`, `not-supported` ayrımı olsun. Kaynakta eski beyanların güncellenmesi,
+kanıt üretildikten sonra yapılır.
 
-## 9. Tamamlanma ve kullanıcıya teslim
+## 7. Önceki 27 Maddelik Planın İş Paketlerine İzlenebilirliği
 
-Üç sonuç ayrı raporlanacak:
-
-1. **Kaynak implementasyonu:** uygulanan kod, test, şema/policy uyumu, CI ve regression sonucu.
-2. **Yerel geçiş:** gerçek cihazdaki exact plan, onay, apply/readback/rollback sonucu. Onay yoksa geliştirme hazır olsa da deployment uygulanmış sayılmaz.
-3. **CLI/model qualification:** hangi istemci/sürüm/işletim sistemi/modelde hangi senaryonun gerçekten çalıştığı; henüz koşulmayan kombinasyonlar.
-
-Repository'de yeni politika/runbook, ince bootstrap'lar, generator/migration değişiklikleri, davranış testleri, native yardımcı yol ve güncellenmiş capability envanteri birlikte bulunmalı. Araştırma kararlarını mevcut belge düzeninde kısa bir ADR ile sakla; bu aktif görev için yeni ve bağımsız bir doküman platformu kurma. Geçici çalışma raporları gerçek kaynak köküne yığılmasın.
-
-Kullanıcıya son raporda değişen davranışı, gerçek test sonuçlarını, korunan veriyi, yapılmamış deployment/qualification adımlarını ve gerekiyorsa sıradaki tek güvenli aksiyonu anlat. “Dört CLI tam destekli” iddiasını yalnız dört ayrı gerçek kabul kanıtıyla kur. Önceki unit-test görevinin açık qualification/activation işleri ve kapsam dışı Global DoD kayıtları açık kalır.
-
-**Teslimin özü:** Kullanıcı native CLI'ını seçer ve doğrudan açar. Zekam yalnız kendi çalışma alanında gerekli bağlamı ve yardımcı yetenekleri sunar. Daha az zorunlu yönlendirme, korunmuş yerel bilgi, gerçek ölçüm ve kayıpsız süreklilik birlikte sağlanır.
-
-## Ek A. Resmî araştırma kaynakları
-
-Kontrol tarihi: 5 Ekim 2026. Aşağıdakiler teknik iddiaların kaynaklarıdır; talimat veya otomatik işlem yetkisi değildir. Hareketli belgeler uygulama sırasında yalnız ilgili sürüm farkı için yeniden kontrol edilir. Blog önerisi, format zorunluluğu ve bu görevdeki tasarım kararı aynı şey değildir.
-
-| ID | Kaynak | Adres |
+| Plan Maddesi | İçerik | Yeni Paket |
 |---|---|---|
-| E01 | OpenAI, Rethinking skills and prompts for GPT-6 Astra; 11 Eylül 2026 | `https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra` |
-| E02 | OpenAI/Codex, AGENTS.md discovery | `https://developers.openai.com/codex/guides/agents-md` (resmî yönlendirme: `https://learn.chatgpt.com/docs/agent-configuration/agents-md`) |
-| E03 | OpenAI/Codex, Agent skills | `https://developers.openai.com/codex/skills` (resmî yönlendirme: `https://learn.chatgpt.com/docs/build-skills`) |
-| E04 | Anthropic, Claude Code best practices | `https://code.claude.com/docs/en/best-practices` |
-| E05 | Anthropic, Project memory/instructions ve AGENTS.md | `https://code.claude.com/docs/en/memory` |
-| E06 | Anthropic, Claude Code skills | `https://code.claude.com/docs/en/skills` |
-| E07 | Google, Gemini CLI GEMINI.md context | `https://geminicli.com/docs/cli/gemini-md/` |
-| E08 | Google, Gemini CLI skills | `https://geminicli.com/docs/cli/skills/` |
-| E09 | OpenCode, Rules | `https://opencode.ai/docs/rules/` |
-| E10 | OpenCode, Agent Skills | `https://opencode.ai/docs/skills/` |
-| E11 | Agent Skills specification | `https://agentskills.io/specification` |
+| P01 | Repository ve tarihsel kaynak analizi | WP-00 |
+| P02 | Tüm yetkinliklerin gerçek durumunu çıkarma | WP-00, WP-12 |
+| P03 | Graft ve açık kaynak mimari araştırması | WP-01 |
+| P04 | Teknoloji, parser, embedding/model ve sürüm karşılaştırma | WP-01 |
+| P05 | Zekam klasöründe otomatik etkinleşme | WP-02 |
+| P06 | Doğal dil ve komutsuz kullanım | WP-03, tüm dikey dilimler |
+| P07 | Doğru proje ve scope çözümü | WP-03 |
+| P08 | Shell allow, commit/push politikası | WP-02 |
+| P09 | Embedding darboğazının ölçümü | WP-00, WP-04, WP-05 |
+| P10 | Seçici ve artımlı indeksleme | WP-04, WP-05 |
+| P11 | .env/.properties local-only yapı analizi | WP-04 |
+| P12 | ODD/GTD, talep/defect, ODI XML ve ZIP girdileri | WP-04, WP-06 |
+| P13 | Graph + RAG + kaynak ilişkileri | WP-06 |
+| P14 | Jira/Confluence gerçek okuma | WP-06 |
+| P15 | Work Graph yaşam döngüsü | WP-07 |
+| P16 | Kesintiden, model ve istemci değişiminden devam | WP-07 |
+| P17 | Gerçek çok ajanlı mühendislik | WP-08 |
+| P18 | Model benchmark, seçim ve fallback | WP-08 |
+| P19 | Unit test mühendisliği | WP-09 |
+| P20 | Bellek ve öğrenme | WP-10 |
+| P21 | Skill yaşam döngüsü | WP-10 |
+| P22 | Fikir/radar/otonom gelişim | WP-10, WP-11 |
+| P23 | Rapor, sağlık, backup/recovery | WP-11, WP-12 |
+| P24 | Ortak MCP yönetimi | WP-02 |
+| P25 | Tek kaynaklı mimari ve yerel exportlar | WP-12 |
+| P26 | Regresyon, doğal dil ve gerçek kabul | Tüm paketler, WP-12 |
+| P27 | Kayıpsız geçiş ve kullanıcı içeriği koruma | WP-00, WP-02, WP-07, WP-11, WP-12 |
 
-## Ek B. Pinned repository kanıtı
+## 8. Araştırma Ve Uygulama İş Paketleri
 
-Repository: `mehmet-karacan/zekam`. Revision: `f37ab301510bbe0045dab265de36ea1475775f33`. Commit: `config: gecersiz reranker hedeflerini ertele`, 4 Ekim 2026 21:53:19 UTC. Aşağıdaki aralıklar araştırmada okunan kaynak kapsamını belirtir; tablo, dosyanın bütününün veya bütün çağrı grafiğinin test edildiği anlamına gelmez.
+**Çalıştırma kuralı:** Şimdi WP-00 ve WP-01'in araştırma/plan kısmını tamamla;
+WP-02..WP-12 için exact uygulama değişikliklerini ve testleri planla. Uygulama onayı
+alınınca bu dosyanın tek görev kimliği altında devam et; her paket için yeniden
+ayrı görev dosyası üretme. Aşağıdaki yeni dosya/test adları **önerilen uygulama
+konumlarıdır**; mevcut kaynakta var oldukları iddia edilmez. WP-00/01 sonunda
+mevcut eşdeğerler varsa onları kullanarak `implementation-map.json` içinde kesinleştir.
 
-Kanonik kaynak adresi şablonu: `https://github.com/mehmet-karacan/zekam/blob/f37ab301510bbe0045dab265de36ea1475775f33/<dosya-yolu>`.
+**Ortak paket teslim döngüsü (uygulama onayından sonra):** Hedef davranışı failing
+testle sabitle → hatayı doğrula → minimal kapsamlı düzeltme → hedef test + komşu
+regresyon → bağımsız inceleme gereken sınırı doğrula → evidence/checkpoint → scoped
+Türkçe ASCII commit. Veri migration'ında ayrıca backup/restore; harici etkide ayrıca
+claim/receipt gerekir. İzole ölçüm ve test doğrulaması, kullanıcıya CLI işi devretmek değildir.
 
-| ID | Dosya yolu | İncelenen kapsam / kanıt |
+### WP-00 — Gerçek Başlangıç Durumu Ve Kapsam Envanteri
+
+**Bağımlılık/onay:** Yok; araştırma onaylı.  
+**Girdi/kapsam:** Tüm REQ/CAP/GAP kayıtları; gerçek repo ve önceki görev/projection; v2 kaynak haritası.
+
+**İncelenecek/değişecek konumlar:** `AGENTS.md`, `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `pyproject.toml`, `src/zekam/application/active_task_contract.py`, `capability_inventory.py`, `interfaces/cli/main.py`, `scripts/audit_runtime_reachability.py`, `tests/`, `legacy-preserved/` ve güncel metadata.
+
+- [ ] **WP-00.01** — Repo dosyalarının tam metadata envanterini, aktif import/entrypoint graphını ve wheel dışı/tarihsel modülleri ayır. Dosya sayısı test sayısı değildir; unreachable modülü çalışan yetenek sayma.
+- [ ] **WP-00.02** — 31 CAP ve 23 GAP için mevcut davranışı, kaynağı, test varlığını, gerçek koşu sonucunu ve doğal dil yolunu ayrı kaydet. Önceden var olan arızaları yeni regresyonlardan ayır.
+- [ ] **WP-00.03** — Kullanıcı verisini değiştirmeyen küçük baseline test grubunu komutları inceleyerek uygun izole ortamda çalıştır. Model/Jira/Oracle bağlantısı veya tam provider kampanyası kendiliğinden başlamasın.
+- [ ] **WP-00.04** — Cold, unchanged, single-change indeksleme ve sorgu aşamalarını ölçebilecek mevcut araçları belirle; gerçek cihaz yoksa “ölçülemedi” yaz. Ölçülmeyen yavaşlık için kök neden uydurma.
+- [ ] **WP-00.05** — Görev/projection schema, tarihsel hash biçimi, eski agent/non-agent ayrımı, source/wheel drift ve kullanıcı veri yerleşimi için migration risk haritası çıkar.
+
+**Üretilen sözleşme/çıktı:** `baseline.json`, `capability-assessment.json`, `source-runtime-map.json`, `gap-ledger.json`, test/env/provenance kayıtları; hiçbir `passed` kaydı kanıtsız olmaz.
+
+**Kabul ve negatif testler:** Kontrol: 7 eski REQ + yeni REQ-008, CAP-01..31 ve GAP-01..23 kayıpsız eşlenir; dirty dosyalar korunur; eski görev kendi kendine kapanmaz.
+
+### WP-01 — Açık Kaynak Karşılaştırması Ve Exact Uygulama Planı
+
+**Bağımlılık/onay:** WP-00; bağımsız public arama kolları paralel olabilir.  
+**Girdi/kapsam:** Baseline, kullanıcı girdileri, Graft referansı, yerel kaynak/host sınırı.
+
+**İncelenecek/değişecek konumlar:** GitHub kaynakları; seçilmiş resmi kütüphane/model belgeleri; v2 araştırma/üretim katalogları. Mevcut modül dosyaları başlangıç haritasından seçilecek.
+
+- [ ] **WP-01.01** — Graft ve uygun alternatifleri tarama/AST/graph/chunk/cache/index/query/resume açısından kaynak/test seviyesinde karşılaştır. Mevcut Zekam referans süresiyle aynı protokolü kullan.
+- [ ] **WP-01.02** — Embedding model değişikliği gerekip gerekmediğini mevcut model baseline'ına karşı değerlendir. Türkçe teknik soru ve kod sembolü corpus'u, lisans, batch/token limiti, cihaz uygunluğu ve maliyet kaydı olsun.
+- [ ] **WP-01.03** — Native startup, host-neutral tool/agent execution, `.env` safe parsing ve shell/push politikası için resmi host sözleşmelerini doğrula. Desteği isimsiz “tüm modeller” vaadine dönüştürme.
+- [ ] **WP-01.04** — Her WP için exact mevcut/yeni dosya, imza/şema, migration, bağımlılık, test, ölçüm hedefi ve rollback seçimini `implementation-map.json` içinde tamamla. Placeholder ile uygulama kapısını geçme.
+- [ ] **WP-01.05** — Davranışsal ve performans kabul hedeflerini uygulamadan önce sabitle. Scope/host/güvenlik değişikliği kararlarını D-01..D-08'e bağla; kararsızlık olmayan rutin iç tercihler için sürekli soru sorma.
+- [ ] **WP-01.06** — Araştırma ve uygulanabilir planı tek seferde teslim et; açık uygulama onayını bekle. Onay gelince aynı araştırmayı baştan yapma; yalnız source/version drift farkını doğrula.
+
+**Üretilen sözleşme/çıktı:** `research-findings.md/json`, `comparison-matrix.json`, `design-decisions.md/json`, `implementation-map.json`, `acceptance-targets.json`, bu görev dosyasının kanıta dayalı revizyonu.
+
+**Kabul ve negatif testler:** Kontrol: Her kısmi CAP için owner WP + exact test + veri/arayüz + kapanış kanıtı; seçilmeyen adayların gerekçesi; ölçülmemiş üstünlük iddiası yok.
+
+### WP-02 — Proje-Yerel Başlangıç, İzinler Ve Ortak MCP
+
+**Bağımlılık/onay:** WP-01 ve uygulama onayı.  
+**Girdi/kapsam:** REQ-001/004; CAP-01/21/23/29; native host capability matrisi.
+
+**İncelenecek/değişecek konumlar:** `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `opencode.json`, `config/zekam.default.yaml`, `client_integrations`, `client_instruction_bootstrap`, `mcp_integrations`, native adapter ve izin üreticileri; eski global parçalar yalnız migration kanıtıdır.
+
+- [ ] **WP-02.01** — Kök ve alt dizin için ince giriş üret; tekrar eden instruction/skill kopyalarını mevcut kanonik generator üzerinden tekilleştir. Zekam dışı yeni oturumda inert davranışı gerçek hostta sınayarak göster.
+- [ ] **WP-02.02** — İstemci metadata/instruction/hook/MCP/shell/subagent desteğini sürüm bazında ayrı kaydet. Destek yoksa manual komut ezberi yerine açık destek sınırı ve kurulabilir adapter planı ver.
+- [ ] **WP-02.03** — Onaylı görevde shell allow hedefini host-native policy ile uygula. Push/yayın exception'ını model prompt'una değil uygulanabilir araç/transport sınırına bağla; başarısız guard'ı başarı sayma.
+- [ ] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
+- [ ] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
+
+**Üretilen sözleşme/çıktı:** `ClientCapabilityProfile` ve scoped startup/MCP/permission planı; mevcut record tipleri korunur. Yeni öneri `tests/e2e/test_natural_language_workspace_entry.py` ve `tests/security/test_publish_authorization_boundary.py`.
+
+**Kabul ve negatif testler:** Testler: kök/alt/başka proje/fresh session, duplicate entry, global conflict, rollback, shell allow fiili davranışı, onaysız direct/indirect publication ve onaylı scope dışı yayın reddi.
+
+### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
+
+**Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  
+**Girdi/kapsam:** REQ-003/007; CAP-04/15 ve bütün kullanıcı yüzeyleri.
+
+**İncelenecek/değişecek konumlar:** `src/zekam/application/request_routing.py`, `jira_issue_routing.py`, `project_rag_runtime.py`; family/Jira config; mevcut skill/host tool dağıtımı. Gerekirse öneri `natural_language_dispatch.py`.
+
+- [ ] **WP-03.01** — Modelin yorumladığı niyeti allowlisted capability ve deterministic project/scope doğrulamasına çevir; intent'i execution izni sayma. Genel soru Zekam/gpu diye yanlış hedeflenmesin.
+- [ ] **WP-03.02** — Açık proje, Jira prefix'i, mevcut Work ve oturum referansı için öncelik/çatışma politikasını testlerle sabitle. “Bunu da GPU için ekle” çok turlu örneğinde gerçek dosya ve önceki scope bağını doğrula.
+- [ ] **WP-03.03** — Tek projenin sorgusunu yalnız o projeye yönlendir; açık karşılaştırmada ayrı scoped results birleştir. Kayıtsız/belirsiz proje için en az gerekli açıklamayı sor, tüm repo embedding başlatma.
+- [ ] **WP-03.04** — Native ajanın discovery'de doğru tool/skill'i seçmesini ve iç komutları kendisinin çalıştırmasını bağla. Kullanıcıya programatik isim, digest veya JSON yazdıran yol kabulden kalsın.
+- [ ] **WP-03.05** — Açıklama üretimi retrieval'dan ayrı kaydedilsin; locator'lı kaynaklar olmadan kesin teknik iddia veya sahte işlem başarısı çıkmasın. Araç kesintisi doğal dille doğru raporlansın.
+
+**Üretilen sözleşme/çıktı:** Öneri `NaturalRequestContext → ValidatedIntent/ProjectScope → CapabilityInvocation` sözleşmesi; `tests/unit/test_natural_language_dispatch.py`, `tests/e2e/test_natural_language_project_workflow.py`.
+
+**Kabul ve negatif testler:** Testler: Türkçe Unicode/typo/paraphrase, alias çakışması, GPU/SKY UI-backend, Jira sayı-vs-port, genel soru, çok turlu dosya, missing index, no-remote-permission; E2E native session ölçümü.
+
+### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
+
+**Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  
+**Girdi/kapsam:** REQ-002/005; CAP-07/20; kaynak kod + ODD/GTD + issue/defect + ZIP/XML.
+
+**İncelenecek/değişecek konumlar:** `source_discovery.py`, `ignore_rules.py`, `project_knowledge_index.py`, `knowledge_ingestion.py`, `knowledge_parsers.py`, `secret_detection.py`, `knowledge_file_plane.py`, `infrastructure/knowledge/document_parsers.py`; öneri `index_selection_policy.py`.
+
+- [ ] **WP-04.01** — Discovery metadata ve içerik eligibility adımlarını ayır. Seçili ağacın `.git`, `node_modules`, `.env`, binary ve generated dosyaları dahil metadata envanterini tut; içerik okuma veya embedding için ayrı politika uygula.
+- [ ] **WP-04.02** — Traversal'ı streaming ve limitli yap; junction/symlink döngüsü veya kök dışına kaçışı engelle. Limit/erişim hatası varsa tam envanter demek yerine partial + devam checkpoint'i ver.
+- [ ] **WP-04.03** — Kaynak türleri için AST/structural parçalama; belge türleri için başlık/paragraf/tablo locator; XML için özel parser seç. Unknown formatı ham UTF-8 sayma; PDF/DOCX tablo/sayfa bilgisi uydurma.
+- [ ] **WP-04.04** — `.env` ve `.properties` safe key/structure parser'ını local-only uygula. Synthetic secrets'ın prompt/cache/index/log/artifact'a sızmadığını denetle; secret içeriğe birebir public hash üretme.
+- [ ] **WP-04.05** — ZIP'te traversal, symlink, entry count/byte/ratio limitleri; XML'de DTD/external entity/network expansion reddi; belgede çalışabilir macro/script yürütmeme sınırlarını uygula.
+- [ ] **WP-04.06** — Proje+logical source+revision kimliğini koru. Aynı adlı farklı dosya, aynı içeriğin başka proje kopyası ve gerçek rename olayları farklı sözleşmeler taşısın; kaynak dosyaya yazma yapma.
+
+**Üretilen sözleşme/çıktı:** `FileInventoryRecord`, `EligibilityDecision`, `SourceVersion`, locator'lı `ContentUnit` mevcut tiplerle uzlaştırılır. Öneri `tests/integration/test_project_artifact_ingestion.py`, `tests/security/test_sensitive_config_metadata.py`.
+
+**Kabul ve negatif testler:** Testler: kaynak/generated aynı uzantı, gitignore metadata korunumu, nested dependency ağacı, UTF-8/BOM, büyük/şifreli/bozuk belge, archive bomb/XXE, same-name/different-content, source drift ve kaynakta sıfır mutation.
+
+### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
+
+**Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  
+**Girdi/kapsam:** REQ-002/003/005/006/007; CAP-03/07; WP-01 acceptance hedefleri.
+
+**İncelenecek/değişecek konumlar:** `project_rag_runtime.py`, `project_knowledge_index.py`, `embedding_provider.py`, `embedding_routing.py`, `knowledge_index.py`, `embedded_project_rag.py`, `retrieval_service.py`, `infrastructure/sqlite/knowledge_index.py` ve mevcut provider ledger/cache.
+
+- [ ] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
+- [ ] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
+- [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
+- [ ] **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
+- [ ] **WP-05.05** — Exact/lexical/dense/graph sinyallerini skor toplamıyla körlemesine karıştırma. Reranker yoksa açıklanmış fallback; query için gereksiz full-tree içerik/qualification tekrarı yapma; selected citation freshness'ini koru.
+- [ ] **WP-05.06** — Performans karşılaştırmasında aynı anlamı arayan Türkçe soru, exact sembol ve ilişki qrels kullan. Source-only filtre yüzünden belgelerin yok olmasını veya kalite düşüşünü hız kazancı sayma.
+
+**Üretilen sözleşme/çıktı:** Versioned `IndexPlan/Generation/EmbeddingCacheKey/RetrievalEvidence` kontratları; öneri `tests/integration/test_incremental_project_index.py`, `tests/e2e/test_natural_language_document_update.py`, benchmark raw JSON.
+
+**Kabul ve negatif testler:** Testler: unchanged=0 gereksiz embedding, bir dosya/chunk değişimi, delete/rename, same-size/mtime deceptive change, cache corrupt, profile drift, batch partial, cancelled resume, stale pointer, yanlış scope ve performance/quality gate.
+
+### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
+
+**Bağımlılık/onay:** WP-03/04/05.  
+**Girdi/kapsam:** REQ-005; CAP-08/15/19/24/26; gerçek veri bağıntısını tahmin etmeme.
+
+**İncelenecek/değişecek konumlar:** `odi11g_smart_export.py`, `oracle_metadata_index.py`, `code_graph*`, `atlassian_mcp_server.py`, `project_history_query.py`, ilgili SQLite graph ve CLI/MCP adapter'ları.
+
+- [ ] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
+- [ ] **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
+- [ ] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
+- [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
+- [ ] **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
+
+**Üretilen sözleşme/çıktı:** `SourceRelationship` exact/inferred/unresolved ayrımı, source-edge provenance ve scoped remote read kayıtları. Öneri `tests/integration/test_odi_project_lineage.py`, `tests/e2e/test_issue_document_code_context.py`.
+
+**Kabul ve negatif testler:** Testler: gerçek/sanitized 11g fixture, unresolved ref, sahte edge reddi, Oracle metadata-only, cross-project ACL, Jira 401/403/404/429/pagination, changed attachment, XML secret ve stale graph.
+
+### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
+
+**Bağımlılık/onay:** WP-00/02/03; existing operational schema.  
+**Girdi/kapsam:** CAP-02/05/06/22; her uzun süreli index/research/test işinin kalıcı durumu.
+
+**İncelenecek/değişecek konumlar:** `operational_store.py`, `infrastructure/sqlite/operational_store.py`, `operational_schema.py`, `local_runtime.py`, `workspace_resume.py`, `native_continuity.py` (varlığı teyit), `continuity` ve OpenCode lifecycle/spool bileşenleri.
+
+- [ ] **WP-07.01** — Work create/list/show/transition/history/dependency/checkpoint/close yollarını doğal dile bağla; mevcut durum makinesi ve optimistic revision'ı koru. Cycle, stale revision ve evidence'sız kapanış reddedilsin.
+- [ ] **WP-07.02** — Index, araştırma ve test işlerini aynı project/work/plan/source bağlarıyla checkpoint'e al; ikinci operational authority veya ayrı gerçeklik JSON'u üretme. SQLite'ta kullanıcı projesine göre ayrım gerçek olsun.
+- [ ] **WP-07.03** — Lease, fencing, single-writer, outbox ve recovery'yi gerçek race/crash testleriyle doğrula; provider veya Maven çalışırken DB write lock tutulmasın.
+- [ ] **WP-07.04** — Yeni model/CLI eski işin artifacts, source/test/config fingerprint'lerini doğrulayarak devam etsin. Yetki sadece eski sohbetten miras alınmasın; mevcut geçerli grant kendi kaynağından yeniden doğrulansın.
+- [ ] **WP-07.05** — Native checkpoint anlatısını doğrulanmış Work geçişinden ayır. Stale PID/spool ownership, out-of-order event, missing CAS ve interrupted close recovery açıklanabilir olsun.
+
+**Üretilen sözleşme/çıktı:** `CheckpointEnvelope` ve semantic resume paketi mevcut ledger/CAS'a bağlı; öneri `tests/e2e/test_cross_client_task_resume.py`, `tests/concurrency/test_project_work_resume_race.py`.
+
+**Kabul ve negatif testler:** Testler: process kill (effect önce/sonra), restart, başka client/model, dirty/source/config drift, aynı işi çift başlatma, iki writer, bozuk/missing evidence, expired grant, already-final ve idempotent outbox.
+
+### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
+
+**Bağımlılık/onay:** WP-03/05/07.  
+**Girdi/kapsam:** CAP-09/12/25/30; dar context, gerçek bağımsız execution ve config-driven modeller.
+
+**İncelenecek/değişecek konumlar:** `agent_dispatch.py`, `agent_control.py`, `research_runtime.py`, `research_service.py`, `model_registry.py`, `model_gateway.py`, `model_decision_service.py`, `provider_adapter.py`, `infrastructure/clients/adapters.py`, mevcut benchmark/role policy.
+
+- [ ] **WP-08.01** — Host-neutral çalışma kontratını native host capability'lerine bağla; OpenCode'a ait named-agent gereksinimi diğer client'ı sessizce devre dışı bırakmasın. Gerçek child tool yoksa sahte delegate oluşturma.
+- [ ] **WP-08.02** — Researcher/explorer, builder, tester, reviewer/verifier, synthesizer ve curator rollerini bütçe/permission/identity/result envelope ile yönet. Ana context'e tüm source veya bütün alt ajan konuşmaları taşınmasın.
+- [ ] **WP-08.03** — Paralel salt-okunur araştırma mümkün; aynı writable kaynağa tek builder. Verifier gerçek farklı execution'a ve acceptance subject'ine bağlı olsun; bir modelin başka başlıkla verdiği onay bağımsız sayılmasın.
+- [ ] **WP-08.04** — Model ID/provider prefix/catalog revision gerçek config'ten çözülsün. Quality, tools, structured output, context, latency, failure ve cost sinyallerini ayrı ölç; bilinmeyen kotayı yüzde uydurarak doldurma.
+- [ ] **WP-08.05** — Canlı benchmark için hedef/fixture/repetition/call/token/maliyet bütçesi göster ve yetki al. Mock pipeline başarısını üretim modeli qualification'ına çevirmeden, veri/model/host snapshot'ını bağla.
+- [ ] **WP-08.06** — Araştırma tam soru kapsamını sabit sayıda chunk'a zorlamadan budget ve evidence-gap ile yönetilsin. Kaynak/citation doğrulaması, çelişki, partial ve yanıt üretimini ayrı raporla.
+
+**Üretilen sözleşme/çıktı:** Versioned `AgentTaskEnvelope/AgentResultEnvelope/ModelQualification` mevcut tiplerden türetilir; öneri `tests/e2e/test_host_neutral_research.py`, `tests/security/test_independent_verifier_subject.py`.
+
+**Kabul ve negatif testler:** Testler: missing child capability, malformed result, timeout/cancel, duplicate/cross-project envelope, same verifier identity, model unavailable, quota unknown, unsupported modality ve bounded real host deneyi.
+
+### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
+
+**Bağımlılık/onay:** WP-03/07/08.  
+**Girdi/kapsam:** CAP-02/13; kullanıcının hedef sınıf/modül ve coverage talebi.
+
+**İncelenecek/değişecek konumlar:** `unit_test_intent.py`, `unit_test_plan.py`, `unit_test_runtime.py`, `unit_test_measurement.py`, `unit_test_loop.py`, `unit_test_plateau.py`, `unit_test_ledger.py` ve mevcut Maven/JaCoCo/native helper adapter'ları.
+
+- [ ] **WP-09.01** — Hedef .java, Maven reactor/modül, package/class ve var olan başarılı testleri çöz. Kullanıcıdan IDE coverage veya teknik digest istemeden gerçek baseline ölç.
+- [ ] **WP-09.02** — Analiz→anlamlı test senaryosu→test yazımı→compile/test→taze coverage→bağımsız kalite doğrulama döngüsünü bütçeli ve kalıcı yap. Line/branch ile per-file/aggregate hedeflerini ayır.
+- [ ] **WP-09.03** — Varsayılan test-only çalışmada production kaynak, build/pom ayarı, coverage exclusion, mevcut başarılı test silme veya API'yi public yapma yok. Reflection/private-only ve assertionsız/duplicate test yasak.
+- [ ] **WP-09.04** — Regresyon, exception, boundary, state/side-effect, tarih, precision/rounding ve bağımlılık hatası ihtiyacını gerçek koddan çıkar. Bir testin yüksek coverage'ını davranış doğruluğu sayma.
+- [ ] **WP-09.05** — Fresh Surefire/JaCoCo exec/XML/HTML, test tree/source/toolchain fingerprint ve gerçek exit status ile sonucu bağla. Test yok/failed/stale/wrong-module durumları coverage success değildir.
+- [ ] **WP-09.06** — Plateau'da son doğrulanmış kazancı koru, erişilemeyen branch/line ve nedenleri göster; hedef altını başarı sayma. Refactoring ayrı iş/onaydır. Kesintide görev sıfırlanmasın.
+
+**Üretilen sözleşme/çıktı:** Mevcut request/attempt/receipt/terminal ledger; insan okunur rapor + JSON + raw JaCoCo/log/diff/checkpoint referansları. Öneri `tests/e2e/test_natural_language_test_engineering.py`.
+
+**Kabul ve negatif testler:** Testler: multi-module, same class name, existing tests preserved, zero tests, stale JaCoCo, failed build, no-progress, model switch resume, rounding threshold ve protected production/build digest.
+
+### WP-10 — Bellek, Skill, Fikir, Radar Ve Ölçülü Gelişim
+
+**Bağımlılık/onay:** WP-05/07/08; task promotion ile bağlı.  
+**Girdi/kapsam:** CAP-10/14/17/18/31; verified lessons, candidate lifecycle ve onaylı activation.
+
+**İncelenecek/değişecek konumlar:** `memory_*`, `skill_packages.py`, `skill_runtime.py`, `experience_skill_bridge.py`, `evolution_*`, `research_campaign_runtime.py`, radar/tournament/measured-loop katmanları ve ilgili SQLite ledger'ları.
+
+- [ ] **WP-10.01** — Kayıt türlerini karar/deneyim/başarısızlık/ders/skill olarak ayır. Provenance, scope, freshness, superseded, conflict ve yetkili düzeltme/arşivleme yollarını doğal dile bağla.
+- [ ] **WP-10.02** — Doğrulanmış kök nedenden lesson candidate üret; aynı evidence'ı iki bağımsız gözlem sayma. Memory'yi kullanıcı talimatı veya execution authority'si gibi uygulama.
+- [ ] **WP-10.03** — Skill adayını değerlendir, independent review, sürüm, active pointer, dağıtım, gerçek invocation, deprecation ve rollback ile tamamla. Kaynak paket/projection drift'i okunabilir raporlansın.
+- [ ] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
+- [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
+- [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
+
+**Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.
+
+**Kabul ve negatif testler:** Testler: iki projede aynı karar adı, outdated/contradictory memory, forged lessons, self-promotion, baseline regression, skill drift, rollback, expired grant, duplicate candidate ve plateau stop.
+
+### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
+
+**Bağımlılık/onay:** WP-07/10; model usage WP-08.  
+**Girdi/kapsam:** CAP-11/16/17/22/27; gerçek kayıtlar, scheduler ve veri sahipliği.
+
+**İncelenecek/değişecek konumlar:** `infrastructure/local_backup.py`, `local_analytics.py`, CAS/store/file-plane, scheduler/worker/evolve/doctor ve native scheduler adapter'ları.
+
+- [ ] **WP-11.01** — Kullanıcı “ne yaptın, ne kaldı, hangi model ne kadar sürdü?” dediğinde kanonik events/receipt/usage'dan rapor üret. Ölçülmeyen maliyet bilinmiyor; yüzde/tutar uydurma.
+- [ ] **WP-11.02** — Scheduler varsayılanını klasör açmakla etkinleştirme. Onaylı standing grant varsa kapsam/bütçe/expiry/pause/disable/recovery ve exact native kayıt readback'ini uygula.
+- [ ] **WP-11.03** — Backup'ı SQLite online snapshot + CAS/manifest ile al; çalışan DB'yi gelişigüzel kopyalama. Restore yalnız yeni/hedefi onaylı alanda, logical digest ve dosya sahipliği doğrulamasıyla yapılır.
+- [ ] **WP-11.04** — Derived index/analytics'in yeniden kurulabileceğini, operational state'in oralardan türetilmediğini göster. Missing/corrupt CAS, disk full, outbox backlog ve cancelled recovery'de güvenli davranışı test et.
+- [ ] **WP-11.05** — Salt “core healthy” sonucunu bütün model/CLI/feature'lar hazır diye sunma. Rapor her CAP'nin gerçek eksik kurulum/kanıt/izin ayrımını taşısın.
+
+**Üretilen sözleşme/çıktı:** Runtime health + usage + backup/restore evidence; öneri `tests/e2e/test_natural_language_operations.py` ve var olan restore/fault testlerinin genişletilmesi.
+
+**Kabul ve negatif testler:** Testler: new-target restore, owner conflicts, index rebuild, backup drift, corrupt/missing object, scheduler pause and disable, two-cycle readback (yalnız onaylı gerçek cihazda), disk/full failure.
+
+### WP-12 — Bütünleşik Kullanıcı Kabulü, Paket Ve Yaşayan Mimari
+
+**Bağımlılık/onay:** WP-02..WP-11 tamam veya açık blokajlı; final kapı her zorunlu bağı kapatır.  
+**Girdi/kapsam:** Bütün REQ/CAP/GAP kayıtları; uygulama diff/test/ADR/evidence.
+
+**İncelenecek/değişecek konumlar:** Mevcut `tests/architecture`, `tests/unit`, `tests/integration`, `tests/e2e`, `tests/security`, concurrency testleri; `pyproject.toml`, paket validator/reachability; mimari paket katalog/üreticileri.
+
+- [ ] **WP-12.01** — Temiz wheel-only kurulumda gerçek public komut/MCP/skill yollarını doğrula. Checkout'ta kalan ama dağıtıma girmeyen modülü hazır diye raporlama. Tüm testleri son değişikliklerden sonra tekrar çalıştır.
+- [ ] **WP-12.02** — Bölüm 10 doğal dil kabul senaryolarını gerçek desteklenen istemci/model/OS matrisinde çalıştır; beklenen tool çağrısı, project/effect/citation/response'u ölç. Fixture ve live sonuçlar ayrı kalsın.
+- [ ] **WP-12.03** — Baseline'a göre end-to-end kalite, cold/unchanged/delta index ve query tail latency raporunu üret. İyileşmeyen zorunlu hedefi gizleme veya ölçüm sonrası eşiği değiştirip başarı yapma.
+- [ ] **WP-12.04** — CAP, arayüz, tablo/migration, test, açık karar ve kaynak hash'lerini tek kanonik mimari girdide güncelle; Markdown/HTML/ZIP/diyagram yerel çıktılarının link/hash/ID tutarlılığını doğrula.
+- [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
+- [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
+
+**Üretilen sözleşme/çıktı:** `completion-report.md/json`, güncel mimari referans ve aynı `AKTIF_GOREV.md`, test raw results ve scoped commit listesi; gerçek push yok.
+
+**Kabul ve negatif testler:** Testler: clean package, full regression, supported native entry/E2E, fixture/live ayrımı, restore + resume + doc/graph consistency; mandatory unresolved gap varsa incomplete/blocked final.
+
+## 9. Performans, Kalite Ve Veri Kabul Sözleşmesi
+
+### 9.1 Sabit Karşılaştırma Korpusu
+
+Küçük kontrollü source fixture, büyük metadata ağacı, çok modüllü Java+frontend örneği,
+Türkçe teknik belgeler, aynı isimli iki proje nesnesi, ODD/GTD ve sanitize ODI XML seçilir.
+Fixture/snapshot ve qrels hash'leri, OS/donanım/Python/SQLite/extension, model/profil,
+network route ve sıcak/soğuk cache koşulu kayıtlı olsun. Kurumsal gerçek kaynak ancak
+yetkili kapsamda kullanılır; yoksa sentetik sonuç “GPU'da doğrulandı” yapılmaz.
+
+| Ölçüm Koşusu | Kesin Kontrol |
+|---|---|
+| İlk indeks | Dosya/byte/chunk, aşama süreleri, provider calls/tokens, bellek/disk ve hazır generation |
+| Değişikliksiz tekrar | Geçerli aynı içerik/profil için yeniden source-chunk embedding çağrısı **0** |
+| Tek dosya/parça değişimi | Yalnız etkilenen yeni/changed chunk'lar; diğer geçerli vektörler korunur |
+| Silme/rename | Yanlış eski locator yok; gereksiz embedding yok; diğer kaynaklar ve tarih korunur |
+| Model/parser/profil değişimi | Etkilenen scope cache invalidation; eski vektör boyutunu karıştırma yok |
+| Kesinti ve devam | Kanıtlı tamamlanan işler replay edilmez; unknown sonuç ayrı recovery; önceki indeks sağlam |
+| Query | Resolver/retrieval/graph/rerank/synthesis aşamaları ve uçtan uca p50/p95 ayrı |
+| Projeler arası izolasyon | Tek proje isteğinde başka scope kanıtı/metadata/sensitive cache sızıntısı **0** |
+| Güvenlik canary | Sentetik secret değerleri dış payload/log/vector/raporda **0** |
+
+İçerik embedding tekrarı ile gerçekten süresi dolmuş provider sağlık probe'u ve yeni
+query embedding'i farklı sayaçlardır; toplama gizlenmez. Bütün cache'leri kapatıp
+sonra açmak yapay performans kazancı sayılmaz. `mtime/size` sadece hızlandırıcıdır;
+eşit boyut/zamanla değiştirilmiş içerik için sağlam fingerprint politikasını doğrula.
+
+**Hız ve kalite hedefleri:** WP-01'de baseline ölçümünden sonra, uygulamadan önce,
+`acceptance-targets.json` içinde sabitlenir. Soğuk/delta/unchanged süre, p95 sorgu,
+Recall@k/MRR/nDCG, citation doğruluğu ve ilişki edge doğruluğu için ölçülebilir hedef,
+campaign repetition/budget ve kabul toleransı yazılır. Rastgele “10 kat hızlı” veya
+her ortamda bir saniye garantisi yoktur. Kritik exact-symbol/permission/izolasyon
+senaryolarında toleransla yanlış proje veya yetkisiz yanıt kabul edilmez.
+
+### 9.2 Envanter Ve İçerik İndeksinin Ayrı Gerçekleri
+
+Tam envanter `.git`, `.env`, dependencies, binary ve desteklenmeyen dosyanın varlığını
+kapsar; hepsinin içeriğini okumak, hash'lemek veya embed etmek zorunlu değildir.
+Metadataya erişim bile izin dışı veya hassassa bunu güvenli sayım/reason olarak raporla.
+Dosya okunamazsa uydurma size/digest yazma. Çok büyük ağaçta bounded streaming/checkpoint
+kullan; sessiz truncation veya bütçe dışında sınırsız traversal yoktur. Tamlığı
+kanıtlanmamış envanteri complete işaretleme.
+
+### 9.3 Yeni Teknik Kontratlar
+
+WP-01 çıktısında mevcut tiplere uyarlanarak şu sınırlar kesinleşmiş olmalı:
+
+| Mantıksal Sınır | Zorunlu Semantik |
+|---|---|
+| RequestContext | Gerçek metin/girdi referansı, client/model metadata, doğrulanmış work/scope, provenance |
+| ProjectResolution | selected/ambiguous/unavailable; project/family/role; çelişki nedenleri; authority=false |
+| InventoryRecord | logical path, kind, okunabilen metadata, eligibility, reason, snapshot; secret payload yok |
+| SourceVersion | project/realm/source kind/origin/revision/content policy, user/generated ownership |
+| ChunkIdentity | Source/symbol/locator, normalize content, parser/chunk profile; rename ile content yeniden kullanım ayrımı |
+| EmbeddingCacheKey | Scope + safe content + exact model/revision/dimension/profile/normalization; hash çakışması kontrolü |
+| IndexGeneration | staged/ready/superseded, manifest, publication pointer, interrupted state ve rollback |
+| AnswerEnvelope | retrieval/generation state ayrı; citations, scope, limits, actual effects, next safe action |
+| ExecutionEvidence | actor/child/run/step, plan digest, effect claim/receipt, gerçek exit/usage, verified subject |
+| ContinuityPacket | Kaynak/work/config fingerprint, tamamlanan kanıtlar, pending/blocked, yetki readback |
+
+Bu adlar mantıksal tasarım girdileridir; mevcut schema'ya denk alan varsa onun adını
+koru. Körlemesine on yeni sınıf/servis üretme. Yeni DB yapılarında kimlik/ilişkiler/iş
+alanları/audit alanlarının fiziksel sırası, tip/null/default/check/index/comment,
+UUID taşınabilirliği ve migration/rollback açıkça yazılır. Serbest JSON alanları
+şemasız “buraya her şey” deposu yapılmaz.
+
+## 10. Doğal Dil Kabul Senaryoları
+
+Aşağıdaki cümleler **test girdileridir; gerçekleştirilmiş işlem veya gerçek issue adı
+iddiası değildir**. Fixture'da beklenen nesneler yaratılır; gerçek GPU/SKY kabulünde
+mevcut gerçek referanslarla değiştirilir. Kullanıcının `zekam ...` komutu girmesi
+bu tabloda hiçbir senaryonun önkoşulu değildir.
+
+| ID | Kullanıcı İsteği / Olay | Beklenen Sonuç | Paket |
+|---|---|---|---|
+| NL-001 | Zekam kökünde yeni destekli istemci açılır | İnce giriş/aktif iş keşfi; yetkisiz yeni effect yok | WP-02 |
+| NL-002 | Başka projede aynı istemci açılır | Zekam global müdahalesi veya otomatik job yok | WP-02 |
+| NL-003 | “GPU'da PCK_HAKEDIS ne yapıyor?” | GPU scope, gerçek/sentetik doğrulanmış sembol, locator'lı açıklama | WP-03/05 |
+| NL-004 | “SKY müşteri ekranını incele” | Doğru aile/UI repo, backend ile gerekirse açık ilişki | WP-03/06 |
+| NL-005 | “Bunu güncelle” ve bağlam yok | Sadece eksik hedef/işlem açıklaması, rastgele proje seçimi yok | WP-03 |
+| NL-006 | “GPU ile SKY arasındaki bu akışı karşılaştır” | Yetkili iki scope ayrı kanıtla karşılaştırılır | WP-03/06 |
+| NL-007 | “GPU 5077 talebini incele” | Önce key/scope, sonra gerçek issue erişimi; yoksa açık hata | WP-03/06 |
+| NL-008 | “Bu talep için hangi kodlar değişmiş?” | Issue ile bounded Git history/diff bağlantısı, source evidence | WP-06 |
+| NL-009 | “Bu GTD dosyasını GPU bilgisine ekle” | Format/ownership/source version; güvenli parse/index; orijinal dosya değişmez | WP-04/05 |
+| NL-010 | “Aynı dosyayı tekrar güncelle” | Geçerli cache ile gereksiz embedding 0; gerçek durum raporu | WP-05 |
+| NL-011 | “Bu klasördeki ODD'leri GPU'ya ekle” | Tam metadata, type-specific parser; bilinmeyen format reason ile | WP-04/05 |
+| NL-012 | “Bu .env ve properties'ten proje yapısını öğren” | Local safe structure; sırlar dışarı veya vektöre girmez | WP-04 |
+| NL-013 | “Bu 11g export XML'ini GPU için işle” | 11g nesne/referans/lineage kanıtı; bağlantı/DDL çalıştırma yok | WP-06 |
+| NL-014 | “Bu prosedürü kim çağırıyor?” | Kesin graph ilişkisi veya unresolved; benzerlikten çağrı uydurma yok | WP-06 |
+| NL-015 | “Şu servis değişirse hangi dosyalar etkilenir?” | Bound impact graph + kaynak revision/locator | WP-06 |
+| NL-016 | “Bu sınıfın testlerini %90 branch coverage'a çıkar” | Doğru modül, baseline, test-only döngü ve gerçek sonuç; hedef altı başarı değil | WP-09 |
+| NL-017 | Test üretimi ortasında istemci kapanır | Son doğrulanmış test/artifacts korunur; yeni oturum güvenli resume | WP-07/09 |
+| NL-018 | “Modeli değiştirdim, devam et” | Aynı Work, geçerli grant/readback, source/evidence doğrulaması | WP-07/08 |
+| NL-019 | “GPU'daki açık işlerimi ve engelleri göster” | Gerçek Work geçmişi/bağımlılık; hayali tamamlanan iş yok | WP-07 |
+| NL-020 | “Bu araştırmayı uzman ajanlarla incele” | Destek varsa gerçek child execution ve bağımsız verifier | WP-08 |
+| NL-021 | “Hangi model bu işte daha uygun?” | Gerçek qualification + unknown ayrımı; kendiliğinden ücretli campaign yok | WP-08 |
+| NL-022 | “Geçen sefer bu konuda ne kararlaştırmıştık?” | Scope/freshness/provenance ile karar; çelişki saklanmaz | WP-10 |
+| NL-023 | “Bu çözüme göre sonraki sefer aynı hatayı yapma” | Doğrulanmış lesson candidate; otomatik talimat/yetki promotion yok | WP-10 |
+| NL-024 | “Bu tekrar eden işlem için skill hazırla” | Candidate/eval/review/active/rollback; aktiflik ile gerçek kalite ayrı | WP-10 |
+| NL-025 | “Projede performans iyileştirmesi bul” | Ölçüm/kod kanıtlı öneri; automatic production mutation yok | WP-10 |
+| NL-026 | “Zekam kendisini iyileştirsin” | Scope/bütçe/standing-grant ve candidate review; sınırsız öz değişim yok | WP-10/11 |
+| NL-027 | “Hangi işleri yaptın, ne kadar sürdü?” | Gerçek events/usage/receipt, bilinmeyen maliyet ayrı | WP-11 |
+| NL-028 | “Verilerimi yedekle ve bütünlüğünü doğrula” | Yetkili kapsamda backup+verify, source overwrite yok | WP-11 |
+| NL-029 | “Zekam neden çalışmıyor?” | Tek doğal dil health açıklaması; component gap ve next safe action | WP-11/12 |
+| NL-030 | “Değişiklikleri commit et, push yapma” | Kapsamlı ASCII Türkçe commit; diğer kullanıcı diff'leri/push yok | WP-02/12 |
+| NL-031 | Onaysız push veya eşdeğer yayın denemesi | Kanıtlanabilir publication gate reddi; shell allow tek başına garanti değil | WP-02 |
+| NL-032 | Embedding ortasında provider timeout olur | Eski ready generation korunur; unknown/retry/cancel sınırı ve resume | WP-05/07 |
+| NL-033 | Kullanıcı dosyası işlem sırasında değişir | Source drift görülür; karışık nesil ve stale citation başarı sayılmaz | WP-04/05/07 |
+| NL-034 | Jira/Confluence yetkisi yok veya erişim kesik | No access/unavailable ayrı; cached source tazeliği yanlış sunulmaz | WP-06 |
+| NL-035 | “Şu MCP'yi bu istemcilerde kullan” | Var olan config korunarak plan; gerçek global write gerekiyorsa ayrı onay | WP-02 |
+| NL-036 | “Bu veriyi sadece yerelde işle” | Remote-disclosure 0; dense yoksa doğru local/degraded sınırı | WP-04/05/08 |
+| NL-037 | Görev kaydı/indeks/CAS bozuk | Kanıtlı integrity error; uydurma resume/başarı yok | WP-07/11 |
+| NL-038 | İki ajan aynı dosyada değişiklik ister | Tek writer, scope/resource conflict görünür | WP-07/08 |
+| NL-039 | Desteklenmeyen client veya model seçilir | Yanlış destek/qualification iddiası yok; kayıtlı açık destek sınırı | WP-02/08 |
+| NL-040 | “Şimdi otomasyonu durdur” | Yeni admission kesilir, aktif iş güvenli checkpoint; veri silinmez | WP-07/10/11 |
+
+Doğal dil testleri exact cümle eşlemesine indirgenmez. Paraphrase, Türkçe karakter,
+küçük yazım hatası, çok turlu referans, isim/numara çelişkisi ve bilinmeyen niyet
+varyantları eklenir. Hata/soru/onay akışında kullanıcıya teknik komut yüklemek yerine
+anlaşılır neden sunulur. Native gerçek oturum testi yapılmadıysa yalnız unit parser
+başarısıyla `natural-language-verified` yazılmaz.
+
+## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
+
+### 11.1 Araştırmada Sonuçlandırılacak Kararlar
+
+| ID | Karar | Gereken Kanıt / Varsayılan |
 |---|---|---|
-| R01 | `AGENTS.md` | Kök talimatlar; zorunlu child ve görev-özel yük. |
-| R02 | `opencode.json` | Tam config; default coordinator, broad allow ve eager instructions. |
-| R03 | `.opencode/agents/zekam-coordinator.md` | Koordinatör gövdesi; kaynak erişimi yasağı, router/RAG reçeteleri, child bağımlılığı. |
-| R04 | `src/zekam/application/opencode_agent_bootstrap.py` | Satır 1–260; global konumlar ve lifecycle başlangıç/spool. |
-| R05 | `src/zekam/application/client_instruction_bootstrap.py` | Satır 1–260; managed body, legacy digest, exact metin/sahiplik koruması. |
-| R06 | `src/zekam/application/client_hook_bootstrap.py` | Satır 1–250; global hook hedefleri, reviewed sürümler ve owned-entry temizliği. |
-| R07 | `src/zekam/interfaces/cli/client.py` | Satır 1–240; hook/pending/drain ve hata/admission semantiği. |
-| R08 | `src/zekam/domain/client_integration.py` | Typed client enum, eski defaults, policy digest ve status ayrımı. |
-| R09 | `.ai/repository-context.json` | Tam belge; tarihsel main_task, projection ve min-subagent metadata. |
-| R10 | `src/zekam/application/active_task_contract.py` | Satır 1–230; görev header/authority/projection sözleşmesi. |
-| R11 | `00_BASLA.md` | Başlangıç/devam yükleme ve kanıt protokolü. |
-| R12 | `src/zekam/application/client_integrations.py` | Satır 1–260; projection/receipt doğrulama, üç-target sınırı ve kanıtlı sahiplik. |
-| R13 | `src/zekam/application/scaffolding_ablation.py` | Paired evaluator, kapılar ve rollback bağı; otomatik silme yok. |
-| R14 | `docs/ZEKAM_YETKINLIK_ENVANTERI.md` | Mevcut feature durumları; özellikle unit-test/Work/continuity açıkları. Belge beyanı, bu araştırmanın runtime kanıtı değildir. |
-| R15 | `src/zekam/interfaces/cli/continuity.py` | Satır 1–210; ortak local continuity/store/admission bileşenleri. |
-| R16 | `src/zekam/application/unit_test_runtime.py` | Runtime binding/composition; OpenCode zorunluluğu ve ayrılabilecek ölçüm bileşenleri. |
-| R17 | `src/zekam/interfaces/cli/unit_test.py` | Satır 1–180; mevcut `test` CLI, request/binding/runner entegrasyon girişleri. |
+| D-01 | Klasör etkinleşmesi ve fiziksel veri yerleşimi | Workspace-local başlangıç; home taşınacaksa mevcut ayrım + backup/restore kararı |
+| D-02 | Shell allow ile güvenilir push sınırı | Native schema, fiili guard testleri; sınırsız shell ile sağlanamayan garanti açık |
+| D-03 | Kaynak/belge/parser ve artımlı indeksleme seçimi | Baseline + Graft/alternatif kıyas; source-only politika belge alımını bozamaz |
+| D-04 | Host-neutral dispatch ve bağımsız verifier | Gerçek child/host capability; zorunlu ikinci orchestrator gerekçesiz kurulmaz |
+| D-05 | Schema/state geçişi | Exact additive migration, version fingerprint, user rows ve rollback |
+| D-06 | Canlı test matrisi, model ve bütçe | Gerçek kurulu client/provider scope; limits; demo/full qualification ayrımı |
+| D-07 | Memory/skill/evolution aktivasyon sınırı | Kullanıcının kabul ettiği yetki + bağımsız evaluation + rollback |
+| D-08 | Doğal dilde yetenek tamlığı ve eşdeğerlik | 31 CAP için mevcut/yeniden tasarlanmış yol; silent omission veya fake ready yok |
 
-Ek olarak pinned repository tree ve CLI dizin envanteri okundu. Yeni uygulama, yerelde bütün ilgili tüketici/test/producer bağlantılarını doğrulayarak bu haritayı tamamlamalıdır.
+Teknik seçimler kapsamı değiştirmiyorsa araştırma bulgularıyla karar verilebilir.
+Kaynak uygulaması, global ayar, fiziksel veri taşıma veya riskli politika gevşetme için
+önceki onaylar genişletilmez. Çatışmaları uzun liste hâlinde tekrar tekrar sormak yerine
+WP-01 sonunda önerilen seçenek, gerekçe, etki ve gerekli onayı tek karar paketinde sun.
+
+### 11.2 Alt Ajan Ve Context Yönetimi
+
+Kaynak denetimi, indeks/graph araştırması, native istemci/izin araştırması ve kalite/
+süreklilik incelemesi bağımsız read-only kollara ayrılabilir. Her kola sadece ilgili
+REQ/CAP/WP, bounded kaynak kesiti, output schema ve bütçe ver. Aynı dosyaya iki writer
+atma. Ana ajan yalnız kısa bulgu, çelişki, evidence ve karar referanslarını birleştirir.
+
+Gerçek subagent aracı olmayan ortamda mevcut read/search araçlarıyla sırayla ilerle;
+sahte “üç bağımsız ajan inceledi” sonucu yazma. Bağımsız verifier zorunlu kabul kapısı
+çalıştırılamadıysa o kapı açık kalır. Araç çağrılarını paralelleştirmek tek başına
+bağımsız ajan yürütmek değildir.
+
+### 11.3 Checkpoint Ve Devam
+
+Her anlamlı teslim sonrası task/source/config/plan kimliği, tamamlanan WP adımı,
+mevcut diff, test raw sonuçları, artifact digests, açık blocker, kullanılan araç/model
+ve `next_safe_action` kaydedilir. Runtime Work/checkpoint varsa mevcut operational
+SQLite ve CAS authority'si kullanılır. Araştırma sırasında runtime yazma izni yoksa
+repo dışı kanıt paketi tutulur; ona gerçek Work/claim/receipt kimliği uydurulmaz.
+
+Session kapanınca başka model sadece bu dosya + kalıcı kanıt/checkpoint ile devam
+edebilmeli. Tüm mimari paketi ve geçmişin tamamını her seferinde context'e yükleme.
+Yeni HEAD veya dosya drift'i varsa yalnız etkilenen karar/kanıtı tekrar doğrula.
+Bitmiş research veya test, model değişti diye sebepsiz yere baştan çalıştırılmaz.
+
+## 12. Deliverable Ve Gerçek Tamamlanma Kapıları
+
+### 12.1 Araştırma Sonu — GATE-R
+
+- [ ] WP-00 baseline ve tüm 31 CAP/23 GAP için gerçek kaynak/koşu durumu var.
+- [ ] Graft ve uygun alternatifler lisans/sürüm/kod/ölçüm sınırıyla karşılaştırıldı.
+- [ ] D-01..D-08 kararları; uygulamayı bloke eden gerçek kararlar ayrı ve sınırlı.
+- [ ] Her WP'nin exact dosya/adım/imza/schema/migration/test/rollback haritası tamam.
+- [ ] `acceptance-targets.json` ölçülebilir, uygulama öncesi sabit ve bütçeli.
+- [ ] Araştırma raporu, kaynak/araç kayıtları ve güncel tek `AKTIF_GOREV.md` teslim edildi.
+- [ ] Kaynak uygulama onayı istenir; onay verilmediyse `WAITING_IMPLEMENTATION_APPROVAL`.
+
+**GATE-R geçmesi Zekam'ın düzelmiş veya ürünün tamamlanmış olduğu anlamına gelmez.**
+
+### 12.2 Uygulama Sonu — GATE-I
+
+- [ ] Uygulama onayı ve exact scope/plan gerçek kayıtta var; WP-02..12 kodla tamam.
+- [ ] Onaylı tüm partial/scaffold kapsamı çalışan dikey akışa dönüştü veya açık kabul
+  kararıyla eşdeğer yola bağlandı; yalnız etiket değişmedi.
+- [ ] Yeni native startup/shell/push politikası gerçek host capability'siyle doğrulandı.
+- [ ] Şema/claim/receipt/context/cache/projection kuralları testle korunuyor.
+- [ ] Kullanıcı dosyaları, başarılı eski testler ve önceki aktif işler kaybolmadı.
+- [ ] Son kod değişikliğinden sonra zorunlu regresyon, package/reachability ve güvenlik
+  kapıları tekrar çalıştı; kaynak/test denetimi güncel subject'e bağlı.
+
+### 12.3 Kullanıcı Ve Release Kabulü — GATE-U
+
+- [ ] Doğal dil senaryoları ve varyantları, kabul edilen gerçek client/model/OS kapsamıyla geçti.
+- [ ] Cold/delta/unchanged/query performansı ve retrieval/citation/graph kalite hedefleri geçti.
+- [ ] Gerçek yerel test fixture'ında Maven/JaCoCo ve test-only koruma sınırı geçti.
+- [ ] Kesinti→başka model/client→devam, backup→restore ve rollback gerçek kanıtla geçti.
+- [ ] Canlı kaynak/model gerektiren kritik testler yetkili ortamda tamam; eksikler gizlenmedi.
+- [ ] Mimari tek kaynak güncellendi; üretim geçmişi/araç kullanımı/kimlikler korunuyor.
+- [ ] Final raporu `completed`, `blocked`, `not-run`, bilinen risk ve kullanıcı kararlarını ayırıyor.
+
+Zorunlu hedefi karşılamayan durum `partial/blocked`, başarılı uygun kapsam ise
+`verified-for-tested-scope` olarak raporlanır. Tüm kapsam tamamlanmadıysa **“iş bitti”**
+denmez. Kapalı ağ/olmayan credential testi önlüyorsa hayali doğrulama yerine açık engel
+bırakılır. Engellenmemiş bağımsız geliştirmeler buna rağmen tamamlanır.
+
+### 12.4 Üretilecek Belgeler Ve Teknik Kanıtlar
+
+Geçici/runtime araştırma çıktıları onaylı repo dışı artifact alanında tutulur. Aşağıdaki
+isimler araştırma/kanıt belgeleridir; ikinci bir aktif görev authority'si değildir:
+
+- Baseline, capability/gap ve source-runtime haritası.
+- Araştırma bulguları, açık kaynak kıyasları, kararlar ve araç kullanım provenance'ı.
+- Exact implementation-map, acceptance-targets, source/schema/config migration ve rollback planı.
+- WP bazında diff, test/benchmark raw sonuçları, claim/receipt/checkpoint ve review referansları.
+- Güncel mimari referans: Markdown, HTML, ZIP, Mermaid ve gerekiyorsa yerel Miro/GitBook exportları.
+- Final completion report + değişen dosyalar + commit listesi + kalan blocker + kullanıcı doğal dil deneme rehberi.
+
+Yeni görev/devir dosyasının adı her durumda **`AKTIF_GOREV.md`** kalır. İçeriği kullanıcıya
+mesaj içinde tekrar yapıştırma; kısa durum ve dosya bağlantısıyla teslim et.
+
+## 13. Git, Kaynak Koruma Ve Rollback Ayrıntısı
+
+Commit öncesi staged/untracked/dirty ayrımı ve tam diff incelenir. Onaylı dosyalar tek
+tek stage edilir; `git add .`, toplu stash, `reset --hard`, kullanıcı değişikliğini temizleme
+veya mevcut commit'leri sebepsiz rewrite yoktur. Repo-yerel kimlik gerekirse kullanıcıdan
+bilinen gerçek kayıt kullanılır; global Git ayarı değiştirilmez.
+
+Commit örneği, sadece ASCII olmalıdır:
+
+```text
+iyilestirme: proje bilgi guncellemesini artimli hale getir
+
+Neden:
+Degismeyen kaynaklarin tekrar embed edilmesini onlemek.
+
+Degisiklikler:
+Icerik ve profil kimligine bagli cache ile nesil yayinlamasini birlestir.
+Kaynak secimi ve belge isleme yollarini ayir.
+
+Dogrulama:
+Gercekten calistirilan testleri, sonuclari ve kanit referanslarini yaz.
+Calistirilmayan canli kabulleri acikca belirt.
+
+Risk ve geri alma:
+Etkilenen sema/profil degisimini ve dogrulanmis geri alma yolunu belirt.
+```
+
+Örneğin “gerçekten çalıştırılan” alanları sahte test adı/sayısıyla doldurulmaz.
+Push onayı local commit'ten ayrı tutulur; onay hedef remote/branch ve commit subject'ine
+bağlanır. Scope değişince eski yayın onayı kullanılmaz. GitHub API veya alt süreçle
+uzak branch güncellemesi de “push yapmadım” diyerek bu sınırdan kaçırılamaz.
+
+Veri dönüşümünde online backup, exact migration fingerprint ve yeni hedef restore
+kanıtı olmadan eski kaydı tahrip etme. Zekam-owned eski dosyanın marker+digest+receipt
+sahipliği kanıtlanmadan cleanup yapma; önce karantina/rollback. Desteklenmeyen cleanup
+ve belirsiz içerik korunur.
+
+## 14. V2 Açıklarının Kayıpsız Devri
+
+V2'deki GAP kayıtları aşağıda başlangıç backlog'u olarak korunur. Bunlar bu görevde
+henüz kapanmadı. Bazıları ürün eksikliği, bazıları yalnız önceki incelemenin kanıt/kapsam
+sınırıdır; ikisini aynı hata sayma. Kapsam dışı yayın/kredi gibi kayıtlar release ürün
+hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
+
+| GAP | Başlık | Sahip Paket / İşlem |
+|---|---|---|
+| GAP-01 | Tarihsel coordinator ile native-first kural çelişkisi | WP-00/02/08; D-01/D-04 |
+| GAP-02 | Yetkinlik kataloğu kapsam/güncellik eksikliği | WP-00/12 |
+| GAP-03 | Research named-agent bağımlılığı | WP-08 |
+| GAP-04 | ask ile doğal dil yanıtı beklentisi | WP-03/05 |
+| GAP-05 | Work public yaşam döngüsü eksikleri | WP-07 |
+| GAP-06 | 15 Ekim model geçişi | WP-01/08; tarihli model duyurusu canlı config ile yeniden doğrulanacak |
+| GAP-07 | Çoklu CLI/model uçtan uca kabulü | WP-02/08/12 |
+| GAP-08 | Skill active ile canlı davranış kalitesi farkı | WP-10 |
+| GAP-09 | Tam fiziksel şema yeniden üretimi | WP-00/07/12 |
+| GAP-10 | Atlassian MCP güvenlik paritesi | WP-06 |
+| GAP-11 | Resume sağlık özeti ve eksik referanslar | WP-07 |
+| GAP-12 | Evolution yetkinliği ile cihaz yetkisi karıştırılması | WP-10/11 |
+| GAP-13 | Mock benchmark ve gerçek model kabulü | WP-08/12 |
+| GAP-14 | Depo içeriği ile wheel runtime kapsamı | WP-00/12 |
+| GAP-15 | Bu çalışmada ürün testleri yürütülmedi | WP-00/12; eski test yokluğu geçmiş gerçektir |
+| GAP-16 | Tüm kaynak dosyalarının algoritmik envanteri | WP-00/12 |
+| GAP-17 | Arayüzde taşınabilirlik ile tam host bağımsızlığı | WP-02/08 |
+| GAP-18 | Boşlukları varsayımla doldurma riski | WP-00/01/12 |
+| GAP-19 | Araç Hazırlığı İle İzin Ayrımı | WP-01/02 |
+| GAP-20 | Haricî Yayın Henüz Yapılmadı | WP-12 yerel export; remote yayın bu görevin otomatik onayı değil |
+| GAP-21 | Tam Kaynak Arşivi Ve Ürün Kabulü | WP-00/12 |
+| GAP-22 | Dış Kaynakların Byte Düzeyinde Sabitlenmesi | WP-01 |
+| GAP-23 | Firecrawl Kredi Engeli | WP-01; güncel araç/kredi readback, uygun alternatif kaydı |
+
+## 15. Kaynaklar, Değişiklik Kaydı Ve Başlangıç Durumu
+
+### 15.1 Bu Görev Dosyasının Kaynak Bağları
+
+- [Zekam kaynak baseline'ı](https://github.com/mehmet-karacan/zekam/tree/b29e2c9e89a400176d722a430af4fcebc7a270cc) —
+  `main` ref'i hazırlıkta GitHub bağlantısından okundu; bunun tam ağaç yeniden analizi olmadığı kaydedildi.
+- [AGENTS.md](https://github.com/mehmet-karacan/zekam/blob/b29e2c9e89a400176d722a430af4fcebc7a270cc/AGENTS.md) —
+  yerel kaynak, yetki ve native sınırları; blob `9658f00b85a979a31ea902cffbed284e66f60942`.
+- [Eski aktif görev](https://github.com/mehmet-karacan/zekam/blob/b29e2c9e89a400176d722a430af4fcebc7a270cc/AKTIF_GOREV.md) —
+  yalnız başlangıç/devir bölümü okundu; tarihsel görevin uygulama yetkisi bu dosyanın araştırma aşamasına taşınmaz.
+- [ActiveTaskContract parser](https://github.com/mehmet-karacan/zekam/blob/b29e2c9e89a400176d722a430af4fcebc7a270cc/src/zekam/application/active_task_contract.py)
+  — 1–255 satır kesiti; header alanları ve durum/kimlik/digest kuralları;
+  blob `947b7989fabc3731185e09040bd21bdcb5c16ae9`.
+- Kullanıcının bu sohbet içindeki yedi somut isteği, bütün 31 yetkinliği inceleme ve
+  kısmi yetkinlikleri tamamlama talebi, 27 maddelik araştırma planı ve son görev onayı.
+- Bölüm 2'de hash'leri verilen gerçek yerel v0.5/v2/ZIP girdileri. Geniş dış araştırma
+  bu hazırlıkta yapılmadı; Graft/HF/Exa/Firecrawl/Context7 karşılaştırmaları WP-01'de yapılacak.
+
+### 15.2 Değişiklik Günlüğü
+
+| Sürüm | Tarih | Değişiklik |
+|---|---|---|
+| 0.1–0.5 | 2026-10-12 | İlk talep defteri, yedi gereksinim, kullanıcı doğal dil örnekleri ve 31 CAP karar listesi; tam geçmiş Ek A'da |
+| 1.0 | 2026-10-12 | Tek ana task kimliği ve parser-uyumlu header; araştırma onayı, ayrı uygulama kapısı; 27 plan maddesi, 31 CAP, 23 GAP, 13 WP, 40 doğal dil senaryosu ve test/rollback/kanıt sözleşmeleri |
+
+### 15.3 Şimdiki Gerçek Durum
+
+| Alan | Durum |
+|---|---|
+| Görev dosyası ve girdi manifesti | Hazırlandı; yerel yapısal doğrulama ayrı kayıtta |
+| Önceki yedi talep | Korundu; Ek A'da tam metin |
+| Geniş repo/açık kaynak araştırması | Bu yeni görev kapsamında henüz yürütülmedi |
+| Araştırma başlatma onayı | Var; WP-00/01 ile devam |
+| Exact source uygulama onayı | Bekleniyor; GATE-R sonrasında |
+| Zekam kaynak değişikliği / ürün kabul testleri | Yapılmadı / çalıştırılmadı |
+| Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
+| Commit / push / Miro-GitBook yayın | Yapılmadı |
+
+**İlk güvenli adım:** Gerçek checkout ve eski task/projection/Work durumunu WP-00'a göre
+kayıpsız doğrula; 31 CAP envanterini ve mevcut test baseline'ını çıkar. WP-01 araştırma
+kollarını bu bulgularla başlat. Araştırma kapısı tamamlanmadan planı varsayımlarla kodlama.
+
+---
+
+## Ek A — v0.5 Talep Defterinin Değiştirilmemiş Tarihsel Kopyası
+
+**Sadece izlenebilirlik içindir; yürütme talimatı değildir.** Aşağıdaki eski durdurma,
+onay ve durum ifadeleri Bölüm 0/15.3'teki güncel aşamayı geçersiz kılmaz. Bu eki normal
+başlangıç veya her subagent context'ine yükleme. Gereksinim detayı/karar geçmişi aranırken
+ilgili kesiti aç. Eski dosyanın tam SHA-256 değeri:
+`cde119a8b4ee1d9d8ece297e0981588b48802a3cf0b6515db6ae4b4eb05b7967`.
+
+<!-- HISTORICAL_V05_BEGIN -->
+```text
+# Zekam — İyileştirme Talepleri Ve Uygulama Promptu
+
+**Dosya adı:** `AKTIF_GOREV.md`  
+**Belge sürümü:** `0.5`  
+**Başlangıç tarihi:** 12 Ekim 2026  
+**Durum:** `PLANLAMA — ARAŞTIRMA VE UYGULAMA DURDURULDU; YENİ "BAŞLA" TALİMATI BEKLENİYOR`  
+**Hedef repository:** https://github.com/mehmet-karacan/zekam  
+**Başlangıç referansı:** `ZEKAM_MIMARI_REFERANSI.md` v2.0 ve mimari paket v2  
+**Kaynak kod başlangıç revizyonu:** `b29e2c9e89a400176d722a430af4fcebc7a270cc` (her incelemede güncellik yeniden doğrulanacak)
+
+> **Önemli:** Bu belge, kullanıcının adım adım ileteceği istekleri mühendislik görevlerine
+> dönüştürmek için hazırlanmış *çalışma taslağıdır*. Repository'deki mevcut
+> `AKTIF_GOREV.md` dosyasının yerine geçmez. Tek başına kaynak kod değiştirme,
+> ajan çalıştırma, provider çağrısı, entegrasyon kurma, commit veya push yetkisi vermez.
+> Depodaki kanonik aktif göreve aktarım ayrıca açıkça onaylanmalıdır.
+> **Güncel kullanıcı kararı (12 Ekim 2026):** Yalnızca bu belge güncellenir.
+> Kullanıcı yeniden açıkça **"başla"** demeden repository/harici kaynak araştırması,
+> ekli arşivin içerik incelemesi, performans testi, ajan çalıştırma veya uygulama yapılamaz.
+
+## 1. Amaç
+
+Zekam'ın özgün hedeflerini, tarihsel yeteneklerini, mevcut uygulamasını ve kullanıcı
+deneyimini birlikte değerlendirerek çalışmayan, eksik kalan veya mimari değişiklik
+sırasında kaybedilmiş işlevleri kanıta dayanarak onarmak. Gerektiğinde daha doğru
+tasarımlarla yeniden geliştirmek; ancak kullanıcıya ait proje dosyalarını, mevcut
+çalışan özellikleri ve doğrulanmış kayıtları korumak.
+
+Bu dosya, **kullanıcının bundan sonra göndereceği maddelerle artımlı olarak
+güncellenecek tek çalışma promptu** olacaktır. Eski maddeler sessizce silinmez;
+revizyon, gerekçe ve karar geçmişi korunur.
+
+## 2. Çalışma Sözleşmesi
+
+1. **Önce istek anlaşılır:** Kullanıcının doğal dille yazdığı madde teknik ve açık
+   bir görev tanımına dönüştürülür; kullanıcının kastı değiştirilmez.
+2. **Araştırma/kanıt (yalnız yeni "başla" talimatından sonra):** İlgili kod yolu,
+   test, konfigürasyon, commit geçmişi ve mimari kayıtlar incelenir. Dış kaynak
+   gerekiyorsa ayrıca kapsamı belirtilir. Planlama süresinde yalnız istek
+   kaydı ve prompt düzenlemesi yapılır.
+3. **Mevcut ile hedef ayrılır:** `mevcut`, `tarihsel`, `bozuk`, `kısmi`, `hedef`,
+   `öneri` ve `doğrulanmadı` etiketleri birbirine karıştırılmaz.
+4. **Çözüm tasarlanır:** Etkilenen modüller, veri/arayüz sözleşmeleri, davranış,
+   güvenlik sınırı, test stratejisi, rollback ve kabul kriterleri yazılır.
+5. **Onay kapısı:** Araştırma yalnız yeni "başla" komutuyla başlar; uygulama
+   ayrıca onaylanmadan repository'ye yazılmaz,
+   Git commit/push yapılmaz, harici projelerde veya hesaplarda değişiklik yapılmaz.
+   İzin verilen araştırma, değişiklik yetkisi anlamına gelmez.
+6. **Uygulama ve gerçek doğrulama:** Onaylanan en küçük kapsamdaki görev yapılır;
+   test/CI/kanıt sonuçları kaydedilir. Test çalıştırılmadıysa açıkça yazılır.
+7. **Revizyon:** Sonuç, karar ve bir sonraki güvenli adım bu dosyada güncellenir;
+   mimari referansı etkilemişse ona yapılacak güncelleme ayrı işaretlenir.
+
+## 3. Her Yeni Kullanıcı Mesajı İçin Prompt Şablonu
+
+Kullanıcının yeni mesajından aşağıdaki kayıt oluşturulur:
+
+- **Kimlik:** `ZKM-REQ-###`
+- **Orijinal kullanıcı isteği:** Anlamı bozulmadan kısa alıntı/özet.
+- **Düzeltilmiş uygulama promptu:** Açık, tekil, ölçülebilir ve teknik ifade.
+- **Amaç ve beklenen kullanıcı davranışı:** Ne değişecek, kullanıcının göreceği sonuç ne?
+- **Kapsam / kapsam dışı:** Hangi özellikler ve dosyalar etkileniyor, neler değişmeyecek?
+- **Mevcut durum ve kanıt:** Kaynak kod referansı, commit, test, log, hata üretim adımı.
+- **Analiz soruları ve araştırma kaynakları:** Doğrulanması gereken varsayımlar.
+- **Hedef mimari ve etki analizi:** Modüller, veriler, CLI/MCP/API, istemciler, modeller.
+- **Güvenlik ve veri koruma:** Yetki, gizlilik, sahiplik, kullanıcı içeriği, rollback.
+- **Kabul kriterleri:** Pozitif, negatif, entegrasyon ve regresyon senaryoları.
+- **Bağımlılıklar / riskler / açık kararlar:** Karar verilmemiş konular.
+- **Durum:** `taslak | araştırma onaylandı | analiz tamam | uygulama onaylandı |
+  uygulanıyor | doğrulandı | engelli | iptal edildi`.
+- **İzlenebilirlik:** Dosya/belge/commit/test bağlantıları ve değişiklik günlüğü.
+
+**Prompt yazım ilkesi:** Belirsiz “iyileştir/hallet” yerine somut çıktı ve
+kabul ölçütü; mimari yaklaşımı kanıtlanmadan zorunlu sayma; doküman hazırlanmasını
+kodun çalıştığına dair kanıt olarak sunma.
+
+## 4. Başlangıç İnceleme Alanları — Henüz Onaylı Uygulama İşleri Değil
+
+Aşağıdaki başlıklar önceki mimari konuşmalarından türetilmiş inceleme alanlarıdır.
+Her biri kullanıcının sonraki somut isteğine göre görevleştirilecektir.
+
+| Alan | İncelenecek yetenek veya olası açık |
+|---|---|
+| Proje bağlamı | Proje kayıtları, alias, proje aileleri, UI/backend yönlendirmesi, Jira eşlemesi |
+| Araştırma | Proje RAG, kaynak kanıtı, researcher/verifier, rapor ve model/istemci bağımlılıkları |
+| Agentic yürütme | Eski coordinator ve alt ajanlar, native-first geçişi, rollerin gerçek yürütülebilirliği |
+| Model altyapısı | Model seçimi, benchmark, sağlık, fallback ve kurum içi model değişiklikleri |
+| Süreklilik | Oturumlar arası/harness'lar arası checkpoint, resume, recovery ve doğrulanabilir state |
+| Bellek ve öğrenme | Hafıza, doğrulanmış dersler, skill üretimi, değerlendirme ve aktivasyon |
+| Proaktif gelişim | Kaynak analizinden iyileştirme adayı çıkarma, bağımsız değerlendirme, onaylı rollout |
+| Test mühendisliği | Test-only üretim, Maven/JaCoCo ölçümü, gerçek kalite ve güvenli yeniden başlatma |
+| Entegrasyonlar | GitHub, Exa, Firecrawl, Context7, Miro, GitBook ve mevcut MCP registry |
+| Güvenlik/operasyon | Local-first saklama, secret koruma, exact authorization, claim/receipt, CI, backup |
+
+### Eklenti Kullanımı Hakkında Karar Çerçevesi
+
+- **GitHub:** Canlı repository kanıtı, commit, PR, issue ve CI doğrulaması.
+- **Exa:** Açık kaynak ve teknik araştırmada aday keşfi.
+- **Firecrawl:** Teknik web kaynaklarını ve çok sayfalı belgeleri işleme; erişim/kredi
+  sorunları varsa `kullanılamadı` olarak kaydedilir.
+- **Context7:** Kullanılacak kütüphane ve sürümlerin gerçek dokümantasyonunu doğrulama.
+- **Miro:** Düzenlenebilir diyagram ve ortak mimari incelemesi; harici pano oluşturma ayrı onay.
+- **GitBook:** Bölümlü dokümantasyon ve sürüm yönetimi; harici alana yazma/yayımlama ayrı onay.
+
+Bu eklentilerin **ChatGPT ortamında kullanılabilmesi**, Zekam/OpenCode/Codex üzerinde
+kendiliğinden kurulu ya da kimlik doğrulaması yapılmış olduğu anlamına gelmez.
+Kalıcı entegrasyon gerekiyorsa ayrı tasarım ve izin kararı açılır.
+
+## 5. Değişmez Teknik İlkeler
+
+- Zekam, tek bir modele, oturuma veya coding CLI istemcisine kilitlenmemelidir.
+- Ürünün yerel-öncelikli (`local-first`) çalışma prensibi ve kanonik kayıtları korunur.
+- Kullanıcının proje dosyaları, kaynak kodları, belgeleri, yerel veri ve geçmiş kayıtları
+  izinsiz temizlenmez/taşınmaz.
+- Eski ajan mekanizması yalnız eski olduğu için zorla geri getirilmez; kaybedilen
+  **yeteneğin** doğru ve kanıtlı karşılığı geliştirilir.
+- Salt-okunur plan, model yanıtı, retrieval sonucu veya Markdown metni yetki vermez.
+- Haricî etki için gerektiğinde exact plan, authorization, claim, receipt, bağımsız
+  verifier ve kesintiden kurtarma kanıtları aranır.
+- Başarısız veya kısmi çalışma “tamamlandı” olarak işaretlenmez.
+- Zekam'ın mevcut `AGENTS.md` kuralları ve repository'deki onaylı aktif görev durumu
+  uygulama öncesinde tekrar okunur; bu taslak otomatik olarak onların yerine geçmez.
+
+## 6. Talep Defteri
+
+Aşağıdaki maddeler **kullanıcı tarafından tanımlanmış geliştirme gereksinimleridir**.
+Bunlar henüz araştırılarak doğrulanmış veya repository üzerinde uygulanmış değildir.
+Amaç, kullanıcı isteğini davranışsal testle doğrulanabilir teknik promptlara çevirmektir.
+İlk maddeler birlikte bir deneyim oluşturur: **istemciden otomatik tanınma → proje
+kimliğini çözme → proje ile belge/kaynak bağlama → hızlı artımlı indeksleme/sorgulama →
+kanıtlı cevap → onaylı mevcut göreve devam**. Uygulama sırası analiz sonucuna göre kesinleştirilecektir.
+
+### ZKM-REQ-001 — İstemciden Bağımsız, Klasör Kapsamlı Otomatik Başlangıç
+
+- **Orijinal kullanıcı isteği:** "Zekam tamamen kendi klasöründe çalışacak ... herhangi
+  bir istemci (codex, claude, gemini, grok, vs.) o klasörden açılınca zekam devreye
+  girecek ve işler başlayacak."
+- **Düzeltilmiş mühendislik promptu:** Zekam'ın kendi repository/çalışma alanı
+  kökünden başlatılan destekli coding CLI istemcilerinin Zekam bağlamını ve
+  onaylı aktif görev durumunu otomatik keşfetmesini sağlayan, istemciden bağımsız,
+  proje-yerel bir başlangıç ve görev devam mekanizması tasarla. İstemci adına
+  bağımlı hard-code edilmiş kontrol kullanma; desteklendiği kanıtlanan native
+  instruction/hook/MCP/skill mekanizmalarını adapter'larla bütünleştir. Açılışta
+  Zekam'ın yetenekleri, görev durumu, son güvenilir checkpoint, sonraki güvenli
+  işlem ve gerekli proje bağlamı erişilebilir olsun. Geçerli kullanıcı onayına ve
+  exact etki kapsamına sahip yarım kalmış işlerde otomatik devam etme davranışını
+  destekle; **yalnız klasörün açılması yeni, yetkisiz yazma/ağ/model/kurulum
+  etkisi başlatmasın**. Kullanıcı "işler başlayacak" ile bu sınırın ötesinde
+  otomasyon kastediyorsa öncelikle yeni yetkilendirme modeli ve kapsamı için
+  mimari karar üret.
+- **Başarı davranışı:** Yeni destekli CLI oturumu Zekam kökünde açıldığında
+  komut ezberi gerektirmeden doğru kuralları ve mevcut işi tanır; farklı CLI'a
+  geçildiğinde bağlam/kaydedilmiş iş durumu kaybolmaz. Zekam dışındaki proje ve
+  global kullanıcı dosyaları etkilenmez.
+- **Araştırma ve uygulama kapsamı:** `AGENTS.md`, `00_BASLA.md`,
+  `DEVAM_PROTOKOLU.md`, `opencode.json`, `src/zekam/application/client_*`,
+  `workspace_resume`, `cross_client_resume`, `interfaces/cli/integration.py`,
+  `continuity`, `mcp`, aktif/legacy ajanlar ve istemci adapter'ları. Dosya
+  yollarının güncelliği çalışma sırasında doğrulanacak.
+- **Mimari çatışma / açık karar:** Güncel `AGENTS.md` klasör açmanın kendi
+  başına görev başlatmadığını söyler. Bu istek mevcut sözleşmeyi değiştirmeyi
+  gerektirebilir; geri dönüş/güvenlik etkisi analizi yapılmadan silinmesin.
+  Native istemcinin instruction dosyasını algılaması, event/hook başlatması ve
+  otomatik görev çalıştırması birbirinden ayrı yetenekler olarak ölçülsün.
+- **Kabul:** En az OpenCode/Codex/Claude/Gemini ile (cihazda kurulu sürümler
+  üzerinden) yeni oturum, alt klasör, başka proje, global dizin, yeniden
+  açma, model değiştirme, kesintiden devam ve hiç onay yokken effect üretmeme
+  testleri. Grok ve başka istemciler için destek kanıtı yoksa `unsupported`/
+  `qualification-pending` olarak gösterilsin; sahte uyumluluk iddiası olmasın.
+- **Durum:** `taslak — araştırma ve uygulama onayı ayrı`
+- **Uygulama yetkisi:** Verilmedi.
+
+### ZKM-REQ-002 — Kaynak Kod Odaklı Hızlı Ve Artımlı Embedding
+
+- **Orijinal kullanıcı isteği:** "Proje embed etmesi çok uzun sürüyor;
+  sadece .java, .js, .tsx gibi compile edilmemişleri embed etse daha hızlı olacak."
+- **Düzeltilmiş mühendislik promptu:** Proje indeksleme süresini ölçerek
+  darboğazları belirle. Dense embedding iş yükünü asıl kaynak kod dosyalarına
+  ve açıkça seçilmiş gerekli metin türlerine daraltan **yapılandırılabilir,
+  proje/teknoloji-özel bir içerik seçim politikası** tasarla. İlk adaylar
+  `.java`, `.js`, `.jsx`, `.ts`, `.tsx` olup `.py`, `.sql`, `.plsql` vb. yalnız
+  proje türü ve kullanıcı politikası doğrulamasıyla kapsama alınabilir;
+  oluşturulmuş `.class`, `.jar`, `.war`, `.map`, `dist`, `build` çıktıları,
+  bağımlılıkların büyük ağaçları veya ikili dosyalar otomatik dense embedding'e
+  gönderilmesin. Dosya uzantısı tek başına yeterli sayılmasın: içerik/format,
+  kaynak-türetilmişlik ve güvenlik kontrolü uygulansın. **Tam kaynak envanteri
+  ve metadata**, embedding'e alınmayan dosyalar için de ayrı tutulabilsin;
+  bu, Context Vault'un tüm dosyaları ilk aşamada envanterleme kuralını bozmaz.
+  Kaynak revizyonu, içerik digest'i, chunk kimliği ve embedding model/profil
+  digest'ine dayalı artımlı önbellekle **değişmeyen dosyalar tekrar embed edilmesin**.
+- **Ölçüm:** İlk indeksleme, artımlı yeniden indeksleme ve sorgu süresi; taranan
+  dosya/byte, atlanan ve nedenleri, üretilen chunk, provider istekleri,
+  cache hit/miss, token/maliyet, exact/lexical/dense kalite metriği ölçülsün.
+  Mevcut gerçek proje fixture'larıyla eski-yeni karşılaştırması yapılmadan
+  rastgele süre/hedef garantisi verilmesin.
+- **Kalite/güvenlik:** Kaynak kod parçası sınıf/fonksiyon/satır locator'ını
+  korusun; güçlü exact arama ve citation kaybolmasın. Gizli veri ve
+  kullanıcı içeriği uzaktaki provider'a varsayılan olarak açıklanmasın.
+  İlave dosya türlerini varsayılan olarak kapatmak, .git veya diğer içeriklerin
+  **envanter kaydını** silmek anlamına gelmez.
+- **İlgili inceleme alanları:** `source_discovery`, `project_rag_runtime`,
+  `project_knowledge_index`, `knowledge_index`, `retrieval_service`,
+  `knowledge-index` SQLite adaptörü, embedding provider/qualification cache,
+  RAG testleri ve benchmark sonuçları.
+- **Kabul:** Aynı commit tekrar indekslendiğinde sıfır gereksiz embedding;
+  tek dosya değişince sadece etkilenen chunk'ların yeniden üretimi; yeni/silinen
+  dosya, profil değişimi, kötü/binary/gizli dosya, çok modüllü repo, aynı isimli
+  dosya, derlenmiş çıktının metadata kaydı ve citation doğrulama testleri.
+- **Ek araştırma kapsamı (kullanıcının yeni talebi):** GitHub üzerinde
+  semantik kod araması, Tree-sitter/AST tabanlı kaynak parçalama, artımlı indeks,
+  içerik-adresli cache, değişiklik odaklı embedding gibi gerçek uygulamaları;
+  GitBook'un içerik indeksleme/senkronizasyon yaklaşımını; Hugging Face üzerindeki
+  açık kaynak embedding, reranker, dataset ve kod arama örneklerini karşılaştır.
+  Gerekirse Exa, Firecrawl ve Context7 ile aynı konuyu doğrula. Bir servisin
+  dokümantasyon/arama kabiliyetini Zekam'a doğrudan MCP kurulumu şartı olarak
+  yorumlama. Lisans, mahremiyet, bağımlılık, hız ve kalite etkisini ölç; sağlam
+  yöntemi Zekam'ın mevcut mimarisine uyarlamak üzere öner.
+- **Ek dosya politikası:** Kullanıcının önerdiği `.env` ve `.properties` dosyaları
+  için *local-only*, salt-okunur yapı/anahtar adı analizi seçeneğini araştır.
+  `.env` içindeki secret değerleri, token, bağlantı parolası, kimlik bilgisi,
+  özel URL ve hassas değerler prompt'a, log'a, vektöre, rapora veya harici
+  sağlayıcıya aktarılmaz. `.properties` dosyası otomatik olarak güvenli sayılmaz:
+  değer sınıflandırma/redaksiyon, kaynak doğrulama ve allowlist tasarla.
+  Sadece güvenli olduğuna doğrulanan, açıkça seçilmiş semantik açıdan faydalı
+  alanlar embedding için değerlendirilebilir. Kalanları envanterde metadata
+  olarak tut; anahtar adları dahi hassas ise redakte edilir. Gizli dosyaların
+  envanterde bulunması ile içeriklerinin okunması/embedding'i ayrıdır.
+- **Kullanıcı referans arşivi:** `gpu-db-ddl-sync-master@87c867aa5ba.zip`
+  (12 Ekim 2026 mesajına ekli). Bu arşiv ancak kullanıcı yeniden **"başla"**
+  dedikten sonra, arşiv içeriğini çalıştırmadan veya kaynak projeyi değiştirmeden,
+  listeleme/istatistik/kod örüntüsü analizi ile incelenecek. Önceki çalışmaya
+  göre üstünlük ancak gerçek benchmark ve kalite ölçümüyle kabul edilecek.
+- **Araştırma/uygulama izni:** Şu anda **YOK**; kullanıcı yeni "başla" demeden
+  GitHub/GitBook/Hugging Face ve ekli arşiv üzerinde analiz başlatılmayacak.
+- **Durum:** `taslak — ölçüm ve araştırma bekliyor`
+- **Uygulama yetkisi:** Verilmedi.
+
+### ZKM-REQ-003 — Proje Tespiti Öncelikli Ve İzole RAG Yönlendirmesi
+
+- **Orijinal kullanıcı isteği:** "Önce gelen sorunun hangi projede olduğunu
+  anlamalı ve sonrasında ise o proje ile RAG'dan direkt sorgulanmalı."
+- **Düzeltilmiş mühendislik promptu:** Kullanıcı isteğini yanıtlamadan önce
+  mevcut gerçek proje registry'si, proje alias'ları, proje aileleri,
+  seçili CLI çalışma alanı, görev/Jira anahtarı ve yetkili oturum bağlamıyla
+  **deterministik bir project resolver** üzerinden ilişkilendir. Tek proje
+  güvenle seçildiyse RAG sorgusunu sadece o projenin doğru source revision ve
+  hazır generation indeksinde yürüt. Proje algılama aşamasında tüm projelerin
+  chunk içeriğini karşılaştırma veya gereksiz provider çağrısı yapma.
+  Belirsizlikte `clarification-required`, proje yoksa `project-unavailable`,
+  indeks yoksa `index-not-ready` gibi açık, kanıta dayalı durum üret; başka
+  projenin RAG'ına sessiz fallback yapma. Çok projeli karşılaştırma ancak
+  isteğin bunu gerektirdiği ve tüm ilgili proje bağları doğrulandığı durumda,
+  açık çoklu-kapsamlı stratejiyle çalışsın.
+- **Çıktı sözleşmesi:** `project_ref`, `family_ref`, `matched_terms`, `route_reason`,
+  `source_revision`, `generation_digest`, `query_digest`, `citation_refs`,
+  `retrieval_state`, `generation_state`, `answer_kind` alanlarının kullanılabilirliği
+  incelensin; yeni alanlar sürümlü sözleşmeyle eklensin. Salt retrieval delili
+  LLM yanıtı gibi sunulmasın.
+- **İlgili inceleme alanları:** `config/project_families.yaml`,
+  `config/jira_project_mappings.yaml`, `request_routing`, `jira_issue_routing`,
+  `project_rag_runtime.resolve_question_project`, `interfaces/cli/main.py`
+  (`ask`), RAG index ve project registry.
+- **Kabul:** `GPU`, `SKY`, farklı alias, açık Jira issue anahtarı, aynı anda iki
+  proje adı, yanlış alias çakışması, projeye ait olmayan genel soru, tanımsız
+  proje, eski indeks ve yetersiz citation; tümünde yanlış projeden bilgi
+  sızıntısı olmaması ve uygun tekil/çoklu retrieval stratejisinin seçilmesi.
+- **Durum:** `taslak — araştırma ve uygulama onayı ayrı`
+- **Uygulama yetkisi:** Verilmedi.
+
+### ZKM-REQ-004 — Ajan Shell Yetkisi Ve Türkçe ASCII Git Politikası
+
+- **Orijinal kullanıcı isteği:** "Tüm ajan dosyalarında shell yetkisi allow olacak;
+  tüm ajan her şeyi yapabilecek. Sadece push için onay istenecek. Commit için
+  Türkçe ASCII karakter ile yapılan işin detaylı kısmı olacak."
+- **Düzeltilmiş mühendislik promptu:** Zekam altında kullanılan tüm destekli
+  ajan/alt ajan tanımları ve istemci adapter'larının shell/terminal araçlarına
+  ilişkin varsayılan yetki politikasını tek kanonik kaynaktan yönetilebilir hale
+  getirmeyi tasarla. Kullanıcının hedef tercihi `shell = allow`: proje işlerini
+  yürüten ajanlar shell komutları için tekrar tekrar onay istemeden çalışabilsin.
+  İlgili istemcilerin (OpenCode, Codex, Claude Code, Gemini CLI ve diğer
+  desteklenenlerin) izin sözdizimlerini ve gerçek davranışını uyumluluk matrisiyle
+  doğrula; desteklenmeyen araç veya istemci için sahte izin/uyumluluk iddia etme.
+  **Git push** öncesinde her durumda açık kullanıcı onayı zorunlu olsun.
+  **Git commit** için ayrıca push onayı aranmasın; commit başlığı ve açıklama
+  gövdesi, yapılan değişikliğin neyi/neden/nasıl etkilediğini açıklayan yeterli
+  teknik ayrıntı içersin, **Türkçe anlamlı fakat yalnız ASCII karakterli**
+  yazılsın (ör. `s`, `g`, `i`, `c`, `u`, `o`; Türkçe diakritikler kullanılmaz).
+  Commit öncesi değişen dosyalar, diff ve gerekli test/doğrulama sonuçları
+  kullanıcıya ve kayıt sistemine açıkça izlenebilir olsun.
+- **Politika kapsamı:** Ajan promptları, agent tanımları, proje-yerel talimatlar,
+  istemci izinleri, shell araçları, alt ajanlar, Git hooks/commit policy ve
+  Zekam'ın yerel mutation admission sözleşmeleri. Kullanıcı yalnız **push** için
+  interaktif onay istemektedir; araştırma aşamasında bunun Zekam'ın mevcut
+  plan/claim/receipt ve tool permission sınırlarıyla çatışmaları envanterlenecek.
+- **Kritik güvenlik kararı (inceleme bekliyor):** Shell için geniş `allow`,
+  başkaca bütün izinlerin otomatik devredildiği, işletim sistemi sınırlarının
+  kalktığı veya provider/secret/yıkıcı işlem korumalarının yok sayıldığı anlamına
+  gelmez. Kullanıcının `tüm ajan her şeyi yapabilsin` hedefi yüksek risklidir:
+  `AGENTS.md`, native-first mimari, bağımsız verifier ve mevcut fail-closed
+  kontrolleriyle çelişebilir. Risklerin ve hangi işlemlerin yalnızca push
+  kontrolüyle yönetilebileceğinin analizi yapılacak; uyumsuzluk kullanıcıya
+  sunulmadan güvenlik sınırları otomatik kaldırılmayacak. Bu satır kullanıcının
+  hedefini değiştiren bir onay değil, açık teknik karar konusudur.
+- **Kabul önerileri:** Çoklu ajan shell çalıştırması; CLI bazında yetki davranışı;
+  shell komutunun sessizce başka hostta farklı yetkiyle çalışmaması; commit'in
+  Türkçe ASCII başlık+gövdesi ve diff/test kanıtı; `push` denemesinde açık onay
+  yokken kesin ret; commit ile push'un birbirinden ayrı değerlendirilmesi;
+  güvenlik/secret/araç sınırlarının değiştiği durumlarda görünür raporlama.
+- **Durum:** `taslak — yalnız gereksinim kaydı; araştırma ve uygulama durduruldu`
+- **Araştırma/uygulama yetkisi:** Yeni **"başla"** talimatı yok; verilmedi.
+
+### ZKM-REQ-005 — Projeye Özgü Belge, Klasör Ve Teknik Artifact İçeri Aktarımı
+
+- **Orijinal kullanıcı isteği:** "Modele klasör, dosya verdiğimde bunu GPU için
+  güncelle dediğimde embed etmesi gerek. GPU'nun bir ODD veya GTD'si olur;
+  talep, defect veya 11g export XML olabilir."
+- **Düzeltilmiş mühendislik promptu:** Kullanıcı bir dosya, klasör, arşiv veya
+  yetkili iş kaydı referansı verdiğinde ve "GPU için güncelle", "SKY'ye ekle",
+  "bu projenin bilgisini yenile" benzeri komutlar kullandığında sistem önce
+  hedef projeyi registry/alias/Jira/çalışma alanı bağlamıyla **kesin olarak
+  çözümlemelidir**. Girdiyi yalnız doğrulanmış proje kapsamında ve dosya/kayıt
+  türüne uygun parser ile güvenli şekilde içeri almalı; kaynak kimliğini, kullanıcı
+  sahipliğini, sürümü, içerik digestini, locator'ları ve erişim sınıfını korumalıdır.
+  Seçili/güvenli metin parçalarını artımlı şekilde projeye ait exact/lexical/dense
+  RAG indekslerine işlemeli; mevcut indeksin çalışan nesillerini ve önceki kaynak
+  sürümlerini koruyarak yeni generation'ı atomik olarak etkinleştirmelidir.
+- **Girdi sınıfları:** Tek dosya; seçili klasör ve tüm alt dosyaları; çoklu dosya;
+  ZIP gibi arşivler; ODD/GTD belgeleri (format, şablon ve uzantı çalışma sırasında
+  teyit edilir); iş talebi ve defect dokümanları; Jira'dan yetkili okunmuş issue
+  açıklaması/ekleri; ODI 11g Smart Export XML/ZIP ve ilişkili manifestler;
+  düz metin, Markdown, PDF, DOCX ve kaynak kod. **Her sınıfın parser'ı ve
+  güvenlik sözleşmesi ayrıdır**; tüm içerikler ham metin gibi işlenmeyecek.
+- **Girdi türü ayrımı:** Kullanıcının ilettiği dosya ile gerçek proje kaynak kodu,
+  kullanıcının kişisel dokümanı, Jira issue'su ve ODI exportu farklı provenance
+  ve yaşam döngüsü taşır. Başka projeden otomatik içerik kopyalanmaz, kaynağı
+  bulunamayan istekler atanmamış/belirsiz kalır. Kaynak belgeler üzerinde yazma,
+  veri tabanı DDL yürütme veya Jira issue güncelleme **embedding/güncelleme**
+  talebinden otomatik türetilmez.
+- **Envanter ve embedding:** Klasör seçildiğinde bütün alt klasör/dosyaların
+  metadata envanteri tutulur (gizli/.env, binary, derlenmiş ve desteklenmeyenler
+  dahil; bunların içerikleri otomatik embedding'e dahil değildir).
+  Erişilemeyen/şifreli/uyumsuz dosyaların nedeni kayıt altına alınır. Duyarlı
+  dosyaların içeriği ve secret değerleri uzak sağlayıcıya gönderilmez. Destekli
+  ODD/GTD/PDF/DOCX içeriği paragraf, başlık, tablo ve kaynak sayfa/satır
+  locator'larıyla indekslenir. ODI XML için object/column/mapping/flow,
+  bağlantı ve referans ilişki çıkarımı gerçek exporta göre doğrulanır; kaynak
+  kod veya üretim sisteminde herhangi bir işlem çalıştırılmaz.
+- **Artımlı güncelleme:** `source_kind + project_id + logical_path + version +
+  content_digest + parser_version + chunk_profile + model/profile_digest`
+  üzerinden değişen/new/removed/unchanged ayrılır. Yalnız etkilenen birimler
+  yeniden parse/chunk/embed edilir; cache hit ve reindex nedeni raporlanır.
+  Content cache gizlilik sınırlarını aşarak projeler arasında kaynak sızıntısı
+  oluşturamaz. Tek dosyalı ve klasörlü güncellemeler aynı temel pipeline'ı
+  paylaşır; kullanıcı yeniden aynı belgeyi gönderdiğinde gereksiz provider
+  çağrısı yapılmaz.
+- **Kullanıcı geri bildirimi:** `hangi-proje`, `hangi-kaynaklar`, `new/changed/
+  unchanged/deleted`, `parsed`, `indexed`, `skipped-with-reason`, `source_revision`,
+  `generation_digest`, `cache hits`, `provider calls`, `source evidence` ve
+  `next_safe_action` alanlarıyla doğrulanabilir durum raporlanır. Parser olmayan
+  dosyalar için "indekslendi" iddiası kurulmaz.
+- **Araştırma soruları:** ODD/GTD şablon türlerine göre yapısal parser mümkün mü?
+  PDF/DOCX tablolarının yapısı bozulmadan indekslenebilir mi? XML 11g exportundaki
+  kaynak bağı ve ilişkileri hangi parser ile çıkarılır? Değişen kaynak parçası ve
+  güncel Jira eki nasıl saptanır? Üretim boyutunda cache/indeks hız ve retrieval
+  doğruluğu hangisini öne çıkarır? Bu sorular için henüz araştırma yapılmayacak.
+- **Kabul senaryoları (öneri):** Tek ODD GPU'ya eklenir ve sadece GPU sorgusunda
+  bulunur; GTD değiştirilince eski/yeni sürüm izlenir; aynı belge ikinci kez
+  işlendiğinde gereksiz embedding olmaz; klasörde farklı türde dosyalar doğru
+  sınıflandırılır; GPU defekti ile SKY defekti karışmaz; ODI 11g XML'den doğrulanmış
+  nesne adı ve ilişki citation ile bulunur; hatalı XML/şifreli ZIP/büyük arşiv
+  fail-closed olur; index yarıda kesilirse önceki nesil korunur; aynı isimli
+  farklı belgeler yanlış birleştirilmez; secret içerik dışarı sızmaz.
+- **Bağımlılıklar:** ZKM-REQ-002 (seçici/artımlı embedding), ZKM-REQ-003
+  (proje çözümleme), kaynak envanteri, document parser, project RAG, ODI metadata,
+  Jira MCP ve SQLite/CAS kanıt zinciri.
+- **Durum:** `taslak — örnek/araştırma/uygulama bekliyor`
+- **Araştırma/uygulama yetkisi:** Kullanıcı yeniden **"başla"** demeden yok.
+
+### ZKM-REQ-006 — Graft Ve Açık Kaynak Kod İndeksleme Alternatiflerinin Karşılaştırılması
+
+- **Orijinal kullanıcı isteği:** "https://github.com/trailhq/graft ... bu projede
+  çok işe yarıyordu; bunun daha iyisini embed edip hızlı getirebiliriz.
+  Bunları da plan listene al."
+- **Düzeltilmiş mühendislik promptu:** `https://github.com/trailhq/graft`
+  repository'sini ve güncel uygun açık kaynak alternatiflerini **başla izninden
+  sonra** incele. Graft'ın gerçekten uyguladığı keşif, AST/Tree-sitter, sembol
+  çıkarımı, kod grafiği, doküman indeksleme, retrieval, embedding önbelleği ve
+  artımlı güncelleme gibi özellikleri varsayım olmaksızın kaynak kod/testlerle
+  doğrula. Zekam'ın mevcut RAG/graph/research katmanlarıyla fonksiyonel ve
+  performans karşılaştırması yap; gerekiyorsa Graft yerine daha kaliteli,
+  hızlı ve sürdürülebilir açık kaynak bir yöntemi öner. Hazır kaynağı körlemesine
+  `embed` veya vendörleme: lisans, sürüm, bağımlılık, OS, gizlilik ve maliyet
+  uyumunu ayrı değerlendir.
+- **Kıyas kriterleri:** Soğuk indeksleme ve tek dosya değişim süresi; yeniden
+  embedding istek sayısı; 1000/10000+ dosyada bellek/disk kullanımı; exact
+  sembol, call/reference relation, Türkçe teknik soru, ODD/GTD/PDF ve ODI XML
+  kalitesi; hata/kesinti sonrası devam; kullanıcı verisi izolasyonu; model
+  bağımsızlığı; okunur evidence/citation ve kurulum zorluğu.
+- **Kaynaklar (gelecekte):** GitHub repo + commit history + README/tests,
+  Hugging Face model/embedding araştırması, Context7 sürüm dokümanları,
+  gerekirse Exa/Firecrawl/GitBook referansları. **Şu an doğrulanmış bir
+  Graft mimari üstünlüğü veya ölçüm sonucu yoktur.** Kullanıcı sadece
+  araştırma adayı olarak bildirmiştir.
+- **Önerilen karar çıktısı:** `kullan`, `uyarla`, `yalnız belirli bileşeni al`,
+  `referans al ama entegre etme`, `reddet` seçeneklerinden birini ölçümler
+  ve gerekçeyle seç; mevcut güvenlik, proof ve proje izolasyonu bozulmasın.
+- **Durum:** `taslak — araştırma bekliyor`
+- **Araştırma/uygulama yetkisi:** Kullanıcı yeniden **"başla"** demeden yok.
+
+### ZKM-REQ-007 — Komutsuz, Doğal Dil Öncelikli Evrensel İş Akışı
+
+- **Orijinal kullanıcı isteği:** "Ben doğal dil ile iş yaptırabileyim ekstra uğraşmak istemiyorum. zekam ask filan uğraşmıyayım." Kullanıcı ayrıca Zekam'ın bütün yetkinliklerini gerçek kullanım örnekleriyle görmek, eksikleri kendisi seçip planı buna göre güncellemek istiyor.
+- **Düzeltilmiş mühendislik promptu:** Desteklenen native coding istemcilerinden herhangi biri Zekam klasöründe açıldığında, kullanıcıya `zekam ask`, `zekam route preview`, `zekam research run`, `zekam project index` gibi Zekam CLI komutları ezberletmeden serbest Türkçe/doğal dil ile yetenekleri sun. Kullanıcının tek cümlesini güvenilir **intent → proje çözümleme → uygun yetenek/araç → mevcut kanıt veya gerekli indeksleme → çıktı/geri bildirim** zincirine yönlendir. CLI/MCP/programatik API alt katman araçları olarak kalabilir; insan etkileşiminde zorunlu giriş yolu olmamalıdır. İstemci/yetenek desteği gerçekte yoksa otomatik işlendi iddiasında bulunma.
+- **Kullanıcı deneyimi örnekleri ve beklenen davranışlar:**
+  1. "GPU'da PCK_HAKEDIS'i açıkla" → GPU projesini belirle, erişilebilir kaynakları kontrol et, proje-izole RAG ve gerekirse kod grafiği ile locator'lı açıklama üret.
+  2. "Bu GTD'yi GPU bilgisine ekle/güncelle" → dosyanın türünü, kaynağını, sürümünü ve hedef projeyi belirle; güvenli yerel içerik analizi ile projeye bağla; yalnız gerekli güvenli parçaları artımlı indeksle; indekslemenin gerçekten tamamlandığını bildir.
+  3. "SKY 11306 talebinde ne yapılmış?" → proje/Jira anahtarını çöz, gerçek kaydı yalnız yetkili entegrasyonla getir, uygun repository ve kaynak geçmişiyle ilişkilendir, kaynaklı raporla; erişim yoksa açıklayıcı durum döndür.
+  4. "GPU'nun şu klasörünü analiz et" → tüm dosyaların metadata envanterini al, dosya türlerini ayır, source-only/allowlisted embedding uygula, teknik bağıntıları çıkar, atlananları gerekçelendir.
+  5. "Bu Java sınıfının testlerini iyileştir" → doğru proje/modül ve test kapsamını çöz, mevcut testleri ölç, test-only güvenli akışı ve gerçek coverage kanıtını kullan; yetkilendirme ve güvenlik kurallarını koru.
+  6. "Kaldığın yerden devam et" → kanonik Work/checkpoint/source bağını doğrula; yanlış veya değişmiş kaynağı yürütme, güvenli devam yolunu belirle.
+  7. "Git'e commit at, ama push yapma" → yalnız onaylı görev/değişiklik kapsamındaki işi doğrula, ayrıntılı Türkçe ASCII mesajla commit et; push uygulama öncesi ayrıca onay iste.
+- **Mimari kapsam:** Native giriş talimatları ve istemci adaptörleri; kullanıcı isteği anlayıcısı; mevcut `request_routing` ve proje ailesi/katalog; `jira_issue_routing`; RAG, code graph, Oracle/ODI parser, bilgi güncelleme, araştırma, test, model seçimi, MCP, skill, kalıcı Work ve continuity; plan/yetki/receipt. Gerektiğinde ayrı `natural-language-dispatch` tasarımı oluştur, ancak istemcinin native yeteneklerini kopyalayarak zorunlu bir ikinci ajan katmanı üretme.
+- **Açık UX kuralları:** Bilinen proje/niyet için kullanıcıyı komut çalıştırmaya yönlendirme; kısa açıklama ve asıl sonucu dön. Gerçekten belirsiz iki proje, farklı kullanıcı dosyasına yazma, güvenli içerik işleme veya yetki eşiği gibi durumlarda yalnız gerekli açıklama/onayı iste. "GTD'yi projede güncelle" ifadesi, varsayılan olarak teknik bilgi indeksini güncelleme anlamında değerlendirilebilir; fiziksel belgeyi değiştirme veya kaynak kodu düzenleme yalnız açık niyetle yapılır. Hata durumunda araç komutu değil net `neden + gereken kullanıcı kararı` göster.
+- **Kaynak güvenliği:** Zekam klasörüne girilmesi veya ajan Shell `allow` ayarı tek başına herhangi bir harici aktarım veya geri dönüşsüz etki için yetki sayılmaz. Önceki `push` onayı talebi korunur; modelin shell üzerinden yetki kapısını dolanmaması ayrıca analiz/test konusudur.
+- **Kabul/golden test:** `zekam` komutu yazmadan en az 12 gerçek Türkçe talep türü; farklı native istemci, yeni oturum, gizli bağlam, belirsiz proje, GPU/SKY ayrımı, indeks hazır/değil, remote embedding izni yok, değişmeyen belge, Jira/MCP offline, source drift, eksik parser, secret `.env`, çalışan Work'u geri yükleme ve push-only onay negatif senaryoları. Sonuçlarda seçilen yetenek, proje kimliği, evidence, gerçek işlem durumu ve kullanıcıya gösterilen açıklama izlenebilir olsun. Gerçek kullanıcı oturumu doğrulaması olmadan `tamamlandı` denmesin.
+- **Kullanıcı değerlendirme yöntemi:** Aşağıdaki **31 yetkinlik inceleme listesi** üzerinden kullanıcı `koru`, `iyileştir`, `yeniden tasarla`, `istemiyorum` kararlarını ve istediği ek iş akışını belirtebilir. Henüz görüş bildirilmemiş satırlar karara bağlanmış sayılmaz.
+- **Bağımlılıklar:** ZKM-REQ-001, 002, 003, 004, 005, 006. Önce 001/003/007 ile kullanıcıdan gizlenen yönlendirme sözleşmesi, ardından ihtiyaca göre indeksleme/araştırma/test/iş yaşam döngüsü.
+- **Durum:** `taslak — kullanıcı gereksinimi kaydedildi; araştırma/uygulama başla talimatını bekliyor`.
+- **Uygulama yetkisi:** Verilmedi.
+
+### V2 Mimari Paketinden Kullanıcı Tarafında Sınanacak Örnekler
+
+Aşağıdaki örnekler taslak/golden test girdileridir; **koşuldu veya geçti
+anlamına gelmez**. Beklentiler mevcut davranışla hedef davranışı karıştırmaz.
+Referans paket: `ZEKAM_MIMARI_PAKETI_v2.zip`.
+
+| Kullanıcı ifadesi | Ölçülecek sonuç | Kaynak / durum |
+|---|---|---|
+| `GPU 123 numaralı defecti incele` | `SKYRSM-123` anahtarı; issue varlığı ayrıca doğrulanır | ARC-09; anahtar çözümü belgeli |
+| `GPU projesinde PCK_HAKEDIS ne yapıyor?` | GPU indeksinden locator'lı retrieval, başka projeye sızıntı yok | ARC-08, ARC-11; canlı kabul yok |
+| `SKY ekranına ait müşteri akışını göster` | SKY ailesi ve UI repo rolü, çoklu eşleşme gerekirse açık karar | ARC-08; canlı kabul yok |
+| `Bu GTD dosyasını GPU için güncelle` | Girdi türü/versiyon saptanır ve GPU knowledge generation güncellenir | ZKM-REQ-005; yeni hedef |
+| `Bu klasördeki ODD belgelerini GPU'ya ekle` | Klasör tam metadata envanteri, güvenli parser, seçili içerik ve artımlı embedding | ZKM-REQ-002/005; yeni hedef |
+| `Bu ODI 11g export XML'ini GPU için analiz et` | Object/flow/lineage ve citation; kaynak veri üzerinde effect yok | ZKM-REQ-005; kapsamlı parser doğrulanmamış |
+
+### Zekam Yetkinliklerinin Kullanıcı Karar Matrisi — 31 Başlık
+
+Bu matris mevcut **v2 mimari paketinden** çıkarılmış başlık listesidir; yeni araştırma veya canlı ürün kabulü değildir. `ready/partial/scaffold` ürünün kendi beyanları; `technical` ve `historical-*` destekleyici/dönemsel kayıtların türüdür. Kullanıcı bir satırda karar belirtince yalnız o karar ilgili istek maddesine işlenir.
+
+| Kimlik | Yetkinlik | v2 belgesindeki sınıf | Kullanıcı kararı |
+|---|---|---|---|
+| CAP-01 | Native CLI Girişi | `partial` | Açık: değerlendirilmedi |
+| CAP-02 | Native Test Ve Süreklilik Yardımcıları | `partial` | Açık: değerlendirilmedi |
+| CAP-03 | Proje RAG Ve Alıntılar | `ready` | Açık: değerlendirilmedi |
+| CAP-04 | İstek, Proje Ailesi Ve Jira Yönlendirmesi | `ready` | Açık: değerlendirilmedi |
+| CAP-05 | OpenCode Sürekliliği | `ready` | Açık: değerlendirilmedi |
+| CAP-06 | İş Ve Proje Kayıtları | `partial` | Açık: değerlendirilmedi |
+| CAP-07 | Markdown Bilgi Yaşam Döngüsü | `ready` | Açık: değerlendirilmedi |
+| CAP-08 | ODI 11g Ön Kontrol Ve Bağlama | `partial` | Açık: değerlendirilmedi |
+| CAP-09 | Kanıtlı Proje Araştırması | `ready` | Açık: değerlendirilmedi |
+| CAP-10 | Fikir Üretimi Ve Terfi | `scaffold` | Açık: değerlendirilmedi |
+| CAP-11 | Analitik Raporlar | `partial` | Açık: değerlendirilmedi |
+| CAP-12 | Model Benchmark Ve Yönlendirme Kanıtı | `partial` | Açık: değerlendirilmedi |
+| CAP-13 | Unit Test Mühendisliği | `partial` | Açık: değerlendirilmedi |
+| CAP-14 | Semantik Bellek | `partial` | Açık: değerlendirilmedi |
+| CAP-15 | Jira Anahtarı Çözümü | `partial` | Açık: değerlendirilmedi |
+| CAP-16 | Yedek Ve Kurtarma | `ready` | Açık: değerlendirilmedi |
+| CAP-17 | Ölçülü Otonom Gelişim | `ready` | Açık: değerlendirilmedi |
+| CAP-18 | Kişisel Skill Yaşam Döngüsü | `documented-partial` | Açık: değerlendirilmedi |
+| CAP-19 | Yapısal Kod Grafiği | `documented-partial` | Açık: değerlendirilmedi |
+| CAP-20 | Proje Keşfi Ve Teknoloji Profili | `technical` | Açık: değerlendirilmedi |
+| CAP-21 | Yetki, Onay Ve Kanıt Kapıları | `technical` | Açık: değerlendirilmedi |
+| CAP-22 | Kuyruk, Lease, Fencing Ve Outbox | `technical` | Açık: değerlendirilmedi |
+| CAP-23 | Ortak MCP Registry | `technical` | Açık: değerlendirilmedi |
+| CAP-24 | Jira Ve Confluence Okuma | `technical` | Açık: değerlendirilmedi |
+| CAP-25 | Model Kimliği Ve Provider Taşıması | `technical` | Açık: değerlendirilmedi |
+| CAP-26 | Oracle Metadata Ve PL/SQL Bağlamı | `technical` | Açık: değerlendirilmedi |
+| CAP-27 | CAS, Ham Olay Ve Analitik | `technical` | Açık: değerlendirilmedi |
+| CAP-28 | Kurulum, Paketleme Ve Doctor | `technical` | Açık: değerlendirilmedi |
+| CAP-29 | Kaynak Sahipliği, Sandbox Ve Git | `technical` | Açık: değerlendirilmedi |
+| CAP-30 | Ajan Rolleri Ve Bağımsız Doğrulama | `historical-and-retained` | Açık: değerlendirilmedi |
+| CAP-31 | Ölçülü Döngü, Radar Ve Tournament Sözleşmeleri | `historical-or-contract` | Açık: değerlendirilmedi |
+
+**Kullanıcının karar sözlüğü:** `koru / iyileştir / yeniden tasarla / istemiyorum / önce açıkla`. Açık kalan her satır `değerlendirilmedi` olarak saklanır.
+
+### Ortak Gereksinimler Ve Bağımlılıklar
+
+- Öncelik: ZKM-REQ-001 (başlangıç/bağlam), ZKM-REQ-003 (doğru hedef),
+  ZKM-REQ-002 (indeksleme hızı), ZKM-REQ-005 (proje belgesi alımı),
+  ZKM-REQ-006 (açık kaynak kıyası), ZKM-REQ-007 (doğal dil UX); gerçek performans ve dependency sonuçlarına
+  göre uygulama sırası güncellenebilir.
+- Değişiklikten önce ve sonra gerçek test/evidence alınır; hata ayıklama ve
+  mimari araştırma, Zekam'ın eski yeteneklerini sessizce kaldırmamalıdır.
+- Her madde ayrı bir davranış sözleşmesidir; birinin geçmesi diğerine kabul
+  kanıtı oluşturmaz. Provider kullanım onayı, repository mutasyon onayı değildir.
+- ZKM-REQ-005, kullanıcıya ait ODD/GTD, talep/defect ve ODI XML içeriklerinin
+  proje-özel bilgi varlıkları olarak yönetilmesini gerektirir; yalnız uzantı
+  filtresi bu gereksinimi karşılamaz.
+- ZKM-REQ-006 için açık kaynak yöntemleri araştırma kararı, mevcut kodu
+  kopyalama veya Zekam repositorysine entegrasyon izni değildir.
+- ZKM-REQ-004 ayrı bir **yetki politikası** kararıdır; diğer maddelerin
+  araştırılması bu tercihin otomatik uygulandığı anlamına gelmez.
+- **Şu an planlama safhasındayız. Kullanıcı açıkça yeniden "başla" deyinceye
+  kadar yalnız `AKTIF_GOREV.md` revize edilir.**
+- `ZEKAM_MIMARI_PAKETI_v2.zip` içeriğindeki örnekler bu sohbet için
+  salt-okunur olarak incelenmiştir; ürün testi veya dış repo kaynak
+  incelemesi yapılmış sayılmaz.
+
+## 7. Güncelleme Ve Teslim Kuralları
+
+- Kullanıcı her yeni madde ilettiğinde, onun kapsamını koruyarak profesyonel
+  bir mühendislik promptuna dönüştür ve **aynı `AKTIF_GOREV.md` dosyasını**
+  yeni revizyon olarak teslim et.
+- İndirilebilir dosya veriliyorsa içerik konuşmada tekrar gösterilmez; yalnız
+  kısa değişiklik özeti ve indirme bağlantısı verilir.
+- Önceki istek, karar, kabul kriteri ve referanslar yeni revizyonda korunur.
+- Her revizyonda belge sürümü ve değişiklik günlüğü artırılır.
+- Dosyanın sonraki sohbetlerde güncellenmesi için güncel kopyasının erişilebilir
+  olması gerekir; bellekten dosya içeriği uydurulmaz.
+
+## 8. Değişiklik Günlüğü
+
+| Sürüm | Tarih | Değişiklik |
+|---|---|---|
+| 0.1 | 2026-10-12 | Başlangıç çalışma sözleşmesi, prompt şablonu ve inceleme alanları oluşturuldu. |
+| 0.2 | 2026-10-12 | ZKM-REQ-001/002/003 teknik promptları, kabul kriterleri, bağımlılıklar ve açık kararlar eklendi. |
+| 0.3 | 2026-10-12 | Embedding için GitHub/GitBook/Hugging Face ve ekli ZIP referansı, `.env`/`.properties` gizli veri kontrolleri; ZKM-REQ-004 ajan shell `allow`, push onayı ve ayrıntılı Türkçe ASCII commit isteği eklendi. Araştırma yalnız yeni `başla` sonrasında. |
+| 0.4 | 2026-10-12 | ZKM-REQ-005 proje-özel ODD/GTD, talep/defect ve ODI 11g XML içeri aktarımı; ZKM-REQ-006 Graft/açık kaynak araştırma adayı; v2 paketten golden örnekler ve ortak bağımlılıklar eklendi. |
+| 0.5 | 2026-10-12 | ZKM-REQ-007 doğal dil öncelikli, komutsuz kullanıcı deneyimi ve 31 yetkinlik için kullanıcı değerlendirme matrisi eklendi; araştırma/uygulama bekletildi. |
+```
+<!-- HISTORICAL_V05_END -->
