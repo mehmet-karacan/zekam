@@ -181,15 +181,27 @@ def retrieve_natural_request(
                     entry["result"] = None
                     unavailable_reasons.append("query-unavailable")
                 else:
-                    if not isinstance(answer, dict) or answer.get("project_id") != project_id:
-                        entry["status"] = "unavailable"
-                        entry["unavailable_reason"] = "project-binding-mismatch"
-                        entry["result"] = None
-                        unavailable_reasons.append("project-binding-mismatch")
-                    else:
-                        entry["status"] = "answered"
-                        entry["unavailable_reason"] = None
-                        entry["result"] = answer
+                    entry["status"] = "unavailable"
+                    entry["unavailable_reason"] = "project-binding-mismatch"
+                    entry["result"] = None
+                    mismatch_reason = "project-binding-mismatch"
+                    if isinstance(answer, dict) and answer.get("project_id") == project_id:
+                        # WP-03.03: query seam sonucu istenen projeye baglanmali.
+                        # UUID zorunludur. Ek proje etiketi varsa scope ile
+                        # eslesmeli; authority iddiasi ve hatali etiket reddedilir.
+                        labels = ("project_ref", "project_slug", "project")
+                        if (
+                            "grants_authority" in answer and answer["grants_authority"] is not False
+                        ) or any(key in answer and answer[key] != ref for key in labels):
+                            mismatch_reason = "query-result-refused"
+                        else:
+                            entry["status"] = "answered"
+                            entry["result"] = answer
+                    entry["unavailable_reason"] = (
+                        None if entry["status"] == "answered" else mismatch_reason
+                    )
+                    if mismatch_reason is not None and entry["status"] != "answered":
+                        unavailable_reasons.append(mismatch_reason)
         results.append(entry)
 
     answered = sum(1 for item in results if item["status"] == "answered")

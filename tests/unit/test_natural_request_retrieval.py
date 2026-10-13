@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -460,3 +461,164 @@ def test_question_must_be_bounded_text(tmp_path: Path) -> None:
     for question in ("", "   "):
         with pytest.raises(ValidationFailed, match="bounded non-empty"):
             retrieve_natural_request(scope, tmp_path, question, registered_project_refs=REGISTERED)
+
+
+def test_query_result_declaring_grants_authority_true_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Dogru project_id tasiyan bir query cevabi grants_authority=true
+    # bildirirse basarili answer kabul edilemez; fail-closed olmali ve
+    # payload sonuc olarak sizmamali.
+    calls = _install_fakes(monkeypatch)
+
+    def authority_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {
+            "state": "answered",
+            "project": slug,
+            "project_id": PROJECT_IDS[slug],
+            "grants_authority": True,
+            "citations": [],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", authority_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+
+    assert outcome["status"] == "unavailable"
+    assert outcome["query_count"] == 1
+    assert outcome["grants_authority"] is False
+    assert outcome["reason_codes"] == ["query-result-refused"]
+    entry = outcome["results"][0]
+    assert entry["status"] == "unavailable"
+    assert entry["unavailable_reason"] == "query-result-refused"
+    assert entry["result"] is None
+    assert not any(item.get("grants_authority") for item in outcome["results"])
+
+
+@pytest.mark.parametrize("label", ("project_ref", "project_slug", "project"))
+def test_query_result_claiming_other_project_slug_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, label: str
+) -> None:
+    # Dogru UUID tasiyan ama baska bir proje slug'i bildiren cevap cross-project
+    # fallback olarak gecemez; fail-closed olmali ve payload sonuc olarak sizmamali.
+    calls = _install_fakes(monkeypatch)
+
+    def mismatched_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {
+            "state": "answered",
+            label: "sky-spring-ui",
+            "project_id": PROJECT_IDS[slug],
+            "citations": [],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", mismatched_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+
+    assert outcome["status"] == "unavailable"
+    assert outcome["query_count"] == 1
+    assert outcome["reason_codes"] == ["query-result-refused"]
+    entry = outcome["results"][0]
+    assert entry["status"] == "unavailable"
+    assert entry["unavailable_reason"] == "query-result-refused"
+    assert entry["result"] is None
+
+
+def test_query_result_claiming_other_project_id_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Baska bir project_id UUID tasiyan cevap mevcut project-binding-mismatch
+    # kapisiyla fail-closed olmali; payload sonuc olarak sizmamali.
+    calls = _install_fakes(monkeypatch)
+
+    def foreign_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {
+            "state": "answered",
+            "project": slug,
+            "project_id": PROJECT_IDS["sky-spring-ui"],
+            "citations": [],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", foreign_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+
+    assert outcome["status"] == "unavailable"
+    assert outcome["reason_codes"] == ["project-binding-mismatch"]
+    entry = outcome["results"][0]
+    assert entry["status"] == "unavailable"
+    assert entry["unavailable_reason"] == "project-binding-mismatch"
+    assert entry["result"] is None
+
+
+def test_query_result_project_slug_must_match_status_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Status probe'dan gelen slug ile query sonucundaki project_slug
+    # celisirse (project_id ayni olsa bile) cevap fail-closed olmali.
+    calls = _install_fakes(monkeypatch)
+
+    def drifted_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {
+            "state": "answered",
+            "project_id": PROJECT_IDS[slug],
+            "project_slug": "sky-spring-ui",
+            "citations": [],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", drifted_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+
+    assert outcome["status"] == "unavailable"
+    assert outcome["reason_codes"] == ["query-result-refused"]
+    entry = outcome["results"][0]
+    assert entry["status"] == "unavailable"
+    assert entry["unavailable_reason"] == "query-result-refused"
+    assert entry["result"] is None
+
+
+def test_query_result_payload_is_never_leaked_in_failure_entries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Herhangi bir fail-closed yolda ham query payload'i sonuc olarak sizmamali.
+    calls = _install_fakes(monkeypatch)
+
+    def leaky_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {
+            "state": "answered",
+            "project": slug,
+            "project_id": PROJECT_IDS[slug],
+            "grants_authority": True,
+            "citations": ["sensitive"],
+        }
+
+    monkeypatch.setattr(subject, "query_registered_project", leaky_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+
+    entry = outcome["results"][0]
+    assert entry["result"] is None
+    dumped = json.dumps(outcome, default=str)
+    assert "sensitive" not in dumped
+    assert all(item.get("grants_authority") in (None, False) for item in outcome["results"])
