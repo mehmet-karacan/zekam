@@ -415,9 +415,59 @@ def test_exact_inventory_cap_is_complete(tmp_path: Path) -> None:
     assert report.inventory_checkpoint == ()
 
 
-def test_negative_discovery_limit_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"max_file_bytes": 0}, id="file-bytes-zero"),
+        pytest.param({"max_file_bytes": -1}, id="file-bytes-negative"),
+        pytest.param({"max_total_files": 0}, id="total-files-zero"),
+        pytest.param({"max_total_files": -5}, id="total-files-negative"),
+        pytest.param({"max_total_bytes": 0}, id="total-bytes-zero"),
+        pytest.param({"max_total_bytes": -1}, id="total-bytes-negative"),
+        pytest.param({"max_inventory_entries": 0}, id="inventory-zero"),
+        pytest.param({"max_inventory_entries": -1}, id="inventory-negative"),
+        pytest.param({"max_dir_entries": 0}, id="dir-entries-zero"),
+        pytest.param({"max_dir_entries": -1}, id="dir-entries-negative"),
+        pytest.param({"max_depth": -1}, id="depth-negative"),
+        pytest.param({"follow_symlinks": True}, id="follow-symlinks-true"),
+    ],
+)
+def test_invalid_discovery_limit_is_rejected(kwargs: dict[str, object]) -> None:
+    # Sinirlar fail-closed dogrulanir: icerik/envanter sinirleri sifir veya
+    # negatif ise, max_depth negatif ise, follow_symlinks True ise red.
     with pytest.raises(ValueError):
-        DiscoveryPolicy(max_inventory_entries=-1)
+        DiscoveryPolicy(**kwargs)  # type: ignore[arg-type]
+
+
+def test_zero_depth_is_valid() -> None:
+    # max_depth=0 gecerlidir (yalniz kok seviyesi taranir); red edilmemeli.
+    DiscoveryPolicy(max_depth=0)
+
+
+def test_depth_zero_is_valid_and_stops_at_root(tmp_path: Path) -> None:
+    # max_depth=0: derinlik kok 0'dir; her cocuk derinlik 1'dir ve 1 > 0
+    # oldugu icin hicbir cocuk eligibility'ye giremez. Kok seviyedeki dosya bile
+    # derinlik sinirina takilir ama metadata envanterinde gorunur.
+    root = tmp_path / "kok"
+    root.mkdir()
+    (root / "kok.txt").write_text("k", encoding="utf-8")
+    sub = root / "alt"
+    sub.mkdir()
+    (sub / "derin.txt").write_text("d", encoding="utf-8")
+
+    report = discover(root, policy=DiscoveryPolicy(max_depth=0))
+
+    # Hicbir dosya eligibility'ye giremedi (tumu derinlik sinirinda).
+    assert report.files == ()
+    # Kok seviyedeki dosya envanterde metadata olarak LIMIT_REACHED gorunur.
+    kok = next(item for item in report.inventory if item.relative_path == "kok.txt")
+    assert kok.kind is FileKind.FILE
+    assert kok.skip_reason is SkipReason.LIMIT_REACHED
+    # Alt dizine inilmedi: icindeki dosya envanterde gorunmez.
+    assert "derin.txt" not in {item.relative_path for item in report.inventory}
+    # Derinlik sinirina dokundugundan envanter partial (sahte complete yok).
+    assert report.inventory_status is InventoryStatus.PARTIAL
+    assert report.inventory_stop_reason is StopReason.DEPTH_LIMIT
 
 
 def test_file_growth_after_stat_is_not_indexed(tmp_path: Path) -> None:

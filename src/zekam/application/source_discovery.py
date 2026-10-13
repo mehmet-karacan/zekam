@@ -16,10 +16,15 @@ bir metadata envanteri tutar. Yoksayilan agaclari (`.git`, `node_modules`,
 `.env` ...) icine metadata icin inilir; cocuklarin yolu/turu/buyuklugu
 kaydedilir AMA icerikleri okunmaz, digest/secret taramasi yapilmaz, secret
 degeri envantere yazilmaz. Ikili, uretilmis ve sinir/asiri dosyalar da metadata
-olarak tasinir. Metadata limiti, okunamayan/buyuk dizin, derinlik siniri veya
-global girdi siniri envanteri `partial` yapar ve bir devam checkpoint'i uretir;
-sinirler tarama SIRASINDA zorlanir (dev dizinler bellege yuklenmez) ve envanter
-asla yalnizca `complete` ilan edilmez.
+olarak tasinir. Okunamayan dizin, buyuk dizin girdi siniri, derinlik siniri ve
+yalnizca global girdi sinirinin ASIMI (cap+1 girdinin varligi kanitlaninca)
+envanteri `partial` yapar ve bir devam checkpoint'i uretir; sinirler tarama
+SIRASINDA zorlanir (dev dizinler bellege yuklenmez) ve envanter asla yalnizca
+`complete` ilan edilmez. Icerik eligibility sinirlari (`max_total_files`,
+`max_total_bytes`) envanteri kesmez: envanter tam tarandiysa `complete` kalir;
+eligibility sinirlari `truncated` bayragina ve `LIMIT_REACHED` olarak atlanan
+icerik girdilerine yansir. Sinirlar fail-closed dogrulanir: icerik/envanter
+sinirlari pozitif olmak zorundadir; `max_depth=0` gecerlidir.
 
 Kesif hicbir kosulda kaynak agacina yazmaz, komut calistirmaz, build/test
 tetiklemez veya paket kurmaz.
@@ -112,18 +117,46 @@ class DiscoveryPolicy:
     max_dir_entries: int = MAX_DIR_ENTRIES
 
     def __post_init__(self) -> None:
-        limits = (
-            self.max_file_bytes,
-            self.max_total_files,
-            self.max_total_bytes,
-            self.max_depth,
-            self.max_inventory_entries,
-            self.max_dir_entries,
-        )
-        if any(
-            not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in limits
+        self._validate()
+
+    @staticmethod
+    def _require_int(name: str, value: object) -> None:
+        """Sinirin tam sayi oldugunu dogrular (bool reddedilir)."""
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"Kesif siniri {name} tam sayi olmali")
+
+    def _validate(self) -> None:
+        """Sinirlari fail-closed dogrular.
+
+        Icerik/envanter sinirlari POZITIF olmali; sifir veya negatif deger
+        fail-closed olarak reddedilir. `max_depth`'ta 0 gecerlidir (yalniz kok
+        seviyesi taranir, alt dizinlere inilmez). `follow_symlinks` sabit
+        `False` olmak zorundadir (symlink/junction asla izlenmez). Hata
+        mesajlari alan adini tasir; deger veya dosya yolu tasimaz.
+        """
+        for name, value in (
+            ("max_file_bytes", self.max_file_bytes),
+            ("max_total_files", self.max_total_files),
+            ("max_total_bytes", self.max_total_bytes),
+            ("max_depth", self.max_depth),
+            ("max_inventory_entries", self.max_inventory_entries),
+            ("max_dir_entries", self.max_dir_entries),
         ):
-            raise ValueError("Kesif sinirlari negatif olmayan tam sayilar olmali")
+            self._require_int(name, value)
+        if self.max_file_bytes <= 0:
+            raise ValueError("max_file_bytes pozitif olmali")
+        if self.max_total_files <= 0:
+            raise ValueError("max_total_files pozitif olmali")
+        if self.max_total_bytes <= 0:
+            raise ValueError("max_total_bytes pozitif olmali")
+        if self.max_depth < 0:
+            raise ValueError("max_depth negatif olamaz (0 gecerlidir)")
+        if self.max_inventory_entries <= 0:
+            raise ValueError("max_inventory_entries pozitif olmali")
+        if self.max_dir_entries <= 0:
+            raise ValueError("max_dir_entries pozitif olmali")
+        if self.follow_symlinks:
+            raise ValueError("follow_symlinks fail-closed oldugu icin False olmali")
 
     def as_dict(self) -> dict[str, Any]:
         return {
