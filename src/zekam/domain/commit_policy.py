@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 
 TITLE_MAX_LENGTH = 72
@@ -181,6 +181,21 @@ class PushDecision:
         }
 
 
+def _well_formed_digest(value: str) -> bool:
+    """`sha256:` onekli 64 karakter kucuk harf onaltilik digest sekli dogrulamasi.
+
+    Sozlesme disi deger policy hatasi degil, varsayilan reddir: gate saf bir
+    domain fonksiyonudur ve sozlesme disi girdi `AuthorizationRequired` degil
+    `PushDecision(False)` uretir.
+    """
+
+    try:
+        parse_digest(value)
+    except ValidationFailed:
+        return False
+    return True
+
+
 def evaluate_push(
     request: PushRequest,
     *,
@@ -196,7 +211,12 @@ def evaluate_push(
     request_digest = digest(request.as_dict())
     if not request.user_requested:
         return PushDecision(False, "push varsayilan olarak reddedilir", request_digest)
-    if request.authorization_digest is None:
+    # Exact authorization: yalniz well-formed digest sozlesmeye uyar. Duz metin,
+    # bos metin, yanlis onekli/kisaltilmis/yanlis karakterli digest fail-closed
+    # reddedilir; test/verifier kanidi ve force durumu bu reddi gecersiz kilamaz.
+    if request.authorization_digest is None or not _well_formed_digest(
+        request.authorization_digest
+    ):
         return PushDecision(False, "exact authorization yok", request_digest)
     if request.force:
         return PushDecision(False, "force push otomatik olarak izinli degildir", request_digest)
