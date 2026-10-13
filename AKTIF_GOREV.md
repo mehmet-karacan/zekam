@@ -645,6 +645,15 @@ ve hata alanina sizmamasi icin provider-free test eklendi. Bu parser henuz
 native istemci akisi ve tum prompt/cache/index/log/artifact kabul zincirine
 baglanmadigi icin WP-04.04 aciktir.
 
+**13 Ekim 2026 ara durum — arsiv metadata kapisi:** ArchiveInspector,
+ZIP/TAR girdilerini limit sirasinda toplar; ZIP symlink, TAR link,
+surucu/traversal yolu ve yinelenen adlari reddeder. ZIP'in tekil girdi
+sikistirma oranini da sinirlar; toplam arsiv padding'i bu kapiyi
+asamaz. Sentetik ZIP ve mevcut arsiv guvenlik testleri gecti. Python
+`zipfile` merkezi dizini acilista bellege aldigi icin metadata bellek
+siniri, diger belge parser'lari ve XML kabul zinciri aciktir; WP-04.05
+tamamlandi sayilmaz.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

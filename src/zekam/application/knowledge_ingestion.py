@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import ast
 import re
+import stat
 import tarfile
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from zekam.application.knowledge_parsers import ParserRouter
@@ -149,24 +150,36 @@ class ArchiveInspector:
 
     def inspect(self, archive: Path) -> ScanReport:
         if archive.suffix.lower() == ".zip":
-            names, sizes = self._zip(archive)
+            entries = self._zip(archive)
         elif archive.suffixes[-2:] in ([".tar", ".gz"], [".tar", ".bz2"]) or archive.suffix in {
             ".tar",
             ".tgz",
         }:
-            names, sizes = self._tar(archive)
+            entries = self._tar(archive)
         else:
             raise PolicyViolation("desteklenmeyen arsiv turu")
 
-        total = sum(sizes)
+        total = sum(size for _, size, _ in entries)
         self.limits.assert_within(
-            entries=len(names),
+            entries=len(entries),
             total_bytes=total,
             compressed_bytes=archive.stat().st_size,
         )
         decisions: list[ScanDecision] = []
-        for name in names:
-            if name.startswith("/") or ".." in Path(name).parts or "\\" in name:
+        seen: set[str] = set()
+        for name, _, is_link in entries:
+            if name in seen:
+                raise PolicyViolation("arsiv yinelenen girdi adi tasiyor")
+            seen.add(name)
+            if is_link:
+                decisions.append(ScanDecision(name, False, "arsiv baglantisi reddedildi"))
+                continue
+            if (
+                name.startswith("/")
+                or ".." in PurePosixPath(name).parts
+                or "\\" in name
+                or re.match(r"^[A-Za-z]:", name)
+            ):
                 decisions.append(ScanDecision(name, False, "arsiv traversal girdisi reddedildi"))
                 continue
             if is_denied(name):
@@ -175,17 +188,42 @@ class ArchiveInspector:
             decisions.append(ScanDecision(name, True, "izinli"))
         return ScanReport(tuple(decisions), total)
 
-    @staticmethod
-    def _zip(archive: Path) -> tuple[list[str], list[int]]:
-        with zipfile.ZipFile(archive) as bundle:
-            infos = bundle.infolist()
-        return [item.filename for item in infos], [item.file_size for item in infos]
+    def _zip(self, archive: Path) -> list[tuple[str, int, bool]]:
+        entries: list[tuple[str, int, bool]] = []
+        total = 0
+        archive_bytes = archive.stat().st_size
+        try:
+            with zipfile.ZipFile(archive) as bundle:
+                for item in bundle.filelist:
+                    total += item.file_size
+                    self.limits.assert_within(
+                        entries=len(entries) + 1,
+                        total_bytes=total,
+                        compressed_bytes=archive_bytes,
+                    )
+                    if item.file_size > item.compress_size * self.limits.max_compression_ratio:
+                        raise PolicyViolation("arsiv girdi sikistirma orani sinirini asiyor")
+                    mode = item.external_attr >> 16
+                    is_link = item.create_system == 3 and stat.S_ISLNK(mode)
+                    entries.append((item.filename, item.file_size, is_link))
+        except zipfile.BadZipFile:
+            raise PolicyViolation("gecersiz ZIP arsivi") from None
+        return entries
 
-    @staticmethod
-    def _tar(archive: Path) -> tuple[list[str], list[int]]:
+    def _tar(self, archive: Path) -> list[tuple[str, int, bool]]:
+        entries: list[tuple[str, int, bool]] = []
+        total = 0
+        archive_bytes = archive.stat().st_size
         with tarfile.open(archive) as bundle:
-            members = bundle.getmembers()
-        return [item.name for item in members], [item.size for item in members]
+            for item in bundle:
+                total += item.size
+                self.limits.assert_within(
+                    entries=len(entries) + 1,
+                    total_bytes=total,
+                    compressed_bytes=archive_bytes,
+                )
+                entries.append((item.name, item.size, item.issym() or item.islnk()))
+        return entries
 
 
 @dataclass(frozen=True, slots=True)
