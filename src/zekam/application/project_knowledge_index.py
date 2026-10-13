@@ -76,7 +76,6 @@ _SUPPORTED_SUFFIXES = frozenset(
         ".kts",
         ".md",
         ".php",
-        ".properties",
         ".py",
         ".rb",
         ".rs",

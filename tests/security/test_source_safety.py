@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from zekam.application.ignore_rules import IgnoreMatcher
 from zekam.application.source_discovery import DiscoveryPolicy, SkipReason, discover
 from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.git import source_reader
@@ -106,6 +108,36 @@ def test_pem_and_env_files_are_denied_before_reading(source_tree: Path) -> None:
     indexed = {item.relative_path for item in report.files}
     assert "sunucu.pem" not in indexed
     assert ".env" not in indexed
+
+
+def test_sensitive_config_remains_metadata_only_despite_negated_ignore_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    _write(root, ".env.local", "AUTH_TOKEN=short\n")
+    _write(root, "app.properties", "service.password=short\n")
+    protected = {root / ".env.local", root / "app.properties"}
+    original_open = Path.open
+
+    def refuse_content_read(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path in protected:
+            raise AssertionError("Sensitive config content was opened")
+        return original_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(Path, "open", refuse_content_read)
+        report = discover(
+            root,
+            matcher=IgnoreMatcher.from_lines(["!.env.local", "!app.properties"]),
+        )
+
+    assert report.files == ()
+    assert set(report.inventory_file_paths) == {".env.local", "app.properties"}
+    assert {item.relative_path for item in report.skipped_by(SkipReason.IGNORED)} == {
+        ".env.local",
+        "app.properties",
+    }
 
 
 def test_secret_value_never_appears_in_report(source_tree: Path) -> None:

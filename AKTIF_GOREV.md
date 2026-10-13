@@ -629,6 +629,13 @@ tasimaz; kural/yol/satir bilgisi kalir. Ilgili 90 test gecti. Bu yalniz
 WP-04.04'un bulgu izi kapisidir; `.env`/`.properties` local-only yapi
 parser'i ve sizinti kabul testleri aciktir.
 
+**13 Ekim 2026 ara durum — hassas config ham icerik kapisi:**
+`.env*` ve `.properties` dosyalari, custom ignore negation olsa bile
+kesifte yalniz metadata kalir; icerikleri acilmaz. `.properties` ham proje
+indeks seciminden ve genel dizin ingestion'undan cikarildi. Kisa degerli
+fixture ile 150 ilgili test gecti. Local-only safe key/structure parser ve
+prompt/cache/index/log/artifact sizinti kabulu henuz aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

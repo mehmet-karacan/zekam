@@ -40,6 +40,7 @@ from zekam.application.ignore_rules import IgnoreMatcher, system_deny_matcher
 from zekam.application.secret_detection import SecretFinding, scan_text
 from zekam.domain.canonical import DIGEST_PREFIX
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.knowledge import is_denied
 
 ZEKAM_IGNORE_FILE = ".zekamignore"
 GIT_IGNORE_FILE = ".gitignore"
@@ -565,7 +566,11 @@ def discover(
                 continue
 
             # Dosya.
-            if rules.is_path_ignored(entry_relative, is_directory=False) or dir_ignored:
+            if (
+                is_denied(entry_relative)
+                or rules.is_path_ignored(entry_relative, is_directory=False)
+                or dir_ignored
+            ):
                 # Yoksayilan dosya (orn. `.env` veya yoksayilan agac icindeki
                 # dosya): metadata olarak kaydedilir, icerigi okunmaz, secret
                 # degeri envantere yazilmaz, digest/secret taramasi yok.

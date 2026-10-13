@@ -112,6 +112,7 @@ def test_project_plan_excludes_secret_generated_binary_and_unknown_files(tmp_pat
     (root / "src" / "legacy.java").write_bytes(b"class Legacy { // \xff }")
     (root / "notes.unknown").write_text("not indexed", encoding="utf-8")
     (root / ".env.local").write_text("PASSWORD=must-not-enter-index", encoding="utf-8")
+    (root / "app.properties").write_text("service.password=short", encoding="utf-8")
     (root / "tsconfig.tsbuildinfo").write_text("generated", encoding="utf-8")
     report = discover(root)
 
@@ -133,6 +134,7 @@ def test_project_plan_excludes_secret_generated_binary_and_unknown_files(tmp_pat
     assert all(chunk.locator.relative_path == "src/Service.java" for chunk in plan.chunks)
     rendered = repr(plan.as_dict())
     assert "must-not-enter-index" not in rendered
+    assert "app.properties" not in rendered
     assert "tsconfig.tsbuildinfo" not in rendered
 
 

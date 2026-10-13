@@ -68,7 +68,15 @@ def test_artifact_absolute_path_ve_deny_listeyi_reddeder() -> None:
 
 
 @pytest.mark.parametrize(
-    "path", ["gizli/.env", "config/credentials.json", "deploy/server.pem", ".npmrc"]
+    "path",
+    [
+        "gizli/.env",
+        "gizli/.env.production",
+        "config/app.properties",
+        "config/credentials.json",
+        "deploy/server.pem",
+        ".npmrc",
+    ],
 )
 def test_deny_list_secret_dosyalarini_yakalar(path: str) -> None:
     assert is_denied(path) is True

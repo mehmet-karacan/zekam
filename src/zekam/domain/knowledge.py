@@ -127,6 +127,8 @@ def is_denied(path: str) -> bool:
 
     lowered = path.lower()
     name = PurePosixPath(lowered).name
+    if name == ".env" or name.startswith(".env.") or name.endswith(".properties"):
+        return True
     return any(name == pattern or lowered.endswith(pattern) for pattern in DENY_PATTERNS)
 
 
