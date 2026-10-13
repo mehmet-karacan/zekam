@@ -1,7 +1,25 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+# Repo kokunun src/ dizini: src layout'te `zekam` site-packages'da kurulmamis
+# olabilir, alt process PYTHONPATH'i bu kesin yola gosterilmeli.
+_REPO_SRC = Path(__file__).resolve().parents[2] / "src"
+
+
+def _subprocess_env() -> dict[str, str]:
+    """Alt process orami: mevcut (temizlenmis) orami kopyala, PYTHONPATH onune src ekle.
+
+    Ana process `os.environ`'i degistirilmez; yalnizca `subprocess.run(env=...)`
+    araciligiyla bu kopya gecilir, boylece user ortami global olarak dokunulmaz.
+    """
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{_REPO_SRC}{os.pathsep}{existing}" if existing else str(_REPO_SRC)
+    return env
 
 
 def test_unconfigured_legacy_provider_fails_closed_in_clean_process() -> None:
@@ -22,6 +40,7 @@ else:
         capture_output=True,
         text=True,
         timeout=10,
+        env=_subprocess_env(),
     )
     assert result.returncode == 0, result.stderr
 
@@ -49,5 +68,6 @@ else:
         capture_output=True,
         text=True,
         timeout=10,
+        env=_subprocess_env(),
     )
     assert result.returncode == 0, result.stderr
