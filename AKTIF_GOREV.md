@@ -581,6 +581,18 @@ oldugu icin gercek iki okunabilir indeks kabul kaniti henuz yoktur.
 `natural_request_rag.py` alternatif prototip olarak kalmistir, kanonik
 dispatch veya paket kabulu olarak sayilmaz. WP-03.03 aciktir.
 
+**13 Ekim 2026 devam — WP-03.03 gercek indeks kaniti:**
+`test_ask_real_dual_index.py`, iki kayitli proje icin gercek
+`SQLiteKnowledgeIndex` generation'i ve ayri kaynak dosyalari kurdu. CLI
+acik karsilastirmada iki ayri `project_id` ve citation verdi; indeksler
+`ready/index_readable`, sorgu sonuclari ise yetkisiz uzak embedding rotasinda
+acikca `lexical-only-degraded`/stale olarak etiketlendi. Saglayici/ag cagrisi
+olmadi, sorgu sirasinda indeks ve generation degismedi. Gercek indeksli dort
+kabul testi ve yedi komsu fan-out testi gecti. Eski CLI RAG testleri izole
+`HomeLayout`/operasyonel schema ile duzeltildi; birlesik grup 32/32 gecti.
+Belirsiz/kayitsiz proje durumunun tum CLI varyantlarinda en az gerekli dogal
+dil aciklamasi olarak sunulmasi henuz kanitlanmadigi icin WP-03.03 aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  
