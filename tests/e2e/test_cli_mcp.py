@@ -633,3 +633,140 @@ def test_mcp_v2_projection_ownership_readback_and_rollback_preserve_foreign(
     assert "managed-server" not in restored_servers
     assert restored_servers["user-owned"]["environment"]["SECRET"] == user_secret
     assert restored["unrelated"] == {"keep": True}
+
+
+def _write_integration_config(home: Path, clients: tuple[str, ...]) -> None:
+    lines = ["schema: zekam-config/v1\n", "cli:\n", "  integrations:\n", "    version: 2\n"]
+    lines.extend(f"    {client}: true\n" for client in clients)
+    (home / "config.yaml").write_text("".join(lines), encoding="utf-8")
+
+
+def test_mcp_register_conflict_without_adopt_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP-02.04: baska bir client'e ayni adli mevcut kayit --adopt olmadan reddedilir."""
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, ("opencode", "claude-code"))
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    opencode.write_text(
+        json.dumps({"mcp": {"servers": {"shared": {"type": "local", "command": ["other"]}}}}),
+        encoding="utf-8",
+    )
+    original = opencode.read_bytes()
+    args = [
+        "mcp",
+        "add",
+        "shared",
+        "--command",
+        "mine",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    planned = runner.invoke(app, args)
+    assert planned.exit_code == 70
+    assert "--adopt" in planned.output
+    assert opencode.read_bytes() == original
+    status = json.loads(runner.invoke(app, ["mcp", "status", "--home", str(home), "--json"]).output)
+    assert status["servers"] == []
+
+
+def test_mcp_apply_rejects_native_drift_between_plan_and_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP-02.04: plan onaylandiktan sonra native dosya degistiyse apply plan digest
+    sapmasiyla fail-closed kalir; eski plan-digest kabul edilmez."""
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, ("opencode",))
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    opencode.write_text(json.dumps({"mcp": {"servers": {}}}), encoding="utf-8")
+
+    add_args = [
+        "mcp",
+        "add",
+        "sample",
+        "--command",
+        "sample-server",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    plan = json.loads(runner.invoke(app, add_args).output)
+    # Plan onaylandiktan sonra kullanici native dosyada yabanci bir giris ekledi.
+    document = json.loads(opencode.read_text(encoding="utf-8"))
+    document["user-note"] = "edited-after-plan"
+    opencode.write_text(json.dumps(document), encoding="utf-8")
+    applied = runner.invoke(
+        app,
+        [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"],
+    )
+    assert applied.exit_code == 70
+    assert "plan-digest" in applied.output
+    # Apply, native dosyaya dokunmadan reddedilmeli.
+    assert opencode.read_bytes() == json.dumps(document).encode("utf-8")
+    status = json.loads(runner.invoke(app, ["mcp", "status", "--home", str(home), "--json"]).output)
+    assert status["servers"] == []
+
+
+def test_mcp_sync_detects_post_apply_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """WP-02.04: apply sonrasi kullanici drift'i sync tarafinda fail-closed yakalanir."""
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, ("opencode",))
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    opencode.write_text(json.dumps({"mcp": {"servers": {}}}), encoding="utf-8")
+
+    add_args = [
+        "mcp",
+        "add",
+        "sample",
+        "--command",
+        "sample-server",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    plan = json.loads(runner.invoke(app, add_args).output)
+    applied = runner.invoke(
+        app, [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"]
+    )
+    assert applied.exit_code == 0, applied.output
+    document = json.loads(opencode.read_text(encoding="utf-8"))
+    document["mcp"]["servers"]["sample"]["command"] = ["user-drift"]
+    drifted = json.dumps(document)
+    opencode.write_text(drifted, encoding="utf-8")
+
+    sync = runner.invoke(app, ["mcp", "sync", "--home", str(home), "--json"])
+    assert sync.exit_code == 70
+    assert "user drift" in sync.output
+    assert opencode.read_text(encoding="utf-8") == drifted
