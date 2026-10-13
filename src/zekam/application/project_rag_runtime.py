@@ -37,6 +37,7 @@ from zekam.application.embedding_provider import (
     EmbeddingProfile,
     EmbeddingProvider,
     EmbeddingProviderKind,
+    verify_document_embedding_batch,
 )
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.home import HomeLayout
@@ -2199,11 +2200,9 @@ def _index(
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
         for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
-            embedded = _embed_documents_with_retry(
-                provider, tuple(chunk.text for chunk in batch), policy
-            )
-            if len(embedded.vectors) != len(batch):
-                raise PolicyViolation("Project RAG partial embedding batch")
+            texts = tuple(chunk.text for chunk in batch)
+            embedded = _embed_documents_with_retry(provider, texts, policy)
+            verify_document_embedding_batch(texts, embedded, profile)
             connection.execute("begin immediate")
             try:
                 for chunk, vector in zip(batch, embedded.vectors, strict=True):

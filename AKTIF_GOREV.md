@@ -734,6 +734,13 @@ varsayimini ve string index donusumunu kaldirdi. Provider-free negatif
 testler eklendi. Timeout, quota, cancellation ve canli kabul kaniti
 acik oldugundan WP-05.03 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — embedding receipt baglama:** Her iki proje
+indeks yolu, vektorleri kalici alana yazmadan once ortak dogrulayici ile
+receipt amaci, exact profil, istenen metinlerin girdi digest'i, vektorlerin
+cikti digest'i, adet, boyut ve normalize vektor sozlesmesini denetler.
+Uyusmayan receipt fail-closed reddedilir; ilgili 83 birim test gecti.
+WP-05.03 icin timeout, quota, cancellation ve canli kabul kaniti aciktir.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

@@ -203,6 +203,27 @@ class EmbeddingBatch:
     receipt: EmbeddingReceipt
 
 
+def verify_document_embedding_batch(
+    texts: tuple[str, ...], batch: EmbeddingBatch, profile: EmbeddingProfile
+) -> None:
+    """Bind document vectors to the requested slots and verified provider profile."""
+    receipt = batch.receipt
+    if (
+        receipt.purpose is not EmbeddingPurpose.DOCUMENT
+        or receipt.profile_digest != profile.profile_digest
+        or receipt.vector_count != len(texts)
+        or len(batch.vectors) != len(texts)
+        or receipt.dimension != profile.dimension
+        or receipt.input_digest
+        != digest({"texts": list(texts), "purpose": EmbeddingPurpose.DOCUMENT.value})
+    ):
+        raise PolicyViolation("Project embedding batch/receipt contract drift")
+    for vector in batch.vectors:
+        profile.validate_vector(vector)
+    if receipt.output_digest != digest(batch.vectors):
+        raise PolicyViolation("Project embedding batch/receipt contract drift")
+
+
 @dataclass(frozen=True, slots=True)
 class EmbeddingProbeFixture:
     query: str

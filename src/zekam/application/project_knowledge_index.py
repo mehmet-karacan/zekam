@@ -21,7 +21,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
 
-from zekam.application.embedding_provider import EmbeddingPolicy, EmbeddingProvider
+from zekam.application.embedding_provider import (
+    EmbeddingPolicy,
+    EmbeddingProvider,
+    verify_document_embedding_batch,
+)
 from zekam.application.embedding_routing import (
     EmbeddingRouteCandidate,
     EmbeddingRouteDecision,
@@ -630,18 +634,10 @@ def apply_project_index(
     vectors: dict[str, tuple[float, ...]] = {}
     for offset in range(0, len(plan.chunks), 8):
         chunk_batch = plan.chunks[offset : offset + 8]
-        embedded = embedding_provider.embed_documents(
-            tuple(chunk.text for chunk in chunk_batch), embedding_policy
-        )
-        if (
-            len(embedded.vectors) != len(chunk_batch)
-            or embedded.receipt.vector_count != len(chunk_batch)
-            or embedded.receipt.dimension != provider_profile.dimension
-            or embedded.receipt.profile_digest != provider_profile.profile_digest
-        ):
-            raise PolicyViolation("Project embedding batch/receipt contract drift")
+        texts = tuple(chunk.text for chunk in chunk_batch)
+        embedded = embedding_provider.embed_documents(texts, embedding_policy)
+        verify_document_embedding_batch(texts, embedded, provider_profile)
         for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
-            provider_profile.validate_vector(vector)
             vectors[chunk.chunk_id] = vector
     if len(vectors) != len(plan.chunks):
         raise PolicyViolation("Project embedding batch eksik/duplicate sonuc uretti")

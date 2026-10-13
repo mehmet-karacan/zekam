@@ -19,6 +19,7 @@ from zekam.application.embedding_provider import (
     EmbeddingProviderKind,
     EmbeddingPurpose,
     EmbeddingReceipt,
+    verify_document_embedding_batch,
 )
 from zekam.application.local_embedding_composition import project_embedding_probe_fixture
 from zekam.application.project_knowledge_index import apply_project_index, build_project_index_plan
@@ -52,6 +53,42 @@ def _profile() -> EmbeddingProfile:
         verified_at="2026-09-02T00:00:00Z",
         probe_evidence_digest=digest("probe"),
     )
+
+
+def _valid_batch(profile: EmbeddingProfile, texts: tuple[str, ...] = ("one",)) -> EmbeddingBatch:
+    vectors = tuple((1.0,) + (0.0,) * (profile.dimension - 1) for _ in texts)
+    return EmbeddingBatch(
+        vectors,
+        EmbeddingReceipt(
+            EmbeddingPurpose.DOCUMENT,
+            profile.profile_digest,
+            digest({"texts": list(texts), "purpose": "document"}),
+            digest(vectors),
+            len(texts),
+            profile.dimension,
+            1,
+            1,
+        ),
+    )
+
+
+def test_document_embedding_receipt_binds_requested_text_and_vectors() -> None:
+    profile = _profile()
+    batch = _valid_batch(profile)
+    verify_document_embedding_batch(("one",), batch, profile)
+
+    for receipt in (
+        replace(batch.receipt, purpose=EmbeddingPurpose.QUERY),
+        replace(batch.receipt, input_digest=digest("other input")),
+        replace(batch.receipt, output_digest=digest("other output")),
+        replace(batch.receipt, profile_digest=digest("other profile")),
+        replace(batch.receipt, vector_count=2),
+        replace(batch.receipt, dimension=3),
+    ):
+        with pytest.raises(PolicyViolation, match="batch/receipt"):
+            verify_document_embedding_batch(("one",), replace(batch, receipt=receipt), profile)
+    with pytest.raises(PolicyViolation, match="batch/receipt"):
+        verify_document_embedding_batch(("different",), batch, profile)
 
 
 class PartialProvider:
@@ -154,5 +191,42 @@ def test_partial_provider_batch_fails_before_cas_or_database(tmp_path: Path) -> 
             retrieval=object(),
             object_store=NeverMutatingStore(),  # type: ignore[arg-type]
             embedding_provider=PartialProvider(profile),
+            embedding_policy=EmbeddingPolicy(DataClassification.LOCAL_ONLY, profile.profile_digest),
+        )
+
+
+@pytest.mark.parametrize("fault", ["purpose", "input", "output"])
+def test_unbound_receipt_fails_before_cas_or_database(tmp_path: Path, fault: str) -> None:
+    profile = _profile()
+    plan = _plan(tmp_path)
+    plan = replace(
+        plan,
+        embedding_profile=replace(
+            plan.embedding_profile, provider_profile_digest=profile.profile_digest
+        ),
+    )
+
+    class UnboundProvider(PartialProvider):
+        def embed_documents(
+            self, texts: tuple[str, ...], policy: EmbeddingPolicy
+        ) -> EmbeddingBatch:
+            self.profile.assert_policy(policy)
+            batch = _valid_batch(self.profile, texts)
+            if fault == "purpose":
+                receipt = replace(batch.receipt, purpose=EmbeddingPurpose.QUERY)
+            elif fault == "input":
+                receipt = replace(batch.receipt, input_digest=digest("other input"))
+            else:
+                receipt = replace(batch.receipt, output_digest=digest("other output"))
+            return replace(batch, receipt=receipt)
+
+    with pytest.raises(PolicyViolation, match="batch/receipt"):
+        apply_project_index(
+            plan,
+            connection=object(),
+            knowledge=object(),
+            retrieval=object(),
+            object_store=NeverMutatingStore(),  # type: ignore[arg-type]
+            embedding_provider=UnboundProvider(profile),
             embedding_policy=EmbeddingPolicy(DataClassification.LOCAL_ONLY, profile.profile_digest),
         )
