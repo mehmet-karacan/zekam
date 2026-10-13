@@ -113,6 +113,7 @@ def test_secret_value_never_appears_in_report(source_tree: Path) -> None:
     _write(source_tree, "ayar.py", f'auth_token = "{secret}"\n')
     rendered = repr(discover(source_tree).as_dict())
     assert secret not in rendered
+    assert "fingerprint" not in rendered
 
 
 def test_secret_finding_reports_path_and_line(source_tree: Path) -> None:

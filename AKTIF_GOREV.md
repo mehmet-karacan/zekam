@@ -622,6 +622,13 @@ ve token siniri uygulayan satir parcacisina duser. Indeksleyici surumu v2'ye
 alindi; ilgili RAG/indeks testleri gecti. Java/JS ve diger kaynak turleri
 icin yapisal parcalama ile WP-04.03'un nihai kabulu aciktir.
 
+**13 Ekim 2026 ara durum — secret bulgu izi:** Kaynak kesfinin
+`SecretFinding` izi, secret degerinin public dogrudan SHA ozetinden surec
+yerel rastgele anahtarli HMAC'e tasindi. Public `as_dict` raporu izi
+tasimaz; kural/yol/satir bilgisi kalir. Ilgili 90 test gecti. Bu yalniz
+WP-04.04'un bulgu izi kapisidir; `.env`/`.properties` local-only yapi
+parser'i ve sizinti kabul testleri aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

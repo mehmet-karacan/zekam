@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from zekam.application.secret_detection import (
@@ -93,6 +95,7 @@ def test_finding_never_contains_the_secret_value() -> None:
     assert findings
     rendered = repr([finding.as_dict() for finding in findings])
     assert SECRET_VALUE not in rendered
+    assert "fingerprint" not in rendered
 
 
 def test_fingerprint_is_short_and_stable() -> None:
@@ -100,6 +103,7 @@ def test_fingerprint_is_short_and_stable() -> None:
     second = scan_text('token = "abcdefgh12345678"', relative_path="b.py")[0]
     assert first.fingerprint == second.fingerprint
     assert len(first.fingerprint) == 12
+    assert first.fingerprint != hashlib.sha256(b"abcdefgh12345678").hexdigest()[:12]
 
 
 def test_different_values_get_different_fingerprints() -> None:

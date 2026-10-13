@@ -11,13 +11,16 @@ icerigi disarida birakmaktir. False positive, sessiz sizintiya tercih edilir.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
+import secrets
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-#: Maskelenmis ozet uzunlugu. Tam digest de degeri dogrulamaya yarayabilecegi icin kisaltilir.
+#: Surec ici anahtarli iz uzunlugu; public rapora hic yazilmaz.
 FINGERPRINT_LENGTH = 12
+_PROCESS_FINGERPRINT_KEY = secrets.token_bytes(32)
 
 # Unquoted ``key=value`` / YAML scalars are meaningful in configuration and
 # metadata payloads.  In source files the same shapes are commonly Python/Java
@@ -158,13 +161,16 @@ class SecretFinding:
             "severity": self.severity.value,
             "path": self.relative_path,
             "line": self.line_number,
-            "fingerprint": self.fingerprint,
         }
 
 
 def _fingerprint(value: str) -> str:
-    """Degeri geri getirmeyen kisa parmak izi uretir."""
-    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:FINGERPRINT_LENGTH]
+    """Deger izini yalniz surec icinde karsilastirilabilir tutar."""
+    return hmac.new(
+        _PROCESS_FINGERPRINT_KEY,
+        value.encode("utf-8", "replace"),
+        hashlib.sha256,
+    ).hexdigest()[:FINGERPRINT_LENGTH]
 
 
 def _looks_like_placeholder(line: str) -> bool:
