@@ -28,7 +28,12 @@ from zekam.application.embedding_routing import (
 )
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
-from zekam.application.source_discovery import DiscoveryReport, discover
+from zekam.application.source_discovery import (
+    DiscoveryPolicy,
+    DiscoveryReport,
+    InventoryStatus,
+    discover,
+)
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import (
@@ -314,13 +319,33 @@ def build_project_index_plan(
     local_model_ref: str = REAL_EMBEDDING_MODEL_REF,
     local_dimension: int = REAL_EMBEDDING_DIMENSION,
     allowed_relative_paths: tuple[str, ...] | None = None,
+    discovery_policy: DiscoveryPolicy | None = None,
 ) -> ProjectIndexPlan:
-    """Build a deterministic source index plan without writing anywhere."""
+    """Build a deterministic source index plan without writing anywhere.
+
+    Fail-closed kaynak sinirlari: beklenen tree digest uymazsa, kesif `truncated`
+    ise veya metadata envanteri `PARTIAL` ise (dizin/girdi siniri, derinlik
+    siniri veya okunamayan girdi kaynakli) plan reddedilir.
+    """
 
     root = source_root.resolve(strict=True)
-    discovery = discover(root)
+    discovery = discover(root, policy=discovery_policy)
     if discovery.truncated or discovery.tree_digest != expected_tree_digest:
         raise PolicyViolation("Kaynak revision/tree drift; yeniden project scan gerekli")
+    if discovery.inventory_status is InventoryStatus.PARTIAL:
+        # Kesif, tree digest'ini yalnizca icerigi okunabilan (eligible) dosyalar
+        # uzerinden hesapladigindan eksik bir kesif, beklenen digest'le
+        # uyusabilir ve `truncated` False kalabilir; eksik kaynaktan tam indeks
+        # plani uretilemez. Yalnizca sabit neden kodu hata mesajina girer;
+        # checkpoint yolu hassas bilgi tasiyabileceginden raporda kalir.
+        reason = (
+            discovery.inventory_stop_reason.value
+            if discovery.inventory_stop_reason is not None
+            else "unknown"
+        )
+        raise PolicyViolation(
+            f"Kaynak envanteri tam degil (partial); indeks plani reddedildi (stop-reason={reason})"
+        )
     allowed: frozenset[str] | None = None
     if allowed_relative_paths is not None:
         if (

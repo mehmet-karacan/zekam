@@ -586,6 +586,14 @@ dosya regresyonlari eklendi. Bu bir ara dilimdir: checkpoint henuz yeniden
 baslatma API'sine bagli degil; eligibility ayri karar sozlesmesine ve
 index/embedding akisina baglanmadi. WP-04.01/02 kabulleri aciktir.
 
+**13 Ekim 2026 ara durum — eksik envanter indeks kapisi:** OpenCode Qwen
+uygulamasiyla proje indeks plani, `truncated` ve tree digest kontrolune ek
+olarak `inventory_status=partial` sonucunu da reddeder. Gercek derinlik,
+dizin girdi ve global girdi limitleriyle uretilen partial raporlar icin
+negatif testler gecti; hata metni yalniz sabit neden kodunu tasir, kaynak
+checkpoint yolunu aciga cikarmaz. Proje `scan` akisinin eksik raporda
+`CURRENT` yazma riski ayri duzeltme olarak aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

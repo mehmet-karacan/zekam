@@ -16,7 +16,12 @@ from zekam.application.project_knowledge_index import (
     build_project_index_plan,
     feature_hash_baseline_vector,
 )
-from zekam.application.source_discovery import discover
+from zekam.application.source_discovery import (
+    DiscoveryPolicy,
+    InventoryStatus,
+    StopReason,
+    discover,
+)
 from zekam.domain.errors import PolicyViolation
 
 pytestmark = pytest.mark.unit
@@ -84,3 +89,125 @@ def test_project_plan_rejects_tree_drift(tmp_path: Path) -> None:
             source_revision="abc123",
             expected_tree_digest=tree_digest,
         )
+
+
+def test_project_plan_succeeds_on_complete_inventory(tmp_path: Path) -> None:
+    # Gercek sinir fixture'i: varsayilan (10k) sinirlari asmayan agac,
+    # envanter COMPLETE oldugu icin plan kabul edilir (geriye uyum).
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    assert report.inventory_status is InventoryStatus.COMPLETE
+
+    plan = build_project_index_plan(
+        project_id=uuid4(),
+        project_slug="gpu",
+        source_root=root,
+        source_revision="abc123",
+        expected_tree_digest=report.tree_digest,
+    )
+
+    assert plan.selected_file_count == 1
+    assert plan.discovery.inventory_status is InventoryStatus.COMPLETE
+
+
+def test_project_plan_rejects_partial_inventory_even_when_digest_matches(tmp_path: Path) -> None:
+    # Fail-closed sinir: tree digest uysa ve truncated False olsa bile eksik
+    # (PARTIAL) envanterden indeks plani uretilemez.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    (root / "src" / "extra" / "Deep.java").parent.mkdir(parents=True)
+    (root / "src" / "extra" / "Deep.java").write_text(
+        "package app.extra;\nclass Deep {}\n", encoding="utf-8"
+    )
+    # max_depth=1: ikinci seviye dosyalar (src/Service.java) eligibility'den
+    # disari, envanter PARTIAL (DEPTH_LIMIT) ve truncated False olur.
+    policy = DiscoveryPolicy(max_depth=1)
+    report = discover(root, policy=policy)
+    assert report.inventory_status is InventoryStatus.PARTIAL
+    assert report.inventory_stop_reason is StopReason.DEPTH_LIMIT
+    assert report.truncated is False
+
+    # Beklenen tree digest, PARTIAL kesfin eligible alt kumesiyle uyusur;
+    # yine de plan fail-closed reddedilir.
+    with pytest.raises(PolicyViolation, match="envanteri tam degil"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+            discovery_policy=policy,
+        )
+
+
+@pytest.mark.parametrize("limit_name", ["max_dir_entries", "max_inventory_entries"])
+def test_project_plan_rejects_partial_inventory_from_real_limits(
+    tmp_path: Path, limit_name: str
+) -> None:
+    # Gercek sinir fixture'i (mock yok): tek dizin icine girdi sinirini asan
+    # dosya sayisi, discover'i PARTIAL keser; build_project_index_plan bu
+    # sinir fixture'i ile fail-closed reddeder.
+    root = tmp_path / "gpu"
+    (root / "calisma").mkdir(parents=True)
+    for index in range(20):
+        (root / "calisma" / f"d{index:02d}.py").write_text("print('x')\n", encoding="utf-8")
+    policy = (
+        DiscoveryPolicy(max_dir_entries=10)
+        if limit_name == "max_dir_entries"
+        else DiscoveryPolicy(max_inventory_entries=10)
+    )
+    report = discover(root, policy=policy)
+    assert report.inventory_status is InventoryStatus.PARTIAL
+    assert report.truncated is False
+
+    with pytest.raises(PolicyViolation, match="envanteri tam degil"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+            discovery_policy=policy,
+        )
+
+
+def test_project_plan_partial_rejection_exposes_reason_without_source_path(
+    tmp_path: Path,
+) -> None:
+    # Red yalniz neden kodunu aciklar; checkpoint yolu hassas olabilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    (root / "src" / "private-person@example.com").mkdir()
+    (root / "src" / "private-person@example.com" / "Deep.java").write_text(
+        "package app.extra;\nclass Deep {}\n", encoding="utf-8"
+    )
+    policy = DiscoveryPolicy(max_depth=1)
+    report = discover(root, policy=policy)
+    assert report.inventory_status is InventoryStatus.PARTIAL
+
+    with pytest.raises(PolicyViolation) as excinfo:
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+            discovery_policy=policy,
+        )
+
+    message = str(excinfo.value)
+    # Neden (makine kodu) mesajda gorunur.
+    assert "depth-limit" in message
+    assert "private-person@example.com" not in message
+    assert str(root) not in message
+    assert "package app" not in message
