@@ -46,6 +46,7 @@ from zekam.application.local_embedding_composition import build_verified_mac_emb
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.model_registry import load_inventory
 from zekam.application.odi11g_smart_export import (
+    SMART_SANITIZED_SCHEMA,
     OdiSanitizedPlan,
     build_sanitized_odi_plan,
     load_smart_binding,
@@ -74,9 +75,10 @@ from zekam.application.request_routing import (
     route_request,
 )
 from zekam.application.source_discovery import DiscoveryReport, InventoryStatus, discover
-from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
+from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
+from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.retrieval import Chunk
 from zekam.domain.security import (
     Authorization,
@@ -372,16 +374,45 @@ def _should_revalidate_from_failure(failure: _QualificationFailure, *, now_ns: i
 
 VECTOR_CACHE_SCHEMA = """
 pragma foreign_keys=on;
-create table if not exists vector_cache(
+create table if not exists vector_cache_v2(
+  scope_digest text not null,
   chunk_id text not null,
   content_digest text not null,
-  provider_profile_digest text not null,
   vector_blob blob not null,
   vector_digest text not null,
   created_at text not null,
-  primary key(chunk_id,content_digest,provider_profile_digest)
+  primary key(scope_digest,chunk_id,content_digest)
 ) strict;
+create index if not exists idx_vector_cache_v2_content
+  on vector_cache_v2(scope_digest,content_digest,vector_digest);
 """
+
+
+def _vector_cache_scope(
+    project_id: str,
+    realm: str,
+    parser_ref: str,
+    parser_version: str,
+    chunk_profile_digest: str,
+    embedding_profile_digest: str,
+) -> str:
+    """Identity for reusable vectors; source revision and path are excluded."""
+
+    if not all((project_id, realm, parser_ref, parser_version)):
+        raise ValidationFailed("Vector cache kapsam kimligi eksik")
+    parse_digest(chunk_profile_digest)
+    parse_digest(embedding_profile_digest)
+    return digest(
+        {
+            "schema": "zekam-vector-cache-scope/v2",
+            "project_id": project_id,
+            "realm": realm,
+            "parser_ref": parser_ref,
+            "parser_version": parser_version,
+            "chunk_profile_digest": chunk_profile_digest,
+            "embedding_profile_digest": embedding_profile_digest,
+        }
+    )
 
 
 def _directory_source_state(root: Path) -> tuple[str, str, str]:
@@ -1397,43 +1428,41 @@ def _embed_documents_with_retry(
 def _cached_vectors(
     connection: sqlite3.Connection,
     chunks: tuple[Chunk, ...],
-    profile_digest: str,
+    scope_by_chunk: dict[str, str],
 ) -> dict[str, tuple[float, ...]]:
     result: dict[str, tuple[float, ...]] = {}
     for chunk in chunks:
+        scope_digest = scope_by_chunk[chunk.chunk_id]
         content_digest = digest_of_bytes(chunk.text.encode("utf-8"))
         row = connection.execute(
-            "select vector_blob,vector_digest from vector_cache where chunk_id=?"
-            " and content_digest=? and provider_profile_digest=?",
-            (chunk.chunk_id, content_digest, profile_digest),
+            "select vector_blob,vector_digest from vector_cache_v2 where scope_digest=?"
+            " and chunk_id=? and content_digest=?",
+            (scope_digest, chunk.chunk_id, content_digest),
         ).fetchone()
         if row is None:
-            aliases = connection.execute(
-                "select vector_blob,vector_digest from vector_cache where content_digest=?"
-                " and provider_profile_digest=?",
-                (content_digest, profile_digest),
-            ).fetchall()
-            if not aliases:
+            alias = connection.execute(
+                "select vector_blob,vector_digest from vector_cache_v2 where scope_digest=?"
+                " and content_digest=? order by vector_digest asc limit 1",
+                (scope_digest, content_digest),
+            ).fetchone()
+            if alias is None:
                 continue
-            verified_aliases = []
-            for alias in aliases:
-                alias_blob = bytes(alias["vector_blob"])
-                alias_digest = str(alias["vector_digest"])
-                if digest_of_bytes(alias_blob) != alias_digest:
-                    raise PolicyViolation("Vector cache alias digest drift")
-                verified_aliases.append((alias_digest, alias))
+            alias_blob = bytes(alias["vector_blob"])
+            alias_digest = str(alias["vector_digest"])
+            if digest_of_bytes(alias_blob) != alias_digest:
+                raise PolicyViolation("Vector cache alias digest drift")
             # The accepted remote BGE profile permits bounded numeric jitter.
             # Select one valid prior vector deterministically; profile/content
-            # equality is still mandatory and every candidate digest is checked.
-            row = min(verified_aliases, key=lambda item: item[0])[1]
+            # equality is still mandatory and the selected digest is checked.
+            row = alias
             connection.execute(
-                "insert or ignore into vector_cache values(?,?,?,?,?,?)",
+                "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
                 (
+                    scope_digest,
                     chunk.chunk_id,
                     content_digest,
-                    profile_digest,
-                    bytes(row["vector_blob"]),
-                    str(row["vector_digest"]),
+                    alias_blob,
+                    alias_digest,
                     dt.datetime.now(dt.UTC).isoformat(),
                 ),
             )
@@ -2085,9 +2114,30 @@ def _index(
         + (bound_oracle_plan.chunks if bound_oracle_plan is not None else ())
         + (odi_plan.chunks if odi_plan is not None else ())
     )
+    scope_by_chunk: dict[str, str] = {}
+    for source_chunks, parser_ref, parser_version in (
+        (bound_plan.chunks, bound_plan.document.parser_ref, bound_plan.document.parser_version),
+        (
+            bound_oracle_plan.chunks if bound_oracle_plan is not None else (),
+            bound_oracle_plan.document.parser_ref if bound_oracle_plan is not None else "",
+            bound_oracle_plan.document.parser_version if bound_oracle_plan is not None else "",
+        ),
+        (odi_plan.chunks if odi_plan is not None else (), SMART_SANITIZED_SCHEMA, "1"),
+    ):
+        for chunk in source_chunks:
+            if chunk.chunk_id in scope_by_chunk:
+                raise PolicyViolation("Project RAG yinelenen chunk kimligi")
+            scope_by_chunk[chunk.chunk_id] = _vector_cache_scope(
+                str(project_id),
+                DEFAULT_REALM_SLUG,
+                parser_ref,
+                parser_version,
+                chunk.profile_digest,
+                profile.profile_digest,
+            )
     connection = _cache(paths["cache"])
     try:
-        vectors = _cached_vectors(connection, chunks, profile.profile_digest)
+        vectors = _cached_vectors(connection, chunks, scope_by_chunk)
         cache_hits = len(vectors)
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
@@ -2105,11 +2155,11 @@ def _index(
                     content_digest = digest_of_bytes(chunk.text.encode("utf-8"))
                     blob = _vector_blob(vector)
                     connection.execute(
-                        "insert into vector_cache values(?,?,?,?,?,?)",
+                        "insert into vector_cache_v2 values(?,?,?,?,?,?)",
                         (
+                            scope_by_chunk[chunk.chunk_id],
                             chunk.chunk_id,
                             content_digest,
-                            profile.profile_digest,
                             blob,
                             digest_of_bytes(blob),
                             dt.datetime.now(dt.UTC).isoformat(),

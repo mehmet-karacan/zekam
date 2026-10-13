@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -828,24 +829,24 @@ def test_vector_cache_reuses_identical_content_across_stable_identity_change(
     blob = runtime._vector_blob(vector)
     jittered = tuple(0.00101 for _ in range(runtime.VECTOR_DIMENSION))
     jittered_blob = runtime._vector_blob(jittered)
-    profile = "sha256:" + "a" * 64
+    scope = _wp0501_scope()
     connection.execute(
-        "insert into vector_cache values(?,?,?,?,?,?)",
+        "insert into vector_cache_v2 values(?,?,?,?,?,?)",
         (
+            scope,
             "old-snapshot-id",
             content_digest,
-            profile,
             blob,
             digest_of_bytes(blob),
             "2026-09-06T00:00:00Z",
         ),
     )
     connection.execute(
-        "insert into vector_cache values(?,?,?,?,?,?)",
+        "insert into vector_cache_v2 values(?,?,?,?,?,?)",
         (
+            scope,
             "other-snapshot-id",
             content_digest,
-            profile,
             jittered_blob,
             digest_of_bytes(jittered_blob),
             "2026-09-06T00:01:00Z",
@@ -861,12 +862,12 @@ def test_vector_cache_reuses_identical_content_across_stable_identity_change(
         order=0,
     )
     try:
-        result = runtime._cached_vectors(connection, (chunk,), profile)
+        result = runtime._cached_vectors(connection, (chunk,), {chunk.chunk_id: scope})
         expected = vector if digest_of_bytes(blob) < digest_of_bytes(jittered_blob) else jittered
         assert result[chunk.chunk_id] == pytest.approx(expected, abs=1e-8)
         assert (
             connection.execute(
-                "select count(*) from vector_cache where chunk_id='stable-content-id'"
+                "select count(*) from vector_cache_v2 where chunk_id='stable-content-id'"
             ).fetchone()[0]
             == 1
         )
@@ -1690,3 +1691,211 @@ def test_wp3_deleted_source_is_freshness_unknown(
     reasons, obs = runtime._source_freshness_for_query(state, root)
     assert "project-source-freshness-unknown" in reasons
     assert obs.get("unknown") is True
+
+
+# ---------------------------------------------------------------------------
+# WP-05.01 -- scoped vector cache (vector_cache_v2)
+#
+# Expected runtime API:
+#   runtime._vector_cache_scope(
+#       project_id: str,
+#       realm: str,
+#       parser_ref: str,
+#       parser_version: str,
+#       chunk_profile_digest: str,
+#       embedding_profile_digest: str,
+#   ) -> str
+#   runtime._cached_vectors(
+#       connection,
+#       chunks,
+#       scope_by_chunk: dict[str, str],
+#   )
+#
+# Table contract: vector_cache_v2(scope_digest, chunk_id, content_digest,
+# vector_blob, vector_digest, created_at).
+# ---------------------------------------------------------------------------
+
+WP0501_BASELINE_SCOPE_KWARGS: dict[str, str] = {
+    "project_id": "project-1",
+    "realm": "realm-a",
+    "parser_ref": "parser-ref-a",
+    "parser_version": "1.0.0",
+    "chunk_profile_digest": digest("chunk-profile-a"),
+    "embedding_profile_digest": digest("embedding-profile-a"),
+}
+
+
+def _wp0501_scope(**overrides: str) -> str:
+    return runtime._vector_cache_scope(**{**WP0501_BASELINE_SCOPE_KWARGS, **overrides})
+
+
+def _wp0501_chunk(chunk_id: str, text: str) -> Chunk:
+    return Chunk(
+        chunk_id=chunk_id,
+        document_id="oracle-v2",
+        text=text,
+        locator=Locator(object_name="GPU_USER.CDR_V2:TABLE"),
+        kind=UnitKind.DB_OBJECT,
+        token_count=8,
+        order=0,
+    )
+
+
+def _wp0501_hit_vector(
+    result: dict[str, tuple[float, ...]], chunk_id: str
+) -> tuple[float, ...] | None:
+    """Cached vector reported for ``chunk_id``, or ``None`` on a miss.
+
+    A miss is either an absent key or an explicit ``None`` value; anything else
+    must be an actual cached vector.
+    """
+    return result.get(chunk_id)
+
+
+def _wp0501_seed_row(
+    connection: sqlite3.Connection, scope: str, chunk_id: str, content_digest: str
+) -> None:
+    blob = runtime._vector_blob(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)))
+    connection.execute(
+        "insert into vector_cache_v2 values(?,?,?,?,?,?)",
+        (scope, chunk_id, content_digest, blob, digest_of_bytes(blob), "2026-10-13T00:00:00Z"),
+    )
+
+
+def test_wp0501_vector_cache_scope_is_stable_and_component_separated() -> None:
+    baseline = _wp0501_scope()
+    assert baseline == _wp0501_scope()
+
+    for field in (
+        "project_id",
+        "realm",
+        "parser_ref",
+        "parser_version",
+        "chunk_profile_digest",
+        "embedding_profile_digest",
+    ):
+        drifted = _wp0501_scope(**{field: digest(f"wp0501-drift-{field}")})
+        assert drifted != baseline, f"scope must change when {field} changes"
+
+
+@pytest.mark.parametrize(
+    "drifted_field",
+    [
+        "project_id",
+        "realm",
+        "parser_ref",
+        "parser_version",
+        "chunk_profile_digest",
+        "embedding_profile_digest",
+    ],
+)
+def test_wp0501_scope_factor_drift_is_a_cache_miss(
+    tmp_path: Path, drifted_field: str
+) -> None:
+    """Same content under a drifted scope factor must NOT be served from cache."""
+    connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
+    content_digest = digest_of_bytes(text.encode("utf-8"))
+    baseline_scope = _wp0501_scope()
+    # Distinct drift values per field so a scope digest that silently collides
+    # across fields cannot mask a component the scope forgets.
+    drifted_scope = _wp0501_scope(
+        **{drifted_field: digest(f"wp0501-drift-{drifted_field}-value")}
+    )
+    assert drifted_scope != baseline_scope
+    _wp0501_seed_row(connection, baseline_scope, "wp0501-primary", content_digest)
+    chunk = _wp0501_chunk("wp0501-primary", text)
+    try:
+        result = runtime._cached_vectors(
+            connection, (chunk,), {chunk.chunk_id: drifted_scope}
+        )
+        assert _wp0501_hit_vector(result, "wp0501-primary") is None
+        baseline_rows = connection.execute(
+            "select count(*) from vector_cache_v2 where scope_digest = ?",
+            (baseline_scope,),
+        ).fetchone()[0]
+        assert baseline_rows == 1
+    finally:
+        connection.close()
+
+
+def test_wp0501_alias_chunk_id_with_same_content_hits_same_scope(
+    tmp_path: Path,
+) -> None:
+    """A different chunk_id with identical content in the same scope is a hit:
+    it returns the seeded vector and records one alias for stable resume."""
+    connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
+    content_digest = digest_of_bytes(text.encode("utf-8"))
+    scope = _wp0501_scope()
+    _wp0501_seed_row(connection, scope, "wp0501-primary", content_digest)
+    alias_chunk = _wp0501_chunk("wp0501-alias", text)
+    try:
+        result = runtime._cached_vectors(
+            connection, (alias_chunk,), {alias_chunk.chunk_id: scope}
+        )
+        cached = _wp0501_hit_vector(result, "wp0501-alias")
+        assert cached == pytest.approx(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)),
+                                       abs=1e-8)
+        rows = connection.execute(
+            "select count(*) from vector_cache_v2 "
+            "where scope_digest = ? and content_digest = ?",
+            (scope, content_digest),
+        ).fetchone()[0]
+        assert rows == 2
+    finally:
+        connection.close()
+
+
+def test_wp0501_corrupt_vector_digest_is_rejected(tmp_path: Path) -> None:
+    """A row whose vector_digest does not match its blob must not be served."""
+    connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
+    content_digest = digest_of_bytes(text.encode("utf-8"))
+    scope = _wp0501_scope()
+    blob = runtime._vector_blob(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)))
+    connection.execute(
+        "insert into vector_cache_v2 values(?,?,?,?,?,?)",
+        (
+            scope,
+            "wp0501-corrupt",
+            content_digest,
+            blob,
+            digest_of_bytes(b"not-the-blob-digest"),
+            "2026-10-13T00:00:00Z",
+        ),
+    )
+    chunk = _wp0501_chunk("wp0501-corrupt", text)
+    try:
+        with pytest.raises(PolicyViolation, match="digest drift"):
+            runtime._cached_vectors(connection, (chunk,), {chunk.chunk_id: scope})
+    finally:
+        connection.close()
+
+
+def test_wp0501_legacy_cache_row_is_not_reused_without_scope(tmp_path: Path) -> None:
+    connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
+    blob = runtime._vector_blob(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)))
+    connection.execute(
+        "create table vector_cache(chunk_id text, content_digest text, "
+        "provider_profile_digest text, vector_blob blob, vector_digest text, created_at text)"
+    )
+    connection.execute(
+        "insert into vector_cache values(?,?,?,?,?,?)",
+        (
+            "legacy-id",
+            digest_of_bytes(text.encode("utf-8")),
+            digest("embedding-profile-a"),
+            blob,
+            digest_of_bytes(blob),
+            "2026-10-13T00:00:00Z",
+        ),
+    )
+    chunk = _wp0501_chunk("new-id", text)
+    try:
+        assert runtime._cached_vectors(
+            connection, (chunk,), {chunk.chunk_id: _wp0501_scope()}
+        ) == {}
+    finally:
+        connection.close()

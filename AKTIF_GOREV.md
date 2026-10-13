@@ -707,6 +707,15 @@ tamamlanmadigi icin WP-04.05 aciktir.
 
 **Kabul ve negatif testler:** Testler: unchanged=0 gereksiz embedding, bir dosya/chunk değişimi, delete/rename, same-size/mtime deceptive change, cache corrupt, profile drift, batch partial, cancelled resume, stale pointer, yanlış scope ve performance/quality gate.
 
+**13 Ekim 2026 ara durum — kapsamli vektor cache v2:** Yerel vektor
+cache'i proje/realm, parser ref+surum, chunk profili ve tam embedding
+profilinin digest'ine baglandi. Icerik ayniysa degisen HEAD/chunk kimligi
+ayni kapsamda alias vektorunu yeniden kullanir; yanlis kapsam, bozuk vektor
+digest'i ve kimliksiz eski cache satiri yeniden kullanilmaz. Alias secimi
+indexli ve tek satira sinirlidir. Ilgili 69 test gecti. Gercek coklu
+generation/artimli embedding ve benchmark kabul kaniti tamamlanmadigindan
+WP-05.01/02 aciktir.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  
