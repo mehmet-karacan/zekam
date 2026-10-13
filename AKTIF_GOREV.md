@@ -491,7 +491,7 @@ kaydedildi. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 
 - [x] **WP-03.01** — Modelin yorumladığı niyeti allowlisted capability ve deterministic project/scope doğrulamasına çevir; intent'i execution izni sayma. Genel soru Zekam/gpu diye yanlış hedeflenmesin.
 - [ ] **WP-03.02** — Açık proje, Jira prefix'i, mevcut Work ve oturum referansı için öncelik/çatışma politikasını testlerle sabitle. “Bunu da GPU için ekle” çok turlu örneğinde gerçek dosya ve önceki scope bağını doğrula.
-- [ ] **WP-03.03** — Tek projenin sorgusunu yalnız o projeye yönlendir; açık karşılaştırmada ayrı scoped results birleştir. Kayıtsız/belirsiz proje için en az gerekli açıklamayı sor, tüm repo embedding başlatma.
+- [x] **WP-03.03** — Tek projenin sorgusunu yalnız o projeye yönlendir; açık karşılaştırmada ayrı scoped results birleştir. Kayıtsız/belirsiz proje için en az gerekli açıklamayı sor, tüm repo embedding başlatma.
 - [ ] **WP-03.04** — Native ajanın discovery'de doğru tool/skill'i seçmesini ve iç komutları kendisinin çalıştırmasını bağla. Kullanıcıya programatik isim, digest veya JSON yazdıran yol kabulden kalsın.
 - [ ] **WP-03.05** — Açıklama üretimi retrieval'dan ayrı kaydedilsin; locator'lı kaynaklar olmadan kesin teknik iddia veya sahte işlem başarısı çıkmasın. Araç kesintisi doğal dille doğru raporlansın.
 
@@ -592,6 +592,17 @@ kabul testi ve yedi komsu fan-out testi gecti. Eski CLI RAG testleri izole
 `HomeLayout`/operasyonel schema ile duzeltildi; birlesik grup 32/32 gecti.
 Belirsiz/kayitsiz proje durumunun tum CLI varyantlarinda en az gerekli dogal
 dil aciklamasi olarak sunulmasi henuz kanitlanmadigi icin WP-03.03 aciktir.
+
+**13 Ekim 2026 devam — WP-03.03 CLI aciklama siniri tamam:**
+`zekam ask`, proje sinyali olup tek kayitli projeye cozulmeyen soruda
+`zekam-ask-clarification/v1` ve kisa Turkce soru dondurur; bu yolda sorgu,
+indeksleme veya provider cagrisi yapmaz. Kayitsiz acik `--project` girdisi
+fail-fast kalir ve kayitli slug onerisi verir. Tek proje sonucu ile acik
+karsilastirma semalari korunur. Yeni 12 test ve komsu CLI/gercek cift indeks
+testleri birlikte 46/46 gecti; Ruff ve diff kontrolu temiz. Bu kanit
+WP-03.03'un yerel CLI kabulunu kapatir. Native istemcinin gercek oturumda
+tool/skill secimi WP-03.04, cevap aciklamasinin tam kaniti WP-03.05 ve
+WP-12 kabul matrisi kapsaminda aciktir.
 
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
