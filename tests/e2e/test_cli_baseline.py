@@ -154,10 +154,36 @@ def test_doctor_core_category_is_healthy_after_init(home_root: Path) -> None:
     runner.invoke(app, ["init", "--home", str(home_root)])
     result = runner.invoke(app, ["doctor", "--home", str(home_root), "--json", "-c", "core"])
     document = json.loads(result.stdout)
-    checks = {item["check_id"]: item["status"] for item in document["results"]}
-    non_git = {key: value for key, value in checks.items() if key != "core.git-repository"}
+    items = {item["check_id"]: item for item in document["results"]}
+    checks = {check_id: item["status"] for check_id, item in items.items()}
+    non_git = {
+        key: value
+        for key, value in checks.items()
+        if key not in {"core.git-client", "core.git-repository"}
+    }
     assert set(non_git.values()) == {"passed"}
-    expected = "healthy" if checks["core.git-repository"] == "passed" else "degraded"
+    git_client = items["core.git-client"]
+    assert git_client["status"] in {"passed", "degraded"}
+    if git_client["status"] == "degraded":
+        # Windows'ta global http.sslBackend schannel degilse dogru, beklenen
+        # tek bulgu; user-geneli Git ayari degistirilmez.
+        assert [finding["code"] for finding in git_client["findings"]] == [
+            "core.git-windows-ca-backend"
+        ]
+        finding = git_client["findings"][0]
+        assert finding["severity"] == "warning"
+        assert finding["authority_required"] is True
+        evidence = git_client["evidence"]
+        assert evidence["available"] is True
+        assert evidence["platform"] == "win32"
+        assert (evidence["ssl_backend"] or "").casefold() != "schannel"
+    else:
+        assert git_client["findings"] == []
+    expected = (
+        "healthy"
+        if checks["core.git-client"] == "passed" and checks["core.git-repository"] == "passed"
+        else "degraded"
+    )
     assert document["overall"] == expected
     assert result.exit_code == EXIT_CODES[OverallStatus(expected)]
 
