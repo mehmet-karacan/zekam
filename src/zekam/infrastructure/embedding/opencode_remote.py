@@ -310,14 +310,17 @@ class OpenCodeRemoteEmbeddingProvider:
         prepared = self._prepare(texts, purpose=purpose, classification=classification)
         execution = self._executor.invoke(prepared)
         execution.assert_valid(prepared)
-        rows = execution.provider_result.response.get("data")
+        response = execution.provider_result.response
+        if response.get("model") != self._configuration.selected_model_id:
+            raise PolicyViolation("OpenCode embedding response model kimligi uyusmuyor")
+        rows = response.get("data")
         if not isinstance(rows, list) or len(rows) != len(texts):
             raise ValidationFailed("OpenCode embedding partial batch reddedildi")
         indexed: dict[int, tuple[float, ...]] = {}
-        for position, row in enumerate(rows):
+        for row in rows:
             if not isinstance(row, dict) or not isinstance(row.get("embedding"), list):
                 raise ValidationFailed("OpenCode embedding response vector sekli gecersiz")
-            index = row.get("index", position)
+            index = row.get("index")
             if type(index) is not int or index in indexed or not 0 <= index < len(rows):
                 raise ValidationFailed("OpenCode embedding response indexleri exact olmali")
             raw_vector = row["embedding"]

@@ -725,6 +725,15 @@ reddedilir. Ilgili 79 test gecti. Timeout, partial slot kimligi,
 quota, cancellation ve canli performans kabul kaniti henuz aciktir;
 WP-05.03 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — embedding slot ve model kimligi:** OpenCode
+remote provider her vektor icin acik, tekil ve aralik icinde tam sayi
+`index` ister; karisik gelen satirlari indeksle dogru slota yerlestirir.
+Yanitin `model` alani secilen exact modelle eslesmezse veya eksikse
+reddeder. Genel OpenAI embedding yanit ayristiricisi da pozisyon
+varsayimini ve string index donusumunu kaldirdi. Provider-free negatif
+testler eklendi. Timeout, quota, cancellation ve canli kabul kaniti
+acik oldugundan WP-05.03 tamamlanmadi.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

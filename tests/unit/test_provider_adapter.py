@@ -132,6 +132,21 @@ def test_openai_embedding_parser_restores_index_order() -> None:
     assert openai_embeddings(response) == ((1.0, 2.0), (3.0, 4.0))
 
 
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{"embedding": [1.0]}],
+        [{"index": "0", "embedding": [1.0]}],
+        [{"index": True, "embedding": [1.0]}],
+        [{"index": 1, "embedding": [1.0]}],
+        [{"index": 0, "embedding": [1.0]}, {"index": 0, "embedding": [2.0]}],
+    ],
+)
+def test_openai_embedding_parser_requires_exact_slot_indices(rows: list[dict[str, object]]) -> None:
+    with pytest.raises(ValidationFailed, match="index"):
+        openai_embeddings({"data": rows})
+
+
 def test_transcription_and_rerank_parsers() -> None:
     assert openai_transcript({"text": "ornek ses"}) == "ornek ses"
     assert openai_rerank_scores(

@@ -711,26 +711,27 @@ def openai_chat_text(response: Mapping[str, Any]) -> str:
 
 
 def openai_embeddings(response: Mapping[str, Any]) -> tuple[tuple[float, ...], ...]:
-    """OpenAI-compatible embedding response'u sirali vektorlere cevirir."""
+    """Yalniz explicit, tam ve tekil slot kimlikli vektorleri siralar."""
     rows = response.get("data")
     if not isinstance(rows, list) or not rows:
         raise ValidationFailed("Embedding response data ister")
-    indexed: list[tuple[int, tuple[float, ...]]] = []
-    for position, row in enumerate(rows):
+    indexed: dict[int, tuple[float, ...]] = {}
+    for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("embedding"), list):
             raise ValidationFailed("Embedding response vector sekli gecersiz")
+        index = row.get("index")
+        if type(index) is not int or not 0 <= index < len(rows) or index in indexed:
+            raise ValidationFailed("Embedding response indexleri exact olmali")
         try:
             vector = tuple(float(value) for value in row["embedding"])
-            index = int(row.get("index", position))
         except (TypeError, ValueError):
             raise ValidationFailed("Embedding response sayisal olmali") from None
         if not vector:
             raise ValidationFailed("Embedding response bos vector tasiyamaz")
-        indexed.append((index, vector))
-    ordered = sorted(indexed, key=lambda item: item[0])
-    if [item[0] for item in ordered] != list(range(len(ordered))):
+        indexed[index] = vector
+    if set(indexed) != set(range(len(rows))):
         raise ValidationFailed("Embedding response indexleri tam sirali olmali")
-    return tuple(item[1] for item in ordered)
+    return tuple(indexed[index] for index in range(len(rows)))
 
 
 def openai_transcript(response: Mapping[str, Any]) -> str:

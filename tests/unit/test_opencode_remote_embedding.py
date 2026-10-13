@@ -80,8 +80,15 @@ def _configuration(tmp_path: Path) -> OpenCodeEmbeddingConfiguration:
 
 
 class _Executor:
-    def __init__(self, *, fault: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fault: str | None = None,
+        fault_call: int | None = None,
+    ) -> None:
         self.fault = fault
+        # fault_call: hatanin uretilecegi calisma sirasi (0 tabanli); None = her cagida.
+        self.fault_call = fault_call
         self.prepared: list[PreparedProviderContractCall] = []
 
     @staticmethod
@@ -103,23 +110,40 @@ class _Executor:
             {"index": index, "embedding": self._vector(str(text))}
             for index, text in enumerate(values)
         ]
-        if self.fault == "partial":
+        fault = self.fault if self.fault_call in (None, len(self.prepared) - 1) else None
+        if fault == "index-missing":
+            rows[-1].pop("index")
+        elif fault == "index-duplicate":
+            rows[-1]["index"] = 0
+        elif fault == "index-out-of-range":
+            rows[-1]["index"] = len(rows)
+        elif fault == "index-shuffled":
+            for index in range(len(rows) // 2):
+                rows[index], rows[len(rows) - 1 - index] = (
+                    rows[len(rows) - 1 - index],
+                    rows[index],
+                )
+        elif fault == "partial":
             rows.pop()
-        elif self.fault == "nan":
+        elif fault == "nan":
             rows[0]["embedding"][0] = float("nan")
-        elif self.fault == "dimension":
+        elif fault == "dimension":
             rows[0]["embedding"].append(0.0)
-        elif self.fault == "repeat-small" and len(rows) > 1:
+        elif fault == "repeat-small" and len(rows) > 1:
             rows[1]["embedding"] = [0.9999, 0.0001, 0.0]
-        elif self.fault == "repeat-large" and len(rows) > 1:
+        elif fault == "repeat-large" and len(rows) > 1:
             rows[1]["embedding"] = [0.95, 0.05, 0.0]
-        elif self.fault == "profile-jitter":
+        elif fault == "profile-jitter":
             for row in rows:
                 row["embedding"][0] += 0.0001
-        elif self.fault == "profile-shift":
+        elif fault == "profile-shift":
             for row in rows:
                 row["embedding"][1] += 0.2
-        response = {"data": rows, "model": MODEL}
+        response: dict[str, Any] = {"data": rows, "model": MODEL}
+        if fault == "model-missing":
+            response.pop("model")
+        elif fault == "model-mismatch":
+            response["model"] = "openai/BAAI/bge-m3-alt"
         response_digest = digest(response)
         realm_id = uuid4()
         secret_ref = SecretRef.create(
@@ -491,3 +515,142 @@ def test_remote_probe_rejects_non_public_fixture(tmp_path: Path) -> None:
     provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), _Executor(), dimension=3)
     with pytest.raises(PolicyViolation, match="public fixture"):
         provider.probe(replace(_fixture(), classification=DataClassification.INTERNAL))
+
+
+def test_probe_rejects_missing_index(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="index-missing"), dimension=3
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.probe(_fixture())
+
+
+def test_probe_rejects_duplicate_index(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="index-duplicate"), dimension=3
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.probe(_fixture())
+
+
+def test_probe_rejects_out_of_range_index(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="index-out-of-range"), dimension=3
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.probe(_fixture())
+
+
+def test_probe_accepts_shuffled_data_with_correct_explicit_indexes(tmp_path: Path) -> None:
+    """Data satirlari karisik ama explicit index dogruysa, vektorlar dogru slotta doner."""
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="index-shuffled"), dimension=3
+    )
+    probe = provider.probe(_fixture())
+    # index-shuffled satirlari cift basina ters cevirmekle karistirir; explicit indexler
+    # dogru oldugu icin provider index bazli slota yerlestirir ve determinism check gecmeli.
+    assert probe.max_repeat_delta <= 5e-4
+    assert probe.batch_cosine > 0.99999
+
+
+def test_embed_documents_rejects_missing_index(tmp_path: Path) -> None:
+    executor = _Executor(fault="index-missing", fault_call=2)
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.embed_documents(("internal project", "active release"), policy)
+
+
+def test_embed_documents_rejects_duplicate_index(tmp_path: Path) -> None:
+    executor = _Executor(fault="index-duplicate", fault_call=2)
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.embed_documents(("internal project", "active release"), policy)
+
+
+def test_embed_documents_rejects_out_of_range_index(tmp_path: Path) -> None:
+    executor = _Executor(fault="index-out-of-range", fault_call=2)
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    with pytest.raises(ValidationFailed, match="indexleri exact"):
+        provider.embed_documents(("internal project", "active release"), policy)
+
+
+def test_embed_documents_accepts_shuffled_data_with_correct_explicit_indexes(
+    tmp_path: Path,
+) -> None:
+    """embed_documents: karisik data satirlari, dogru explicit index -> dogru slot."""
+    executor = _Executor(fault="index-shuffled")
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    # 2 satirli batch: executor [1, 0] sirasinda doner (index=1: "active release",
+    # index=0: "internal project"). Provider index bazli slot'a yerlestirmeli:
+    # slot 0 = "internal project" -> [1, 0, 0],
+    # slot 1 = "active release" -> normalize([0.9, 0.1, 0]).
+    batch = provider.embed_documents(("internal project", "active release"), policy)
+    assert batch.vectors[0] == (1.0, 0.0, 0.0)
+    norm = (0.9**2 + 0.1**2) ** 0.5
+    assert batch.vectors[1] == (0.9 / norm, 0.1 / norm, 0.0)
+
+
+def test_probe_rejects_missing_model_field(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="model-missing"), dimension=3
+    )
+    with pytest.raises(PolicyViolation, match="model kimligi uyusmuyor"):
+        provider.probe(_fixture())
+
+
+def test_probe_rejects_mismatched_model_field(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(
+        _configuration(tmp_path), _Executor(fault="model-mismatch"), dimension=3
+    )
+    with pytest.raises(PolicyViolation, match="model kimligi uyusmuyor"):
+        provider.probe(_fixture())
+
+
+def test_embed_documents_rejects_missing_model_field(tmp_path: Path) -> None:
+    executor = _Executor(fault="model-missing", fault_call=2)
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    with pytest.raises(PolicyViolation, match="model kimligi uyusmuyor"):
+        provider.embed_documents(("internal project", "active release"), policy)
+
+
+def test_embed_documents_rejects_mismatched_model_field(tmp_path: Path) -> None:
+    executor = _Executor(fault="model-mismatch", fault_call=2)
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), executor, dimension=3)
+    probe = provider.probe(_fixture())
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        probe.profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    with pytest.raises(PolicyViolation, match="model kimligi uyusmuyor"):
+        provider.embed_documents(("internal project", "active release"), policy)
