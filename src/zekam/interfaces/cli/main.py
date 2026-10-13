@@ -39,6 +39,7 @@ from zekam.application.natural_request_scope import (
 )
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
+    AskProjectUnresolved,
     query_registered_project,
     resolve_project_source,
     resolve_question_project,
@@ -102,6 +103,8 @@ _HOME_HELP = f"{PRODUCT.data_root_env} kokunu gecici olarak ezer"
 
 EXIT_USAGE_ERROR = 64
 EXIT_RUNTIME_ERROR = 70
+#: Deterministic kapsam belirsizligi; `zekam test` kapi koduyla ayni.
+EXIT_CLARIFICATION = 65
 
 app = typer.Typer(
     name=PRODUCT.cli,
@@ -275,6 +278,61 @@ def _natural_request_scope(
     return scope, registered_refs
 
 
+def _clarification_question(exc: AskProjectUnresolved) -> str:
+    """Kullanici tarafina donen en kisa Turkce aciklama sorusu (WP-03.03).
+
+    Teknik reason code veya komut ismi kullanicidan istenmez; soru, soruda
+    sinyal edilen proje adlariyla (kayitli olsun veya olmasin) dogrudan
+    netlestirilmeye davet eder.
+    """
+
+    if "jira-project-unresolved" in exc.reason_codes:
+        return "Sordugunuz Jira is kaydi hangi Zekam projesine ait? Projeyi acikca belirtin."
+    if len(exc.project_refs) > 1:
+        refs = ", ".join(sorted(exc.project_refs)[:8])
+        return (
+            f"{refs} arasindan hangisi icin sordunuzu netlestiremedim; "
+            "lutfen projeyi acikca belirtin."
+        )
+    if exc.project_refs:
+        return (
+            "Hangi Zekam projesi icin sormak istediginizi netlestiremedim; "
+            "lutfen projeyi acikca belirtin."
+        )
+    if "selected-projects-unavailable" in exc.reason_codes and exc.matched_terms:
+        term = max(exc.matched_terms, key=len)
+        return (
+            f"'{term}' kayitli bir Zekam projesi degil; "
+            "hangi Zekam projesini sormak istiyorsunuz?"
+        )
+    return "Hangi Zekam projesi icin sordugunuzu netlestiremedim; lutfen projeyi acikca belirtin."
+
+
+def _ask_clarification(exc: AskProjectUnresolved, *, output_json: bool) -> None:
+    """Proje sinyali olan belirsiz/kayitsiz istekte sorgu/indeksleme olmadan
+    kullanicidan netlestirme ister; JSON ciktisi makine-okunur kalir."""
+
+    document = {
+        "schema": "zekam-ask-clarification/v1",
+        "status": "clarification-required",
+        "route": "natural-request-scope",
+        "reason_codes": list(exc.reason_codes),
+        "jira_issue_key": exc.jira_issue_key,
+        "project_refs": list(exc.project_refs),
+        "question": _clarification_question(exc),
+        "next_step": "Proje adini soruya ekleyip tekrar deneyin veya --project verin.",
+        "provider_calls": 0,
+        "index_triggered": False,
+        "grants_authority": False,
+    }
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(document["question"])
+        console.print(f"Sonraki adim: {document['next_step']}")
+    raise typer.Exit(EXIT_CLARIFICATION)
+
+
 def _ask_natural_request_retrieval(
     resolved_home: Path,
     question: str,
@@ -358,11 +416,15 @@ def ask(
                     opencode_config=opencode_config,
                 )
                 return
-        selected_project = (
-            resolve_registered_project(resolved_home, project)
-            if project is not None
-            else resolve_question_project(resolved_home, question)
-        )
+            try:
+                selected_project = resolve_question_project(resolved_home, question)
+            except AskProjectUnresolved as exc:
+                # WP-03.03: proje sinyali olan belirsiz/kayitsiz istek; sorgu
+                # veya indeksleme baslatmadan kullanicidan netlestirme istenir.
+                _ask_clarification(exc, output_json=output_json)
+                raise AssertionError("unreachable: clarification exits") from exc
+        else:
+            selected_project = resolve_registered_project(resolved_home, project)
         config_paths = _config_paths_for_question(question)
         if config_paths:
             source_root = resolve_project_source(resolved_home, selected_project)

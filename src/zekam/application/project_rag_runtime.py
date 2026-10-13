@@ -129,7 +129,10 @@ from zekam.infrastructure.query_measurement import (
 )
 from zekam.infrastructure.sqlite.knowledge_index import SQLiteKnowledgeIndex
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
-from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+from zekam.infrastructure.sqlite.operational_store import (
+    SQLiteOperationalStore,
+    SQLiteOperationalUnitOfWork,
+)
 
 MODEL_ID = "openai/BAAI/bge-m3"
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
@@ -769,13 +772,66 @@ def _registered_project(home: Path, project_slug: str) -> UUID:
 
 
 def resolve_registered_project(home: Path, reference: str) -> str:
-    """Resolve a project id/slug/alias to the canonical runtime slug."""
+    """Resolve a project id/slug/alias to the canonical runtime slug.
+
+    Kayit bulunamazsa fail-fast korunur; hata metni kullanicinin kayitli
+    proje slug'larini gorebilmesi icin onerileri tasiyor (WP-03.03).
+    """
 
     store = SQLiteOperationalStore(home / "state" / "operational.db")
     with store.unit_of_work() as uow:
-        project = uow.resolve_project(reference)
+        try:
+            project = uow.resolve_project(reference)
+        except ValidationFailed as exc:
+            if str(exc) != "Project bulunamadi":
+                raise
+            suggestions = _project_suggestions(uow, reference)
+            uow.rollback()
+            raise ValidationFailed(
+                f"{reference} kayitli bir Zekam projesi degil" + suggestions
+            ) from exc
         uow.commit()
     return project.slug
+
+
+class AskProjectUnresolved(ZekamError):
+    """Proje sinyali olan, tek kayitli projeye cozülemeyen ``ask`` istegi (WP-03.03).
+
+    ``resolve_question_project`` alias-farkindaligiyla cozum yapiyor; istek ne
+    kayitli degil ne de belirgin tek projeye iniyorsa bu hata doner. CLI bunu
+    sorgu/indeksleme baslatmadan kullanicinin anlayacagi Turkce bir
+    aciklama sorusuna cevirir. Genel (proje sinyali olmayan) sorular bu hata
+    DEGIL; onlar mevcut fail-fast ValidationFailed davranisini korur.
+    """
+
+    code = "ask-project-unresolved"
+
+    def __init__(
+        self,
+        *,
+        project_refs: tuple[str, ...],
+        jira_issue_key: str | None,
+        reason_codes: tuple[str, ...],
+        matched_terms: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__("Sorulacak Zekam projesi netlestirilemedi")
+        self.project_refs = tuple(project_refs)
+        self.jira_issue_key = jira_issue_key
+        self.reason_codes = tuple(reason_codes)
+        self.matched_terms = tuple(matched_terms)
+
+
+def _project_suggestions(uow: SQLiteOperationalUnitOfWork, reference: str) -> str:
+    """Kayitli proje slug'larindan bounded, onerim niteligindeki kisa listeyi yazar."""
+
+    slugs = [str(project.slug) for project in uow.list_projects(include_archived=False)]
+    if not slugs:
+        return " Henüz kayitli proje yok."
+    candidates = sorted(slugs, key=lambda slug: (abs(len(slug) - len(reference)), slug))
+    shown = ", ".join(candidates[:8])
+    if len(candidates) > 8:
+        shown += ", ..."
+    return f" Kayitli projeler: {shown}."
 
 
 def _project_plan(
@@ -2249,9 +2305,21 @@ def resolve_question_project(home: Path, question: str) -> str:
         registered_projects=projects,
     )
     if route.status == "general":
-        raise ValidationFailed("Genel bilgi sorusu project RAG kullanmaz; route=general-research")
+        # Genel (proje sinyali olmayan) soru bilincli olarak Zekam projesine
+        # zorlanmaz; mevcut fail-fast davranisi korunur.
+        raise ValidationFailed(
+            "Soru bir Zekam projesine baglanmiyor; proje bilgisi icin bir proje "
+            "slug'i ya da aile adini sorun veya --project verin"
+        )
     if route.status != "selected":
-        raise ValidationFailed(f"Soru route karari secilemedi: {route.strategy}")
+        # Proje sinyali olan belirsiz/kayitsiz istek: sorgu veya indeksleme
+        # baslatmadan kullanicidan netlestirme istenir (WP-03.03).
+        raise AskProjectUnresolved(
+            project_refs=route.project_refs,
+            jira_issue_key=route.jira_issue_key,
+            reason_codes=route.reason_codes,
+            matched_terms=route.matched_terms,
+        )
     if route.strategy != "single-project-rag" or len(route.project_refs) != 1:
         raise ValidationFailed(
             "Soru tek proje RAG degil; route preview hedeflerini fan-out kullanin"
