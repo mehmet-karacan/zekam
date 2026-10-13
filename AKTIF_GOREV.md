@@ -899,6 +899,12 @@ test kaniti, acik kabul adimlari ve `next_safe_action`
 `docs/CHECKPOINT_2026-10-13_0740.md` icinde kayitlidir. "devam et"
 diyene kadar gorev uzerinde calisma yapilmaz.
 
+**13 Ekim 2026 17:50 checkpoint:** Kullanici istegiyle ikinci duraklama
+eklendi. Son push edilen HEAD `651c978`; E2E kosusunda 82 test gecti, 1 test
+OpenCode model semasi/stale plan dogrulama sirasinda kaldi. Sonraki guvenli
+adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
+"devam et" diyene kadar yeni is baslatilmaz.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  
