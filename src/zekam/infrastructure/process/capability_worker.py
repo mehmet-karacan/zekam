@@ -328,6 +328,7 @@ class ProcessIsolatedJsonProviderTransport:
     max_ipc_bytes: int = 8 * 1024 * 1024
     cancellation_grace_seconds: float = DEFAULT_CANCELLATION_GRACE_SECONDS
     cancel: threading.Event | None = field(default=None, repr=False, compare=False)
+    deadline_monotonic: float | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not 0 < self.timeout_seconds <= 300:
@@ -347,6 +348,13 @@ class ProcessIsolatedJsonProviderTransport:
     ) -> Mapping[str, Any]:
         _validated_provider_endpoint(endpoint)
         parse_digest(gateway_provenance.manifest_digest)
+        from zekam.application.provider_adapter import ProviderDeadlineExceeded
+
+        timeout = self.timeout_seconds
+        if self.deadline_monotonic is not None:
+            timeout = min(timeout, self.deadline_monotonic - time.monotonic())
+            if timeout <= 0:
+                raise ProviderDeadlineExceeded("Provider total deadline expired")
         request = CapabilityWorkerRequest(
             request_id=str(uuid4()),
             payload={
@@ -354,7 +362,7 @@ class ProcessIsolatedJsonProviderTransport:
                 "endpoint": endpoint,
                 "payload": dict(payload),
                 "credential": credential.reveal(),
-                "timeout_seconds": self.timeout_seconds,
+                "timeout_seconds": timeout,
                 "max_response_bytes": self.max_response_bytes,
                 "manifest_digest": gateway_provenance.manifest_digest,
                 "gateway_attempt_id": str(gateway_provenance.attempt_id),
@@ -364,7 +372,7 @@ class ProcessIsolatedJsonProviderTransport:
         spec = CapabilityWorkerSpec(
             argv=(sys.executable, "-m", __name__, "--provider-child"),
             cwd=Path.cwd(),
-            timeout_seconds=self.timeout_seconds,
+            timeout_seconds=timeout,
             max_ipc_bytes=self.max_ipc_bytes,
         )
         outcome = CapabilityProcessWorker(
@@ -374,6 +382,8 @@ class ProcessIsolatedJsonProviderTransport:
             from zekam.application.provider_adapter import ProviderCallCancelled
 
             raise ProviderCallCancelled("Provider call cancelled")
+        if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
+            raise ProviderDeadlineExceeded("Provider total deadline expired")
         if outcome.status is not CapabilityWorkerStatus.COMPLETED or outcome.payload is None:
             # Runtime import avoids an infrastructure -> application import cycle.
             from zekam.application.model_health_service import ProbeUnavailable

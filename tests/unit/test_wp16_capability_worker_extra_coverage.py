@@ -468,6 +468,122 @@ def test_process_transport_propagates_programmatic_cancel(
         )
 
 
+def _install_module_clock(monkeypatch: pytest.MonkeyPatch, *values: float) -> None:
+    """Modul icindeki time.monotonic'i sonlu bir zaman dizisiyle degistirir."""
+    clock = list(values)
+
+    def _monotonic() -> float:
+        return clock[0] if len(clock) == 1 else clock.pop(0)
+
+    monkeypatch.setattr(worker, "time", SimpleNamespace(monotonic=_monotonic))
+
+
+def test_expired_total_deadline_rejects_before_child_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.application.provider_adapter import ProviderDeadlineExceeded
+
+    transport = worker.ProcessIsolatedJsonProviderTransport(
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_ipc_bytes=2048,
+        cancellation_grace_seconds=0.1,
+        deadline_monotonic=100.0,
+    )
+    _install_module_clock(monkeypatch, 100.0)
+
+    def rejected_run(*_args: Any, **_kwargs: Any) -> worker.CapabilityWorkerResult:
+        raise AssertionError("deadline asildiginda child process calistirilmamali")
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", rejected_run)
+    with pytest.raises(ProviderDeadlineExceeded, match="expired"):
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=_provenance(),
+        )
+
+
+def test_near_deadline_clamps_spec_and_child_timeouts_below_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = worker.ProcessIsolatedJsonProviderTransport(
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_ipc_bytes=2048,
+        cancellation_grace_seconds=0.1,
+        deadline_monotonic=100.0,
+    )
+    _install_module_clock(monkeypatch, 95.0, 98.0)
+    captured: dict[str, Any] = {}
+
+    def recording_run(
+        _self: object,
+        spec: worker.CapabilityWorkerSpec,
+        request: worker.CapabilityWorkerRequest,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        captured["spec"] = spec
+        captured["request"] = request
+        return worker.CapabilityWorkerResult(
+            "r",
+            worker.CapabilityWorkerStatus.COMPLETED,
+            payload={"provider_response": {"ok": True}},
+        )
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", recording_run)
+    response = transport.post_json(
+        "http://127.0.0.1:8765/v1/test",
+        {"model": "local"},
+        SecretValue("secret"),
+        gateway_provenance=_provenance(),
+    )
+    assert response == {"ok": True}
+    spec_timeout = captured["spec"].timeout_seconds
+    child_timeout = captured["request"].payload["timeout_seconds"]
+    assert 0 < spec_timeout < 30 and spec_timeout == 5.0
+    assert 0 < child_timeout < 30 and child_timeout == 5.0
+
+
+def test_completed_result_after_deadline_raises_provider_deadline_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.application.provider_adapter import ProviderDeadlineExceeded
+
+    transport = worker.ProcessIsolatedJsonProviderTransport(
+        timeout_seconds=30,
+        max_response_bytes=1024,
+        max_ipc_bytes=2048,
+        cancellation_grace_seconds=0.1,
+        deadline_monotonic=100.0,
+    )
+    _install_module_clock(monkeypatch, 95.0, 105.0)
+
+    def late_completed_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        return worker.CapabilityWorkerResult(
+            "r",
+            worker.CapabilityWorkerStatus.COMPLETED,
+            payload={"provider_response": {"ok": True}},
+        )
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", late_completed_run)
+    with pytest.raises(ProviderDeadlineExceeded, match="expired"):
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=_provenance(),
+        )
+
+
 def test_provider_failure_message_sanitizes_unknown_errors() -> None:
     for code in ("raw-sensitive-detail", "provider-http-status-429-secret"):
         assert (

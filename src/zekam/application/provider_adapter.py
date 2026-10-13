@@ -67,6 +67,12 @@ class ProviderCallCancelled(PolicyViolation):
     code = "provider-call-cancelled"
 
 
+class ProviderDeadlineExceeded(ProbeUnavailable):
+    """The caller's total provider deadline expired."""
+
+    code = "provider-deadline-exceeded"
+
+
 def validated_provider_endpoint(value: str) -> str:
     """Yalniz HTTPS veya loopback HTTP endpoint kabul eder."""
     parsed = urlsplit(value)

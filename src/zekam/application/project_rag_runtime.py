@@ -65,7 +65,11 @@ from zekam.application.oracle_metadata_index import (
     load_project_oracle_datasource,
 )
 from zekam.application.project_knowledge_index import ProjectIndexPlan, build_project_index_plan
-from zekam.application.provider_adapter import ProviderCallCancelled, ProviderHTTPUnavailable
+from zekam.application.provider_adapter import (
+    ProviderCallCancelled,
+    ProviderDeadlineExceeded,
+    ProviderHTTPUnavailable,
+)
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.application.provider_contract_runner import (
     ProviderExecutionHost,
@@ -124,6 +128,8 @@ from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
 MODEL_ID = "openai/BAAI/bge-m3"
+DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
+MAX_INDEX_TIMEOUT_SECONDS = 7200.0
 MAX_EMBED_BATCH_TOKENS = 8_192
 MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
@@ -1102,6 +1108,7 @@ def _provider(
     *,
     remote_authorized: bool,
     cancel: threading.Event | None = None,
+    deadline_monotonic: float | None = None,
 ) -> _EmbeddingBinding:
     _assert_canonical_knowledge_profile(knowledge)
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
@@ -1150,8 +1157,10 @@ def _provider(
     host = SQLiteProviderLedgerHost(ledger_path, realm_id)
     transport = (
         ProcessIsolatedJsonProviderTransport()
-        if cancel is None
-        else ProcessIsolatedJsonProviderTransport(cancel=cancel)
+        if cancel is None and deadline_monotonic is None
+        else ProcessIsolatedJsonProviderTransport(
+            cancel=cancel, deadline_monotonic=deadline_monotonic
+        )
     )
     client = LiveProcessClient(configuration, transport)
 
@@ -1429,32 +1438,53 @@ def _embed_documents_with_retry(
     policy: EmbeddingPolicy,
     *,
     cancel: threading.Event | None = None,
+    deadline_monotonic: float | None = None,
 ) -> EmbeddingBatch:
     """Retry only transport-unavailable document embeddings with a strict bound."""
 
     for attempt in range(4):
-        _raise_if_index_cancelled(cancel)
+        _check_index_budget(cancel, deadline_monotonic)
         try:
             batch = provider.embed_documents(texts, policy)
-            _raise_if_index_cancelled(cancel)
+            _check_index_budget(cancel, deadline_monotonic)
             return batch
         except ProbeUnavailable as exc:
-            _raise_if_index_cancelled(cancel)
-            if attempt == 3 or (
+            _check_index_budget(cancel, deadline_monotonic)
+            if attempt == 3 or isinstance(exc, ProviderDeadlineExceeded) or (
                 isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable
             ):
                 raise
             delay = min(2**attempt, 4)
+            if deadline_monotonic is not None:
+                delay = min(delay, deadline_monotonic - time.monotonic())
+                if delay <= 0:
+                    raise ProviderDeadlineExceeded("Project index total deadline expired") from None
             if cancel is None:
                 time.sleep(delay)
             elif cancel.wait(delay):
                 raise ProviderCallCancelled("Project indexing cancelled") from None
+            _check_index_budget(cancel, deadline_monotonic)
     raise AssertionError("unreachable")
 
 
 def _raise_if_index_cancelled(cancel: threading.Event | None) -> None:
     if cancel is not None and cancel.is_set():
         raise ProviderCallCancelled("Project indexing cancelled")
+
+
+def _check_index_budget(cancel: threading.Event | None, deadline_monotonic: float | None) -> None:
+    _raise_if_index_cancelled(cancel)
+    if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+        raise ProviderDeadlineExceeded("Project index total deadline expired")
+
+
+def _new_index_deadline(timeout_seconds: float) -> float:
+    if (
+        type(timeout_seconds) not in (int, float)
+        or not 0 < timeout_seconds <= MAX_INDEX_TIMEOUT_SECONDS
+    ):
+        raise ValidationFailed("Project index timeout 0..7200 saniye olmali")
+    return time.monotonic() + float(timeout_seconds)
 
 
 def _embedding_batches(
@@ -2104,8 +2134,11 @@ def _index(
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
     cancel: threading.Event | None = None,
+    deadline_monotonic: float | None = None,
 ) -> dict[str, Any]:
-    _raise_if_index_cancelled(cancel)
+    if deadline_monotonic is None:
+        deadline_monotonic = _new_index_deadline(DEFAULT_INDEX_TIMEOUT_SECONDS)
+    _check_index_budget(cancel, deadline_monotonic)
     paths = _runtime_paths(home, project_slug)
     knowledge = load_settings(home=paths["home"]).knowledge
     _assert_canonical_knowledge_profile(knowledge)
@@ -2116,7 +2149,7 @@ def _index(
         project_slug=project_slug,
         knowledge=knowledge,
     )
-    _raise_if_index_cancelled(cancel)
+    _check_index_budget(cancel, deadline_monotonic)
     oracle_plan: OracleMetadataIndexPlan | None = None
     oracle_receipt: dict[str, object] | None = None
     if oracle_config is not None:
@@ -2124,7 +2157,7 @@ def _index(
         snapshot, oracle_receipt = _collect_oracle_with_receipt(
             paths["home"], project_id, datasource
         )
-        _raise_if_index_cancelled(cancel)
+        _check_index_budget(cancel, deadline_monotonic)
         oracle_plan = build_oracle_metadata_index_plan(
             project_id=project_id,
             project_slug=project_slug,
@@ -2140,7 +2173,7 @@ def _index(
             project_slug=project_slug,
             source=Path(str(odi_binding["source_file"])),
         )
-        _raise_if_index_cancelled(cancel)
+        _check_index_budget(cancel, deadline_monotonic)
     binding = _provider(
         paths["home"],
         paths["ledger"],
@@ -2150,8 +2183,9 @@ def _index(
         knowledge,
         remote_authorized=authorize_remote_source,
         cancel=cancel,
+        deadline_monotonic=deadline_monotonic,
     )
-    _raise_if_index_cancelled(cancel)
+    _check_index_budget(cancel, deadline_monotonic)
     provider = binding.provider
     policy = binding.policy
     profile = provider.describe()
@@ -2230,10 +2264,12 @@ def _index(
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
         for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
-            _raise_if_index_cancelled(cancel)
+            _check_index_budget(cancel, deadline_monotonic)
             texts = tuple(chunk.text for chunk in batch)
-            embedded = _embed_documents_with_retry(provider, texts, policy, cancel=cancel)
-            _raise_if_index_cancelled(cancel)
+            embedded = _embed_documents_with_retry(
+                provider, texts, policy, cancel=cancel, deadline_monotonic=deadline_monotonic
+            )
+            _check_index_budget(cancel, deadline_monotonic)
             verify_document_embedding_batch(texts, embedded, profile)
             connection.execute("begin immediate")
             try:
@@ -2374,7 +2410,7 @@ def _index(
     )
     records = source_records + oracle_records + odi_records
     # Once the generation transaction starts, finish its atomic publish as one unit.
-    _raise_if_index_cancelled(cancel)
+    _check_index_budget(cancel, deadline_monotonic)
     with SQLiteKnowledgeIndex(paths["index"], create=not paths["index"].exists()) as index:
         generation = index.build_generation(
             records,
@@ -2684,9 +2720,11 @@ def index_registered_project(
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
     cancel: threading.Event | None = None,
+    timeout_seconds: float = DEFAULT_INDEX_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
+    deadline_monotonic = _new_index_deadline(timeout_seconds)
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValidationFailed("Batch size 1..64 araliginda olmali")
     slug = validate_slug(project_slug)
@@ -2710,6 +2748,7 @@ def index_registered_project(
         authorize_odi_metadata=authorize_odi_metadata,
         authorize_remote_source=authorize_remote_source,
         cancel=cancel,
+        deadline_monotonic=deadline_monotonic,
     )
 
 

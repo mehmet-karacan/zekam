@@ -776,6 +776,15 @@ WP-05.04 staging tasariminda yeniden ele alinacaktir. Ilgili 207
 cevrimdisi test gecti, iki POSIX-only test Windows'ta atlandi. Toplam
 deadline, kota butcesi ve canli kabul kaniti aciktir; WP-05.03 acik.
 
+**13 Ekim 2026 ara durum — toplam indeks sure butcesi:** Kayitli proje
+indeksi varsayilan 1800 saniyelik, en fazla 7200 saniyelik monotonic
+son zamana baglandi. Hazirlik, probe, batch ve retry ayni sureyi kullanir;
+process-isolated HTTP child her cagrida kalan sureye gore kisalir.
+Son zamandan sonra tamamlanan yanit reddedilir ve retry beklemesi kalan
+sureyi asmaz. Ilgili 213 cevrimdisi test gecti, iki POSIX-only test
+Windows'ta atlandi. Nesil transaction'i basladiktan sonra atomik yayin
+tamamlanir; kota butcesi ve canli kabul kaniti aciktir. WP-05.03 acik.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

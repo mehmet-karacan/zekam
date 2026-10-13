@@ -15,7 +15,11 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.model_health_service import ProbeUnavailable
-from zekam.application.provider_adapter import ProviderCallCancelled, ProviderHTTPUnavailable
+from zekam.application.provider_adapter import (
+    ProviderCallCancelled,
+    ProviderDeadlineExceeded,
+    ProviderHTTPUnavailable,
+)
 from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -1039,6 +1043,67 @@ def test_project_index_preset_cancel_fails_before_workspace_mutation(tmp_path: P
             cancel=cancel,
         )
     assert not (tmp_path / "missing-home").exists()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 7201, True, float("inf"), float("nan")])
+def test_index_total_timeout_rejects_invalid_budget(timeout: object) -> None:
+    with pytest.raises(ValidationFailed, match="timeout"):
+        runtime._new_index_deadline(cast(Any, timeout))
+
+
+def test_index_expired_deadline_fails_before_workspace_mutation(tmp_path: Path) -> None:
+    with pytest.raises(ProviderDeadlineExceeded):
+        runtime._index(
+            tmp_path / "missing-source",
+            tmp_path / "missing-home",
+            uuid4(),
+            "sample",
+            None,
+            None,
+            batch_size=1,
+            deadline_monotonic=runtime.time.monotonic() - 1,
+        )
+    assert not (tmp_path / "missing-home").exists()
+
+
+def test_document_embedding_backoff_respects_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = SimpleNamespace(now=0.0, waits=[])
+
+    def sleep(seconds: float) -> None:
+        clock.waits.append(seconds)
+        clock.now += seconds
+
+    monkeypatch.setattr(runtime, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep))
+    provider = _TransientProvider(failures=4)
+    with pytest.raises(ProviderDeadlineExceeded):
+        runtime._embed_documents_with_retry(
+            cast(Any, provider),
+            ("one",),
+            cast(Any, object()),
+            deadline_monotonic=0.5,
+        )
+    assert provider.calls == 1
+    assert clock.waits == [0.5]
+
+
+def test_document_embedding_late_result_is_discarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(runtime, "time", SimpleNamespace(monotonic=lambda: clock.now))
+
+    class LateProvider:
+        def embed_documents(self, _texts: object, _policy: object) -> object:
+            clock.now = 2.0
+            return object()
+
+    with pytest.raises(ProviderDeadlineExceeded):
+        runtime._embed_documents_with_retry(
+            cast(Any, LateProvider()),
+            ("one",),
+            cast(Any, object()),
+            deadline_monotonic=1.0,
+        )
 
 
 def test_ordinary_directory_uses_digest_bound_source_identity(tmp_path: Path) -> None:
