@@ -498,20 +498,29 @@ def test_registry_discovery_and_remaining_routing_guards(
             expected_artifact_digest=expected,
             now=NOW,
         )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: cast(Any, type("R", (), {"returncode": 1, "stdout": b"", "stderr": b""})()),
-    )
-    with pytest.raises(PolicyViolation, match="version"):
-        registry.discover_installed_client(
-            executable,
-            client_id="codex",
-            device_id="d",
-            private_root=private,
-            expected_artifact_digest=expected,
-            now=NOW,
+    actual_run = subprocess.run
+
+    def fail_client_version(*args: Any, **kwargs: Any) -> Any:
+        command = args[0]
+        if command == [str(executable), "--version"]:
+            return type("R", (), {"returncode": 1, "stdout": b"", "stderr": b""})()
+        return actual_run(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            subprocess,
+            "run",
+            fail_client_version,
         )
+        with pytest.raises(PolicyViolation, match="version"):
+            registry.discover_installed_client(
+                executable,
+                client_id="codex",
+                device_id="d",
+                private_root=private,
+                expected_artifact_digest=expected,
+                now=NOW,
+            )
     store = _registry(tmp_path)
     model = registry.LocalModelIdentity("openai", "gpt-5", "1")
     snapshot = _snapshot(model)
