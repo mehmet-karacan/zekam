@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import math
 import re
+import stat
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -217,7 +218,14 @@ def _is_supported(relative_path: str) -> bool:
     return path.suffix.lower() in _SUPPORTED_SUFFIXES or path.name.lower() in _SUPPORTED_NAMES
 
 
-def _verified_text(root: Path, relative_path: str, expected_digest: str) -> str | None:
+def _verified_text(
+    root: Path,
+    relative_path: str,
+    expected_digest: str,
+    *,
+    expected_size: int | None = None,
+    max_bytes: int = DiscoveryPolicy().max_file_bytes,
+) -> str | None:
     candidate = root.joinpath(*PurePosixPath(relative_path).parts)
     current = root
     for part in PurePosixPath(relative_path).parts:
@@ -230,12 +238,30 @@ def _verified_text(root: Path, relative_path: str, expected_digest: str) -> str 
     except (OSError, ValueError) as exc:
         raise PolicyViolation("Kaynak indeks yolu kok disina cikamaz") from exc
     before = resolved.stat()
-    payload = resolved.read_bytes()
+    size = before.st_size if expected_size is None else expected_size
+    if (
+        size < 0
+        or max_bytes < 0
+        or size > max_bytes
+        or before.st_size != size
+        or not stat.S_ISREG(before.st_mode)
+    ):
+        raise PolicyViolation("Kaynak dosya boyutu taramadan sonra degisti")
+    payload = bytearray()
+    with resolved.open("rb") as handle:
+        while True:
+            chunk = handle.read(min(1 << 20, size + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+            if len(payload) > size:
+                raise PolicyViolation("Kaynak dosya okuma sirasinda buyudu")
     after = resolved.stat()
     if (
-        before.st_size != after.st_size
+        len(payload) != size
+        or before.st_size != after.st_size
         or before.st_mtime_ns != after.st_mtime_ns
-        or digest_of_bytes(payload) != expected_digest
+        or digest_of_bytes(bytes(payload)) != expected_digest
     ):
         raise PolicyViolation("Kaynak dosya taramadan sonra degisti; yeniden tarama gerekli")
     try:
@@ -375,7 +401,13 @@ def build_project_index_plan(
     manifest_files: list[dict[str, Any]] = []
     skipped_encoding = 0
     for item in selected:
-        text = _verified_text(root, item.relative_path, item.content_digest)
+        text = _verified_text(
+            root,
+            item.relative_path,
+            item.content_digest,
+            expected_size=item.size_bytes,
+            max_bytes=discovery.policy.max_file_bytes,
+        )
         if text is None:
             skipped_encoding += 1
             continue

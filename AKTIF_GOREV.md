@@ -600,6 +600,13 @@ envanterden uretilemez; hata metninde kaynak yolu yerine sabit neden kodu
 vardir. Bu kapilar tamamlandi; checkpoint'ten gercek devam ve metadata/icerik
 karar sozlesmelerinin tam ayrimi WP-04.01/02 icin aciktir.
 
+**13 Ekim 2026 ara durum — indeks yeniden okuma siniri:** Indeks plani,
+kesifin kaydettigi dosya boyutunu ikinci okumaya tasir; dogrulanmis okuma
+`read_bytes()` yerine sinirli parcalar kullanir. Dosya stat sonrasi buyurur,
+kuculur veya digest/mtime degisirse plan fail-closed reddedilir. Ikinci
+okuma aninda buyume regresyonu gecti. WP-04.03 yapisal kod parcasi ve diger
+belge kabul maddeleri aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

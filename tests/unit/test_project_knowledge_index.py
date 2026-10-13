@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -89,6 +90,39 @@ def test_project_plan_rejects_tree_drift(tmp_path: Path) -> None:
             source_revision="abc123",
             expected_tree_digest=tree_digest,
         )
+
+
+def test_project_plan_rejects_file_growth_between_discovery_and_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "gpu"
+    root.mkdir()
+    source = root / "main.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    tree_digest = discover(root).tree_digest
+    original_open = Path.open
+    opens = 0
+
+    def grow_on_verified_read(path: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal opens
+        if path == source:
+            opens += 1
+            if opens == 2:
+                with original_open(source, "ab") as writer:
+                    writer.write(b"# source changed\n")
+        return original_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(Path, "open", grow_on_verified_read)
+        with pytest.raises(PolicyViolation, match="buyudu"):
+            build_project_index_plan(
+                project_id=uuid4(),
+                project_slug="gpu",
+                source_root=root,
+                source_revision="abc123",
+                expected_tree_digest=tree_digest,
+            )
+    assert opens == 2
 
 
 def test_project_plan_succeeds_on_complete_inventory(tmp_path: Path) -> None:
