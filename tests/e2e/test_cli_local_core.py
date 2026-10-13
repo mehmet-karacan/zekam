@@ -55,6 +55,13 @@ def test_real_setup_is_digest_bound_replayable_and_does_not_need_docker(tmp_path
     environment = os.environ.copy()
     environment["PATH"] = isolated_path
     assert shutil.which("docker", path=environment["PATH"]) is None
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        str(source_root)
+        if not existing_pythonpath
+        else str(source_root) + os.pathsep + existing_pythonpath
+    )
     prefix = (sys.executable, "-m", "zekam.interfaces.cli.main", "setup")
 
     planned = subprocess.run(
