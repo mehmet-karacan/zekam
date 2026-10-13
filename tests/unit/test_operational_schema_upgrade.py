@@ -271,9 +271,12 @@ def interrupted(connection, sql):
 schema._execute_script = interrupted
 schema.upgrade(Path(sys.argv[1]), target_version=2)
 """
+    repo_src = str(Path(__file__).resolve().parents[2] / "src")
+    existing_pythonpath = os.environ.get("PYTHONPATH")
+    pythonpath = f"{repo_src}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else repo_src
     result = subprocess.run(
         [sys.executable, "-c", script, str(path)],
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={**os.environ, "PYTHONPATH": pythonpath, "PYTHONDONTWRITEBYTECODE": "1"},
         check=False,
         capture_output=True,
         timeout=15,
