@@ -542,6 +542,20 @@ dogal dille ozetlemesini soyler; kullanicidan komut/digest/UUID/JSON yazmasini
 istemez. Native istemcide taze oturum, gercek skill secimi ve komut cagrisinin
 olculmesi henuz yapilmadigi icin WP-03.04 aciktir.
 
+**13 Ekim 2026 ara durum — WP-03.05 yapisal kanit kapisi:**
+OpenCode Qwen tarafindan ayri `natural_request_answer.py` aciklama katmani
+eklendi; koordinator incelemesinde gercek RAG `project_id` UUID'sinin proje
+slug'undan farkli oldugu ve ilk taslagin sahte islem basarisi metnini
+gecirdigi saptandi. Kayitli proje status readback UUID'si retrieval entry'sine
+eklendi, RAG sonucu ve citation `project_scope` ile eslestirildi. Kismi coklu
+proje sonucu, eksik locator, abstain/evidence uyusmazligi ve bazi islem basarisi
+ifadeleri fail-closed yanita doner. Ilgili 123 test gecti, bir Windows symlink
+testi yetki nedeniyle atlandi; Ruff ve hedefli mypy temiz. Bu yalniz yapisal
+kanittir: citation'in onerilen her cumleyi anlamsal olarak destekledigi
+dogrulanmadi, islem basarisi dil filtresi tum dogal dil varyantlarini kapsamaz,
+aciklama kalici kayda ve native cevap akisine baglanmadi. Bu yuzden WP-03.05
+ve WP-03'un nihai kullanici kabulu aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  

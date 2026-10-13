@@ -25,6 +25,11 @@ from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
 REGISTERED = frozenset({"gpu-fusion", "sky-spring-ui", "sky-microservis"})
+PROJECT_IDS = {
+    "gpu-fusion": "11111111-1111-4111-8111-111111111111",
+    "sky-spring-ui": "22222222-2222-4222-8222-222222222222",
+    "sky-microservis": "33333333-3333-4333-8333-333333333333",
+}
 PROJECTS = tuple(RegisteredProject(ref) for ref in sorted(REGISTERED))
 CATALOG = load_project_families()
 
@@ -62,11 +67,16 @@ def _install_fakes(
         if raise_error is not None:
             raise raise_error(f"fake {slug}")
         result = status if status is not None else READY
-        return dict(result)
+        return dict(result) | {"project_id": PROJECT_IDS[slug]}
 
     def fake_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
         calls.append(("query", home, slug, question, dict(kwargs)))
-        return {"state": "answered", "project": slug, "citations": []}
+        return {
+            "state": "answered",
+            "project": slug,
+            "project_id": PROJECT_IDS[slug],
+            "citations": [],
+        }
 
     monkeypatch.setattr(subject, "project_rag_status", fake_status)
     monkeypatch.setattr(subject, "query_registered_project", fake_query)
@@ -316,7 +326,7 @@ def test_unresolvable_project_is_unavailable_and_siblings_still_answer(
         calls.append(("status", home, slug))
         if slug == "sky-microservis":
             raise ValidationFailed("fake unresolvable")
-        return dict(READY)
+        return dict(READY) | {"project_id": PROJECT_IDS[slug]}
 
     monkeypatch.setattr(subject, "project_rag_status", flaky_status)
 
@@ -365,6 +375,38 @@ def test_blocked_status_is_not_reported_as_missing_index(
     assert _query_calls(calls) == []
 
 
+def test_status_probe_missing_project_identity_prevents_query(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _install_fakes(monkeypatch)
+    monkeypatch.setattr(subject, "project_rag_status", lambda _home, _slug: dict(READY))
+    scope = _selected_scope(("gpu-fusion",), "route")
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+    assert outcome["reason_codes"] == ["project-binding-unavailable"]
+    assert _query_calls(calls) == []
+
+
+def test_query_project_identity_must_match_status_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _install_fakes(monkeypatch)
+
+    def wrong_query(home: Path, slug: str, question: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("query", home, slug, question, dict(kwargs)))
+        return {"project_id": PROJECT_IDS["sky-spring-ui"], "citations": []}
+
+    monkeypatch.setattr(subject, "query_registered_project", wrong_query)
+    scope = _selected_scope(("gpu-fusion",), "route")
+    outcome = retrieve_natural_request(
+        scope, tmp_path, "GPU servisleri", registered_project_refs=REGISTERED
+    )
+    assert outcome["reason_codes"] == ["project-binding-mismatch"]
+    assert outcome["results"][0]["result"] is None
+    assert outcome["query_count"] == 1
+
+
 def test_query_failure_is_isolated_per_project(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -375,7 +417,12 @@ def test_query_failure_is_isolated_per_project(
         calls.append(("query", home, slug, question, dict(kwargs)))
         if slug == "sky-spring-ui":
             raise PolicyViolation("query blocked")
-        return {"state": "answered", "project": slug, "citations": []}
+        return {
+            "state": "answered",
+            "project": slug,
+            "project_id": PROJECT_IDS[slug],
+            "citations": [],
+        }
 
     monkeypatch.setattr(subject, "query_registered_project", flaky_query)
     outcome = retrieve_natural_request(

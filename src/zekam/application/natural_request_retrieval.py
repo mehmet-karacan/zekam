@@ -158,6 +158,15 @@ def retrieve_natural_request(
                 entry["result"] = None
                 unavailable_reasons.append("index-unavailable")
             else:
+                project_id = probe.get("project_id")
+                if not isinstance(project_id, str) or not project_id:
+                    entry["status"] = "unavailable"
+                    entry["unavailable_reason"] = "project-binding-unavailable"
+                    entry["result"] = None
+                    unavailable_reasons.append("project-binding-unavailable")
+                    results.append(entry)
+                    continue
+                entry["project_id"] = project_id
                 entry["query_attempted"] = True
                 try:
                     answer = query_registered_project(
@@ -172,9 +181,15 @@ def retrieve_natural_request(
                     entry["result"] = None
                     unavailable_reasons.append("query-unavailable")
                 else:
-                    entry["status"] = "answered"
-                    entry["unavailable_reason"] = None
-                    entry["result"] = answer
+                    if not isinstance(answer, dict) or answer.get("project_id") != project_id:
+                        entry["status"] = "unavailable"
+                        entry["unavailable_reason"] = "project-binding-mismatch"
+                        entry["result"] = None
+                        unavailable_reasons.append("project-binding-mismatch")
+                    else:
+                        entry["status"] = "answered"
+                        entry["unavailable_reason"] = None
+                        entry["result"] = answer
         results.append(entry)
 
     answered = sum(1 for item in results if item["status"] == "answered")
