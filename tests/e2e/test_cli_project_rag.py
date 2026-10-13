@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
+from zekam.application import natural_request_retrieval as retrieval_subject
 from zekam.application.config import EmbeddingRoute
+from zekam.application.home import HomeLayout
 from zekam.domain.errors import PolicyViolation
+from zekam.infrastructure.sqlite.operational_schema import bootstrap
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import main as cli
 
 
@@ -449,3 +454,424 @@ def test_ask_json_providerless_never_claims_generated_answer(
     assert retrieval["answer_kind"] == "abstained"
     assert retrieval["answer_kind"] != "generated_answer"
     assert retrieval["citations"] == []
+
+
+# -- WP-03.03: acik iki kayitli proje karsilastirma fan-out'u -------------------
+
+
+def _comparison_question() -> str:
+    """Aci iki kayitli proje sinyali: ``sky-tile`` aile alias'i iki uyeyi de
+    (sky-spring-ui, sky-microservis) paralel RAG stratejisiyle secilir;
+    ``karsilastir`` acik karsilastirma ifadesidir."""
+    return "sky-tile mimarisini karsilastir"
+
+
+def _comparison_home(tmp_path: Path) -> Path:
+    """Iki kayitli proje tasiyan gecici ZEKAM_HOME (indeks dosyasi yok)."""
+
+    layout = HomeLayout(tmp_path / "zekam-home").ensure()
+    layout.ensure_project("sky-spring-ui")
+    layout.ensure_project("sky-microservis")
+    bootstrap(layout.root / "state" / "operational.db")
+    store = SQLiteOperationalStore(layout.root / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        uow.create_project(slug="sky-spring-ui", display_name="Sky Spring UI")
+        uow.create_project(slug="sky-microservis", display_name="Sky Microservis")
+        uow.commit()
+    return layout.root
+
+
+def _fanout_documents() -> tuple[dict[str, Any], dict[str, Any]]:
+    return (
+        {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "project_id": "22222222-2222-4222-8222-222222222222",
+            "answer_excerpt": "sky-spring-ui cevabi",
+        },
+        {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "project_id": "33333333-3333-4333-8333-333333333333",
+            "answer_excerpt": "sky-microservis cevabi",
+        },
+    )
+
+
+def test_ask_without_project_on_open_comparison_fans_out_to_two_scoped_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Acik iki kayitli proje karsilastirma sorusu (``--project`` verilmeden)
+    deterministic ``route_request`` + ``resolve_natural_request_scope`` +
+    kanonik ``retrieve_natural_request`` yolundan iki AYRI scoped sonuc
+    dondurur; sessiz fallback veya indeksleme olmaz."""
+
+    home = _comparison_home(tmp_path)
+    question = _comparison_question()
+    docs = _fanout_documents()
+    calls: list[tuple[str, dict[str, Any]]] = []
+    project_ids = {
+        "sky-spring-ui": "22222222-2222-4222-8222-222222222222",
+        "sky-microservis": "33333333-3333-4333-8333-333333333333",
+    }
+
+    def fake_status(home_arg: Path, slug: str) -> dict[str, Any]:
+        return {
+            "state": "ready",
+            "index_readable": True,
+            "project_id": project_ids[slug],
+        }
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append((slug, q, dict(kwargs)))
+        return (docs[0] if slug == "sky-spring-ui" else docs[1]) | {"project_slug": slug}
+
+    monkeypatch.setattr(retrieval_subject, "project_rag_status", fake_status)
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+    # Legacy yolun fan-out sorusunda calismamasi gerekir (sessiz fallback yok).
+    monkeypatch.setattr(cli, "resolve_question_project", lambda *_: pytest.fail("legacy fallback"))
+
+    result = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["schema"] == "zekam-ask-multi-result/v1"
+    assert document["project_refs"] == ["sky-spring-ui", "sky-microservis"]
+    assert document["route"] == "natural-request-retrieval"
+    retrieval = document["retrieval"]
+    assert retrieval["schema"] == "zekam-natural-request-retrieval/v1"
+    assert retrieval["status"] == "answered"
+    assert retrieval["project_refs"] == ["sky-spring-ui", "sky-microservis"]
+    assert retrieval["index_triggered"] is False
+    assert retrieval["query_count"] == 2
+    assert retrieval["grants_authority"] is False
+    by_ref = {item["project_ref"]: item for item in retrieval["results"]}
+    assert set(by_ref) == {"sky-spring-ui", "sky-microservis"}
+    assert by_ref["sky-spring-ui"]["status"] == "answered"
+    assert by_ref["sky-spring-ui"]["result"]["answer_excerpt"] == "sky-spring-ui cevabi"
+    assert by_ref["sky-spring-ui"]["result"]["project_slug"] == "sky-spring-ui"
+    assert by_ref["sky-microservis"]["status"] == "answered"
+    assert by_ref["sky-microservis"]["result"]["answer_excerpt"] == "sky-microservis cevabi"
+    assert by_ref["sky-microservis"]["result"]["project_slug"] == "sky-microservis"
+    # Deterministik scope sirasi: route_refs (aile ureye) ile birebir ayni.
+    assert [item["project_ref"] for item in retrieval["results"]] == [
+        "sky-spring-ui",
+        "sky-microservis",
+    ]
+    # Her iki proje icin ayri, ayni soruyu tasiyan sorgu; sessiz fallback yok.
+    assert [(slug, q) for slug, q, _kwargs in calls] == [
+        ("sky-spring-ui", question),
+        ("sky-microservis", question),
+    ]
+    assert all(
+        kwargs["opencode_config"] == cli._DEFAULT_OPENCODE_CONFIG_FILE
+        for _slug, _q, kwargs in calls
+    )
+    assert all(kwargs["authorize_remote_query"] is False for _slug, _q, kwargs in calls)
+
+
+def test_ask_fanout_reports_missing_indices_without_indexing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fan-out'ta indeks eksik ise her proje ``unavailable``/``index-unavailable``
+    olarak raporlanir; query cagrisi ve indeksleme baslatilmaz."""
+
+    home = _comparison_home(tmp_path)
+    question = _comparison_question()
+    query_calls: list[str] = []
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        query_calls.append(slug)
+        return {}
+
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["route"] == "natural-request-retrieval"
+    retrieval = document["retrieval"]
+    assert retrieval["status"] == "unavailable"
+    assert retrieval["query_count"] == 0
+    assert retrieval["index_triggered"] is False
+    assert "index-unavailable" in retrieval["reason_codes"]
+    assert [(item["status"], item["unavailable_reason"]) for item in retrieval["results"]] == [
+        ("unavailable", "index-unavailable"),
+        ("unavailable", "index-unavailable"),
+    ]
+    assert query_calls == []
+
+
+def test_ask_fanout_partial_index_keeps_scoped_results_apart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fan-out'ta bir projenin indeksi eksikse o proje ``unavailable`` kalir;
+    diyer proje kendi indeksinden cevap verir, sonuclar karistirilmez."""
+
+    home = _comparison_home(tmp_path)
+    question = _comparison_question()
+    docs = _fanout_documents()
+    queried: list[str] = []
+
+    def fake_status(home_arg: Path, slug: str) -> dict[str, Any]:
+        if slug == "sky-spring-ui":
+            return {
+                "state": "ready",
+                "index_readable": True,
+                "project_id": "22222222-2222-4222-8222-222222222222",
+            }
+        return {"state": "unavailable", "index_readable": False}
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        queried.append(slug)
+        return docs[0] | {"project_slug": slug}
+
+    monkeypatch.setattr(retrieval_subject, "project_rag_status", fake_status)
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.output
+    retrieval = json.loads(result.output)["retrieval"]
+    assert retrieval["status"] == "answered"
+    assert retrieval["query_count"] == 1
+    assert retrieval["index_triggered"] is False
+    by_ref = {item["project_ref"]: item for item in retrieval["results"]}
+    assert by_ref["sky-microservis"]["status"] == "unavailable"
+    assert by_ref["sky-microservis"]["unavailable_reason"] == "index-unavailable"
+    assert by_ref["sky-microservis"]["result"] is None
+    assert by_ref["sky-spring-ui"]["status"] == "answered"
+    assert by_ref["sky-spring-ui"]["result"]["project_slug"] == "sky-spring-ui"
+    assert by_ref["sky-spring-ui"]["result"]["project_id"] == docs[0]["project_id"]
+    assert queried == ["sky-spring-ui"]
+
+
+def test_ask_fanout_preserves_remote_query_authorization_propagation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fan-out yolunda ``--authorize-remote-query`` her scoped sorguya birebir
+    iletilir (semantik bozulmaz)."""
+
+    home = _comparison_home(tmp_path)
+    question = _comparison_question()
+    docs = _fanout_documents()
+    observed: list[bool] = []
+    project_ids = {
+        "sky-spring-ui": "22222222-2222-4222-8222-222222222222",
+        "sky-microservis": "33333333-3333-4333-8333-333333333333",
+    }
+
+    def fake_status(home_arg: Path, slug: str) -> dict[str, Any]:
+        return {
+            "state": "ready",
+            "index_readable": True,
+            "project_id": project_ids[slug],
+        }
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        observed.append(bool(kwargs["authorize_remote_query"]))
+        return (docs[0] if slug == "sky-spring-ui" else docs[1]) | {"project_slug": slug}
+
+    monkeypatch.setattr(retrieval_subject, "project_rag_status", fake_status)
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["ask", question, "--home", str(home), "--json", "--authorize-remote-query"],
+    )
+
+    assert result.exit_code == 0, result.output
+    retrieval = json.loads(result.output)["retrieval"]
+    assert retrieval["remote_query_authorized"] is True
+    assert observed == [True, True]
+
+
+def test_ask_fanout_refuses_cross_project_result_document(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Bir projenin query sonucunu baska projeye baglandigini bildirse fail-closed
+    olur; diyer projenin gecersiz sonucunu sessizce kabul etmez."""
+
+    home = _comparison_home(tmp_path)
+    question = _comparison_question()
+    docs = _fanout_documents()
+    project_ids = {
+        "sky-spring-ui": "22222222-2222-4222-8222-222222222222",
+        "sky-microservis": "33333333-3333-4333-8333-333333333333",
+    }
+
+    def fake_status(home_arg: Path, slug: str) -> dict[str, Any]:
+        return {
+            "state": "ready",
+            "index_readable": True,
+            "project_id": project_ids[slug],
+        }
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        # sky-microservis indeksi, sky-spring-ui sonucunu dondurdu (cross-project).
+        if slug == "sky-microservis":
+            return docs[0] | {"project_slug": "sky-spring-ui"}
+        return docs[0] | {"project_slug": slug}
+
+    monkeypatch.setattr(retrieval_subject, "project_rag_status", fake_status)
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.output
+    retrieval = json.loads(result.output)["retrieval"]
+    by_ref = {item["project_ref"]: item for item in retrieval["results"]}
+    # Baska projenin UUID/project_slug'u tasiyan cevap fail-closed olur.
+    assert by_ref["sky-microservis"]["status"] == "unavailable"
+    assert by_ref["sky-microservis"]["unavailable_reason"] == "project-binding-mismatch"
+    assert by_ref["sky-microservis"]["result"] is None
+    assert by_ref["sky-spring-ui"]["status"] == "answered"
+    assert "project-binding-mismatch" in retrieval["reason_codes"]
+
+
+def test_ask_multi_project_without_comparison_intent_clarifies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Acik iki kayitli proje sinyali acik karsilastirma ifadesi tasiyamazsa
+    kanonik yol clarification doner; query/indeksleme/fallback yok."""
+
+    home = _comparison_home(tmp_path)
+    question = "sky-tile mimarisi"
+    query_calls: list[str] = []
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        query_calls.append(slug)
+        return {}
+
+    monkeypatch.setattr(retrieval_subject, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home), "--json"])
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["route"] == "natural-request-retrieval"
+    retrieval = document["retrieval"]
+    assert retrieval["status"] == "clarification-required"
+    assert retrieval["reason_codes"] == ["comparison-intent-required"]
+    assert retrieval["results"] == []
+    assert retrieval["query_count"] == 0
+    assert retrieval["index_triggered"] is False
+    assert query_calls == []
+
+
+def test_ask_single_project_keeps_legacy_ask_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tek proje sorusu (``--project`` ya da acik) mevcut
+    ``zekam-ask-result/v1`` + dogrudan query semantigini korur;
+    retrieval govdesiyle karistirilmaz."""
+
+    home = _comparison_home(tmp_path)
+    question = "sky-spring-ui servisi nasil calisiyor?"
+    observed: dict[str, Any] = {}
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        observed.update(home=home_arg, project=slug, question=q, **kwargs)
+        return {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "project_id": "22222222-2222-4222-8222-222222222222",
+            "project_slug": slug,
+            "answer_excerpt": "sky-spring-ui cevabi",
+        }
+
+    monkeypatch.setattr(cli, "query_registered_project", fake_query)
+
+    explicit = CliRunner().invoke(
+        cli.app,
+        [
+            "ask",
+            question,
+            "--project",
+            "sky-spring-ui",
+            "--home",
+            str(home),
+            "--json",
+            "--authorize-remote-query",
+        ],
+    )
+
+    assert explicit.exit_code == 0, explicit.output
+    document = json.loads(explicit.output)
+    assert document["schema"] == "zekam-ask-result/v1"
+    assert "route" not in document
+    assert document["project_ref"] == "sky-spring-ui"
+    assert document["retrieval"]["state"] == "answered"
+    assert document["retrieval"]["answer_excerpt"] == "sky-spring-ui cevabi"
+    assert observed["project"] == "sky-spring-ui"
+    assert observed["question"] == question
+    assert observed["opencode_config"] == cli._DEFAULT_OPENCODE_CONFIG_FILE
+    assert observed["authorize_remote_query"] is True
+
+    natural = CliRunner().invoke(
+        cli.app,
+        ["ask", question, "--home", str(home), "--json"],
+    )
+
+    assert natural.exit_code == 0, natural.output
+    document = json.loads(natural.output)
+    assert "route" not in document
+    assert document["project_ref"] == "sky-spring-ui"
+    assert document["retrieval"]["state"] == "answered"
+
+
+def test_ask_unregistered_project_reference_still_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``--project`` ile kayitli olmayan slug mevcut fail-fast hata davranisini
+    korur (sessiz clarification'a donusturulmez)."""
+
+    home = _comparison_home(tmp_path)
+    query_calls: list[str] = []
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        query_calls.append(slug)
+        return {}
+
+    monkeypatch.setattr(cli, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "ask",
+            "Bu proje nasil calisiyor?",
+            "--project",
+            "ghost-project",
+            "--home",
+            str(home),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert query_calls == []
+
+
+def test_ask_general_question_keeps_failure_without_silent_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Proje sinyali tasiyacak genel soru mevcut fail-fast davranisini korur;
+    sessiz proje fallback'i yok."""
+
+    home = _comparison_home(tmp_path)
+    query_calls: list[str] = []
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        query_calls.append(slug)
+        return {}
+
+    monkeypatch.setattr(cli, "query_registered_project", fake_query)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["ask", "Dunya cevresi kac kilometredir?", "--home", str(home), "--json"],
+    )
+
+    assert result.exit_code != 0
+    assert query_calls == []

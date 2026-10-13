@@ -58,6 +58,7 @@ def retrieve_natural_request(
     *,
     registered_project_refs: frozenset[str],
     authorize_remote_query: bool = False,
+    opencode_config: Path | None = None,
 ) -> dict[str, Any]:
     """``NaturalRequestScope`` kararini salt okunur RAG sorgularina baglar.
 
@@ -70,6 +71,11 @@ def retrieve_natural_request(
     gozlem kaydi yazabilir. Dondurulen govde ``grants_authority=False``
     tasir; fonksiyon kendi basina yetki,
     onay veya execution uretmez.
+
+    ``authorize_remote_query`` yalnizca alt katman ``query_registered_project``'e
+    birebir iletilir; ``opencode_config`` verildiyse (``None`` degilse)
+    ayni alt katmana eklenir, verilmemis alt katman kendi varsayilanini kullanir.
+    Bu fonksiyonlari yorumlamaz veya yetki uretmez.
     """
 
     if (
@@ -168,13 +174,11 @@ def retrieve_natural_request(
                     continue
                 entry["project_id"] = project_id
                 entry["query_attempted"] = True
+                query_kwargs: dict[str, Any] = {"authorize_remote_query": authorize_remote_query}
+                if opencode_config is not None:
+                    query_kwargs["opencode_config"] = opencode_config
                 try:
-                    answer = query_registered_project(
-                        resolved_home,
-                        ref,
-                        question,
-                        authorize_remote_query=authorize_remote_query,
-                    )
+                    answer = query_registered_project(resolved_home, ref, question, **query_kwargs)
                 except (PolicyViolation, ValidationFailed):
                     entry["status"] = "unavailable"
                     entry["unavailable_reason"] = "query-unavailable"

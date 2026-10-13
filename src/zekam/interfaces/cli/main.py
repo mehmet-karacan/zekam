@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import typer
@@ -32,12 +32,22 @@ from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
 )
+from zekam.application.natural_request_retrieval import retrieve_natural_request
+from zekam.application.natural_request_scope import (
+    NaturalRequestScope,
+    resolve_natural_request_scope,
+)
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
     query_registered_project,
     resolve_project_source,
     resolve_question_project,
     resolve_registered_project,
+)
+from zekam.application.request_routing import (
+    RegisteredProject,
+    load_project_families,
+    route_request,
 )
 from zekam.application.setup import (
     build_setup_plan,
@@ -51,6 +61,7 @@ from zekam.domain.identity import PRODUCT
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import backup as backup_commands
 from zekam.interfaces.cli import client as client_commands
 from zekam.interfaces.cli import configuration as configuration_commands
@@ -239,6 +250,79 @@ def resume_command(
         console.print(f"siradaki: {document['next_safe_action']}")
 
 
+def _registered_project_refs(resolved_home: Path) -> frozenset[str]:
+    """Operasyonel store'daki aktif proje slug'larini dogrulanmis set olarak dondurur."""
+
+    store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        refs = frozenset(project.slug for project in uow.list_projects(include_archived=False))
+        uow.commit()
+    return refs
+
+
+def _natural_request_scope(
+    resolved_home: Path, question: str
+) -> tuple[NaturalRequestScope, frozenset[str]]:
+    """Return one deterministic scope decision and its verified registry snapshot."""
+
+    registered_refs = _registered_project_refs(resolved_home)
+    route = route_request(
+        question,
+        catalog=load_project_families(),
+        registered_projects=tuple(RegisteredProject(ref) for ref in sorted(registered_refs)),
+    )
+    scope = resolve_natural_request_scope(route, registered_project_refs=registered_refs)
+    return scope, registered_refs
+
+
+def _ask_natural_request_retrieval(
+    resolved_home: Path,
+    question: str,
+    scope: NaturalRequestScope,
+    registered_refs: frozenset[str],
+    *,
+    output_json: bool,
+    authorize_remote_query: bool,
+    opencode_config: Path,
+) -> None:
+    """``--project`` verilmeyen ask'ta kanonik route/scope/retrieval yolunu calistirir.
+
+    WP-03.03: acik iki kayitli proje karsilastirma sorusu deterministic
+    ``route_request`` + ``resolve_natural_request_scope`` +
+    ``retrieve_natural_request`` zincirinden iki ayri scoped sonuc uretir;
+    sessiz fallback veya indeksleme baslatilmaz.
+    """
+
+    retrieval = retrieve_natural_request(
+        scope,
+        resolved_home,
+        question,
+        registered_project_refs=registered_refs,
+        authorize_remote_query=authorize_remote_query,
+        opencode_config=opencode_config,
+    )
+    result: dict[str, Any] = {
+        "schema": "zekam-ask-multi-result/v1",
+        "project_refs": list(scope.project_refs),
+        "route": "natural-request-retrieval",
+        "retrieval": retrieval,
+    }
+    if output_json:
+        _print_json(result)
+        return
+    if retrieval["status"] == "answered":
+        for entry in retrieval["results"]:
+            if entry["status"] != "answered":
+                continue
+            payload = entry["result"] or {}
+            excerpt = payload.get("answer_excerpt")
+            console.print(f"{entry['project_ref']}: {excerpt if excerpt else '(bos cevap)'}")
+    else:
+        status = retrieval["status"]
+        reasons = ", ".join(retrieval["reason_codes"]) or "neden yok"
+        console.print(f"ask: {status} ({reasons})")
+
+
 @app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Proje bilgisi icin exact kullanici sorusu")],
@@ -259,6 +343,21 @@ def ask(
 
     try:
         resolved_home = resolve_home(home).resolve(strict=True)
+        if project is None:
+            natural_scope, registered_refs = _natural_request_scope(resolved_home, question)
+            if natural_scope.status == "selected" and len(natural_scope.project_refs) > 1:
+                # WP-03.03: acik coklu proje karsilastirma; kanonik route/scope/
+                # retrieval yolu iki ayri scoped sonuc dondurur.
+                _ask_natural_request_retrieval(
+                    resolved_home,
+                    question,
+                    natural_scope,
+                    registered_refs,
+                    output_json=output_json,
+                    authorize_remote_query=authorize_remote_query,
+                    opencode_config=opencode_config,
+                )
+                return
         selected_project = (
             resolve_registered_project(resolved_home, project)
             if project is not None
