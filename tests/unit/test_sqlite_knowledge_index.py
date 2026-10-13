@@ -886,3 +886,369 @@ def test_exact_search_does_not_starve_later_identifier(
     # On baseline A fills limit=1 and exact() returns before ever reaching B,
     # so B's unique hit is absent => FAILS.  WP2 must preserve B.
     assert any(hit.chunk_id == "b-only" for hit in hits)
+
+
+# ---------------------------------------------------------------------------
+# WP05.04: staged generation + transaction/CAS pointer publication.
+# The legacy build_generation API and its atomic semantics stay untouched;
+# stage_generation commits the full chunk/fts/vector set in one transaction in
+# 'building' state without touching current_generation or the old ready
+# generation, and publish_staged_generation verifies completeness/digests and
+# flips the pointer with a CAS on the expected old digest in one transaction.
+# ---------------------------------------------------------------------------
+
+
+def _stage(
+    index: SQLiteKnowledgeIndex,
+    records: tuple[KnowledgeIndexRecord, ...],
+    *,
+    project_id: str = "akilli-kasa",
+    revision: str = "rev-1",
+    tree: str = "tree-1",
+    created_at: str = "2026-09-02T00:00:00Z",
+) -> str:
+    generation = index.stage_generation(
+        records,
+        project_id=project_id,
+        source_revision=revision,
+        tree_digest=digest(tree),
+        source_manifest_digest=digest({"manifest": tree}),
+        embedding_profile_digest=digest("embedding-profile"),
+        provider_profile_digest=digest("provider-profile"),
+        created_at=created_at,
+    )
+    return generation.generation_digest
+
+
+def _generation_state(index: SQLiteKnowledgeIndex, generation_digest: str) -> str:
+    return str(
+        index._connection.execute(
+            "select state from generation where generation_digest=?",
+            (generation_digest,),
+        ).fetchone()[0]
+    )
+
+
+def _pointer(index: SQLiteKnowledgeIndex, project_id: str = "akilli-kasa") -> str | None:
+    row = index._connection.execute(
+        "select generation_digest from current_generation where project_id=?", (project_id,)
+    ).fetchone()
+    return str(row[0]) if row is not None else None
+
+
+def test_stage_generation_commits_full_set_building_without_touching_pointer(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index,
+            (
+                _record("new-id", revision="rev-2", text="NEW_ONLY staging"),
+                _record("new-id-2", revision="rev-2", text="NEW_ONLY second chunk", order=1),
+            ),
+            revision="rev-2",
+            tree="tree-2",
+        )
+        # The staged generation is durable in 'building' state with the full
+        # chunk/fts/vector set.
+        assert staged != current
+        assert _generation_state(index, staged) == "building"
+        counts = index._connection.execute(
+            "select (select count(*) from chunk where generation_digest=?),"
+            " (select count(*) from chunk_fts where generation_digest=?),"
+            " (select count(*) from chunk_vector where generation_digest=?)",
+            (staged, staged, staged),
+        ).fetchone()
+        assert tuple(int(value) for value in counts) == (2, 2, 2)
+        # Staging never touches the current pointer nor the old ready
+        # generation, and the old generation stays queryable.
+        assert _pointer(index) == current
+        assert _generation_state(index, current) == "ready"
+        assert index.generation("akilli-kasa").generation_digest == current
+        assert index.exact("akilli-kasa", ("NEW_ONLY",), limit=2) == ()
+        assert index.integrity()["status"] == "passed"
+
+    with SQLiteKnowledgeIndex(path) as restarted:
+        # The staged 'building' row survives restart; nothing was published.
+        assert _generation_state(restarted, staged) == "building"
+        assert _pointer(restarted) == current
+        assert restarted.generation("akilli-kasa").generation_digest == current
+
+
+def test_stage_generation_idempotent_replay_returns_same_building_generation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    records = (
+        _record("new-id", revision="rev-2"),
+        _record("new-id-2", revision="rev-2", text="second chunk body", order=1),
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        first = _stage(index, records, revision="rev-2", tree="tree-2")
+        assert _generation_state(index, first) == "building"
+        second = _stage(index, records, revision="rev-2", tree="tree-2")
+        assert second == first
+        assert _generation_state(index, second) == "building"
+        # No duplicated rows after the idempotent replay.
+        counts = index._connection.execute(
+            "select (select count(*) from chunk where generation_digest=?),"
+            " (select count(*) from chunk_fts where generation_digest=?),"
+            " (select count(*) from chunk_vector where generation_digest=?)",
+            (first, first, first),
+        ).fetchone()
+        assert tuple(int(value) for value in counts) == (2, 2, 2)
+
+
+def test_publish_staged_generation_cas_matches_and_publishes_atomically(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index,
+            (
+                _record("new-id", revision="rev-2", text="PUBLISHED_NEW_ONLY"),
+                _record("new-id-2", revision="rev-2", text="PUBLISHED_SECOND", order=1),
+            ),
+            revision="rev-2",
+            tree="tree-2",
+        )
+        published = index.publish_staged_generation("akilli-kasa", staged, current)
+        assert published.generation_digest == staged
+        assert published.state == "ready"
+        assert published.chunk_count == 2
+        assert _pointer(index) == staged
+        assert _generation_state(index, staged) == "ready"
+        assert _generation_state(index, current) == "superseded"
+        assert index.generation("akilli-kasa").generation_digest == staged
+        assert index.exact("akilli-kasa", ("PUBLISHED_NEW_ONLY",), limit=1)[0].chunk_id == (
+            "new-id"
+        )
+        assert index.integrity()["status"] == "passed"
+
+    with SQLiteKnowledgeIndex(path) as restarted:
+        assert restarted.generation("akilli-kasa").generation_digest == staged
+        assert _pointer(restarted) == staged
+        assert restarted.exact("akilli-kasa", ("PUBLISHED_NEW_ONLY",), limit=1)[0].chunk_id == (
+            "new-id"
+        )
+
+
+def test_publish_staged_generation_first_publication_has_no_current(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        staged = _stage(index, (_record("first-id", text="FIRST_ONLY"),))
+        with pytest.raises(PolicyViolation, match="CAS"):
+            index.publish_staged_generation("akilli-kasa", staged, digest("not-current"))
+        published = index.publish_staged_generation("akilli-kasa", staged, None)
+        assert published.generation_digest == staged
+        assert published.state == "ready"
+        assert _pointer(index) == staged
+        assert index.generation("akilli-kasa").generation_digest == staged
+
+
+def test_publish_staged_generation_cas_mismatch_keeps_old_pointer(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index, (_record("new-id", revision="rev-2"),), revision="rev-2", tree="tree-2"
+        )
+        with pytest.raises(PolicyViolation, match="CAS"):
+            index.publish_staged_generation("akilli-kasa", staged, digest("other-current"))
+        # The failed CAS leaves the staged generation and the old pointer
+        # completely untouched.
+        assert _generation_state(index, staged) == "building"
+        assert _generation_state(index, current) == "ready"
+        assert _pointer(index) == current
+        assert index.generation("akilli-kasa").generation_digest == current
+        # The correct expectation still succeeds afterwards.
+        published = index.publish_staged_generation("akilli-kasa", staged, current)
+        assert published.state == "ready"
+        assert _pointer(index) == staged
+
+
+def test_publish_staged_generation_is_idempotent_when_already_current(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index, (_record("new-id", revision="rev-2"),), revision="rev-2", tree="tree-2"
+        )
+        first = index.publish_staged_generation("akilli-kasa", staged, current)
+        assert first.state == "ready"
+        # Re-publishing the now-current digest with the matching expectation is
+        # an idempotent no-op, not a corruption failure.
+        second = index.publish_staged_generation("akilli-kasa", staged, staged)
+        assert second.generation_digest == staged
+        assert second.state == "ready"
+        assert _pointer(index) == staged
+        assert _generation_state(index, current) == "superseded"
+        assert index.integrity()["status"] == "passed"
+
+
+def test_publish_staged_generation_refuses_partial_or_missing_set(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index,
+            (
+                _record("new-id", revision="rev-2"),
+                _record("new-id-2", revision="rev-2", text="partial partner", order=1),
+            ),
+            revision="rev-2",
+            tree="tree-2",
+        )
+        # Simulate a crash that lost the whole set of one chunk: the staged
+        # generation is incomplete and must never be promoted.
+        index._connection.execute("delete from chunk where id='new-id-2'")
+        index._connection.execute("delete from chunk_fts where id='new-id-2'")
+        index._connection.execute("delete from chunk_vector where id='new-id-2'")
+        with pytest.raises(PolicyViolation, match="butunlu"):
+            index.publish_staged_generation("akilli-kasa", staged, current)
+        assert _generation_state(index, staged) == "building"
+        assert _pointer(index) == current
+        assert index.generation("akilli-kasa").generation_digest == current
+        # A missing generation digest is refused too.
+        with pytest.raises(PolicyViolation, match="bulunamadi"):
+            index.publish_staged_generation("akilli-kasa", digest("absent-generation"), current)
+
+
+def test_publish_staged_generation_refuses_tampered_rows_and_wrong_project(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(
+            index, (_record("new-id", revision="rev-2"),), revision="rev-2", tree="tree-2"
+        )
+        index._connection.execute("update chunk set body='TAMPERED STAGED BODY' where id='new-id'")
+        with pytest.raises(PolicyViolation, match="butunlu"):
+            index.publish_staged_generation("akilli-kasa", staged, current)
+        assert _pointer(index) == current
+        assert _generation_state(index, staged) == "building"
+        # The digest also belongs to a specific project; a cross-project
+        # publish must fail closed.
+        index._connection.execute("update chunk set body='PUBLISHED' where id='new-id'")
+        with pytest.raises(PolicyViolation, match="bulunamadi"):
+            index.publish_staged_generation("other-project", staged, None)
+        assert _pointer(index) == current
+        assert index.generation("akilli-kasa").generation_digest == current
+
+
+@pytest.mark.parametrize("tamper", ["source-digest", "fts-scope"])
+def test_staged_generation_identity_drift_refuses_publish_and_restages(
+    tmp_path: Path, tamper: str
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    record = _record("new-id", revision="rev-2")
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        current = _build(index, (_record("stable-id"),))
+        staged = _stage(index, (record,), revision="rev-2", tree="tree-2")
+        if tamper == "source-digest":
+            index._connection.execute(
+                "update chunk set source_digest=? where id='new-id'", (digest("wrong"),)
+            )
+        else:
+            index._connection.execute(
+                "update chunk_fts set project_id='other-project' where id='new-id'"
+            )
+        with pytest.raises(PolicyViolation, match="butunlu"):
+            index.publish_staged_generation("akilli-kasa", staged, current)
+        assert index.generation("akilli-kasa").generation_digest == current
+        assert _stage(index, (record,), revision="rev-2", tree="tree-2") == staged
+        assert index.publish_staged_generation("akilli-kasa", staged, current).state == "ready"
+
+
+def test_stage_generation_refuses_to_rewrite_a_ready_generation(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        staged = _stage(
+            index, (_record("new-id", revision="rev-2"),), revision="rev-2", tree="tree-2"
+        )
+        index.publish_staged_generation("akilli-kasa", staged, None)
+        assert _generation_state(index, staged) == "ready"
+        with pytest.raises(PolicyViolation, match="ready generation staging"):
+            _stage(index, (_record("new-id", revision="rev-2"),), revision="rev-2", tree="tree-2")
+        # The ready generation keeps its content after the refused re-staging.
+        assert index.generation("akilli-kasa").generation_digest == staged
+        assert index.integrity()["status"] == "passed"
+
+
+def test_stage_generation_partial_staging_crash_is_recovered_by_restage(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    records = (
+        _record("new-id", revision="rev-2", text="RECOVERED_STAGED"),
+        _record("new-id-2", revision="rev-2", text="RECOVERED_PARTNER", order=1),
+    )
+    with SQLiteKnowledgeIndex(path, create=True) as index:
+        # Simulate an interrupted staging run: the 'building' row is
+        # committed by the staged write path; the crash is simulated below.
+        index._stage_generation_locked(
+            records,
+            project_id="akilli-kasa",
+            source_revision="rev-2",
+            tree_digest=digest("tree-2"),
+            source_manifest_digest=digest({"manifest": "tree-2"}),
+            embedding_profile_digest=digest("embedding-profile"),
+            provider_profile_digest=digest("provider-profile"),
+            created_at="2026-09-02T00:00:00Z",
+        )
+    with SQLiteKnowledgeIndex(path) as probe:
+        partial_digest = str(
+            probe._connection.execute(
+                "select generation_digest from generation where state='building'"
+            ).fetchone()[0]
+        )
+    with SQLiteKnowledgeIndex(path) as index:
+        index._connection.execute("delete from chunk where id='new-id-2'")
+        index._connection.execute("delete from chunk_fts where id='new-id-2'")
+        index._connection.execute("delete from chunk_vector where id='new-id-2'")
+        # Publish must refuse the partial set...
+        with pytest.raises(PolicyViolation, match="butunlu"):
+            index.publish_staged_generation("akilli-kasa", partial_digest, None)
+        # ...and a re-staging with the same args atomically replaces the
+        # interrupted set, recovering to a complete 'building' generation.
+        restaged = _stage(index, records, revision="rev-2", tree="tree-2")
+        assert restaged == partial_digest
+        assert _generation_state(index, restaged) == "building"
+        counts = index._connection.execute(
+            "select (select count(*) from chunk where generation_digest=?),"
+            " (select count(*) from chunk_fts where generation_digest=?),"
+            " (select count(*) from chunk_vector where generation_digest=?)",
+            (restaged, restaged, restaged),
+        ).fetchone()
+        assert tuple(int(value) for value in counts) == (2, 2, 2)
+        published = index.publish_staged_generation("akilli-kasa", restaged, None)
+        assert published.state == "ready"
+        assert _pointer(index) == restaged
+        assert index.exact("akilli-kasa", ("RECOVERED_STAGED",), limit=1)[0].chunk_id == ("new-id")
+        assert index.integrity()["status"] == "passed"
+
+
+def test_read_only_index_rejects_stage_and_publish(tmp_path: Path) -> None:
+    path = tmp_path / "knowledge.sqlite3"
+    records = (_record("new-id", revision="rev-2"),)
+    with SQLiteKnowledgeIndex(path, create=True) as writer:
+        staged = _stage(writer, records, revision="rev-2", tree="tree-2")
+    before = _filesystem_snapshot(tmp_path)
+    with SQLiteKnowledgeIndex(path, read_only=True) as reader:
+        with pytest.raises(PolicyViolation, match="read-only"):
+            reader.stage_generation(
+                records,
+                project_id="akilli-kasa",
+                source_revision="rev-2",
+                tree_digest=digest("tree-2"),
+                source_manifest_digest=digest({"manifest": "tree-2"}),
+                embedding_profile_digest=digest("embedding-profile"),
+                provider_profile_digest=digest("provider-profile"),
+                created_at="2026-09-02T00:00:00Z",
+            )
+        with pytest.raises(PolicyViolation, match="read-only"):
+            reader.publish_staged_generation("akilli-kasa", staged, None)
+    assert _filesystem_snapshot(tmp_path) == before

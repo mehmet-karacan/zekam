@@ -796,6 +796,16 @@ raporlanir. Ilgili 236 cevrimdisi test gecti, iki POSIX-only test
 Windows'ta atlandi. Saglayici hesap kotasi gozlemi ve canli kabul kaniti
 acik oldugundan WP-05.03 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — SQLite staging ve CAS temeli:** Yeni
+`stage_generation` tam chunk/FTS/vector setini tek transaction'da
+`building` olarak kalici kilarken hazir nesli ve current pointer'i korur.
+`publish_staged_generation` persisted nesil digest'ini, satir kimliklerini
+ve tamligini denetleyip beklenen onceki pointer ile CAS yapar; mismatch,
+kismi kayit ve bozuk kimlikte eski hazir nesil kalir. Kismi staging tekrar
+kurulabilir. Eski `build_generation` akisi degismedi. Runtime henuz bu
+arayuzu kullanmiyor; `rag-state.json` ile atomik yayin/onarim ve belirsiz
+dis etki uzlastirmasi acik oldugundan WP-05.04 tamamlanmadi.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

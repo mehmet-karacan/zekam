@@ -724,6 +724,390 @@ class SQLiteKnowledgeIndex:
             raise
         return self.generation(project_id)
 
+    def stage_generation(
+        self,
+        records: tuple[KnowledgeIndexRecord, ...],
+        *,
+        project_id: str,
+        source_revision: str,
+        tree_digest: str,
+        source_manifest_digest: str,
+        embedding_profile_digest: str,
+        provider_profile_digest: str,
+        created_at: str,
+    ) -> KnowledgeGeneration:
+        with self._single_writer():
+            return self._stage_generation_locked(
+                records,
+                project_id=project_id,
+                source_revision=source_revision,
+                tree_digest=tree_digest,
+                source_manifest_digest=source_manifest_digest,
+                embedding_profile_digest=embedding_profile_digest,
+                provider_profile_digest=provider_profile_digest,
+                created_at=created_at,
+            )
+
+    def _stage_generation_locked(
+        self,
+        records: tuple[KnowledgeIndexRecord, ...],
+        *,
+        project_id: str,
+        source_revision: str,
+        tree_digest: str,
+        source_manifest_digest: str,
+        embedding_profile_digest: str,
+        provider_profile_digest: str,
+        created_at: str,
+    ) -> KnowledgeGeneration:
+        """Commit one full chunk/fts/vector set as an unpublished 'building' generation.
+
+        The old atomic semantics of :meth:`build_generation` are untouched: staging
+        never touches ``current_generation`` nor the state of the ready/superseded
+        generation.  The complete set becomes durable in a single transaction, so
+        a crash cannot leave a partial staging row behind.  Re-staging an already
+        complete generation is idempotent; a partial 'building' row of the same
+        digest is replaced atomically (crash recovery), while a 'ready' digest is
+        never rewritten.
+        """
+
+        self._require_writable()
+        if not records:
+            raise ValidationFailed("Knowledge generation en az bir kayit ister")
+        if len(records) > MAX_RECORDS_PER_GENERATION:
+            raise ValidationFailed(
+                "Knowledge generation kayit sinirini asiyor: "
+                f"{len(records)} > {MAX_RECORDS_PER_GENERATION}"
+            )
+        if any(
+            record.project_id != project_id or record.source_revision != source_revision
+            for record in records
+        ):
+            raise ValidationFailed("Knowledge generation tek project/revision ister")
+        if len({record.chunk_id for record in records}) != len(records):
+            raise ValidationFailed("Knowledge generation duplicate chunk id tasiyor")
+        for value in (
+            tree_digest,
+            source_manifest_digest,
+            embedding_profile_digest,
+            provider_profile_digest,
+        ):
+            parse_digest(value)
+        generation_digest = self._generation_digest(
+            records,
+            project_id=project_id,
+            source_revision=source_revision,
+            tree_digest=tree_digest,
+            source_manifest_digest=source_manifest_digest,
+            embedding_profile_digest=embedding_profile_digest,
+            provider_profile_digest=provider_profile_digest,
+        )
+        existing = self._connection.execute(
+            "select state from generation where generation_digest=?",
+            (generation_digest,),
+        ).fetchone()
+        if existing is not None:
+            state = str(existing[0])
+            if state != "building":
+                # A ready generation is immutable evidence; staging must not
+                # overwrite it.  The caller can publish it by its digest.
+                raise PolicyViolation("Knowledge ready generation staging izni yok")
+            counts = self._connection.execute(
+                "select (select count(*) from chunk where generation_digest=?),"
+                " (select count(*) from chunk_fts where generation_digest=?),"
+                " (select count(*) from chunk_vector where generation_digest=?)",
+                (generation_digest, generation_digest, generation_digest),
+            ).fetchone()
+            if (
+                counts is not None
+                and tuple(int(value) for value in counts)
+                == (len(records), len(records), len(records))
+                and self._staged_row_digests_valid(generation_digest) is None
+            ):
+                return self._generation_from_row(
+                    self._connection.execute(
+                        "select * from generation where generation_digest=?",
+                        (generation_digest,),
+                    ).fetchone()
+                )
+        try:
+            self._connection.execute("begin immediate")
+            if existing is not None:
+                # Only a partial 'building' row reaches here: atomic crash
+                # recovery replaces the interrupted set, rowid/fts pairing and
+                # chunk ids stay deterministic because chunk ids are unique.
+                self._connection.execute(
+                    "delete from chunk_fts where generation_digest=?", (generation_digest,)
+                )
+                self._connection.execute(
+                    "delete from chunk_vector where generation_digest=?", (generation_digest,)
+                )
+                self._connection.execute(
+                    "delete from chunk where generation_digest=?", (generation_digest,)
+                )
+                self._connection.execute(
+                    "delete from generation where generation_digest=?", (generation_digest,)
+                )
+            self._connection.execute(
+                "insert into generation values (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    generation_digest,
+                    project_id,
+                    source_revision,
+                    tree_digest,
+                    source_manifest_digest,
+                    embedding_profile_digest,
+                    provider_profile_digest,
+                    len(records),
+                    "building",
+                    created_at,
+                ),
+            )
+            for record in records:
+                locator_json = canonical_json(record.locator.as_dict())
+                serialized_vector = sqlite_vec.serialize_float32(record.vector)
+                cursor = self._connection.execute(
+                    "insert into chunk(id,generation_digest,project_id,source_revision,"
+                    "source_path,source_digest,locator_json,body,content_digest,vector_digest,"
+                    "chunk_order) values (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        record.chunk_id,
+                        generation_digest,
+                        project_id,
+                        source_revision,
+                        record.source_path,
+                        record.source_digest,
+                        locator_json,
+                        record.text,
+                        record.content_digest,
+                        digest_of_bytes(serialized_vector),
+                        record.chunk_order,
+                    ),
+                )
+                if cursor.lastrowid is None:
+                    raise PolicyViolation("Knowledge chunk rowid uretilmedi")
+                rowid = int(cursor.lastrowid)
+                self._connection.execute(
+                    "insert into chunk_fts(rowid,id,generation_digest,project_id,source_path,body)"
+                    " values (?,?,?,?,?,?)",
+                    (
+                        rowid,
+                        record.chunk_id,
+                        generation_digest,
+                        project_id,
+                        record.source_path,
+                        record.text,
+                    ),
+                )
+                self._connection.execute(
+                    "insert into chunk_vector(id,embedding,generation_digest,project_id)"
+                    " values (?,?,?,?)",
+                    (
+                        record.chunk_id,
+                        serialized_vector,
+                        generation_digest,
+                        project_id,
+                    ),
+                )
+            counts = self._connection.execute(
+                "select (select count(*) from chunk where generation_digest=?),"
+                " (select count(*) from chunk_fts where generation_digest=?),"
+                " (select count(*) from chunk_vector where generation_digest=?)",
+                (generation_digest, generation_digest, generation_digest),
+            ).fetchone()
+            if counts is None or tuple(int(value) for value in counts) != (
+                len(records),
+                len(records),
+                len(records),
+            ):
+                raise PolicyViolation("Knowledge generation partial build")
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+        return self._generation_from_row(
+            self._connection.execute(
+                "select * from generation where generation_digest=?",
+                (generation_digest,),
+            ).fetchone()
+        )
+
+    def publish_staged_generation(
+        self,
+        project_id: str,
+        generation_digest: str,
+        expected_current_digest: str | None,
+    ) -> KnowledgeGeneration:
+        with self._single_writer():
+            return self._publish_staged_generation_locked(
+                project_id, generation_digest, expected_current_digest
+            )
+
+    def _publish_staged_generation_locked(
+        self,
+        project_id: str,
+        generation_digest: str,
+        expected_current_digest: str | None,
+    ) -> KnowledgeGeneration:
+        """Atomically publish one complete staged generation via pointer CAS.
+
+        The staged row's completeness and digests are re-verified and, when the
+        CAS matches, the ready promotion plus the ``current_generation`` pointer
+        change commit in one transaction.  A mismatched expectation leaves the
+        old pointer untouched and raises :class:`PolicyViolation`.  Publishing a
+        digest that is already current is idempotent when the expectation
+        matches; it never promotes a partial set nor a 'superseded' generation.
+        """
+
+        self._require_writable()
+        parse_digest(generation_digest)
+        if expected_current_digest is not None:
+            parse_digest(expected_current_digest)
+        try:
+            self._connection.execute("begin immediate")
+            row = self._connection.execute(
+                "select * from generation where generation_digest=?",
+                (generation_digest,),
+            ).fetchone()
+            if row is None or str(row["project_id"]) != project_id:
+                raise PolicyViolation("Knowledge staged generation bulunamadi")
+            expected_count = int(row["chunk_count"])
+            current = self._connection.execute(
+                "select generation_digest from current_generation where project_id=?",
+                (project_id,),
+            ).fetchone()
+            current_digest = str(current[0]) if current is not None else None
+            counts = self._connection.execute(
+                "select (select count(*) from chunk where generation_digest=?),"
+                " (select count(*) from chunk_fts where generation_digest=?),"
+                " (select count(*) from chunk_vector where generation_digest=?)",
+                (generation_digest, generation_digest, generation_digest),
+            ).fetchone()
+            complete = (
+                expected_count >= 1
+                and counts is not None
+                and tuple(int(value) for value in counts)
+                == (
+                    expected_count,
+                    expected_count,
+                    expected_count,
+                )
+                and self._staged_row_digests_valid(generation_digest) is None
+            )
+            if str(row["state"]) == "ready" and current_digest == generation_digest:
+                # Idempotent re-publish: the staged generation is already
+                # current; require a complete, consistent set before returning
+                # it, without re-running the promotion.
+                if not complete:
+                    raise PolicyViolation("Knowledge staged generation butunlugu teyit edilemedi")
+                self._connection.rollback()
+                return self._generation_from_row(row)
+            if str(row["state"]) != "building" or not complete:
+                raise PolicyViolation("Knowledge staged generation butunlugu teyit edilemedi")
+            if current_digest != expected_current_digest:
+                raise PolicyViolation(
+                    "Knowledge current generation CAS beklenen digest ile uyumsuz"
+                )
+            if current_digest is not None and current_digest != generation_digest:
+                self._connection.execute(
+                    "update generation set state='superseded' where generation_digest=?",
+                    (current_digest,),
+                )
+            self._connection.execute(
+                "update generation set state='ready' where generation_digest=?",
+                (generation_digest,),
+            )
+            self._connection.execute(
+                "insert into current_generation(project_id,generation_digest) values (?,?)"
+                " on conflict(project_id) do update set"
+                " generation_digest=excluded.generation_digest",
+                (project_id, generation_digest),
+            )
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+        return self._generation_from_row(
+            self._connection.execute(
+                "select * from generation where generation_digest=?",
+                (generation_digest,),
+            ).fetchone()
+        )
+
+    def _staged_row_digests_valid(self, generation_digest: str) -> str | None:
+        """Verify staged content and its persisted generation identity."""
+
+        header = self._connection.execute(
+            "select * from generation where generation_digest=?", (generation_digest,)
+        ).fetchone()
+        if header is None:
+            return "missing-generation"
+        rows = self._connection.execute(
+            "select c.rowid,c.id,c.project_id,c.source_revision,c.source_path,c.source_digest,"
+            "c.content_digest,c.vector_digest,c.chunk_order,c.body,c.locator_json,"
+            "v.embedding vector_embedding,v.generation_digest vector_generation_digest,"
+            "v.project_id vector_project_id,f.id fts_id,"
+            "f.generation_digest fts_generation_digest,f.project_id fts_project_id,"
+            "f.source_path fts_source_path,f.body fts_body"
+            " from chunk c left join chunk_vector v on v.id=c.id"
+            " left join chunk_fts f on f.rowid=c.rowid"
+            " where c.generation_digest=? order by c.rowid",
+            (generation_digest,),
+        ).fetchall()
+        chunks: list[dict[str, object]] = []
+        for row in rows:
+            if str(row["content_digest"]) != digest_of_bytes(str(row["body"]).encode("utf-8")):
+                return "chunk-digest"
+            if str(row["project_id"]) != str(header["project_id"]) or str(
+                row["source_revision"]
+            ) != str(header["source_revision"]):
+                return "chunk-scope"
+            try:
+                locator = _locator(str(row["locator_json"]))
+            except (PolicyViolation, ValidationFailed):
+                return "locator"
+            if locator.relative_path != str(row["source_path"]):
+                return "locator-path"
+            if (
+                row["vector_embedding"] is None
+                or str(row["vector_generation_digest"]) != generation_digest
+                or str(row["vector_project_id"]) != str(header["project_id"])
+                or str(row["vector_digest"]) != digest_of_bytes(bytes(row["vector_embedding"]))
+            ):
+                return "vector-digest"
+            if (
+                row["fts_id"] is None
+                or str(row["fts_id"]) != str(row["id"])
+                or str(row["fts_generation_digest"]) != generation_digest
+                or str(row["fts_project_id"]) != str(header["project_id"])
+                or str(row["fts_source_path"]) != str(row["source_path"])
+                or str(row["fts_body"]) != str(row["body"])
+            ):
+                return "fts-identity"
+            chunks.append(
+                {
+                    "id": str(row["id"]),
+                    "source_path": str(row["source_path"]),
+                    "source_digest": str(row["source_digest"]),
+                    "content_digest": str(row["content_digest"]),
+                    "vector_digest": str(row["vector_digest"]),
+                    "order": int(row["chunk_order"]),
+                }
+            )
+        persisted_digest = digest(
+            {
+                "schema": "zekam-knowledge-generation/v1",
+                "project_id": str(header["project_id"]),
+                "source_revision": str(header["source_revision"]),
+                "tree_digest": str(header["tree_digest"]),
+                "source_manifest_digest": str(header["source_manifest_digest"]),
+                "embedding_profile_digest": str(header["embedding_profile_digest"]),
+                "provider_profile_digest": str(header["provider_profile_digest"]),
+                "chunks": chunks,
+            }
+        )
+        return None if persisted_digest == generation_digest else "generation-digest"
+
     @staticmethod
     def _generation_from_row(row: sqlite3.Row) -> KnowledgeGeneration:
         return KnowledgeGeneration(
