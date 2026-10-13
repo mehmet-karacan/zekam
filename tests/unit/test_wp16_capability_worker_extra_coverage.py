@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import urllib.error
+from collections.abc import Mapping
 from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
@@ -603,3 +604,172 @@ def test_posix_worker_environment_is_bounded(monkeypatch: pytest.MonkeyPatch) ->
     assert "UNRELATED_SECRET" not in environment
     assert environment["PYTHONUTF8"] == "1"
     assert str(Path(worker.__file__).resolve().parents[3]) in environment["PYTHONPATH"]
+
+
+def _completed_provider_result() -> worker.CapabilityWorkerResult:
+    return worker.CapabilityWorkerResult(
+        "r",
+        worker.CapabilityWorkerStatus.COMPLETED,
+        payload={"provider_response": {"ok": True}},
+    )
+
+
+def _post_local(transport: worker.ProcessIsolatedJsonProviderTransport) -> Mapping[str, Any]:
+    return transport.post_json(
+        "http://127.0.0.1:8765/v1/test",
+        {"model": "local"},
+        SecretValue("secret"),
+        gateway_provenance=_provenance(),
+    )
+
+
+def test_quota_allows_exactly_limit_calls_sharing_one_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limit = 3
+    quota = worker.ProviderCallQuota(limit)
+    transport = worker.ProcessIsolatedJsonProviderTransport(quota=quota)
+    calls = {"count": 0}
+
+    def completed_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        calls["count"] += 1
+        return _completed_provider_result()
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", completed_run)
+    for _ in range(limit):
+        assert _post_local(transport) == {"ok": True}
+    assert quota.used == limit
+    assert calls["count"] == limit
+
+
+def test_quota_limit_plus_one_raises_before_child_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.application.provider_adapter import ProviderCallQuotaExceeded
+
+    limit = 2
+    quota = worker.ProviderCallQuota(limit)
+    transport = worker.ProcessIsolatedJsonProviderTransport(quota=quota)
+    calls = {"count": 0}
+
+    def completed_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        calls["count"] += 1
+        return _completed_provider_result()
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", completed_run)
+    for _ in range(limit):
+        _post_local(transport)
+    with pytest.raises(ProviderCallQuotaExceeded, match="quota exhausted"):
+        _post_local(transport)
+    assert calls["count"] == limit
+
+
+def test_failed_child_invocation_still_consumes_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.application.model_health_service import ProbeUnavailable
+    from zekam.application.provider_adapter import ProviderCallQuotaExceeded
+
+    quota = worker.ProviderCallQuota(1)
+    transport = worker.ProcessIsolatedJsonProviderTransport(quota=quota)
+    calls = {"count": 0}
+
+    def failed_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        calls["count"] += 1
+        return worker.CapabilityWorkerResult(
+            "r",
+            worker.CapabilityWorkerStatus.FAILED,
+            error_code="provider-transport-unavailable",
+        )
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", failed_run)
+    with pytest.raises(ProbeUnavailable):
+        _post_local(transport)
+    assert quota.used == 1
+    with pytest.raises(ProviderCallQuotaExceeded):
+        _post_local(transport)
+    assert calls["count"] == 1
+
+
+@pytest.mark.parametrize("kind", ["cancelled", "expired"])
+def test_cancel_or_expired_deadline_does_not_consume_quota(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    from zekam.application.provider_adapter import ProviderCallCancelled, ProviderDeadlineExceeded
+
+    quota = worker.ProviderCallQuota(1)
+    calls = {"count": 0}
+
+    def completed_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        calls["count"] += 1
+        return _completed_provider_result()
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", completed_run)
+    if kind == "cancelled":
+        cancel = threading.Event()
+        cancel.set()
+        transport = worker.ProcessIsolatedJsonProviderTransport(cancel=cancel, quota=quota)
+        expected = ProviderCallCancelled
+    else:
+        transport = worker.ProcessIsolatedJsonProviderTransport(
+            deadline_monotonic=100.0, quota=quota
+        )
+        _install_module_clock(monkeypatch, 100.0)
+        expected = ProviderDeadlineExceeded
+    with pytest.raises(expected):
+        _post_local(transport)
+    assert quota.used == 0
+    assert calls["count"] == 0
+
+
+def test_quota_concurrent_reserves_cannot_exceed_limit() -> None:
+    from zekam.application.provider_adapter import ProviderCallQuotaExceeded
+
+    limit = 4
+    total = 16
+    quota = worker.ProviderCallQuota(limit)
+    results: list[str] = []
+    lock = threading.Lock()
+
+    def reserve_once() -> None:
+        try:
+            quota.reserve()
+            outcome = "reserved"
+        except ProviderCallQuotaExceeded:
+            outcome = "exceeded"
+        with lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=reserve_once) for _ in range(total)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results.count("reserved") == limit
+    assert results.count("exceeded") == total - limit
+    assert quota.used == limit

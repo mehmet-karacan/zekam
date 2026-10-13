@@ -785,6 +785,17 @@ sureyi asmaz. Ilgili 213 cevrimdisi test gecti, iki POSIX-only test
 Windows'ta atlandi. Nesil transaction'i basladiktan sonra atomik yayin
 tamamlanir; kota butcesi ve canli kabul kaniti aciktir. WP-05.03 acik.
 
+**13 Ekim 2026 ara durum — yerel remote-cagri kotasi:** Remote probe,
+embedding ve retry ayni thread-safe cagri rezervasyonunu paylasir.
+Varsayilan limit 256, kayitli indeks API'sinde ust sinir 4096'dir;
+`project index` CLI sure ve cagri limitlerini acik seceneklerle tasir.
+limit asimi child veya ag cagrisi baslamadan fail-closed durur. Basarisiz
+baslatma denemesi de rezervasyon kullanir; iptal veya deadline nedeniyle
+baslatilmayan cagri kullanmaz. Sonucta limit ve rezerve cagri sayisi
+raporlanir. Ilgili 236 cevrimdisi test gecti, iki POSIX-only test
+Windows'ta atlandi. Saglayici hesap kotasi gozlemi ve canli kabul kaniti
+acik oldugundan WP-05.03 tamamlanmadi.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

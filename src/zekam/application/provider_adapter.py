@@ -73,6 +73,12 @@ class ProviderDeadlineExceeded(ProbeUnavailable):
     code = "provider-deadline-exceeded"
 
 
+class ProviderCallQuotaExceeded(PolicyViolation):
+    """The caller's local outbound call budget is exhausted."""
+
+    code = "provider-call-quota-exhausted"
+
+
 def validated_provider_endpoint(value: str) -> str:
     """Yalniz HTTPS veya loopback HTTP endpoint kabul eder."""
     parsed = urlsplit(value)

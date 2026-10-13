@@ -117,7 +117,10 @@ from zekam.infrastructure.opencode_provider_ledger import (
     SQLiteProviderLedgerHost,
     _work,
 )
-from zekam.infrastructure.process.capability_worker import ProcessIsolatedJsonProviderTransport
+from zekam.infrastructure.process.capability_worker import (
+    ProcessIsolatedJsonProviderTransport,
+    ProviderCallQuota,
+)
 from zekam.infrastructure.query_measurement import (
     record_probe_latency,
     record_qualification,
@@ -130,6 +133,8 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 MODEL_ID = "openai/BAAI/bge-m3"
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
 MAX_INDEX_TIMEOUT_SECONDS = 7200.0
+DEFAULT_REMOTE_CALL_LIMIT = 256
+MAX_REMOTE_CALL_LIMIT = 4096
 MAX_EMBED_BATCH_TOKENS = 8_192
 MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
@@ -933,6 +938,7 @@ class _EmbeddingBinding:
     route: EmbeddingRoute
     remote_provider_used: bool
     probe_call_count: int
+    quota: ProviderCallQuota | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1109,6 +1115,7 @@ def _provider(
     remote_authorized: bool,
     cancel: threading.Event | None = None,
     deadline_monotonic: float | None = None,
+    max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
 ) -> _EmbeddingBinding:
     _assert_canonical_knowledge_profile(knowledge)
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
@@ -1155,12 +1162,10 @@ def _provider(
     )
     realm_id = uuid5(NAMESPACE_URL, f"zekam://local-realm/{project_id}")
     host = SQLiteProviderLedgerHost(ledger_path, realm_id)
-    transport = (
-        ProcessIsolatedJsonProviderTransport()
-        if cancel is None and deadline_monotonic is None
-        else ProcessIsolatedJsonProviderTransport(
-            cancel=cancel, deadline_monotonic=deadline_monotonic
-        )
+    _validate_remote_call_limit(max_remote_provider_calls)
+    quota = ProviderCallQuota(max_remote_provider_calls)
+    transport = ProcessIsolatedJsonProviderTransport(
+        cancel=cancel, deadline_monotonic=deadline_monotonic, quota=quota
     )
     client = LiveProcessClient(configuration, transport)
 
@@ -1299,6 +1304,7 @@ def _provider(
             route=knowledge.embedding_route,
             remote_provider_used=True,
             probe_call_count=0,
+            quota=quota,
         )
     if isinstance(cached, _QualificationFailure) and not _should_revalidate_from_failure(
         cached, now_ns=now_ns
@@ -1313,7 +1319,13 @@ def _provider(
     event = _qualification_singleflight.get(binding_digest)
     if event is not None:
         deadline = time.monotonic() + QUALIFICATION_TTL_SECONDS
-        while not event.wait(0.5):
+        while True:
+            _check_index_budget(cancel, deadline_monotonic)
+            wait_seconds = 0.5
+            if deadline_monotonic is not None:
+                wait_seconds = min(wait_seconds, max(0.0, deadline_monotonic - time.monotonic()))
+            if event.wait(wait_seconds):
+                break
             if time.monotonic() >= deadline:
                 raise PolicyViolation("Remote embedding qualification single-flight deadline asti")
         return _provider(
@@ -1324,6 +1336,9 @@ def _provider(
             chunks,
             knowledge,
             remote_authorized=True,
+            cancel=cancel,
+            deadline_monotonic=deadline_monotonic,
+            max_remote_provider_calls=max_remote_provider_calls,
         )
     event = threading.Event()
     _qualification_singleflight[binding_digest] = event
@@ -1373,6 +1388,7 @@ def _provider(
             route=knowledge.embedding_route,
             remote_provider_used=True,
             probe_call_count=probe.provider_call_count,
+            quota=quota,
         )
     except Exception as exc:
         if not isinstance(exc, (PolicyViolation, ConfigurationError, ValidationFailed)):
@@ -1485,6 +1501,11 @@ def _new_index_deadline(timeout_seconds: float) -> float:
     ):
         raise ValidationFailed("Project index timeout 0..7200 saniye olmali")
     return time.monotonic() + float(timeout_seconds)
+
+
+def _validate_remote_call_limit(value: int) -> None:
+    if type(value) is not int or not 2 <= value <= MAX_REMOTE_CALL_LIMIT:
+        raise ValidationFailed("Remote provider call quota 2..4096 araliginda olmali")
 
 
 def _embedding_batches(
@@ -2135,7 +2156,9 @@ def _index(
     authorize_remote_source: bool = False,
     cancel: threading.Event | None = None,
     deadline_monotonic: float | None = None,
+    max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
 ) -> dict[str, Any]:
+    _validate_remote_call_limit(max_remote_provider_calls)
     if deadline_monotonic is None:
         deadline_monotonic = _new_index_deadline(DEFAULT_INDEX_TIMEOUT_SECONDS)
     _check_index_budget(cancel, deadline_monotonic)
@@ -2184,6 +2207,7 @@ def _index(
         remote_authorized=authorize_remote_source,
         cancel=cancel,
         deadline_monotonic=deadline_monotonic,
+        max_remote_provider_calls=max_remote_provider_calls,
     )
     _check_index_budget(cancel, deadline_monotonic)
     provider = binding.provider
@@ -2482,6 +2506,8 @@ def _index(
         "embedding_route": binding.route.value,
         "remote_provider_used": binding.remote_provider_used,
         "provider_call_budget": provider_batches + binding.probe_call_count,
+        "provider_call_limit": binding.quota.limit if binding.quota is not None else None,
+        "provider_calls_reserved": binding.quota.used if binding.quota is not None else 0,
         "secret_values_recorded": False,
         "odi_source_digest": odi_plan.source_digest if odi_plan else None,
         "odi_chunk_count": len(odi_plan.chunks) if odi_plan else 0,
@@ -2721,10 +2747,12 @@ def index_registered_project(
     authorize_remote_source: bool = False,
     cancel: threading.Event | None = None,
     timeout_seconds: float = DEFAULT_INDEX_TIMEOUT_SECONDS,
+    max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
     deadline_monotonic = _new_index_deadline(timeout_seconds)
+    _validate_remote_call_limit(max_remote_provider_calls)
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValidationFailed("Batch size 1..64 araliginda olmali")
     slug = validate_slug(project_slug)
@@ -2749,6 +2777,7 @@ def index_registered_project(
         authorize_remote_source=authorize_remote_source,
         cancel=cancel,
         deadline_monotonic=deadline_monotonic,
+        max_remote_provider_calls=max_remote_provider_calls,
     )
 
 
@@ -2772,10 +2801,19 @@ def main() -> int:
             command.add_argument("--authorize-remote-source", action="store_true")
             command.add_argument("--authorize-database-metadata", action="store_true")
             command.add_argument("--batch-size", type=int, default=MAX_BATCH_SIZE)
+            command.add_argument(
+                "--timeout-seconds", type=float, default=DEFAULT_INDEX_TIMEOUT_SECONDS
+            )
+            command.add_argument(
+                "--max-provider-calls", type=int, default=DEFAULT_REMOTE_CALL_LIMIT
+            )
         if name == "query":
             command.add_argument("--authorize-remote-query", action="store_true")
             command.add_argument("--question", required=True)
     args = parser.parse_args()
+    index_deadline = (
+        _new_index_deadline(args.timeout_seconds) if args.command == "index" else None
+    )
     source_root = args.project.resolve(strict=True)
     home = args.home.resolve(strict=True)
     project_slug = validate_slug(args.slug or source_root.name.casefold())
@@ -2813,6 +2851,7 @@ def main() -> int:
             raise PolicyViolation("Database metadata disclosure explicit authorization ister")
         if not 1 <= args.batch_size <= MAX_BATCH_SIZE:
             raise ValidationFailed("Batch size 1..64 araliginda olmali")
+        _validate_remote_call_limit(args.max_provider_calls)
         result = _index(
             source_root,
             home,
@@ -2822,6 +2861,8 @@ def main() -> int:
             args.oracle_config,
             batch_size=args.batch_size,
             authorize_remote_source=args.authorize_remote_source,
+            deadline_monotonic=index_deadline,
+            max_remote_provider_calls=args.max_provider_calls,
         )
     else:
         route = project_embedding_route(home)

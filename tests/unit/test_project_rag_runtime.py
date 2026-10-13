@@ -1051,6 +1051,27 @@ def test_index_total_timeout_rejects_invalid_budget(timeout: object) -> None:
         runtime._new_index_deadline(cast(Any, timeout))
 
 
+@pytest.mark.parametrize("limit", [0, 1, 4097, True, 2.5])
+def test_remote_call_quota_rejects_invalid_limit(limit: object) -> None:
+    with pytest.raises(ValidationFailed, match="quota"):
+        runtime._validate_remote_call_limit(cast(Any, limit))
+
+
+def test_invalid_remote_call_quota_fails_before_workspace_mutation(tmp_path: Path) -> None:
+    with pytest.raises(ValidationFailed, match="quota"):
+        runtime._index(
+            tmp_path / "missing-source",
+            tmp_path / "missing-home",
+            uuid4(),
+            "sample",
+            None,
+            None,
+            batch_size=1,
+            max_remote_provider_calls=1,
+        )
+    assert not (tmp_path / "missing-home").exists()
+
+
 def test_index_expired_deadline_fails_before_workspace_mutation(tmp_path: Path) -> None:
     with pytest.raises(ProviderDeadlineExceeded):
         runtime._index(
@@ -1614,7 +1635,9 @@ def test_warm_query_does_not_repeat_provider_qualification_probe(
             )
 
     monkeypatch.setattr(runtime, "OpenCodeRemoteEmbeddingProvider", _FakeRemoteProvider)
-    monkeypatch.setattr(runtime, "ProcessIsolatedJsonProviderTransport", lambda *_: object())
+    monkeypatch.setattr(
+        runtime, "ProcessIsolatedJsonProviderTransport", lambda *_, **__: object()
+    )
     monkeypatch.setattr(runtime, "LiveProcessClient", lambda *_a, **_k: object())
     monkeypatch.setattr(runtime, "RuntimeOpenCodeEmbeddingExecutor", lambda _invocation: object())
     monkeypatch.setattr(runtime, "RuntimeProviderContractRunner", lambda *a, **k: object())

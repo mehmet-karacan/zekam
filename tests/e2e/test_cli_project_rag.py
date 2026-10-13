@@ -228,6 +228,8 @@ def test_project_index_allows_source_only_without_database_authorization(
         oracle_config,
         opencode_config,
         batch_size,
+        timeout_seconds,
+        max_remote_provider_calls,
         authorize_odi_metadata,
         authorize_remote_source,
     ):
@@ -237,6 +239,8 @@ def test_project_index_allows_source_only_without_database_authorization(
             oracle_config=oracle_config,
             opencode_config=opencode_config,
             batch_size=batch_size,
+            timeout_seconds=timeout_seconds,
+            max_remote_provider_calls=max_remote_provider_calls,
             authorize_odi_metadata=authorize_odi_metadata,
             authorize_remote_source=authorize_remote_source,
         )
@@ -273,6 +277,26 @@ def test_project_index_allows_source_only_without_database_authorization(
     assert observed["project"] == "sky-spring-ui"
     assert observed["oracle_config"] is None
     assert observed["authorize_remote_source"] is True
+    assert observed["timeout_seconds"] == 1800.0
+    assert observed["max_remote_provider_calls"] == 256
+
+    configured = CliRunner().invoke(
+        cli.app,
+        [
+            "project",
+            "index",
+            "sky-ui",
+            "--authorize-remote-source",
+            "--timeout-seconds",
+            "45",
+            "--max-provider-calls",
+            "7",
+            "--json",
+        ],
+    )
+    assert configured.exit_code == 0, configured.output
+    assert observed["timeout_seconds"] == 45.0
+    assert observed["max_remote_provider_calls"] == 7
 
 
 def test_project_local_route_does_not_require_remote_authorization(

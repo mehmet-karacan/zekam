@@ -41,6 +41,8 @@ from zekam.application.odi11g_smart_export import (
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_history_query import query_issue_history
 from zekam.application.project_rag_runtime import (
+    DEFAULT_INDEX_TIMEOUT_SECONDS,
+    DEFAULT_REMOTE_CALL_LIMIT,
     bind_project_source,
     build_project_source_binding_plan,
     classify_project_source,
@@ -586,6 +588,12 @@ def index_command(
     ] = False,
     authorize_odi_metadata: Annotated[bool, typer.Option("--authorize-odi-metadata")] = False,
     batch_size: Annotated[int, typer.Option("--batch-size", min=1, max=64)] = 64,
+    timeout_seconds: Annotated[
+        float, typer.Option("--timeout-seconds", min=1, max=7200)
+    ] = DEFAULT_INDEX_TIMEOUT_SECONDS,
+    max_provider_calls: Annotated[
+        int, typer.Option("--max-provider-calls", min=2, max=4096)
+    ] = DEFAULT_REMOTE_CALL_LIMIT,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     opencode_config: Annotated[
         Path, typer.Option("--opencode-config")
@@ -607,6 +615,8 @@ def index_command(
             oracle_config=oracle_config,
             opencode_config=opencode_config,
             batch_size=batch_size,
+            timeout_seconds=timeout_seconds,
+            max_remote_provider_calls=max_provider_calls,
             authorize_odi_metadata=authorize_odi_metadata,
             authorize_remote_source=authorize_remote_source,
         )

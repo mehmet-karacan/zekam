@@ -315,6 +315,30 @@ class CapabilityProcessWorker:
         )
 
 
+class ProviderCallQuota:
+    """Thread-safe reservation of a bounded number of outbound calls."""
+
+    def __init__(self, limit: int) -> None:
+        if type(limit) is not int or limit < 1:
+            raise ValidationFailed("Provider call quota pozitif tam sayi olmali")
+        self.limit = limit
+        self._used = 0
+        self._lock = threading.Lock()
+
+    @property
+    def used(self) -> int:
+        with self._lock:
+            return self._used
+
+    def reserve(self) -> None:
+        with self._lock:
+            if self._used >= self.limit:
+                from zekam.application.provider_adapter import ProviderCallQuotaExceeded
+
+                raise ProviderCallQuotaExceeded("Provider call quota exhausted")
+            self._used += 1
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessIsolatedJsonProviderTransport:
     """JsonProviderTransport-compatible, per-call isolated HTTP adapter.
@@ -329,6 +353,7 @@ class ProcessIsolatedJsonProviderTransport:
     cancellation_grace_seconds: float = DEFAULT_CANCELLATION_GRACE_SECONDS
     cancel: threading.Event | None = field(default=None, repr=False, compare=False)
     deadline_monotonic: float | None = field(default=None, repr=False, compare=False)
+    quota: ProviderCallQuota | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not 0 < self.timeout_seconds <= 300:
@@ -375,6 +400,14 @@ class ProcessIsolatedJsonProviderTransport:
             timeout_seconds=timeout,
             max_ipc_bytes=self.max_ipc_bytes,
         )
+        if self.cancel is not None and self.cancel.is_set():
+            from zekam.application.provider_adapter import ProviderCallCancelled
+
+            raise ProviderCallCancelled("Provider call cancelled")
+        if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
+            raise ProviderDeadlineExceeded("Provider total deadline expired")
+        if self.quota is not None:
+            self.quota.reserve()
         outcome = CapabilityProcessWorker(
             cancellation_grace_seconds=self.cancellation_grace_seconds
         ).run(spec, request, cancel=self.cancel)
