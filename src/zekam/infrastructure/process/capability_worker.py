@@ -7,6 +7,12 @@ sonra gelen sonuc hicbir kosulda cagirana yayimlanmaz.
 
 Bu katman stderr veya ham process ciktisini loglamaz. Yalniz dogrulanmis, bounded
 JSON result envelope'ini process belleginde cagirana dondurur.
+
+Kullanici tarafindan kesinti (KeyboardInterrupt) child baslatildiktan sonra herhangi
+bir noktada (stdin yazimi, ilk/grace wait_for veya sonuc sonlandirma) gelirse child
+process tree sert dondurulur, pipes ve okuyucu sinirli surede kapatilir/join edilir
+ve KeyboardInterrupt cagirana yeniden yayilir; kesinti sonucunda cocuk sonucu
+yayimlanmaz.
 """
 
 from __future__ import annotations
@@ -133,67 +139,81 @@ class CapabilityProcessWorker:
         assert process.stdin is not None
         assert process.stdout is not None
         reader = BoundedReader(process.stdout, spec.max_ipc_bytes)
-        reader_thread = threading.Thread(target=reader.read, daemon=True)
-        reader_thread.start()
-
+        reader_thread: threading.Thread | None = None
         try:
-            process.stdin.write(request_bytes)
-            process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            hard_kill_tree(tree)
-            finish_pipes(tree, (reader_thread,))
-            return self._result(
-                request.request_id,
-                CapabilityWorkerStatus.FAILED,
-                started,
-                process,
-                error_code="worker-start-failed",
-                hard_killed=True,
-            )
+            reader_thread = threading.Thread(target=reader.read, daemon=True)
+            reader_thread.start()
 
-        deadline = started + spec.timeout_seconds
-        outcome = wait_for(process, deadline, reader.overflow)
-        if outcome == "overflow":
-            hard_kill_tree(tree)
-            finish_pipes(tree, (reader_thread,))
-            return self._result(
-                request.request_id,
-                CapabilityWorkerStatus.OUTPUT_LIMIT,
-                started,
-                process,
-                error_code="ipc-output-limit",
-                hard_killed=True,
-            )
-
-        if outcome == "deadline":
-            cancel_sent = _send_cancel(process, request.request_id, spec.max_ipc_bytes)
-            grace_deadline = time.monotonic() + self._cancellation_grace_seconds
-            grace_outcome = wait_for(process, grace_deadline, reader.overflow)
-            hard_killed = grace_outcome != "exited" and process.poll() is None
-            if hard_killed:
+            try:
+                process.stdin.write(request_bytes)
+                process.stdin.flush()
+            except (BrokenPipeError, OSError):
                 hard_kill_tree(tree)
-            finish_pipes(tree, (reader_thread,))
-            return self._result(
-                request.request_id,
-                CapabilityWorkerStatus.TIMEOUT,
-                started,
-                process,
-                error_code="deadline-exceeded",
-                cancel_sent=cancel_sent,
-                hard_killed=hard_killed,
-                late_result_suppressed=bool(reader.buffer),
-            )
+                finish_pipes(tree, (reader_thread,))
+                return self._result(
+                    request.request_id,
+                    CapabilityWorkerStatus.FAILED,
+                    started,
+                    process,
+                    error_code="worker-start-failed",
+                    hard_killed=True,
+                )
 
-        finish_pipes(tree, (reader_thread,))
-        if reader.overflow.is_set():
-            return self._result(
-                request.request_id,
-                CapabilityWorkerStatus.OUTPUT_LIMIT,
-                started,
-                process,
-                error_code="ipc-output-limit",
+            deadline = started + spec.timeout_seconds
+            outcome = wait_for(process, deadline, reader.overflow)
+            if outcome == "overflow":
+                hard_kill_tree(tree)
+                finish_pipes(tree, (reader_thread,))
+                return self._result(
+                    request.request_id,
+                    CapabilityWorkerStatus.OUTPUT_LIMIT,
+                    started,
+                    process,
+                    error_code="ipc-output-limit",
+                    hard_killed=True,
+                )
+
+            if outcome == "deadline":
+                cancel_sent = _send_cancel(process, request.request_id, spec.max_ipc_bytes)
+                grace_deadline = time.monotonic() + self._cancellation_grace_seconds
+                grace_outcome = wait_for(process, grace_deadline, reader.overflow)
+                hard_killed = grace_outcome != "exited" and process.poll() is None
+                if hard_killed:
+                    hard_kill_tree(tree)
+                finish_pipes(tree, (reader_thread,))
+                return self._result(
+                    request.request_id,
+                    CapabilityWorkerStatus.TIMEOUT,
+                    started,
+                    process,
+                    error_code="deadline-exceeded",
+                    cancel_sent=cancel_sent,
+                    hard_killed=hard_killed,
+                    late_result_suppressed=bool(reader.buffer),
+                )
+
+            finish_pipes(tree, (reader_thread,))
+            if reader.overflow.is_set():
+                return self._result(
+                    request.request_id,
+                    CapabilityWorkerStatus.OUTPUT_LIMIT,
+                    started,
+                    process,
+                    error_code="ipc-output-limit",
+                )
+            return self._decode_result(request.request_id, bytes(reader.buffer), started, process)
+        except KeyboardInterrupt:
+            # Ctrl+C: child process tree sert dondurulur, pipes ve okuyucu sinirli
+            # surede kapatilir/join edilir, KeyboardInterrupt yeniden yayilir.
+            # Interrupt sonucunda cocuk sonucu hicbir sekilde yayimlanmaz.
+            hard_kill_tree(tree)
+            reader_threads = (
+                (reader_thread,)
+                if reader_thread is not None and reader_thread.ident is not None
+                else ()
             )
-        return self._decode_result(request.request_id, bytes(reader.buffer), started, process)
+            finish_pipes(tree, reader_threads)
+            raise
 
     @staticmethod
     def _result(

@@ -757,6 +757,14 @@ verilmez. Ilgili 144 cevrimdisi test gecti, iki POSIX-only test Windows'ta
 atlandi. WP-05.03 icin cancellation, toplam deadline, kota butcesi ve
 canli kabul kaniti aciktir.
 
+**13 Ekim 2026 ara durum — kullanici kesmesinde child temizligi:**
+Capability worker, cocuk surec baslatildiktan sonra gelen Ctrl+C
+kesmesinde surec agacini sonlandirir, pipe ve okuyucuyu sinirli surede
+kapatir, gec gelen sonucu yayimlamadan KeyboardInterrupt'i yeniden
+yukseltir. Gercek uzun calisan child negatif testi dahil 32 ilgili
+test gecti; Windows'ta iki POSIX-only test atlandi. Programatik iptal,
+toplam deadline, kota butcesi ve canli kabul kaniti acik kalir.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

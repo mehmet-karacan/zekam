@@ -14,6 +14,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.security import SecretValue
+from zekam.infrastructure.process import capability_worker as worker
 from zekam.infrastructure.process.capability_worker import (
     CAPABILITY_WORKER_SCHEMA,
     CapabilityProcessWorker,
@@ -176,6 +177,98 @@ time.sleep(30)
     assert result.status is CapabilityWorkerStatus.TIMEOUT
     assert result.cancel_sent
     assert result.hard_killed
+    assert not marker.exists()
+
+
+def test_keyboard_interrupt_kills_child_and_suppresses_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "interrupted-child-survived"
+    script = _script(
+        tmp_path,
+        """
+import json, pathlib, sys, time
+json.loads(sys.stdin.readline())
+time.sleep(0.2)
+pathlib.Path('interrupted-child-survived').write_text('bad', encoding='utf-8')
+""",
+    )
+    trees: list[object] = []
+    original_start = worker.start_process_tree
+
+    def capture_start(*args: object, **kwargs: object) -> object:
+        tree = original_start(*args, **kwargs)  # type: ignore[arg-type]
+        trees.append(tree)
+        return tree
+
+    def interrupt_wait(*_args: object) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "start_process_tree", capture_start)
+    monkeypatch.setattr(worker, "wait_for", interrupt_wait)
+
+    with pytest.raises(KeyboardInterrupt):
+        CapabilityProcessWorker().run(
+            _spec(tmp_path, script), CapabilityWorkerRequest("request-interrupted", {})
+        )
+    assert len(trees) == 1
+    assert trees[0].process.poll() is not None  # type: ignore[attr-defined]
+    time.sleep(0.3)
+    assert not marker.exists()
+
+
+def test_keyboard_interrupt_before_reader_start_still_closes_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _script(tmp_path, "import time; time.sleep(30)\n")
+    trees: list[object] = []
+    original_start = worker.start_process_tree
+
+    def capture_start(*args: object, **kwargs: object) -> object:
+        tree = original_start(*args, **kwargs)  # type: ignore[arg-type]
+        trees.append(tree)
+        return tree
+
+    def interrupt_start(_self: threading.Thread) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "start_process_tree", capture_start)
+    monkeypatch.setattr(worker.threading.Thread, "start", interrupt_start)
+    with pytest.raises(KeyboardInterrupt):
+        CapabilityProcessWorker().run(
+            _spec(tmp_path, script), CapabilityWorkerRequest("request-reader-interrupted", {})
+        )
+    assert len(trees) == 1
+    assert trees[0].process.poll() is not None  # type: ignore[attr-defined]
+
+
+def test_keyboard_interrupt_hard_kills_child_and_publishes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "interrupt-survived"
+    script = _script(
+        tmp_path,
+        """
+import json, pathlib, sys, time
+json.loads(sys.stdin.readline())
+time.sleep(30)
+pathlib.Path("interrupt-survived").write_text("bad", encoding="utf-8")
+""",
+    )
+
+    def interrupt_on_wait(*_args: Any) -> NoReturn:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "zekam.infrastructure.process.capability_worker.wait_for", interrupt_on_wait
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        CapabilityProcessWorker(cancellation_grace_seconds=0.05).run(
+            _spec(tmp_path, script, timeout=1), CapabilityWorkerRequest("request-kb", {})
+        )
+    time.sleep(0.5)
+
     assert not marker.exists()
 
 
