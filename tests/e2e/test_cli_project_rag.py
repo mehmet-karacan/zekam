@@ -18,7 +18,23 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import main as cli
 
 
-def test_ask_can_return_stale_lexical_snapshot_without_remote_call(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def _gpu_fusion_home(tmp_path: Path) -> Path:
+    """Tek kayitli gpu-fusion projesi tasiyan gecici ZEKAM_HOME (indeks dosyasi yok)."""
+
+    layout = HomeLayout(tmp_path / "zekam-home").ensure()
+    layout.ensure_project("gpu-fusion")
+    bootstrap(layout.root / "state" / "operational.db")
+    store = SQLiteOperationalStore(layout.root / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        uow.create_project(slug="gpu-fusion", display_name="GPU Fusion")
+        uow.commit()
+    return layout.root
+
+
+def test_ask_can_return_stale_lexical_snapshot_without_remote_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
     monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
     monkeypatch.setattr(
         cli,
@@ -32,7 +48,9 @@ def test_ask_can_return_stale_lexical_snapshot_without_remote_call(monkeypatch) 
         },
     )
 
-    result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?", "--json"])
+    result = CliRunner().invoke(
+        cli.app, ["ask", "gpu-fusion hangi servis?", "--home", str(home), "--json"]
+    )
 
     assert result.exit_code == 0, result.output
     retrieval = json.loads(result.output)["retrieval"]
@@ -40,7 +58,10 @@ def test_ask_can_return_stale_lexical_snapshot_without_remote_call(monkeypatch) 
     assert retrieval["remote_provider_used"] is False
 
 
-def test_ask_preserves_remote_query_authorization_exit_code(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_ask_preserves_remote_query_authorization_exit_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
     monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
     monkeypatch.setattr(
         cli,
@@ -50,13 +71,18 @@ def test_ask_preserves_remote_query_authorization_exit_code(monkeypatch) -> None
         ),
     )
 
-    result = CliRunner().invoke(cli.app, ["ask", "gpu-fusion hangi servis?", "--json"])
+    result = CliRunner().invoke(
+        cli.app, ["ask", "gpu-fusion hangi servis?", "--home", str(home), "--json"]
+    )
 
     assert result.exit_code == 77
     assert "Remote query embedding explicit authorization ister" in result.output
 
 
-def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_ask_routes_exact_question_and_wraps_retrieval(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
     observed: dict[str, object] = {}
 
     def fake_query(  # type: ignore[no-untyped-def]
@@ -84,6 +110,8 @@ def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # 
         [
             "ask",
             "GPU_USER.LOG_REPORT_CREATION:TABLE nedir?",
+            "--home",
+            str(home),
             "--json",
             "--authorize-remote-query",
         ],
@@ -97,7 +125,10 @@ def test_ask_routes_exact_question_and_wraps_retrieval(monkeypatch) -> None:  # 
     assert observed["question"] == "GPU_USER.LOG_REPORT_CREATION:TABLE nedir?"
 
 
-def test_project_status_and_source_root_are_exposed(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+def test_project_status_and_source_root_are_exposed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
     source = tmp_path / "gpu-fusion"
     source.mkdir()
     monkeypatch.setattr(cli.project_commands, "resolve_project_source", lambda *_: source)
@@ -113,8 +144,12 @@ def test_project_status_and_source_root_are_exposed(monkeypatch, tmp_path: Path)
     )
     runner = CliRunner()
 
-    root_result = runner.invoke(cli.app, ["project", "source-root", "gpu-fusion", "--json"])
-    status_result = runner.invoke(cli.app, ["project", "status", "gpu-fusion", "--json"])
+    root_result = runner.invoke(
+        cli.app, ["project", "source-root", "gpu-fusion", "--home", str(home), "--json"]
+    )
+    status_result = runner.invoke(
+        cli.app, ["project", "status", "gpu-fusion", "--home", str(home), "--json"]
+    )
 
     assert root_result.exit_code == 0, root_result.output
     assert json.loads(root_result.output)["source_root"] == str(source)
@@ -130,7 +165,9 @@ def test_project_json_output_is_ascii_safe_for_windows_code_pages(
     monkeypatch.setattr(cli.project_commands, "_canonical_slug", lambda *_args, **_kwargs: "ornek")
     monkeypatch.setattr(cli.project_commands, "resolve_project_source", lambda *_args: source)
 
-    result = CliRunner().invoke(cli.app, ["project", "source-root", "ornek", "--json"])
+    result = CliRunner().invoke(
+        cli.app, ["project", "source-root", "ornek", "--home", str(tmp_path), "--json"]
+    )
 
     assert result.exit_code == 0, result.output
     assert result.output.isascii()
@@ -167,8 +204,12 @@ def test_project_resolve_and_show_are_exposed(monkeypatch, tmp_path: Path) -> No
     )
     runner = CliRunner()
 
-    resolve_result = runner.invoke(cli.app, ["project", "resolve", "gpu", "--json"])
-    show_result = runner.invoke(cli.app, ["project", "show", "gpu", "--json"])
+    resolve_result = runner.invoke(
+        cli.app, ["project", "resolve", "gpu", "--home", str(tmp_path), "--json"]
+    )
+    show_result = runner.invoke(
+        cli.app, ["project", "show", "gpu", "--home", str(tmp_path), "--json"]
+    )
 
     assert resolve_result.exit_code == 0, resolve_result.output
     resolution = json.loads(resolve_result.output)
@@ -182,7 +223,10 @@ def test_project_resolve_and_show_are_exposed(monkeypatch, tmp_path: Path) -> No
     assert detail["rag"]["state"] == "ready"
 
 
-def test_project_citation_opens_pinned_verified_chunk(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_project_citation_opens_pinned_verified_chunk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
     observed: dict[str, object] = {}
 
     def fake_read(home, project, chunk_id, *, generation_digest):  # type: ignore[no-untyped-def]
@@ -209,6 +253,8 @@ def test_project_citation_opens_pinned_verified_chunk(monkeypatch) -> None:  # t
             "chunk-1",
             "--generation-digest",
             "sha256:" + "a" * 64,
+            "--home",
+            str(home),
             "--json",
         ],
     )
@@ -222,8 +268,8 @@ def test_project_citation_opens_pinned_verified_chunk(monkeypatch) -> None:  # t
 
 
 def test_project_index_allows_source_only_without_database_authorization(
-    monkeypatch,
-) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     observed: dict[str, object] = {}
 
     def fake_index(  # type: ignore[no-untyped-def]
@@ -273,6 +319,8 @@ def test_project_index_allows_source_only_without_database_authorization(
             "index",
             "sky-ui",
             "--authorize-remote-source",
+            "--home",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -296,6 +344,8 @@ def test_project_index_allows_source_only_without_database_authorization(
             "45",
             "--max-provider-calls",
             "7",
+            "--home",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -343,7 +393,9 @@ def test_project_local_route_does_not_require_remote_authorization(
     assert observed["authorize_remote_query"] is False
 
 
-def test_project_index_requires_database_authorization_only_when_configured() -> None:
+def test_project_index_requires_database_authorization_only_when_configured(
+    tmp_path: Path,
+) -> None:
     result = CliRunner().invoke(
         cli.app,
         [
@@ -353,6 +405,8 @@ def test_project_index_requires_database_authorization_only_when_configured() ->
             "--oracle-config",
             "config/application.yaml",
             "--authorize-remote-source",
+            "--home",
+            str(tmp_path),
         ],
     )
 
@@ -364,11 +418,12 @@ def test_project_index_requires_database_authorization_only_when_configured() ->
 
 
 def test_ask_json_is_single_valid_document_with_wp7_fields_and_backward_compat(
-    monkeypatch,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """WP7-C-1 (B08): ``ask --json`` emits ONE valid JSON document carrying the
     new WP7 additive fields while preserving the existing v1 consumer fields
     (state, answer_excerpt, citations).  No progress/log is mixed into stdout."""
+    home = _gpu_fusion_home(tmp_path)
     monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
     monkeypatch.setattr(
         cli,
@@ -400,7 +455,9 @@ def test_ask_json_is_single_valid_document_with_wp7_fields_and_backward_compat(
         },
     )
 
-    result = CliRunner().invoke(cli.app, ["ask", "LOG_REPORT_CREATION nedir?", "--json"])
+    result = CliRunner().invoke(
+        cli.app, ["ask", "LOG_REPORT_CREATION nedir?", "--home", str(home), "--json"]
+    )
 
     assert result.exit_code == 0, result.output
     # ONE valid JSON document, no stdout pollution.
@@ -420,11 +477,12 @@ def test_ask_json_is_single_valid_document_with_wp7_fields_and_backward_compat(
 
 
 def test_ask_json_providerless_never_claims_generated_answer(
-    monkeypatch,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """WP7-C-2 (B08): in a provider-less / abstained / stale result the CLI JSON
     contract reports generation_state=not_generated and answer_kind=abstained —
     never a fabricated generated answer."""
+    home = _gpu_fusion_home(tmp_path)
     monkeypatch.setattr(cli, "resolve_question_project", lambda *_: "gpu-fusion")
     monkeypatch.setattr(
         cli,
@@ -444,7 +502,9 @@ def test_ask_json_providerless_never_claims_generated_answer(
         },
     )
 
-    result = CliRunner().invoke(cli.app, ["ask", "kuantum muz sulama protokolu", "--json"])
+    result = CliRunner().invoke(
+        cli.app, ["ask", "kuantum muz sulama protokolu", "--home", str(home), "--json"]
+    )
 
     assert result.exit_code == 0, result.output
     retrieval = json.loads(result.output)["retrieval"]
