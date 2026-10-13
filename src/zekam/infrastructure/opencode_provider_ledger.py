@@ -105,6 +105,8 @@ create table if not exists provider_effect_claim(
   adapter_digest text not null,
   claimed_at text not null
 ) strict;
+create index if not exists provider_effect_claim_reconcile
+on provider_effect_claim(realm_id,effect_digest,operation);
 create table if not exists provider_effect_receipt(
   id text primary key,
   realm_id text not null,
@@ -221,6 +223,20 @@ class SQLiteProviderLedgerHost:
         )
         with self._connect() as connection:
             connection.execute("begin immediate")
+            if claim.operation.startswith("provider-contract:opencode-embedding-document-"):
+                prior = connection.execute(
+                    "select c.id from provider_effect_claim c "
+                    "join provider_job j on j.id=c.job_id "
+                    "left join provider_effect_receipt r on r.claim_id=c.id "
+                    "where c.realm_id=? and j.project_id=? and c.effect_digest=? "
+                    "and c.operation like 'provider-contract:opencode-embedding-document-%' "
+                    "and (r.id is null or r.status='completed') limit 1",
+                    (str(claim.realm_id), str(work.job.project_id), claim.effect_digest),
+                ).fetchone()
+                if prior is not None:
+                    raise PolicyViolation(
+                        "Document embedding effect onceki claim/receipt ile uzlastirilmali"
+                    )
             connection.execute(
                 "insert into provider_effect_claim values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (

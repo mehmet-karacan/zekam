@@ -815,6 +815,16 @@ korunur. Gercek SQLite ile 4 entegrasyon, ilgili 174 birim test gecti
 (Windows symlink yetkisi nedeniyle 6 test atlandi). Belirsiz dis etki
 uzlastirmasi ve tum kabul kaniti acik oldugundan WP-05.04 aciktir.
 
+**13 Ekim 2026 ara durum — document embedding tekrar kapisi:**
+Remote document embedding effect kimligi exact nitelendirilmis profil
+digest'ine baglandi. Kalici provider ledger, ayni realm/proje/effect icin
+onceki claim receipt'sizse veya basari receipt'i varsa yeni claim'i tek
+transaction icinde reddeder; kanitli failed receipt icin mevcut retry
+politikasi korunur. Ilgili 130 cevrimdisi test gecti. Farkli batch
+sinirlariyla ayni icerigin yeniden gruplanmasi, dis provider sonucunun
+dogrulanarak uzlastirilmasi ve canli kabul kaniti acik oldugundan
+WP-05.04 tamamlanmadi.
+
 **13 Ekim 2026 07:40 checkpoint:** Kullanici istegiyle bu sohbet
 duraklatildi. Son push edilen HEAD, commit edilmemis runtime taslagi,
 test kaniti, acik kabul adimlari ve `next_safe_action`

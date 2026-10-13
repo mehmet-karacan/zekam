@@ -511,6 +511,27 @@ def test_classification_changes_authorization_and_effect_digests(tmp_path: Path)
     assert public.plan.effect_request.effect_digest != internal.plan.effect_request.effect_digest
 
 
+def test_document_effect_identity_includes_qualified_profile(tmp_path: Path) -> None:
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), _Executor(), dimension=3)
+    provider.probe(_fixture())
+    first = provider._prepare(
+        ("same document",),
+        purpose=EmbeddingPurpose.DOCUMENT,
+        classification=DataClassification.INTERNAL,
+    )
+    assert provider._profile is not None
+    provider._profile = replace(
+        provider._profile,
+        model_revision_fingerprint=digest("changed-model-revision"),
+    )
+    second = provider._prepare(
+        ("same document",),
+        purpose=EmbeddingPurpose.DOCUMENT,
+        classification=DataClassification.INTERNAL,
+    )
+    assert first.plan.effect_request.effect_digest != second.plan.effect_request.effect_digest
+
+
 def test_remote_probe_rejects_non_public_fixture(tmp_path: Path) -> None:
     provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), _Executor(), dimension=3)
     with pytest.raises(PolicyViolation, match="public fixture"):

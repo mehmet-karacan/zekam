@@ -186,7 +186,7 @@ def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
     runtime.OpenCodeRemoteEmbeddingProvider = cast(  # type: ignore[attr-defined]
         type[OpenCodeRemoteEmbeddingProvider], _FakeRemoteProvider
     )
-    runtime.ProcessIsolatedJsonProviderTransport = lambda *_: object()  # type: ignore[attr-defined, assignment]
+    runtime.ProcessIsolatedJsonProviderTransport = lambda *_a, **_k: object()  # type: ignore[attr-defined, assignment]
     runtime.LiveProcessClient = lambda *_a, **_k: object()  # type: ignore[attr-defined, assignment]
     runtime.RuntimeOpenCodeEmbeddingExecutor = cast(  # type: ignore[attr-defined]
         type[RuntimeOpenCodeEmbeddingExecutor], lambda _invocation: object()

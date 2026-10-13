@@ -256,13 +256,14 @@ class OpenCodeRemoteEmbeddingProvider:
         if classification not in self._allowlist:
             raise PolicyViolation("OpenCode embedding classification provider disinda")
         payload = openai_embedding_payload(self._configuration.selected_model_id, texts)
-        fixture_digest = digest(
-            {
-                "purpose": purpose.value,
-                "classification": classification.value,
-                "texts": list(texts),
-            }
-        )
+        fixture: dict[str, object] = {
+            "purpose": purpose.value,
+            "classification": classification.value,
+            "texts": list(texts),
+        }
+        if purpose is EmbeddingPurpose.DOCUMENT:
+            fixture["profile_digest"] = self.describe().profile_digest
+        fixture_digest = digest(fixture)
         endpoint_path = urlsplit(self._configuration.embedding_endpoint).path
         call_id = (
             f"opencode-embedding-{purpose.value}-{fixture_digest.removeprefix('sha256:')[:20]}"
