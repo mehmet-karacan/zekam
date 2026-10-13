@@ -654,6 +654,16 @@ ucundan sentetik deger/anahtar sizinti ve kok disi yol testleri gecti.
 Native dogal dil yonlendirmesi ile tum prompt/cache/index/log/artifact
 sistem kabulu tamamlanmadigi icin WP-04.04 aciktir.
 
+**13 Ekim 2026 ara durum — exact config dogal dil yonu:** `zekam ask`
+acik `.env*`/`.properties` dosya adli yapi sorusunu kayitli proje
+kokundeki local-only parser'a yonlendirir; RAG ve uzak provider yolu
+cagrilmaz. Birden cok exact dosya sirayla islenir; belirsiz properties
+yolu genel sorguya dusmeden reddedilir. JSON ve duz metin yanitlarinda
+yalniz guvenli anahtar ve redakte sayaci vardir. E2E testte provider
+cagrisi ve home artifact sizintisi yoktur. Serbest dogal dilin tum
+varyantlari, native istemci yonlendirmesi ve sistem-geneli kabul henuz
+acik oldugundan WP-04.04 tamamlanmadi.
+
 **13 Ekim 2026 ara durum — arsiv metadata kapisi:** ArchiveInspector,
 ZIP/TAR girdilerini limit sirasinda toplar; ZIP symlink, TAR link,
 surucu/traversal yolu ve yinelenen adlari reddeder. ZIP'in tekil girdi

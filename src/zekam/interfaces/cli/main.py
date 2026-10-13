@@ -7,6 +7,7 @@ Cikis kodlari otomasyon icin kararlidir.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from zekam.application.config import USER_CONFIG_FILE, PersistenceBackend
 from zekam.application.diagnostics import DoctorReport, OverallStatus, Severity
 from zekam.application.fresh_bootstrap import apply_fresh_bootstrap, plan_fresh_bootstrap
 from zekam.application.home import resolve_home
+from zekam.application.local_config_structure import parse_local_config_structure
 from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
@@ -33,6 +35,7 @@ from zekam.application.mutation_admission import (
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
     query_registered_project,
+    resolve_project_source,
     resolve_question_project,
     resolve_registered_project,
 )
@@ -103,6 +106,38 @@ def _print_json(document: object) -> None:
     """Emit machine JSON independently of the active Windows code page."""
 
     typer.echo(json.dumps(document, ensure_ascii=True, sort_keys=True, default=str))
+
+
+_CONFIG_PATH = re.compile(
+    r"(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_./-]*/)?"
+    r"(?:\.env(?:\.[A-Za-z0-9_-]+)?|[A-Za-z0-9_.-]+\.properties)"
+    r"(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
+_CONFIG_INTENT = (
+    "yapi", "yapı", "anahtar", "analiz", "incele", "ogren", "öğren",
+    "structure", "keys", "inspect", "learn", "oku",
+)
+
+
+def _config_paths_for_question(question: str) -> tuple[str, ...]:
+    lowered = question.casefold()
+    if not any(intent in lowered for intent in _CONFIG_INTENT):
+        return ()
+    if "\\" in question and (".env" in lowered or "properties" in lowered):
+        raise PolicyViolation("Config icin proje kokune gore slash'li exact yol gerekli")
+    paths = tuple(dict.fromkeys(match.group(0) for match in _CONFIG_PATH.finditer(question)))
+    if len(paths) > 8:
+        raise PolicyViolation("Config yapisi istegi en fazla 8 exact dosya kabul eder")
+    if "properties" in lowered and not any(
+        path.casefold().endswith(".properties") for path in paths
+    ):
+        raise PolicyViolation("Properties icin exact goreli dosya yolu gerekli")
+    if ".env" in lowered and not any(
+        path.rsplit("/", 1)[-1].casefold().startswith(".env") for path in paths
+    ):
+        raise PolicyViolation("Env icin exact goreli dosya yolu gerekli")
+    return paths
 
 
 _OPERATIONAL_SCHEMA = SQLiteOperationalSchema()
@@ -229,6 +264,36 @@ def ask(
             if project is not None
             else resolve_question_project(resolved_home, question)
         )
+        config_paths = _config_paths_for_question(question)
+        if config_paths:
+            source_root = resolve_project_source(resolved_home, selected_project)
+            structures = [
+                parse_local_config_structure(source_root, path).as_dict() for path in config_paths
+            ]
+            result = {
+                "schema": "zekam-ask-local-config/v1",
+                "project_ref": selected_project,
+                "route": "local-config-structure",
+                "provider_calls": 0,
+                "structures": structures,
+            }
+            if output_json:
+                _print_json(result)
+            else:
+                console.print(
+                    f"{selected_project}: {len(structures)} yerel config yapisi, "
+                    f"{sum(len(item['keys']) for item in structures)} guvenli anahtar"
+                )
+                for index, structure in enumerate(structures, start=1):
+                    console.print(
+                        f"{index}. {structure['format']}: "
+                        f"redakte={structure['redacted_key_count']}"
+                    )
+                    for key in structure["keys"][:100]:
+                        console.print(f"  {key['line']}\t{key['name']}")
+                    if len(structure["keys"]) > 100:
+                        console.print("  daha fazla guvenli anahtar JSON ciktida")
+            return
         retrieval = query_registered_project(
             resolved_home,
             selected_project,
