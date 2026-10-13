@@ -1590,17 +1590,27 @@ def _cached_vectors(
             # Select one valid prior vector deterministically; profile/content
             # equality is still mandatory and the selected digest is checked.
             row = alias
-            connection.execute(
-                "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
-                (
-                    scope_digest,
-                    chunk.chunk_id,
-                    content_digest,
-                    alias_blob,
-                    alias_digest,
-                    dt.datetime.now(dt.UTC).isoformat(),
-                ),
-            )
+            # The alias write is one atomic cache insert and must not leak an
+            # open transaction: ``_index`` opens the next provider batch with
+            # "begin immediate" on this same connection, which fails inside an
+            # implicitly opened transaction.  Commit before returning.
+            connection.execute("begin immediate")
+            try:
+                connection.execute(
+                    "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
+                    (
+                        scope_digest,
+                        chunk.chunk_id,
+                        content_digest,
+                        alias_blob,
+                        alias_digest,
+                        dt.datetime.now(dt.UTC).isoformat(),
+                    ),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
         blob = bytes(row["vector_blob"])
         if digest_of_bytes(blob) != str(row["vector_digest"]):
             raise PolicyViolation("Vector cache digest drift")

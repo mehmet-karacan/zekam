@@ -2233,6 +2233,78 @@ def test_wp0501_alias_chunk_id_with_same_content_hits_same_scope(
         connection.close()
 
 
+@pytest.mark.parametrize("implicit_transactions", [False, True])
+def test_wp0501_alias_hit_with_missing_chunk_allows_next_batch_transaction(
+    tmp_path: Path, implicit_transactions: bool
+) -> None:
+    """WP-05.01 regression: an alias cache write must not leak an open transaction.
+
+    ``_index`` first calls ``_cached_vectors`` (an alias hit inserts the alias row),
+    then opens each provider batch with ``connection.execute("begin immediate")``
+    on the same connection.  If the alias insert leaves an implicit transaction
+    open, the next batch transaction fails with "cannot start a transaction
+    within a transaction".  The alias hit plus one missing chunk must return the
+    cached alias vector and still leave the connection free for the next batch
+    transaction; the alias row must be durably committed for stable resume.
+
+    Both connection modes are covered: the production autocommit ``_cache``
+    connection and a default connection that wraps DML in an implicit
+    transaction (the reported failure mode).
+    """
+    if implicit_transactions:
+        connection = sqlite3.connect(tmp_path / "vectors.sqlite3")
+        connection.row_factory = sqlite3.Row
+        connection.executescript(runtime.VECTOR_CACHE_SCHEMA)
+    else:
+        connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    alias_text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
+    missing_text = "CREATE TABLE GPU_USER.MISSING (ID NUMBER)"
+    alias_digest = digest_of_bytes(alias_text.encode("utf-8"))
+    missing_digest = digest_of_bytes(missing_text.encode("utf-8"))
+    scope = _wp0501_scope()
+    _wp0501_seed_row(connection, scope, "wp0501-primary", alias_digest)
+    connection.commit()
+    alias_chunk = _wp0501_chunk("wp0501-alias", alias_text)
+    missing_chunk = _wp0501_chunk("wp0501-missing", missing_text)
+    try:
+        result = runtime._cached_vectors(
+            connection,
+            (alias_chunk, missing_chunk),
+            {alias_chunk.chunk_id: scope, missing_chunk.chunk_id: scope},
+        )
+
+        # Alias hit returns the seeded vector; the missing chunk is a cache miss.
+        cached = _wp0501_hit_vector(result, "wp0501-alias")
+        assert cached == pytest.approx(
+            tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)), abs=1e-8
+        )
+        assert _wp0501_hit_vector(result, "wp0501-missing") is None
+        # The alias row is committed (not merely staged in a leaked transaction).
+        rows = connection.execute(
+            "select count(*) from vector_cache_v2 where scope_digest = ? and content_digest = ?",
+            (scope, alias_digest),
+        ).fetchone()[0]
+        assert rows == 2
+        assert connection.in_transaction is False
+        # The next provider batch must be able to open its transaction.
+        connection.execute("begin immediate")
+        blob = runtime._vector_blob(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)))
+        connection.execute(
+            "insert into vector_cache_v2 values(?,?,?,?,?,?)",
+            (
+                scope,
+                "wp0501-missing",
+                missing_digest,
+                blob,
+                digest_of_bytes(blob),
+                "2026-10-13T00:01:00Z",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def test_wp0501_corrupt_vector_digest_is_rejected(tmp_path: Path) -> None:
     """A row whose vector_digest does not match its blob must not be served."""
     connection = runtime._cache(tmp_path / "vectors.sqlite3")
