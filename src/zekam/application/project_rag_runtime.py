@@ -65,7 +65,7 @@ from zekam.application.oracle_metadata_index import (
     load_project_oracle_datasource,
 )
 from zekam.application.project_knowledge_index import ProjectIndexPlan, build_project_index_plan
-from zekam.application.provider_adapter import ProviderHTTPUnavailable
+from zekam.application.provider_adapter import ProviderCallCancelled, ProviderHTTPUnavailable
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.application.provider_contract_runner import (
     ProviderExecutionHost,
@@ -1101,6 +1101,7 @@ def _provider(
     knowledge: KnowledgeSettings,
     *,
     remote_authorized: bool,
+    cancel: threading.Event | None = None,
 ) -> _EmbeddingBinding:
     _assert_canonical_knowledge_profile(knowledge)
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
@@ -1147,7 +1148,11 @@ def _provider(
     )
     realm_id = uuid5(NAMESPACE_URL, f"zekam://local-realm/{project_id}")
     host = SQLiteProviderLedgerHost(ledger_path, realm_id)
-    transport = ProcessIsolatedJsonProviderTransport()
+    transport = (
+        ProcessIsolatedJsonProviderTransport()
+        if cancel is None
+        else ProcessIsolatedJsonProviderTransport(cancel=cancel)
+    )
     client = LiveProcessClient(configuration, transport)
 
     def invocation(prepared: PreparedProviderContractCall) -> OpenCodeRuntimeInvocation:
@@ -1422,19 +1427,34 @@ def _embed_documents_with_retry(
     provider: EmbeddingProvider,
     texts: tuple[str, ...],
     policy: EmbeddingPolicy,
+    *,
+    cancel: threading.Event | None = None,
 ) -> EmbeddingBatch:
     """Retry only transport-unavailable document embeddings with a strict bound."""
 
     for attempt in range(4):
+        _raise_if_index_cancelled(cancel)
         try:
-            return provider.embed_documents(texts, policy)
+            batch = provider.embed_documents(texts, policy)
+            _raise_if_index_cancelled(cancel)
+            return batch
         except ProbeUnavailable as exc:
+            _raise_if_index_cancelled(cancel)
             if attempt == 3 or (
                 isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable
             ):
                 raise
-            time.sleep(min(2**attempt, 4))
+            delay = min(2**attempt, 4)
+            if cancel is None:
+                time.sleep(delay)
+            elif cancel.wait(delay):
+                raise ProviderCallCancelled("Project indexing cancelled") from None
     raise AssertionError("unreachable")
+
+
+def _raise_if_index_cancelled(cancel: threading.Event | None) -> None:
+    if cancel is not None and cancel.is_set():
+        raise ProviderCallCancelled("Project indexing cancelled")
 
 
 def _embedding_batches(
@@ -2083,7 +2103,9 @@ def _index(
     batch_size: int,
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
+    cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
+    _raise_if_index_cancelled(cancel)
     paths = _runtime_paths(home, project_slug)
     knowledge = load_settings(home=paths["home"]).knowledge
     _assert_canonical_knowledge_profile(knowledge)
@@ -2094,6 +2116,7 @@ def _index(
         project_slug=project_slug,
         knowledge=knowledge,
     )
+    _raise_if_index_cancelled(cancel)
     oracle_plan: OracleMetadataIndexPlan | None = None
     oracle_receipt: dict[str, object] | None = None
     if oracle_config is not None:
@@ -2101,6 +2124,7 @@ def _index(
         snapshot, oracle_receipt = _collect_oracle_with_receipt(
             paths["home"], project_id, datasource
         )
+        _raise_if_index_cancelled(cancel)
         oracle_plan = build_oracle_metadata_index_plan(
             project_id=project_id,
             project_slug=project_slug,
@@ -2116,6 +2140,7 @@ def _index(
             project_slug=project_slug,
             source=Path(str(odi_binding["source_file"])),
         )
+        _raise_if_index_cancelled(cancel)
     binding = _provider(
         paths["home"],
         paths["ledger"],
@@ -2124,7 +2149,9 @@ def _index(
         plan.chunks,
         knowledge,
         remote_authorized=authorize_remote_source,
+        cancel=cancel,
     )
+    _raise_if_index_cancelled(cancel)
     provider = binding.provider
     policy = binding.policy
     profile = provider.describe()
@@ -2203,8 +2230,10 @@ def _index(
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
         for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
+            _raise_if_index_cancelled(cancel)
             texts = tuple(chunk.text for chunk in batch)
-            embedded = _embed_documents_with_retry(provider, texts, policy)
+            embedded = _embed_documents_with_retry(provider, texts, policy, cancel=cancel)
+            _raise_if_index_cancelled(cancel)
             verify_document_embedding_batch(texts, embedded, profile)
             connection.execute("begin immediate")
             try:
@@ -2344,6 +2373,8 @@ def _index(
         for chunk in (odi_plan.chunks if odi_plan is not None else ())
     )
     records = source_records + oracle_records + odi_records
+    # Once the generation transaction starts, finish its atomic publish as one unit.
+    _raise_if_index_cancelled(cancel)
     with SQLiteKnowledgeIndex(paths["index"], create=not paths["index"].exists()) as index:
         generation = index.build_generation(
             records,
@@ -2652,6 +2683,7 @@ def index_registered_project(
     batch_size: int = MAX_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
+    cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
@@ -2677,6 +2709,7 @@ def index_registered_project(
         batch_size=batch_size,
         authorize_odi_metadata=authorize_odi_metadata,
         authorize_remote_source=authorize_remote_source,
+        cancel=cancel,
     )
 
 

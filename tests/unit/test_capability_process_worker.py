@@ -7,6 +7,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any, NoReturn
 
 import pytest
 
@@ -154,6 +155,74 @@ sys.stdout.write(json.dumps(result))
     assert cancel_marker.read_text(encoding="utf-8") == "yes"
 
 
+def test_preset_cancel_event_starts_no_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[object] = []
+    monkeypatch.setattr(
+        worker,
+        "start_process_tree",
+        lambda *args, **kwargs: started.append(args) or (_ for _ in ()).throw(
+            AssertionError("preset cancel must not start a child")
+        ),
+    )
+    cancel = threading.Event()
+    cancel.set()
+
+    result = CapabilityProcessWorker().run(
+        _spec(tmp_path, Path("unused.py")),
+        CapabilityWorkerRequest("request-cancel-preset", {}),
+        cancel=cancel,
+    )
+
+    assert started == []
+    assert result.status is CapabilityWorkerStatus.CANCELLED
+    assert result.error_code == "user-cancelled"
+    assert result.payload is None
+    assert result.cancel_sent is False
+
+
+def test_cancel_event_during_active_child_returns_cancelled(tmp_path: Path) -> None:
+    cancel_marker = tmp_path / "cancel-observed"
+    script = _script(
+        tmp_path,
+        """
+import json, pathlib, sys, threading, time
+request = json.loads(sys.stdin.readline())
+def listen():
+    cancel = json.loads(sys.stdin.readline())
+    if cancel["type"] == "cancel":
+        pathlib.Path("cancel-observed").write_text("yes", encoding="utf-8")
+threading.Thread(target=listen, daemon=True).start()
+time.sleep(0.08)
+result = {
+    "schema": request["schema"], "type": "result",
+    "request_id": request["request_id"], "status": "completed",
+    "payload": {"late": True}, "error_code": None,
+}
+sys.stdout.write(json.dumps(result))
+""",
+    )
+    cancel = threading.Event()
+    timer = threading.Timer(0.04, cancel.set)
+    timer.start()
+
+    result = CapabilityProcessWorker(cancellation_grace_seconds=1.0).run(
+        _spec(tmp_path, script, timeout=5),
+        CapabilityWorkerRequest("request-cancel-active", {}),
+        cancel=cancel,
+    )
+    timer.join()
+
+    assert result.status is CapabilityWorkerStatus.CANCELLED
+    assert result.error_code == "user-cancelled"
+    assert result.payload is None
+    assert result.cancel_sent
+    assert not result.hard_killed
+    assert result.late_result_suppressed
+    assert cancel_marker.read_text(encoding="utf-8") == "yes"
+
+
 def test_hard_timeout_kills_descendant_process_tree(tmp_path: Path) -> None:
     marker = tmp_path / "descendant-survived"
     script = _script(
@@ -201,7 +270,7 @@ pathlib.Path('interrupted-child-survived').write_text('bad', encoding='utf-8')
         trees.append(tree)
         return tree
 
-    def interrupt_wait(*_args: object) -> str:
+    def interrupt_wait(*_args: object, **_kwargs: object) -> str:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(worker, "start_process_tree", capture_start)
@@ -256,7 +325,7 @@ pathlib.Path("interrupt-survived").write_text("bad", encoding="utf-8")
 """,
     )
 
-    def interrupt_on_wait(*_args: Any) -> NoReturn:
+    def interrupt_on_wait(*_args: Any, **_kwargs: Any) -> NoReturn:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(
@@ -270,6 +339,52 @@ pathlib.Path("interrupt-survived").write_text("bad", encoding="utf-8")
     time.sleep(0.5)
 
     assert not marker.exists()
+
+
+def test_active_child_cancel_suppresses_late_result(tmp_path: Path) -> None:
+    started = tmp_path / "child-started"
+    late = tmp_path / "late-result"
+    script = _script(
+        tmp_path,
+        """
+import json, pathlib, sys, time
+request = json.loads(sys.stdin.readline())
+pathlib.Path('child-started').write_text('yes', encoding='utf-8')
+time.sleep(0.3)
+pathlib.Path('late-result').write_text('bad', encoding='utf-8')
+print(json.dumps({
+    'schema': request['schema'], 'type': 'result',
+    'request_id': request['request_id'], 'status': 'completed',
+    'payload': {'late': True}, 'error_code': None,
+}))
+""",
+    )
+    cancel = threading.Event()
+
+    def cancel_after_start() -> None:
+        deadline = time.monotonic() + 2
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if started.exists():
+            cancel.set()
+
+    trigger = threading.Thread(target=cancel_after_start)
+    trigger.start()
+    try:
+        result = CapabilityProcessWorker(cancellation_grace_seconds=0.02).run(
+            _spec(tmp_path, script, timeout=2),
+            CapabilityWorkerRequest("request-active-cancelled", {}),
+            cancel=cancel,
+        )
+    finally:
+        trigger.join(timeout=3)
+    assert started.exists()
+    assert result.status is CapabilityWorkerStatus.CANCELLED
+    assert result.payload is None
+    assert result.cancel_sent
+    assert result.hard_killed
+    time.sleep(0.4)
+    assert not late.exists()
 
 
 def test_request_is_bounded_before_process_start(tmp_path: Path) -> None:

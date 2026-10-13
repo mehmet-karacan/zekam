@@ -58,6 +58,7 @@ class CapabilityWorkerStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
     PROTOCOL_ERROR = "protocol-error"
     OUTPUT_LIMIT = "output-limit"
 
@@ -131,9 +132,17 @@ class CapabilityProcessWorker:
         self,
         spec: CapabilityWorkerSpec,
         request: CapabilityWorkerRequest,
+        *,
+        cancel: threading.Event | None = None,
     ) -> CapabilityWorkerResult:
         started = time.monotonic()
         request_bytes = _encode_message(request.as_message(), spec.max_ipc_bytes)
+        if cancel is not None and cancel.is_set():
+            return CapabilityWorkerResult(
+                request_id=request.request_id,
+                status=CapabilityWorkerStatus.CANCELLED,
+                error_code="user-cancelled",
+            )
         tree = start_process_tree(spec.argv, spec.cwd, env=worker_env())
         process = tree.process
         assert process.stdin is not None
@@ -160,7 +169,7 @@ class CapabilityProcessWorker:
                 )
 
             deadline = started + spec.timeout_seconds
-            outcome = wait_for(process, deadline, reader.overflow)
+            outcome = wait_for(process, deadline, reader.overflow, cancel=cancel)
             if outcome == "overflow":
                 hard_kill_tree(tree)
                 finish_pipes(tree, (reader_thread,))
@@ -173,7 +182,7 @@ class CapabilityProcessWorker:
                     hard_killed=True,
                 )
 
-            if outcome == "deadline":
+            if outcome in {"deadline", "cancelled"}:
                 cancel_sent = _send_cancel(process, request.request_id, spec.max_ipc_bytes)
                 grace_deadline = time.monotonic() + self._cancellation_grace_seconds
                 grace_outcome = wait_for(process, grace_deadline, reader.overflow)
@@ -183,16 +192,29 @@ class CapabilityProcessWorker:
                 finish_pipes(tree, (reader_thread,))
                 return self._result(
                     request.request_id,
-                    CapabilityWorkerStatus.TIMEOUT,
+                    (
+                        CapabilityWorkerStatus.CANCELLED
+                        if outcome == "cancelled"
+                        else CapabilityWorkerStatus.TIMEOUT
+                    ),
                     started,
                     process,
-                    error_code="deadline-exceeded",
+                    error_code="user-cancelled" if outcome == "cancelled" else "deadline-exceeded",
                     cancel_sent=cancel_sent,
                     hard_killed=hard_killed,
                     late_result_suppressed=bool(reader.buffer),
                 )
 
             finish_pipes(tree, (reader_thread,))
+            if cancel is not None and cancel.is_set():
+                return self._result(
+                    request.request_id,
+                    CapabilityWorkerStatus.CANCELLED,
+                    started,
+                    process,
+                    error_code="user-cancelled",
+                    late_result_suppressed=bool(reader.buffer),
+                )
             if reader.overflow.is_set():
                 return self._result(
                     request.request_id,
@@ -305,6 +327,7 @@ class ProcessIsolatedJsonProviderTransport:
     max_response_bytes: int = DEFAULT_PROVIDER_RESPONSE_BYTES
     max_ipc_bytes: int = 8 * 1024 * 1024
     cancellation_grace_seconds: float = DEFAULT_CANCELLATION_GRACE_SECONDS
+    cancel: threading.Event | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not 0 < self.timeout_seconds <= 300:
@@ -346,7 +369,11 @@ class ProcessIsolatedJsonProviderTransport:
         )
         outcome = CapabilityProcessWorker(
             cancellation_grace_seconds=self.cancellation_grace_seconds
-        ).run(spec, request)
+        ).run(spec, request, cancel=self.cancel)
+        if outcome.status is CapabilityWorkerStatus.CANCELLED:
+            from zekam.application.provider_adapter import ProviderCallCancelled
+
+            raise ProviderCallCancelled("Provider call cancelled")
         if outcome.status is not CapabilityWorkerStatus.COMPLETED or outcome.payload is None:
             # Runtime import avoids an infrastructure -> application import cycle.
             from zekam.application.model_health_service import ProbeUnavailable

@@ -61,6 +61,12 @@ class ProviderHTTPUnavailable(ProbeUnavailable):
         super().__init__(f"Provider HTTP status {status}")
 
 
+class ProviderCallCancelled(PolicyViolation):
+    """Caller cancelled an in-flight provider effect."""
+
+    code = "provider-call-cancelled"
+
+
 def validated_provider_endpoint(value: str) -> str:
     """Yalniz HTTPS veya loopback HTTP endpoint kabul eder."""
     parsed = urlsplit(value)

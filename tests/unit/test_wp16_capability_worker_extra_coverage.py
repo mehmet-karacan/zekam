@@ -431,6 +431,43 @@ def test_transport_failure_messages_and_response_shape(
     ) == {"ok": True}
 
 
+def test_process_transport_propagates_programmatic_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.application.provider_adapter import ProviderCallCancelled
+
+    cancel = threading.Event()
+    cancel.set()
+    transport = worker.ProcessIsolatedJsonProviderTransport(
+        timeout_seconds=1,
+        max_response_bytes=1024,
+        max_ipc_bytes=2048,
+        cancellation_grace_seconds=0.1,
+        cancel=cancel,
+    )
+
+    def cancelled_run(
+        _self: object,
+        _spec: object,
+        _request: object,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        assert cancel is not None and cancel.is_set()
+        return worker.CapabilityWorkerResult(
+            "r", worker.CapabilityWorkerStatus.CANCELLED, error_code="user-cancelled"
+        )
+
+    monkeypatch.setattr(worker.CapabilityProcessWorker, "run", cancelled_run)
+    with pytest.raises(ProviderCallCancelled, match="cancelled"):
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=_provenance(),
+        )
+
+
 def test_provider_failure_message_sanitizes_unknown_errors() -> None:
     for code in ("raw-sensitive-detail", "provider-http-status-429-secret"):
         assert (

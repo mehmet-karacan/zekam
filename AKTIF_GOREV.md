@@ -765,6 +765,17 @@ yukseltir. Gercek uzun calisan child negatif testi dahil 32 ilgili
 test gecti; Windows'ta iki POSIX-only test atlandi. Programatik iptal,
 toplam deadline, kota butcesi ve canli kabul kaniti acik kalir.
 
+**13 Ekim 2026 ara durum — programatik indeks iptali:**
+`index_registered_project` iptal event'ini indeksleme, process-isolated
+transport ve capability worker'a tasir. Onceden iptal edilen cagri child
+baslatmaz; aktif child cancel mesaji ve sinirli grace sonrasi kapatilir,
+gec yanit yayimlanmaz. Kesme, kaynak/metadata hazirligi ve batch
+sinirlarinda kontrol edilir; retry backoff beklemesi de iptal edilebilir.
+Nesil transaction'i basladiktan sonra atomik yayin tamamlanir; bu sinir
+WP-05.04 staging tasariminda yeniden ele alinacaktir. Ilgili 207
+cevrimdisi test gecti, iki POSIX-only test Windows'ta atlandi. Toplam
+deadline, kota butcesi ve canli kabul kaniti aciktir; WP-05.03 acik.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

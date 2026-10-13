@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -14,7 +15,7 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.model_health_service import ProbeUnavailable
-from zekam.application.provider_adapter import ProviderHTTPUnavailable
+from zekam.application.provider_adapter import ProviderCallCancelled, ProviderHTTPUnavailable
 from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -961,6 +962,83 @@ def test_document_embedding_http_503_exhaustion_makes_four_calls(
     assert caught.value.retryable is True
     assert provider.calls == 4
     assert waits == [1, 2, 4]
+
+
+def test_document_embedding_retry_with_preset_cancel_makes_zero_provider_calls() -> None:
+    provider = _TransientProvider(failures=0)
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(ProviderCallCancelled):
+        runtime._embed_documents_with_retry(
+            cast(Any, provider), ("one",), cast(Any, object()), cancel=cancel
+        )
+
+    assert provider.calls == 0
+
+
+def test_document_embedding_retry_cancel_during_backoff_stops_further_calls() -> None:
+    provider = _TransientProvider(failures=2)
+
+    class CancelDuringWait:
+        def __init__(self) -> None:
+            self.cancelled = False
+            self.waits: list[float] = []
+
+        def is_set(self) -> bool:
+            return self.cancelled
+
+        def wait(self, seconds: float) -> bool:
+            self.waits.append(seconds)
+            self.cancelled = True
+            return True
+
+    cancel = CancelDuringWait()
+
+    with pytest.raises(ProviderCallCancelled):
+        runtime._embed_documents_with_retry(
+            cast(Any, provider), ("one",), cast(Any, object()), cancel=cast(Any, cancel)
+        )
+
+    assert provider.calls == 1
+    assert cancel.waits == [1]
+
+
+def test_document_embedding_retry_cancel_after_result_prevents_publication() -> None:
+    cancel = threading.Event()
+
+    class CancelAfterResult:
+        calls = 0
+
+        def embed_documents(self, _texts: object, _policy: object) -> object:
+            self.calls += 1
+            cancel.set()
+            return object()
+
+    provider = CancelAfterResult()
+    with pytest.raises(ProviderCallCancelled):
+        runtime._embed_documents_with_retry(
+            cast(Any, provider), ("one",), cast(Any, object()), cancel=cancel
+        )
+
+    assert provider.calls == 1
+
+
+def test_project_index_preset_cancel_fails_before_workspace_mutation(tmp_path: Path) -> None:
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(ProviderCallCancelled):
+        runtime._index(
+            tmp_path / "missing-source",
+            tmp_path / "missing-home",
+            uuid4(),
+            "sample",
+            None,
+            None,
+            batch_size=1,
+            cancel=cancel,
+        )
+    assert not (tmp_path / "missing-home").exists()
 
 
 def test_ordinary_directory_uses_digest_bound_source_identity(tmp_path: Path) -> None:

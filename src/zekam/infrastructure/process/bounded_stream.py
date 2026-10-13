@@ -221,10 +221,13 @@ def wait_for(
     process: subprocess.Popen[bytes],
     deadline: float,
     *overflows: threading.Event,
+    cancel: threading.Event | None = None,
 ) -> str:
-    """Wait until the process exits, the deadline passes, or a buffer overflows."""
+    """Wait until exit, cancellation, deadline, or a buffer overflow."""
 
     while True:
+        if cancel is not None and cancel.is_set():
+            return "cancelled"
         if any(event.is_set() for event in overflows):
             return "overflow"
         if process.poll() is not None:
