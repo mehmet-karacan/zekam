@@ -574,6 +574,18 @@ ve WP-03'un nihai kullanici kabulu aciktir.
 
 **Kabul ve negatif testler:** Testler: kaynak/generated aynı uzantı, gitignore metadata korunumu, nested dependency ağacı, UTF-8/BOM, büyük/şifreli/bozuk belge, archive bomb/XXE, same-name/different-content, source drift ve kaynakta sıfır mutation.
 
+**13 Ekim 2026 ara durum — WP-04.01/02 kaynak kesfi:** OpenCode Qwen
+uygulamasiyla `source_discovery.py` metadata envanteri ekledi. `.git`,
+`node_modules`, `.env`, ikili ve uretilmis girdiler metadata olarak gorunur;
+yoksayilan icerik acilmaz. Dizin ve global girdi sinirlari tarama sirasinda
+uygulanir; Windows junction ve symlink izlenmez; derinlik, erisim ve metadata
+sinirinda ve okunamayan dosyada partial durumu ile yol checkpoint'i doner.
+Icerik dosya/bayt siniri
+metadata tamligini yanlis partial yapmaz. Tam esik ve okuma sirasinda buyuyen
+dosya regresyonlari eklendi. Bu bir ara dilimdir: checkpoint henuz yeniden
+baslatma API'sine bagli degil; eligibility ayri karar sozlesmesine ve
+index/embedding akisina baglanmadi. WP-04.01/02 kabulleri aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

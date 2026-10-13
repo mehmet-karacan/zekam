@@ -3,11 +3,23 @@
 Guvenlik sinirlari:
 
 - Kok disina cikan yol, symlink veya `..` bileseni reddedilir (fail-closed).
-- Symlink'ler varsayilan olarak izlenmez.
+- Symlink, junction ve reparse point'ler asla izlenmez; kok disina veya kendi
+  ustune cakan baglantilar fail-closed olarak kesilir (dongu/cikis yok).
 - Sistem deny list, `.gitignore` ve `.zekamignore` birlikte uygulanir.
 - Ikili ve asiri buyuk dosyalar icerik olarak okunmaz.
 - Secret iceren dosyalar indeks disi birakilir; deger hicbir yere yazilmaz.
-- Toplam dosya ve bayt siniri archive-bomb benzeri durumlara karsi fail-closed'dir.
+- Toplam dosya, bayt ve derinlik sinirleri archive-bomb benzeri durumlara
+  karsi fail-closed'dir.
+
+Metadata envanteri (WP-04.01/02): Kesif, icerik eligibility'nden ayri, sinirli
+bir metadata envanteri tutar. Yoksayilan agaclari (`.git`, `node_modules`,
+`.env` ...) icine metadata icin inilir; cocuklarin yolu/turu/buyuklugu
+kaydedilir AMA icerikleri okunmaz, digest/secret taramasi yapilmaz, secret
+degeri envantere yazilmaz. Ikili, uretilmis ve sinir/asiri dosyalar da metadata
+olarak tasinir. Metadata limiti, okunamayan/buyuk dizin, derinlik siniri veya
+global girdi siniri envanteri `partial` yapar ve bir devam checkpoint'i uretir;
+sinirler tarama SIRASINDA zorlanir (dev dizinler bellege yuklenmez) ve envanter
+asla yalnizca `complete` ilan edilmez.
 
 Kesif hicbir kosulda kaynak agacina yazmaz, komut calistirmaz, build/test
 tetiklemez veya paket kurmaz.
@@ -17,7 +29,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Iterator
+import stat as stat_module
+from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -31,8 +44,17 @@ from zekam.domain.errors import PolicyViolation
 ZEKAM_IGNORE_FILE = ".zekamignore"
 GIT_IGNORE_FILE = ".gitignore"
 
-#: Ikili tespiti icin okunan on ek boyutu.
+#: Ikili tespiti icin dosyanin basindan okunan boyut.
 BINARY_PROBE_BYTES = 8192
+
+#: Eligible dosya icerigi icin kullanilan parca boyutu (bellek sinirli streaming).
+_CHUNK_SIZE = 1 << 20
+
+#: Envanterin bellekte tutulacak en fazla girdi sayisi (fail-closed sinir).
+MAX_INVENTORY_ENTRIES = 200_000
+
+#: Tek bir dizinden kesifte islenecek en fazla girdi sayisi (fail-closed sinir).
+MAX_DIR_ENTRIES = 10_000
 
 
 class SkipReason(StrEnum):
@@ -48,6 +70,33 @@ class SkipReason(StrEnum):
     LIMIT_REACHED = "limit-reached"
 
 
+class FileKind(StrEnum):
+    """Envanter girdisinin tasiyacagi tur."""
+
+    FILE = "file"
+    DIRECTORY = "directory"
+    SYMLINK = "symlink"
+
+
+class InventoryStatus(StrEnum):
+    """Metadata envanterinin tamamlanma durumu."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+class StopReason(StrEnum):
+    """Envanterin neden `partial` kaldigi (devam checkpoint'inin nedeni)."""
+
+    FILE_LIMIT = "file-limit"
+    BYTE_LIMIT = "byte-limit"
+    DEPTH_LIMIT = "depth-limit"
+    UNREADABLE_DIRECTORY = "unreadable-directory"
+    UNREADABLE_FILE = "unreadable-file"
+    INVENTORY_CAP = "inventory-cap"
+    DIR_ENTRY_CAP = "dir-entry-cap"
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveryPolicy:
     """Kesif sinirlari. Varsayilanlar fail-closed tarafta secilmistir."""
@@ -57,6 +106,23 @@ class DiscoveryPolicy:
     max_total_bytes: int = 512 * 1024 * 1024
     follow_symlinks: bool = False
     scan_secrets: bool = True
+    max_depth: int = 100
+    max_inventory_entries: int = MAX_INVENTORY_ENTRIES
+    max_dir_entries: int = MAX_DIR_ENTRIES
+
+    def __post_init__(self) -> None:
+        limits = (
+            self.max_file_bytes,
+            self.max_total_files,
+            self.max_total_bytes,
+            self.max_depth,
+            self.max_inventory_entries,
+            self.max_dir_entries,
+        )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in limits
+        ):
+            raise ValueError("Kesif sinirlari negatif olmayan tam sayilar olmali")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -65,12 +131,15 @@ class DiscoveryPolicy:
             "max_total_bytes": self.max_total_bytes,
             "follow_symlinks": self.follow_symlinks,
             "scan_secrets": self.scan_secrets,
+            "max_depth": self.max_depth,
+            "max_inventory_entries": self.max_inventory_entries,
+            "max_dir_entries": self.max_dir_entries,
         }
 
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredFile:
-    """Kesfedilen tek bir dosya."""
+    """Kesfedilen tek bir dosya (icerik eligibility'li, indekslenebilir)."""
 
     relative_path: str
     size_bytes: int
@@ -88,6 +157,32 @@ class DiscoveredFile:
             "size_bytes": self.size_bytes,
             "content_digest": self.content_digest,
             "is_text": self.is_text,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryEntry:
+    """Metadata envanterinde kaydedilen tek bir girdi.
+
+    Yalnizca yol, tur ve buyukluk tasiyor; icerik, digest veya secret deger
+    hicbir kosulda burada bulunmaz. `is_text` yalnizca icerigi sinirli okunmus
+    eligible dosyalar icin anlamlidir; yoksayilan/okunamayan/kesilen girdilerde
+    `None`dir.
+    """
+
+    relative_path: str
+    kind: FileKind
+    size_bytes: int
+    is_text: bool | None = None
+    skip_reason: SkipReason | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.relative_path,
+            "kind": self.kind.value,
+            "size_bytes": self.size_bytes,
+            "is_text": self.is_text,
+            "skip_reason": self.skip_reason.value if self.skip_reason is not None else None,
         }
 
 
@@ -115,6 +210,11 @@ class DiscoveryReport:
     policy: DiscoveryPolicy
     truncated: bool = False
     extensions: dict[str, int] = field(default_factory=dict)
+    inventory: tuple[InventoryEntry, ...] = field(default_factory=tuple)
+    inventory_status: InventoryStatus = InventoryStatus.COMPLETE
+    inventory_stop_reason: StopReason | None = None
+    inventory_checkpoint: tuple[str, ...] = field(default_factory=tuple)
+    inventory_bytes: int = 0
 
     @property
     def file_count(self) -> int:
@@ -124,10 +224,24 @@ class DiscoveryReport:
     def total_bytes(self) -> int:
         return sum(item.size_bytes for item in self.files)
 
+    @property
+    def inventory_count(self) -> int:
+        return len(self.inventory)
+
+    @property
+    def inventory_file_paths(self) -> tuple[str, ...]:
+        """Envanterdeki dosya (kind=file) girdilerinin sirali yollari."""
+        return tuple(
+            sorted(item.relative_path for item in self.inventory if item.kind is FileKind.FILE)
+        )
+
     def skipped_by(self, reason: SkipReason) -> tuple[SkippedPath, ...]:
         return tuple(item for item in self.skipped if item.reason is reason)
 
     def as_dict(self) -> dict[str, Any]:
+        counts = dict.fromkeys(FileKind, 0)
+        for item in self.inventory:
+            counts[item.kind] += 1
         return {
             "root_label": self.root_label,
             "tree_digest": self.tree_digest,
@@ -138,6 +252,18 @@ class DiscoveryReport:
             "skipped": [item.as_dict() for item in self.skipped],
             "secrets": [item.as_dict() for item in self.secrets],
             "policy": self.policy.as_dict(),
+            "inventory": {
+                "status": self.inventory_status.value,
+                "stop_reason": (
+                    self.inventory_stop_reason.value
+                    if self.inventory_stop_reason is not None
+                    else None
+                ),
+                "checkpoint": list(self.inventory_checkpoint),
+                "entry_count": self.inventory_count,
+                "entries_by_kind": {kind.value: count for kind, count in counts.items()},
+                "bytes": self.inventory_bytes,
+            },
         }
 
 
@@ -173,21 +299,140 @@ def assert_within_root(candidate: Path, root: Path) -> Path:
     return resolved
 
 
-def _iter_entries(root: Path) -> Iterator[tuple[Path, str, bool]]:
-    """Kok altindaki girdileri kararli sirayla dolasir."""
-    stack: list[Path] = [root]
-    while stack:
-        current = stack.pop()
+def _is_symlink_or_junction(path: Path) -> bool:
+    """Yolun symlink/junction/reparse point olup olmadigini dogrular.
+
+    `pathlib.is_symlink()` Windows'ta junction (reparse point) icin `False`
+    dondugundan, Windows'ta `lstat` + `FILE_ATTRIBUTE_REPARSE_POINT` ile ikinci
+    bir kontrol yapilir. Baglanti hedefi asla cozulmez/cokulmez.
+    """
+    if path.is_symlink():
+        return True
+    if os.name == "nt":
         try:
-            entries = sorted(current.iterdir(), key=lambda item: item.name)
-        except OSError:  # pragma: no cover - okunamayan dizin atlanir
-            continue
-        for entry in entries:
-            relative = entry.relative_to(root).as_posix()
-            is_directory = entry.is_dir() and not entry.is_symlink()
-            yield entry, relative, is_directory
-            if is_directory:
-                stack.append(entry)
+            return bool(
+                os.lstat(path).st_file_attributes & stat_module.FILE_ATTRIBUTE_REPARSE_POINT
+            )
+        except OSError:
+            return False
+    return False
+
+
+class _DirectoryTooLarge(Exception):
+    """Tek bir dizin, `max_dir_entries` sinirini asiyor."""
+
+
+def _list_bounded(directory: Path, limit: int) -> list[Path]:
+    """Tek dizinin girdilerini kararli (isim) sirayla ve SINIRLI listeler.
+
+    `limit` girdi toplaninca dizin okumasi durur; dev dizinler bellege
+    yuklenmez ve `_DirectoryTooLarge` firlatilir (tarama partial kesilir).
+    """
+    entries: list[Path] = []
+    for item in directory.iterdir():
+        if len(entries) >= limit:
+            raise _DirectoryTooLarge(str(directory))
+        entries.append(item)
+    entries.sort(key=lambda path: path.name)
+    return entries
+
+
+@dataclass
+class _InventoryBuilder:
+    """Tarama sirasinda sinirli envanter toplayici.
+
+    Global girdi siniri tarama sirasinda (sonradan kesme degil) zorlanir;
+    sinir asilirsa `cap_stopped` kurulur ve tarama kesilir.
+    """
+
+    cap: int
+    entries: list[InventoryEntry] = field(default_factory=list)
+    cap_stopped: bool = False
+    last_path: str | None = None
+
+    def add(
+        self,
+        relative: str,
+        kind: FileKind,
+        size: int,
+        skip_reason: SkipReason | None = None,
+        *,
+        is_text: bool | None = None,
+    ) -> bool:
+        """Girdi ekler; global sinir asilirsa True doner (tarama kesilmeli)."""
+        if len(self.entries) >= self.cap:
+            self.cap_stopped = True
+            self.last_path = relative
+            return True
+        self.entries.append(
+            InventoryEntry(
+                relative_path=relative,
+                kind=kind,
+                size_bytes=size,
+                is_text=is_text,
+                skip_reason=skip_reason,
+            )
+        )
+        self.last_path = relative
+        return False
+
+
+def _process_file(
+    resolved: Path,
+    relative: str,
+    size: int,
+    *,
+    policy: DiscoveryPolicy,
+    files: list[DiscoveredFile],
+    skipped: list[SkippedPath],
+    secrets: list[SecretFinding],
+    extensions: dict[str, int],
+) -> tuple[int, DiscoveredFile | None]:
+    """Tek bir eligible dosyayi byte sinirli okuyup isler.
+
+    Donen kope `(okunan_bayt, eldisi_dosya)`. `eldisi_dosya` `None` ise dosya
+    eligibility disinda birakilmistir (orn. secret bulgusu) ve `okunan_bayt` 0'dir.
+    Sinir kontrolu cagiran `discover` fonksiyonunda yapilir.
+    """
+    hasher = hashlib.sha256()
+    payload = bytearray()
+    with resolved.open("rb") as handle:
+        while True:
+            chunk = handle.read(min(_CHUNK_SIZE, size + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+            if len(payload) > size or len(payload) > policy.max_file_bytes:
+                raise OSError("Kaynak dosya okuma sirasinda buyudu")
+            hasher.update(chunk)
+    if len(payload) != size:
+        raise OSError("Kaynak dosya okuma sirasinda degisti")
+    probe = bytes(payload[:BINARY_PROBE_BYTES])
+    digest = DIGEST_PREFIX + hasher.hexdigest()
+
+    if _is_binary(probe):
+        discovered = DiscoveredFile(
+            relative_path=relative, size_bytes=size, content_digest=digest, is_text=False
+        )
+        files.append(discovered)
+        _count_extension(extensions, relative)
+        return size, discovered
+
+    text = payload.decode("utf-8", errors="replace")
+
+    if policy.scan_secrets:
+        found = scan_text(text, relative_path=relative)
+        if found:
+            secrets.extend(found)
+            skipped.append(SkippedPath(relative, SkipReason.SECRET, f"{len(found)} bulgu"))
+            return 0, None
+
+    discovered = DiscoveredFile(
+        relative_path=relative, size_bytes=size, content_digest=digest, is_text=True
+    )
+    files.append(discovered)
+    _count_extension(extensions, relative)
+    return size, discovered
 
 
 def discover(
@@ -196,7 +441,13 @@ def discover(
     policy: DiscoveryPolicy | None = None,
     matcher: IgnoreMatcher | None = None,
 ) -> DiscoveryReport:
-    """Kaynak agacini salt okunur olarak tarar."""
+    """Kaynak agacini salt okunur olarak tarar.
+
+    Icerik eligibility (`files`) ve metadata envanteri (`inventory`) ayni
+    taramada uretilir ama bamsiz kalir: envanter yoksayilan/ikili/uretilmis
+    girdiler dahil tum kesfedilen girdileri metadata olarak tutar; eligibility
+    ise yalnizca icerigi sinirli okunup indekslenebilir dosyalari kapsar.
+    """
     active_policy = policy or DiscoveryPolicy()
     resolved_root = root.resolve(strict=True)
     if not resolved_root.is_dir():
@@ -209,93 +460,286 @@ def discover(
     extensions: dict[str, int] = {}
     total_bytes = 0
     truncated = False
-    ignored_directories: set[str] = set()
 
-    for entry, relative, is_directory in _iter_entries(resolved_root):
-        if any(
-            relative == prefix or relative.startswith(f"{prefix}/")
-            for prefix in ignored_directories
+    # Icerik eligibility sinirleri: dosya siniri asilirdi mi, bayt siniri mi?
+    content_limit: StopReason | None = None
+    depth_stopped = False
+    unreadable_directory: str | None = None
+    unreadable_file: str | None = None
+    dir_cap_directory: str | None = None
+    last_eligible_path: str | None = None
+    last_pending_path: str | None = None
+
+    builder = _InventoryBuilder(cap=active_policy.max_inventory_entries)
+
+    # BFS kuyrugu. Her girdi: (yol, derinlik, bagli_yoksayim). Derinlik kok'e
+    # gore yol bilesen sayisidir (kok 0, README.md 1, src/ana.py 2).
+    # `bagli_yoksayim`, girdinin bir yoksayilan dizin icinde oldugunu tasir;
+    # bu girdiler icerik olarak okunmaz ama metadata envanteri gorunur kalir.
+    queue: deque[tuple[Path, int, bool]] = deque([(resolved_root, 0, False)])
+    while (
+        queue
+        and unreadable_directory is None
+        and dir_cap_directory is None
+        and not builder.cap_stopped
+    ):
+        directory, depth, dir_ignored = queue.popleft()
+        relative = directory.relative_to(resolved_root).as_posix()
+        try:
+            entries = _list_bounded(directory, active_policy.max_dir_entries)
+        except _DirectoryTooLarge:
+            # Dizin cok buyuk: sinirla okunamadi, tarama partial kesilir
+            # (devam checkpoint'i uretilir, sahte complete yok).
+            if not dir_ignored:
+                skipped.append(SkippedPath(relative, SkipReason.LIMIT_REACHED, "buyuk dizin"))
+            if builder.add(relative, FileKind.DIRECTORY, 0, skip_reason=SkipReason.LIMIT_REACHED):
+                break
+            dir_cap_directory = relative
+            break
+        except OSError:
+            # Okunamayan dizin: metadata olarak kaydedilir, tarama durur ve
+            # envanteri partial yapan bir devam checkpoint'i uretilir (sesli
+            # fail-closed; hata sessiz yutulmaz).
+            if builder.add(relative, FileKind.DIRECTORY, 0, skip_reason=SkipReason.UNREADABLE):
+                break
+            unreadable_directory = relative
+            break
+
+        # Izlenen (normal) dizin envantere metadata olarak girer (pop aninda).
+        # Koku (".") bir "kesfedilen girdi" degildir; kok tasinmaz. Push aninda
+        # kayit yapilmasinin tek istisnasi derinlik sinirinde kalan dizindir.
+        if relative != "." and builder.add(
+            relative,
+            FileKind.DIRECTORY,
+            0,
+            skip_reason=SkipReason.IGNORED if dir_ignored else None,
         ):
-            continue
+            break
 
-        if entry.is_symlink() and not active_policy.follow_symlinks:
-            skipped.append(SkippedPath(relative, SkipReason.SYMLINK, "symlink izlenmiyor"))
-            if is_directory:
-                ignored_directories.add(relative)
-            continue
+        for entry in reversed(entries):
+            entry_relative = entry.relative_to(resolved_root).as_posix()
 
-        if rules.is_ignored(relative, is_directory=is_directory):
-            skipped.append(SkippedPath(relative, SkipReason.IGNORED, "yoksayma kurali"))
-            if is_directory:
-                ignored_directories.add(relative)
-            continue
-
-        if is_directory:
-            continue
-
-        try:
-            resolved = assert_within_root(entry, resolved_root)
-        except PolicyViolation:
-            skipped.append(SkippedPath(relative, SkipReason.OUTSIDE_ROOT, "kok disi hedef"))
-            continue
-
-        if len(files) >= active_policy.max_total_files:
-            truncated = True
-            skipped.append(SkippedPath(relative, SkipReason.LIMIT_REACHED, "dosya siniri"))
-            continue
-
-        try:
-            size = resolved.stat().st_size
-        except OSError:
-            skipped.append(SkippedPath(relative, SkipReason.UNREADABLE, "stat basarisiz"))
-            continue
-
-        if size > active_policy.max_file_bytes:
-            skipped.append(SkippedPath(relative, SkipReason.TOO_LARGE, f"{size} bayt"))
-            continue
-        if total_bytes + size > active_policy.max_total_bytes:
-            truncated = True
-            skipped.append(SkippedPath(relative, SkipReason.LIMIT_REACHED, "toplam bayt siniri"))
-            continue
-
-        try:
-            payload = resolved.read_bytes()
-        except OSError:
-            skipped.append(SkippedPath(relative, SkipReason.UNREADABLE, "okuma basarisiz"))
-            continue
-
-        digest = DIGEST_PREFIX + hashlib.sha256(payload).hexdigest()
-        if _is_binary(payload):
-            files.append(
-                DiscoveredFile(
-                    relative_path=relative,
-                    size_bytes=size,
-                    content_digest=digest,
-                    is_text=False,
+            if _is_symlink_or_junction(entry):
+                # Symlink/junction asla izlenmez; hedef cozulmez (fail-closed).
+                skipped.append(
+                    SkippedPath(entry_relative, SkipReason.SYMLINK, "symlink/junction izlenmiyor")
                 )
-            )
-            total_bytes += size
-            _count_extension(extensions, relative)
-            continue
-
-        text = payload.decode("utf-8", errors="replace")
-        if active_policy.scan_secrets:
-            found = scan_text(text, relative_path=relative)
-            if found:
-                secrets.extend(found)
-                skipped.append(SkippedPath(relative, SkipReason.SECRET, f"{len(found)} bulgu"))
+                if builder.add(
+                    entry_relative,
+                    FileKind.SYMLINK,
+                    0,
+                    skip_reason=SkipReason.SYMLINK,
+                ):
+                    break
                 continue
 
-        files.append(
-            DiscoveredFile(
-                relative_path=relative,
-                size_bytes=size,
-                content_digest=digest,
-                is_text=True,
-            )
-        )
-        total_bytes += size
-        _count_extension(extensions, relative)
+            if entry.is_dir():
+                if depth + 1 > active_policy.max_depth:
+                    # Derinlik siniri: bu dizinin icine inilmez (icerigi daha
+                    # derin olurdu), envanteri partial yap. Kayit burada yapilir
+                    # (dizin kuyruga konulmadigi icin pop aninda gorusmez);
+                    # derinlik yoksayim durumundan bagimsiz ayni sekilde uygulanir.
+                    if builder.add(
+                        entry_relative,
+                        FileKind.DIRECTORY,
+                        0,
+                        skip_reason=SkipReason.LIMIT_REACHED,
+                    ):
+                        break
+                    if not depth_stopped:
+                        depth_stopped = True
+                        last_pending_path = entry_relative
+                    continue
+                if rules.is_path_ignored(entry_relative, is_directory=True):
+                    # Yoksayilan dizin: icine inilir AMA bagli yoksayim flag'i
+                    # ile; cocuklar metadata olarak tasinir, icerikleri okunmaz,
+                    # digest/secret taramasi yapilmaz. Kayit pop aninda yapilir.
+                    skipped.append(
+                        SkippedPath(entry_relative, SkipReason.IGNORED, "yoksayma kurali")
+                    )
+                    queue.append((entry, depth + 1, True))
+                    continue
+                # Izlenen normal dizin: bagli yoksayim flag'i alt agaca
+                # tasinir; kayit pop aninda yapilir.
+                queue.append((entry, depth + 1, dir_ignored))
+                continue
+
+            # Dosya.
+            if rules.is_path_ignored(entry_relative, is_directory=False) or dir_ignored:
+                # Yoksayilan dosya (orn. `.env` veya yoksayilan agac icindeki
+                # dosya): metadata olarak kaydedilir, icerigi okunmaz, secret
+                # degeri envantere yazilmaz, digest/secret taramasi yok.
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                skipped.append(SkippedPath(entry_relative, SkipReason.IGNORED, "yoksayma kurali"))
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.IGNORED,
+                ):
+                    break
+                continue
+
+            if depth + 1 > active_policy.max_depth:
+                # Derinlik siniri: dosyaya kadar inilmez, envanteri partial yap.
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    0,
+                    skip_reason=SkipReason.LIMIT_REACHED,
+                ):
+                    break
+                if not depth_stopped:
+                    depth_stopped = True
+                    last_pending_path = entry_relative
+                continue
+
+            try:
+                resolved = assert_within_root(entry, resolved_root)
+            except PolicyViolation:
+                skipped.append(
+                    SkippedPath(entry_relative, SkipReason.OUTSIDE_ROOT, "kok disi hedef")
+                )
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    0,
+                    skip_reason=SkipReason.OUTSIDE_ROOT,
+                ):
+                    break
+                continue
+
+            try:
+                file_stat = resolved.stat()
+                if not stat_module.S_ISREG(file_stat.st_mode):
+                    raise OSError("Duzenli dosya degil")
+                size = file_stat.st_size
+            except OSError:
+                skipped.append(SkippedPath(entry_relative, SkipReason.UNREADABLE, "stat basarisiz"))
+                if builder.add(entry_relative, FileKind.FILE, 0, skip_reason=SkipReason.UNREADABLE):
+                    break
+                if unreadable_file is None:
+                    unreadable_file = entry_relative
+                continue
+
+            if len(files) >= active_policy.max_total_files:
+                if content_limit is None:
+                    content_limit = StopReason.FILE_LIMIT
+                truncated = True
+                skipped.append(
+                    SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, "dosya siniri")
+                )
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.LIMIT_REACHED,
+                ):
+                    break
+                last_pending_path = entry_relative
+                continue
+
+            if size > active_policy.max_file_bytes:
+                skipped.append(SkippedPath(entry_relative, SkipReason.TOO_LARGE, f"{size} bayt"))
+                if builder.add(
+                    entry_relative, FileKind.FILE, size, skip_reason=SkipReason.TOO_LARGE
+                ):
+                    break
+                continue
+
+            if total_bytes + size > active_policy.max_total_bytes:
+                if content_limit is None:
+                    content_limit = StopReason.BYTE_LIMIT
+                truncated = True
+                skipped.append(
+                    SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, "toplam bayt siniri")
+                )
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.LIMIT_REACHED,
+                ):
+                    break
+                last_pending_path = entry_relative
+                continue
+
+            if content_limit is not None:
+                # Dosya/bayt eligibility siniri asildi: envanter metadata olarak
+                # tasinir (gercek buyuklukle) ama icerik okuma durur.
+                reason = (
+                    "dosya siniri"
+                    if content_limit is StopReason.FILE_LIMIT
+                    else "toplam bayt siniri"
+                )
+                skipped.append(SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, reason))
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.LIMIT_REACHED,
+                ):
+                    break
+                last_pending_path = entry_relative
+                continue
+
+            try:
+                read_bytes, discovered = _process_file(
+                    resolved,
+                    entry_relative,
+                    size=size,
+                    policy=active_policy,
+                    files=files,
+                    skipped=skipped,
+                    secrets=secrets,
+                    extensions=extensions,
+                )
+            except OSError:
+                skipped.append(
+                    SkippedPath(entry_relative, SkipReason.UNREADABLE, "okuma basarisiz")
+                )
+                if builder.add(
+                    entry_relative, FileKind.FILE, size, skip_reason=SkipReason.UNREADABLE
+                ):
+                    break
+                if unreadable_file is None:
+                    unreadable_file = entry_relative
+                continue
+
+            if discovered is None:
+                # Eligibility disinda (orn. secret); envantere metadata olarak girer.
+                if builder.add(entry_relative, FileKind.FILE, size, skip_reason=SkipReason.SECRET):
+                    break
+                continue
+
+            total_bytes += read_bytes
+            last_eligible_path = entry_relative
+            if builder.add(entry_relative, FileKind.FILE, size, is_text=discovered.is_text):
+                break
+
+    inventory, inventory_status, inventory_stop_reason, inventory_bytes = _assemble_inventory(
+        builder.entries,
+        cap_stopped=builder.cap_stopped,
+        depth_stopped=depth_stopped,
+        unreadable_directory=unreadable_directory,
+        unreadable_file=unreadable_file,
+        dir_cap_directory=dir_cap_directory,
+    )
+    checkpoint = _build_checkpoint(
+        inventory_status=inventory_status,
+        content_limit=content_limit,
+        depth_stopped=depth_stopped,
+        unreadable_directory=unreadable_directory,
+        unreadable_file=unreadable_file,
+        dir_cap_directory=dir_cap_directory,
+        last_eligible_path=last_eligible_path,
+        last_pending_path=last_pending_path,
+        inventory=inventory,
+        cap_pending_path=builder.last_path if builder.cap_stopped else None,
+    )
 
     return DiscoveryReport(
         root_label=resolved_root.name,
@@ -306,7 +750,86 @@ def discover(
         policy=active_policy,
         truncated=truncated,
         extensions=extensions,
+        inventory=inventory,
+        inventory_status=inventory_status,
+        inventory_stop_reason=inventory_stop_reason,
+        inventory_checkpoint=checkpoint,
+        inventory_bytes=inventory_bytes,
     )
+
+
+def _assemble_inventory(
+    entries: list[InventoryEntry],
+    *,
+    cap_stopped: bool,
+    depth_stopped: bool,
+    unreadable_directory: str | None,
+    unreadable_file: str | None,
+    dir_cap_directory: str | None,
+) -> tuple[tuple[InventoryEntry, ...], InventoryStatus, StopReason | None, int]:
+    """Envanter girdilerini siralar ve durumu belirler.
+
+    Global girdi siniri tarama SIRASINDA `cap_stopped` ile belirlenir; burada
+    yeniden kesme (slice) yapilmaz.
+    """
+    ordered = tuple(sorted(entries, key=lambda item: item.relative_path))
+    inventory_bytes = sum(item.size_bytes for item in ordered if item.kind is FileKind.FILE)
+
+    if cap_stopped:
+        status, stop_reason = InventoryStatus.PARTIAL, StopReason.INVENTORY_CAP
+    elif unreadable_directory is not None:
+        status, stop_reason = InventoryStatus.PARTIAL, StopReason.UNREADABLE_DIRECTORY
+    elif unreadable_file is not None:
+        status, stop_reason = InventoryStatus.PARTIAL, StopReason.UNREADABLE_FILE
+    elif dir_cap_directory is not None:
+        status, stop_reason = InventoryStatus.PARTIAL, StopReason.DIR_ENTRY_CAP
+    elif depth_stopped:
+        status, stop_reason = InventoryStatus.PARTIAL, StopReason.DEPTH_LIMIT
+    else:
+        status, stop_reason = InventoryStatus.COMPLETE, None
+
+    return ordered, status, stop_reason, inventory_bytes
+
+
+def _build_checkpoint(
+    *,
+    inventory_status: InventoryStatus,
+    content_limit: StopReason | None,
+    depth_stopped: bool,
+    unreadable_directory: str | None,
+    unreadable_file: str | None,
+    dir_cap_directory: str | None,
+    last_eligible_path: str | None,
+    last_pending_path: str | None,
+    inventory: tuple[InventoryEntry, ...],
+    cap_pending_path: str | None,
+) -> tuple[str, ...]:
+    """Devam checkpoint'ini (yeniden baslatilacak son nokta) belirler.
+
+    `complete` envanter icin bos tuple doner (devam edilecek nokta yok). Aksi
+    halde taramanin kesildigi son nokta verilir: okunamayan/buyuk dizin,
+    derinlik sinirindeki girdi, sinir nedeniyle bekleyen dosya ya da envanterin
+    son girdisi.
+    """
+    if inventory_status is not InventoryStatus.PARTIAL:
+        return ()
+    if cap_pending_path is not None:
+        return (cap_pending_path,)
+    if unreadable_directory is not None:
+        return (unreadable_directory,)
+    if unreadable_file is not None:
+        return (unreadable_file,)
+    if dir_cap_directory is not None:
+        return (dir_cap_directory,)
+    if depth_stopped and last_pending_path is not None:
+        return (last_pending_path,)
+    if content_limit is not None and last_pending_path is not None:
+        return (last_pending_path,)
+    if last_eligible_path is not None:
+        return (last_eligible_path,)
+    if not inventory:
+        return ()
+    return (inventory[-1].relative_path,)
 
 
 def compute_tree_digest(files: list[DiscoveredFile] | tuple[DiscoveredFile, ...]) -> str:
