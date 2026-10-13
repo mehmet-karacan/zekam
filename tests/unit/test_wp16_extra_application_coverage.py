@@ -584,7 +584,10 @@ def _integration_service(
 
 @pytest.mark.parametrize(
     "policy",
-    [DiscoveryPolicy(max_depth=0), DiscoveryPolicy(max_total_files=0)],
+    # max_total_files=0 fail-closed olarak reddedildigi icin (ValueError),
+    # truncated-content senaryosunu tek dosyaligi agacta bayt siniri tetikler:
+    # ilk (ve tek) dosya bayt sinirina takilir, truncated=True.
+    [DiscoveryPolicy(max_depth=0), DiscoveryPolicy(max_total_bytes=1)],
     ids=["partial-metadata", "truncated-content"],
 )
 def test_project_scan_rejects_incomplete_discovery_before_writes(

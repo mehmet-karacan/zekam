@@ -167,10 +167,13 @@ def test_traversal_target_is_rejected(tmp_path: Path) -> None:
         assert_within_root(root / ".." / "disari", root)
 
 
-def test_zero_limits_produce_empty_index(source_tree: Path) -> None:
-    report = discover(source_tree, policy=DiscoveryPolicy(max_total_files=0))
-    assert report.files == ()
-    assert report.truncated
+def test_zero_content_limit_is_rejected_fail_closed() -> None:
+    # Fail-closed sozlesme: icerik sinirlari pozitif olmak zorundadir.
+    # `max_total_files=0`, eski beklentideki "bos indeks + truncated" yerine
+    # politika kurulurken ValueError ile reddedilir; discover boyle bir sinirle
+    # asla calistirilamaz (sessiz bos indeks uretilmez).
+    with pytest.raises(ValueError, match="max_total_files pozitif"):
+        DiscoveryPolicy(max_total_files=0)
 
 
 def test_many_small_files_respect_total_byte_limit(tmp_path: Path) -> None:
