@@ -171,11 +171,17 @@ def test_opencode_health_and_response_remaining_branches(tmp_path: Path) -> None
     result = embedding.evaluate_embedding_candidates((), changed)
     assert any(len(item.reasons) >= 3 for item in result)
     response: dict[str, object] = {
-        "data": [{"embedding": [1.0, 0.0]} for _ in embedding.SYNTHETIC_EMBEDDING_FIXTURE]
+        "data": [
+            {"index": position, "embedding": [1.0, 0.0]}
+            for position, _ in enumerate(embedding.SYNTHETIC_EMBEDDING_FIXTURE)
+        ]
     }
     with pytest.raises(ValidationFailed, match="latency"):
         embedding.evaluate_opencode_embedding_response(config, response, latency_ms=-1)
-    response["data"] = [{"embedding": []} for _ in embedding.SYNTHETIC_EMBEDDING_FIXTURE]
+    response["data"] = [
+        {"index": position, "embedding": []}
+        for position, _ in enumerate(embedding.SYNTHETIC_EMBEDDING_FIXTURE)
+    ]
     with pytest.raises(ValidationFailed):
         embedding.evaluate_opencode_embedding_response(config, response, latency_ms=1)
 
@@ -210,14 +216,20 @@ def test_opencode_valid_resolver_and_inconsistent_vector_dimensions(tmp_path: Pa
     assert resolver.resolve("ref", "embeddings") == config.embedding_endpoint
     vectors = [[1.0, 0.0] for _ in embedding.SYNTHETIC_EMBEDDING_FIXTURE]
     vectors[-1] = [1.0]
-    with pytest.raises(ValidationFailed):
+    indexed_vectors = [
+        {"index": position, "embedding": item} for position, item in enumerate(vectors)
+    ]
+    with pytest.raises(ValidationFailed, match="boyutu"):
         embedding.evaluate_opencode_embedding_response(
             config,
-            {"data": [{"embedding": item} for item in vectors]},
+            {"data": indexed_vectors},
             latency_ms=1,
         )
     response: dict[str, object] = {
-        "data": [{"embedding": [float("nan"), 0.0]} for _ in embedding.SYNTHETIC_EMBEDDING_FIXTURE]
+        "data": [
+            {"index": position, "embedding": [float("nan"), 0.0]}
+            for position, _ in enumerate(embedding.SYNTHETIC_EMBEDDING_FIXTURE)
+        ]
     }
     with pytest.raises(ValidationFailed, match="sonlu"):
         embedding.evaluate_opencode_embedding_response(config, response, latency_ms=1)
