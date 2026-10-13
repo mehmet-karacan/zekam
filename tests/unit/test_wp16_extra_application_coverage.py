@@ -59,9 +59,16 @@ from zekam.domain.errors import (
     ValidationFailed,
     ZekamError,
 )
+from zekam.domain.identifiers import new_uuid7
 from zekam.domain.loop_policy import LoopDeltaKind, LoopEffectClass, LoopPolicy, LoopTerminalState
 from zekam.domain.optimization import MetricDirection, MetricRole, MetricSpec, OptimizationObjective
-from zekam.domain.project import IntegrationStage, Project, SourceBinding, SourceRevision
+from zekam.domain.project import (
+    IntegrationStage,
+    Project,
+    SourceBinding,
+    SourceRevision,
+    SourceRevisionKind,
+)
 from zekam.domain.realm import Realm
 from zekam.domain.security import Authorization, AuthorizationScope
 from zekam.domain.session_continuity import DataClassification
@@ -496,6 +503,34 @@ class _Bindings:
     def latest_revision(self, _binding_id: UUID) -> SourceRevision | None:
         return self.revision
 
+    def record_revision(
+        self,
+        *,
+        binding_id: UUID,
+        kind: SourceRevisionKind,
+        revision: str,
+        tree_digest: str,
+        branch: str | None = None,
+        is_dirty: bool = False,
+        file_count: int = 0,
+        now: dt.datetime | None = None,
+    ) -> SourceRevision:
+        moment = now or dt.datetime.now(dt.UTC)
+        record = SourceRevision(
+            id=new_uuid7(now=moment),
+            realm_id=IDS[0],
+            binding_id=binding_id,
+            kind=kind,
+            revision=revision,
+            tree_digest=tree_digest,
+            branch=branch,
+            is_dirty=is_dirty,
+            file_count=file_count,
+            observed_at=moment,
+        )
+        self.revision = record
+        return record
+
     def rebind(self, binding_id: UUID, *, absolute_path: Path, locator_digest: str) -> None:
         current = self.bindings[0]
         self.bindings[0] = replace(current, locator_digest=locator_digest)
@@ -503,6 +538,14 @@ class _Bindings:
 
     def get(self, _binding_id: UUID) -> SourceBinding:
         return self.bindings[0]
+
+
+@dataclass
+class _Profiles:
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def store(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
 
 
 @dataclass
@@ -520,18 +563,23 @@ class _States:
 
 def _integration_service(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> tuple[ProjectIntegrationService, _Projects, _Bindings, _States]:
+) -> tuple[ProjectIntegrationService, _Projects, _Bindings, _Profiles, _States]:
     realm = Realm.create(now=NOW)
     initial = Project.create(realm=realm, slug="placeholder", now=NOW)
-    projects, bindings, states = _Projects(initial), _Bindings(), _States()
+    projects, bindings, profiles, states = (
+        _Projects(initial),
+        _Bindings(),
+        _Profiles(),
+        _States(),
+    )
     repos = {
         "project": projects,
         "source_binding": bindings,
-        "project_capability_profile": SimpleNamespace(store=lambda **_kw: None),
+        "project_capability_profile": profiles,
         "integration_state": states,
     }
     monkeypatch.setattr(integration, "legacy_repository", lambda kind, *_args: repos[kind])
-    return ProjectIntegrationService(object(), realm), projects, bindings, states
+    return ProjectIntegrationService(object(), realm), projects, bindings, profiles, states
 
 
 @pytest.mark.parametrize(
@@ -542,7 +590,7 @@ def _integration_service(
 def test_project_scan_rejects_incomplete_discovery_before_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: DiscoveryPolicy
 ) -> None:
-    service, _projects, bindings, states = _integration_service(monkeypatch, tmp_path)
+    service, _projects, bindings, profiles, states = _integration_service(monkeypatch, tmp_path)
     root = tmp_path / "source"
     root.mkdir()
     (root / "a.py").write_text("print('hello')\n", encoding="utf-8")
@@ -553,13 +601,37 @@ def test_project_scan_rejects_incomplete_discovery_before_writes(
         service.scan(project.id, policy=policy, now=NOW)
 
     assert bindings.revision is None
+    assert profiles.calls == []
     assert states.stage is IntegrationStage.BOUND
+
+
+def test_project_scan_records_current_on_complete_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Geriye uyum: tam (non-partial, non-truncated) tarama `current` yapar."""
+    service, _projects, bindings, profiles, states = _integration_service(monkeypatch, tmp_path)
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "a.py").write_text("print('hello')\n", encoding="utf-8")
+    project = service.register(source_path=root, now=NOW)
+
+    result = service.scan(project.id, now=NOW)
+
+    assert result.stage is IntegrationStage.CURRENT
+    assert result.revision.tree_digest.startswith("sha256:")
+    assert bindings.revision is not None
+    assert bindings.revision.tree_digest == result.revision.tree_digest
+    assert len(profiles.calls) == 1
+    assert profiles.calls[0]["source_revision_id"] == result.revision.id
+    assert states.stage is IntegrationStage.CURRENT
+    assert states.detail["truncated"] is False
+    assert states.detail["knowledge_index"] == {"state": "pending"}
 
 
 def test_project_integration_register_rebind_evaluate_and_action_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service, projects, bindings, states = _integration_service(monkeypatch, tmp_path)
+    service, projects, bindings, _profiles, states = _integration_service(monkeypatch, tmp_path)
     source = tmp_path / "source"
     source.mkdir()
     project = service.register(source_path=source, aliases=("Source", "cash-register"), now=NOW)
