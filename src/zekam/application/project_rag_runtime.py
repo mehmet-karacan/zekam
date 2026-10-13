@@ -69,6 +69,7 @@ from zekam.application.provider_adapter import (
     ProviderCallCancelled,
     ProviderDeadlineExceeded,
     ProviderHTTPUnavailable,
+    ProviderOutcomeUnknown,
 )
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.application.provider_contract_runner import (
@@ -1468,7 +1469,7 @@ def _embed_documents_with_retry(
             _check_index_budget(cancel, deadline_monotonic)
             if (
                 attempt == 3
-                or isinstance(exc, ProviderDeadlineExceeded)
+                or isinstance(exc, (ProviderDeadlineExceeded, ProviderOutcomeUnknown))
                 or (isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable)
             ):
                 raise

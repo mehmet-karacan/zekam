@@ -17,7 +17,9 @@ from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
     AuthorizedProviderClient,
     MultipartProviderCall,
+    ProviderCallCancelled,
     ProviderCallResult,
+    ProviderOutcomeUnknown,
 )
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.domain.canonical import digest
@@ -113,6 +115,8 @@ class RuntimeProviderContractRunner:
     def _failure_category(exc: Exception) -> FailureCategory:
         if isinstance(exc, AuthorizationRequired):
             return FailureCategory.AUTHORIZATION
+        if isinstance(exc, (ProviderOutcomeUnknown, ProviderCallCancelled)):
+            return FailureCategory.UNKNOWN_EFFECT
         if isinstance(exc, ProbeUnavailable):
             return FailureCategory.PROVIDER
         if isinstance(exc, PolicyViolation):

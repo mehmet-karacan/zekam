@@ -12,7 +12,9 @@ from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
     AuthorizedProviderClient,
     ProviderCall,
+    ProviderCallCancelled,
     ProviderCallResult,
+    ProviderOutcomeUnknown,
     reviewed_endpoint_digest,
 )
 from zekam.application.provider_contract_execution import (
@@ -40,6 +42,14 @@ def test_transport_unavailability_is_provider_failure() -> None:
         RuntimeProviderContractRunner._failure_category(ProbeUnavailable("transport unavailable"))
         is FailureCategory.PROVIDER
     )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ProviderOutcomeUnknown("unknown"), ProviderCallCancelled("cancelled")],
+)
+def test_unsettled_provider_call_is_unknown_effect(error: Exception) -> None:
+    assert RuntimeProviderContractRunner._failure_category(error) is FailureCategory.UNKNOWN_EFFECT
 
 
 class FakeLedger:

@@ -19,6 +19,7 @@ from zekam.application.provider_adapter import (
     ProviderCallCancelled,
     ProviderDeadlineExceeded,
     ProviderHTTPUnavailable,
+    ProviderOutcomeUnknown,
 )
 from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
@@ -1116,6 +1117,23 @@ def test_document_embedding_http_503_exhaustion_makes_four_calls(
     assert caught.value.retryable is True
     assert provider.calls == 4
     assert waits == [1, 2, 4]
+
+
+def test_unknown_document_effect_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    class UnknownProvider:
+        calls = 0
+
+        def embed_documents(self, _texts: object, _policy: object) -> None:
+            self.calls += 1
+            raise ProviderOutcomeUnknown("child ended without terminal response")
+
+    provider = UnknownProvider()
+    waits: list[int] = []
+    monkeypatch.setattr(runtime.time, "sleep", waits.append)
+    with pytest.raises(ProviderOutcomeUnknown):
+        runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
+    assert provider.calls == 1
+    assert waits == []
 
 
 def test_document_embedding_retry_with_preset_cancel_makes_zero_provider_calls() -> None:

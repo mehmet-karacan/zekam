@@ -73,6 +73,12 @@ class ProviderDeadlineExceeded(ProbeUnavailable):
     code = "provider-deadline-exceeded"
 
 
+class ProviderOutcomeUnknown(ProbeUnavailable):
+    """The child may have sent the request, but no terminal provider response survived."""
+
+    code = "provider-outcome-unknown"
+
+
 class ProviderCallQuotaExceeded(PolicyViolation):
     """The caller's local outbound call budget is exhausted."""
 

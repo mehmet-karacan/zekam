@@ -11,6 +11,7 @@ from typing import Any, NoReturn
 
 import pytest
 
+from zekam.application.provider_adapter import ProviderOutcomeUnknown
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.model_invocation import GatewayTransportProvenance
@@ -162,8 +163,9 @@ def test_preset_cancel_event_starts_no_child(
     monkeypatch.setattr(
         worker,
         "start_process_tree",
-        lambda *args, **kwargs: started.append(args) or (_ for _ in ()).throw(
-            AssertionError("preset cancel must not start a child")
+        lambda *args, **kwargs: (
+            started.append(args)
+            or (_ for _ in ()).throw(AssertionError("preset cancel must not start a child"))
         ),
     )
     cancel = threading.Event()
@@ -508,3 +510,27 @@ def test_process_isolated_transport_denies_redirect(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_process_isolated_transport_marks_missing_child_result_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_terminal_result(
+        _self: CapabilityProcessWorker,
+        _spec: CapabilityWorkerSpec,
+        request: CapabilityWorkerRequest,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> worker.CapabilityWorkerResult:
+        del cancel
+        return worker.CapabilityWorkerResult(request.request_id, CapabilityWorkerStatus.TIMEOUT)
+
+    monkeypatch.setattr(CapabilityProcessWorker, "run", no_terminal_result)
+    transport = ProcessIsolatedJsonProviderTransport()
+    with pytest.raises(ProviderOutcomeUnknown, match="hard deadline"):
+        transport.post_json(
+            "https://models.example.test/v1/embeddings",
+            {"model": "synthetic-model", "input": ["synthetic-text"]},
+            SecretValue("synthetic-secret"),
+            gateway_provenance=_gateway_provenance(),
+        )

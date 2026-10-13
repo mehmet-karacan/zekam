@@ -82,3 +82,28 @@ def test_probe_claims_are_not_document_reconciliation_gate(tmp_path: Path) -> No
     project = uuid4()
     _claim(host, project, operation="provider-contract:opencode-embedding-probe-abc")
     _claim(host, project, operation="provider-contract:opencode-embedding-probe-abc")
+
+
+def test_rejected_document_claim_commits_no_rows(tmp_path: Path) -> None:
+    host = _host(tmp_path)
+    project = uuid4()
+    first = _claim(host, project)
+    before = host.summary()
+    with pytest.raises(PolicyViolation, match="uzlastirilmali"):
+        _claim(host, project)
+    # Atomik red: check+insert ayni immediate transaction icinde; kismi yazim yok.
+    assert host.summary() == before
+    assert host.claims_for_job(first.job_id) == (first,)
+
+
+def test_unknown_outcome_receipt_requires_reconciliation(tmp_path: Path) -> None:
+    host = _host(tmp_path)
+    project = uuid4()
+    uncertain = _claim(host, project)
+    host.record_failure(
+        uncertain,
+        category=FailureCategory.UNKNOWN_EFFECT,
+        failure_digest=digest("unknown-outcome"),
+    )
+    with pytest.raises(PolicyViolation, match="uzlastirilmali"):
+        _claim(host, project)

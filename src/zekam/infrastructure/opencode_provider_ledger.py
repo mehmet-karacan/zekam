@@ -230,7 +230,8 @@ class SQLiteProviderLedgerHost:
                     "left join provider_effect_receipt r on r.claim_id=c.id "
                     "where c.realm_id=? and j.project_id=? and c.effect_digest=? "
                     "and c.operation like 'provider-contract:opencode-embedding-document-%' "
-                    "and (r.id is null or r.status='completed') limit 1",
+                    "and (r.id is null or r.status='completed' "
+                    "or r.failure_category='unknown-effect') limit 1",
                     (str(claim.realm_id), str(work.job.project_id), claim.effect_digest),
                 ).fetchone()
                 if prior is not None:

@@ -84,6 +84,7 @@ class FailureCategory(StrEnum):
     CONFLICT = "conflict"
     ADAPTER = "adapter"
     PROVIDER = "provider"
+    UNKNOWN_EFFECT = "unknown-effect"
     INTERNAL = "internal"
     CANCELLED = "cancelled"
 

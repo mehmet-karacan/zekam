@@ -825,6 +825,14 @@ sinirlariyla ayni icerigin yeniden gruplanmasi, dis provider sonucunun
 dogrulanarak uzlastirilmasi ve canli kabul kaniti acik oldugundan
 WP-05.04 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — belirsiz child sonucu:** Provider child HTTP
+durum kodu veya gecerli sonuc dondurmeden biterse sonuc `unknown-effect`
+olarak receipt'e yazilir; document embedding ayni cagrida otomatik retry
+yapmaz ve kalici ledger ayni proje/effect icin sonraki claim'i reddeder.
+Iptal edilen effect de muhafazakar olarak belirsiz sinifina alinir.
+127 ilgili cevrimdisi test gecti. Provider-side dogrulama, batch yeniden
+gruplanmasi ve canli kabul kaniti acik oldugundan WP-05.04 halen aciktir.
+
 **13 Ekim 2026 07:40 checkpoint:** Kullanici istegiyle bu sohbet
 duraklatildi. Son push edilen HEAD, commit edilmemis runtime taslagi,
 test kaniti, acik kabul adimlari ve `next_safe_action`

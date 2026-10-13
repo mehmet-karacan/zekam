@@ -416,11 +416,15 @@ class ProcessIsolatedJsonProviderTransport:
 
             raise ProviderCallCancelled("Provider call cancelled")
         if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
-            raise ProviderDeadlineExceeded("Provider total deadline expired")
+            from zekam.application.provider_adapter import ProviderOutcomeUnknown
+
+            raise ProviderOutcomeUnknown("Provider child deadline expired; outcome unknown")
         if outcome.status is not CapabilityWorkerStatus.COMPLETED or outcome.payload is None:
             # Runtime import avoids an infrastructure -> application import cycle.
-            from zekam.application.model_health_service import ProbeUnavailable
-            from zekam.application.provider_adapter import ProviderHTTPUnavailable
+            from zekam.application.provider_adapter import (
+                ProviderHTTPUnavailable,
+                ProviderOutcomeUnknown,
+            )
 
             prefix = "provider-http-status-"
             error_code = outcome.error_code or ""
@@ -431,12 +435,12 @@ class ProcessIsolatedJsonProviderTransport:
                     if 100 <= status <= 599:
                         raise ProviderHTTPUnavailable(status)
 
-            raise ProbeUnavailable(_provider_failure_message(outcome))
+            raise ProviderOutcomeUnknown(_provider_failure_message(outcome))
         response = outcome.payload.get("provider_response")
         if not isinstance(response, dict):
-            from zekam.application.model_health_service import ProbeUnavailable
+            from zekam.application.provider_adapter import ProviderOutcomeUnknown
 
-            raise ProbeUnavailable("Provider child response gecersiz")
+            raise ProviderOutcomeUnknown("Provider child response gecersiz")
         return response
 
 
@@ -502,10 +506,10 @@ def _provider_failure_message(outcome: CapabilityWorkerResult) -> str:
     if outcome.status is CapabilityWorkerStatus.OUTPUT_LIMIT:
         return "Provider process IPC boyut sinirini asti"
     if outcome.error_code and outcome.error_code in {
-            "provider-transport-unavailable",
-            "provider-response-limit",
-            "provider-response-invalid-json",
-            "provider-response-not-object",
+        "provider-transport-unavailable",
+        "provider-response-limit",
+        "provider-response-invalid-json",
+        "provider-response-not-object",
     }:
         return outcome.error_code
     return "Provider process kullanilamiyor"
