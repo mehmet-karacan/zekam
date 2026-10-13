@@ -556,6 +556,31 @@ dogrulanmadi, islem basarisi dil filtresi tum dogal dil varyantlarini kapsamaz,
 aciklama kalici kayda ve native cevap akisine baglanmadi. Bu yuzden WP-03.05
 ve WP-03'un nihai kullanici kabulu aciktir.
 
+**13 Ekim 2026 ara durum — WP-03.03 route/scope dispatch adapteri (ek katman):**
+`natural_request_rag.py` deterministic `RequestRoute` veya dogrulanmis
+`NaturalRequestScope` girdisinden (exact biri) injected salt-okunur sorgu
+seam'ine baglanir: tek proje tam olarak bir indeks sorgusu, acik coklu
+fan-out proje basina ayri cagri ve ayri etiketli sonuc uretir; sonuclar
+projeler arasinda birlestirilmez. Cross-project fallback dokumani, projesiz
+sonuc ve sahte `grants_authority` bildirimi fail-closed reddedilir; soru
+route `query_digest` ile exact baglanir. Belirsiz/declined istek sorgu
+seam'ini hic cagirmaz; eksik indeks `unavailable`, politika reddi `refused`
+outcome ile raporlanir, indeksleme/document embedding baslatilmaz. 26 hedefli
+test gecti; Ruff, ruff format ve hedefli mypy temiz. Commitli
+`natural_request_retrieval.py` degistirilmedi; iki katmanin birlestirilmesi
+koordinator incelemesine birakildi. WP-03.03 native dispatcher baglantisi ve
+gercek coklu indeks kabul testi tamamlanana kadar aciktir.
+
+**13 Ekim 2026 devam — WP-03.03 kanonik CLI baglantisi:** `zekam ask`,
+`--project` verilmeyen acik coklu proje karsilastirmasinda route/scope kararini
+tek kez alip mevcut `natural_request_retrieval.py` kanonik yolunu calistirir.
+Tek proje cikisi korunur; coklu sonuc ayri `zekam-ask-multi-result/v1`
+semasini tasir. Gercek proje kaydi ve katalogu kullanan hedefli testlerde
+15 yeni senaryo gecti; cevap veren iki indeksin sonucunda sorgu seam'i mock
+oldugu icin gercek iki okunabilir indeks kabul kaniti henuz yoktur.
+`natural_request_rag.py` alternatif prototip olarak kalmistir, kanonik
+dispatch veya paket kabulu olarak sayilmaz. WP-03.03 aciktir.
+
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 
 **Bağımlılık/onay:** WP-01/03; yeni generation WP-05 ile.  
