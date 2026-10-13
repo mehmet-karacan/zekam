@@ -1466,8 +1466,10 @@ def _embed_documents_with_retry(
             return batch
         except ProbeUnavailable as exc:
             _check_index_budget(cancel, deadline_monotonic)
-            if attempt == 3 or isinstance(exc, ProviderDeadlineExceeded) or (
-                isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable
+            if (
+                attempt == 3
+                or isinstance(exc, ProviderDeadlineExceeded)
+                or (isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable)
             ):
                 raise
             delay = min(2**attempt, 4)
@@ -1730,6 +1732,272 @@ def _write_rag_state_cas(
         return True
 
 
+_RAG_STATE_PENDING_SCHEMA = "zekam-project-rag-state-pending/v1"
+
+
+def _rag_pending_path(state_path: Path) -> Path:
+    """Return the pending-evidence document path beside ``rag-state.json``."""
+
+    return state_path.with_name(f"{state_path.name}.pending.json")
+
+
+def _publish_rag_state_pending(
+    paths: dict[str, Path],
+    project_id: str,
+    result: dict[str, Any],
+    expected_current_digest: str | None,
+    staged_generation_digest: str,
+) -> dict[str, Any]:
+    """Publish one staged index generation and its rag-state as one unit.
+
+    Runs entirely under the ``rag-state.json`` writer lock.  Order: write the
+    private pending evidence document beside the state file (the result, the
+    expected old digest, the target digest and a canonical digest over the
+    whole body), then CAS-publish the staged SQLite generation through
+    :meth:`SQLiteKnowledgeIndex.publish_staged_generation`, then write the new
+    state document and clear the pending file.
+
+    ``expected_current_digest`` is the ``current_generation`` pointer the CAS
+    demands; ``None`` admits the first publication, where neither a current
+    generation nor a state file exists yet.  Any failed step leaves the
+    pending document behind as crash-recovery evidence for
+    :func:`_recover_rag_state_pending`; a failed CAS never touches the DB
+    pointer nor the old state.
+    """
+    if result.get("project_id") != project_id:
+        raise PolicyViolation("Project RAG pending project binding drift")
+    if result.get("generation_digest") != staged_generation_digest:
+        raise PolicyViolation("Project RAG pending generation binding drift")
+    parse_digest(staged_generation_digest)
+    if expected_current_digest is not None:
+        parse_digest(expected_current_digest)
+    state_path = paths["state"]
+    pending_path = _rag_pending_path(state_path)
+    if not _scoped_path_is_private(paths["home"], state_path.parent, directory=True):
+        raise PolicyViolation("Project RAG runtime scope ACL/identity drift")
+    with _rag_state_write_lock(state_path):
+        if pending_path.exists() or pending_path.is_symlink():
+            raise PolicyViolation("Project RAG onceki pending yayin uzlastirilmali")
+        if state_path.exists() or state_path.is_symlink():
+            if not _scoped_path_is_private(paths["home"], state_path, directory=False):
+                raise PolicyViolation("Project RAG state scoped ACL/identity drift")
+            try:
+                current_state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise PolicyViolation("Project RAG publish oncesi state okunamadi") from exc
+            if (
+                not isinstance(current_state, dict)
+                or current_state.get("project_id") != project_id
+                or current_state.get("generation_digest") != expected_current_digest
+            ):
+                raise PolicyViolation("Project RAG state/pending publish drift")
+        elif expected_current_digest is not None:
+            raise PolicyViolation("Project RAG onceki state bulunamadi")
+        pending_body: dict[str, Any] = {
+            "schema": _RAG_STATE_PENDING_SCHEMA,
+            "project_id": project_id,
+            "staged_generation_digest": staged_generation_digest,
+            "expected_current_digest": expected_current_digest,
+            "source_revision": result.get("source_revision"),
+            "tree_digest": result.get("tree_digest"),
+            "result": result,
+        }
+        pending_body["pending_digest"] = digest(pending_body)
+        _write_private(pending_path, (canonical_json(pending_body) + "\n").encode("utf-8"))
+        if not private_regular(pending_path):
+            raise PolicyViolation("Project RAG pending private ACL ister")
+        if not paths["index"].is_file():
+            raise PolicyViolation("Project RAG pending publish index bulunamadi")
+        with SQLiteKnowledgeIndex(paths["index"]) as index:
+            generation = index.publish_staged_generation(
+                project_id, staged_generation_digest, expected_current_digest
+            )
+        if generation.source_revision != result.get(
+            "source_revision"
+        ) or generation.tree_digest != result.get("tree_digest"):
+            raise PolicyViolation("Project RAG yayin source/tree binding drift")
+        _write_private(state_path, (canonical_json(result) + "\n").encode("utf-8"))
+        if not private_regular(state_path):
+            raise PolicyViolation("Project RAG state private ACL ister")
+        pending_path.unlink(missing_ok=True)
+        if pending_path.exists():
+            raise PolicyViolation("Project RAG pending silinemedi")
+    return {
+        "schema": "zekam-project-rag-state-publish/v1",
+        "project_id": project_id,
+        "generation_digest": generation.generation_digest,
+        "generation_state": generation.state,
+        "chunk_count": generation.chunk_count,
+        "expected_current_digest": expected_current_digest,
+        "state_written": True,
+        "pending_cleared": True,
+    }
+
+
+def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[str, Any]:
+    """Fail-closed crash recovery for an interrupted RAG state publish.
+
+    Validates the pending document left by :func:`_publish_rag_state_pending`
+    -- scoped private path, exact JSON, canonical digest evidence and its
+    project/generation/source/tree bindings -- then reads the authoritative DB
+    ``current_generation`` pointer and decides:
+
+    * DB at the staged (target) generation: the CAS committed, so the state
+      document is completed from the pending result and the pending file is
+      removed.  This also completes a first publication whose state file was
+      never created.
+    * DB still at the expected old pointer (or no pointer at all for a first
+      publication): the publish never committed; the old state document is
+      left untouched and the validated pending intent is cleared for retry.
+    * Any other DB pointer: fail closed with :class:`PolicyViolation`;
+      nothing is written and nothing is removed.
+
+    The whole validation/decision runs under the ``rag-state.json`` writer
+    lock so a concurrent publish cannot interleave with this recovery.
+    """
+    state_path = paths["state"]
+    pending_path = _rag_pending_path(state_path)
+    if not pending_path.exists() and not pending_path.is_symlink():
+        return {
+            "schema": "zekam-project-rag-state-recovery/v1",
+            "project_id": project_id,
+            "status": "no-pending",
+            "state_written": False,
+            "pending_cleared": False,
+        }
+    if not _scoped_path_is_private(paths["home"], state_path.parent, directory=True):
+        raise PolicyViolation("Project RAG runtime scope ACL/identity drift")
+    with _rag_state_write_lock(state_path):
+        if not pending_path.exists() and not pending_path.is_symlink():
+            return {
+                "schema": "zekam-project-rag-state-recovery/v1",
+                "project_id": project_id,
+                "status": "no-pending",
+                "state_written": False,
+                "pending_cleared": False,
+            }
+        root = paths["home"]
+        if not all(
+            _scoped_path_is_private(root, paths[name], directory=True)
+            for name in ("project_root", "index_root", "manifest_root")
+        ) or not _scoped_path_is_private(root, paths["index"], directory=False):
+            raise PolicyViolation("Project RAG pending scoped ACL/identity drift")
+        if state_path.is_file() and not _scoped_path_is_private(root, state_path, directory=False):
+            raise PolicyViolation("Project RAG pending scoped ACL/identity drift")
+        if not _scoped_path_is_private(root, pending_path, directory=False):
+            raise PolicyViolation("Project RAG pending scoped ACL/identity drift")
+        try:
+            pending = json.loads(pending_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise PolicyViolation("Project RAG pending JSON okunamadi") from exc
+        if not isinstance(pending, dict) or pending.get("schema") != _RAG_STATE_PENDING_SCHEMA:
+            raise PolicyViolation("Project RAG pending schema drift")
+        if pending.get("project_id") != project_id:
+            raise PolicyViolation("Project RAG pending project binding drift")
+        staged_generation_digest = pending.get("staged_generation_digest")
+        expected_current_digest = pending.get("expected_current_digest")
+        if not isinstance(staged_generation_digest, str):
+            raise PolicyViolation("Project RAG pending generation binding drift")
+        if expected_current_digest is not None and not isinstance(expected_current_digest, str):
+            raise PolicyViolation("Project RAG pending expected digest drift")
+        parse_digest(staged_generation_digest)
+        if expected_current_digest is not None:
+            parse_digest(expected_current_digest)
+        evidence = pending.get("pending_digest")
+        if not isinstance(evidence, str):
+            raise PolicyViolation("Project RAG pending digest kaniti yok")
+        recovered_body = {key: value for key, value in pending.items() if key != "pending_digest"}
+        if digest(recovered_body) != evidence:
+            raise PolicyViolation("Project RAG pending digest drift")
+        result = pending.get("result")
+        if not isinstance(result, dict):
+            raise PolicyViolation("Project RAG pending result yok")
+        if (
+            result.get("project_id") != project_id
+            or result.get("generation_digest") != staged_generation_digest
+            or pending.get("source_revision") != result.get("source_revision")
+            or pending.get("tree_digest") != result.get("tree_digest")
+        ):
+            raise PolicyViolation("Project RAG pending generation/project binding drift")
+        source_revision = result.get("source_revision")
+        tree_digest = result.get("tree_digest")
+        if not isinstance(source_revision, str) or not isinstance(tree_digest, str):
+            raise PolicyViolation("Project RAG pending source/tree binding drift")
+        parse_digest(source_revision)
+        parse_digest(tree_digest)
+        try:
+            with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+                try:
+                    current = index.generation(project_id)
+                except ValidationFailed:
+                    # No current_generation row: legitimate before the first publish.
+                    current = None
+        except ConfigurationError as exc:
+            raise PolicyViolation("Project RAG pending recovery index okunamadi") from exc
+        if current is not None and current.generation_digest == staged_generation_digest:
+            if current.source_revision != source_revision or current.tree_digest != tree_digest:
+                raise PolicyViolation("Project RAG pending source/tree DB baglari uyusmuyor")
+            if state_path.exists() or state_path.is_symlink():
+                try:
+                    disk_state = json.loads(state_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise PolicyViolation("Project RAG pending state okunamadi") from exc
+                if (
+                    not isinstance(disk_state, dict)
+                    or disk_state.get("project_id") != project_id
+                    or disk_state.get("generation_digest")
+                    not in (expected_current_digest, staged_generation_digest)
+                ):
+                    raise PolicyViolation("Project RAG pending state binding drift")
+            _write_private(state_path, (canonical_json(result) + "\n").encode("utf-8"))
+            if not private_regular(state_path):
+                raise PolicyViolation("Project RAG state private ACL ister")
+            pending_path.unlink(missing_ok=True)
+            if pending_path.exists():
+                raise PolicyViolation("Project RAG pending silinemedi")
+            return {
+                "schema": "zekam-project-rag-state-recovery/v1",
+                "project_id": project_id,
+                "status": "completed",
+                "generation_digest": current.generation_digest,
+                "state_written": True,
+                "pending_cleared": True,
+            }
+        still_expected = (current is None and expected_current_digest is None) or (
+            current is not None
+            and expected_current_digest is not None
+            and current.generation_digest == expected_current_digest
+        )
+        if still_expected:
+            # The DB publish never committed. The old state remains authoritative;
+            # discard only this validated pending intent so a retry can stage again.
+            if current is not None:
+                if not state_path.is_file():
+                    raise PolicyViolation("Project RAG onceki state bulunamadi")
+                try:
+                    old_state = json.loads(state_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise PolicyViolation("Project RAG onceki state okunamadi") from exc
+                if (
+                    not isinstance(old_state, dict)
+                    or old_state.get("project_id") != project_id
+                    or old_state.get("generation_digest") != expected_current_digest
+                ):
+                    raise PolicyViolation("Project RAG onceki state/index drift")
+            elif state_path.exists() or state_path.is_symlink():
+                raise PolicyViolation("Project RAG ilk yayin oncesi state drift")
+            pending_path.unlink()
+            return {
+                "schema": "zekam-project-rag-state-recovery/v1",
+                "project_id": project_id,
+                "status": "unpublished",
+                "generation_digest": None if current is None else current.generation_digest,
+                "state_written": False,
+                "pending_cleared": True,
+            }
+        raise PolicyViolation("Project RAG pending recovery DB durumu uyusmuyor; fail closed")
+
+
 def build_project_source_binding_plan(
     home: Path, project_slug: str, source_root: Path
 ) -> dict[str, Any]:
@@ -1820,6 +2088,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
     paths = _existing_runtime_paths(home, slug)
+    _recover_rag_state_pending(paths, str(project_id))
     if not paths["state"].is_file() or not paths["index"].is_file():
         return {
             "schema": "zekam-project-rag-status/v1",
@@ -2163,6 +2432,7 @@ def _index(
         deadline_monotonic = _new_index_deadline(DEFAULT_INDEX_TIMEOUT_SECONDS)
     _check_index_budget(cancel, deadline_monotonic)
     paths = _runtime_paths(home, project_slug)
+    _recover_rag_state_pending(paths, str(project_id))
     knowledge = load_settings(home=paths["home"]).knowledge
     _assert_canonical_knowledge_profile(knowledge)
     source_state_before = _git_source_state(source_root)
@@ -2433,10 +2703,17 @@ def _index(
         for chunk in (odi_plan.chunks if odi_plan is not None else ())
     )
     records = source_records + oracle_records + odi_records
-    # Once the generation transaction starts, finish its atomic publish as one unit.
+    # Stage the complete index without changing the queryable ready generation.
     _check_index_budget(cancel, deadline_monotonic)
     with SQLiteKnowledgeIndex(paths["index"], create=not paths["index"].exists()) as index:
-        generation = index.build_generation(
+        try:
+            previous_generation = index.generation(str(project_id))
+        except ValidationFailed:
+            previous_generation = None
+        expected_current_digest = (
+            previous_generation.generation_digest if previous_generation is not None else None
+        )
+        candidate_digest = index._generation_digest(
             records,
             project_id=str(project_id),
             source_revision=combined_revision,
@@ -2444,7 +2721,21 @@ def _index(
             source_manifest_digest=combined_manifest_digest,
             embedding_profile_digest=bound_plan.embedding_profile.profile_digest,
             provider_profile_digest=profile.profile_digest,
-            created_at=dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z"),
+        )
+        generation = (
+            previous_generation
+            if previous_generation is not None
+            and previous_generation.generation_digest == candidate_digest
+            else index.stage_generation(
+                records,
+                project_id=str(project_id),
+                source_revision=combined_revision,
+                tree_digest=combined_tree_digest,
+                source_manifest_digest=combined_manifest_digest,
+                embedding_profile_digest=bound_plan.embedding_profile.profile_digest,
+                provider_profile_digest=profile.profile_digest,
+                created_at=dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z"),
+            )
         )
         integrity = index.integrity()
 
@@ -2519,11 +2810,9 @@ def _index(
             "oracle_snapshot": bound_oracle_plan.snapshot.sanitized(),
             "oracle_effect": oracle_receipt,
         }
-    # Authoritative index publish is serialized under the same writer lock that the
-    # query path's compare-and-set uses, so a concurrent query CAS can never
-    # interleave with (or clobber) this newer generation's state write.
-    with _rag_state_write_lock(paths["state"]):
-        _write_private(paths["state"], (canonical_json(result) + "\n").encode("utf-8"))
+    _publish_rag_state_pending(
+        paths, str(project_id), result, expected_current_digest, generation.generation_digest
+    )
     return result
 
 
@@ -2538,6 +2827,7 @@ def _query(
     authorize_remote_query: bool = False,
 ) -> dict[str, Any]:
     paths = _existing_runtime_paths(home, project_slug)
+    _recover_rag_state_pending(paths, str(project_id))
     if not paths["state"].is_file() or not paths["index"].is_file():
         raise ValidationFailed("Project RAG index bulunamadi")
     if not _rag_scope_is_private(paths):
@@ -2811,9 +3101,7 @@ def main() -> int:
             command.add_argument("--authorize-remote-query", action="store_true")
             command.add_argument("--question", required=True)
     args = parser.parse_args()
-    index_deadline = (
-        _new_index_deadline(args.timeout_seconds) if args.command == "index" else None
-    )
+    index_deadline = _new_index_deadline(args.timeout_seconds) if args.command == "index" else None
     source_root = args.project.resolve(strict=True)
     home = args.home.resolve(strict=True)
     project_slug = validate_slug(args.slug or source_root.name.casefold())

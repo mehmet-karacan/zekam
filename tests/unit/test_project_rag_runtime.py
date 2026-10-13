@@ -27,6 +27,156 @@ from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk
 
 
+@pytest.mark.parametrize("first_publication", [False, True])
+@pytest.mark.parametrize("crash_before_cas", [False, True])
+@pytest.mark.parametrize("tampered_pending", [False, True])
+def test_pending_state_recovers_after_db_cas_before_file_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_publication: bool,
+    crash_before_cas: bool,
+    tampered_pending: bool,
+) -> None:
+    project_id = "project-1"
+    old_digest = digest("old-generation")
+    new_digest = digest("new-generation")
+    source_revision = digest("source")
+    tree_digest = digest("tree")
+    project_root = tmp_path / "project"
+    index_root = tmp_path / "index"
+    manifest_root = tmp_path / "manifest"
+    state = project_root / "runtime" / "rag-state.json"
+    index_path = index_root / "knowledge.sqlite3"
+    state.parent.mkdir(parents=True)
+    index_root.mkdir()
+    manifest_root.mkdir()
+    index_path.write_bytes(b"stub")
+    if not first_publication:
+        state.write_text(
+            json.dumps({"project_id": project_id, "generation_digest": old_digest}),
+            encoding="utf-8",
+        )
+    paths = {
+        "home": tmp_path,
+        "project_root": project_root,
+        "index_root": index_root,
+        "manifest_root": manifest_root,
+        "state": state,
+        "index": index_path,
+    }
+    pointer: dict[str, str | None] = {"digest": None if first_publication else old_digest}
+
+    class FakeIndex:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeIndex:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def publish_staged_generation(
+            self, _project_id: str, target: str, expected: str | None
+        ) -> SimpleNamespace:
+            assert expected == pointer["digest"]
+            if crash_before_cas:
+                raise OSError("simulated crash before CAS")
+            pointer["digest"] = target
+            return SimpleNamespace(
+                generation_digest=target,
+                state="ready",
+                chunk_count=1,
+                source_revision=source_revision,
+                tree_digest=tree_digest,
+            )
+
+        def generation(self, _project_id: str) -> SimpleNamespace:
+            if pointer["digest"] is None:
+                raise ValidationFailed("no current generation")
+            return SimpleNamespace(
+                generation_digest=pointer["digest"],
+                source_revision=source_revision,
+                tree_digest=tree_digest,
+                chunk_count=1,
+                provider_profile_digest=digest("provider"),
+            )
+
+        def readiness(self, _project_id: str) -> dict[str, str]:
+            return {"status": "passed"}
+
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", FakeIndex)
+    monkeypatch.setattr(runtime, "private_regular", lambda _path: True)
+    monkeypatch.setattr(runtime, "_scoped_path_is_private", lambda *_args, **_kwargs: True)
+    real_write = runtime._write_private
+    failed = {"once": False}
+
+    def crash_on_state(path: Path, payload: bytes) -> None:
+        if path == state and not failed["once"]:
+            failed["once"] = True
+            raise OSError("simulated crash after CAS")
+        real_write(path, payload)
+
+    monkeypatch.setattr(runtime, "_write_private", crash_on_state)
+    result = {
+        "project_id": project_id,
+        "generation_digest": new_digest,
+        "source_revision": source_revision,
+        "tree_digest": tree_digest,
+    }
+    with pytest.raises(OSError, match="simulated crash"):
+        runtime._publish_rag_state_pending(
+            paths, project_id, result, None if first_publication else old_digest, new_digest
+        )
+    assert pointer["digest"] == (
+        None
+        if first_publication and crash_before_cas
+        else old_digest
+        if crash_before_cas
+        else new_digest
+    )
+    if first_publication:
+        assert not state.exists()
+    else:
+        assert json.loads(state.read_text(encoding="utf-8"))["generation_digest"] == old_digest
+    if tampered_pending:
+        pending_path = runtime._rag_pending_path(state)
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+        pending["result"]["tree_digest"] = digest("tampered")
+        pending_path.write_text(json.dumps(pending), encoding="utf-8")
+        with pytest.raises(PolicyViolation, match="pending digest drift"):
+            runtime._recover_rag_state_pending(paths, project_id)
+        assert pending_path.exists()
+        return
+    if not first_publication and not crash_before_cas:
+        state.write_text(
+            json.dumps({"project_id": project_id, "generation_digest": digest("unrelated")}),
+            encoding="utf-8",
+        )
+        with pytest.raises(PolicyViolation, match="pending state binding drift"):
+            runtime._recover_rag_state_pending(paths, project_id)
+        assert runtime._rag_pending_path(state).exists()
+        state.write_text(
+            json.dumps({"project_id": project_id, "generation_digest": old_digest}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runtime, "_registered_project", lambda *_args: project_id)
+        monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_args: paths)
+        monkeypatch.setattr(
+            runtime,
+            "load_settings",
+            lambda **_kwargs: SimpleNamespace(knowledge=KnowledgeSettings()),
+        )
+        assert runtime.project_rag_status(tmp_path, "gpu-fusion")["index_readable"] is True
+    else:
+        assert runtime._recover_rag_state_pending(paths, project_id)["status"] == (
+            "unpublished" if crash_before_cas else "completed"
+        )
+    if not crash_before_cas:
+        assert json.loads(state.read_text(encoding="utf-8"))["generation_digest"] == new_digest
+    assert not runtime._rag_pending_path(state).exists()
+
+
 def test_directory_source_state_rejects_partial_inventory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1635,9 +1785,7 @@ def test_warm_query_does_not_repeat_provider_qualification_probe(
             )
 
     monkeypatch.setattr(runtime, "OpenCodeRemoteEmbeddingProvider", _FakeRemoteProvider)
-    monkeypatch.setattr(
-        runtime, "ProcessIsolatedJsonProviderTransport", lambda *_, **__: object()
-    )
+    monkeypatch.setattr(runtime, "ProcessIsolatedJsonProviderTransport", lambda *_, **__: object())
     monkeypatch.setattr(runtime, "LiveProcessClient", lambda *_a, **_k: object())
     monkeypatch.setattr(runtime, "RuntimeOpenCodeEmbeddingExecutor", lambda _invocation: object())
     monkeypatch.setattr(runtime, "RuntimeProviderContractRunner", lambda *a, **k: object())
@@ -2017,9 +2165,7 @@ def test_wp0501_vector_cache_scope_is_stable_and_component_separated() -> None:
         "embedding_profile_digest",
     ],
 )
-def test_wp0501_scope_factor_drift_is_a_cache_miss(
-    tmp_path: Path, drifted_field: str
-) -> None:
+def test_wp0501_scope_factor_drift_is_a_cache_miss(tmp_path: Path, drifted_field: str) -> None:
     """Same content under a drifted scope factor must NOT be served from cache."""
     connection = runtime._cache(tmp_path / "vectors.sqlite3")
     text = "CREATE TABLE GPU_USER.CDR_V2 (ID NUMBER)"
@@ -2027,16 +2173,12 @@ def test_wp0501_scope_factor_drift_is_a_cache_miss(
     baseline_scope = _wp0501_scope()
     # Distinct drift values per field so a scope digest that silently collides
     # across fields cannot mask a component the scope forgets.
-    drifted_scope = _wp0501_scope(
-        **{drifted_field: digest(f"wp0501-drift-{drifted_field}-value")}
-    )
+    drifted_scope = _wp0501_scope(**{drifted_field: digest(f"wp0501-drift-{drifted_field}-value")})
     assert drifted_scope != baseline_scope
     _wp0501_seed_row(connection, baseline_scope, "wp0501-primary", content_digest)
     chunk = _wp0501_chunk("wp0501-primary", text)
     try:
-        result = runtime._cached_vectors(
-            connection, (chunk,), {chunk.chunk_id: drifted_scope}
-        )
+        result = runtime._cached_vectors(connection, (chunk,), {chunk.chunk_id: drifted_scope})
         assert _wp0501_hit_vector(result, "wp0501-primary") is None
         baseline_rows = connection.execute(
             "select count(*) from vector_cache_v2 where scope_digest = ?",
@@ -2059,15 +2201,13 @@ def test_wp0501_alias_chunk_id_with_same_content_hits_same_scope(
     _wp0501_seed_row(connection, scope, "wp0501-primary", content_digest)
     alias_chunk = _wp0501_chunk("wp0501-alias", text)
     try:
-        result = runtime._cached_vectors(
-            connection, (alias_chunk,), {alias_chunk.chunk_id: scope}
-        )
+        result = runtime._cached_vectors(connection, (alias_chunk,), {alias_chunk.chunk_id: scope})
         cached = _wp0501_hit_vector(result, "wp0501-alias")
-        assert cached == pytest.approx(tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)),
-                                       abs=1e-8)
+        assert cached == pytest.approx(
+            tuple(0.001 for _ in range(runtime.VECTOR_DIMENSION)), abs=1e-8
+        )
         rows = connection.execute(
-            "select count(*) from vector_cache_v2 "
-            "where scope_digest = ? and content_digest = ?",
+            "select count(*) from vector_cache_v2 where scope_digest = ? and content_digest = ?",
             (scope, content_digest),
         ).fetchone()[0]
         assert rows == 2
@@ -2122,9 +2262,9 @@ def test_wp0501_legacy_cache_row_is_not_reused_without_scope(tmp_path: Path) -> 
     )
     chunk = _wp0501_chunk("new-id", text)
     try:
-        assert runtime._cached_vectors(
-            connection, (chunk,), {chunk.chunk_id: _wp0501_scope()}
-        ) == {}
+        assert (
+            runtime._cached_vectors(connection, (chunk,), {chunk.chunk_id: _wp0501_scope()}) == {}
+        )
     finally:
         connection.close()
 
@@ -2180,9 +2320,7 @@ def test_embedding_batches_caps_small_chunks_at_max_64_items() -> None:
     ],
     ids=["token-limit", "single-text-limit"],
 )
-def test_embedding_batches_rejects_single_chunk_beyond_limits(
-    text: str, token_count: int
-) -> None:
+def test_embedding_batches_rejects_single_chunk_beyond_limits(text: str, token_count: int) -> None:
     chunks = (_batch_chunk(0, text=text, token_count=token_count),)
 
     with pytest.raises(ValidationFailed):

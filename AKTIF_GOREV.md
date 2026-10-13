@@ -806,6 +806,15 @@ kurulabilir. Eski `build_generation` akisi degismedi. Runtime henuz bu
 arayuzu kullanmiyor; `rag-state.json` ile atomik yayin/onarim ve belirsiz
 dis etki uzlastirmasi acik oldugundan WP-05.04 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — runtime staging yayini ve toparlama:**
+Project RAG runtime, yeni nesli eski hazir pointer'i degistirmeden stage eder.
+Private pending kaniti yazildiktan sonra SQLite pointer'i CAS ile yayinlanir;
+state dosyasi yazimi kesilirse sonraki index/query/status girisi DB'deki
+nesle gore state'i tamamlar. CAS oncesi kesintide eski hazir nesil ve state
+korunur. Gercek SQLite ile 4 entegrasyon, ilgili 174 birim test gecti
+(Windows symlink yetkisi nedeniyle 6 test atlandi). Belirsiz dis etki
+uzlastirmasi ve tum kabul kaniti acik oldugundan WP-05.04 aciktir.
+
 **13 Ekim 2026 07:40 checkpoint:** Kullanici istegiyle bu sohbet
 duraklatildi. Son push edilen HEAD, commit edilmemis runtime taslagi,
 test kaniti, acik kabul adimlari ve `next_safe_action`
