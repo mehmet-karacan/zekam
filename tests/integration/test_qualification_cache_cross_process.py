@@ -36,6 +36,7 @@ Scenarios:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -215,6 +216,12 @@ def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
 
 def _run_subprocess(ledger_path: Path, case: str, timeout: int = 120) -> dict[str, object]:
     """Spawn a SEPARATE python interpreter that runs ``_subprocess_runner``."""
+    # Alt process pytest'in src-layout import yolunu alamaz: repo `src` dizinini
+    # mevcut PYTHONPATH'in onune, yalniz bu subprocess env kopyasina ekle.
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = src + (os.pathsep + existing if existing else "")
     test_file = Path(__file__).resolve()
     program = (
         "import importlib.util, json, sys;"
@@ -234,6 +241,7 @@ def _run_subprocess(ledger_path: Path, case: str, timeout: int = 120) -> dict[st
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
     if completed.returncode != 0:
         raise AssertionError(
