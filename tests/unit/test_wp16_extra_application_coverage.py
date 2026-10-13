@@ -49,6 +49,7 @@ from zekam.application.project_integration import (
     _next_action,
     locator_digest_for,
 )
+from zekam.application.source_discovery import DiscoveryPolicy
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import (
     AuthorizationRequired,
@@ -531,6 +532,28 @@ def _integration_service(
     }
     monkeypatch.setattr(integration, "legacy_repository", lambda kind, *_args: repos[kind])
     return ProjectIntegrationService(object(), realm), projects, bindings, states
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [DiscoveryPolicy(max_depth=0), DiscoveryPolicy(max_total_files=0)],
+    ids=["partial-metadata", "truncated-content"],
+)
+def test_project_scan_rejects_incomplete_discovery_before_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: DiscoveryPolicy
+) -> None:
+    service, _projects, bindings, states = _integration_service(monkeypatch, tmp_path)
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "a.py").write_text("print('hello')\n", encoding="utf-8")
+    project = service.register(source_path=root, now=NOW)
+    assert states.stage is IntegrationStage.BOUND
+
+    with pytest.raises(PolicyViolation, match="Kaynak taramasi eksik"):
+        service.scan(project.id, policy=policy, now=NOW)
+
+    assert bindings.revision is None
+    assert states.stage is IntegrationStage.BOUND
 
 
 def test_project_integration_register_rebind_evaluate_and_action_boundaries(

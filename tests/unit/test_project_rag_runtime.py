@@ -13,10 +13,30 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.model_health_service import ProbeUnavailable
+from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk
+
+
+def test_directory_source_state_rejects_partial_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "private-person@example.com.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        runtime,
+        "discover",
+        lambda path: discover(path, policy=DiscoveryPolicy(max_depth=0)),
+    )
+
+    with pytest.raises(ValidationFailed, match="inventory partial") as excinfo:
+        runtime._directory_source_state(root)
+
+    assert "depth-limit" in str(excinfo.value)
+    assert "private-person@example.com" not in str(excinfo.value)
 
 
 class _TransientProvider:

@@ -591,8 +591,14 @@ uygulamasiyla proje indeks plani, `truncated` ve tree digest kontrolune ek
 olarak `inventory_status=partial` sonucunu da reddeder. Gercek derinlik,
 dizin girdi ve global girdi limitleriyle uretilen partial raporlar icin
 negatif testler gecti; hata metni yalniz sabit neden kodunu tasir, kaynak
-checkpoint yolunu aciga cikarmaz. Proje `scan` akisinin eksik raporda
-`CURRENT` yazma riski ayri duzeltme olarak aciktir.
+checkpoint yolunu aciga cikarmaz.
+
+**13 Ekim 2026 ara durum — eksik tarama durum kapisi:** Proje `scan`
+akisi, `truncated` icerik veya `partial` metadata raporunda revizyon, profil
+ve `CURRENT` kayitlarindan once reddeder. Dizin kaynak kimligi de `partial`
+envanterden uretilemez; hata metninde kaynak yolu yerine sabit neden kodu
+vardir. Bu kapilar tamamlandi; checkpoint'ten gercek devam ve metadata/icerik
+karar sozlesmelerinin tam ayrimi WP-04.01/02 icin aciktir.
 
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 

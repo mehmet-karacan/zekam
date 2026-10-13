@@ -27,7 +27,12 @@ from uuid import UUID
 
 from zekam.application.capability_profile import CapabilityProfile, build_profile
 from zekam.application.legacy_repository_provider import legacy_repository
-from zekam.application.source_discovery import DiscoveryPolicy, DiscoveryReport, discover
+from zekam.application.source_discovery import (
+    DiscoveryPolicy,
+    DiscoveryReport,
+    InventoryStatus,
+    discover,
+)
 from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import NotFound, PolicyViolation
 from zekam.domain.identifiers import new_uuid7, normalize_slug, validate_slug
@@ -235,6 +240,13 @@ class ProjectIntegrationService:
         binding, root = self._require_bound_source(project_id)
 
         discovery = discover(root, policy=policy)
+        if discovery.truncated or discovery.inventory_status is InventoryStatus.PARTIAL:
+            reason = (
+                discovery.inventory_stop_reason.value
+                if discovery.inventory_stop_reason is not None
+                else "content-limit"
+            )
+            raise PolicyViolation(f"Kaynak taramasi eksik (stop-reason={reason})")
         observation = source_reader.observe(root)
         previous = self.bindings.latest_revision(binding.id)
 

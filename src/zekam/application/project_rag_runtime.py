@@ -73,7 +73,7 @@ from zekam.application.request_routing import (
     load_project_families,
     route_request,
 )
-from zekam.application.source_discovery import DiscoveryReport, discover
+from zekam.application.source_discovery import DiscoveryReport, InventoryStatus, discover
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
@@ -388,6 +388,13 @@ def _directory_source_state(root: Path) -> tuple[str, str, str]:
     discovery = discover(root)
     if discovery.truncated:
         raise ValidationFailed("Project directory source snapshot truncated")
+    if discovery.inventory_status is InventoryStatus.PARTIAL:
+        reason = (
+            discovery.inventory_stop_reason.value
+            if discovery.inventory_stop_reason is not None
+            else "unknown"
+        )
+        raise ValidationFailed(f"Project directory source inventory partial (stop-reason={reason})")
     identity = discovery.tree_digest.removeprefix("sha256:")
     return "", identity, f"directory:{discovery.tree_digest}"
 
