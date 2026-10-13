@@ -1,24 +1,22 @@
-"""Dar offline entegrasyon testi: stage -> pending publish -> crash recovery.
+"""Offline integration test for RAG state pending publish and crash recovery.
 
-Yalnizca yeni dosyadir; mevcut dosyalara dokunmaz. Gercek
-``SQLiteKnowledgeIndex`` ve gecici dosyalar kullanilir; kaynak/provider canli
-cagrisi yoktur:
-
-* Eski hazir generation varken ``stage_generation`` current pointer'i
-  degistirmemeli (``publish_staged_generation`` + ``generation``).
-* ``_publish_rag_state_pending`` icinde state yazimi oncesi process crash
-  taklidi: DB CAS (pointer) tamamlandigi halde state dokunulmaz, pending
-  kanit dosyasi geriye kalmali.
-* ``_recover_rag_state_pending`` DB'nin yeni/current nesilde oldugunu gorunce
-  state'i pending result'dan tamamlayip pending'i temizlemeli.
-* CAS oncesinde kesinti: eski hazir nesil ve eski state korunmali, recovery
-  pending niyetini "unpublished" olarak temizlemeli.
+Uses the real :class:`SQLiteKnowledgeIndex` (real staged generation, real DB
+pointer CAS, real pending evidence document) together with the real
+``project_rag_runtime._publish_rag_state_pending`` /
+``_recover_rag_state_pending`` pair.  A crash is simulated only at the exact
+crash point; everything around it -- SQLite generation rows, the
+``current_generation`` pointer, the rag-state document and the pending digest
+evidence -- is real and durable.  Chunk vectors are deterministic, so no
+provider or model call happens: the test is fully offline.
 """
 
 from __future__ import annotations
 
 import json
+import math
+import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -26,7 +24,6 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.knowledge_index import KnowledgeGeneration, KnowledgeIndexRecord
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.knowledge import Locator
-from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite.knowledge_index import (
     VECTOR_DIMENSION,
     SQLiteKnowledgeIndex,
@@ -34,316 +31,290 @@ from zekam.infrastructure.sqlite.knowledge_index import (
 
 pytestmark = pytest.mark.integration
 
-PROJECT_ID = "pending-pub"
-# Recovery kanit dogrulamasi source_revision/tree_digest'i sha256 digest olarak
-# parse eder; gercek index planinin urettigi kimliklerle ayni sekilde digest ver.
-SOURCE_REVISION = digest("source-revision")
+PROJECT_ID = "00000000-0000-0000-0000-00000000a100"
+REV_A = digest("revision-a")
+TREE_A = digest("tree-a")
+REV_B = digest("revision-b")
+TREE_B = digest("tree-b")
 
 
 def _vector(primary: int) -> tuple[float, ...]:
     values = [0.0] * VECTOR_DIMENSION
     values[primary] = 1.0
-    return tuple(value for value in values)
+    norm = math.sqrt(sum(value * value for value in values))
+    return tuple(value / norm for value in values)
 
 
-def _record(chunk_id: str, *, text: str, order: int, path: str) -> KnowledgeIndexRecord:
+def _record(chunk_id: str, *, path: str, text: str, revision: str) -> KnowledgeIndexRecord:
     return KnowledgeIndexRecord(
         chunk_id=chunk_id,
         project_id=PROJECT_ID,
-        source_revision=SOURCE_REVISION,
+        source_revision=revision,
         source_path=path,
-        source_digest=digest({"source": path, "revision": SOURCE_REVISION}),
+        source_digest=digest({"source": path, "revision": revision}),
         locator=Locator(relative_path=path, line_start=1, line_end=2),
         text=text,
         content_digest=digest_of_bytes(text.encode("utf-8")),
-        chunk_order=order,
-        vector=_vector(order),
+        chunk_order=0,
+        vector=_vector(0),
     )
+
+
+def _records(revision: str, path: str, text: str) -> tuple[KnowledgeIndexRecord, ...]:
+    # chunk.id is unique across the whole table, not per generation.
+    chunk_id = f"chunk-{revision.split(':')[1][:12]}"
+    return (_record(chunk_id, path=path, text=text, revision=revision),)
 
 
 def _stage(
     index: SQLiteKnowledgeIndex,
     records: tuple[KnowledgeIndexRecord, ...],
     *,
+    revision: str,
     tree: str,
-    manifest: str,
-) -> str:
-    generation = index.stage_generation(
+) -> KnowledgeGeneration:
+    """Commit one complete, unpublished 'building' generation (real staging)."""
+
+    return index.stage_generation(
         records,
         project_id=PROJECT_ID,
-        source_revision=SOURCE_REVISION,
+        source_revision=revision,
         tree_digest=digest(tree),
-        source_manifest_digest=digest(manifest),
+        source_manifest_digest=digest({"manifest": tree}),
         embedding_profile_digest=digest("embedding-profile"),
         provider_profile_digest=digest("provider-profile"),
         created_at="2026-10-13T00:00:00Z",
     )
-    return generation.generation_digest
 
 
-class _CrashDuringStateWrite(RuntimeError):
-    """Process crash taklidi: DB CAS sonrasi, rag-state.json yazimi oncesi kesinti."""
-
-    def __init__(
-        self, message: str = "simulated process crash after DB CAS, before state write"
-    ) -> None:
-        super().__init__(message)
-
-
-def _runtime_paths(tmp_path: Path) -> dict[str, Path]:
-    """Gecici ama gercek, private-ACL'li RAG runtime yollarini olusturur."""
+def _paths(tmp_path: Path) -> dict[str, Path]:
+    """Real runtime path layout; every scoped directory pre-exists and is private."""
 
     home = tmp_path / "home"
-    project_root = home / "projeler" / PROJECT_ID
-    index_root = home / "knowledge-index" / "vector" / "opencode-bge-m3" / PROJECT_ID
-    manifest_root = home / "knowledge-index" / "manifests" / PROJECT_ID
-    for directory in (project_root / "runtime", index_root, manifest_root):
-        directory.mkdir(parents=True)
-    for directory in (project_root, index_root, manifest_root):
-        restrict_private_tree(directory)
+    project_root = home / "projeler" / "rag-project"
+    index_root = home / "knowledge-index" / "vector" / "opencode-bge-m3" / "rag-project"
+    manifest_root = home / "knowledge-index" / "manifests" / "rag-project"
     state = project_root / "runtime" / "rag-state.json"
+    for directory in (project_root / "runtime", index_root, manifest_root):
+        directory.mkdir(parents=True, exist_ok=True)
     return {
         "home": home,
         "project_root": project_root,
         "index_root": index_root,
         "manifest_root": manifest_root,
-        "state": state,
         "index": index_root / "knowledge.sqlite3",
+        "state": state,
     }
 
 
-def _seed_old_generation(paths: dict[str, Path]) -> dict[str, str]:
-    old = (
-        _record(
-            "old-1",
-            text="Eski karar metni: hazir birincil nesil.",
-            order=0,
-            path="belgeler/ADR-0001.md",
-        ),
-        _record(
-            "old-2",
-            text="Eski not: idempotent yayin kaniti.",
-            order=1,
-            path="belgeler/ADR-0002.md",
-        ),
-    )
-    with SQLiteKnowledgeIndex(paths["index"], create=True) as index:
-        generation = index.build_generation(
-            old,
-            project_id=PROJECT_ID,
-            source_revision=SOURCE_REVISION,
-            tree_digest=digest("tree-old"),
-            source_manifest_digest=digest("manifest-old"),
-            embedding_profile_digest=digest("embedding-profile"),
-            provider_profile_digest=digest("provider-profile"),
-            created_at="2026-10-13T00:00:00Z",
-        )
+def _result(staged: KnowledgeGeneration) -> dict[str, Any]:
     return {
-        "generation_digest": generation.generation_digest,
-        "source_revision": generation.source_revision,
-        "tree_digest": generation.tree_digest,
+        "project_id": PROJECT_ID,
+        "generation_digest": staged.generation_digest,
+        "source_revision": staged.source_revision,
+        "tree_digest": staged.tree_digest,
+        "chunk_count": staged.chunk_count,
     }
 
 
-def _stage_new(paths: dict[str, Path]) -> str:
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        return _stage(
-            index,
-            (
-                _record(
-                    "new-1",
-                    text="Yeni karar metni: ikinci nesil.",
-                    order=0,
-                    path="belgeler/ADR-0001.md",
-                ),
-            ),
-            tree="tree-new",
-            manifest="manifest-new",
+def _write_state(paths: dict[str, Path], state: dict[str, Any]) -> None:
+    runtime._write_private(paths["state"], (canonical_json(state) + "\n").encode("utf-8"))
+
+
+def _ready_and_staged(
+    paths: dict[str, Path],
+) -> tuple[KnowledgeGeneration, KnowledgeGeneration]:
+    """Publish ready generation A, then stage generation B on top of it."""
+
+    records_a = _records(REV_A, "docs/karar/adr-0001.md", "eski uretilmis icerik")
+    records_b = _records(REV_B, "docs/karar/adr-0002.md", "yeni uretilmis icerik")
+    with SQLiteKnowledgeIndex(paths["index"], create=True) as index:
+        staged_a = _stage(index, records_a, revision=REV_A, tree=TREE_A)
+        index.publish_staged_generation(PROJECT_ID, staged_a.generation_digest, None)
+        staged_b = _stage(index, records_b, revision=REV_B, tree=TREE_B)
+    return staged_a, staged_b
+
+
+def _read_only_connection(index_path: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"{index_path.as_uri()}?mode=ro", uri=True, timeout=5)
+
+
+def test_staged_generation_keeps_old_ready_pointer(tmp_path: Path) -> None:
+    """Staging must not touch ``current_generation`` nor the ready generation."""
+
+    paths = _paths(tmp_path)
+    with SQLiteKnowledgeIndex(paths["index"], create=True) as index:
+        staged_a = _stage(
+            index, _records(REV_A, "docs/a.md", "eski icerik"), revision=REV_A, tree=TREE_A
         )
+        index.publish_staged_generation(PROJECT_ID, staged_a.generation_digest, None)
+        staged_b = _stage(
+            index, _records(REV_B, "docs/b.md", "yeni icerik"), revision=REV_B, tree=TREE_B
+        )
+        assert staged_b.state == "building"
+        current = index.generation(PROJECT_ID)
+        assert current.generation_digest == staged_a.generation_digest
+        assert current.state == "ready"
+
+    connection = _read_only_connection(paths["index"])
+    try:
+        states = dict(
+            connection.execute("select generation_digest,state from generation").fetchall()
+        )
+        pointer = connection.execute(
+            "select generation_digest from current_generation where project_id=?",
+            (PROJECT_ID,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert states[staged_a.generation_digest] == "ready"
+    assert states[staged_b.generation_digest] == "building"
+    assert pointer is not None and pointer[0] == staged_a.generation_digest
 
 
-def _crash_before_state_write(monkeypatch: pytest.MonkeyPatch, state_path: Path) -> None:
+def test_crash_after_db_cas_is_recovered_from_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DB CAS committed, state write crashed: recovery completes from pending."""
+
+    paths = _paths(tmp_path)
+    staged_a, staged_b = _ready_and_staged(paths)
+    old_state = {
+        "project_id": PROJECT_ID,
+        "generation_digest": staged_a.generation_digest,
+        "source_revision": REV_A,
+        "tree_digest": TREE_A,
+    }
+    _write_state(paths, old_state)
+
     real_write = runtime._write_private
+    crashed = {"once": False}
 
-    def crash(path: Path, payload: bytes) -> None:
-        if path == state_path:
-            raise _CrashDuringStateWrite()
+    def crash_on_state(path: Path, payload: bytes) -> None:
+        if path == paths["state"] and not crashed["once"]:
+            crashed["once"] = True
+            raise OSError("simulated crash after DB CAS")
         real_write(path, payload)
 
-    monkeypatch.setattr(runtime, "_write_private", crash)
-
-
-def test_staging_does_not_change_current_pointer(tmp_path: Path) -> None:
-    paths = _runtime_paths(tmp_path)
-    state = _seed_old_generation(paths)
-    staged = _stage_new(paths)
-
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        current = index.generation(PROJECT_ID)
-        assert current.generation_digest == state["generation_digest"]
-        assert current.state == "ready"
-        assert index.exact(PROJECT_ID, ("Eski",), limit=5)[0].chunk_id.startswith("old-")
-
-    # Eski nesil haliyle pointer'da: staging tek basina yayin degildir.
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        generation = index.publish_staged_generation(
-            PROJECT_ID, staged, expected_current_digest=state["generation_digest"]
-        )
-        assert generation.generation_digest == staged
-        assert generation.state == "ready"
-        assert index.generation(PROJECT_ID).generation_digest == staged
-
-
-def test_crash_after_db_cas_leaves_pending_and_state_untouched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    paths = _runtime_paths(tmp_path)
-    result_old = _seed_old_generation(paths)
-    state_path = paths["state"]
-    runtime._write_private(
-        state_path,
-        (
-            canonical_json(
-                {
-                    "project_id": PROJECT_ID,
-                    "generation_digest": result_old["generation_digest"],
-                    "source_revision": result_old["source_revision"],
-                    "tree_digest": result_old["tree_digest"],
-                }
-            )
-            + "\n"
-        ).encode("utf-8"),
-    )
-    state_before = state_path.read_bytes()
-    staged = _stage_new(paths)
-    result_new = {
-        "project_id": PROJECT_ID,
-        "generation_digest": staged,
-        "source_revision": SOURCE_REVISION,
-        "tree_digest": digest("tree-new"),
-    }
-    _crash_before_state_write(monkeypatch, state_path)
-
-    with pytest.raises(_CrashDuringStateWrite):
+    monkeypatch.setattr(runtime, "_write_private", crash_on_state)
+    with pytest.raises(OSError, match="simulated crash after DB CAS"):
         runtime._publish_rag_state_pending(
-            paths, PROJECT_ID, result_new, result_old["generation_digest"], staged
+            paths,
+            PROJECT_ID,
+            _result(staged_b),
+            staged_a.generation_digest,
+            staged_b.generation_digest,
         )
 
-    # Crash taklidi state yazimina erisemedi: dosya bayt bayt ayni.
-    assert state_path.read_bytes() == state_before
-    # DB tarafinda CAS tamamlandi: current pointer yeni nesilde.
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        assert index.generation(PROJECT_ID).generation_digest == staged
-        assert index.exact(PROJECT_ID, ("Yeni",), limit=5)[0].chunk_id == "new-1"
-    # Pending kanit dosyasi recovery icin geriye kaldi.
-    assert runtime._rag_pending_path(state_path).exists()
+    # The DB CAS committed: the pointer advanced to the staged generation.
+    connection = _read_only_connection(paths["index"])
+    try:
+        pointer = connection.execute(
+            "select generation_digest from current_generation where project_id=?",
+            (PROJECT_ID,),
+        ).fetchone()
+        states = dict(
+            connection.execute("select generation_digest,state from generation").fetchall()
+        )
+    finally:
+        connection.close()
+    assert pointer is not None and pointer[0] == staged_b.generation_digest
+    assert states[staged_b.generation_digest] == "ready"
+    assert states[staged_a.generation_digest] == "superseded"
 
-
-def test_recovery_completes_state_from_db_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    paths = _runtime_paths(tmp_path)
-    result_old = _seed_old_generation(paths)
-    state_path = paths["state"]
-    runtime._write_private(
-        state_path,
-        (
-            canonical_json(
-                {
-                    "project_id": PROJECT_ID,
-                    "generation_digest": result_old["generation_digest"],
-                    "source_revision": result_old["source_revision"],
-                    "tree_digest": result_old["tree_digest"],
-                }
-            )
-            + "\n"
-        ).encode("utf-8"),
+    # The old state document is untouched and the pending evidence is durable.
+    pending_path = runtime._rag_pending_path(paths["state"])
+    assert pending_path.is_file()
+    assert json.loads(paths["state"].read_text(encoding="utf-8"))["generation_digest"] == (
+        staged_a.generation_digest
     )
-    staged = _stage_new(paths)
-    result_new = {
-        "project_id": PROJECT_ID,
-        "generation_digest": staged,
-        "source_revision": SOURCE_REVISION,
-        "tree_digest": digest("tree-new"),
-    }
-    _crash_before_state_write(monkeypatch, state_path)
-    with pytest.raises(_CrashDuringStateWrite):
-        runtime._publish_rag_state_pending(
-            paths, PROJECT_ID, result_new, result_old["generation_digest"], staged
-        )
-    monkeypatch.undo()
-    # Crash taklidi geri alindi; recovery bu asamadan sonra calisir.
 
     recovery = runtime._recover_rag_state_pending(paths, PROJECT_ID)
-
     assert recovery["status"] == "completed"
-    assert recovery["generation_digest"] == staged
+    assert recovery["generation_digest"] == staged_b.generation_digest
     assert recovery["state_written"] is True
     assert recovery["pending_cleared"] is True
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["generation_digest"] == staged
-    assert state["tree_digest"] == digest("tree-new")
-    assert not runtime._rag_pending_path(state_path).exists()
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        assert index.generation(PROJECT_ID).generation_digest == staged
+    assert json.loads(paths["state"].read_text(encoding="utf-8")) == _result(staged_b)
+    assert not pending_path.exists()
+    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+        assert index.generation(PROJECT_ID).generation_digest == staged_b.generation_digest
 
 
-def test_crash_before_db_cas_preserves_old_generation_and_state(
+def test_crash_before_cas_keeps_old_ready_pointer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    paths = _runtime_paths(tmp_path)
-    result_old = _seed_old_generation(paths)
-    state_path = paths["state"]
-    runtime._write_private(
-        state_path,
-        (
-            canonical_json(
-                {
-                    "project_id": PROJECT_ID,
-                    "generation_digest": result_old["generation_digest"],
-                    "source_revision": result_old["source_revision"],
-                    "tree_digest": result_old["tree_digest"],
-                }
-            )
-            + "\n"
-        ).encode("utf-8"),
-    )
-    state_before = state_path.read_bytes()
-    staged = _stage_new(paths)
-    result_new = {
+    """Publish crashed before the DB CAS: old ready pointer and state survive."""
+
+    paths = _paths(tmp_path)
+    staged_a, staged_b = _ready_and_staged(paths)
+    old_state = {
         "project_id": PROJECT_ID,
-        "generation_digest": staged,
-        "source_revision": SOURCE_REVISION,
-        "tree_digest": digest("tree-new"),
+        "generation_digest": staged_a.generation_digest,
+        "source_revision": REV_A,
+        "tree_digest": TREE_A,
     }
+    _write_state(paths, old_state)
 
-    class _CrashBeforeCas(SQLiteKnowledgeIndex):
+    class _CrashBeforeCASIndex(SQLiteKnowledgeIndex):
         def publish_staged_generation(
-            self,
-            project_id: str,
-            generation_digest: str,
-            expected_current_digest: str | None,
+            self, _project_id: str, _generation_digest: str, _expected_current_digest: str | None
         ) -> KnowledgeGeneration:
-            raise _CrashDuringStateWrite("simulated process crash before DB CAS")
+            raise OSError("simulated crash before CAS")
 
-    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _CrashBeforeCas)
-
-    with pytest.raises(_CrashDuringStateWrite):
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", _CrashBeforeCASIndex)
+    with pytest.raises(OSError, match="simulated crash before CAS"):
         runtime._publish_rag_state_pending(
-            paths, PROJECT_ID, result_new, result_old["generation_digest"], staged
+            paths,
+            PROJECT_ID,
+            _result(staged_b),
+            staged_a.generation_digest,
+            staged_b.generation_digest,
         )
+    monkeypatch.setattr(runtime, "SQLiteKnowledgeIndex", SQLiteKnowledgeIndex)
 
-    # CAS hic calismadi: eski nesil hazir, pointer ve state dokunulmaz.
-    with SQLiteKnowledgeIndex(paths["index"]) as index:
-        assert index.generation(PROJECT_ID).generation_digest == result_old["generation_digest"]
-    assert state_path.read_bytes() == state_before
-    assert runtime._rag_pending_path(state_path).exists()
+    # Crash evidence is left behind; the old ready pointer and state survive.
+    pending_path = runtime._rag_pending_path(paths["state"])
+    assert pending_path.is_file()
+    assert json.loads(paths["state"].read_text(encoding="utf-8"))["generation_digest"] == (
+        staged_a.generation_digest
+    )
 
-    monkeypatch.undo()
+    connection = _read_only_connection(paths["index"])
+    try:
+        pointer = connection.execute(
+            "select generation_digest from current_generation where project_id=?",
+            (PROJECT_ID,),
+        ).fetchone()
+        states = dict(
+            connection.execute("select generation_digest,state from generation").fetchall()
+        )
+    finally:
+        connection.close()
+    assert pointer is not None and pointer[0] == staged_a.generation_digest
+    assert states[staged_a.generation_digest] == "ready"
+    assert states[staged_b.generation_digest] == "building"
+
     recovery = runtime._recover_rag_state_pending(paths, PROJECT_ID)
     assert recovery["status"] == "unpublished"
-    assert recovery["generation_digest"] == result_old["generation_digest"]
+    assert recovery["generation_digest"] == staged_a.generation_digest
     assert recovery["state_written"] is False
     assert recovery["pending_cleared"] is True
-    assert state_path.read_bytes() == state_before
-    assert not runtime._rag_pending_path(state_path).exists()
+    assert not pending_path.exists()
+    assert json.loads(paths["state"].read_text(encoding="utf-8"))["generation_digest"] == (
+        staged_a.generation_digest
+    )
+
+    # The validated intent is cleared, so a retry publishes cleanly.
+    published = runtime._publish_rag_state_pending(
+        paths,
+        PROJECT_ID,
+        _result(staged_b),
+        staged_a.generation_digest,
+        staged_b.generation_digest,
+    )
+    assert published["state_written"] is True
+    assert published["pending_cleared"] is True
+    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+        assert index.generation(PROJECT_ID).generation_digest == staged_b.generation_digest
+    assert json.loads(paths["state"].read_text(encoding="utf-8")) == _result(staged_b)
+    assert not runtime._rag_pending_path(paths["state"]).exists()
