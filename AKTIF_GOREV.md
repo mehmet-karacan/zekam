@@ -741,6 +741,14 @@ cikti digest'i, adet, boyut ve normalize vektor sozlesmesini denetler.
 Uyusmayan receipt fail-closed reddedilir; ilgili 83 birim test gecti.
 WP-05.03 icin timeout, quota, cancellation ve canli kabul kaniti aciktir.
 
+**13 Ekim 2026 ara durum — HTTP hata sinifi ve kota geri cekilmesi:**
+Provider transportu HTTP durumunu sanitize edilmis typed hata olarak
+tasir. 429 hiz/kota siniri ve kalici 4xx yeniden denenmez; 408/425 ve 5xx
+icin indeksleyici en fazla dort cagrilik 1/2/4 saniye backoff uygular.
+Transport arizasi provider failure olarak receipt'e siniflanir. Ilgili
+133 cevrimdisi test gecti. Gercek kota butcesi, cancellation, toplam
+deadline ve canli kabul kaniti halen aciktir; WP-05.03 tamamlanmadi.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

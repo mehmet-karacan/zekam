@@ -13,6 +13,7 @@ from zekam.application.provider_adapter import (
     EnvironmentEndpointResolver,
     MultipartProviderCall,
     ProviderCall,
+    ProviderHTTPUnavailable,
     UrllibJsonProviderTransport,
     UrllibMultipartProviderTransport,
     _read_json_response,
@@ -115,6 +116,66 @@ def test_urllib_transport_does_not_follow_redirects(
     request = captured["request"]
     assert isinstance(request, urllib.request.Request)
     assert request.get_header("Authorization") == "Bearer super-secret-token"
+
+
+@pytest.mark.parametrize(
+    ("status", "retryable"),
+    (
+        (429, False),
+        (401, False),
+        (503, True),
+        (408, True),
+    ),
+)
+def test_http_error_maps_to_sanitized_provider_http_unavailable(
+    monkeypatch: pytest.MonkeyPatch, status: int, retryable: bool
+) -> None:
+    class FakeOpener:
+        def open(self, request: object, timeout: float) -> object:
+            del request, timeout
+            raise urllib.error.HTTPError("redacted", status, "error", Message(), None)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FakeOpener())
+    credential = SecretValue("super-secret-token")
+    with pytest.raises(ProviderHTTPUnavailable) as caught:
+        UrllibJsonProviderTransport().post_json(
+            "https://models.example.test/v1/chat/completions",
+            {"model": "test"},
+            credential,
+            gateway_provenance=GatewayTransportProvenance(digest("manifest"), uuid4(), uuid4()),
+        )
+    error = caught.value
+    assert error.status == status
+    assert error.retryable is retryable
+    message = str(error)
+    assert "models.example.test" not in message
+    assert "super-secret-token" not in message
+
+
+def test_multipart_http_error_maps_to_sanitized_provider_http_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeOpener:
+        def open(self, request: object, timeout: float) -> object:
+            del request, timeout
+            raise urllib.error.HTTPError("redacted", 429, "rate limited", Message(), None)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: FakeOpener())
+    body = openai_transcription_body(
+        "whisper", b"audio", filename="audio.wav", media_type="audio/wav"
+    )
+    with pytest.raises(ProviderHTTPUnavailable) as caught:
+        UrllibMultipartProviderTransport().post_multipart(
+            "https://models.example.test/v1/audio/transcriptions",
+            body,
+            SecretValue("never-render-this-secret"),
+        )
+    error = caught.value
+    assert error.status == 429
+    assert error.retryable is False
+    message = str(error)
+    assert "models.example.test" not in message
+    assert "never-render-this-secret" not in message
 
 
 def test_openai_chat_parser_supports_text_parts() -> None:

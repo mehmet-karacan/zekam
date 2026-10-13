@@ -65,6 +65,7 @@ from zekam.application.oracle_metadata_index import (
     load_project_oracle_datasource,
 )
 from zekam.application.project_knowledge_index import ProjectIndexPlan, build_project_index_plan
+from zekam.application.provider_adapter import ProviderHTTPUnavailable
 from zekam.application.provider_contract_execution import PreparedProviderContractCall
 from zekam.application.provider_contract_runner import (
     ProviderExecutionHost,
@@ -1427,8 +1428,10 @@ def _embed_documents_with_retry(
     for attempt in range(4):
         try:
             return provider.embed_documents(texts, policy)
-        except ProbeUnavailable:
-            if attempt == 3:
+        except ProbeUnavailable as exc:
+            if attempt == 3 or (
+                isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable
+            ):
                 raise
             time.sleep(min(2**attempt, 4))
     raise AssertionError("unreachable")

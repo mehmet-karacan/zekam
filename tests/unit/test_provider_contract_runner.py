@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.provider_adapter import (
     AuthorizedProviderClient,
     ProviderCall,
@@ -21,6 +22,7 @@ from zekam.application.provider_contract_execution import (
 from zekam.application.provider_contract_runner import RuntimeProviderContractRunner
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_inventory import Modality
+from zekam.domain.runtime import FailureCategory
 from zekam.domain.security import (
     Authorization,
     AuthorizationScope,
@@ -31,6 +33,13 @@ from zekam.domain.security import (
 from zekam.domain.work import EffectKind
 
 pytestmark = pytest.mark.unit
+
+
+def test_transport_unavailability_is_provider_failure() -> None:
+    assert (
+        RuntimeProviderContractRunner._failure_category(ProbeUnavailable("transport unavailable"))
+        is FailureCategory.PROVIDER
+    )
 
 
 class FakeLedger:

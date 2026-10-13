@@ -52,6 +52,15 @@ from zekam.domain.work import EffectKind
 DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
+class ProviderHTTPUnavailable(ProbeUnavailable):
+    """Sanitized HTTP failure with a retry decision based only on status."""
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+        self.retryable = status in (408, 425) or 500 <= status <= 599
+        super().__init__(f"Provider HTTP status {status}")
+
+
 def validated_provider_endpoint(value: str) -> str:
     """Yalniz HTTPS veya loopback HTTP endpoint kabul eder."""
     parsed = urlsplit(value)
@@ -167,7 +176,7 @@ def _read_json_response(
         with opener.open(request, timeout=timeout_seconds) as response:
             raw = response.read(max_response_bytes + 1)
     except urllib.error.HTTPError as exc:
-        raise ProbeUnavailable(f"Provider HTTP status {exc.code}") from None
+        raise ProviderHTTPUnavailable(exc.code) from None
     except (OSError, urllib.error.URLError, TimeoutError):
         raise ProbeUnavailable("Provider transport kullanilamiyor") from None
     if len(raw) > max_response_bytes:

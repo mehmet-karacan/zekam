@@ -14,6 +14,7 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.model_health_service import ProbeUnavailable
+from zekam.application.provider_adapter import ProviderHTTPUnavailable
 from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -900,6 +901,66 @@ def test_document_embedding_retry_exhaustion_preserves_failure(
         runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
 
     assert provider.calls == 4
+
+
+class _TransientProviderHTTP:
+    def __init__(self, statuses: tuple[int, ...]) -> None:
+        self.statuses = statuses
+        self.calls = 0
+        self.result = object()
+
+    def embed_documents(self, _texts: object, _policy: object) -> object:
+        self.calls += 1
+        if self.calls <= len(self.statuses):
+            raise ProviderHTTPUnavailable(self.statuses[self.calls - 1])
+        return self.result
+
+
+@pytest.mark.parametrize("status", [429, 401])
+def test_document_embedding_http_not_retryable_calls_once_without_sleep(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    provider = _TransientProviderHTTP(statuses=(status, status))
+    waits: list[int] = []
+    monkeypatch.setattr(runtime.time, "sleep", waits.append)
+
+    with pytest.raises(ProviderHTTPUnavailable) as caught:
+        runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
+
+    assert caught.value.status == status
+    assert caught.value.retryable is False
+    assert provider.calls == 1
+    assert waits == []
+
+
+def test_document_embedding_http_503_retries_bounded_delays_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TransientProviderHTTP(statuses=(503, 503))
+    waits: list[int] = []
+    monkeypatch.setattr(runtime.time, "sleep", waits.append)
+
+    result = runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
+
+    assert result is provider.result
+    assert provider.calls == 3
+    assert waits == [1, 2]
+
+
+def test_document_embedding_http_503_exhaustion_makes_four_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TransientProviderHTTP(statuses=(503, 503, 503, 503))
+    waits: list[int] = []
+    monkeypatch.setattr(runtime.time, "sleep", waits.append)
+
+    with pytest.raises(ProviderHTTPUnavailable) as caught:
+        runtime._embed_documents_with_retry(cast(Any, provider), ("one",), cast(Any, object()))
+
+    assert caught.value.status == 503
+    assert caught.value.retryable is True
+    assert provider.calls == 4
+    assert waits == [1, 2, 4]
 
 
 def test_ordinary_directory_uses_digest_bound_source_identity(tmp_path: Path) -> None:

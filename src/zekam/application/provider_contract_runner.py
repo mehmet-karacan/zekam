@@ -113,12 +113,12 @@ class RuntimeProviderContractRunner:
     def _failure_category(exc: Exception) -> FailureCategory:
         if isinstance(exc, AuthorizationRequired):
             return FailureCategory.AUTHORIZATION
+        if isinstance(exc, ProbeUnavailable):
+            return FailureCategory.PROVIDER
         if isinstance(exc, PolicyViolation):
             return FailureCategory.POLICY
         if isinstance(exc, ValidationFailed):
             return FailureCategory.VALIDATION
-        if isinstance(exc, ProbeUnavailable):
-            return FailureCategory.PROVIDER
         return FailureCategory.ADAPTER
 
     def _verify_exact_authorization(
