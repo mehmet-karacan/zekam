@@ -645,6 +645,15 @@ ve hata alanina sizmamasi icin provider-free test eklendi. Bu parser henuz
 native istemci akisi ve tum prompt/cache/index/log/artifact kabul zincirine
 baglanmadigi icin WP-04.04 aciktir.
 
+**13 Ekim 2026 ara durum — kayitli projede yerel config komutu:**
+`project config-structure`, kayitli projenin dogrulanmis yerel kaynak
+kokunde explicit `.env*`/`.properties` yapi okur; provider, indeks veya
+embedding cagirmaz. Hassas anahtar adlari ve satirlari sonuc yerine yalniz
+redakte sayacina gider; guvenli anahtarlar ve grup yapisi gorulur. CLI
+ucundan sentetik deger/anahtar sizinti ve kok disi yol testleri gecti.
+Native dogal dil yonlendirmesi ile tum prompt/cache/index/log/artifact
+sistem kabulu tamamlanmadigi icin WP-04.04 aciktir.
+
 **13 Ekim 2026 ara durum — arsiv metadata kapisi:** ArchiveInspector,
 ZIP/TAR girdilerini limit sirasinda toplar; ZIP symlink, TAR link,
 surucu/traversal yolu ve yinelenen adlari reddeder. ZIP'in tekil girdi

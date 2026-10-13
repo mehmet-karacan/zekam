@@ -93,11 +93,18 @@ def test_limits_and_errors_do_not_include_values(tmp_path: Path) -> None:
     assert "GOOD" not in str(error.value)
 
 
-def test_rejects_sensitive_key_and_continuation(tmp_path: Path) -> None:
+def test_redacts_sensitive_key_and_rejects_continuation(tmp_path: Path) -> None:
     path = tmp_path / ".env"
-    path.write_text("PASSWORD=synthetic-value\n", encoding="utf-8")
-    with pytest.raises(PolicyViolation):
-        parse_local_config_structure(tmp_path, path.name)
+    path.write_text(
+        "SERVICE_HOST=synthetic-safe\nPASSWORD=synthetic-value\nAWS_ACCESS_KEY_ID=synthetic-id\n",
+        encoding="utf-8",
+    )
+    result = parse_local_config_structure(tmp_path, path.name)
+    assert result.redacted_key_count == 2
+    assert [key.name for key in result.keys] == ["SERVICE_HOST"]
+    assert "PASSWORD" not in repr(result)
+    assert "AWS_ACCESS_KEY_ID" not in json.dumps(result.as_dict())
+    assert "synthetic-value" not in json.dumps(result.as_dict())
     path.write_text("SAFE=synthetic-value\\\n", encoding="utf-8")
     with pytest.raises(ValidationFailed):
         parse_local_config_structure(tmp_path, path.name)

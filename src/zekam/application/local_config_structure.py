@@ -23,7 +23,9 @@ MAX_LOCAL_CONFIG_LINES = 20_000
 MAX_LOCAL_CONFIG_KEYS = 10_000
 _SAFE_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}\Z")
 _SENSITIVE_KEY = re.compile(
-    r"(?:secret|credential|password|passwd|parola|api[-_.]?key|private[-_.]?key|token)",
+    r"(?:secret|credential|password|passwd|parola|token|session|cookie|"
+    r"auth|bearer|ssh|jdbc|wallet|keystore|certificate|api[-_.]?key|"
+    r"access[-_.]?key|private[-_.]?key|(?:^|[._-])(?:key|pwd)(?:$|[._-]))",
     re.IGNORECASE,
 )
 _ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?(?P<key>[^:=\s]+)\s*[:=]")
@@ -44,6 +46,7 @@ class LocalConfigStructure:
     source_format: str
     keys: tuple[ConfigKey, ...]
     line_count: int
+    redacted_key_count: int = 0
     classification: DataClassification = field(default=DataClassification.LOCAL_ONLY, init=False)
 
     def as_dict(self) -> dict[str, Any]:
@@ -51,6 +54,7 @@ class LocalConfigStructure:
             "format": self.source_format,
             "classification": self.classification.value,
             "line_count": self.line_count,
+            "redacted_key_count": self.redacted_key_count,
             "keys": [key.as_dict() for key in self.keys],
         }
 
@@ -128,6 +132,7 @@ def parse_local_config_structure(
         raise PolicyViolation("Config satir siniri asildi")
 
     keys: list[ConfigKey] = []
+    redacted_key_count = 0
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", "!")):
@@ -138,14 +143,15 @@ def parse_local_config_structure(
         if match is None:
             raise ValidationFailed("Config satiri desteklenmeyen yapi tasiyor")
         name = match.group("key")
-        if (
-            _SAFE_KEY.fullmatch(name) is None
-            or _SENSITIVE_KEY.search(name)
-            or scan_text(name, relative_path="config.key")
-        ):
+        if _SAFE_KEY.fullmatch(name) is None:
             raise PolicyViolation("Config anahtar adi guvenli degil")
+        if _SENSITIVE_KEY.search(name) or scan_text(name, relative_path="config.key"):
+            redacted_key_count += 1
+            if redacted_key_count + len(keys) > MAX_LOCAL_CONFIG_KEYS:
+                raise PolicyViolation("Config anahtar siniri asildi")
+            continue
         group = (name.rpartition(".")[0] or None) if source_format == "properties" else None
         keys.append(ConfigKey(name=name, line_number=line_number, group=group))
-        if len(keys) > MAX_LOCAL_CONFIG_KEYS:
+        if redacted_key_count + len(keys) > MAX_LOCAL_CONFIG_KEYS:
             raise PolicyViolation("Config anahtar siniri asildi")
-    return LocalConfigStructure(source_format, tuple(keys), len(lines))
+    return LocalConfigStructure(source_format, tuple(keys), len(lines), redacted_key_count)

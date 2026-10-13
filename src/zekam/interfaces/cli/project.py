@@ -27,6 +27,7 @@ from zekam.application.code_graph_query import (
 )
 from zekam.application.config import EmbeddingRoute
 from zekam.application.home import resolve_home
+from zekam.application.local_config_structure import parse_local_config_structure
 from zekam.application.odi11g_export import (
     Odi11gExportPlan,
     bind_odi11g_export,
@@ -441,6 +442,33 @@ def source_root_command(
         _print_json({"project": slug, "source_root": str(root)})
     else:
         console.print(str(root))
+
+
+@app.command("config-structure")
+def config_structure_command(
+    project: Annotated[str, typer.Argument(help="Kayitli proje slug veya alias")],
+    relative_path: Annotated[str, typer.Argument(help="Proje kokune gore .env veya .properties")],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Hassas config'i yalniz yerelde okur; deger veya icerik ozeti dondurmez."""
+
+    try:
+        slug = _canonical_slug(project, home=home)
+        root = resolve_project_source(resolve_home(home), slug)
+        result = parse_local_config_structure(root, relative_path)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    document = {"project": slug, **result.as_dict()}
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"{slug}\t{document['format']}\tguvenli_anahtar={len(result.keys)}"
+            f"\tredakte={result.redacted_key_count}"
+        )
+        for key in result.keys:
+            console.print(f"{key.line_number}\t{key.name}")
 
 
 @app.command("history")
