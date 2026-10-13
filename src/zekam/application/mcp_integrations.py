@@ -756,6 +756,19 @@ def apply_sync_plan(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[s
             if _file_digest(path) != target["after_digest"]:
                 raise PolicyViolation("MCP native config readback drift")
             target_receipts.append(dict(target) | {"state": "written-and-read-back"})
+        body = {
+            "schema": _RECEIPT_SCHEMA,
+            "plan_digest": plan.plan_digest,
+            "registry_digest": _registry_digest(plan.after),
+            "targets": target_receipts,
+            "state": "completed",
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        }
+        receipt = body | {"receipt_digest": digest(body)}
+        _atomic_write(receipt_path, canonical_json(receipt).encode("utf-8"))
+        return receipt
     except BaseException as error:
         compensation_failed = False
         for path, previous in reversed(written):
@@ -769,19 +782,6 @@ def apply_sync_plan(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[s
         if compensation_failed:
             raise PolicyViolation("MCP sync recovery-required") from error
         raise
-    body = {
-        "schema": _RECEIPT_SCHEMA,
-        "plan_digest": plan.plan_digest,
-        "registry_digest": _registry_digest(plan.after),
-        "targets": target_receipts,
-        "state": "completed",
-        "provider_calls": 0,
-        "network_calls": 0,
-        "grants_authority": False,
-    }
-    receipt = body | {"receipt_digest": digest(body)}
-    _atomic_write(receipt_path, canonical_json(receipt).encode("utf-8"))
-    return receipt
 
 
 def sync_receipt(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[str, Any]:

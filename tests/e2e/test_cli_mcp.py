@@ -729,6 +729,109 @@ def test_mcp_apply_rejects_native_drift_between_plan_and_apply(
     assert status["servers"] == []
 
 
+def test_mcp_receipt_write_failure_restores_native_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP-02.04: terminal receipt yazimi basarisiz olursa native dosyalar telafi edilir.
+
+    Receipt ``_atomic_write`` cagrisi compensation sinirinin icinde olmalidir.
+    Receipt yazimi hata verirse: yabanci girdi ve kullanici credential'i korunur,
+    managed girdi eski bytes haline doner, tamamlanmis registry/receipt birakilmaz;
+    ayni plan ile tekrar deneme drift uretmez.
+    """
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, ("opencode",))
+    monkeypatch.setattr(Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    user_secret = "receipt-failure-secret"
+    opencode.write_text(
+        json.dumps(
+            {
+                "$schema": "https://opencode.ai/config.json",
+                "unrelated": {"keep": True},
+                "mcp": {
+                    "servers": {
+                        "user-owned": {
+                            "type": "local",
+                            "command": ["user-server"],
+                            "environment": {"SECRET": user_secret},
+                            "enabled": True,
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = opencode.read_bytes()
+
+    add_args = [
+        "mcp",
+        "add",
+        "managed-server",
+        "--command",
+        "managed-server",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    plan = json.loads(runner.invoke(app, add_args).output)
+
+    receipt_calls: list[Path] = []
+    original_atomic_write = mcp_integrations._atomic_write
+
+    def failing_receipt_write(path: Path, payload: bytes) -> None:
+        if path.parent.name == "mcp-integrations" and path.suffix == ".json":
+            receipt_calls.append(path)
+            raise OSError("receipt disk failure")
+        original_atomic_write(path, payload)
+
+    monkeypatch.setattr(mcp_integrations, "_atomic_write", failing_receipt_write)
+
+    applied = runner.invoke(
+        app,
+        [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"],
+    )
+    # Receipt yazimi hata verir; apply basariyla tamamlanmaz.
+    assert applied.exit_code != 0
+    # Tam olarak bir kez terminal receipt yazimi denendi.
+    assert len(receipt_calls) == 1
+    assert user_secret not in applied.output
+
+    # Native dosya eski bytes haline dondu; yabanci girdi ve credential korundu.
+    assert opencode.read_bytes() == original
+    document = json.loads(opencode.read_text(encoding="utf-8"))
+    servers = document["mcp"]["servers"]
+    assert "managed-server" not in servers
+    assert servers["user-owned"]["environment"]["SECRET"] == user_secret
+    assert document["unrelated"] == {"keep": True}
+
+    # Tamamlanmis receipt yok.
+    manifests = home / "state" / "manifests" / "mcp-integrations"
+    assert not manifests.exists() or not any(manifests.iterdir())
+    status = json.loads(runner.invoke(app, ["mcp", "status", "--home", str(home), "--json"]).output)
+    assert status["servers"] == []
+    assert status["last_receipt_digest"] is None
+
+    # Tekrar deneme fail-closed kalir; drift uretmez, native eski bytes'ta kalir.
+    retry = runner.invoke(
+        app,
+        [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"],
+    )
+    assert retry.exit_code == 70
+    assert opencode.read_bytes() == original
+    assert not manifests.exists() or not any(manifests.iterdir())
+
+
 def test_mcp_sync_detects_post_apply_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """WP-02.04: apply sonrasi kullanici drift'i sync tarafinda fail-closed yakalanir."""
     home = tmp_path / "zekam-home"
