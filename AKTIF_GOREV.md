@@ -663,6 +663,13 @@ ayristirilir. Parser profil surumu v2'ye alindi. Hedefli parser testleri
 gecti. ZIP merkezi dizin metadata bellek siniri ve diger XML/belge
 yuzeylerinin tam kabul taramasi surdugunden WP-04.05 aciktir.
 
+**13 Ekim 2026 ara durum — ODI Smart Export XML kapisi:** Smart Export
+on okumasindaki ham bayt regex'i yerine akista Expat deklarasyon kapisi
+kondu. DTD/entity ve external entity UTF-8/UTF-16 icin reddedilir;
+akista byte siniri korunur. Yerel unit ve mevcut CLI e2e testleri gecti.
+ODI'nin diger XML yuzeyi ile butun belge/ZIP bellek ve macro kabulleri
+tamamlanmadigi icin WP-04.05 aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

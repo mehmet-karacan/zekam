@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+from xml.parsers import expat
 
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
@@ -32,7 +33,6 @@ SMART_BINDING_SCHEMA = "zekam-project-local-odi11g-smart-binding/v1"
 SMART_SANITIZED_SCHEMA = "zekam-odi11g-sanitized-lineage/v1"
 SMART_IMPORT_OPERATION = "project.odi-smart-import"
 _MAX_EXPORT_BYTES = 128 * 1024 * 1024
-_XML_DECLARATION_ATTACK = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 _REPARSE_ATTRIBUTE = 0x400
 
 _ALLOWED_FIELDS: dict[str, frozenset[str]] = {
@@ -145,15 +145,30 @@ def _sha256_file(path: Path) -> str:
 
 
 def _reject_xml_declarations(path: Path) -> None:
-    """Scan the complete bounded export, including declaration tokens split by a block."""
+    """Encoding-aware, bounded XML preflight; declarations are never expanded."""
 
-    overlap = b""
-    with path.open("rb") as stream:
-        while block := stream.read(1024 * 1024):
-            window = overlap + block
-            if _XML_DECLARATION_ATTACK.search(window):
-                raise PolicyViolation("ODI Smart Export DTD/entity tasiyamaz")
-            overlap = window[-64:]
+    guard = expat.ParserCreate()
+
+    def reject_declaration(*_args: object) -> None:
+        raise PolicyViolation("ODI Smart Export DTD/entity tasiyamaz")
+
+    def reject_external(*_args: object) -> int:
+        raise PolicyViolation("ODI Smart Export external entity tasiyamaz")
+
+    guard.StartDoctypeDeclHandler = reject_declaration
+    guard.EntityDeclHandler = reject_declaration
+    guard.ExternalEntityRefHandler = reject_external
+    total = 0
+    try:
+        with path.open("rb") as stream:
+            while block := stream.read(1024 * 1024):
+                total += len(block)
+                if total > _MAX_EXPORT_BYTES:
+                    raise ValidationFailed("ODI Smart Export boyutu 1..128 MiB araliginda olmali")
+                guard.Parse(block, False)
+            guard.Parse(b"", True)
+    except expat.ExpatError:
+        raise ValidationFailed("ODI Smart Export XML parse edilemedi") from None
 
 
 def _validate_smart_xml(path: Path) -> tuple[str, int]:
