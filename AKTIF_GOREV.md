@@ -614,6 +614,14 @@ sayfa numarasi reddi korunur. Gecerli ve gecersiz sayfa fixture'larinda
 57 ilgili parser testi gecti. WP-04.03'un AST kaynak parcasi ve diger format
 kabul maddeleri aciktir.
 
+**13 Ekim 2026 ara durum — Python AST kaynak parcasi:** Proje indeksleyici
+gecerli `.py` dosyalarinda ust duzey sinif/fonksiyon/async fonksiyonlari
+AST satir araligi ve sembol locator'u ile ayirir; decorator baslangici ve
+aradaki kod satirlari korunur. Buyuk sembol veya gecersiz Python, karakter
+ve token siniri uygulayan satir parcacisina duser. Indeksleyici surumu v2'ye
+alindi; ilgili RAG/indeks testleri gecti. Java/JS ve diger kaynak turleri
+icin yapisal parcalama ile WP-04.03'un nihai kabulu aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

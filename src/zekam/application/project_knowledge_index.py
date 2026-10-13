@@ -8,6 +8,7 @@ vector writes require a verified :class:`EmbeddingProvider`.
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import hashlib
 import math
@@ -52,7 +53,7 @@ NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
 NON_SEMANTIC_BASELINE_DIMENSION = 1024
 REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
 REAL_EMBEDDING_DIMENSION = 1024
-INDEXER_VERSION = "zekam-project-source-indexer/v1"
+INDEXER_VERSION = "zekam-project-source-indexer/v2"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
 
@@ -270,13 +271,15 @@ def _verified_text(
         return None
 
 
-def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
+def _line_units(
+    relative_path: str, text: str, start_order: int, *, first_line: int = 1
+) -> tuple[ContentUnit, ...]:
     lines = text.splitlines()
     if not lines or not text.strip():
         return ()
     units: list[ContentUnit] = []
     buffer: list[str] = []
-    start_line = 1
+    start_line = first_line
 
     def flush(end_line: int) -> None:
         nonlocal start_line
@@ -298,19 +301,23 @@ def _file_units(relative_path: str, text: str, start_order: int) -> tuple[Conten
         buffer.clear()
         start_line = end_line + 1
 
-    for line_number, line in enumerate(lines, start=1):
+    for line_number, line in enumerate(lines, start=first_line):
         candidate = "\n".join((*buffer, line))
         if buffer and (
             len(candidate) > MAX_CHUNK_CHARACTERS or estimate_tokens(candidate) > MAX_CHUNK_TOKENS
         ):
             flush(line_number - 1)
             start_line = line_number
-        if len(line) > MAX_CHUNK_CHARACTERS:
+        if len(line) > MAX_CHUNK_CHARACTERS or estimate_tokens(line) > MAX_CHUNK_TOKENS:
             if buffer:
                 flush(line_number - 1)
                 start_line = line_number
-            for offset in range(0, len(line), MAX_CHUNK_CHARACTERS):
-                piece = line[offset : offset + MAX_CHUNK_CHARACTERS].strip()
+            offset = 0
+            while offset < len(line):
+                cut = min(len(line), offset + MAX_CHUNK_CHARACTERS)
+                while estimate_tokens(line[offset:cut]) > MAX_CHUNK_TOKENS:
+                    cut = offset + max(1, (cut - offset) // 2)
+                piece = line[offset:cut].strip()
                 if piece:
                     units.append(
                         ContentUnit(
@@ -325,11 +332,84 @@ def _file_units(relative_path: str, text: str, start_order: int) -> tuple[Conten
                             order=start_order + len(units),
                         )
                     )
+                offset = cut
             start_line = line_number + 1
             continue
         buffer.append(line)
     if buffer:
-        flush(len(lines))
+        flush(first_line + len(lines) - 1)
+    return tuple(units)
+
+
+def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
+    """Python'da top-level AST sembollerini, diger kodda satir araligini kullan."""
+    if PurePosixPath(relative_path).suffix.lower() != ".py":
+        return _line_units(relative_path, text, start_order)
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return _line_units(relative_path, text, start_order)
+
+    lines = text.splitlines()
+    symbols = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    if not symbols:
+        return _line_units(relative_path, text, start_order)
+
+    units: list[ContentUnit] = []
+    next_line = 1
+    for node in symbols:
+        first = min((node.lineno, *(item.lineno for item in node.decorator_list)))
+        last = node.end_lineno or node.lineno
+        if first < next_line or last > len(lines) or last < first:
+            return _line_units(relative_path, text, start_order)
+        if next_line < first:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    "\n".join(lines[next_line - 1 : first - 1]),
+                    start_order + len(units),
+                    first_line=next_line,
+                )
+            )
+        body = "\n".join(lines[first - 1 : last]).strip()
+        if body and len(body) <= MAX_CHUNK_CHARACTERS and estimate_tokens(body) <= MAX_CHUNK_TOKENS:
+            units.append(
+                ContentUnit(
+                    unit_id=f"{relative_path}#L{first}-L{last}-S{node.name}",
+                    kind=UnitKind.SYMBOL,
+                    text=body,
+                    locator=Locator(
+                        relative_path=relative_path,
+                        line_start=first,
+                        line_end=last,
+                        symbol=node.name,
+                    ),
+                    order=start_order + len(units),
+                )
+            )
+        else:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    "\n".join(lines[first - 1 : last]),
+                    start_order + len(units),
+                    first_line=first,
+                )
+            )
+        next_line = last + 1
+    if next_line <= len(lines):
+        units.extend(
+            _line_units(
+                relative_path,
+                "\n".join(lines[next_line - 1 :]),
+                start_order + len(units),
+                first_line=next_line,
+            )
+        )
     return tuple(units)
 
 

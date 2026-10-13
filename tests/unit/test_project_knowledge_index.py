@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from zekam.application import project_knowledge_index as knowledge_index
 from zekam.application.embedding_routing import EmbeddingRouteKind
 from zekam.application.project_knowledge_index import (
     NON_SEMANTIC_BASELINE_DIMENSION,
@@ -24,8 +25,69 @@ from zekam.application.source_discovery import (
     discover,
 )
 from zekam.domain.errors import PolicyViolation
+from zekam.domain.knowledge import UnitKind
+from zekam.domain.retrieval import estimate_tokens
 
 pytestmark = pytest.mark.unit
+
+
+def test_python_ast_units_preserve_top_level_symbols_and_all_source_lines() -> None:
+    source = (
+        "import os\n\n"
+        "@trace\n@tag(\n    1,\n)\n"
+        "def work():\n    return 1\n\n"
+        "flag = True\n\n"
+        "class Service:\n    def run(self):\n        return flag\n\n"
+        "answer = 42\n"
+    )
+    units = knowledge_index._file_units("src/main.py", source, 5)
+
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+    assert [
+        (unit.locator.symbol, unit.locator.line_start, unit.locator.line_end) for unit in symbols
+    ] == [
+        ("work", 3, 8),
+        ("Service", 12, 14),
+    ]
+    assert [unit.order for unit in units] == list(range(5, 5 + len(units)))
+    assert len({unit.unit_id for unit in units}) == len(units)
+    assert all(unit.locator.relative_path == "src/main.py" for unit in units)
+    assert [line.strip() for unit in units for line in unit.text.splitlines() if line.strip()] == [
+        line.strip() for line in source.splitlines() if line.strip()
+    ]
+
+
+def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(knowledge_index, "MAX_CHUNK_CHARACTERS", 35)
+    large = "def long_function():\n" + "".join(f"    value_{n} = {n}\n" for n in range(8))
+    units = knowledge_index._file_units("large.py", large, 0)
+    assert units
+    assert all(unit.kind is UnitKind.CODE and unit.locator.symbol is None for unit in units)
+    assert all(len(unit.text) <= 35 for unit in units)
+    assert [line.strip() for unit in units for line in unit.text.splitlines() if line.strip()] == [
+        line.strip() for line in large.splitlines() if line.strip()
+    ]
+
+    invalid = knowledge_index._file_units("broken.py", "def broken(:\n    pass\n", 0)
+    assert invalid and all(unit.kind is UnitKind.CODE for unit in invalid)
+    assert all(unit.locator.symbol is None for unit in invalid)
+    other = knowledge_index._file_units("Main.java", "class Main {}", 0)
+    assert other and all(unit.kind is UnitKind.CODE for unit in other)
+
+
+def test_python_ast_fallback_splits_a_token_heavy_single_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(knowledge_index, "MAX_CHUNK_TOKENS", 5)
+    source = "def many():\n    return a + b + c + d + e + f + g\n"
+    units = knowledge_index._file_units("many.py", source, 0)
+
+    assert len(units) > 1
+    assert all(unit.kind is UnitKind.CODE and unit.locator.symbol is None for unit in units)
+    assert all(estimate_tokens(unit.text) <= 5 for unit in units)
+    assert all(len(unit.text) <= knowledge_index.MAX_CHUNK_CHARACTERS for unit in units)
 
 
 def test_feature_hash_baseline_is_normalized_stable_and_explicitly_non_semantic() -> None:
