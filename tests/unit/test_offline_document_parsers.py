@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import stat
 import subprocess
 import zipfile
 from pathlib import Path
@@ -63,6 +64,74 @@ def test_docx_rejects_zip_traversal() -> None:
         bundle.writestr("word/document.xml", "<document/>")
         bundle.writestr("../escape", "x")
     with pytest.raises(PolicyViolation, match="traversal"):
+        DocxParser().parse(output.getvalue())
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        b'<!DOCTYPE a [<!ENTITY x "boom">]><a>&x;</a>',
+        b'<!DOCTYPE a SYSTEM "https://example.invalid/a.dtd"><a/>',
+        '<!DOCTYPE a [<!ENTITY x "boom">]><a>&x;</a>'.encode("utf-16"),
+    ],
+)
+def test_docx_xml_rejects_dtd_and_entity(xml: bytes) -> None:
+    with pytest.raises(PolicyViolation, match="DTD"):
+        document_parsers._xml(xml, "fixture")
+
+
+def test_docx_parser_rejects_dtd_in_document_part() -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        bundle.writestr("[Content_Types].xml", "<Types/>")
+        bundle.writestr(
+            "word/document.xml",
+            b'<!DOCTYPE a [<!ENTITY x "synthetic">]><a>&x;</a>',
+        )
+    with pytest.raises(PolicyViolation, match="DTD"):
+        DocxParser().parse(output.getvalue())
+
+
+def test_docx_rejects_active_ooxml_part_and_macro_content_type() -> None:
+    for part_name, content_type in [
+        ("word/vbaProject.bin", b"<Types/>"),
+        ("word/activeX/activeX1.xml", b"<Types/>"),
+        ("word/embeddings/object1.bin", b"<Types/>"),
+        (
+            "safe.xml",
+            '<Types ContentType="application/vnd.ms-word.document.macroEnabled.12"/>'.encode(
+                "utf-16"
+            ),
+        ),
+    ]:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as bundle:
+            bundle.writestr("[Content_Types].xml", content_type)
+            bundle.writestr("word/document.xml", "<document/>")
+            bundle.writestr(part_name, "fixture")
+        with pytest.raises(PolicyViolation):
+            DocxParser().parse(output.getvalue())
+
+
+def test_docx_rejects_zip_symlink_and_duplicate() -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        bundle.writestr("[Content_Types].xml", "<Types/>")
+        bundle.writestr("word/document.xml", "<document/>")
+        link = zipfile.ZipInfo("word/link.xml")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        bundle.writestr(link, "target.xml")
+    with pytest.raises(PolicyViolation, match="baglantisi"):
+        DocxParser().parse(output.getvalue())
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        bundle.writestr("[Content_Types].xml", "<Types/>")
+        bundle.writestr("word/document.xml", "<document/>")
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            bundle.writestr("word/document.xml", "<document/>")
+    with pytest.raises(PolicyViolation, match="yinelenen"):
         DocxParser().parse(output.getvalue())
 
 

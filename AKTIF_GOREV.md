@@ -654,6 +654,15 @@ asamaz. Sentetik ZIP ve mevcut arsiv guvenlik testleri gecti. Python
 siniri, diger belge parser'lari ve XML kabul zinciri aciktir; WP-04.05
 tamamlandi sayilmaz.
 
+**13 Ekim 2026 ara durum — DOCX XML ve etkin icerik kapisi:** DOCX XML
+parcalari ElementTree oncesi Expat deklarasyon kapisindan gecer; DTD,
+entity ve external entity reddedilir (UTF-16 dahil). ZIP'de yinelenen
+ad, symlink, surucu/traversal, tekil sikistirma orani ve macro/ActiveX/
+embedding parcalari reddedilir; content type XML'i de macroEnabled icin
+ayristirilir. Parser profil surumu v2'ye alindi. Hedefli parser testleri
+gecti. ZIP merkezi dizin metadata bellek siniri ve diger XML/belge
+yuzeylerinin tam kabul taramasi surdugunden WP-04.05 aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

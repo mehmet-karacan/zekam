@@ -13,6 +13,7 @@ import importlib.metadata
 import io
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import tempfile
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.etree import ElementTree
+from xml.parsers import expat
 
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import (
@@ -84,15 +86,43 @@ def media_type_for(source_format: SourceFormat) -> str:
 
 def _safe_zip_name(name: str) -> None:
     path = PurePosixPath(name)
-    if not name or name.startswith("/") or "\\" in name or ".." in path.parts:
+    if (
+        not name
+        or name.startswith("/")
+        or re.match(r"^[A-Za-z]:", name)
+        or "\\" in name
+        or ".." in path.parts
+    ):
         raise PolicyViolation("DOCX zip traversal girdisi tasiyor")
 
 
 def _xml(payload: bytes, label: str) -> ElementTree.Element:
+    guard = expat.ParserCreate()
+
+    def reject_declaration(*_args: object) -> None:
+        raise PolicyViolation("DOCX XML DTD veya entity deklarasyonu tasiyor")
+
+    def reject_external(*_args: object) -> int:
+        raise PolicyViolation("DOCX XML external entity tasiyor")
+
+    guard.StartDoctypeDeclHandler = reject_declaration
+    guard.EntityDeclHandler = reject_declaration
+    guard.ExternalEntityRefHandler = reject_external
     try:
+        guard.Parse(payload, True)
         return ElementTree.fromstring(payload)
-    except ElementTree.ParseError as exc:
-        raise ValidationFailed(f"DOCX {label} XML gecersiz") from exc
+    except (ElementTree.ParseError, expat.ExpatError):
+        raise ValidationFailed(f"DOCX {label} XML gecersiz") from None
+
+
+def _active_ooxml_part(name: str) -> bool:
+    lower = name.casefold()
+    return (
+        lower.endswith((".bin", ".vbs", ".js"))
+        or "/activex/" in f"/{lower}"
+        or "/embeddings/" in f"/{lower}"
+        or "vbaproject" in lower
+    )
 
 
 def _text(element: ElementTree.Element) -> str:
@@ -120,7 +150,7 @@ class DocxParser:
     """Stdlib tabanli, bounded OOXML DOCX parser'i."""
 
     parser_ref: str = "zekam.parser.docx-ooxml"
-    parser_version: str = "1"
+    parser_version: str = "2"
 
     @property
     def parser_profile(self) -> dict[str, Any]:
@@ -147,7 +177,7 @@ class DocxParser:
         except zipfile.BadZipFile as exc:
             raise ValidationFailed("DOCX zip yapisi gecersiz") from exc
         with bundle:
-            infos = bundle.infolist()
+            infos = bundle.filelist
             if len(infos) > MAX_DOCX_ENTRIES:
                 raise PolicyViolation("DOCX girdi sayisi sinirini asiyor")
             expanded = sum(item.file_size for item in infos)
@@ -156,11 +186,29 @@ class DocxParser:
                 raise PolicyViolation("DOCX acilmis boyut sinirini asiyor")
             if compressed > 0 and expanded / compressed > MAX_DOCX_COMPRESSION_RATIO:
                 raise PolicyViolation("DOCX sikistirma orani sinirini asiyor")
-            names = {item.filename for item in infos}
-            for name in names:
+            names: set[str] = set()
+            for item in infos:
+                name = item.filename
                 _safe_zip_name(name)
+                if name in names:
+                    raise PolicyViolation("DOCX yinelenen ZIP girdisi tasiyor")
+                names.add(name)
+                if _active_ooxml_part(name):
+                    raise PolicyViolation("DOCX calisabilir icerik parcasi tasiyor")
+                mode = item.external_attr >> 16
+                if item.create_system == 3 and stat.S_ISLNK(mode):
+                    raise PolicyViolation("DOCX ZIP baglantisi tasiyor")
+                if item.file_size > item.compress_size * MAX_DOCX_COMPRESSION_RATIO:
+                    raise PolicyViolation("DOCX tekil girdi sikistirma orani sinirini asiyor")
             if "word/document.xml" not in names or "[Content_Types].xml" not in names:
                 raise ValidationFailed("DOCX zorunlu OOXML parcalarini tasimiyor")
+            content_types = _xml(bundle.read("[Content_Types].xml"), "content types")
+            if any(
+                "macroenabled" in str(value).casefold()
+                for node in content_types.iter()
+                for value in node.attrib.values()
+            ):
+                raise PolicyViolation("DOCX macro-uyumlu icerik tipi tasiyor")
             for name in sorted(value for value in names if value.endswith(".rels")):
                 if _relationship_is_external(_xml(bundle.read(name), name)):
                     raise PolicyViolation("DOCX external relationship tasiyor")

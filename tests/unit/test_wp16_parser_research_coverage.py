@@ -81,7 +81,7 @@ def test_document_parser_media_zip_xml_and_docx_fail_closed() -> None:
     parsers._safe_zip_name("word/document.xml")
     with pytest.raises(ValidationFailed):
         parsers._xml(b"<broken>", "test")
-    with pytest.raises(ValidationFailed):
+    with pytest.raises(PolicyViolation):
         parsers._xml(b'<!DOCTYPE a [<!ENTITY x SYSTEM "file:///etc/passwd">]><a>&x;</a>', "test")
     with pytest.raises(ValidationFailed, match="DOCX"):
         parsers.DocxParser().parse(b"not-a-zip")
