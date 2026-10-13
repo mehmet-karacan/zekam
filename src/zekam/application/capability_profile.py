@@ -521,7 +521,7 @@ def profile_from_mapping(document: Mapping[str, Any]) -> CapabilityProfile:
 # ---------------------------------------------------------------------------
 # Surum bazli, istemci-bazli native yetenek destegi matrisi (WP-02.02)
 #
-# Her istemci icin instruction/hook/MCP/shell/subagent destegi AYRI AYRI,
+# Her istemci icin metadata/instruction/hook/MCP/shell/subagent destegi AYRI AYRI,
 # surum + kanit seviyesi + destek siniri olarak kaydedilir. Destek yoksa
 # manual komut ezberi degil, acik destek siniri ve kurulabilir adapter plani
 # verilir. `observed` kaniti yoksa `ready` iddia edilmez (NL-039 / GAP-07).
@@ -536,10 +536,11 @@ def profile_from_mapping(document: Mapping[str, Any]) -> CapabilityProfile:
 # kalir, hicbir hucre `ready`+`observed` iddia edilmez.
 # ---------------------------------------------------------------------------
 
-CLIENT_CAPABILITY_MATRIX_SCHEMA: Final = "zekam-client-capability-matrix/v1"
+CLIENT_CAPABILITY_MATRIX_SCHEMA: Final = "zekam-client-capability-matrix/v2"
 
 #: WP-02.02 icin surum bazli kaydi zorunlu olan yetenek boyutlari.
 SUPPORTED_CAPABILITIES: Final = (
+    "metadata",
     "instruction",
     "hook",
     "mcp",
@@ -669,6 +670,7 @@ def _client_profile(
     *,
     version: str,
     version_basis: str,
+    metadata: CapabilitySupport,
     instruction: CapabilitySupport,
     hook: CapabilitySupport,
     mcp: CapabilitySupport,
@@ -677,7 +679,7 @@ def _client_profile(
     adapter_plan: tuple[str, ...],
     support_limit: str,
 ) -> ClientCapabilityProfile:
-    capabilities = (instruction, hook, mcp, shell, subagent)
+    capabilities = (metadata, instruction, hook, mcp, shell, subagent)
     assert [item.capability for item in capabilities] == list(SUPPORTED_CAPABILITIES)
     return ClientCapabilityProfile(
         client=client.value,
@@ -744,6 +746,14 @@ def client_capability_matrix(
         ClientIntegrationId.OPENCODE,
         version="managed-instructions/v1+agent-bootstrap+plugin-v3",
         version_basis="reviewed-generator",
+        metadata=_cap(
+            "metadata",
+            CapabilityStatus.DECLARED,
+            "host-native-cli/v1",
+            "declared",
+            "istemci kimligi/surumu `host_present`/`host_version` ile ayri raporlanir; "
+            "native davranis acceptance kosusuna kadar kanitlanmaz",
+        ),
         instruction=_cap(
             "instruction",
             CapabilityStatus.READY,
@@ -791,6 +801,14 @@ def client_capability_matrix(
         ClientIntegrationId.CODEX,
         version="managed-instructions/v1+hook@0.154.0+config.toml-mcp",
         version_basis="reviewed-generator",
+        metadata=_cap(
+            "metadata",
+            CapabilityStatus.DECLARED,
+            "host-native-cli/v1",
+            "declared",
+            "istemci kimligi/surumu `host_present`/`host_version` ile ayri raporlanir; "
+            "native davranis acceptance kosusuna kadar kanitlanmaz",
+        ),
         instruction=_cap(
             "instruction",
             CapabilityStatus.READY,
@@ -840,6 +858,14 @@ def client_capability_matrix(
         ClientIntegrationId.CLAUDE_CODE,
         version="managed-instructions/v1+hook@2.1.224+claude.json-mcp",
         version_basis="reviewed-generator",
+        metadata=_cap(
+            "metadata",
+            CapabilityStatus.DECLARED,
+            "host-native-cli/v1",
+            "declared",
+            "istemci kimligi/surumu `host_present`/`host_version` ile ayri raporlanir; "
+            "native davranis acceptance kosusuna kadar kanitlanmaz",
+        ),
         instruction=_cap(
             "instruction",
             CapabilityStatus.READY,
@@ -890,6 +916,14 @@ def client_capability_matrix(
         ClientIntegrationId.GEMINI,
         version="project-local-entry-only",
         version_basis="reviewed-generator",
+        metadata=_cap(
+            "metadata",
+            CapabilityStatus.DECLARED,
+            "host-native-cli/v1",
+            "declared",
+            "istemci kimligi/surumu `host_present`/`host_version` ile ayri raporlanir; "
+            "native davranis acceptance kosusuna kadar kanitlanmaz",
+        ),
         instruction=_cap(
             "instruction",
             CapabilityStatus.READY,

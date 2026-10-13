@@ -1,7 +1,7 @@
 """WP-02.02 — Surum bazli, istemci-bazli native yetenek destegi matrisi.
 
-`ClientCapabilityProfile` her istemci icin instruction/hook/MCP/shell/subagent
-destegini surum + kanit seviyesi + destek siniri olarak AYRI ayri kaydeder.
+`ClientCapabilityProfile` her istemci icin metadata/instruction/hook/MCP/shell/
+subagent destegini surum + kanit seviyesi + destek siniri olarak AYRI ayri kaydeder.
 
 Kanit duzeni (bu hostta yalniz OpenCode/Codex kurulu):
   * `version`/`version_basis` = Zekam tarafinin GENERATOR (reviewed) surumudur;
@@ -56,7 +56,7 @@ def test_matrix_covers_all_four_supported_clients() -> None:
 def test_matrix_schema_is_versioned_and_read_only() -> None:
     matrix = _matrix()
     assert matrix.schema.startswith("zekam-client-capability-matrix/")
-    assert matrix.schema.endswith("/v1")
+    assert matrix.schema.endswith("/v2")
     assert matrix.read_only is True
     assert matrix.grants_authority is False
     assert matrix.matrix_digest.startswith("sha256:")
@@ -73,6 +73,7 @@ def test_every_cell_is_versioned_with_evidence_level_and_boundary() -> None:
         for support in profile.capabilities:
             assert support.capability in SUPPORTED_CAPABILITIES
             assert support.status in CapabilityStatus.all()
+            assert support.support_limit  # acik destek siniri; komut ezberi degil
             # Destek yoksa destek siniri acik; komut ezberi degil.
             if support.status == _NOT_SUPPORTED:
                 assert support.support_limit
@@ -83,12 +84,28 @@ def test_every_cell_is_versioned_with_evidence_level_and_boundary() -> None:
 
 def test_supported_capability_dimensions_are_the_task_contract_set() -> None:
     assert set(SUPPORTED_CAPABILITIES) == {
+        "metadata",
         "instruction",
         "hook",
         "mcp",
         "shell",
         "subagent",
     }
+
+
+def test_metadata_is_reported_separately_with_explicit_boundary() -> None:
+    """`metadata` boyutu istemci kimligi/surumunu ayri hucre olarak raporlar.
+
+    Hucre native metadata (host CLI surumu) kanitini `host_version` alanindan
+    ayri tutar; acceptance kosusuna kadar `declared` kalir, `ready` iddia etmez.
+    """
+    matrix = _matrix(opencode="opencode v2.0.27")
+    for profile in matrix.clients:
+        metadata = _cells(profile)["metadata"]
+        assert metadata.status == _DECLARED
+        assert metadata.evidence_level != "observed"
+        assert metadata.support_limit
+        assert metadata.version
 
 
 def test_matrix_cells_are_deterministic() -> None:
