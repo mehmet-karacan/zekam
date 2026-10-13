@@ -330,6 +330,16 @@ class ProcessIsolatedJsonProviderTransport:
         if outcome.status is not CapabilityWorkerStatus.COMPLETED or outcome.payload is None:
             # Runtime import avoids an infrastructure -> application import cycle.
             from zekam.application.model_health_service import ProbeUnavailable
+            from zekam.application.provider_adapter import ProviderHTTPUnavailable
+
+            prefix = "provider-http-status-"
+            error_code = outcome.error_code or ""
+            if outcome.status is CapabilityWorkerStatus.FAILED and error_code.startswith(prefix):
+                status_text = error_code[len(prefix) :]
+                if len(status_text) == 3 and status_text.isascii() and status_text.isdigit():
+                    status = int(status_text)
+                    if 100 <= status <= 599:
+                        raise ProviderHTTPUnavailable(status)
 
             raise ProbeUnavailable(_provider_failure_message(outcome))
         response = outcome.payload.get("provider_response")
@@ -401,16 +411,12 @@ def _provider_failure_message(outcome: CapabilityWorkerResult) -> str:
         return "Provider process hard deadline asildi"
     if outcome.status is CapabilityWorkerStatus.OUTPUT_LIMIT:
         return "Provider process IPC boyut sinirini asti"
-    if outcome.error_code and (
-        outcome.error_code.startswith("provider-http-status-")
-        or outcome.error_code
-        in {
+    if outcome.error_code and outcome.error_code in {
             "provider-transport-unavailable",
             "provider-response-limit",
             "provider-response-invalid-json",
             "provider-response-not-object",
-        }
-    ):
+    }:
         return outcome.error_code
     return "Provider process kullanilamiyor"
 

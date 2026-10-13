@@ -289,7 +289,7 @@ def test_process_isolated_transport_denies_redirect(tmp_path: Path) -> None:
     try:
         from zekam.application.model_health_service import ProbeUnavailable
 
-        with pytest.raises(ProbeUnavailable, match="provider-http-status-302"):
+        with pytest.raises(ProbeUnavailable, match="Provider HTTP status 302"):
             transport.post_json(
                 f"http://127.0.0.1:{server.server_port}/v1/chat",
                 {"model": "test-model"},

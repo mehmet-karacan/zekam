@@ -369,6 +369,9 @@ def test_transport_failure_messages_and_response_shape(
                 "r", worker.CapabilityWorkerStatus.FAILED, error_code="provider-http-status-429"
             ),
             worker.CapabilityWorkerResult(
+                "r", worker.CapabilityWorkerStatus.FAILED, error_code="provider-http-status-503"
+            ),
+            worker.CapabilityWorkerResult(
                 "r", worker.CapabilityWorkerStatus.COMPLETED, payload={"provider_response": []}
             ),
             worker.CapabilityWorkerResult(
@@ -385,7 +388,7 @@ def test_transport_failure_messages_and_response_shape(
     )
     from zekam.application.model_health_service import ProbeUnavailable
 
-    for message in ("hard deadline", "IPC boyut", "provider-http-status-429", "response"):
+    for message in ("hard deadline", "IPC boyut"):
         with pytest.raises(ProbeUnavailable, match=message):
             transport.post_json(
                 "http://127.0.0.1:8765/v1/test",
@@ -393,6 +396,33 @@ def test_transport_failure_messages_and_response_shape(
                 SecretValue("secret"),
                 gateway_provenance=provenance,
             )
+    from zekam.application.provider_adapter import ProviderHTTPUnavailable
+
+    with pytest.raises(ProviderHTTPUnavailable) as http_failure:
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=provenance,
+        )
+    assert http_failure.value.status == 429
+    assert http_failure.value.retryable is False
+    with pytest.raises(ProviderHTTPUnavailable) as transient_failure:
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=provenance,
+        )
+    assert transient_failure.value.status == 503
+    assert transient_failure.value.retryable is True
+    with pytest.raises(ProbeUnavailable, match="response"):
+        transport.post_json(
+            "http://127.0.0.1:8765/v1/test",
+            {"model": "local"},
+            SecretValue("secret"),
+            gateway_provenance=provenance,
+        )
     assert transport.post_json(
         "http://127.0.0.1:8765/v1/test",
         {"model": "local"},
@@ -402,14 +432,15 @@ def test_transport_failure_messages_and_response_shape(
 
 
 def test_provider_failure_message_sanitizes_unknown_errors() -> None:
-    assert (
-        worker._provider_failure_message(
-            worker.CapabilityWorkerResult(
-                "r", worker.CapabilityWorkerStatus.FAILED, error_code="raw-sensitive-detail"
+    for code in ("raw-sensitive-detail", "provider-http-status-429-secret"):
+        assert (
+            worker._provider_failure_message(
+                worker.CapabilityWorkerResult(
+                    "r", worker.CapabilityWorkerStatus.FAILED, error_code=code
+                )
             )
+            == "Provider process kullanilamiyor"
         )
-        == "Provider process kullanilamiyor"
-    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="This batch explicitly covers POSIX only")

@@ -749,6 +749,14 @@ Transport arizasi provider failure olarak receipt'e siniflanir. Ilgili
 133 cevrimdisi test gecti. Gercek kota butcesi, cancellation, toplam
 deadline ve canli kabul kaniti halen aciktir; WP-05.03 tamamlanmadi.
 
+**13 Ekim 2026 ara durum — yalitilmis provider HTTP koprusu:** Uretimde
+kullanilan process-isolated transport, child sonucundaki salt sayisal HTTP
+durum kodunu typed hataya cevirir; 429 kalici, 503 gecici sinifi ust
+katman retry kararina ulasir. Gecersiz hata kodu ham haliyle disari
+verilmez. Ilgili 144 cevrimdisi test gecti, iki POSIX-only test Windows'ta
+atlandi. WP-05.03 icin cancellation, toplam deadline, kota butcesi ve
+canli kabul kaniti aciktir.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  
