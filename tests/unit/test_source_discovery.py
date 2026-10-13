@@ -14,6 +14,9 @@ import pytest
 from zekam.application.source_discovery import (
     BINARY_PROBE_BYTES,
     DiscoveryPolicy,
+    DiscoveryReport,
+    EligibilityDecision,
+    EligibilityOutcome,
     FileKind,
     InventoryEntry,
     InventoryStatus,
@@ -717,3 +720,191 @@ def test_symlink_loop_is_not_followed(sample_project: Path) -> None:
     assert "dongu" in {item.relative_path for item in report.skipped_by(SkipReason.SYMLINK)}
     # Dongu cozulmemis: dongu altinda sonsuz tekrar yok.
     assert not any(item.relative_path.startswith("dongu/") for item in report.inventory)
+
+
+# --- Eligibility karar sozlesmesi (WP-04.01) -------------------------------------
+#
+# Eligibility, metadata envanterinden AYRI bir karar katmidir: her kesfedilen
+# DOSYA girdisi icin EligibilityDecision uretilir ve metadata envanterinde
+# girdi bazinda dogrulanabilir. Aste testler, kararin envanterden ve `files`
+# tubunden bagimsiz olarak, dogru yolda ve dogru nedenle oldugunu kanitlar.
+
+
+def test_eligibility_decision_contract_rejects_inconsistent_records() -> None:
+    # Karar sozlesmesi fail-closed: eligible kararda neden olamaz, skipped
+    # karada neden zorunludur. Uydurma/dusuk seviye karsilik dogrudan reddedilir.
+    with pytest.raises(ValueError):
+        EligibilityDecision("a.txt", EligibilityOutcome.ELIGIBLE, SkipReason.SECRET)
+    with pytest.raises(ValueError):
+        EligibilityDecision("b.txt", EligibilityOutcome.SKIPPED, None)
+    # Tutarli kayitlar gecerlidir.
+    assert EligibilityDecision.eligible("c.txt").reason is None
+    assert (
+        EligibilityDecision.skipped("d.txt", SkipReason.SECRET).outcome
+        is EligibilityOutcome.SKIPPED
+    )
+
+
+def test_eligibility_decision_covers_every_file_inventory_entry(sample_project: Path) -> None:
+    # Envanterdeki HER dosya girdisi (yoksayilan, ikili, uretilmis dahil) icin
+    # birebir bir eligibility karari vardir; dizin/symlink girdileri kararla
+    # degil metadata olarak tasinir.
+    (sample_project / ".git" / "objects").mkdir(parents=True)
+    (sample_project / ".git" / "config").write_text("core\n", encoding="utf-8")
+    (sample_project / "ayarlar.py").write_text('api_key = "abcdefgh12345678"\n', encoding="utf-8")
+    (sample_project / "veri.bin").write_bytes(b"\x00\x01binary")
+
+    report = discover(sample_project)
+    inventory_file_paths = {
+        item.relative_path for item in report.inventory if item.kind is FileKind.FILE
+    }
+    decision_paths = {item.relative_path for item in report.eligibility_decisions}
+    # Karar kumesi envanter dosya kumesiyle birebir eslesir (fazla/yoktur).
+    assert decision_paths == inventory_file_paths
+    # Karar yollarinda tekrar yoktur.
+    assert len(decision_paths) == len(report.eligibility_decisions)
+    # Dizin girdilerinde eligibility kararI yok (metadata only).
+    for item in report.inventory:
+        if item.kind is not FileKind.FILE:
+            assert item.eligibility is None
+
+
+def test_eligibility_carried_in_inventory_is_consistent(sample_project: Path) -> None:
+    # Envanter girdisinde tasinan eligibility, rapor seviyesi karar kumesiyle
+    # ayni yolda ayni sonuc/nedeni tasir; eligible girdide is_text metadata'si,
+    # skipped girdide is_text None'dir.
+    (sample_project / "ayarlar.py").write_text('api_key = "abcdefgh12345678"\n', encoding="utf-8")
+    (sample_project / "veri.bin").write_bytes(b"\x00\x01binary")
+
+    report = discover(sample_project)
+    by_path = {item.relative_path: item for item in report.inventory}
+    decisions = {item.relative_path: item for item in report.eligibility_decisions}
+
+    # Eligible: envanterdeki karari eligible, is_text metadata'si dolu.
+    eligible_entry = by_path["src/ana.py"]
+    assert eligible_entry.eligibility is not None
+    assert eligible_entry.eligibility.outcome is EligibilityOutcome.ELIGIBLE
+    assert eligible_entry.eligibility.reason is None
+    assert decisions["src/ana.py"].outcome is EligibilityOutcome.ELIGIBLE
+    assert eligible_entry.is_text is True
+
+    # Ikili dosya eligible (digest uretildi) ama is_text False.
+    binary_entry = by_path["veri.bin"]
+    assert binary_entry.eligibility.outcome is EligibilityOutcome.ELIGIBLE
+    assert binary_entry.is_text is False
+
+    # Secret bulgusu: karari skipped + SECRET; envanter metadata kalinir,
+    # is_text None; secret degeri rapora yazilmaz.
+    secret_entry = by_path["ayarlar.py"]
+    assert secret_entry.eligibility.outcome is EligibilityOutcome.SKIPPED
+    assert secret_entry.eligibility.reason is SkipReason.SECRET
+    assert decisions["ayarlar.py"].reason is SkipReason.SECRET
+    assert secret_entry.skip_reason is SkipReason.SECRET
+    assert secret_entry.is_text is None
+    assert "abcdefgh12345678" not in repr(report.as_dict())
+
+
+def test_eligibility_negative_reasons_are_distinguishable(sample_project: Path) -> None:
+    # Negatif kararlar, metadata envanterindeki `skipped` (generic) nedeninden
+    # AYRI olarak eligibility nedenini tasir: deny list (DENY), gitignore
+    # kurali (IGNORED), sinir (LIMIT_REACHED), buyukluk (TOO_LARGE), derinlik
+    # (LIMIT_REACHED) ve yoksayilan agac icerigi (IGNORED).
+    (sample_project / ".env").write_text("DB_PASSWORD=EnvSecretNegatif1\n", encoding="utf-8")
+    (sample_project / "buyuk.txt").write_text("x" * 5000, encoding="utf-8")
+
+    # max_total_files=1: ilk eligible dosyadan geri kalan dosya girdileri
+    # dosya sinirina takilir (LIMIT_REACHED karari uretir).
+    report = discover(
+        sample_project, policy=DiscoveryPolicy(max_file_bytes=1000, max_total_files=1)
+    )
+    decisions = {item.relative_path: item for item in report.eligibility_decisions}
+
+    # Deny list: `.env` metadata olarak tasinir, eligibility DENY ile kapatilir.
+    env_entry = next(item for item in report.inventory if item.relative_path == ".env")
+    assert env_entry.eligibility.outcome is EligibilityOutcome.SKIPPED
+    assert env_entry.eligibility.reason is SkipReason.DENY
+    assert env_entry.skip_reason is SkipReason.IGNORED  # metadata nedeni degismez
+    assert "EnvSecretNegatif1" not in repr(report.as_dict())
+
+    # Gitignore kurali (gecici.log): eligibility IGNORED (DENY degil).
+    assert decisions["gecici.log"].outcome is EligibilityOutcome.SKIPPED
+    assert decisions["gecici.log"].reason is SkipReason.IGNORED
+
+    # Yoksayilan agac icerigi: eligibility IGNORED, envanter metadata dolu.
+    assert decisions["node_modules/paket/index.js"].reason is SkipReason.IGNORED
+
+    # Buyuk dosya: eligibility TOO_LARGE, boyutu metadata olarak korunur.
+    big = next(item for item in report.inventory if item.relative_path == "buyuk.txt")
+    assert big.eligibility.reason is SkipReason.TOO_LARGE
+    assert big.size_bytes == 5000
+
+    # Dosya sinirini asan kalan dosyalar: LIMIT_REACHED (truncated=True).
+    assert report.truncated
+    limited_reasons = [item.reason for item in report.eligibility_decisions]
+    assert SkipReason.LIMIT_REACHED in limited_reasons
+
+
+def test_eligibility_decisions_are_stable_and_sorted(sample_project: Path) -> None:
+    # Karar kumesi kararli (yol sirasi) ve iki aradasinda ayni kalmali.
+    (sample_project / "b.txt").write_text("b", encoding="utf-8")
+    (sample_project / "a.txt").write_text("a", encoding="utf-8")
+
+    first = discover(sample_project)
+    second = discover(sample_project)
+    paths = [item.relative_path for item in first.eligibility_decisions]
+    assert paths == sorted(paths)
+    assert [item.relative_path for item in second.eligibility_decisions] == paths
+    assert first.eligibility_decisions == second.eligibility_decisions
+
+
+def test_eligibility_summary_counts_in_report_dict(sample_project: Path) -> None:
+    # Rapor ozeti eligibility sayimlarini tasir; eligible + skipped, karar
+    # sayisina eslesir (tutarsiz sayim yok).
+    (sample_project / "b.txt").write_text("b", encoding="utf-8")
+
+    report = discover(sample_project)
+    summary = report.as_dict()["eligibility"]
+    assert summary["decision_count"] == len(report.eligibility_decisions)
+    eligible = sum(
+        1 for item in report.eligibility_decisions if item.outcome is EligibilityOutcome.ELIGIBLE
+    )
+    skipped = sum(
+        1 for item in report.eligibility_decisions if item.outcome is EligibilityOutcome.SKIPPED
+    )
+    assert summary["eligible_count"] == eligible
+    assert summary["skipped_count"] == skipped
+    assert summary["eligible_count"] + summary["skipped_count"] == summary["decision_count"]
+    # Eligible sayimi `files` (indekse hazir alt kume) ile eslesir.
+    assert summary["eligible_count"] == report.file_count
+
+
+def test_eligibility_decisions_default_is_empty_tuple() -> None:
+    # Rapor seviyesinde varsayilan bos karar kumesi tasir; eligible alt kume
+    # ve metadata envanteri bozulmadan kurulabilir (geriye donuk uyum).
+    report = DiscoveryReport(
+        root_label="kok",
+        tree_digest="sha256:0",
+        files=(),
+        skipped=(),
+        secrets=(),
+        policy=DiscoveryPolicy(),
+    )
+    assert report.eligibility_decisions == ()
+    summary = report.as_dict()["eligibility"]
+    assert summary == {"decision_count": 0, "eligible_count": 0, "skipped_count": 0}
+
+
+def test_eligibility_excludes_file_beyond_inventory_cap(tmp_path: Path) -> None:
+    root = tmp_path / "sinir"
+    root.mkdir()
+    (root / "a.txt").write_text("a", encoding="utf-8")
+    (root / "b.txt").write_text("b", encoding="utf-8")
+
+    report = discover(root, policy=DiscoveryPolicy(max_inventory_entries=1))
+
+    assert report.inventory_status is InventoryStatus.PARTIAL
+    inventoried = {item.relative_path for item in report.inventory}
+    assert len(inventoried) == 1
+    assert inventoried <= {"a.txt", "b.txt"}
+    assert {item.relative_path for item in report.eligibility_decisions} == inventoried
+    assert {item.relative_path for item in report.files} == inventoried

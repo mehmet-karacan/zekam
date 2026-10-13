@@ -26,6 +26,16 @@ eligibility sinirlari `truncated` bayragina ve `LIMIT_REACHED` olarak atlanan
 icerik girdilerine yansir. Sinirlar fail-closed dogrulanir: icerik/envanter
 sinirlari pozitif olmak zorundadir; `max_depth=0` gecerlidir.
 
+Icerik eligibility karar sozlesmesi (WP-04.01): Eligibility, metadata envanterinden
+AYRI bir karar katmidir. Dosya turlerindeki her kesfedilen dosya girdisi icin
+`EligibilityDecision` kaydi uretilir (`eligible`/`skipped` + `SkipReason`);
+envanter bu kararlari dogrulamak icin girdi bazinda tasinir. Eligible olmayan
+girdiler (yoksayim, ikili, buyuk, secret, sinir, derinlik, erisim)
+metadata olarak kalinir ama icerigi okunmaz; eligible girdi envanter girdisinde
+`is_text` metadata'sini tasir. `files` tuple'i eligible alt kumenin indekse
+hazir yapisidir; eligibility karari `files`'in varligindan veya yoklugundan
+turetilmez.
+
 Kesif hicbir kosulda kaynak agacina yazmaz, komut calistirmaz, build/test
 tetiklemez veya paket kurmaz.
 """
@@ -67,6 +77,7 @@ class SkipReason(StrEnum):
     """Bir yolun neden disarida birakildigi."""
 
     IGNORED = "ignored"
+    DENY = "deny"
     SYMLINK = "symlink"
     OUTSIDE_ROOT = "outside-root"
     TOO_LARGE = "too-large"
@@ -198,10 +209,12 @@ class DiscoveredFile:
 class InventoryEntry:
     """Metadata envanterinde kaydedilen tek bir girdi.
 
-    Yalnizca yol, tur ve buyukluk tasiyor; icerik, digest veya secret deger
-    hicbir kosulda burada bulunmaz. `is_text` yalnizca icerigi sinirli okunmus
-    eligible dosyalar icin anlamlidir; yoksayilan/okunamayan/kesilen girdilerde
-    `None`dir.
+    Yalnizca yol, tur, buyukluk ve eligibility karari tasiyor; icerik,
+    digest veya secret deger hicbir kosulda burada bulunmaz. `is_text`
+    yalnizca icerigi sinirli okunmus eligible dosyalar icin anlamlidir;
+    yoksayilan/okunamayan/kesilen girdilerde `None`dir.
+    `eligibility`, dosya girdileri icin ayri eligibility karar sozlesmesinin
+    envantere yansiridir; dizin/symlink girdilerde `None`dir.
     """
 
     relative_path: str
@@ -209,6 +222,7 @@ class InventoryEntry:
     size_bytes: int
     is_text: bool | None = None
     skip_reason: SkipReason | None = None
+    eligibility: EligibilityDecision | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -217,6 +231,7 @@ class InventoryEntry:
             "size_bytes": self.size_bytes,
             "is_text": self.is_text,
             "skip_reason": self.skip_reason.value if self.skip_reason is not None else None,
+            "eligibility": self.eligibility.as_dict() if self.eligibility is not None else None,
         }
 
 
@@ -232,6 +247,53 @@ class SkippedPath:
         return {"path": self.relative_path, "reason": self.reason.value, "detail": self.detail}
 
 
+class EligibilityOutcome(StrEnum):
+    """Bir dosya girdisinin icerik uygunluk kararinin sonucu."""
+
+    ELIGIBLE = "eligible"
+    SKIPPED = "skipped"
+
+
+@dataclass(frozen=True, slots=True)
+class EligibilityDecision:
+    """Icerik eligibility karar sozlesmesinin tekil kaydi.
+
+    Eligibility metadata envanterinden ayri bir karar katmidir: bu kayit
+    girdi bazinda "icerik okunsun mu?" sorusunu cevaplar ve metadata
+    envanterinden dogrulanabilir. `outcome=eligible` icin `reason` None'dir
+    ve envanter girdisinde `is_text` metadata'si bulunur; `outcome=skipped`
+    icin `reason` bir `SkipReason` tasir. Secret degeri, ham icerik veya
+    digest bu kayda yazilmaz.
+    """
+
+    relative_path: str
+    outcome: EligibilityOutcome
+    reason: SkipReason | None = None
+
+    @classmethod
+    def eligible(cls, relative_path: str) -> EligibilityDecision:
+        return cls(relative_path=relative_path, outcome=EligibilityOutcome.ELIGIBLE, reason=None)
+
+    @classmethod
+    def skipped(cls, relative_path: str, reason: SkipReason) -> EligibilityDecision:
+        return cls(relative_path=relative_path, outcome=EligibilityOutcome.SKIPPED, reason=reason)
+
+    def __post_init__(self) -> None:
+        # Fail-closed tutarlilik: eligible kararda neden olamaz, skipped
+        # kararda neden zorunludur.
+        if self.outcome is EligibilityOutcome.ELIGIBLE and self.reason is not None:
+            raise ValueError("Eligible kararda neden bulundurulamaz")
+        if self.outcome is EligibilityOutcome.SKIPPED and self.reason is None:
+            raise ValueError("Skipped kararda neden zorunludur")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.relative_path,
+            "outcome": self.outcome.value,
+            "reason": self.reason.value if self.reason is not None else None,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveryReport:
     """Kesif sonucu."""
@@ -244,6 +306,7 @@ class DiscoveryReport:
     policy: DiscoveryPolicy
     truncated: bool = False
     extensions: dict[str, int] = field(default_factory=dict)
+    eligibility_decisions: tuple[EligibilityDecision, ...] = field(default_factory=tuple)
     inventory: tuple[InventoryEntry, ...] = field(default_factory=tuple)
     inventory_status: InventoryStatus = InventoryStatus.COMPLETE
     inventory_stop_reason: StopReason | None = None
@@ -286,6 +349,19 @@ class DiscoveryReport:
             "skipped": [item.as_dict() for item in self.skipped],
             "secrets": [item.as_dict() for item in self.secrets],
             "policy": self.policy.as_dict(),
+            "eligibility": {
+                "decision_count": len(self.eligibility_decisions),
+                "eligible_count": sum(
+                    1
+                    for item in self.eligibility_decisions
+                    if item.outcome is EligibilityOutcome.ELIGIBLE
+                ),
+                "skipped_count": sum(
+                    1
+                    for item in self.eligibility_decisions
+                    if item.outcome is EligibilityOutcome.SKIPPED
+                ),
+            },
             "inventory": {
                 "status": self.inventory_status.value,
                 "stop_reason": (
@@ -392,6 +468,7 @@ class _InventoryBuilder:
         skip_reason: SkipReason | None = None,
         *,
         is_text: bool | None = None,
+        eligibility: EligibilityDecision | None = None,
     ) -> bool:
         """Girdi ekler; global sinir asilirsa True doner (tarama kesilmeli)."""
         if len(self.entries) >= self.cap:
@@ -405,6 +482,7 @@ class _InventoryBuilder:
                 size_bytes=size,
                 is_text=is_text,
                 skip_reason=skip_reason,
+                eligibility=eligibility,
             )
         )
         self.last_path = relative
@@ -553,6 +631,12 @@ def discover(
         for entry in reversed(entries):
             entry_relative = entry.relative_to(resolved_root).as_posix()
 
+            # Bir sonraki girdi envantere sigmayacaksa icerigine dokunma.
+            if len(builder.entries) >= builder.cap:
+                builder.cap_stopped = True
+                builder.last_path = entry_relative
+                break
+
             if _is_symlink_or_junction(entry):
                 # Symlink/junction asla izlenmez; hedef cozulmez (fail-closed).
                 skipped.append(
@@ -612,22 +696,29 @@ def discover(
                 except OSError:
                     size = 0
                 skipped.append(SkippedPath(entry_relative, SkipReason.IGNORED, "yoksayma kurali"))
+                decision = EligibilityDecision.skipped(
+                    entry_relative,
+                    SkipReason.DENY if is_denied(entry_relative) else SkipReason.IGNORED,
+                )
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     size,
                     skip_reason=SkipReason.IGNORED,
+                    eligibility=decision,
                 ):
                     break
                 continue
 
             if depth + 1 > active_policy.max_depth:
                 # Derinlik siniri: dosyaya kadar inilmez, envanteri partial yap.
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.LIMIT_REACHED)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     0,
                     skip_reason=SkipReason.LIMIT_REACHED,
+                    eligibility=decision,
                 ):
                     break
                 if not depth_stopped:
@@ -641,11 +732,13 @@ def discover(
                 skipped.append(
                     SkippedPath(entry_relative, SkipReason.OUTSIDE_ROOT, "kok disi hedef")
                 )
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.OUTSIDE_ROOT)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     0,
                     skip_reason=SkipReason.OUTSIDE_ROOT,
+                    eligibility=decision,
                 ):
                     break
                 continue
@@ -657,7 +750,14 @@ def discover(
                 size = file_stat.st_size
             except OSError:
                 skipped.append(SkippedPath(entry_relative, SkipReason.UNREADABLE, "stat basarisiz"))
-                if builder.add(entry_relative, FileKind.FILE, 0, skip_reason=SkipReason.UNREADABLE):
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.UNREADABLE)
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    0,
+                    skip_reason=SkipReason.UNREADABLE,
+                    eligibility=decision,
+                ):
                     break
                 if unreadable_file is None:
                     unreadable_file = entry_relative
@@ -670,11 +770,13 @@ def discover(
                 skipped.append(
                     SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, "dosya siniri")
                 )
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.LIMIT_REACHED)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     size,
                     skip_reason=SkipReason.LIMIT_REACHED,
+                    eligibility=decision,
                 ):
                     break
                 last_pending_path = entry_relative
@@ -682,8 +784,13 @@ def discover(
 
             if size > active_policy.max_file_bytes:
                 skipped.append(SkippedPath(entry_relative, SkipReason.TOO_LARGE, f"{size} bayt"))
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.TOO_LARGE)
                 if builder.add(
-                    entry_relative, FileKind.FILE, size, skip_reason=SkipReason.TOO_LARGE
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.TOO_LARGE,
+                    eligibility=decision,
                 ):
                     break
                 continue
@@ -695,11 +802,13 @@ def discover(
                 skipped.append(
                     SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, "toplam bayt siniri")
                 )
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.LIMIT_REACHED)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     size,
                     skip_reason=SkipReason.LIMIT_REACHED,
+                    eligibility=decision,
                 ):
                     break
                 last_pending_path = entry_relative
@@ -714,11 +823,13 @@ def discover(
                     else "toplam bayt siniri"
                 )
                 skipped.append(SkippedPath(entry_relative, SkipReason.LIMIT_REACHED, reason))
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.LIMIT_REACHED)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,
                     size,
                     skip_reason=SkipReason.LIMIT_REACHED,
+                    eligibility=decision,
                 ):
                     break
                 last_pending_path = entry_relative
@@ -739,8 +850,13 @@ def discover(
                 skipped.append(
                     SkippedPath(entry_relative, SkipReason.UNREADABLE, "okuma basarisiz")
                 )
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.UNREADABLE)
                 if builder.add(
-                    entry_relative, FileKind.FILE, size, skip_reason=SkipReason.UNREADABLE
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.UNREADABLE,
+                    eligibility=decision,
                 ):
                     break
                 if unreadable_file is None:
@@ -749,13 +865,27 @@ def discover(
 
             if discovered is None:
                 # Eligibility disinda (orn. secret); envantere metadata olarak girer.
-                if builder.add(entry_relative, FileKind.FILE, size, skip_reason=SkipReason.SECRET):
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.SECRET)
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.SECRET,
+                    eligibility=decision,
+                ):
                     break
                 continue
 
             total_bytes += read_bytes
             last_eligible_path = entry_relative
-            if builder.add(entry_relative, FileKind.FILE, size, is_text=discovered.is_text):
+            decision = EligibilityDecision.eligible(entry_relative)
+            if builder.add(
+                entry_relative,
+                FileKind.FILE,
+                size,
+                is_text=discovered.is_text,
+                eligibility=decision,
+            ):
                 break
 
     inventory, inventory_status, inventory_stop_reason, inventory_bytes = _assemble_inventory(
@@ -788,6 +918,12 @@ def discover(
         policy=active_policy,
         truncated=truncated,
         extensions=extensions,
+        eligibility_decisions=tuple(
+            sorted(
+                (entry.eligibility for entry in inventory if entry.eligibility is not None),
+                key=lambda item: item.relative_path,
+            )
+        ),
         inventory=inventory,
         inventory_status=inventory_status,
         inventory_stop_reason=inventory_stop_reason,
