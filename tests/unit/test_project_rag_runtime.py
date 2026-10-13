@@ -25,7 +25,7 @@ def test_directory_source_state_rejects_partial_inventory(
 ) -> None:
     root = tmp_path / "source"
     root.mkdir()
-    (root / "private-person@example.com.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "sensitive-path-marker.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(
         runtime,
         "discover",
@@ -36,7 +36,7 @@ def test_directory_source_state_rejects_partial_inventory(
         runtime._directory_source_state(root)
 
     assert "depth-limit" in str(excinfo.value)
-    assert "private-person@example.com" not in str(excinfo.value)
+    assert "sensitive-path-marker" not in str(excinfo.value)
 
 
 class _TransientProvider:

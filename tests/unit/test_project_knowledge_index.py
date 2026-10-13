@@ -221,8 +221,8 @@ def test_project_plan_partial_rejection_exposes_reason_without_source_path(
     (root / "src" / "Service.java").write_text(
         "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
     )
-    (root / "src" / "private-person@example.com").mkdir()
-    (root / "src" / "private-person@example.com" / "Deep.java").write_text(
+    (root / "src" / "sensitive-path-marker").mkdir()
+    (root / "src" / "sensitive-path-marker" / "Deep.java").write_text(
         "package app.extra;\nclass Deep {}\n", encoding="utf-8"
     )
     policy = DiscoveryPolicy(max_depth=1)
@@ -242,6 +242,6 @@ def test_project_plan_partial_rejection_exposes_reason_without_source_path(
     message = str(excinfo.value)
     # Neden (makine kodu) mesajda gorunur.
     assert "depth-limit" in message
-    assert "private-person@example.com" not in message
+    assert "sensitive-path-marker" not in message
     assert str(root) not in message
     assert "package app" not in message

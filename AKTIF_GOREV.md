@@ -607,6 +607,13 @@ kuculur veya digest/mtime degisirse plan fail-closed reddedilir. Ikinci
 okuma aninda buyume regresyonu gecti. WP-04.03 yapisal kod parcasi ve diger
 belge kabul maddeleri aciktir.
 
+**13 Ekim 2026 ara durum — PDF yapisal locator kapisi:**
+`StructuredDocumentParser`, PDF blogunda pozitif tam sayi sayfa locator'u
+olmadan heading veya block index bulunsa bile sonucu reddeder. DOCX icin
+sayfa numarasi reddi korunur. Gecerli ve gecersiz sayfa fixture'larinda
+57 ilgili parser testi gecti. WP-04.03'un AST kaynak parcasi ve diger format
+kabul maddeleri aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

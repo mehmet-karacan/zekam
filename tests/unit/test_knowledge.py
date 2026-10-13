@@ -252,6 +252,24 @@ def test_pdf_sayfa_locatoru_korunur() -> None:
     assert units[0].locator.page == 3
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"heading_path": ("Baslik",)},
+        {"block_index": 2},
+        {"page": 0},
+        {"page": 1.5},
+    ],
+)
+def test_pdf_yapili_blok_gercek_sayfa_locatoru_ister(block: dict[str, object]) -> None:
+    parser = StructuredDocumentParser(
+        provider=lambda _: ({"text": "metin", "kind": "paragraph", **block},),
+        source_format=SourceFormat.PDF,
+    )
+    with pytest.raises(ValidationFailed, match="sayfa locator ister"):
+        parser.parse(b"pdf")
+
+
 def test_yapili_blok_locatorsuz_kabul_edilmez() -> None:
     parser = StructuredDocumentParser(
         provider=lambda _: ({"text": "metin", "kind": "paragraph"},),

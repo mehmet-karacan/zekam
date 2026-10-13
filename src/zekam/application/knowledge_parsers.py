@@ -455,9 +455,13 @@ class StructuredDocumentParser:
         page = block.get("page")
         if self.source_format is SourceFormat.DOCX and page is not None:
             raise PolicyViolation("DOCX icin sayfa numarasi uydurulamaz")
+        if self.source_format is SourceFormat.PDF and (
+            not isinstance(page, int) or isinstance(page, bool) or page < 1
+        ):
+            raise ValidationFailed("PDF blogu pozitif tam sayi sayfa locator ister")
         heading = tuple(block.get("heading_path", ()))
         return Locator(
-            page=int(page) if page is not None else None,
+            page=page if page is not None else None,
             heading_path=heading,
             block_index=block.get("block_index"),
         )
