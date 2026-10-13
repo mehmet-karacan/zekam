@@ -648,6 +648,18 @@ envanterden uretilemez; hata metninde kaynak yolu yerine sabit neden kodu
 vardir. Bu kapilar tamamlandi; checkpoint'ten gercek devam ve metadata/icerik
 karar sozlesmelerinin tam ayrimi WP-04.01/02 icin aciktir.
 
+**13 Ekim 2026 devam — WP-04.01 uygunluk karari ve indeks kapisi:**
+`source_discovery.py`, envanterdeki her dosya icin icerik uygunlugunu
+`EligibilityDecision` ile ayrica kaydeder; yoksayilan/secret/limitli dosya
+metadata olarak kalir, icerik secimine girmez. Metadata kapasitesi dolduktan
+sonraki dosya okunmaz ve `files` listesine eklenmez. Proje indeks plani,
+uygunluk karari, kesif dosyasi ve envanter metadata'sini capraz dogrular;
+eksik/celisik karar reddedilir. Kaynak plani her cagrida taze kesif yapar,
+bounded allowlist alt kume secimi korunur. Kesif 64 gecti/2 Windows symlink
+atlandi; indeks 21 ve komsu RAG/embedding 109 test gecti, Ruff temiz.
+Bu yerel proje indeksi kanitidir; diger ingestion yollarinin ve tum secili
+agac turlerinin kabul matrisi tamamlanmadigi icin WP-04.01 aciktir.
+
 **13 Ekim 2026 ara durum — indeks yeniden okuma siniri:** Indeks plani,
 kesifin kaydettigi dosya boyutunu ikinci okumaya tasir; dogrulanmis okuma
 `read_bytes()` yerine sinirli parcalar kullanir. Dosya stat sonrasi buyurur,
