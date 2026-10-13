@@ -31,10 +31,6 @@ from typing import Any
 from benchmarks.suites.wp01_operational_fixture import SCHEMA as _SCHEMA
 from benchmarks.suites.wp01_operational_fixture import WorkloadSize
 from benchmarks.suites.wp01_platform import current_acceptance_platform
-from zekam.application.technology_bakeoff import (
-    assess_sqlite_wal_safety,
-    canonical_json_digest,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +219,7 @@ def _serialized_producers(
     messages: queue.Queue[tuple[int, int] | None] = queue.Queue(maxsize=2_048)
     producer_count = 4
     stop_reading = threading.Event()
+    reader_ready = threading.Event()
     read_observations: list[int] = []
     errors: list[str] = []
 
@@ -237,9 +234,12 @@ def _serialized_producers(
                 while not stop_reading.is_set():
                     row = connection.execute("select count(*) from work_event").fetchone()
                     read_observations.append(int(row[0]))
+                    reader_ready.set()
                     time.sleep(0.002)
         except (OSError, sqlite3.DatabaseError) as exc:
             errors.append(type(exc).__name__)
+        finally:
+            reader_ready.set()
 
     base, remainder = divmod(rows, producer_count)
     producers: list[threading.Thread] = []
@@ -256,6 +256,7 @@ def _serialized_producers(
     read_thread = threading.Thread(target=reader, name="wp01-concurrent-reader")
     started = time.perf_counter()
     read_thread.start()
+    reader_ready.wait(timeout=10)
     for thread in producers:
         thread.start()
     completed = 0
@@ -513,6 +514,8 @@ def _atomic_replace_probe(root: Path) -> ProbeResult:
 
 
 def _schema_fingerprint(path: Path) -> str:
+    from zekam.application.technology_bakeoff import canonical_json_digest
+
     with _connect(path, read_only=True) as connection:
         rows = connection.execute(
             "select type, name, tbl_name, sql from sqlite_master "
@@ -558,6 +561,8 @@ def _corruption_probe(path: Path, root: Path) -> ProbeResult:
 
 
 def _logical_digest(path: Path) -> str:
+    from zekam.application.technology_bakeoff import canonical_json_digest
+
     payload: dict[str, list[list[Any]]] = {}
     with _connect(path, read_only=True) as connection:
         for table, ordering in (
@@ -603,6 +608,11 @@ def run_sqlite_operational_bakeoff(
     *, root: Path, size: WorkloadSize | None = None
 ) -> dict[str, Any]:
     """Execute the macOS-local operational spike and return canonical evidence."""
+    from zekam.application.technology_bakeoff import (
+        assess_sqlite_wal_safety,
+        canonical_json_digest,
+    )
+
     if size is None:
         size = WorkloadSize()
     size.validate()
