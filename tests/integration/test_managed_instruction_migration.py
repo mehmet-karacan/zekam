@@ -7,6 +7,7 @@ never touched. Crash tests kill a real subprocess with ``os._exit`` mid-apply.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 import textwrap
@@ -371,9 +372,16 @@ _CRASH_SCRIPT = textwrap.dedent(
 
 
 def _crash(context: ApplicationContext, native: Path, mode: str, target: str) -> str:
+    # Alt process pytest'in src-layout import yolunu alamaz: repo `src` dizinini
+    # mevcut PYTHONPATH'in onune, yalniz bu subprocess env kopyasina ekle.
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = src + (os.pathsep + existing if existing else "")
     result = subprocess.run(
         [sys.executable, "-c", _CRASH_SCRIPT, str(context.home), str(native), mode, target],
         cwd=_REPO,
+        env=env,
         capture_output=True,
         text=True,
         check=False,
