@@ -542,7 +542,18 @@ def test_no_legacy_database_driver_is_loaded_by_v6_path() -> None:
             "print(','.join(m for m in sys.modules if m.split('.')[0] in legacy))",
         ]
     )
+    # The child runs without pytest's src-layout import path, so prepend the exact
+    # repo `src` directory ahead of any existing PYTHONPATH for the subprocess only.
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = src + (os.pathsep + existing if existing else "")
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
+        [sys.executable, "-c", code],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
     )
     assert result.stdout.strip() == ""

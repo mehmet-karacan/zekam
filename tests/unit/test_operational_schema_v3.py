@@ -347,9 +347,16 @@ def killed(connection, sql):
 schema._execute_script = killed
 schema.upgrade(Path(sys.argv[1]))
 """
+    # The child runs without pytest's src-layout import path, so prepend the exact
+    # repo `src` directory ahead of any existing PYTHONPATH for the subprocess only.
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = src + (os.pathsep + existing if existing else "")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     child = subprocess.run(
         [sys.executable, "-c", program, str(path)],
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env=env,
         capture_output=True,
         timeout=15,
     )
