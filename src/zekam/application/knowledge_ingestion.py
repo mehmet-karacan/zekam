@@ -10,8 +10,8 @@ from __future__ import annotations
 import ast
 import re
 import stat
+import struct
 import tarfile
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -144,7 +144,13 @@ class DirectoryScanner:
 
 @dataclass(frozen=True, slots=True)
 class ArchiveInspector:
-    """Arsivi **acmadan** inceler; zip bomb ve traversal fail-closed."""
+    """Arsivi **acmadan** inceler; zip bomb ve traversal fail-closed.
+
+    Limitler arsiv metadata'si okunurken uygulanir; buyuk infolist/getmembers
+    listesi bellege alinmadan kayit kayit yurunur. Guvenli olmayan her girdi
+    fail-closed reddedilir: symlink, absolute/drive yolu, dotdot traversal,
+    backslash ve yinelenen adlar.
+    """
 
     limits: ScanLimits = field(default_factory=ScanLimits)
 
@@ -169,6 +175,8 @@ class ArchiveInspector:
         seen: set[str] = set()
         for name, _, is_link in entries:
             if name in seen:
+                # Yinelenen ad, iki ayri icerigin ayni yola yazilmasi; hangisi
+                # gecerli oldugu belirsizdir. Tum arsiv fail-closed reddedilir.
                 raise PolicyViolation("arsiv yinelenen girdi adi tasiyor")
             seen.add(name)
             if is_link:
@@ -189,25 +197,85 @@ class ArchiveInspector:
         return ScanReport(tuple(decisions), total)
 
     def _zip(self, archive: Path) -> list[tuple[str, int, bool]]:
+        """Read ZIP metadata with bounded reads, preserving raw entry names."""
         entries: list[tuple[str, int, bool]] = []
         total = 0
         archive_bytes = archive.stat().st_size
-        try:
-            with zipfile.ZipFile(archive) as bundle:
-                for item in bundle.filelist:
-                    total += item.file_size
-                    self.limits.assert_within(
-                        entries=len(entries) + 1,
-                        total_bytes=total,
-                        compressed_bytes=archive_bytes,
-                    )
-                    if item.file_size > item.compress_size * self.limits.max_compression_ratio:
-                        raise PolicyViolation("arsiv girdi sikistirma orani sinirini asiyor")
-                    mode = item.external_attr >> 16
-                    is_link = item.create_system == 3 and stat.S_ISLNK(mode)
-                    entries.append((item.filename, item.file_size, is_link))
-        except zipfile.BadZipFile:
-            raise PolicyViolation("gecersiz ZIP arsivi") from None
+        with archive.open("rb") as stream:
+            # EOCD is at most 22 + 65535 bytes from the end (ZIP comment).
+            tail_size = min(archive_bytes, 22 + 65535)
+            stream.seek(archive_bytes - tail_size)
+            tail = stream.read(tail_size)
+            eocd = tail.rfind(b"PK\x05\x06")
+            if eocd < 0 or eocd + 22 > len(tail):
+                raise PolicyViolation("gecersiz ZIP arsivi")
+            disk, central_disk, disk_count, count, central_size, central_offset, comment = (
+                struct.unpack_from("<4H2IH", tail, eocd + 4)
+            )
+            if (
+                disk != 0
+                or central_disk != 0
+                or disk_count != count
+                or count == 0xFFFF
+                or central_size == 0xFFFFFFFF
+                or central_offset == 0xFFFFFFFF
+                or eocd + 22 + comment != len(tail)
+                or central_offset + central_size != archive_bytes - tail_size + eocd
+            ):
+                raise PolicyViolation("desteklenmeyen veya gecersiz ZIP dizini")
+            if count > self.limits.max_entries:
+                raise PolicyViolation("arsiv girdi sayisi sinirini asiyor")
+            central_end = central_offset + central_size
+            stream.seek(central_offset)
+            for _ in range(count):
+                fixed = stream.read(46)
+                if len(fixed) != 46 or fixed[:4] != b"PK\x01\x02":
+                    raise PolicyViolation("gecersiz ZIP merkezi dizini")
+                flags = struct.unpack_from("<H", fixed, 8)[0]
+                packed, size = struct.unpack_from("<II", fixed, 20)
+                name_len, extra_len, comment_len = struct.unpack_from("<3H", fixed, 28)
+                mode, offset = struct.unpack_from("<II", fixed, 38)
+                if (
+                    name_len > 4096
+                    or size == 0xFFFFFFFF
+                    or packed == 0xFFFFFFFF
+                    or offset == 0xFFFFFFFF
+                    or stream.tell() + name_len + extra_len + comment_len > central_end
+                ):
+                    raise PolicyViolation("ZIP metadata siniri veya ZIP64 destegi asildi")
+                name_bytes = stream.read(name_len)
+                if len(name_bytes) != name_len:
+                    raise PolicyViolation("gecersiz ZIP girdi adi")
+                stream.seek(extra_len + comment_len, 1)
+                central_cursor = stream.tell()
+                try:
+                    name = name_bytes.decode("utf-8" if flags & 0x800 else "cp437")
+                except UnicodeDecodeError as exc:
+                    raise PolicyViolation("gecersiz ZIP girdi adi") from exc
+                total += size
+                self.limits.assert_within(
+                    entries=len(entries) + 1,
+                    total_bytes=total,
+                    compressed_bytes=archive_bytes,
+                )
+                if size and (packed == 0 or size > packed * self.limits.max_compression_ratio):
+                    raise PolicyViolation("arsiv girdi sikistirma orani sinirini asiyor")
+                if offset + 30 > central_offset:
+                    raise PolicyViolation("gecersiz ZIP yerel girdisi")
+                stream.seek(offset)
+                local = stream.read(30)
+                if len(local) != 30 or local[:4] != b"PK\x03\x04":
+                    raise PolicyViolation("gecersiz ZIP yerel girdisi")
+                local_name_len, local_extra_len = struct.unpack_from("<HH", local, 26)
+                if offset + 30 + local_name_len + local_extra_len + packed > central_offset:
+                    raise PolicyViolation("gecersiz ZIP yerel girdi siniri")
+                if stream.read(local_name_len) != name_bytes:
+                    raise PolicyViolation("arsiv girdi adi tutarsiz")
+                stream.seek(central_cursor)
+                high_mode = mode >> 16
+                entries.append((name, size, high_mode != 0 and stat.S_ISLNK(high_mode)))
+            if stream.tell() != central_end:
+                raise PolicyViolation("gecersiz ZIP merkezi dizini")
         return entries
 
     def _tar(self, archive: Path) -> list[tuple[str, int, bool]]:
@@ -215,6 +283,8 @@ class ArchiveInspector:
         total = 0
         archive_bytes = archive.stat().st_size
         with tarfile.open(archive) as bundle:
+            # getmembers() tum listeyi bellege almadan streaming yurunur;
+            # limit asimi metadata okunurken kesilir.
             for item in bundle:
                 total += item.size
                 self.limits.assert_within(
