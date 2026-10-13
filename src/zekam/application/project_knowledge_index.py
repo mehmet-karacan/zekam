@@ -35,8 +35,12 @@ from zekam.application.embedding_routing import (
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
 from zekam.application.source_discovery import (
+    DiscoveredFile,
     DiscoveryPolicy,
     DiscoveryReport,
+    EligibilityDecision,
+    EligibilityOutcome,
+    FileKind,
     InventoryStatus,
     discover,
 )
@@ -416,6 +420,61 @@ def _file_units(relative_path: str, text: str, start_order: int) -> tuple[Conten
     return tuple(units)
 
 
+def _select_eligible_files(
+    discovery: DiscoveryReport,
+    allowed: frozenset[str] | None,
+) -> tuple[DiscoveredFile, ...]:
+    """Secimi eligibility karar sozlesmesinden yap, `files`'i dogrula.
+
+    Eligible kayitlar `eligibility_decisions`'tan okunur; her eligible yol
+    `files`'da tam olarak bir kez (digest/buyukluk/is_text metadata'siyle)
+    bulunmak zorundadir. Yinelenmis/kararsiz/tutarsiz veya envanter girdisiyle
+    uyumsuz eligible kayit fail-closed olarak plani reddeder.
+    """
+
+    decisions: dict[str, EligibilityDecision] = {}
+    for item in discovery.eligibility_decisions:
+        if item.relative_path in decisions:
+            raise ValidationFailed("Eligibility karar kumesi yineleniyor; plan reddedildi")
+        decisions[item.relative_path] = item
+    by_path: dict[str, DiscoveredFile] = {}
+    for item in discovery.files:
+        if item.relative_path in by_path:
+            raise ValidationFailed("Kesif dosya kumesi tutarsiz; plan reddedildi")
+        by_path[item.relative_path] = item
+    inventory_by_path: dict[str, Any] = {}
+    for entry in discovery.inventory:
+        if entry.kind is FileKind.FILE and entry.relative_path in by_path:
+            inventory_by_path[entry.relative_path] = entry
+    for path, item in by_path.items():
+        decision = decisions.get(path)
+        if decision is None or decision.outcome is not EligibilityOutcome.ELIGIBLE:
+            raise ValidationFailed("Kesif dosyasi eligibility karari tasimiyor; plan reddedildi")
+        entry = inventory_by_path.get(path)
+        if entry is None or entry.eligibility is None:
+            raise ValidationFailed("Eligible dosyanin envanter kaydi yok; plan reddedildi")
+        if (
+            entry.eligibility.outcome is not EligibilityOutcome.ELIGIBLE
+            or entry.eligibility.reason is not None
+            or entry.is_text != item.is_text
+            or entry.size_bytes != item.size_bytes
+        ):
+            raise ValidationFailed(
+                "Eligibility karari envanter girdisiyle uyumsuz; plan reddedildi"
+            )
+    eligible_paths = {
+        path
+        for path, decision in decisions.items()
+        if decision.outcome is EligibilityOutcome.ELIGIBLE
+    }
+    if any(path not in by_path for path in eligible_paths):
+        raise ValidationFailed("Eligibility karari kesif dosya kumesiyle tutarsiz; plan reddedildi")
+    selected = [by_path[path] for path in sorted(eligible_paths)]
+    if allowed is not None:
+        selected = [item for item in selected if item.relative_path in allowed]
+    return tuple(item for item in selected if item.is_text and _is_supported(item.relative_path))
+
+
 def build_project_index_plan(
     *,
     project_id: UUID,
@@ -435,6 +494,13 @@ def build_project_index_plan(
     Fail-closed kaynak sinirlari: beklenen tree digest uymazsa, kesif `truncated`
     ise veya metadata envanteri `PARTIAL` ise (dizin/girdi siniri, derinlik
     siniri veya okunamayan girdi kaynakli) plan reddedilir.
+
+    Dosya secimi eligibility karar sozlesmesinden (`eligibility_decisions`)
+    yapilir; `files` listesi secim kaynagi degil, kararlarla karsilastirilip
+    dogrulanir. Karar kumesi eksik, yinelenmis, tutarsiz (eligible karar
+    `files` disinda / files girdisi kararsiz) veya envanter girdisiyle
+    uymuyorsa plan reddedilir; eligibility `files`'in varligindan turetilmez.
+
     """
 
     root = source_root.resolve(strict=True)
@@ -469,13 +535,7 @@ def build_project_index_plan(
         ):
             raise ValidationFailed("Bounded source allowlist exact portable paths ister")
         allowed = frozenset(allowed_relative_paths)
-    selected = tuple(
-        item
-        for item in discovery.files
-        if item.is_text
-        and _is_supported(item.relative_path)
-        and (allowed is None or item.relative_path in allowed)
-    )
+    selected = _select_eligible_files(discovery, allowed)
     if allowed is not None and {item.relative_path for item in selected} != allowed:
         raise ValidationFailed("Bounded source allowlist eksik/desteklenmeyen dosya tasiyor")
     if not selected:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from pathlib import Path
 from typing import Any
@@ -20,11 +21,14 @@ from zekam.application.project_knowledge_index import (
 )
 from zekam.application.source_discovery import (
     DiscoveryPolicy,
+    EligibilityDecision,
+    EligibilityOutcome,
+    FileKind,
     InventoryStatus,
     StopReason,
     discover,
 )
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import UnitKind
 from zekam.domain.retrieval import estimate_tokens
 
@@ -309,3 +313,304 @@ def test_project_plan_partial_rejection_exposes_reason_without_source_path(
     assert "sensitive-path-marker" not in message
     assert str(root) not in message
     assert "package app" not in message
+
+
+def test_project_plan_selection_is_driven_by_eligibility_decisions(
+    tmp_path: Path,
+) -> None:
+    # Pozitif sozlesme: secim eligibility kararlariyla ayni dosyalari uretir;
+    # eligible girdi envanter metadata'si (is_text) ile birlikte tasinir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    (root / "notes.unknown").write_text("not indexed", encoding="utf-8")
+    report = discover(root)
+
+    eligible_paths = {
+        item.relative_path
+        for item in report.eligibility_decisions
+        if item.outcome is EligibilityOutcome.ELIGIBLE
+    }
+    # Eligibility icerik okunabilirligidir: bilinmeyen uzanti da eligible
+    # kalir; indeks secimi destekli uzanti filtresiyle daralir.
+    assert eligible_paths == {"src/Service.java", "notes.unknown"}
+
+    plan = build_project_index_plan(
+        project_id=uuid4(),
+        project_slug="gpu",
+        source_root=root,
+        source_revision="abc123",
+        expected_tree_digest=report.tree_digest,
+    )
+
+    # Plan yalniz eligible kararlarin dosyalarindan seciyor (karar kumesi
+    # kaynagi); `files`'ten bagimsiz olarak ayni sonucu uretir.
+    assert plan.selected_file_count == 1
+    assert {unit.locator.relative_path for unit in plan.document.units} == {"src/Service.java"}
+    inventory_entry = next(
+        entry for entry in report.inventory if entry.relative_path == "src/Service.java"
+    )
+    assert inventory_entry.eligibility is not None
+    assert inventory_entry.eligibility.outcome is EligibilityOutcome.ELIGIBLE
+    assert inventory_entry.eligibility.reason is None
+    assert inventory_entry.is_text is True
+
+
+def test_project_plan_rejects_eligible_decision_missing_from_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Fail-closed: eligible karar var ama kesif dosya kumesinde girdi yoksa
+    # (karar `files`'ten turetilmedigi icin yakalanir) plan reddedilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    report = dataclasses.replace(
+        report,
+        eligibility_decisions=(
+            *report.eligibility_decisions,
+            EligibilityDecision.eligible("src/missing.py"),
+        ),
+    )
+
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: report)
+    with pytest.raises(ValidationFailed, match="tutarsiz"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+
+
+def test_project_plan_rejects_files_entry_without_eligibility_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Fail-closed: kesif dosya kumesindeki girdinin eligibility karari yoksa
+    # (secim `files`'tan turetilse gizli kalir) plan reddedilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    report = dataclasses.replace(
+        report,
+        eligibility_decisions=tuple(
+            item
+            for item in report.eligibility_decisions
+            if item.relative_path != "src/Service.java"
+        ),
+    )
+
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: report)
+    with pytest.raises(ValidationFailed, match="eligibility karari tasimiyor"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+
+
+def test_project_plan_rejects_inventory_eligibility_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fail-closed: eligible dosyanin envanter girdisi uyumsuz (skipped, is_text
+    # degil) ya da envanter kaydi eksikse plan reddedilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    path = "src/Service.java"
+    mismatched = dataclasses.replace(
+        report,
+        inventory=tuple(
+            dataclasses.replace(entry, is_text=False) if entry.relative_path == path else entry
+            for entry in report.inventory
+        ),
+    )
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: mismatched)
+    with pytest.raises(ValidationFailed, match="uyumsuz"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+    missing_entry = dataclasses.replace(
+        report,
+        inventory=tuple(
+            entry
+            for entry in report.inventory
+            if not (entry.relative_path == path and entry.kind is FileKind.FILE)
+        ),
+    )
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: missing_entry)
+    with pytest.raises(ValidationFailed, match="envanter kaydi yok"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+
+
+def test_project_plan_rejects_duplicate_eligible_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fail-closed: ayni yolun iki eligible karari karar kumesini bozar.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    report = dataclasses.replace(
+        report,
+        eligibility_decisions=(
+            *report.eligibility_decisions,
+            EligibilityDecision.eligible("src/Service.java"),
+        ),
+    )
+
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: report)
+    with pytest.raises(ValidationFailed, match="yineleniyor"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+
+
+def test_project_plan_selects_only_allowed_eligible_file(
+    tmp_path: Path,
+) -> None:
+    # Bounded allowlist, diger eligible dosyalarin varliginda da alt kume secer.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    (root / "src" / "Other.java").write_text(
+        "package app;\npublic class Other {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    assert {
+        item.relative_path
+        for item in report.eligibility_decisions
+        if item.outcome is EligibilityOutcome.ELIGIBLE
+    } == {"src/Service.java", "src/Other.java"}
+
+    plan = build_project_index_plan(
+        project_id=uuid4(),
+        project_slug="gpu",
+        source_root=root,
+        source_revision="abc123",
+        expected_tree_digest=report.tree_digest,
+        allowed_relative_paths=("src/Service.java",),
+    )
+    assert plan.selected_file_count == 1
+    assert {unit.locator.relative_path for unit in plan.document.units} == {"src/Service.java"}
+
+
+def test_project_plan_selection_ignores_eligible_binary_file(tmp_path: Path) -> None:
+    # Kesifin `is_text` metadata'si (NUL bayt saptamasi) eligibility karariyla
+    # birlikte secimi belirler: ikili (NUL'lu) eligible girdi metin filtresi
+    # ile secime giremez; decode-edilemeyen ama NUL'suz girdi secime girer ve
+    # ikinci okumada sessiz atlanir (geriye uyum).
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    (root / "src" / "legacy.java").write_bytes(b"class Legacy { // \xff }")
+    (root / "src" / "nul.java").write_bytes(b"class Nul { // \x00 }")
+    report = discover(root)
+    by_path = {item.relative_path: item for item in report.files}
+    assert by_path["src/legacy.java"].is_text is True
+    assert by_path["src/nul.java"].is_text is False
+
+    plan = build_project_index_plan(
+        project_id=uuid4(),
+        project_slug="gpu",
+        source_root=root,
+        source_revision="abc123",
+        expected_tree_digest=report.tree_digest,
+    )
+
+    assert plan.selected_file_count == 1
+    assert plan.skipped_encoding == 1
+    assert plan.skipped_unsupported == 1
+    assert all(unit.locator.relative_path == "src/Service.java" for unit in plan.document.units)
+
+
+def test_project_plan_rejects_duplicate_files_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fail-closed: kesif dosya kumesinde ayni yol iki kez tasiyorsa dogrulama
+    # haritasi bozulur ve plan reddedilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    duplicate = next(item for item in report.files if item.relative_path == "src/Service.java")
+    report = dataclasses.replace(report, files=(*report.files, duplicate))
+
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: report)
+    with pytest.raises(ValidationFailed, match="tutarsiz"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
+
+
+def test_project_plan_rejects_files_entry_drifted_from_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Fail-closed: eligible dosyanin envanter metadata'si (boyut) ile kesif
+    # dosya girdisi uyusmuyorsa plan reddedilir.
+    root = tmp_path / "gpu"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "Service.java").write_text(
+        "package app;\npublic class Service {\n  void run() {}\n}\n", encoding="utf-8"
+    )
+    report = discover(root)
+    report = dataclasses.replace(
+        report,
+        files=tuple(
+            dataclasses.replace(item, size_bytes=item.size_bytes + 1)
+            if item.relative_path == "src/Service.java"
+            else item
+            for item in report.files
+        ),
+    )
+
+    monkeypatch.setattr(knowledge_index, "discover", lambda *_args, **_kwargs: report)
+    with pytest.raises(ValidationFailed, match="uyumsuz"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="gpu",
+            source_root=root,
+            source_revision="abc123",
+            expected_tree_digest=report.tree_digest,
+        )
