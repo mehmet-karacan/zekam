@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import sqlite3
 import subprocess
 import sys
@@ -102,8 +103,19 @@ def test_no_postgresql_or_native_driver_needed() -> None:
             "print(','.join(m for m in sys.modules if m.split('.')[0] in legacy))",
         ]
     )
+    # Alt surec pytest'in src-layout import yoluna sahip degildir; repo kokunun
+    # src/ yolunu mevcut PYTHONPATH onune, yalniz bu subprocess env kopyasina ekle.
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = src + (os.pathsep + existing if existing else "")
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+        env=env,
     )
     assert result.stdout.strip() == ""
 
