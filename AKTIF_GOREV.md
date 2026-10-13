@@ -636,6 +636,15 @@ indeks seciminden ve genel dizin ingestion'undan cikarildi. Kisa degerli
 fixture ile 150 ilgili test gecti. Local-only safe key/structure parser ve
 prompt/cache/index/log/artifact sizinti kabulu henuz aciktir.
 
+**13 Ekim 2026 ara durum — local-only config yapi parser'i:** Acik cagrilan,
+salt-okunur `.env*`/`.properties` parser'i kok/yol, symlink/junction,
+dosya boyutu, satir ve anahtar limitleri uygular. Sonuc yalniz guvenli
+anahtar adi, satir ve properties grup yapisini LOCAL_ONLY sinifiyla tasir;
+deger, ham icerik veya icerik digest'i tasimaz. Sentetik degerlerin sonuc
+ve hata alanina sizmamasi icin provider-free test eklendi. Bu parser henuz
+native istemci akisi ve tum prompt/cache/index/log/artifact kabul zincirine
+baglanmadigi icin WP-04.04 aciktir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  
