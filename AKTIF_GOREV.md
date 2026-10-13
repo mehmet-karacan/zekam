@@ -806,6 +806,12 @@ kurulabilir. Eski `build_generation` akisi degismedi. Runtime henuz bu
 arayuzu kullanmiyor; `rag-state.json` ile atomik yayin/onarim ve belirsiz
 dis etki uzlastirmasi acik oldugundan WP-05.04 tamamlanmadi.
 
+**13 Ekim 2026 07:40 checkpoint:** Kullanici istegiyle bu sohbet
+duraklatildi. Son push edilen HEAD, commit edilmemis runtime taslagi,
+test kaniti, acik kabul adimlari ve `next_safe_action`
+`docs/CHECKPOINT_2026-10-13_0740.md` icinde kayitlidir. "devam et"
+diyene kadar gorev uzerinde calisma yapilmaz.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  
