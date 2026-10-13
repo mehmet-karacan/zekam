@@ -94,6 +94,7 @@ from zekam.infrastructure.embedding.infinity_bge import (
 )
 from zekam.infrastructure.embedding.opencode_remote import (
     MAX_BATCH_SIZE,
+    MAX_TEXT_BYTES,
     OpenCodeRemoteEmbeddingProvider,
     OpenCodeRuntimeInvocation,
     RuntimeOpenCodeEmbeddingExecutor,
@@ -121,6 +122,8 @@ from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
 MODEL_ID = "openai/BAAI/bge-m3"
+MAX_EMBED_BATCH_TOKENS = 8_192
+MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
 VECTOR_DIMENSION = 1024
 
@@ -823,10 +826,15 @@ def _plan_document(
         "model_id": plan.embedding_profile.model_ref,
         "dimension": plan.embedding_profile.dimension,
         "embedding_route": plan.embedding_route.sanitized(),
-        "estimated_provider_calls": (
-            len(plan.chunks) + oracle_chunks + odi_chunks + MAX_BATCH_SIZE - 1
-        )
-        // MAX_BATCH_SIZE,
+        "estimated_provider_calls": len(
+            _embedding_batches(
+                plan.chunks
+                + (oracle_plan.chunks if oracle_plan is not None else ())
+                + (odi_plan.chunks if odi_plan is not None else ()),
+                MAX_BATCH_SIZE,
+                model_id=plan.embedding_profile.model_ref,
+            )
+        ),
         "source_access": "read-only",
         "database_access": "metadata-only" if oracle_plan is not None else "disabled",
         "odi_access": "sanitized-metadata" if odi_plan is not None else "disabled",
@@ -1423,6 +1431,55 @@ def _embed_documents_with_retry(
                 raise
             time.sleep(min(2**attempt, 4))
     raise AssertionError("unreachable")
+
+
+def _embedding_batches(
+    chunks: tuple[Chunk, ...],
+    batch_size: int,
+    *,
+    model_id: str = MODEL_ID,
+) -> tuple[tuple[Chunk, ...], ...]:
+    """Plan bounded document batches in stable order before provider effects."""
+
+    if type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH_SIZE:
+        raise ValidationFailed("Embedding batch sayi siniri gecersiz")
+    fixed_bytes = len(
+        json.dumps(
+            {"model": model_id, "input": [], "encoding_format": "float"},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    batches: list[tuple[Chunk, ...]] = []
+    pending: list[Chunk] = []
+    pending_tokens = 0
+    pending_bytes = fixed_bytes
+    for chunk in chunks:
+        raw_bytes = len(chunk.text.encode("utf-8"))
+        item_bytes = len(json.dumps(chunk.text, ensure_ascii=True).encode("utf-8"))
+        if (
+            raw_bytes > MAX_TEXT_BYTES
+            or chunk.token_count > MAX_EMBED_BATCH_TOKENS
+            or fixed_bytes + item_bytes > MAX_EMBED_BATCH_PAYLOAD_BYTES
+        ):
+            raise ValidationFailed("Embedding tek chunk byte/token sinirini asiyor")
+        next_bytes = pending_bytes + item_bytes + (1 if pending else 0)
+        if pending and (
+            len(pending) >= batch_size
+            or pending_tokens + chunk.token_count > MAX_EMBED_BATCH_TOKENS
+            or next_bytes > MAX_EMBED_BATCH_PAYLOAD_BYTES
+        ):
+            batches.append(tuple(pending))
+            pending = []
+            pending_tokens = 0
+            pending_bytes = fixed_bytes
+            next_bytes = fixed_bytes + item_bytes
+        pending.append(chunk)
+        pending_tokens += chunk.token_count
+        pending_bytes = next_bytes
+    if pending:
+        batches.append(tuple(pending))
+    return tuple(batches)
 
 
 def _cached_vectors(
@@ -2141,8 +2198,7 @@ def _index(
         cache_hits = len(vectors)
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
-        for offset in range(0, len(missing), batch_size):
-            batch = missing[offset : offset + batch_size]
+        for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
             embedded = _embed_documents_with_retry(
                 provider, tuple(chunk.text for chunk in batch), policy
             )

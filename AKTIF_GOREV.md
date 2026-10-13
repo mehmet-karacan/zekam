@@ -716,6 +716,15 @@ indexli ve tek satira sinirlidir. Ilgili 69 test gecti. Gercek coklu
 generation/artimli embedding ve benchmark kabul kaniti tamamlanmadigindan
 WP-05.01/02 aciktir.
 
+**13 Ekim 2026 ara durum — uc sinirli embedding batch:** Indeks plani
+ve uygulama ayni batch planlayicisini kullanir. Planlayici en fazla
+64 oge, 8192 tahmini token ve 512 KiB JSON istek payload'i uygular;
+tek metin icin saglayicinin 256 KiB UTF-8 sinirini korur. JSON kacis
+genislemesi hesaplanir, sira sabittir ve buyuk tek chunk fail-closed
+reddedilir. Ilgili 79 test gecti. Timeout, partial slot kimligi,
+quota, cancellation ve canli performans kabul kaniti henuz aciktir;
+WP-05.03 tamamlanmadi.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

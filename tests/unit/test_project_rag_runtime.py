@@ -113,7 +113,7 @@ def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
         tree_digest="sha256:" + "a" * 64,
         plan_digest="sha256:" + "b" * 64,
         selected_file_count=2,
-        chunks=(object(), object()),
+        chunks=(_batch_chunk(0), _batch_chunk(1)),
         skipped_unsupported=0,
         skipped_encoding=0,
         embedding_profile=SimpleNamespace(model_ref=runtime.MODEL_ID, dimension=1024),
@@ -123,7 +123,7 @@ def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
     )
     odi_plan = SimpleNamespace(
         plan_digest="sha256:" + "c" * 64,
-        chunks=(object(), object(), object()),
+        chunks=(_batch_chunk(2), _batch_chunk(3), _batch_chunk(4)),
     )
 
     result = runtime._plan_document(
@@ -133,6 +133,7 @@ def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
     assert result["source_chunk_count"] == 2
     assert result["odi_chunk_count"] == 3
     assert result["chunk_count"] == 5
+    assert result["estimated_provider_calls"] == 1
     assert result["odi_access"] == "sanitized-metadata"
 
 
@@ -1899,3 +1900,118 @@ def test_wp0501_legacy_cache_row_is_not_reused_without_scope(tmp_path: Path) -> 
         ) == {}
     finally:
         connection.close()
+
+
+# ---------------------------------------------------------------------------
+# _embedding_batches -- provider batch limits
+#
+# Contract under test:
+#   runtime._embedding_batches(chunks: tuple[Chunk, ...], batch_size: int)
+#   - at most 64 chunks per batch regardless of batch_size
+#   - at most 8192 total tokens per batch
+#   - at most 512 KiB JSON text payload per batch
+#   - a single text over 256 KiB (UTF-8) is a ValidationFailed
+#   - chunk order is preserved and the input is not modified
+# ---------------------------------------------------------------------------
+
+EMBEDDING_BATCH_MAX_ITEMS = 64
+EMBEDDING_BATCH_TOKEN_LIMIT = 8192
+EMBEDDING_BATCH_PAYLOAD_LIMIT = 512 * 1024
+EMBEDDING_TEXT_LIMIT = 256 * 1024
+
+
+def _batch_chunk(index: int, *, text: str = "x", token_count: int = 1) -> Chunk:
+    return Chunk(
+        chunk_id=f"batch-chunk-{index}",
+        document_id="oracle-batch",
+        text=text,
+        locator=Locator(object_name="GPU_USER.CDR_BATCH:TABLE"),
+        kind=UnitKind.DB_OBJECT,
+        token_count=token_count,
+        order=index,
+    )
+
+
+def test_embedding_batches_caps_small_chunks_at_max_64_items() -> None:
+    chunks = tuple(_batch_chunk(index) for index in range(70))
+    texts_before = [chunk.text for chunk in chunks]
+
+    batches = runtime._embedding_batches(chunks, EMBEDDING_BATCH_MAX_ITEMS)
+
+    assert [len(batch) for batch in batches] == [EMBEDDING_BATCH_MAX_ITEMS, 6]
+    flattened = tuple(chunk for batch in batches for chunk in batch)
+    assert flattened == chunks
+    assert all(first is second for first, second in zip(flattened, chunks, strict=True))
+    assert [chunk.text for chunk in chunks] == texts_before
+
+
+@pytest.mark.parametrize(
+    ("text", "token_count"),
+    [
+        ("x", EMBEDDING_BATCH_TOKEN_LIMIT + 1),
+        ("a" * (EMBEDDING_TEXT_LIMIT + 1), 1),
+    ],
+    ids=["token-limit", "single-text-limit"],
+)
+def test_embedding_batches_rejects_single_chunk_beyond_limits(
+    text: str, token_count: int
+) -> None:
+    chunks = (_batch_chunk(0, text=text, token_count=token_count),)
+
+    with pytest.raises(ValidationFailed):
+        runtime._embedding_batches(chunks, EMBEDDING_BATCH_MAX_ITEMS)
+
+
+def test_embedding_batches_accepts_single_chunk_exactly_at_limits() -> None:
+    chunk = _batch_chunk(
+        0,
+        text="a" * EMBEDDING_TEXT_LIMIT,
+        token_count=EMBEDDING_BATCH_TOKEN_LIMIT,
+    )
+
+    batches = runtime._embedding_batches((chunk,), EMBEDDING_BATCH_MAX_ITEMS)
+
+    assert [len(batch) for batch in batches] == [1]
+    assert batches[0][0] is chunk
+
+
+@pytest.mark.parametrize("mode", ["token", "payload"])
+def test_embedding_batches_splits_into_two_batches_at_boundary(mode: str) -> None:
+    if mode == "token":
+        half = EMBEDDING_BATCH_TOKEN_LIMIT // 2
+        chunks = (
+            _batch_chunk(0, token_count=half),
+            _batch_chunk(1, token_count=half),
+            _batch_chunk(2, token_count=1),
+        )
+    else:
+        # Two texts that fit together (well below the limit even after JSON
+        # overhead) plus a third that pushes the total over the limit no matter
+        # how the payload size is measured (raw UTF-8 or JSON-encoded).
+        half = 250 * 1024
+        remainder = EMBEDDING_BATCH_PAYLOAD_LIMIT - 2 * half
+        chunks = (
+            _batch_chunk(0, text="a" * half),
+            _batch_chunk(1, text="a" * half),
+            _batch_chunk(2, text="b" * (remainder + 1)),
+        )
+
+    batches = runtime._embedding_batches(chunks, EMBEDDING_BATCH_MAX_ITEMS)
+
+    assert [len(batch) for batch in batches] == [2, 1]
+    flattened = tuple(chunk for batch in batches for chunk in batch)
+    assert flattened == chunks
+
+
+def test_embedding_batches_counts_json_escape_expansion() -> None:
+    chunks = (
+        _batch_chunk(0, text="\\" * 150_000),
+        _batch_chunk(1, text="\\" * 150_000),
+    )
+    assert [len(batch) for batch in runtime._embedding_batches(chunks, 64)] == [1, 1]
+
+
+@pytest.mark.parametrize("batch_size", [0, 65, True])
+def test_embedding_batches_rejects_invalid_item_limit(batch_size: int) -> None:
+    with pytest.raises(ValidationFailed):
+        runtime._embedding_batches((_batch_chunk(0),), batch_size)

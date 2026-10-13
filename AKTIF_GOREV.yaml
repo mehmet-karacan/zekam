@@ -2,7 +2,7 @@ schema: zekam-active-task-projection/v1
 generator_version: active-task-contract/v1
 generated: true
 authority_ref: AKTIF_GOREV.md
-authority_digest: sha256:e20e6ffbcf415efa32b3a849e8a5c80670220a848ce2e0bb9029ca10a3dcf537
+authority_digest: sha256:e37d8e16aecd29d7bf86d347a35f65117ce0f7d52f7424d62492548965d77ce9
 task_id: ZEKAM-NATURAL-LANGUAGE-CAPABILITY-COMPLETION-001
 status: APPROVED_ACTIVE_TASK
 title: Zekam Dogal Dil ve Tum Yetkinliklerin Tamamlanmasi
