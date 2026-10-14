@@ -101,6 +101,9 @@ _SUPPORTED_SUFFIXES = frozenset(
     }
 )
 _SUPPORTED_NAMES = frozenset({"dockerfile", "makefile"})
+_STRUCTURAL_CODE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".ts", ".tsx"})
+_STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function)\b")
+_STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,8 +351,169 @@ def _line_units(
     return tuple(units)
 
 
+def _mask_structural_literals(text: str) -> str | None:
+    """Yorum ve dizgeleri kod konumlarini koruyarak boslukla maskele."""
+    chars = list(text)
+    length = len(chars)
+    index = 0
+    while index < length:
+        character = chars[index]
+        if character in {"'", '"', "`"}:
+            quote = character
+            end = index + 1
+            while end < length:
+                if chars[end] == "\\":
+                    end += 2
+                    continue
+                if chars[end] == quote:
+                    break
+                if chars[end] == "\n" and quote != "`":
+                    return None
+                end += 1
+            if end >= length:
+                return None
+            for position in range(index, end + 1):
+                if chars[position] != "\n":
+                    chars[position] = " "
+            index = end + 1
+            continue
+        if character == "/" and index + 1 < length and chars[index + 1] == "/":
+            end = index
+            while end < length and chars[end] != "\n":
+                chars[end] = " "
+                end += 1
+            index = end
+            continue
+        if character == "/" and index + 1 < length and chars[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            if end < 0:
+                return None
+            end += 2
+            for position in range(index, end):
+                if chars[position] != "\n":
+                    chars[position] = " "
+            index = end
+            continue
+        index += 1
+    return "".join(chars)
+
+
+def _structural_code_units(
+    relative_path: str, text: str, start_order: int
+) -> tuple[ContentUnit, ...] | None:
+    """Dengeli ust duzey Java/JS/TS declaration'lari icin sembol parcasi."""
+    masked = _mask_structural_literals(text)
+    if masked is None:
+        return None
+    lines = text.splitlines()
+    if not lines:
+        return None
+    depth_before = [0] * (len(masked) + 1)
+    depth = 0
+    for index, character in enumerate(masked):
+        depth_before[index] = depth
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth < 0:
+                return None
+    depth_before[len(masked)] = depth
+    if depth != 0:
+        return None
+
+    candidates: list[tuple[str, int, int]] = []
+    for match in _STRUCTURAL_DECLARATION.finditer(masked):
+        if depth_before[match.start()] != 0:
+            continue
+        name_start = match.end()
+        while name_start < len(masked) and masked[name_start].isspace():
+            name_start += 1
+        name_match = _STRUCTURAL_IDENTIFIER.match(masked, name_start)
+        if name_match is None:
+            return None
+        name = name_match.group(0)
+        opening = masked.find("{", name_match.end())
+        if opening < 0:
+            return None
+        # A declaration header must not cross another top-level declaration.
+        next_declaration = _STRUCTURAL_DECLARATION.search(masked, name_match.end(), opening)
+        if next_declaration is not None and depth_before[next_declaration.start()] == 0:
+            return None
+        nested = 1
+        closing = opening + 1
+        while closing < len(masked) and nested:
+            if masked[closing] == "{":
+                nested += 1
+            elif masked[closing] == "}":
+                nested -= 1
+            closing += 1
+        if nested:
+            return None
+        start_line = text.count("\n", 0, match.start()) + 1
+        end_line = text.count("\n", 0, closing - 1) + 1
+        if candidates and start_line <= candidates[-1][2]:
+            continue
+        candidates.append((name, start_line, end_line))
+    if not candidates:
+        return None
+
+    units: list[ContentUnit] = []
+    next_line = 1
+    for name, first, last in candidates:
+        if next_line < first:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    "\n".join(lines[next_line - 1 : first - 1]),
+                    start_order + len(units),
+                    first_line=next_line,
+                )
+            )
+        body = "\n".join(lines[first - 1 : last]).strip()
+        if body and len(body) <= MAX_CHUNK_CHARACTERS and estimate_tokens(body) <= MAX_CHUNK_TOKENS:
+            units.append(
+                ContentUnit(
+                    unit_id=f"{relative_path}#L{first}-L{last}-S{name}",
+                    kind=UnitKind.SYMBOL,
+                    text=body,
+                    locator=Locator(
+                        relative_path=relative_path,
+                        line_start=first,
+                        line_end=last,
+                        symbol=name,
+                    ),
+                    order=start_order + len(units),
+                )
+            )
+        else:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    "\n".join(lines[first - 1 : last]),
+                    start_order + len(units),
+                    first_line=first,
+                )
+            )
+        next_line = last + 1
+    if next_line <= len(lines):
+        units.extend(
+            _line_units(
+                relative_path,
+                "\n".join(lines[next_line - 1 :]),
+                start_order + len(units),
+                first_line=next_line,
+            )
+        )
+    return tuple(units)
+
+
 def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
-    """Python'da top-level AST sembollerini, diger kodda satir araligini kullan."""
+    """Python AST, Java/JS/TS structural; belirsizde bounded line fallback."""
+    if PurePosixPath(relative_path).suffix.lower() in _STRUCTURAL_CODE_SUFFIXES:
+        structural = _structural_code_units(relative_path, text, start_order)
+        if structural is not None:
+            return structural
     if PurePosixPath(relative_path).suffix.lower() != ".py":
         return _line_units(relative_path, text, start_order)
     try:

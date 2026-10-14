@@ -78,7 +78,50 @@ def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
     assert invalid and all(unit.kind is UnitKind.CODE for unit in invalid)
     assert all(unit.locator.symbol is None for unit in invalid)
     other = knowledge_index._file_units("Main.java", "class Main {}", 0)
-    assert other and all(unit.kind is UnitKind.CODE for unit in other)
+    assert other and [unit.locator.symbol for unit in other] == ["Main"]
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "symbol"),
+    [
+        (
+            "Main.java",
+            'package app;\npublic class Main {\n  void run() { return; }\n}\n',
+            "Main",
+        ),
+        (
+            "service.ts",
+            'export function add(a: number, b: number) { return a + b; }\n',
+            "add",
+        ),
+    ],
+)
+def test_structural_code_units_extract_top_level_declarations(
+    relative_path: str, source: str, symbol: str
+) -> None:
+    units = knowledge_index._file_units(relative_path, source, 3)
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+    assert [unit.locator.symbol for unit in symbols] == [symbol]
+    expected = (
+        source[source.index("public class") :].strip()
+        if relative_path.endswith(".java")
+        else source.strip()
+    )
+    assert symbols[0].text == expected
+    assert symbols[0].order == (4 if relative_path.endswith(".java") else 3)
+
+
+def test_structural_code_units_ignore_braces_in_literals_and_nested_declarations() -> None:
+    source = 'class Box {\n  method() { return "}"; }\n}\nfunction tail() { return 1; }\n'
+    units = knowledge_index._file_units("box.js", source, 0)
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+    assert [unit.locator.symbol for unit in symbols] == ["Box", "tail"]
+    assert all("method" in unit.text or "tail" in unit.text for unit in symbols)
+
+
+def test_structural_code_units_fall_back_on_unbalanced_source() -> None:
+    units = knowledge_index._file_units("broken.ts", "class Broken {\n", 0)
+    assert units and all(unit.kind is UnitKind.CODE for unit in units)
 
 
 def test_python_ast_fallback_splits_a_token_heavy_single_line(
