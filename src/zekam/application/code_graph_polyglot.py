@@ -463,4 +463,4 @@ def _syntax_error(
         ),
         symbols=(),
         edges=(),
-    )\n
+    )

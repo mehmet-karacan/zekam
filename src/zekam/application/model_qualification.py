@@ -131,4 +131,4 @@ def build_qualification_report(
         "read_only": True,
         "grants_authority": False,
     }
-    return body | {"evidence_digest": digest(body)}\n
+    return body | {"evidence_digest": digest(body)}

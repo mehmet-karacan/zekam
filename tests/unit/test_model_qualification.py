@@ -57,4 +57,4 @@ def test_qualification_uses_only_explicit_health_benchmark_and_capability_eviden
         "latency": "unknown",
         "failure": "unknown",
         "cost": "observed",
-    }\n
+    }
