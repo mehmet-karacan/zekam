@@ -1730,6 +1730,16 @@ gercek anahtarlar korunur.
 Bu dar dilim WP-06.05'in issue key false-positive kanit boslugunu daraltir;
 gercek Jira/Confluence okuma ve revision baglantisi halen aciktir.
 
+### 10.28 15 Ekim 2026 polyglot edge dedup hizlandirmasi
+
+Polyglot graph extractor kenar tekillestirmesinde her eklemede tum kenar
+listesini yeniden taramak yerine artimli kimlik kumesi kullanir. Kenar sirasi,
+confidence ve edge identity degismez; buyuk dosyalarda gereksiz O(n^2) set
+kurulumu kaldirilir.
+
+Bu dar dilim WP-06.03'un yerel graph performans borcunu azaltir; generation,
+resolver ve cross-file kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

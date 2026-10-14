@@ -375,6 +375,7 @@ def _extract(
         names.setdefault(declaration.name, []).append(symbol)
 
     edges: list[GraphEdge] = []
+    edge_ids: set[str] = set()
 
     def add_edge(
         source: GraphSymbol,
@@ -400,8 +401,9 @@ def _extract(
             confidence=confidence,
             provenance=provenance,
         )
-        if edge.edge_id not in {item.edge_id for item in edges}:
+        if edge.edge_id not in edge_ids:
             edges.append(edge)
+            edge_ids.add(edge.edge_id)
 
     provenance = f"{EXTRACTOR_PROFILE_SCHEMA}:{language}"
     for index, declaration in enumerate(declarations):
