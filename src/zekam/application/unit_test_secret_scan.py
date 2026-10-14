@@ -11,7 +11,7 @@ Eksik siniflar icin ince katman:
   ``dbPassword``, ``api_key``, ``AWS_SECRET_ACCESS_KEY`` ...) bos/placeholder olmayan string
   deger, uzunluguna bakilmaksizin bulgudur (anahtar ve deger ayri string olsa da);
 - ``anahtar = "deger"`` literal atamasi (kisa degerler dahil) ve satir-tabanli ``ANAHTAR=deger``;
-- URL userinfo (``scheme://user:pass@host``, ``jdbc:...`` dahil), sorgu parametresi ``password=``;
+- URL userinfo ve sorgu parametresi ``password=``;
 - ``Authorization: Basic ...``;
 - yuksek entropili uzun rastgele dizeler (hex/digest haric).
 

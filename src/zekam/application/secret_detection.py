@@ -13,14 +13,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
-import secrets
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-#: Surec ici anahtarli iz uzunlugu; public rapora hic yazilmaz.
+#: Allowlist ve raporlar arasinda tekrar okunabilir, deger tasimayan HMAC izi.
+#: Anahtar gizli degildir; amac dogrudan SHA-256 degeri yaymadan ayni
+#: fixture'in farkli sureclerde ayni kimlikle allowlist'e baglanmasidir.
 FINGERPRINT_LENGTH = 12
-_PROCESS_FINGERPRINT_KEY = secrets.token_bytes(32)
+_FINGERPRINT_KEY = b"zekam-secret-fingerprint/v2"
 
 # Unquoted ``key=value`` / YAML scalars are meaningful in configuration and
 # metadata payloads.  In source files the same shapes are commonly Python/Java
@@ -165,9 +166,9 @@ class SecretFinding:
 
 
 def _fingerprint(value: str) -> str:
-    """Deger izini yalniz surec icinde karsilastirilabilir tutar."""
+    """Deger izini dogrudan public SHA yerine stabil HMAC ile tutar."""
     return hmac.new(
-        _PROCESS_FINGERPRINT_KEY,
+        _FINGERPRINT_KEY,
         value.encode("utf-8", "replace"),
         hashlib.sha256,
     ).hexdigest()[:FINGERPRINT_LENGTH]
