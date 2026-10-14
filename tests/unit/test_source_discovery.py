@@ -26,6 +26,7 @@ from zekam.application.source_discovery import (
     assert_within_root,
     compute_tree_digest,
     discover,
+    resume_discovery,
 )
 from zekam.domain.canonical import DIGEST_PREFIX
 from zekam.domain.errors import PolicyViolation
@@ -648,6 +649,58 @@ def test_directory_entry_cap_enforced_during_traversal(tmp_path: Path) -> None:
         and item.skip_reason is SkipReason.LIMIT_REACHED
         for item in report.inventory
     )
+
+
+def test_resume_discovery_consumes_partial_checkpoint_to_complete(tmp_path: Path) -> None:
+    root = tmp_path / "resume"
+    root.mkdir()
+    for name in ("a.txt", "b.txt", "c.txt", "d.txt"):
+        (root / name).write_text(name, encoding="utf-8")
+
+    partial = discover(root, policy=DiscoveryPolicy(max_inventory_entries=2))
+    assert partial.inventory_status is InventoryStatus.PARTIAL
+    assert partial.inventory_checkpoint
+
+    resumed = resume_discovery(
+        root,
+        partial.inventory_checkpoint,
+        policy=DiscoveryPolicy(max_inventory_entries=16),
+    )
+
+    assert resumed.inventory_status is InventoryStatus.COMPLETE
+    assert resumed.inventory_checkpoint == ()
+    assert resumed.inventory_file_paths == ("a.txt", "b.txt", "c.txt", "d.txt")
+    assert resumed.file_count == 4
+
+
+def test_resume_discovery_rejects_malformed_checkpoint_and_root_drift(tmp_path: Path) -> None:
+    root = tmp_path / "resume"
+    root.mkdir()
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (root / name).write_text(name, encoding="utf-8")
+    partial = discover(root, policy=DiscoveryPolicy(max_inventory_entries=2))
+    checkpoint = partial.inventory_checkpoint
+
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    with pytest.raises(PolicyViolation, match="root drift"):
+        resume_discovery(other_root, checkpoint)
+
+    (root / checkpoint[0]).write_text("source-drift", encoding="utf-8")
+    with pytest.raises(PolicyViolation, match="source drift"):
+        resume_discovery(root, checkpoint, policy=DiscoveryPolicy(max_inventory_entries=16))
+
+    malformed = (
+        ("",),
+        ("../escape",),
+        (str(root / "a.txt"),),
+        ("a/../b",),
+        ("x" * 4097,),
+        ("a.txt", "b.txt"),
+    )
+    for candidate in malformed:
+        with pytest.raises(PolicyViolation):
+            resume_discovery(root, candidate)
 
 
 def test_inventory_is_bounded_and_sorted(sample_project: Path) -> None:

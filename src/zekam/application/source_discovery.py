@@ -50,7 +50,7 @@ import stat as stat_module
 from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from zekam.application.ignore_rules import IgnoreMatcher, system_deny_matcher
@@ -115,6 +115,29 @@ class StopReason(StrEnum):
     UNREADABLE_FILE = "unreadable-file"
     INVENTORY_CAP = "inventory-cap"
     DIR_ENTRY_CAP = "dir-entry-cap"
+
+
+_MAX_CHECKPOINT_PATH_BYTES = 4096
+_MAX_CHECKPOINT_SNAPSHOT_ENTRIES = 8
+_CheckpointSnapshotEntry = tuple[str, str, int, int]
+
+
+class _InventoryCheckpoint(tuple[str, ...]):
+    """Root-bound tuple that remains compatible with the v1 path contract."""
+
+    root_identity_digest: str
+    source_snapshot: tuple[_CheckpointSnapshotEntry, ...]
+
+    def __new__(
+        cls,
+        paths: tuple[str, ...],
+        root_identity_digest: str,
+        source_snapshot: tuple[_CheckpointSnapshotEntry, ...] = (),
+    ) -> _InventoryCheckpoint:
+        value = super().__new__(cls, paths)
+        value.root_identity_digest = root_identity_digest
+        value.source_snapshot = source_snapshot
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,6 +473,130 @@ def resolve_source_root(root: Path) -> Path:
     if not resolved.is_dir():
         raise PolicyViolation("Kaynak koku bir dizin olmali")
     return resolved
+
+
+def _root_identity_digest(root: Path) -> str:
+    normalized = os.path.normcase(str(root))
+    identity = os.lstat(root)
+    material = f"{normalized}\x00{identity.st_dev}\x00{identity.st_ino}"
+    return DIGEST_PREFIX + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _checkpoint_kind(path: Path, info: os.stat_result) -> str:
+    if _is_symlink_or_junction(path):
+        return FileKind.SYMLINK.value
+    if stat_module.S_ISDIR(info.st_mode):
+        return FileKind.DIRECTORY.value
+    if stat_module.S_ISREG(info.st_mode):
+        return FileKind.FILE.value
+    return "other"
+
+
+def _build_checkpoint_snapshot(
+    root: Path, checkpoint: tuple[str, ...]
+) -> tuple[_CheckpointSnapshotEntry, ...]:
+    snapshot: list[_CheckpointSnapshotEntry] = []
+    for relative in checkpoint[:_MAX_CHECKPOINT_SNAPSHOT_ENTRIES]:
+        candidate = root.joinpath(*PurePosixPath(relative).parts)
+        try:
+            info = os.lstat(candidate)
+        except OSError:
+            snapshot.append((relative, "missing", -1, -1))
+            continue
+        snapshot.append(
+            (
+                relative,
+                _checkpoint_kind(candidate, info),
+                int(info.st_size),
+                int(info.st_mtime_ns),
+            )
+        )
+    return tuple(snapshot)
+
+
+def _validate_checkpoint_snapshot(
+    root: Path, snapshot: tuple[_CheckpointSnapshotEntry, ...]
+) -> None:
+    if not isinstance(snapshot, tuple) or len(snapshot) > _MAX_CHECKPOINT_SNAPSHOT_ENTRIES:
+        raise PolicyViolation("Discovery checkpoint snapshot bounded siniri asiyor")
+    for row in snapshot:
+        if not isinstance(row, tuple) or len(row) != 4:
+            raise PolicyViolation("Discovery checkpoint snapshot gecersiz")
+        relative, expected_kind, expected_size, expected_mtime_ns = row
+        if not isinstance(relative, str) or not relative:
+            raise PolicyViolation("Discovery checkpoint snapshot yolu gecersiz")
+        if len(relative.encode("utf-8")) > _MAX_CHECKPOINT_PATH_BYTES:
+            raise PolicyViolation("Discovery checkpoint snapshot yolu bounded siniri asiyor")
+        if "\x00" in relative or "\\" in relative:
+            raise PolicyViolation("Discovery checkpoint snapshot yolu root-relative olmali")
+        posix = PurePosixPath(relative)
+        windows = PureWindowsPath(relative)
+        if (
+            posix.is_absolute()
+            or windows.is_absolute()
+            or windows.drive
+            or posix.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in posix.parts)
+        ):
+            raise PolicyViolation("Discovery checkpoint snapshot yolu root-relative olmali")
+        candidate = root.joinpath(*posix.parts)
+        try:
+            assert_within_root(candidate, root)
+            info = os.lstat(candidate)
+        except (OSError, PolicyViolation) as exc:
+            raise PolicyViolation("Discovery checkpoint source drift") from exc
+        if not isinstance(expected_kind, str) or not isinstance(expected_size, int):
+            raise PolicyViolation("Discovery checkpoint snapshot gecersiz")
+        if not isinstance(expected_mtime_ns, int):
+            raise PolicyViolation("Discovery checkpoint snapshot gecersiz")
+        if (
+            _checkpoint_kind(candidate, info) != expected_kind
+            or int(info.st_size) != expected_size
+            or int(info.st_mtime_ns) != expected_mtime_ns
+        ):
+            raise PolicyViolation("Discovery checkpoint source drift")
+
+
+def _validate_resume_checkpoint(root: Path, checkpoint: tuple[str, ...]) -> None:
+    if not isinstance(checkpoint, tuple):
+        raise PolicyViolation("Discovery checkpoint tuple olmali")
+    recorded_root = getattr(checkpoint, "root_identity_digest", None)
+    if recorded_root is not None and recorded_root != _root_identity_digest(root):
+        raise PolicyViolation("Discovery checkpoint source root drift")
+    if len(checkpoint) > 1:
+        raise PolicyViolation("Discovery checkpoint tek root-relative yol tasimali")
+    for relative in checkpoint:
+        if not isinstance(relative, str) or not relative:
+            raise PolicyViolation("Discovery checkpoint yolu gecersiz")
+        if len(relative.encode("utf-8")) > _MAX_CHECKPOINT_PATH_BYTES:
+            raise PolicyViolation("Discovery checkpoint yolu bounded siniri asiyor")
+        if "\x00" in relative or "\\" in relative:
+            raise PolicyViolation("Discovery checkpoint yolu root-relative olmali")
+        posix = PurePosixPath(relative)
+        windows = PureWindowsPath(relative)
+        if (
+            posix.is_absolute()
+            or windows.is_absolute()
+            or windows.drive
+            or posix.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in posix.parts)
+        ):
+            raise PolicyViolation("Discovery checkpoint yolu root-relative olmali")
+        candidate = root.joinpath(*posix.parts)
+        try:
+            assert_within_root(candidate, root)
+        except (OSError, PolicyViolation) as exc:
+            raise PolicyViolation("Discovery checkpoint source root drift") from exc
+        if not candidate.exists():
+            raise PolicyViolation("Discovery checkpoint source drift")
+        cursor = root
+        for part in posix.parts:
+            cursor /= part
+            if _is_symlink_or_junction(cursor):
+                raise PolicyViolation("Discovery checkpoint symlink/junction reddedildi")
+    snapshot = getattr(checkpoint, "source_snapshot", None)
+    if snapshot is not None:
+        _validate_checkpoint_snapshot(root, snapshot)
 
 
 class _DirectoryTooLarge(Exception):
@@ -949,6 +1096,12 @@ def discover(
         inventory=inventory,
         cap_pending_path=builder.last_path if builder.cap_stopped else None,
     )
+    if checkpoint:
+        checkpoint = _InventoryCheckpoint(
+            checkpoint,
+            _root_identity_digest(resolved_root),
+            _build_checkpoint_snapshot(resolved_root, checkpoint),
+        )
 
     return DiscoveryReport(
         root_label=resolved_root.name,
@@ -971,6 +1124,27 @@ def discover(
         inventory_checkpoint=checkpoint,
         inventory_bytes=inventory_bytes,
     )
+
+
+def resume_discovery(
+    root: Path,
+    checkpoint: tuple[str, ...],
+    *,
+    policy: DiscoveryPolicy | None = None,
+    matcher: IgnoreMatcher | None = None,
+) -> DiscoveryReport:
+    """Resume a bounded discovery from a root-bound inventory checkpoint.
+
+    Discovery is provider-free and read-only.  The checkpoint is validated
+    against the current source root and its bounded frontier snapshot before a
+    fresh bounded traversal rebuilds the complete report under the supplied
+    policy.  A fresh traversal is intentional because the public checkpoint
+    contract carries only a root-relative frontier, not a partial inventory.
+    """
+
+    resolved_root = resolve_source_root(root)
+    _validate_resume_checkpoint(resolved_root, checkpoint)
+    return discover(resolved_root, policy=policy, matcher=matcher)
 
 
 def _assemble_inventory(
