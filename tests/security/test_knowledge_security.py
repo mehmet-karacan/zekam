@@ -6,6 +6,8 @@ build, hook veya kod calistirilmaz.
 
 from __future__ import annotations
 
+import os
+import stat
 import tarfile
 import zipfile
 from pathlib import Path
@@ -83,6 +85,47 @@ def test_symlink_izlenmez(sample_tree: Path, tmp_path: Path) -> None:
     report = DirectoryScanner(sample_tree).scan()
     assert "src/kisayol.txt" not in report.included
     assert report.reason_for("src/kisayol.txt") == "symlink izlenmez"
+
+
+def test_reparse_directory_izlenmez_without_windows_privilege(
+    sample_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Junction metadata is rejected even when CreateSymbolicLink is unavailable."""
+
+    linked = sample_tree / "src" / "junction-like"
+    linked.mkdir()
+    (linked / "disari.txt").write_text("disari", encoding="utf-8")
+    original_scandir = os.scandir
+    source_directory = (sample_tree / "src").resolve()
+
+    class ReparseEntry:
+        def __init__(self, entry: os.DirEntry[str]) -> None:
+            self._entry = entry
+            self.name = entry.name
+            self.path = entry.path
+
+        def is_symlink(self) -> bool:
+            return False
+
+        def stat(self, *, follow_symlinks: bool = True) -> object:
+            info = self._entry.stat(follow_symlinks=follow_symlinks)
+            return type(
+                "ReparseStat",
+                (),
+                {"st_mode": stat.S_IFDIR, "st_size": info.st_size, "st_file_attributes": 0x400},
+            )()
+
+    def scandir_with_reparse(directory: str | os.PathLike[str]):
+        entries = list(original_scandir(directory))
+        if Path(directory).resolve() == source_directory:
+            return [ReparseEntry(entry) if entry.name == linked.name else entry for entry in entries]
+        return entries
+
+    monkeypatch.setattr(os, "scandir", scandir_with_reparse)
+    report = DirectoryScanner(sample_tree).scan()
+    assert "src/junction-like" not in report.included
+    assert report.reason_for("src/junction-like") == "symlink/junction izlenmez"
+    assert not any(item.path.endswith("disari.txt") for item in report.decisions)
 
 
 def test_girdi_sayisi_siniri_uygulanir(sample_tree: Path) -> None:

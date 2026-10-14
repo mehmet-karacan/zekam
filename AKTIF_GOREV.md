@@ -1317,8 +1317,9 @@ Iki yerel fail-closed acikligi kapatildi:
   `os.scandir` traversal'i kullaniyor; symlink ve Windows reparse/junction girdileri hedefe
   girilmeden `symlink izlenmez`/`symlink/junction izlenmez` karari aliyor. `max_entries` ve
   `max_total_bytes` sinirlari dahil edilen her dosyada uygulanarak limit asiminda tarama hemen
-  duruyor. `tests/security/test_knowledge_security.py`: `12 passed, 1 skipped` (gercek symlink
-  kurulumu Windows yetkisi nedeniyle skip; reparse path kodda fail-closed).
+  duruyor. `tests/security/test_knowledge_security.py`: `13 passed, 1 skipped`; privilege-
+  independent sahte reparse metadata fixture'i junction hedefinin kuyruga alinmadigini kanitliyor.
+  Gercek symlink kurulumu Windows yetkisi nedeniyle tek skip olarak kaldi.
 - SQLite `record_checkpoint` artik Run'daki `source_snapshot_id` ile checkpoint girdisini tam
   eslestiriyor. Kaynakli Run'da snapshot'siz, kaynaksiz Run'da snapshotli checkpoint reddediliyor;
   `tests/unit/test_operational_store.py`: `54 passed`; `tests/integration/test_native_continuity.py`:
