@@ -755,6 +755,65 @@ def _directory_freshness_for_query(
     return reasons, {"directory_revision": current_revision}
 
 
+def project_rag_source_freshness(home: Path, project_slug: str) -> dict[str, Any]:
+    """Read the current source freshness without provider or mutation effects.
+
+    Query retrieval performs one freshness check before opening citations.  A
+    research run can still observe a source change in the small interval after
+    that check, so callers that reopen evidence use this bounded read-only
+    helper immediately afterwards.  It intentionally reports unknown or
+    unavailable bindings as non-current instead of treating the indexed
+    generation as proof of live source freshness.
+    """
+
+    slug = validate_slug(project_slug)
+    project_id = _registered_project(home, slug)
+    paths = _existing_runtime_paths(home, slug)
+    _recover_rag_state_pending(paths, str(project_id))
+    base: dict[str, Any] = {
+        "schema": "zekam-project-rag-source-freshness/v1",
+        "project_id": str(project_id),
+        "project_slug": slug,
+        "read_only": True,
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    if not paths["state"].is_file() or not paths["index"].is_file():
+        return base | {
+            "state": "unavailable",
+            "index_freshness": "unknown",
+            "stale_reasons": ["project-rag-state-unavailable"],
+            "source_revision": None,
+            "generation_digest": None,
+        }
+    if not _rag_scope_is_private(paths):
+        raise PolicyViolation("Project RAG scoped ACL/identity drift")
+    state = json.loads(paths["state"].read_text(encoding="utf-8"))
+    if not isinstance(state, dict) or state.get("project_id") != str(project_id):
+        raise PolicyViolation("Project RAG state project binding drift")
+    source_binding = paths["project_root"] / "baglantilar" / "source.json"
+    if not source_binding.exists() and not source_binding.is_symlink():
+        source_root = None
+    else:
+        try:
+            source_root = resolve_project_source(home, slug)
+        except FileNotFoundError:
+            source_root = None
+    stale_reasons, observations = _source_freshness_for_query(state, source_root)
+    freshness = "stale" if stale_reasons else "current"
+    if observations.get("source_freshness") in {"unknown", "unavailable"}:
+        freshness = "unknown"
+    return base | {
+        "state": freshness,
+        "index_freshness": freshness,
+        "stale_reasons": list(dict.fromkeys(stale_reasons)),
+        "observations": observations,
+        "source_revision": state.get("source_revision"),
+        "generation_digest": state.get("generation_digest"),
+    }
+
+
 _MAX_DIRTY_FRESHNESS_PATHS = 512
 
 

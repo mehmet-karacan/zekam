@@ -20,6 +20,7 @@ from zekam.application.markdown_knowledge import show_markdown_knowledge
 from zekam.application.operational_store import OperationalStore
 from zekam.application.project_rag_runtime import (
     project_rag_status,
+    project_rag_source_freshness,
     query_registered_project,
     read_project_citation,
     resolve_project_source,
@@ -667,6 +668,41 @@ def run_research(
         if rag.get("generation_digest") != plan.body["generation_digest"]:
             raise PolicyViolation("Research retrieval generation drift")
         evidence, snapshots, by_citation, evidence_coverage = _bounded_evidence(home, plan, rag)
+        post_citation_freshness = project_rag_source_freshness(home, plan.project_slug)
+        post_citation_reasons = tuple(
+            str(reason)
+            for reason in post_citation_freshness.get("stale_reasons", ())
+            if isinstance(reason, str) and reason.strip()
+        )
+        if post_citation_freshness.get("state") != "current":
+            gaps = list(evidence_coverage.get("gaps", ()))
+            gaps.append("retrieval-source-drift-after-citation")
+            gaps.extend(post_citation_reasons)
+            evidence_coverage = evidence_coverage | {
+                "state": "evidence-gap" if not evidence else "partial",
+                "index_freshness": "stale",
+                "stale_reasons": list(
+                    dict.fromkeys(
+                        [
+                            *evidence_coverage.get("stale_reasons", ()),
+                            *post_citation_reasons,
+                        ]
+                    )
+                ),
+                "reindex_recommended": True,
+                "gaps": list(dict.fromkeys(gaps)),
+                "post_citation_freshness": {
+                    "state": post_citation_freshness.get("state"),
+                    "stale_reasons": list(post_citation_reasons),
+                },
+            }
+        else:
+            evidence_coverage = evidence_coverage | {
+                "post_citation_freshness": {
+                    "state": "current",
+                    "stale_reasons": [],
+                }
+            }
         live_rag = project_rag_status(home, plan.project_slug)
         if live_rag.get("state") != "ready":
             raise PolicyViolation("Research live project RAG hazir degil")

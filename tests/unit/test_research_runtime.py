@@ -121,6 +121,21 @@ def _runtime(tmp_path: Path, monkeypatch):  # type: ignore[no-untyped-def]
     )
     monkeypatch.setattr(
         subject,
+        "project_rag_source_freshness",
+        lambda *_: {
+            "state": "current",
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "source_revision": revision,
+            "generation_digest": generation,
+            "read_only": True,
+            "provider_calls": 0,
+            "network_calls": 0,
+            "grants_authority": False,
+        },
+    )
+    monkeypatch.setattr(
+        subject,
         "query_registered_project",
         lambda *_args, **_kwargs: {
             "state": "answered",
@@ -821,6 +836,40 @@ def test_research_run_rejects_live_source_revision_drift(
             authorize_agent_run=True,
             adapter=FakeAdapter(),
         )
+
+
+def test_research_run_marks_post_citation_source_drift_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    monkeypatch.setattr(
+        subject,
+        "project_rag_source_freshness",
+        lambda *_args, **_kwargs: {
+            "state": "stale",
+            "index_freshness": "stale",
+            "stale_reasons": ["project-source-content-stale"],
+        },
+    )
+
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+
+    coverage = result["report"]["evidence_coverage"]
+    assert coverage["state"] == "partial"
+    assert "retrieval-source-drift-after-citation" in coverage["gaps"]
+    assert coverage["post_citation_freshness"]["state"] == "stale"
+    assert result["report"]["status"] == "partial"
 
 
 def test_research_evidence_empty_result_is_explicit_evidence_gap(
