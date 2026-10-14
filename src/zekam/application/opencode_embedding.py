@@ -46,7 +46,12 @@ MAX_OPENCODE_CONFIG_BYTES = 256 * 1024
 _ENV_PLACEHOLDER = re.compile(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$")
 _PROVIDER_FIELDS = frozenset({"npm", "name", "options", "models"})
 _OPTION_FIELDS = frozenset({"baseURL", "apiKey", "timeout", "chunkTimeout"})
-_MODEL_FIELDS = frozenset({"name", "limit"})
+_MODEL_FIELDS = frozenset({"name", "limit", "settings", "variants"})
+_SETTINGS_FIELDS = frozenset({"reasoningEffort"})
+_VARIANT_FIELDS = frozenset({"reasoningEffort"})
+_REASONING_EFFORT_VALUES = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+_MAX_MODEL_VARIANTS = 8
+_MAX_VARIANT_NAME_LENGTH = 64
 
 OPENCODE_EMBEDDING_SECRET_REF_NAME = "opencode-litellm-embedding"
 AIHUB_PROVIDER_HOST = "aihub-api.turktelekom.com.tr"
@@ -192,8 +197,43 @@ def _mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _validate_reasoning_effort(value: Any) -> None:
+    if not isinstance(value, str) or value not in _REASONING_EFFORT_VALUES:
+        raise ConfigurationError("OpenCode provider model reasoningEffort gecersiz")
+
+
+def _validate_model_settings(raw_settings: Any) -> None:
+    """`settings` yalniz allowlist'li `reasoningEffort` degeri tasir."""
+
+    settings = _mapping(raw_settings, label="provider model settings")
+    _strict_fields(settings, _SETTINGS_FIELDS, label="provider model settings")
+    if "reasoningEffort" not in settings:
+        raise ConfigurationError("OpenCode provider model reasoningEffort gecersiz")
+    _validate_reasoning_effort(settings["reasoningEffort"])
+
+
+def _validate_model_variants(raw_variants: Any) -> None:
+    """`variants` adedi/name/icerigi bounded ve allowlist'li dogrulanir."""
+
+    variants = _mapping(raw_variants, label="provider model variants")
+    if not variants:
+        raise ConfigurationError("OpenCode provider model variants bos olamaz")
+    if len(variants) > _MAX_MODEL_VARIANTS:
+        raise ConfigurationError("OpenCode provider model variant sayisi limiti asiliyor")
+    for variant_name, raw_variant in variants.items():
+        if not isinstance(variant_name, str) or not variant_name.strip():
+            raise ConfigurationError("OpenCode provider model variant id gecersiz")
+        if len(variant_name) > _MAX_VARIANT_NAME_LENGTH:
+            raise ConfigurationError("OpenCode provider model variant id gecersiz")
+        variant = _mapping(raw_variant, label="provider model variant")
+        _strict_fields(variant, _VARIANT_FIELDS, label="provider model variant")
+        if "reasoningEffort" not in variant:
+            raise ConfigurationError("OpenCode provider model reasoningEffort gecersiz")
+        _validate_reasoning_effort(variant["reasoningEffort"])
+
+
 def _validate_provider_model(raw_model: Any) -> None:
-    """Model kaydi yalniz `name` ve dogrulanmis `limit` (context/output pozitif tam sayi) tasir."""
+    """Model kaydi `name`, dogrulanmis `limit`, bounded `settings`/`variants` tasir."""
 
     model = _mapping(raw_model, label="provider model")
     _strict_fields(model, _MODEL_FIELDS, label="provider model")
@@ -207,6 +247,10 @@ def _validate_provider_model(raw_model: Any) -> None:
             value = limit.get(field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ConfigurationError("OpenCode provider model limit pozitif tam sayi olmali")
+    if "settings" in model:
+        _validate_model_settings(model["settings"])
+    if "variants" in model:
+        _validate_model_variants(model["variants"])
 
 
 def _strict_fields(document: Mapping[str, Any], allowed: frozenset[str], *, label: str) -> None:

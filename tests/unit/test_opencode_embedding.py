@@ -433,3 +433,86 @@ def test_malformed_model_limit_fails_closed(tmp_path: Path, limit: object) -> No
     models = {EMBEDDING: {"name": "Embedding", "limit": limit}}
     with pytest.raises(ConfigurationError):
         _load(_write(tmp_path / "opencode.json", _document(models=models)))
+
+
+def test_model_settings_and_variants_are_accepted_when_bounded(tmp_path: Path) -> None:
+    models = {
+        EMBEDDING: {"name": "Embedding"},
+        NON_EMBEDDING: {
+            "name": "Code",
+            "settings": {"reasoningEffort": "medium"},
+            "variants": {
+                "low": {"reasoningEffort": "low"},
+                "high": {"reasoningEffort": "high"},
+            },
+        },
+    }
+    configuration = _load(_write(tmp_path / "opencode.json", _document(models=models)))
+    assert configuration.selected_model_id == EMBEDDING
+
+
+def test_model_settings_and_variants_accept_builtin_effort_values(tmp_path: Path) -> None:
+    for effort in ("none", "minimal", "low", "medium", "high", "xhigh"):
+        models = {
+            EMBEDDING: {
+                "name": "Embedding",
+                "settings": {"reasoningEffort": effort},
+                "variants": {effort: {"reasoningEffort": effort}},
+            }
+        }
+        configuration = _load(
+            _write(tmp_path / f"opencode-{effort}.json", _document(models=models))
+        )
+        assert configuration.selected_model_id == EMBEDDING
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {},
+        {"unknown": True},
+        {"reasoningEffort": ""},
+        {"reasoningEffort": "ultra"},
+        {"reasoningEffort": 2},
+        {"reasoningEffort": None},
+        [],
+    ],
+)
+def test_malformed_model_settings_fail_closed(tmp_path: Path, settings: object) -> None:
+    models = {EMBEDDING: {"name": "Embedding", "settings": settings}}
+    with pytest.raises(ConfigurationError):
+        _load(_write(tmp_path / "opencode.json", _document(models=models)))
+
+
+@pytest.mark.parametrize(
+    "variants",
+    [
+        {},
+        {"low": {"unknown": True}},
+        {"low": {}},
+        {"low": {"reasoningEffort": "extreme"}},
+        {"low": {"reasoningEffort": 1}},
+        {"": {"reasoningEffort": "low"}},
+        {"  ": {"reasoningEffort": "low"}},
+        [{"low": {"reasoningEffort": "low"}}],
+        {f"variant-{index}": {"reasoningEffort": "low"} for index in range(9)},
+        {"x" * 65: {"reasoningEffort": "low"}},
+    ],
+)
+def test_malformed_or_excessive_model_variants_fail_closed(
+    tmp_path: Path, variants: object
+) -> None:
+    models = {EMBEDDING: {"name": "Embedding", "variants": variants}}
+    with pytest.raises(ConfigurationError):
+        _load(_write(tmp_path / "opencode.json", _document(models=models)))
+
+
+def test_variant_count_at_bound_is_accepted(tmp_path: Path) -> None:
+    models = {
+        EMBEDDING: {
+            "name": "Embedding",
+            "variants": {f"variant-{index}": {"reasoningEffort": "low"} for index in range(8)},
+        }
+    }
+    configuration = _load(_write(tmp_path / "opencode.json", _document(models=models)))
+    assert configuration.selected_model_id == EMBEDDING
