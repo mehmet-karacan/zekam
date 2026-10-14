@@ -420,14 +420,16 @@ def _read_ignore_file(path: Path) -> list[str]:
 
 def build_matcher(root: Path) -> IgnoreMatcher:
     """Sistem, `.gitignore` ve `.zekamignore` kurallarini birlestirir."""
-    matcher = system_deny_matcher()
+    # Kullanici kurallari authored agaci daraltabilir; yerlesik deny listesi
+    # en sonda uygulanarak negation ile guvenlik deny'si acilamaz.
+    matcher = IgnoreMatcher()
     git_ignore = root / GIT_IGNORE_FILE
     if git_ignore.is_file():
         matcher = matcher.extended(IgnoreMatcher.from_lines(_read_ignore_file(git_ignore)))
     product_ignore = root / ZEKAM_IGNORE_FILE
     if product_ignore.is_file():
         matcher = matcher.extended(IgnoreMatcher.from_lines(_read_ignore_file(product_ignore)))
-    return matcher
+    return matcher.extended(system_deny_matcher())
 
 
 def assert_within_root(candidate: Path, root: Path) -> Path:

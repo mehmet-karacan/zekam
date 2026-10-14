@@ -89,6 +89,19 @@ def test_zekamignore_extends_gitignore(sample_project: Path) -> None:
     assert "README.md" not in _paths(sample_project)
 
 
+def test_project_negation_cannot_open_system_deny_tree(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    (root / ".git").mkdir(parents=True)
+    (root / ".git" / "config").write_text("private\n", encoding="utf-8")
+    (root / ".gitignore").write_text("!.git/\n", encoding="utf-8")
+
+    report = discover(root)
+
+    assert ".git/config" not in {item.relative_path for item in report.files}
+    entry = next(item for item in report.inventory if item.relative_path == ".git/config")
+    assert entry.skip_reason is SkipReason.IGNORED
+
+
 def test_removed_product_ignore_file_is_not_read(sample_project: Path) -> None:
     removed_slug = "".join(chr(item) for item in (101, 110, 97, 105))
     (sample_project / f".{removed_slug}ignore").write_text("README.md\n", encoding="utf-8")

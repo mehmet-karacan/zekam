@@ -1842,6 +1842,17 @@ limiti acikca tasir ve gecerli belge locator davranisi degismez.
 Bu dar dilim WP-04.05'in DOCX XML bellek/derinlik riskini daraltir; PDF,
 diger XML yuzeyleri, ZIP merkezi dizin ve tam kabul matrisi aciktir.
 
+### 10.39 15 Ekim 2026 sistem deny negation kapisi
+
+Kaynak discovery matcher'i kullanici `.gitignore` ve `.zekamignore`
+kurallarini once uygular, yerlesik sistem deny listesini en sonda uygular.
+Boylece `!.git/` veya benzeri bir negation, `.git`, dependency, cache ve
+credential deny agacini icerik okumaya acamaz; metadata-only ve eligibility
+karari korunur.
+
+Bu dar dilim WP-04.01/04.04'un sistem deny override boslugunu daraltir; tam
+discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
