@@ -1677,6 +1677,17 @@ korunur. Indexer surumu 5'e yukseltildi ve element/derinlik sinir testleri eklen
 Bu dar dilim WP-04.05'in kaynak XML bellek ve derinlik riskini azaltir; ODI,
 belge parser'lari, diger XML girisleri ve tam kabul matrisi halen aciktir.
 
+### 10.23 15 Ekim 2026 bounded Git diff kayit kapisi
+
+Jira issue anahtariyla HEAD gecmisi okuyan bounded history parser'i, `-z`
+name-status ciktisinda eksik veya bos kaydi sessizce yutmaz; bozuk kayit
+`GitCommandError` ile fail-closed reddedilir. Gecerli kayitlar onceki dosya,
+hunk ve redaksiyon limitlerini korur.
+
+Bu dar dilim WP-06.05'in malformed Git history kanit boslugunu daraltir;
+gercek issue/Confluence okuma, canli provider ve tam proje degisiklik baglantisi
+halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

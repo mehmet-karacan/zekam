@@ -178,7 +178,11 @@ def _diff_files(root: Path, parent: str, sha: str) -> tuple[int, tuple[HistoryFi
         root, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", parent, sha
     )
     tokens = [item for item in listing.split("\0") if item]
-    rows = list(zip(tokens[0::2], tokens[1::2], strict=False))
+    if len(tokens) % 2:
+        raise GitCommandError("Git diff name-status kaydi eksik")
+    rows = list(zip(tokens[0::2], tokens[1::2], strict=True))
+    if any(not status or not path for status, path in rows):
+        raise GitCommandError("Git diff name-status kaydi gecersiz")
     remaining_lines = MAX_DIFF_LINES
     files: list[HistoryFile] = []
     for status, path in rows[:MAX_DIFF_FILES]:
