@@ -778,9 +778,7 @@ def discover(
                         "icerik okuma politikasi kapali",
                     )
                 )
-                decision = EligibilityDecision.skipped(
-                    entry_relative, SkipReason.CONTENT_DISABLED
-                )
+                decision = EligibilityDecision.skipped(entry_relative, SkipReason.CONTENT_DISABLED)
                 if builder.add(
                     entry_relative,
                     FileKind.FILE,

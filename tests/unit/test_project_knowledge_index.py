@@ -86,12 +86,12 @@ def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
     [
         (
             "Main.java",
-            'package app;\npublic class Main {\n  void run() { return; }\n}\n',
+            "package app;\npublic class Main {\n  void run() { return; }\n}\n",
             "Main",
         ),
         (
             "service.ts",
-            'export function add(a: number, b: number) { return a + b; }\n',
+            "export function add(a: number, b: number) { return a + b; }\n",
             "add",
         ),
     ],

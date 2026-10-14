@@ -597,20 +597,20 @@ def _select_eligible_files(
     """
 
     decisions: dict[str, EligibilityDecision] = {}
-    for item in discovery.eligibility_decisions:
-        if item.relative_path in decisions:
+    for decision_item in discovery.eligibility_decisions:
+        if decision_item.relative_path in decisions:
             raise ValidationFailed("Eligibility karar kumesi yineleniyor; plan reddedildi")
-        decisions[item.relative_path] = item
+        decisions[decision_item.relative_path] = decision_item
     by_path: dict[str, DiscoveredFile] = {}
-    for item in discovery.files:
-        if item.relative_path in by_path:
+    for discovered in discovery.files:
+        if discovered.relative_path in by_path:
             raise ValidationFailed("Kesif dosya kumesi tutarsiz; plan reddedildi")
-        by_path[item.relative_path] = item
+        by_path[discovered.relative_path] = discovered
     inventory_by_path: dict[str, Any] = {}
-    for entry in discovery.inventory:
-        if entry.kind is FileKind.FILE and entry.relative_path in by_path:
-            inventory_by_path[entry.relative_path] = entry
-    for path, item in by_path.items():
+    for inventory_item in discovery.inventory:
+        if inventory_item.kind is FileKind.FILE and inventory_item.relative_path in by_path:
+            inventory_by_path[inventory_item.relative_path] = inventory_item
+    for path, discovered in by_path.items():
         decision = decisions.get(path)
         if decision is None or decision.outcome is not EligibilityOutcome.ELIGIBLE:
             raise ValidationFailed("Kesif dosyasi eligibility karari tasimiyor; plan reddedildi")
@@ -620,8 +620,8 @@ def _select_eligible_files(
         if (
             entry.eligibility.outcome is not EligibilityOutcome.ELIGIBLE
             or entry.eligibility.reason is not None
-            or entry.is_text != item.is_text
-            or entry.size_bytes != item.size_bytes
+            or entry.is_text != discovered.is_text
+            or entry.size_bytes != discovered.size_bytes
         ):
             raise ValidationFailed(
                 "Eligibility karari envanter girdisiyle uyumsuz; plan reddedildi"
