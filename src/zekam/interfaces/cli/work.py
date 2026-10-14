@@ -6,11 +6,13 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
 
+from zekam.application.operational_store import OperationalWorkRecord
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.work import WorkState, WorkType
@@ -179,3 +181,126 @@ def list_command(
     else:
         for row in rows:
             console.print(f"{row['id']}\t{row['state']}\t{row['title']}")
+
+
+def _work_document(item: OperationalWorkRecord) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "project_id": item.project_id,
+        "type": item.kind,
+        "state": item.state,
+        "title": item.title,
+        "summary": item.summary,
+        "acceptance_criteria": list(item.acceptance_criteria),
+        "external_number": item.external_number,
+        "revision": item.revision,
+        "evidence_digest": item.evidence_digest,
+    }
+
+
+@app.command("show")
+def show_command(
+    work_item_id: Annotated[str, typer.Argument()],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Tek bir Work kaydini kanonik SQLite authority'den okur."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            document = _work_document(uow.get_work(work_item_id))
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"{document['id']}\t{document['state']}\t{document['title']}")
+
+
+@app.command("history")
+def history_command(
+    work_item_id: Annotated[str, typer.Argument()],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Work olaylarini append-only event kaydindan okur."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            events = uow.list_work_events(work_item_id)
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(list(events), ensure_ascii=False))
+    else:
+        for event in events:
+            console.print(
+                f"{event['revision']}\t{event['event_kind']}\t"
+                f"{event['from_state'] or '-'}->{event['to_state']}"
+            )
+
+
+@app.command("transition")
+def transition_command(
+    work_item_id: Annotated[str, typer.Argument()],
+    target: Annotated[WorkState, typer.Option("--hedef")],
+    revision: Annotated[int, typer.Option("--revision")],
+    evidence_digest: Annotated[str | None, typer.Option("--evidence-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Revision guard ve evidence ile Work durum gecisi yapar."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            current = uow.get_work(work_item_id)
+            payload_digest = digest(
+                {
+                    "summary": current.summary,
+                    "acceptance_criteria": list(current.acceptance_criteria),
+                }
+            )
+            event_digest = digest(
+                {
+                    "work_item_id": work_item_id,
+                    "revision": revision + 1,
+                    "to_state": target.value,
+                    "payload": payload_digest,
+                }
+            )
+            preview: dict[str, Any] = {
+                "work_item_id": work_item_id,
+                "from_state": current.state,
+                "to_state": target.value,
+                "expected_revision": revision,
+                "payload_digest": payload_digest,
+                "event_digest": event_digest,
+                "evidence_digest": evidence_digest,
+                "apply": apply,
+            }
+            if apply:
+                updated = uow.transition_work(
+                    work_item_id=work_item_id,
+                    expected_revision=revision,
+                    to_state=target.value,
+                    payload_digest=payload_digest,
+                    event_digest=event_digest,
+                    evidence_digest=evidence_digest,
+                )
+                preview["work"] = _work_document(updated)
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(preview, ensure_ascii=False))
+    else:
+        console.print(f"Gecirildi: {work_item_id} ({target.value})")

@@ -125,6 +125,102 @@ def test_local_project_and_work_are_durable_atomic_and_portable(tmp_path: Path) 
     assert marker.read_text(encoding="utf-8") == "user-owned source\n"
 
 
+def test_work_show_history_and_revision_guarded_transition(tmp_path: Path) -> None:
+    runner = CliRunner()
+    home = tmp_path / "home"
+    source = tmp_path / "source"
+    source.mkdir()
+    assert _invoke(runner, "init", "--home", str(home), "--persistence", "sqlite").exit_code == 0
+    assert (
+        _invoke(
+            runner,
+            "project",
+            "add",
+            str(source),
+            "--home",
+            str(home),
+            "--slug",
+            "work-demo",
+            "--uygula",
+        ).exit_code
+        == 0
+    )
+    assert (
+        _invoke(
+            runner,
+            "work",
+            "create",
+            "work-demo",
+            "Durum gecisi",
+            "--home",
+            str(home),
+            "--uygula",
+        ).exit_code
+        == 0
+    )
+    listed = json.loads(_invoke(runner, "work", "list", "--home", str(home), "--json").stdout)
+    work_id = listed[0]["id"]
+
+    planned = _invoke(
+        runner,
+        "work",
+        "transition",
+        work_id,
+        "--hedef",
+        "ready",
+        "--revision",
+        "1",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert planned.exit_code == 0, planned.stdout
+    assert json.loads(planned.stdout)["apply"] is False
+
+    applied = _invoke(
+        runner,
+        "work",
+        "transition",
+        work_id,
+        "--hedef",
+        "ready",
+        "--revision",
+        "1",
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert applied.exit_code == 0, applied.stdout
+    assert json.loads(applied.stdout)["work"]["state"] == "ready"
+
+    stale = _invoke(
+        runner,
+        "work",
+        "transition",
+        work_id,
+        "--hedef",
+        "active",
+        "--revision",
+        "1",
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert stale.exit_code != 0
+
+    shown = _invoke(runner, "work", "show", work_id, "--home", str(home), "--json")
+    assert shown.exit_code == 0, shown.stdout
+    assert json.loads(shown.stdout)["revision"] == 2
+    history = _invoke(runner, "work", "history", work_id, "--home", str(home), "--json")
+    assert history.exit_code == 0, history.stdout
+    assert [event["event_kind"] for event in json.loads(history.stdout)] == [
+        "created",
+        "transitioned",
+    ]
+
+
 def test_local_runtime_is_composed_in_real_cli_and_survives_restart(tmp_path: Path) -> None:
     runner = CliRunner()
     home = tmp_path / "home"

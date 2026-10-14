@@ -887,6 +887,20 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Work bulunamadi")
         return _row_work(row)
 
+    def list_work_events(self, work_item_id: str) -> tuple[dict[str, Any], ...]:
+        """Return append-only Work events in revision order."""
+        if not isinstance(work_item_id, str) or not work_item_id.strip():
+            raise ValidationFailed("Work id bos veya gecersiz")
+        rows = self._db().execute(
+            "select id,work_item_id,revision,event_kind,from_state,to_state,"
+            "event_digest,created_at from work_event where work_item_id=? "
+            "order by revision,id",
+            (work_item_id,),
+        ).fetchall()
+        if not rows:
+            raise ValidationFailed("Work bulunamadi")
+        return tuple(dict(row) for row in rows)
+
     def list_work(self, *, project_id: str | None = None) -> tuple[OperationalWorkRecord, ...]:
         parameters: tuple[str, ...] = () if project_id is None else (project_id,)
         rows = (
