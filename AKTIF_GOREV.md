@@ -2090,6 +2090,15 @@ render, plan ya da rollback kaniti uretmeden policy hatasiyla durur.
 Bu dar dilim WP-02/07 MCP istemci snapshot bellek boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.64 15 Ekim 2026 Knowledge Windows stream kapisi
+
+Knowledge note Windows okuma yolu `Path.read_bytes` yerine bounded stream ile
+en fazla izinli byte artisi kadar okur. Dosya yarista buyurse veya limit asarsa
+icerik tamamlanmis gibi kabul edilmez ve mevcut fail-closed LayoutError korunur.
+
+Bu dar dilim WP-04.04 bilgi note kaynak tuketimi boslugunu daraltir; native ACL
+ve dosya sistemi yarisi kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

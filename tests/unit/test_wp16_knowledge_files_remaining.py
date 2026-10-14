@@ -479,3 +479,21 @@ def test_windows_readonly_traversal_requires_private_write_parent(
     monkeypatch.setattr(knowledge_files, "private_directory", lambda _path, mode=0o700: False)
     with pytest.raises(LayoutError, match="Knowledge parent identity drift"):
         store.write_private_binding(binding_ref, b'{"ok":false}\n')
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows bounded read boundary")
+def test_windows_note_read_uses_bounded_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    payload = b"# Bounded Windows note\n"
+    manifest = _manifest(payload)
+    target = store.home / manifest.portable_ref
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+
+    def forbidden_read_bytes(_path: Path) -> bytes:
+        raise AssertionError("unbounded Path.read_bytes kullanildi")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read_bytes)
+    assert store.read_note(manifest) == payload

@@ -162,7 +162,8 @@ class KnowledgeFileStore:
                 raise LayoutError("Knowledge leaf private regular file olmali")
             if path.stat().st_size > max_bytes:
                 raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
-            payload = path.read_bytes()
+            with path.open("rb") as stream:
+                payload = stream.read(max_bytes + 1)
             if len(payload) > max_bytes:
                 raise LayoutError("Knowledge leaf bounded size sinirini asiyor")
             return payload
