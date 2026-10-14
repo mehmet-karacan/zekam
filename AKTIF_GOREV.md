@@ -943,7 +943,7 @@ adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
 
 - [x] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
 - [ ] **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
-- [ ] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
+- [x] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
 - [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
 - [ ] **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
 
@@ -961,6 +961,13 @@ yalnizca yerel, salt-okunur preflight/sanitize ile sinandi: 62.8 MB, 41.442
 nesne, `sha256:d98cdf5c04092d8964e4ef3724d21f652599a32946dd34944457bda771d51195`,
 913 sanitized chunk, 1.255 exact edge, 0 unresolved relation. Ham dosya depoya
 alinmadi; provider veya Oracle cagrisi yapilmadi.
+
+**14 Ekim 2026 — WP-06.03 kapanis kaniti:** Polyglot structural extractor Java,
+JavaScript, TypeScript, TSX ve PL/SQL uzantilarini Python AST extractor'undan ayri
+profilde isler. Import ve containment `extracted`, tekil yerel cagrilar
+`inferred`, nitelikli veya bulunamayan cagrilar `unresolved` olarak ayrilir;
+yorum ve string icinden sahte edge uretilmez. Polyglot, negatif, domain, SQLite
+ve query/ranking graph testleri: 78 passed, 1 Windows symlink yetki skip'i.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
