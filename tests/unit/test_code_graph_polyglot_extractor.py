@@ -8,7 +8,7 @@ import pytest
 
 from zekam.application.code_graph import GraphFileExtraction, apply_graph_build, plan_graph_build
 from zekam.application.code_graph_polyglot import PolyglotStructuralExtractor
-from zekam.domain.code_graph import GraphConfidence, GraphRelation
+from zekam.domain.code_graph import GraphConfidence, GraphNodeKind, GraphRelation
 from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 
 pytestmark = pytest.mark.unit
@@ -148,6 +148,27 @@ def test_polyglot_masks_javascript_regex_literals_without_losing_braces(
     )
     assert extraction.file.parse_state == "parsed"
     assert any(symbol.qualified_name.endswith("parseFilename") for symbol in extraction.symbols)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["src/Example.java", "src/example.js", "src/example.ts", "src/example.tsx"],
+)
+def test_polyglot_marks_class_members_as_methods(
+    tmp_path: Path, relative_path: str
+) -> None:
+    extraction = _extract(
+        tmp_path,
+        relative_path,
+        "class Example { void helper() {} void run() { helper(); } }",
+    )
+
+    members = {
+        symbol.qualified_name.rsplit(".", 1)[-1]: symbol.kind
+        for symbol in extraction.symbols
+        if symbol.qualified_name.endswith((".helper", ".run"))
+    }
+    assert members == {"helper": GraphNodeKind.METHOD, "run": GraphNodeKind.METHOD}
 
 
 def test_polyglot_extractor_runs_through_plan_and_sqlite_generation(tmp_path: Path) -> None:

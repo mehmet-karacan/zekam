@@ -48,7 +48,7 @@ _CLASS_RE = re.compile(
 _FUNCTION_RE = re.compile(
     rf"(?<![\w$])(?:(?:export|default|public|private|protected|static|final|async|override|abstract|synchronized)\s+)*"
     rf"(?:function\s+|(?:[A-Za-z_$][A-Za-z0-9_$<>\[\],.?]*\s+))?"
-    rf"(?P<name>{_IDENTIFIER})\s*\([^;\n]*\)\s*(?:throws\s+[^{{\n]+)?{{"
+    rf"(?P<name>{_IDENTIFIER})\s*\([^;\n]*?\)\s*(?:throws\s+[^{{\n]+)?{{"
 )
 _ARROW_RE = re.compile(
     rf"(?m)^[ \t]*(?:export\s+)?(?:const|let|var)\s+"
@@ -322,6 +322,9 @@ def _extract(
             if candidates and declaration.kind is GraphNodeKind.FUNCTION
             else None
         )
+    for index, declaration in enumerate(declarations):
+        if parents[index] is not None and declaration.kind is GraphNodeKind.FUNCTION:
+            declarations[index] = replace(declaration, kind=GraphNodeKind.METHOD)
 
     module_name = relative_path.rsplit(".", 1)[0].replace("/", ".").replace("\\", ".")
     file_symbol = GraphSymbol(
