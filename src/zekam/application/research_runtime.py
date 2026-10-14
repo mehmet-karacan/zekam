@@ -291,7 +291,9 @@ def _bounded_evidence(
     snapshot_only = rag.get("snapshot_only", False)
     if not isinstance(snapshot_only, bool):
         raise ValidationFailed("Research RAG snapshot_only boolean olmali")
-    reindex_recommended = rag.get("reindex_recommended", bool(stale_reasons))
+    reindex_recommended = rag.get(
+        "reindex_recommended", index_freshness == "stale" or bool(stale_reasons)
+    )
     if not isinstance(reindex_recommended, bool):
         raise ValidationFailed("Research RAG reindex_recommended boolean olmali")
     if index_freshness == "stale" or stale_reasons or snapshot_only:
