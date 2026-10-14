@@ -18,7 +18,8 @@ from zekam.application.idea_proposals import (
     review_idea_proposals,
 )
 from zekam.domain.errors import ValidationFailed, ZekamError
-from zekam.interfaces.cli.session import fail_from
+from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlite_operational_store
 
 app = typer.Typer(name="idea", help="Salt okunur fikir proposal ve review", no_args_is_help=True)
 console = Console()
@@ -132,3 +133,64 @@ def work_plan_command(
     except ZekamError as exc:
         raise fail_from(exc) from exc
     _emit(plan, output_json)
+
+
+@app.command("work-create")  # type: ignore[untyped-decorator]
+def work_create_command(
+    proposal_json: Annotated[str, typer.Argument(help="Proposal JSON")],
+    project: Annotated[str, typer.Option("--project", help="Explicit project scope")],
+    approval_scope_digest: Annotated[str, typer.Option("--approval-scope-digest")],
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Explicit approval sonrasi fikir proposal'ini SQLite Work olarak kaydeder."""
+
+    try:
+        proposal = idea_proposal_from_dict(_parse_json(proposal_json))
+        plan = build_work_transition_plan(
+            proposal,
+            project_ref=project,
+            approved=True,
+            approval_scope_digest=approval_scope_digest,
+        )
+        if not apply:
+            _emit(plan, output_json)
+            return
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            project_row = uow.resolve_project(project)
+            work = uow.create_work(
+                project_id=project_row.id,
+                kind="idea",
+                title=proposal.title,
+                state="proposed",
+                payload={
+                    "summary": proposal.summary,
+                    "acceptance_criteria": [
+                        "Idea proposal review and explicit follow-up",
+                        f"proposal-digest:{proposal.proposal_digest}",
+                        f"scope-digest:{plan['scope_digest']}",
+                        f"impact:{proposal.impact}",
+                        f"risk:{proposal.risk}",
+                    ],
+                },
+            )
+            uow.commit()
+        document = plan | {
+            "state": "work-created",
+            "creates_work": True,
+            "work": {
+                "id": work.id,
+                "project_id": work.project_id,
+                "kind": work.kind,
+                "state": work.state,
+                "title": work.title,
+                "revision": work.revision,
+            },
+        }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    _emit(document, output_json)

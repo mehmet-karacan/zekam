@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -63,3 +64,97 @@ def test_idea_cli_propose_review_and_work_plan_are_provider_free() -> None:
     assert proposal["proposal_digest"] == digest(
         {key: value for key, value in proposal.items() if key != "proposal_digest"}
     )
+
+
+def test_idea_work_create_requires_exact_approval_scope_and_writes_canonical_work(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    home = tmp_path / "home"
+    source = tmp_path / "demo"
+    source.mkdir()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    added = runner.invoke(
+        app,
+        [
+            "project",
+            "add",
+            str(source),
+            "--slug",
+            "demo",
+            "--uygula",
+            "--home",
+            str(home),
+        ],
+    )
+    assert added.exit_code == 0, added.output
+    proposed = runner.invoke(
+        app,
+        [
+            "idea",
+            "propose",
+            "Arama",
+            "Benzer kanitlari sirala",
+            "--impact",
+            "Daha iyi citation",
+            "--risk",
+            "medium",
+            "--project",
+            "demo",
+            "--json",
+        ],
+    )
+    assert proposed.exit_code == 0, proposed.output
+    plan = runner.invoke(
+        app,
+        ["idea", "work-plan", proposed.output, "--project", "demo", "--json"],
+    )
+    assert plan.exit_code == 0, plan.output
+    scope_digest = json.loads(plan.output)["scope_digest"]
+
+    rejected = runner.invoke(
+        app,
+        [
+            "idea",
+            "work-create",
+            proposed.output,
+            "--project",
+            "demo",
+            "--approval-scope-digest",
+            digest("wrong-scope"),
+            "--uygula",
+            "--home",
+            str(home),
+        ],
+    )
+    assert rejected.exit_code != 0
+    assert "eslesmiyor" in rejected.output
+
+    created = runner.invoke(
+        app,
+        [
+            "idea",
+            "work-create",
+            proposed.output,
+            "--project",
+            "demo",
+            "--approval-scope-digest",
+            scope_digest,
+            "--uygula",
+            "--json",
+            "--home",
+            str(home),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    document = json.loads(created.output)
+    assert document["state"] == "work-created"
+    assert document["creates_work"] is True
+    assert document["work"]["kind"] == "idea"
+
+    listed = runner.invoke(
+        app,
+        ["work", "list", "--proje", "demo", "--json", "--home", str(home)],
+    )
+    assert listed.exit_code == 0, listed.output
+    assert json.loads(listed.output)[0]["type"] == "idea"

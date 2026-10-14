@@ -179,6 +179,12 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         mutating=False,
     ),
     CommandContract(
+        "idea work-create",
+        "Onayli fikir proposal'ini Work olarak kaydeder",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
+    CommandContract(
         "knowledge ingest",
         "Belgeyi normalize eder ve aktive eder",
         mutating=True,

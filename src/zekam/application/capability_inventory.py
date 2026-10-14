@@ -183,11 +183,17 @@ CAPABILITIES: tuple[Capability, ...] = (
         "ideas",
         "Idea generation, review and promotion",
         "partial",
-        ("idea propose", "idea review", "idea work-plan", "knowledge note_kind=idea"),
+        (
+            "idea propose",
+            "idea review",
+            "idea work-plan",
+            "idea work-create",
+            "knowledge note_kind=idea",
+        ),
         ("zekam-memory-curator",),
         ("tests/unit/test_intake.py", "tests/unit/test_idea_proposals.py"),
-        "Proposal/review is read-only and secret-free; persistence and Work creation still "
-        "require an explicit future effect bridge.",
+        "Proposal/review is read-only and secret-free; durable proposal promotion still "
+        "requires a separate explicit effect.",
     ),
     Capability(
         "reports",
