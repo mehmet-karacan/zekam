@@ -62,7 +62,7 @@ NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
 NON_SEMANTIC_BASELINE_DIMENSION = 1024
 REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
 REAL_EMBEDDING_DIMENSION = 1024
-INDEXER_VERSION = "zekam-project-source-indexer/v2"
+INDEXER_VERSION = "zekam-project-source-indexer/v3"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
 
@@ -106,7 +106,7 @@ _SUPPORTED_SUFFIXES = frozenset(
 _SUPPORTED_NAMES = frozenset({"dockerfile", "makefile"})
 _STRUCTURAL_CODE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".ts", ".tsx"})
 _MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
-_STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function)\b")
+_STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function|enum|record)\b")
 _STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _MARKDOWN_HEADING = re.compile(r"^\s{0,3}(?P<marks>#{1,6})\s+(?P<title>\S.*?)\s*$")
 _MARKDOWN_LIST = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")

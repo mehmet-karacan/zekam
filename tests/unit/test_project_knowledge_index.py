@@ -94,6 +94,16 @@ def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
             "export function add(a: number, b: number) { return a + b; }\n",
             "add",
         ),
+        (
+            "Status.java",
+            "package app;\npublic enum Status { READY, DONE; }\n",
+            "Status",
+        ),
+        (
+            "Point.java",
+            "public record Point(int x, int y) {}\n",
+            "Point",
+        ),
     ],
 )
 def test_structural_code_units_extract_top_level_declarations(
@@ -103,12 +113,13 @@ def test_structural_code_units_extract_top_level_declarations(
     symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
     assert [unit.locator.symbol for unit in symbols] == [symbol]
     expected = (
-        source[source.index("public class") :].strip()
+        source[source.index("public") :].strip()
         if relative_path.endswith(".java")
         else source.strip()
     )
     assert symbols[0].text == expected
-    assert symbols[0].order == (4 if relative_path.endswith(".java") else 3)
+    expected_order = 4 if relative_path.endswith(".java") and "package app;" in source else 3
+    assert symbols[0].order == expected_order
 
 
 def test_structural_code_units_ignore_braces_in_literals_and_nested_declarations() -> None:

@@ -1631,6 +1631,17 @@ Yeni erken-reddetme testi ile parser + manifest kabul paketi **19 passed**,
 Bu dilim DOCX merkezi dizin metadata baskisini azaltir; WP-04.05'in diger belge
 yuzeyleri, tam format matrisi ve canli/release kabulleri halen aciktir.
 
+### 10.19 15 Ekim 2026 Java structural declaration dilimi
+
+Proje kaynak indeksleyicisi, Java ve polyglot yapisal parcaciklarda ust duzey
+`enum` ve `record` bildirimlerini de isim, satir araligi ve `SYMBOL` locator'i ile
+ayirir. Dengesiz veya belirsiz kaynaklar icin bounded satir fallback'i korunur;
+indexer surumu 3'e yukseltildi. Ilgili unit ve embedding boundary paketi
+**40 passed** verdi; Ruff ve `git diff --check` temizdir.
+
+Bu dar dilim WP-04.03'un Java declaration boslugunu kapatir; AST/Tree-sitter
+kalitesi, diger dil yuzeyleri ve tam kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
