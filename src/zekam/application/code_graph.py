@@ -230,7 +230,8 @@ def _discover_source_files(source_root: Path) -> list[Path]:
         if any(part.casefold() in _GENERATED_GRAPH_DIRS for part in relative.parts):
             continue
         if any(
-            part in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
+            part.casefold()
+            in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
             for part in relative.parts
         ):
             continue

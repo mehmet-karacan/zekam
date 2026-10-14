@@ -60,3 +60,24 @@ def test_graph_plan_skips_symlinked_source_file(tmp_path: Path) -> None:
     )
 
     assert [path for path, _digest in plan.file_manifests] == ["real.py"]
+
+
+def test_graph_plan_skips_casefolded_generated_and_tool_dirs(tmp_path: Path) -> None:
+    source_root = tmp_path / "project"
+    source_root.mkdir()
+    (source_root / "main.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+    for directory in (".GIT", ".VENV", ".PYTEST_CACHE"):
+        hidden = source_root / directory
+        hidden.mkdir()
+        (hidden / "ignored.py").write_text("def ignored():\n    return 0\n", encoding="utf-8")
+
+    plan = plan_graph_build(
+        source_root,
+        project_id="casefold-paths",
+        project_slug="casefold-paths",
+        source_revision="r1",
+        extractor=PolyglotStructuralExtractor(),
+        created_at="2026-10-15T00:00:00Z",
+    )
+
+    assert [path for path, _digest in plan.file_manifests] == ["main.py"]

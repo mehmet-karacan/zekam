@@ -1779,6 +1779,16 @@ fail-closed akis korunur.
 Bu dar dilim WP-04.06/06.03'un kaynak okuma hata siniflamasini daraltir;
 tam discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.33 15 Ekim 2026 graph deny dizin casefold kapisi
+
+Graph source discovery, `.git`, `.venv`, `__pycache__`, `.mypy_cache` ve
+`.pytest_cache` deny dizinlerini casefold ederek Windows/POSIX adlandirma
+farkinda da izlemeye almaz. Kaynak manifesti yalniz izinli authored dosyalari
+icerir; digest ve plan sirasi korunur.
+
+Bu dar dilim WP-04.01/06.03'un deny-tree metadata boslugunu daraltir; tam
+discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
