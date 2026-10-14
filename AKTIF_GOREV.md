@@ -1600,6 +1600,24 @@ koruyor; bu siniri ready veya tamamlandi diye etiketlemek kanit sozlesmesine ayk
 shell transport authorization ledger'ini ise ayri typed adapter olarak tamamla; mevcut hostta
 global migration apply veya provider cagrisi yapma.
 
+### 10.17 15 Ekim 2026 son yerel dogrulama
+
+Son kaynak degisikliklerinden sonra `PYTHONPATH=src` ile final yerel shard kosulari
+yenilendi. Capability/health, parser, research ve project-RAG focused paketi **172
+passed** verdi; a-f unit shard'i tek Windows process'inde **841 passed, 63 skipped**,
+n-r unit shard'i **1612 passed, 52 skipped**, e2e shard'i **226 passed, 48 skipped**,
+integration+architecture+property+security shard'i **638 passed, 253 skipped**
+verdi. Diger unit shard'lari da hata vermeden tamamlandi. Paralel kosuda gorulen
+iki Windows ACL/rename yarisi tekli kosuda tekrarlanmadı; hedef testler tekli
+kosuda **2 passed** oldu. Paket validatori `status=passed`, Ruff ve `git diff --check`
+temizdir. Skip'ler Windows symlink yetkisi, macOS/POSIX modulleri, bulunmayan native
+CLI ve erisilemeyen gercek kaynak/provider fixture'lari olarak ayri tutuldu.
+
+Bu yerel kanit native istemci, canli provider/model, harici Jira/Confluence/ODI,
+gercek Java hedefi, scheduler/restore cihaz kabulü ve release GATE-I/GATE-U kapilarini
+kapalmaz. `next_safe_action`, bu yetkili kanitlari ayri scope'ta toplamak ve acik
+kutulari `ready` olarak isaretlememektir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
