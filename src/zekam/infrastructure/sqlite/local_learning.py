@@ -35,6 +35,7 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.learning import MINIMUM_SKILL_TRIALS, FailureOccurrence, SkillEvaluation
 from zekam.domain.memory import MemoryCandidate
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_file,
@@ -565,12 +566,16 @@ class SQLiteLocalLearning:
         effects_root: Path | None = None,
         skill_runtime_verifier: SkillRuntimeVerifier | None = None,
     ) -> None:
-        if type(path) is not type(Path()) or not path.is_absolute() or path.is_symlink():
+        if (
+            type(path) is not type(Path())
+            or not path.is_absolute()
+            or path_or_parent_is_link_or_reparse(path)
+        ):
             raise ValidationFailed("WP-09 exact absolute SQLite path required")
         if (
             type(operational_path) is not type(Path())
             or not operational_path.is_absolute()
-            or operational_path.is_symlink()
+            or path_or_parent_is_link_or_reparse(operational_path)
             or operational_path == path
         ):
             raise ValidationFailed("WP-09 distinct operational evidence path required")
@@ -580,6 +585,7 @@ class SQLiteLocalLearning:
             type(effects_root) is not type(Path())
             or not effects_root.is_absolute()
             or ".." in effects_root.parts
+            or path_or_parent_is_link_or_reparse(effects_root)
         ):
             raise ValidationFailed("WP-09 skill effects exact absolute root required")
         self.effects_root = effects_root
@@ -596,7 +602,10 @@ class SQLiteLocalLearning:
         return self.skill_runtime_verifier
 
     def _operational(self) -> sqlite3.Connection:
-        if not private_regular(self.operational_path):
+        if (
+            path_or_parent_is_link_or_reparse(self.operational_path)
+            or not private_regular(self.operational_path)
+        ):
             raise PolicyViolation("WP-09 operational evidence identity required")
         observed = operational_status(self.operational_path)
         if (
@@ -739,7 +748,7 @@ class SQLiteLocalLearning:
             type(backup_path) is not type(Path())
             or not backup_path.is_absolute()
             or backup_path == self.path
-            or backup_path.is_symlink()
+            or path_or_parent_is_link_or_reparse(backup_path)
         ):
             raise ValidationFailed("Learning v2 backup target exact absolute file olmali")
         if backup_path.exists():

@@ -43,6 +43,7 @@ from zekam.domain.model_benchmark import (
     benchmark_verifier_effect_digest,
 )
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_tree,
@@ -307,7 +308,12 @@ def parse_score(value: object) -> float:
 @final
 class SQLiteLocalBenchmarkLab:
     def __init__(self, path: Path, artifact_root: Path) -> None:
-        if not path.is_absolute() or path.is_symlink() or not artifact_root.is_absolute():
+        if (
+            not path.is_absolute()
+            or path_or_parent_is_link_or_reparse(path)
+            or not artifact_root.is_absolute()
+            or path_or_parent_is_link_or_reparse(artifact_root)
+        ):
             raise ValidationFailed("Local benchmark paths must be absolute and non-symlink")
         self.path = path
         self.artifact_root = artifact_root
@@ -328,7 +334,7 @@ class SQLiteLocalBenchmarkLab:
         """Narrow an existing benchmark tree to the canonical private ACL."""
 
         root = self.path.parent
-        if not root.is_dir() or root.is_symlink():
+        if not root.is_dir() or path_or_parent_is_link_or_reparse(root):
             raise PolicyViolation("Local benchmark security root invalid")
         if (
             private_directory(root)
@@ -344,7 +350,7 @@ class SQLiteLocalBenchmarkLab:
             raise PolicyViolation("Local benchmark private ACL verification failed")
 
     def _connect(self) -> sqlite3.Connection:
-        if not private_regular(self.path):
+        if path_or_parent_is_link_or_reparse(self.path) or not private_regular(self.path):
             raise PolicyViolation("Local benchmark database identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row

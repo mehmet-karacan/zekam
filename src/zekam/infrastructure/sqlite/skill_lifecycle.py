@@ -22,7 +22,10 @@ from zekam.domain.personal_skill import (
     SkillScopeKind,
     assert_invocation_transition,
 )
-from zekam.infrastructure.local_file_security import private_regular
+from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
+    private_regular,
+)
 from zekam.infrastructure.sqlite.local_learning import (
     SCHEMA_DIGEST,
     SCHEMA_VERSION,
@@ -178,15 +181,18 @@ class SQLiteSkillLifecycle:
             not learning_path.is_absolute()
             or not operational_path.is_absolute()
             or learning_path == operational_path
-            or learning_path.is_symlink()
-            or operational_path.is_symlink()
+            or path_or_parent_is_link_or_reparse(learning_path)
+            or path_or_parent_is_link_or_reparse(operational_path)
         ):
             raise ValidationFailed("Personal skill exact distinct SQLite paths required")
         self.learning_path = learning_path
         self.operational_path = operational_path
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
-        if not private_regular(self.learning_path):
+        if (
+            path_or_parent_is_link_or_reparse(self.learning_path)
+            or not private_regular(self.learning_path)
+        ):
             raise PolicyViolation("Personal skill learning store identity invalid")
         mode = "ro" if read_only else "rw"
         db = sqlite3.connect(
@@ -220,7 +226,10 @@ class SQLiteSkillLifecycle:
         operation: str | None = None,
         effect_digest: str | None = None,
     ) -> str:
-        if not private_regular(self.operational_path):
+        if (
+            path_or_parent_is_link_or_reparse(self.operational_path)
+            or not private_regular(self.operational_path)
+        ):
             raise PolicyViolation("Personal skill operational evidence identity invalid")
         observed = operational_status(self.operational_path)
         if not (observed.integrity_ok and observed.schema_ok):
