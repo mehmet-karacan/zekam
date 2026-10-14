@@ -174,7 +174,13 @@ def load_project_oracle_datasource(root: Path, relative_path: str) -> OracleData
     """Load one explicit Spring profile without exposing credential values."""
 
     path = _secure_config_path(root, relative_path)
-    raw = path.read_bytes()
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_CONFIG_BYTES + 1)
+    except OSError as exc:
+        raise ConfigurationError("Oracle datasource config okunamadi") from exc
+    if len(raw) > MAX_CONFIG_BYTES:
+        raise ConfigurationError("Oracle datasource config boyut siniri asildi")
     try:
         document = yaml.load(raw.decode("utf-8"), Loader=_ExactYamlLoader) or {}
     except (UnicodeDecodeError, yaml.YAMLError):

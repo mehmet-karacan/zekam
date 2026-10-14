@@ -2109,6 +2109,16 @@ link ve digest drift kapilari korunur.
 Bu dar dilim WP-04.01/06.03 graph kaynak bellek boslugunu daraltir; tam parser,
 resolver ve native repository kabul matrisi halen aciktir.
 
+### 10.66 15 Ekim 2026 Oracle config stream kapisi
+
+Oracle datasource YAML'i guvenli path boyut kontrolunden sonra da
+`MAX_CONFIG_BYTES + 1` bounded stream ile okunur. Dosya yarista buyurse veya
+limit asarsa credential parse edilmeden typed configuration hatasiyla durur;
+secret degerleri yine process memory disina cikmaz.
+
+Bu dar dilim WP-04.05 Oracle config kaynak tuketimi boslugunu daraltir; gercek
+Oracle provider, metadata ve release kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
