@@ -1759,6 +1759,16 @@ plan sirasi degismez.
 Bu dar dilim WP-04.01/06.03'un graph source ownership ve path guvenligi
 boslugunu daraltir; tam discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.31 15 Ekim 2026 graph apply link drift kapisi
+
+Graph build plan'i olustuktan sonra kaynak dosyasi symlink veya reparse point'e
+donusturulursa apply asamasinda yeniden denetlenir ve digest okunmadan
+`ValidationFailed` ile durur. Boylece plan zamanindaki guvenli path kaniti,
+uygulama zamanindaki kaynak degisimiyle gecersizlesmez.
+
+Bu dar dilim WP-04.06/06.03'un plan/apply source ownership boslugunu daraltir;
+tam discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

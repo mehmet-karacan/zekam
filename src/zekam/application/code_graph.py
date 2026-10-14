@@ -284,6 +284,8 @@ def apply_graph_build(
     symbols: list[GraphSymbol] = []
     edges: list[GraphEdge] = []
     for relative_path, content_digest in plan.file_manifests:
+        if _has_link_component(source_root, Path(relative_path)):
+            raise ValidationFailed("Graph source link/reparse drift")
         content = (source_root / relative_path).read_bytes()
         if len(content) > MAX_GRAPH_SOURCE_BYTES:
             raise ValidationFailed("Graph source dosya boyut sinirini asiyor")

@@ -7,6 +7,7 @@ from typing import Protocol
 
 import pytest
 
+from zekam.application import code_graph as code_graph_module
 from zekam.application.code_graph import (
     GraphFileExtraction,
     apply_graph_build,
@@ -15,6 +16,7 @@ from zekam.application.code_graph import (
 from zekam.application.code_graph_python import PythonAstExtractor
 from zekam.domain.canonical import digest
 from zekam.domain.code_graph import GraphFile
+from zekam.domain.errors import ValidationFailed
 from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 
 pytestmark = pytest.mark.unit
@@ -185,5 +187,31 @@ def test_extractor_profile_version_change_new_generation(tmp_path: Path) -> None
         current = store.generation(_PROJECT_ID)
         assert current.generation_digest == second
         assert current.extractor_profile_digest == override.profile_digest
+    finally:
+        store.close()
+
+
+def test_apply_rejects_link_drift_after_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = _write(tmp_path, {"mod.py": "def f():\n    return 1\n"})
+    extractor = PythonAstExtractor()
+    plan = plan_graph_build(
+        source_root,
+        project_id=_PROJECT_ID,
+        project_slug=_SLUG,
+        source_revision=_REVISION,
+        extractor=extractor,
+        created_at=_CREATED_AT,
+    )
+    monkeypatch.setattr(
+        code_graph_module,
+        "_is_link_or_reparse",
+        lambda candidate: candidate == source_root / "mod.py",
+    )
+    store = SQLiteCodeGraphStore(tmp_path / "g.sqlite3", create=True)
+    try:
+        with pytest.raises(ValidationFailed, match="link/reparse"):
+            apply_graph_build(store, extractor, source_root, plan)
     finally:
         store.close()
