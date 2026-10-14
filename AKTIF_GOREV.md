@@ -2071,6 +2071,16 @@ config typed policy hatasiyla durur; eksik okuma digest veya efekt kaniti sayilm
 Bu dar dilim WP-02/07 MCP config bellek ve drift boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.62 15 Ekim 2026 Client integration journal ve receipt kapisi
+
+Client integration pending journal, sync receipt ve rollback receipt JSON
+okumalari ortak 4 MiB bounded regular-file okuyucusundan gecer. Oversized,
+linkli, ozel veya okunamayan dosya recovery/rollback basarisi uretmeden typed
+policy hatasi ya da invalid journal sinifina doner.
+
+Bu dar dilim WP-02/07 crash recovery ve rollback kanitlarinin bellek boslugunu
+daraltir; gercek native multi-client kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

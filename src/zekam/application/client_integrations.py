@@ -110,6 +110,14 @@ def _read_integration_file(path: Path, *, label: str) -> bytes:
         raise PolicyViolation(f"CLI integration {label} okunamadi") from exc
 
 
+def _read_integration_json(path: Path, *, label: str) -> Any:
+    try:
+        payload = _read_integration_file(path, label=label)
+        return json.loads(payload.decode("utf-8", errors="strict"))
+    except (PolicyViolation, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PolicyViolation(f"CLI integration {label} JSON okunamadi") from exc
+
+
 def _contains_secret_assignment(path: Path) -> bool:
     try:
         return bool(_SECRET_ASSIGNMENT.search(_read_integration_file(path, label="secret scan")))
@@ -1068,8 +1076,8 @@ def _load_pending_journal(path: Path) -> dict[str, Any] | None:
     if not path.is_file() or path.is_symlink():
         return None
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        loaded = _read_integration_json(path, label="pending journal")
+    except PolicyViolation:
         return None
     if not isinstance(loaded, dict):
         return None
@@ -1879,8 +1887,8 @@ def sync_receipt_by_digest(
     if not path.is_file() or path.is_symlink():
         raise PolicyViolation("CLI integration receipt missing")
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = _read_integration_json(path, label="receipt")
+    except PolicyViolation as exc:
         raise PolicyViolation("CLI integration receipt unreadable") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("CLI integration receipt invalid")
@@ -1993,8 +2001,8 @@ def build_rollback_plan(
     if not path.is_file() or path.is_symlink():
         raise ValidationFailed("CLI integration rollback receipt bulunamadi")
     try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        receipt = _read_integration_json(path, label="rollback receipt")
+    except PolicyViolation as exc:
         raise ValidationFailed("CLI integration rollback receipt okunamadi") from exc
     if not isinstance(receipt, dict):
         raise ValidationFailed("CLI integration rollback receipt gecersiz")
@@ -2008,8 +2016,8 @@ def build_rollback_plan(
     completed: dict[str, Any] | None = None
     if rollback_path.is_file() and not rollback_path.is_symlink():
         try:
-            loaded = json.loads(rollback_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            loaded = _read_integration_json(rollback_path, label="rollback receipt")
+        except PolicyViolation as exc:
             raise PolicyViolation("CLI integration rollback receipt unreadable") from exc
         if not isinstance(loaded, dict):
             raise PolicyViolation("CLI integration rollback receipt invalid")
@@ -2228,8 +2236,8 @@ def rollback_receipt(
     if not path.is_file() or path.is_symlink():
         raise PolicyViolation("CLI integration rollback receipt missing")
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = _read_integration_json(path, label="rollback receipt")
+    except PolicyViolation as exc:
         raise PolicyViolation("CLI integration rollback receipt unreadable") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("CLI integration rollback receipt invalid")

@@ -37,3 +37,14 @@ def test_integration_digest_rejects_oversized_config(tmp_path: Path) -> None:
 
     with pytest.raises(PolicyViolation, match="boyut siniri"):
         client_integrations._file_digest(target)
+
+
+def test_integration_json_reader_is_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "receipt.json"
+    monkeypatch.setattr(client_integrations, "MAX_INTEGRATION_FILE_BYTES", 8)
+    target.write_bytes(b'{"x": 10}')
+
+    with pytest.raises(PolicyViolation, match="JSON okunamadi"):
+        client_integrations._read_integration_json(target, label="receipt")
