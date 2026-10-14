@@ -1154,6 +1154,11 @@ def test_compaction_low_level_database_and_transaction_guards(
     deadline = compaction_contract._issue_deadline(writer.generation, lambda: 1_000_000_000)
     with pytest.raises(ConfigurationError, match="regular database"):
         writer._connect(deadline)
+    writer.path = tmp_path / "reparse.db"
+    writer.path.write_bytes(b"sqlite")
+    monkeypatch.setattr(compact, "_is_link_or_reparse", lambda _path: True)
+    with pytest.raises(ConfigurationError, match="regular database"):
+        writer._connect(deadline)
     monkeypatch.setattr(operational_schema, "_validate_connection", lambda _db: 3)
     with pytest.raises(ConfigurationError, match="explicit V4"):
         writer._schema(cast(Any, object()))

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -57,6 +58,20 @@ from zekam.infrastructure.sqlite import operational_schema
 from zekam.infrastructure.sqlite.continuity_native_verifier import (
     verify_reviewed_hook_commands,
 )
+
+_REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    """V4 veritabaninda symlink ve Windows reparse noktalarini reddet."""
+
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT
+    )
 
 
 def _job_payload(binding: ContinuityBinding, request_digest: str) -> dict[str, Any]:
@@ -129,7 +144,7 @@ class SQLiteDormantV4CloseWriter:
             raise PolicyViolation("V4 close projection evidence unavailable") from exc
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
-        if self.path.is_symlink() or not self.path.is_file():
+        if _is_link_or_reparse(self.path) or not self.path.is_file():
             raise ConfigurationError("V4 close existing regular database required")
         mode = "ro" if read_only else "rw"
         connection = sqlite3.connect(

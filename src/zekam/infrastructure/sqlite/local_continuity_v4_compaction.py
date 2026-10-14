@@ -81,7 +81,10 @@ from zekam.infrastructure.sqlite.local_continuity_source_authority import (
     _validated_candidate,
     local_source_authority_path,
 )
-from zekam.infrastructure.sqlite.local_continuity_v4_writer import SQLiteDormantV4CloseWriter
+from zekam.infrastructure.sqlite.local_continuity_v4_writer import (
+    SQLiteDormantV4CloseWriter,
+    _is_link_or_reparse,
+)
 
 _NS = UUID("018f0000-0000-7000-8000-000000000152")
 _TOPOLOGY = "native-fork-shell-exec-launcher-exec-runtime/v1"
@@ -211,7 +214,7 @@ def resolve_existing_precompaction_binding(
     if (
         type(path) is not type(Path())
         or not path.is_absolute()
-        or path.is_symlink()
+        or _is_link_or_reparse(path)
         or type(cwd) is not type(Path())
         or not cwd.is_absolute()
     ):
@@ -1082,7 +1085,7 @@ class _SQLiteDormantV4PreCompactionWriter:
 
     def _connect(self, deadline: SealedPreCompactionDeadline, *, read_only: bool = False) -> Db:
         deadline.assert_generation(self.generation)
-        if self.path.is_symlink() or not self.path.is_file():
+        if _is_link_or_reparse(self.path) or not self.path.is_file():
             raise ConfigurationError("PreCompact existing regular database required")
         remaining = deadline.remaining_seconds(reserve_ms=PRECOMPACT_FINAL_RESERVE_MS)
         mode = "ro" if read_only else "rw"

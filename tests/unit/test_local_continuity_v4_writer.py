@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+import stat
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -24,7 +26,8 @@ from zekam.application.local_continuity_v4_writer import (
     revision_digest,
 )
 from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.errors import ValidationFailed
+from zekam.domain.errors import ConfigurationError, ValidationFailed
+from zekam.infrastructure.sqlite import local_continuity_v4_writer as writer
 
 pytestmark = pytest.mark.unit
 
@@ -209,6 +212,26 @@ def test_derived_keys_preserve_bounded_explicit_base() -> None:
     assert derived_operation_key("close", "pre-close") == "close:pre-close"
     with pytest.raises(ValidationFailed):
         derived_operation_key("x" * 510, "pre-close")
+
+
+def test_v4_close_database_reparse_metadata_is_rejected_without_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "operational.db"
+    path.write_bytes(b"sqlite")
+
+    class _ReparseInfo:
+        st_mode = stat.S_IFREG
+        st_file_attributes = 0x400
+
+    monkeypatch.setattr(type(path), "lstat", lambda _self: _ReparseInfo())
+    assert writer._is_link_or_reparse(path) is True
+
+    instance = object.__new__(writer.SQLiteDormantV4CloseWriter)
+    instance.path = path
+    instance.busy_timeout_ms = 5000
+    with pytest.raises(ConfigurationError, match="regular database"):
+        instance._connect()
 
 
 def test_source_snapshot_and_resolved_fragment_are_exact_frozen_values() -> None:
