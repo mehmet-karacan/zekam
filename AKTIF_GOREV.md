@@ -1256,7 +1256,8 @@ OpenCode v2 degisikligi sonrasinda dogal dil routing ve RAG yuzeyleri provider-f
   tests/unit/test_natural_request_retrieval.py tests/unit/test_natural_request_answer.py`:
   `116 passed`.
 - `tests/integration/test_natural_request_evidence.py tests/integration/test_natural_request_cli_fanout.py`:
-  `21 passed, 1 skipped`; Windows symlink yetkisi olmayan negatif fixture `not-run` kaldi.
+  `22 passed`; Windows symlink negatif fixture'i privilege gerektirmeyen reparse metadata
+  simulasyonu ile artik atlanmiyor.
 - `tests/e2e/test_natural_language_workspace_entry.py tests/e2e/test_cli_project_rag.py -k not real`:
   `24 passed, 2 deselected`.
 
@@ -1264,9 +1265,27 @@ Bu kanitlar deterministic proje/scope, citation kapisi ve offline RAG akisinin y
 gosterir. Gercek native discovery, Jira/Confluence/ODI okuma, canli model, performans qrels ve
 release acceptance yerine yazilmaz; WP-03.02/04/05 ve WP-12.02/03 acik kalir.
 
-`next_safe_action`: Windows symlink negatifini privilege gerektirmeyen junction/fixture ile
-yeniden kos; ardindan native compaction/tool hook ve canli kaynak kapilarini ayri evidence olarak
-topla. Kullaniciya ait untracked prototype/target yollarini stage etme.
+`next_safe_action`: native compaction/tool hook davranisini canli provider'dan ayri kabul siniri
+olarak koru; canli kaynak, performans ve release kapilarini tek tek kanitla. Kullaniciya ait
+untracked prototype/target yollarini stage etme.
+
+### 10.7 14 Ekim 2026 symlink ve V2 hook kaniti
+
+Windows'ta `CreateSymbolicLink` yetkisi olmadan kosan negatif test artik `skip` degil. Gercek
+symlink olusturulamayan ortamlarda yalniz hedef dosyanin `lstat` reparse/symlink metadata'sini
+fixture ile modelleyerek `session-file-symlink` fail-closed politikasini dogruluyor; kaynak
+icerigi veya sistem yetkisi degistirilmiyor. Integration evidence: `22 passed`.
+
+OpenCode V2 provider-free harness'i kayitla sinirli kalmayip kaydedilen callback'leri cagiriyor:
+`session:context` ve `session:compaction` resume packet'i output'a ekliyor; `tool:execute.before`
+ve `tool:execute.after` olaylari ayni call id ile lifecycle spool/event yuzeyine iletiyor.
+Native persistent OpenCode `2.0.29` kosusu da ayni committe `session.created` ve `session.deleted`
+olaylarini gercek server/client akisi ile `10 passed` olarak korudu. Canli model/provider, gercek
+native compaction ve tool calistirma, MCP/shell, harici kaynak ve release kabul kapilari halen
+`not-run`/acik; bu fixture kaniti bu kapilarin yerine gecmez.
+
+`next_safe_action`: canli kaynak ve model gerektiren kapilar icin yetkili ortami ve butceyi
+ayristir; native compaction/tool acceptance'i provider-free callback kanitindan ayri raporla.
 
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 

@@ -90,6 +90,7 @@ if (Bun.env.RUN_V2_SETUP === "1") {
   const pending = []
   const waiters = []
   const registrations = []
+  const callbacks = {}
   const push = (event) => {
     const waiter = waiters.shift()
     if (waiter) waiter(event)
@@ -109,15 +110,36 @@ if (Bun.env.RUN_V2_SETUP === "1") {
   await pluginV2.setup({
     location: { directory: process.cwd() },
     event: { subscribe },
-    session: { hook: async (name) => { registrations.push(`session:${name}`) } },
-    tool: { hook: async (name) => { registrations.push(`tool:${name}`) } },
+    session: { hook: async (name, callback) => {
+      registrations.push(`session:${name}`)
+      callbacks[`session:${name}`] = callback
+    } },
+    tool: { hook: async (name, callback) => {
+      registrations.push(`tool:${name}`)
+      callbacks[`tool:${name}`] = callback
+    } },
+  })
+  await Bun.sleep(50)
+  const contextEvent = { sessionID: "v2-context", system: [] }
+  const compactionEvent = { sessionID: "v2-compaction", context: [] }
+  await callbacks["session:context"](contextEvent)
+  await callbacks["session:compaction"](compactionEvent)
+  await callbacks["tool:execute.before"]({
+    sessionID: "v2-tool", callID: "v2-call", tool: "read", input: { filePath: "README.md" },
+  })
+  await callbacks["tool:execute.after"]({
+    sessionID: "v2-tool", callID: "v2-call", tool: "read",
   })
   push({ type: "session.created", data: { sessionID: "v2-created" } })
   push({ type: "session.deleted", data: { sessionID: "v2-deleted" } })
   await Bun.sleep(250)
   push(null)
   await Bun.sleep(50)
-  console.log(JSON.stringify({ registrations }))
+  console.log(JSON.stringify({
+    registrations,
+    contextSystem: contextEvent.system,
+    compactionContext: compactionEvent.context,
+  }))
   process.exit(0)
 }
 
@@ -202,9 +224,22 @@ def test_v2_setup_registers_hooks_and_forwards_lifecycle_events(tmp_path: Path) 
         "tool:execute.before",
         "tool:execute.after",
     }
+    assert any(
+        isinstance(item, dict) and str(item.get("text", "")).startswith("ZEKAM_RESUME_PACKET_V1")
+        for item in registration_document["contextSystem"]
+    )
+    assert any(
+        isinstance(item, dict) and str(item.get("text", "")).startswith("ZEKAM_RESUME_PACKET_V1")
+        for item in registration_document["compactionContext"]
+    )
     calls = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
     event_types = {call[call.index("--type") + 1] for call in calls if "--type" in call}
-    assert {"session.created", "session.deleted"} <= event_types
+    assert {
+        "session.created",
+        "session.deleted",
+        "tool.execute.before",
+        "tool.execute.after",
+    } <= event_types
 
 
 def _native_opencode() -> Path:

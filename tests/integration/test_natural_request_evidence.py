@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import stat
 from pathlib import Path
 
 import pytest
@@ -179,13 +180,26 @@ def test_secret_config_and_binary_are_rejected(bound_context: tuple[Path, Path, 
         )
 
 
-def test_symlink_file_is_rejected_when_supported(bound_context: tuple[Path, Path, str]) -> None:
+def test_symlink_file_is_rejected_without_platform_privilege(
+    bound_context: tuple[Path, Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     home, source, _work_id = bound_context
     target = source / "src" / "link.java"
     try:
         target.symlink_to(source / "src" / "Panel.java")
     except (OSError, NotImplementedError) as exc:
-        pytest.skip(f"symlink olusturulamadi: {exc}")
+        # Windows developer-mode/symlink privilege is not required to exercise
+        # the fail-closed validator.  Simulate the lstat metadata returned by
+        # a symlink so this negative case remains covered in restricted CI.
+        target.write_text("link placeholder\n", encoding="utf-8")
+        original_lstat = Path.lstat
+
+        def mocked_lstat(path: Path) -> os.stat_result:
+            if path == target:
+                return os.stat_result((stat.S_IFLNK, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+            return original_lstat(path)
+
+        monkeypatch.setattr(Path, "lstat", mocked_lstat)
     with pytest.raises(PolicyViolation, match="symlink"):
         verify_session_file(home, "sky-spring-ui", "src/link.java", _file_digest(source))
 
