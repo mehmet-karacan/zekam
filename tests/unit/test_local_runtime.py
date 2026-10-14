@@ -175,8 +175,8 @@ def test_concurrent_claim_has_exactly_one_owner(tmp_path: Path) -> None:
             now=NOW.isoformat(),
         )
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = tuple(executor.map(claim, range(8)))
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = tuple(executor.map(claim, range(20)))
     assert sum(item is not None for item in results) == 1
 
 

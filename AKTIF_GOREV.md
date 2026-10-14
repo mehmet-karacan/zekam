@@ -794,7 +794,7 @@ tam traversal kabul matrisi henuz yok; WP-04.02 acik kalir.
 **İncelenecek/değişecek konumlar:** `project_rag_runtime.py`, `project_knowledge_index.py`, `embedding_provider.py`, `embedding_routing.py`, `knowledge_index.py`, `embedded_project_rag.py`, `retrieval_service.py`, `infrastructure/sqlite/knowledge_index.py` ve mevcut provider ledger/cache.
 
 - [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
-- [ ] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
+- [x] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
 - [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
 - [ ] **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
 - [x] **WP-05.05** — Exact/lexical/dense/graph sinyallerini skor toplamıyla körlemesine karıştırma. Reranker yoksa açıklanmış fallback; query için gereksiz full-tree içerik/qualification tekrarı yapma; selected citation freshness'ini koru.
@@ -820,7 +820,18 @@ batch'i ve bir yeni embedding varken ikinci kosuda `cache_hits=1`, yeni
 embedding ve provider batch sayisi sifir kaldi; source revision degisti, tree
 digest ve profil kimligi korundu, generation digest'i yeni nesil olarak yayinlandi.
 `test_head_revision_change_reuses_document_embedding_cache` ile kanitlandi.
-WP-05.02'nin rename/delete ownership ve hazir generation kabul kaniti aciktir.
+
+**14 Ekim 2026 — WP-05.02 kapanis kaniti:** Ayni local SQLite indeks akisi
+rename ve delete degisimlerinde yalniz gereken nesli yayinladi. Ayni icerikli
+rename sonrasinda provider ikinci kez cagrilmadi (`cache_hits=1`, yeni embedding
+ve provider batch sayisi `0`); locator ve source ownership yeni yola baglandi.
+Delete sonrasinda silinen path current generation icinden cikti, kalan chunk'in
+vektoru yeniden kullanildi ve eski generation tarihce olarak korundu. `tests/
+integration/test_project_rag_pending_publish.py` icindeki HEAD, rename ve delete
+senaryolari birlikte **6 test** ile, local runtime race ekleriyle birlikte hedefli
+kosuda **82 test** ile gecti. WP-05.02 kapandi; batch/cancellation, staging
+uzlastirmasi ve kalite/performans kanitlari WP-05.03, WP-05.04 ve WP-05.06'da
+acik kalir.
 
 **13 Ekim 2026 ara durum — uc sinirli embedding batch:** Indeks plani
 ve uygulama ayni batch planlayicisini kullanir. Planlayici en fazla
@@ -1007,6 +1018,12 @@ yorum ve string icinden sahte edge uretilmez. Polyglot, negatif, domain, SQLite
 ve query/ranking graph testleri: 78 passed, 1 Windows symlink yetki skip'i.
 Gercek `gpu-fusion`, `sky-microservis` ve `sky-spring-ui` koklerinde persisted graph
 generation kabul kosusu henuz tamamlanmadigi icin WP-06.03 acik kalir.
+Provider ve remote cagri olmadan gercek `sky-spring-ui` kokunde 308 dosya,
+3.174 sembol ve 18.667 edge ile persisted graph generation olusturuldu;
+SQLite integrity ve ayni kaynak/revision ile deterministic digest tekrari
+gecti. Iki dosyada parse hatasi (`component/topluRapor/commons/Table.js`,
+`pages/DownloadButton.js`) kaldigi icin bu kosu temiz tam graph kabulu degildir
+ve WP-06.03 acik tutulur.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
@@ -1032,6 +1049,13 @@ drift'inde fail-closed reddeder. Native model/CLI devam testlerinde plan drift
 ve her uc fingerprint drift vakasi dahil 15 test gecti. Canonical Work/Run,
 lease/claim/receipt store binding'i ve mevcut grant'in kaynagindan yeniden
 dogrulanmasi henuz tamamlanmadigi icin WP-07.04 acik kalir.
+
+**14 Ekim 2026 — WP-07.03 kismi kanit:** Local runtime tek-yazar yarisi
+8 yerine 20 paralel worker ile tam bir owner sonucunu korudu. Efekt callback'i
+ayri SQLite baglantisinda `BEGIN IMMEDIATE` ve geri alma ile DB write lock'in
+efekt cagrisi boyunca tutulmadigini dogrudan sinadi. Iki yeni test ve mevcut
+integration kosusu birlikte gecti; process-level crash, provider/Maven canli
+kosusu ve tam recovery kabul matrisi henuz olmadigi icin WP-07.03 acik kalir.
 
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any, cast
 
@@ -87,6 +88,41 @@ def test_executor_exception_is_unknown_and_never_implicitly_retried(tmp_path: Pa
     assert store.status().recovery_jobs == store.status().open_recovery_cases == 1
     assert service.run_worker_once(owner_id="replacement", owner_pid=2, owner_token="two") is None
     assert calls == 1
+
+
+def test_effect_executor_runs_without_database_write_lock(tmp_path: Path) -> None:
+    path = tmp_path / "operational.db"
+    store = SQLiteLocalRuntimeStore(path)
+    store.enqueue(
+        idempotency_key="job",
+        payload={"operation": "test/v1", "effect": {"value": 1}},
+    )
+    write_probe: list[str] = []
+    probe_errors: list[str] = []
+
+    def execute(_request: LocalEffectRequest) -> LocalEffectResult:
+        try:
+            with sqlite3.connect(path, timeout=0.2) as connection:
+                connection.execute("pragma busy_timeout=200")
+                connection.execute("begin immediate")
+                connection.execute(
+                    "update local_job set updated_at=updated_at "
+                    "where id=(select id from local_job where idempotency_key='job')"
+                )
+                connection.rollback()
+        except Exception as exc:
+            probe_errors.append(type(exc).__name__)
+        write_probe.append("unlocked")
+        return LocalEffectResult("completed", digest("effect"))
+
+    service = LocalRuntimeService(
+        store,
+        effect_executor=cast(Any, execute),
+        outbox_publisher=lambda _claim: LocalDeliveryResult("delivered", digest("ok")),
+    )
+    assert service.run_worker_once(owner_id="worker", owner_pid=1, owner_token="one") is not None
+    assert probe_errors == []
+    assert write_probe == ["unlocked"]
 
 
 def test_worker_claims_only_the_executor_operation_allowlist(tmp_path: Path) -> None:

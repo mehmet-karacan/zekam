@@ -153,15 +153,18 @@ def _read_only_connection(index_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{index_path.as_uri()}?mode=ro", uri=True, timeout=5)
 
 
-def _init_git_source(root: Path) -> None:
+def _init_git_source(root: Path, files: dict[str, str] | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "README.md").write_text("ayni belge icerigi\n", encoding="utf-8")
+    for relative, content in (files or {"README.md": "ayni belge icerigi\n"}).items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(
         ["git", "-C", str(root), "config", "user.email", "test@example.invalid"], check=True
     )
     subprocess.run(["git", "-C", str(root), "config", "user.name", "test"], check=True)
-    subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(root), "commit", "-qm", "initial"], check=True)
 
 
@@ -189,48 +192,36 @@ def _test_embedding_profile() -> EmbeddingProfile:
     )
 
 
-def test_head_revision_change_reuses_document_embedding_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A source HEAD-only revision must reuse vectors and create a new generation."""
+class _CountingDocumentProvider:
+    def __init__(self, profile: EmbeddingProfile) -> None:
+        self.profile = profile
+        self.document_calls = 0
 
-    source_root = tmp_path / "source"
-    _init_git_source(source_root)
-    home = tmp_path / "home"
-    HomeLayout(home).ensure()
-    project_id = uuid4()
-    project_slug = "head-cache-reuse"
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+    def describe(self) -> EmbeddingProfile:
+        return self.profile
+
+    def embed_documents(self, texts: tuple[str, ...], policy: EmbeddingPolicy) -> EmbeddingBatch:
+        self.document_calls += 1
+        self.profile.assert_policy(policy)
+        vectors = tuple((1.0,) + (0.0,) * (self.profile.dimension - 1) for _ in texts)
+        receipt = EmbeddingReceipt(
+            purpose=EmbeddingPurpose.DOCUMENT,
+            profile_digest=self.profile.profile_digest,
+            input_digest=digest({"texts": list(texts), "purpose": EmbeddingPurpose.DOCUMENT.value}),
+            output_digest=digest(vectors),
+            vector_count=len(texts),
+            dimension=self.profile.dimension,
+            latency_ms=1,
+            provider_call_count=1,
+        )
+        return EmbeddingBatch(vectors=vectors, receipt=receipt)
+
+
+def _bind_counting_local_provider(
+    monkeypatch: pytest.MonkeyPatch, knowledge: KnowledgeSettings
+) -> tuple[_CountingDocumentProvider, EmbeddingProfile]:
     profile = _test_embedding_profile()
-
-    class _CountingProvider:
-        def __init__(self) -> None:
-            self.document_calls = 0
-
-        def describe(self) -> EmbeddingProfile:
-            return profile
-
-        def embed_documents(
-            self, texts: tuple[str, ...], policy: EmbeddingPolicy
-        ) -> EmbeddingBatch:
-            self.document_calls += 1
-            profile.assert_policy(policy)
-            vectors = tuple((1.0,) + (0.0,) * (profile.dimension - 1) for _ in texts)
-            receipt = EmbeddingReceipt(
-                purpose=EmbeddingPurpose.DOCUMENT,
-                profile_digest=profile.profile_digest,
-                input_digest=digest(
-                    {"texts": list(texts), "purpose": EmbeddingPurpose.DOCUMENT.value}
-                ),
-                output_digest=digest(vectors),
-                vector_count=len(texts),
-                dimension=profile.dimension,
-                latency_ms=1,
-                provider_call_count=1,
-            )
-            return EmbeddingBatch(vectors=vectors, receipt=receipt)
-
-    provider = _CountingProvider()
+    provider = _CountingDocumentProvider(profile)
     policy = EmbeddingPolicy(DataClassification.LOCAL_ONLY, profile.profile_digest)
     binding = runtime._EmbeddingBinding(
         provider=provider,
@@ -248,6 +239,54 @@ def test_head_revision_change_reuses_document_embedding_cache(
     )
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+    return provider, profile
+
+
+def _run_index(
+    source_root: Path,
+    home: Path,
+    project_id: Any,
+    project_slug: str,
+) -> dict[str, Any]:
+    return runtime._index(
+        source_root,
+        home,
+        project_id,
+        project_slug,
+        None,
+        None,
+        batch_size=8,
+    )
+
+
+def _ready_chunk_paths(index_path: Path, project_id: Any) -> tuple[str, ...]:
+    with SQLiteKnowledgeIndex(index_path, read_only=True) as index:
+        generation = index.generation(str(project_id))
+        connection = _read_only_connection(index_path)
+        try:
+            rows = connection.execute(
+                "select source_path from chunk where project_id=? and generation_digest=?"
+                " order by chunk_order, id",
+                (str(project_id), generation.generation_digest),
+            ).fetchall()
+        finally:
+            connection.close()
+    return tuple(str(row[0]) for row in rows)
+
+
+def test_head_revision_change_reuses_document_embedding_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source HEAD-only revision must reuse vectors and create a new generation."""
+
+    source_root = tmp_path / "source"
+    _init_git_source(source_root)
+    home = tmp_path / "home"
+    HomeLayout(home).ensure()
+    project_id = uuid4()
+    project_slug = "head-cache-reuse"
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+    provider, profile = _bind_counting_local_provider(monkeypatch, knowledge)
 
     first = runtime._index(
         source_root,
@@ -306,6 +345,105 @@ def test_head_revision_change_reuses_document_embedding_cache(
         ).fetchall()
     assert len(rows) == 1
     assert rows[0][0] == cache_scope
+
+
+def test_source_rename_reuses_vector_and_rebinds_locator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rename with unchanged text reuses the vector and owns the new source path."""
+
+    source_root = tmp_path / "source"
+    _init_git_source(source_root, {"docs/eski.md": "ayni rename icerigi\n"})
+    home = tmp_path / "home"
+    HomeLayout(home).ensure()
+    project_id = uuid4()
+    project_slug = "rename-cache-reuse"
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+    provider, _profile = _bind_counting_local_provider(monkeypatch, knowledge)
+
+    first = _run_index(source_root, home, project_id, project_slug)
+    subprocess.run(
+        ["git", "-C", str(source_root), "mv", "docs/eski.md", "docs/yeni.md"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source_root), "commit", "-qm", "rename-source"],
+        check=True,
+    )
+    second = _run_index(source_root, home, project_id, project_slug)
+
+    assert provider.document_calls == 1
+    assert first["newly_embedded_chunks"] == 1
+    assert second["cache_hits"] == 1
+    assert second["newly_embedded_chunks"] == 0
+    assert second["provider_batches"] == 0
+    assert first["repository_tree_digest"] != second["repository_tree_digest"]
+    assert first["generation_digest"] != second["generation_digest"]
+    assert _ready_chunk_paths(runtime._runtime_paths(home, project_slug)["index"], project_id) == (
+        "docs/yeni.md",
+    )
+
+    with sqlite3.connect(runtime._runtime_paths(home, project_slug)["index"]) as connection:
+        row = connection.execute(
+            "select source_path,locator_json,body from chunk where source_path=?",
+            ("docs/yeni.md",),
+        ).fetchone()
+    assert row is not None
+    assert json.loads(row[1])["relative_path"] == "docs/yeni.md"
+    assert row[2] == "ayni rename icerigi"
+
+
+def test_source_delete_removes_old_chunk_from_ready_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deleting one source removes its chunk while the remaining vector is reused."""
+
+    source_root = tmp_path / "source"
+    _init_git_source(
+        source_root,
+        {
+            "docs/eski.md": "silinen icerik\n",
+            "docs/keep.md": "kalacak icerik\n",
+        },
+    )
+    home = tmp_path / "home"
+    HomeLayout(home).ensure()
+    project_id = uuid4()
+    project_slug = "delete-cache-reuse"
+    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+    provider, _profile = _bind_counting_local_provider(monkeypatch, knowledge)
+
+    first = _run_index(source_root, home, project_id, project_slug)
+    subprocess.run(
+        ["git", "-C", str(source_root), "rm", "docs/eski.md"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source_root), "commit", "-qm", "delete-source"],
+        check=True,
+    )
+    second = _run_index(source_root, home, project_id, project_slug)
+
+    assert first["selected_file_count"] == 2
+    assert second["selected_file_count"] == 1
+    assert provider.document_calls == 1
+    assert first["provider_batches"] == 1
+    assert second["cache_hits"] == 1
+    assert second["newly_embedded_chunks"] == 0
+    assert second["provider_batches"] == 0
+    assert first["generation_digest"] != second["generation_digest"]
+    assert _ready_chunk_paths(runtime._runtime_paths(home, project_slug)["index"], project_id) == (
+        "docs/keep.md",
+    )
+
+    with sqlite3.connect(runtime._runtime_paths(home, project_slug)["index"]) as connection:
+        deleted = connection.execute(
+            "select 1 from chunk c join current_generation g"
+            " on g.project_id=c.project_id and g.generation_digest=c.generation_digest"
+            " where c.project_id=? and c.source_path=?",
+            (str(project_id), "docs/eski.md"),
+        ).fetchone()
+    assert deleted is None
 
 
 def test_staged_generation_keeps_old_ready_pointer(tmp_path: Path) -> None:
