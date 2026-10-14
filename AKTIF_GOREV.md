@@ -1309,6 +1309,28 @@ kapsamini kapatmaz. Ilgili WP-02..12 kutulari ve GATE-I/GATE-U bu nedenle acik k
 versiyon kapisini acma; yetkili sabit binary veya kullanici karari saglandiginda native matrisini
 ayri calistir. Harici kaynak ve canli model kaniti yokken `completed` sonucu uretme.
 
+### 10.9 14 Ekim 2026 ingestion ve checkpoint bag kaniti
+
+Iki yerel fail-closed acikligi kapatildi:
+
+- `DirectoryScanner` artik `Path.rglob` ile tum agaci once toplamiyor. Isim sirali iteratif
+  `os.scandir` traversal'i kullaniyor; symlink ve Windows reparse/junction girdileri hedefe
+  girilmeden `symlink izlenmez`/`symlink/junction izlenmez` karari aliyor. `max_entries` ve
+  `max_total_bytes` sinirlari dahil edilen her dosyada uygulanarak limit asiminda tarama hemen
+  duruyor. `tests/security/test_knowledge_security.py`: `12 passed, 1 skipped` (gercek symlink
+  kurulumu Windows yetkisi nedeniyle skip; reparse path kodda fail-closed).
+- SQLite `record_checkpoint` artik Run'daki `source_snapshot_id` ile checkpoint girdisini tam
+  eslestiriyor. Kaynakli Run'da snapshot'siz, kaynaksiz Run'da snapshotli checkpoint reddediliyor;
+  `tests/unit/test_operational_store.py`: `54 passed`; `tests/integration/test_native_continuity.py`:
+  `12 passed`.
+
+Bu kanit WP-04.02 ve WP-07.02/04 icin yerel guvenlik paritesini artirir; parser/format eligibility,
+gercek race/crash recovery, native devam, harici kaynak, canli model ve release kabul kapilarini
+tek basina kapatmaz. Kullaniciya ait untracked prototype/target yollarina dokunulmadi.
+
+`next_safe_action`: reparse/junction negatifini privilege-independent fixture ile security suite'e
+ekle; ardindan WP-04 parser/ZIP/XML kapsamlarini ve WP-07 lease/outbox crash kosularini ayri kanitla.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

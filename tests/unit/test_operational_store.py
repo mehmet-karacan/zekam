@@ -288,8 +288,16 @@ def test_checkpoint_requires_run_order_and_nonterminal_source_binding(tmp_path: 
             uow.record_checkpoint(
                 run_id=run.id,
                 sequence=2,
+                source_snapshot_id=snapshot.id,
                 checkpoint_digest=digest({"step": "later"}),
                 payload={"step": "later"},
+            )
+        with pytest.raises(ValidationFailed, match="source snapshot"):
+            uow.record_checkpoint(
+                run_id=run.id,
+                sequence=1,
+                checkpoint_digest=digest({"step": "missing-source"}),
+                payload={"step": "missing-source"},
             )
         first = uow.record_checkpoint(
             run_id=run.id,
@@ -303,9 +311,39 @@ def test_checkpoint_requires_run_order_and_nonterminal_source_binding(tmp_path: 
             uow.record_checkpoint(
                 run_id=run.id,
                 sequence=3,
+                source_snapshot_id=snapshot.id,
                 checkpoint_digest=digest({"step": "third"}),
                 payload={"step": "third"},
             )
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Unbound checkpoint",
+            state="ready",
+            payload_digest=digest("unbound-checkpoint"),
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            source_snapshot_id=None,
+            plan_digest=digest("unbound-plan"),
+            budget={},
+        )
+        with pytest.raises(ValidationFailed, match="source snapshot"):
+            uow.record_checkpoint(
+                run_id=run.id,
+                sequence=1,
+                source_snapshot_id=snapshot.id,
+                checkpoint_digest=digest({"step": "unexpected-source"}),
+                payload={"step": "unexpected-source"},
+            )
+        checkpoint = uow.record_checkpoint(
+            run_id=run.id,
+            sequence=1,
+            checkpoint_digest=digest({"step": "unbound"}),
+            payload={"step": "unbound"},
+        )
+        assert checkpoint.sequence == 1
         uow.commit()
 
 

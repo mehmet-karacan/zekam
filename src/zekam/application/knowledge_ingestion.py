@@ -8,6 +8,7 @@ symlink kacisi fail-closed uygulanir.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import stat
 import struct
@@ -47,6 +48,13 @@ SKIPPED_DIRECTORIES = frozenset(
 BINARY_SUFFIXES = frozenset(
     {".exe", ".dll", ".so", ".dylib", ".class", ".jar", ".pyc", ".bin", ".zip", ".gz", ".7z"}
 )
+_REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _is_reparse(info: os.stat_result) -> bool:
+    """Windows junction/reparse noktalarini symlink gibi fail-closed isaretle."""
+
+    return bool(int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT)
 
 # `package body` iki kelimelik bir turdur; `body` nesne adi degildir.
 _PLSQL_OBJECT = re.compile(
@@ -101,30 +109,54 @@ class DirectoryScanner:
             raise PolicyViolation("izinli kok bulunamadi")
         decisions: list[ScanDecision] = []
         total = 0
-        for path in sorted(root.rglob("*")):
-            if path.is_symlink():
-                # Symlink karari resolve() **oncesinde** verilir; kok disina cikan
-                # bir hedef aksi halde goreli yolu bozar ve gerekce kaybolur.
-                relative = path.relative_to(root).as_posix()
-                decisions.append(ScanDecision(relative, False, "symlink izlenmez"))
-                continue
-            if path.is_dir():
-                continue
+        included_count = 0
+        # `rglob` once tum agaci uretiyordu; buyuk veya junction iceren agaclarda
+        # limitler ancak tarama bittikten sonra uygulanabildigi icin fail-closed
+        # degildi. Her dizini isim sirali ve iteratif olarak ac, limit asilir
+        # asılmaz daha fazla alt agaca girme.
+        pending: list[tuple[Path, str]] = [(root, "")]
+        while pending:
+            directory, prefix = pending.pop()
             try:
-                relative = path.resolve().relative_to(root).as_posix()
-            except ValueError:
-                decisions.append(
-                    ScanDecision(path.name, False, "izinli kok disina cikan yol reddedildi")
-                )
-                continue
-            decision = self._decide(path, relative)
-            decisions.append(decision)
-            if decision.included:
-                total += path.stat().st_size
-        if total > self.limits.max_total_bytes:
-            raise PolicyViolation("dizin toplam boyut sinirini asiyor")
-        if sum(1 for item in decisions if item.included) > self.limits.max_entries:
-            raise PolicyViolation("dizin girdi sayisi sinirini asiyor")
+                entries = sorted(os.scandir(directory), key=lambda item: item.name)
+            except OSError as exc:
+                raise PolicyViolation("izinli kok taranamadi") from exc
+            for entry in reversed(entries):
+                relative = f"{prefix}/{entry.name}" if prefix else entry.name
+                path = Path(entry.path)
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError as exc:
+                    raise PolicyViolation("dizin girdisi okunamadi") from exc
+                reparse = _is_reparse(info)
+                if entry.is_symlink() or reparse:
+                    reason = "symlink izlenmez" if entry.is_symlink() else "symlink/junction izlenmez"
+                    decisions.append(ScanDecision(relative, False, reason))
+                    continue
+                if stat.S_ISDIR(info.st_mode):
+                    if entry.name in SKIPPED_DIRECTORIES:
+                        continue
+                    pending.append((path, relative))
+                    continue
+                try:
+                    resolved = path.resolve(strict=True)
+                    resolved.relative_to(root)
+                except (OSError, ValueError) as exc:
+                    decisions.append(
+                        ScanDecision(relative, False, "izinli kok disina cikan yol reddedildi")
+                    )
+                    continue
+                decision = self._decide(path, relative)
+                decisions.append(decision)
+                if not decision.included:
+                    continue
+                if included_count >= self.limits.max_entries:
+                    raise PolicyViolation("dizin girdi sayisi sinirini asiyor")
+                size = int(info.st_size)
+                if total + size > self.limits.max_total_bytes:
+                    raise PolicyViolation("dizin toplam boyut sinirini asiyor")
+                included_count += 1
+                total += size
         return ScanReport(tuple(decisions), total)
 
     def _decide(self, path: Path, relative: str) -> ScanDecision:

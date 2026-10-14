@@ -1052,11 +1052,7 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Run bulunamadi")
         if run["status"] in {"succeeded", "failed", "cancelled"}:
             raise ValidationFailed("Terminal Run checkpoint alamaz")
-        if (
-            run["source_snapshot_id"] is not None
-            and source_snapshot_id is not None
-            and run["source_snapshot_id"] != source_snapshot_id
-        ):
+        if run["source_snapshot_id"] != source_snapshot_id:
             raise ValidationFailed("Checkpoint source snapshot Run ile eslesmiyor")
         last = connection.execute(
             "select max(sequence) as sequence from checkpoint where run_id=?", (run_id,)
