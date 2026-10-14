@@ -398,6 +398,92 @@ def _mask_structural_literals(text: str) -> str | None:
     return "".join(chars)
 
 
+_TYPE_INTRODUCERS = frozenset({":", "<", "|", "&", "(", "[", ","})
+
+
+def _function_body_opening(masked: str, cursor: int) -> int | None:
+    """`function` govdesinin acilis parantezini dogru govdede bul.
+
+    Parametre listesindeki varsayilan nesne/tip ({}) ve TS donus tipindeki
+    nesne tipleri govde acilisinda sayilmaz: once generic'ler ve parantez
+    listesi atlanir; donus tipinin bir parcasi olan dengeli `{...}` gruplari
+    (tip giris karakterini tasiyanlar) atlanir. Duzen kurulamazsa None.
+    """
+    length = len(masked)
+    angle = 0
+    while cursor < length:
+        character = masked[cursor]
+        if angle:
+            if character == "<":
+                angle += 1
+            elif character == ">":
+                angle -= 1
+                if angle < 0:
+                    return None
+            cursor += 1
+            continue
+        if character == "<":
+            angle = 1
+            cursor += 1
+        elif character == "(":
+            break
+        elif not character.isspace():
+            return None
+        else:
+            cursor += 1
+    if cursor >= length:
+        return None
+    paren = 1
+    cursor += 1
+    while cursor < length and paren:
+        character = masked[cursor]
+        if character == "(":
+            paren += 1
+        elif character == ")":
+            paren -= 1
+        cursor += 1
+    if paren:
+        return None
+    while cursor < length:
+        character = masked[cursor]
+        if character == "{":
+            back = cursor - 1
+            while back >= 0 and masked[back].isspace():
+                back -= 1
+            if back >= 0 and masked[back] in _TYPE_INTRODUCERS:
+                inner = 1
+                cursor += 1
+                while cursor < length and inner:
+                    if masked[cursor] == "{":
+                        inner += 1
+                    elif masked[cursor] == "}":
+                        inner -= 1
+                    cursor += 1
+                if inner:
+                    return None
+                continue
+            close = cursor + 1
+            inner = 1
+            while close < length and inner:
+                if masked[close] == "{":
+                    inner += 1
+                elif masked[close] == "}":
+                    inner -= 1
+                close += 1
+            if inner:
+                return None
+            after = close
+            while after < length and masked[after].isspace():
+                after += 1
+            if after < length and masked[after] in {"|", "&", ">"}:
+                return None
+            return cursor
+        if character == ";":
+            return None
+        cursor += 1
+    return None
+
+
 def _structural_code_units(
     relative_path: str, text: str, start_order: int
 ) -> tuple[ContentUnit, ...] | None:
@@ -433,8 +519,11 @@ def _structural_code_units(
         if name_match is None:
             return None
         name = name_match.group(0)
-        opening = masked.find("{", name_match.end())
-        if opening < 0:
+        if match.group(1) == "function":
+            opening = _function_body_opening(masked, name_match.end())
+        else:
+            opening = masked.find("{", name_match.end())
+        if opening is None or opening < 0:
             return None
         # A declaration header must not cross another top-level declaration.
         next_declaration = _STRUCTURAL_DECLARATION.search(masked, name_match.end(), opening)
@@ -453,7 +542,7 @@ def _structural_code_units(
         start_line = text.count("\n", 0, match.start()) + 1
         end_line = text.count("\n", 0, closing - 1) + 1
         if candidates and start_line <= candidates[-1][2]:
-            continue
+            return None
         candidates.append((name, start_line, end_line))
     if not candidates:
         return None

@@ -938,3 +938,128 @@ def test_read_content_false_keeps_metadata_without_opening_content(
     assert entry.eligibility is not None
     assert entry.eligibility.reason is SkipReason.CONTENT_DISABLED
     assert content.read_bytes() == before
+
+
+# --- Icerik okuma politikasi (WP-04.01) ------------------------------------------
+#
+# `read_content`, metadata envanteri ile icerik eligibility adimlarini ayiran
+# ayri politika anahtaridir. Kapaliyken kesif yalnizca metadata envanteri
+# uretir: yoksayilan agaclar, .env, ikili ve uretilmis dosyalar yolu/turu/
+# buyukluguyle gorunur kalir; icerik acilmaz, digest/secret/binary tespiti ve
+# icerik limitleri uygulanmaz.
+
+
+def test_read_content_false_keeps_ignored_and_generated_metadata_visible(
+    sample_project: Path,
+) -> None:
+    # Icerik okuma politikasi kapaliyken de secili agactaki .git, node_modules,
+    # .env, ikili ve uretilmis dosyalar metadata envanterinde gorunur kalir;
+    # icerikleri acilmaz, indeks dosyalari uretilmez.
+    (sample_project / ".git" / "objects").mkdir(parents=True)
+    (sample_project / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+    (sample_project / ".env").write_text(
+        "DB_PASSWORD=EnvDegerYalnizMetadata\n", encoding="utf-8"
+    )
+    (sample_project / "veri.bin").write_bytes(b"\x00\x01binary")
+    (sample_project / "gpu-ui").mkdir()
+    (sample_project / "gpu-ui" / "tsconfig.tsbuildinfo").write_text("{}", encoding="utf-8")
+
+    report = discover(sample_project, policy=DiscoveryPolicy(read_content=False))
+    by_path = {item.relative_path: item for item in report.inventory}
+
+    # Metadata gorunur: yoksayilan agaclar, .env, ikili ve uretilmis dosyalar.
+    for path in (
+        ".git",
+        ".git/config",
+        "node_modules",
+        "node_modules/paket/index.js",
+        ".env",
+        "veri.bin",
+        "gpu-ui/tsconfig.tsbuildinfo",
+        "src/ana.py",
+        "README.md",
+    ):
+        assert path in by_path
+    assert by_path[".git/config"].kind is FileKind.FILE
+    assert by_path[".git/config"].size_bytes > 0
+    assert by_path["veri.bin"].size_bytes == len(b"\x00\x01binary")
+    assert by_path["node_modules/paket/index.js"].is_text is None  # icerik okunmadi
+
+    # Yoksayilanlar IGNORED; icerigi normalde okunacak dosyalar
+    # CONTENT_DISABLED metadata'sini tasir.
+    assert by_path[".env"].skip_reason is SkipReason.IGNORED
+    assert by_path[".git/config"].skip_reason is SkipReason.IGNORED
+    assert by_path["gpu-ui/tsconfig.tsbuildinfo"].skip_reason is SkipReason.IGNORED
+    assert by_path["src/ana.py"].skip_reason is SkipReason.CONTENT_DISABLED
+    assert by_path["veri.bin"].skip_reason is SkipReason.CONTENT_DISABLED
+
+    # Icerik okumasi kapali: indeks dosyasi, uzanti sayimi ve secret bulgusu yok.
+    assert report.files == ()
+    assert report.extensions == {}
+    assert report.secrets == ()
+    assert report.truncated is False
+    # Envanter tam tarandi: COMPLETE, devam checkpoint'i yok.
+    assert report.inventory_status is InventoryStatus.COMPLETE
+    assert report.inventory_stop_reason is None
+    assert report.inventory_checkpoint == ()
+    # Secret degeri envantere/rapora yazilmaz.
+    assert "EnvDegerYalnizMetadata" not in repr(report.as_dict())
+
+
+def test_read_content_false_content_limits_do_not_truncate_metadata(
+    sample_project: Path,
+) -> None:
+    # Icerik eligibility sinirlari yalnizca icerik okuma acikken uygulanir:
+    # read_content=False iken dosya sayisi ve boyut sinirlari envanteri kesmez,
+    # truncated uretmez; ayni sinirlar icerik okuma acikken truncated yapar.
+    (sample_project / "buyuk.txt").write_text("x" * 5000, encoding="utf-8")
+
+    metadata_only = discover(
+        sample_project,
+        policy=DiscoveryPolicy(max_file_bytes=1000, max_total_files=1, read_content=False),
+    )
+    assert metadata_only.truncated is False
+    assert metadata_only.inventory_status is InventoryStatus.COMPLETE
+    assert metadata_only.file_count == 0
+    # Asiri buyuk dosya TOO_LARGE olarak siniflandirilmaz; icerik limiti
+    # uygulanmadigi icin CONTENT_DISABLED metadata'siyla tasinir.
+    big = next(item for item in metadata_only.inventory if item.relative_path == "buyuk.txt")
+    assert big.skip_reason is SkipReason.CONTENT_DISABLED
+    assert big.size_bytes == 5000
+
+    with_content = discover(
+        sample_project,
+        policy=DiscoveryPolicy(max_file_bytes=1000, max_total_files=1),
+    )
+    assert with_content.truncated is True
+    assert with_content.file_count == 1
+
+
+def test_read_content_false_skips_secret_scan_without_content(
+    sample_project: Path,
+) -> None:
+    # Icerik okumasi kapaliyken secret taramasi da tetiklenmez (icerik
+    # okunmadigindan); dosya CONTENT_DISABLED metadata'siyla kalir, bulgu
+    # uretilmez ve secret degeri rapora hic yazilmaz.
+    (sample_project / "ayarlar.py").write_text(
+        'api_key = "MetadataOnlySecret789"\n', encoding="utf-8"
+    )
+
+    report = discover(sample_project, policy=DiscoveryPolicy(read_content=False))
+    entry = next(item for item in report.inventory if item.relative_path == "ayarlar.py")
+    assert entry.skip_reason is SkipReason.CONTENT_DISABLED
+    assert entry.is_text is None  # icerik okunmadi
+    assert report.secrets == ()
+    assert "MetadataOnlySecret789" not in repr(report.as_dict())
+
+
+def test_read_content_must_be_bool() -> None:
+    # Icerik okuma politika anahtari fail-closed dogrulanir: bool olmayan
+    # deger (str/int) red edilir; gecerli degerler ve as_dict yansiması korunur.
+    with pytest.raises(ValueError):
+        DiscoveryPolicy(read_content="kapali")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        DiscoveryPolicy(read_content=1)  # type: ignore[arg-type]
+    assert DiscoveryPolicy(read_content=True).read_content is True
+    assert DiscoveryPolicy(read_content=False).read_content is False
+    assert DiscoveryPolicy(read_content=False).as_dict()["read_content"] is False
