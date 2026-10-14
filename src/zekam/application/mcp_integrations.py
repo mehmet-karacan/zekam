@@ -38,6 +38,23 @@ _CLIENT_PATHS = {
     ClientIntegrationId.CODEX: Path(".codex") / "config.toml",
     ClientIntegrationId.CLAUDE_CODE: Path(".claude.json"),
 }
+
+
+def _bounded_config_bytes(path: Path) -> bytes:
+    if path_or_parent_is_link_or_reparse(path):
+        raise PolicyViolation("MCP native config yolu link veya reparse olamaz")
+    try:
+        if path.stat().st_size > _MAX_CONFIG_BYTES:
+            raise PolicyViolation("MCP native config bounded boyutu asti")
+        with path.open("rb") as stream:
+            raw = stream.read(_MAX_CONFIG_BYTES + 1)
+    except OSError as exc:
+        raise PolicyViolation("MCP native config okunamadi") from exc
+    if len(raw) > _MAX_CONFIG_BYTES:
+        raise PolicyViolation("MCP native config bounded boyutu asti")
+    return raw
+
+
 _EXECUTABLES = {
     ClientIntegrationId.OPENCODE: "opencode",
     ClientIntegrationId.CODEX: "codex",
@@ -52,10 +69,7 @@ def _file_digest(path: Path) -> str | None:
         return None
     if path.is_symlink() or not path.is_file():
         raise PolicyViolation("MCP native config regular file olmali")
-    raw = path.read_bytes()
-    if len(raw) > _MAX_CONFIG_BYTES:
-        raise PolicyViolation("MCP native config bounded boyutu asti")
-    return digest_of_bytes(raw)
+    return digest_of_bytes(_bounded_config_bytes(path))
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
@@ -111,8 +125,8 @@ def _receipt_path(context: ApplicationContext, plan_digest: str) -> Path:
 
 def _load_receipt(path: Path) -> dict[str, Any]:
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = json.loads(_bounded_config_bytes(path).decode("utf-8", errors="strict"))
+    except (PolicyViolation, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PolicyViolation("MCP receipt okunamadi") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("MCP receipt mapping olmali")
@@ -199,11 +213,13 @@ def _read_json(path: Path, source: bytes | object | None = _UNSET) -> dict[str, 
     if source is _UNSET and not path.exists():
         return {}
     try:
-        raw = path.read_bytes() if source is _UNSET else source
+        raw = _bounded_config_bytes(path) if source is _UNSET else source
         if raw is None:
             return {}
+        if not isinstance(raw, bytes) or len(raw) > _MAX_CONFIG_BYTES:
+            raise PolicyViolation("MCP JSON native config bounded boyutu asti")
         document = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (PolicyViolation, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PolicyViolation("MCP JSON native config okunamadi") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("MCP JSON native config mapping olmali")

@@ -124,3 +124,16 @@ def test_native_mcp_path_guard_rejects_reparse_ancestor(
         mcp_integrations._file_digest(target)
     with pytest.raises(PolicyViolation, match="link veya reparse"):
         mcp_integrations._atomic_write(target, b"{}")
+
+
+def test_native_mcp_json_reader_rejects_oversized_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "native.json"
+    monkeypatch.setattr(mcp_integrations, "_MAX_CONFIG_BYTES", 8)
+    target.write_bytes(b'{"x": 10}')
+
+    with pytest.raises(PolicyViolation, match="okunamadi"):
+        mcp_integrations._read_json(target)
+    with pytest.raises(PolicyViolation, match="okunamadi"):
+        mcp_integrations._read_json(target, b"012345678")

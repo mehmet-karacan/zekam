@@ -2062,6 +2062,15 @@ config policy hatasiyla durur; rollback digest'i eksik veriden uretilmez.
 Bu dar dilim WP-02/07 integration rollback bellek ve drift boslugunu daraltir;
 gercek native multi-client kabul matrisi halen aciktir.
 
+### 10.61 15 Ekim 2026 MCP native config okuma kapisi
+
+MCP native JSON, receipt ve digest akislari 2 MiB bounded regular-file
+okuyucusu ve reparse kontrolu kullanir. Oversized, unreadable veya linkli
+config typed policy hatasiyla durur; eksik okuma digest veya efekt kaniti sayilmaz.
+
+Bu dar dilim WP-02/07 MCP config bellek ve drift boslugunu daraltir; gercek
+native multi-client kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
