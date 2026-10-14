@@ -96,6 +96,34 @@ def _safe_zip_name(name: str) -> None:
         raise PolicyViolation("DOCX zip traversal girdisi tasiyor")
 
 
+def _bounded_zip_entry_count(payload: bytes) -> int:
+    """ZIP merkezi dizinini `ZipFile` olusturmadan once bounded dogrular."""
+
+    tail_size = min(len(payload), 22 + 65_535)
+    tail_start = len(payload) - tail_size
+    eocd_offset = payload.rfind(b"PK\x05\x06", tail_start)
+    if eocd_offset < 0 or eocd_offset + 22 > len(payload):
+        raise ValidationFailed("DOCX zip yapisi gecersiz")
+    disk, central_disk, disk_count, count, central_size, central_offset, comment = (
+        struct.unpack_from("<4H2IH", payload, eocd_offset + 4)
+    )
+    if (
+        disk != 0
+        or central_disk != 0
+        or disk_count != count
+        or count == 0xFFFF
+        or central_size == 0xFFFFFFFF
+        or central_offset == 0xFFFFFFFF
+        or eocd_offset + 22 + comment != len(payload)
+        or central_offset + central_size != eocd_offset
+        or central_size < count * 46
+    ):
+        raise ValidationFailed("DOCX zip yapisi gecersiz")
+    if count > MAX_DOCX_ENTRIES:
+        raise PolicyViolation("DOCX girdi sayisi sinirini asiyor")
+    return count
+
+
 def _xml(payload: bytes, label: str) -> ElementTree.Element:
     guard = expat.ParserCreate()
 
@@ -172,6 +200,7 @@ class DocxParser:
     def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
         if len(payload) > MAX_DOCUMENT_BYTES or not payload.startswith(b"PK"):
             raise ValidationFailed("DOCX imzasi veya boyutu gecersiz")
+        _bounded_zip_entry_count(payload)
         try:
             bundle = zipfile.ZipFile(io.BytesIO(payload))
         except zipfile.BadZipFile as exc:

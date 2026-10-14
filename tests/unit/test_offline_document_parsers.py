@@ -67,6 +67,23 @@ def test_docx_rejects_zip_traversal() -> None:
         DocxParser().parse(output.getvalue())
 
 
+def test_docx_rejects_excess_zip_entries_before_materializing_zipfile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        for index in range(document_parsers.MAX_DOCX_ENTRIES + 1):
+            bundle.writestr(f"entry-{index}.xml", b"")
+
+    def forbidden_zipfile(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("ZIP merkezi dizini limitten once materialize edildi")
+
+    monkeypatch.setattr(document_parsers.zipfile, "ZipFile", forbidden_zipfile)
+    with pytest.raises(PolicyViolation, match="girdi sayisi"):
+        DocxParser().parse(output.getvalue())
+
+
 @pytest.mark.parametrize(
     "xml",
     [
