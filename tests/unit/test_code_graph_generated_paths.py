@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from zekam.application import code_graph as code_graph_module
-from zekam.application.code_graph import plan_graph_build
+from zekam.application.code_graph import _is_link_or_reparse, plan_graph_build
 from zekam.application.code_graph_polyglot import PolyglotStructuralExtractor
 
 pytestmark = pytest.mark.unit
@@ -112,3 +112,15 @@ def test_graph_discovery_prunes_denied_tree_before_scandir(
     )
 
     assert [path for path, _digest in plan.file_manifests] == ["main.py"]
+
+
+def test_graph_link_probe_fails_closed_on_metadata_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "metadata-denied.py"
+
+    def denied_stat(*_args: object, **_kwargs: object) -> object:
+        raise PermissionError("metadata denied")
+
+    monkeypatch.setattr(Path, "stat", denied_stat)
+    assert _is_link_or_reparse(candidate) is True

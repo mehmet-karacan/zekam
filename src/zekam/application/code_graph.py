@@ -54,8 +54,13 @@ def _is_link_or_reparse(path: Path) -> bool:
         if path.is_symlink():
             return True
         attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
-    except OSError:
+    except FileNotFoundError:
+        # A plan/apply race is classified by the typed source read below.
         return False
+    except OSError:
+        # Permission or metadata failures must not turn into an implicit
+        # source traversal; treat the path as unsafe and exclude it.
+        return True
     return bool(attributes & 0x400)
 
 

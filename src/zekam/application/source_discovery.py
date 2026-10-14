@@ -453,8 +453,14 @@ def _is_symlink_or_junction(path: Path) -> bool:
             return bool(
                 os.lstat(path).st_file_attributes & stat_module.FILE_ATTRIBUTE_REPARSE_POINT
             )
-        except OSError:
+        except FileNotFoundError:
+            # A race can remove an entry between scandir and lstat; later
+            # stat/open handling classifies that missing entry as unreadable.
             return False
+        except OSError:
+            # An inaccessible path must never be treated as a normal source
+            # entry.  Exclude it fail-closed instead of probing through it.
+            return True
     return False
 
 

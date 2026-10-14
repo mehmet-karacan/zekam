@@ -1821,6 +1821,17 @@ Bu dar dilim WP-06.03'un graph discovery bellek/traversal performans ve deny-tre
 guvenlik boslugunu daraltir; tam source limitleri, parser/resolver ve kabul
 matrisi aciktir.
 
+### 10.37 15 Ekim 2026 metadata probe fail-closed kapisi
+
+Source discovery ve code graph link/reparse probe'lari metadata erisim hatasini
+normal dosya gibi kabul etmez. Silinmis girisler yarista kaybolma siniflamasina
+birakilir; permission veya diger `OSError` durumlari unsafe kabul edilerek
+izlenmez ve icerik okunmaz. Boylece metadata probe hatasi source ownership
+veya path guvenligi icin sahte olumlu kanit uretemez.
+
+Bu dar dilim WP-04.01/04.02 ve WP-06.03'un fail-closed path metadata boslugunu
+daraltir; tam native race ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
