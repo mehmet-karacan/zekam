@@ -16,6 +16,7 @@ from zekam.application.composition import build_context
 from zekam.application.home import HomeLayout
 from zekam.application.local_continuity_source_authority import BACKUP_RESTORE_READY
 from zekam.domain.canonical import canonical_json, digest
+from zekam.infrastructure import local_backup
 from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.sqlite.local_continuity_source_authority import (
     DDL_DIGEST,
@@ -282,6 +283,32 @@ def test_valid_empty_sqlite_fails_status_create_verify_and_atomic_restore(
     restored = runner.invoke(app, ["backup", "restore", str(bundle), str(target)])
     assert restored.exit_code == 70
     assert not target.exists()
+
+
+def test_bundle_rejects_source_census_drift_before_publish(
+    home_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare(home_root)
+    late = home_root / "analytics" / "raw" / "late.jsonl"
+    original = local_backup._copy_regular
+    mutated = False
+
+    def copy_and_add_source(source: Path, target: Path, mode: int) -> None:
+        nonlocal mutated
+        original(source, target, mode)
+        if not mutated:
+            late.parent.mkdir(parents=True, exist_ok=True)
+            late.write_bytes(b"added-during-backup")
+            late.chmod(0o600)
+            mutated = True
+
+    monkeypatch.setattr(local_backup, "_copy_regular", copy_and_add_source)
+    bundle = (tmp_path / "census-drift").absolute()
+    result = runner.invoke(
+        app, ["backup", "create", "--home", str(home_root), "--bundle", str(bundle)]
+    )
+    assert result.exit_code == 70
+    assert not bundle.exists()
 
 
 @pytest.mark.parametrize("mutation", ["missing", "extra", "wrong-kind"])

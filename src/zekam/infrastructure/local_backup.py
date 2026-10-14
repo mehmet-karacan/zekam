@@ -241,6 +241,28 @@ def _sources(home: Path) -> tuple[tuple[str, Path, str], ...]:
     return tuple((name, *found[name]) for name in sorted(found))
 
 
+def _source_census(
+    sources: tuple[tuple[str, Path, str], ...],
+) -> dict[str, tuple[str, int, int]]:
+    """Capture bounded source identity without treating mtime as drift."""
+
+    census: dict[str, tuple[str, int, int]] = {}
+    for relative, path, kind in sources:
+        info = _regular(path)
+        census[relative] = (kind, int(info.st_dev), int(info.st_ino))
+    return census
+
+
+def _assert_source_census_unchanged(
+    before: dict[str, tuple[str, int, int]],
+    after: dict[str, tuple[str, int, int]],
+) -> None:
+    if before.keys() != after.keys():
+        raise PolicyViolation("Backup source census drift")
+    if any(before[relative] != after[relative] for relative in before):
+        raise PolicyViolation("Backup source identity drift")
+
+
 def _allowed_regular_path(relative: str) -> bool:
     return relative in _FILES or any(relative.startswith(f"{root}/") for root in _TREES)
 
@@ -284,6 +306,7 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
     total = 0
     try:
         sources = _sources(home)
+        source_census = _source_census(sources)
         directories = _directories(home, sources)
         source_names = {relative for relative, _, _ in sources}
         directory_names = {str(entry["path"]) for entry in directories}
@@ -319,6 +342,7 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
                     "sha256": _sha256(target),
                 }
             )
+        _assert_source_census_unchanged(source_census, _source_census(_sources(home)))
         body: dict[str, Any] = {
             "schema": BUNDLE_SCHEMA,
             "directories": list(directories),

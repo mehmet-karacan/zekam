@@ -1642,6 +1642,19 @@ indexer surumu 3'e yukseltildi. Ilgili unit ve embedding boundary paketi
 Bu dar dilim WP-04.03'un Java declaration boslugunu kapatir; AST/Tree-sitter
 kalitesi, diger dil yuzeyleri ve tam kabul matrisi halen aciktir.
 
+### 10.20 15 Ekim 2026 backup kaynak census kapisi
+
+Yerel bundle olusturma, SQLite online snapshot ve staging/atomic publish akisina
+ek olarak baslangic ve bitis kaynak census kimligini karsilastirir. Islem sirasinda
+yeni veya silinen kaynak, ya da kaynak dosya kimligi degisimi gorulurse staging
+temizlenir ve hedef bundle yayinlanmaz. Yalniz mtime degisimi drift sayilmaz;
+spool/analytics gibi canli agaclarda gereksiz reddetme yapilmaz. Backup e2e,
+manifest ve kalan backup coverage paketi **83 passed, 16 skipped** verdi; Ruff,
+manifest kabulü ve `git diff --check` temizdir.
+
+Bu dilim WP-11.03/04'un kaynak census boslugunu daraltir; gercek cihazda iki
+dongulu restore, scheduler ve release kabul kapilari halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
