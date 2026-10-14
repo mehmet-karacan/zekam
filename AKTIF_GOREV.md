@@ -1688,6 +1688,17 @@ Bu dar dilim WP-06.05'in malformed Git history kanit boslugunu daraltir;
 gercek issue/Confluence okuma, canli provider ve tam proje degisiklik baglantisi
 halen aciktir.
 
+### 10.24 15 Ekim 2026 bounded Git log kayit kapisi
+
+Jira issue gecmisi parser'i, bounded `git log` kayit akisi icindeki bos veya
+eksik ara kaydi sessizce atlamaz. Tek izinli son ayirici korunur; aradaki bos
+kayit `GitCommandError` ile fail-closed reddedilir ve commit sayisi kaniti
+kaydirilmaz.
+
+Bu dar dilim WP-06.05'in malformed Git log kanit boslugunu daraltir;
+gercek issue/Confluence okuma, canli provider ve tam proje degisiklik baglantisi
+halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

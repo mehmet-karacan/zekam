@@ -129,7 +129,7 @@ def query_issue_history(root: Path, issue_key: str) -> IssueHistory:
         f"--grep={pattern}",
         f"--format=%H{_FIELD_SEPARATOR}%P{_FIELD_SEPARATOR}%aI{_FIELD_SEPARATOR}%s{_RECORD_SEPARATOR}",
     )
-    entries = [item for item in log.split(_RECORD_SEPARATOR) if item.strip()]
+    entries = _parse_log_entries(log)
     truncated = len(entries) > MAX_COMMITS
     commits = tuple(_commit(root, entry, key) for entry in entries[:MAX_COMMITS])
     return IssueHistory(
@@ -139,6 +139,17 @@ def query_issue_history(root: Path, issue_key: str) -> IssueHistory:
         commits=commits,
         truncated_commits=truncated,
     )
+
+
+def _parse_log_entries(log: str) -> list[str]:
+    """Parse the bounded record stream without silently dropping gaps."""
+
+    parts = log.split(_RECORD_SEPARATOR)
+    if parts and not parts[-1].strip():
+        parts.pop()
+    if any(not item.strip() for item in parts):
+        raise GitCommandError("Git log kaydi eksik")
+    return parts
 
 
 def _commit(root: Path, entry: str, key: str) -> HistoryCommit:

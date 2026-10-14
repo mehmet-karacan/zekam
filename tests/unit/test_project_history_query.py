@@ -12,6 +12,19 @@ from zekam.infrastructure.git.source_reader import GitCommandError
 pytestmark = pytest.mark.unit
 
 
+def test_parse_log_entries_rejects_empty_record_gap() -> None:
+    valid = "a" * 40 + "\x1f\x1f2026-10-15T00:00:00+00:00\x1fSKYRSM-5659 konu"
+
+    with pytest.raises(GitCommandError, match="Git log kaydi eksik"):
+        history._parse_log_entries(valid + "\x1e\x1e" + valid + "\x1e")
+
+
+def test_parse_log_entries_accepts_single_trailing_separator() -> None:
+    valid = "a" * 40 + "\x1f\x1f2026-10-15T00:00:00+00:00\x1fSKYRSM-5659 konu"
+
+    assert history._parse_log_entries(valid + "\x1e") == [valid]
+
+
 def test_diff_files_rejects_incomplete_nul_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
