@@ -111,6 +111,7 @@ from zekam.infrastructure.embedding.opencode_remote import (
     OpenCodeRuntimeInvocation,
     RuntimeOpenCodeEmbeddingExecutor,
 )
+from zekam.infrastructure.git.source_reader import GitCommandError, run_read_only
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.local_file_security import (
     private_directory,
@@ -482,57 +483,33 @@ def _git_source_state(root: Path) -> tuple[str, str, str]:
     """
 
     try:
-        repository = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        repository = None
-    if repository is None or repository.returncode != 0:
+        repository_output = run_read_only(root, "rev-parse", "--show-toplevel")
+    except (OSError, subprocess.SubprocessError, ZekamError):
+        repository_output = None
+    if repository_output is None:
         if _has_git_marker(root):
             raise ValidationFailed("Project Git source identity probe basarisiz")
         return _directory_source_state(root)
 
     try:
-        repository_root = Path(repository.stdout.strip()).resolve(strict=True)
+        repository_root = Path(repository_output.strip()).resolve(strict=True)
     except OSError:
         raise ValidationFailed("Project Git source root cozumlenemedi") from None
     if repository_root != root.resolve(strict=True):
         return _directory_source_state(root)
     try:
-        head_result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="ascii",
-            errors="replace",
-            timeout=10,
-        )
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
+        head = run_read_only(root, "rev-parse", "HEAD").strip()
+    except GitCommandError as exc:
+        raise ValidationFailed("Project Git source committed HEAD ister") from exc
+    except (OSError, subprocess.SubprocessError, ZekamError):
         raise ValidationFailed("Project Git source identity probe basarisiz") from None
-    if head_result.returncode != 0:
-        raise ValidationFailed("Project Git source committed HEAD ister")
-    if status_result.returncode != 0:
-        raise ValidationFailed("Project Git source status okunamadi")
-    head = head_result.stdout.strip()
+    try:
+        status = run_read_only(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    except (OSError, subprocess.SubprocessError, ZekamError):
+        raise ValidationFailed("Project Git source identity probe basarisiz") from None
     if len(head) != 40 or any(character not in "0123456789abcdef" for character in head):
         raise ValidationFailed("Project Git source HEAD kimligi gecersiz")
-    status_digest = hashlib.sha256(status_result.stdout).hexdigest()
+    status_digest = hashlib.sha256(status.encode("utf-8", errors="replace")).hexdigest()
     return head, status_digest, f"{head}:status:{status_digest}"
 
 
@@ -601,18 +578,12 @@ def _git_source_freshness_signal(
     except (OSError, subprocess.SubprocessError, ZekamError):
         return {"unknown": True}
     try:
-        status = subprocess.run(
-            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            timeout=30,
+        status_output = run_read_only(
+            root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ZekamError):
         return {"unknown": True}
-    if status.returncode != 0:
-        return {"unknown": True}
-    changed = _parse_git_modified_paths(status.stdout)
+    changed = _parse_git_modified_paths(status_output.encode("utf-8", errors="replace"))
     if len(changed) > _MAX_DIRTY_FRESHNESS_PATHS:
         return {"head": head, "unknown": True}
     rooted = root.resolve(strict=True)

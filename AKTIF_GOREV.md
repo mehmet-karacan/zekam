@@ -1954,6 +1954,17 @@ sekilde korunur.
 Bu dar dilim WP-11.03'un Obsidian projection kaynak tuketimi ve path guvenligi
 boslugunu daraltir; native watcher/restore kabul matrisi aciktir.
 
+### 10.50 15 Ekim 2026 project RAG Git freshness kapisi
+
+Project RAG Git source identity ve freshness sorgulari `subprocess.run` ile
+sinirsiz stdout toplamak yerine bounded salt-okunur Git adapter'ini kullanir.
+HEAD/status kimligi, dirty path parse'i ve directory fallback korunur; output
+limiti veya timeout durumunda kaynak `unknown` ya da kontrollu validation olarak
+kalir ve mevcutlik iddiasi uydurulmaz.
+
+Bu dar dilim WP-03/06'nin RAG source freshness bellek ve sure boslugunu daraltir;
+canli provider ve native repository kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

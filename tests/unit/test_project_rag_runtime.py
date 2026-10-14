@@ -1361,8 +1361,8 @@ def test_git_marker_never_falls_back_to_directory_when_git_probe_fails(
 ) -> None:
     (tmp_path / ".git").mkdir()
     monkeypatch.setattr(
-        runtime.subprocess,
-        "run",
+        runtime,
+        "run_read_only",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("git unavailable")),
     )
 
@@ -1374,8 +1374,8 @@ def test_broken_git_link_marker_never_downgrades_to_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        runtime.subprocess,
-        "run",
+        runtime,
+        "run_read_only",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("git unavailable")),
     )
     monkeypatch.setattr(runtime.os, "lstat", lambda path: object())
