@@ -35,6 +35,8 @@ from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed, Zek
 from zekam.domain.research import (
     Citation,
     CitationVerification,
+    Conflict,
+    ConflictKind,
     Finding,
     ResearchBudget,
     ResearchQuestion,
@@ -275,6 +277,25 @@ def _bounded_evidence(
     retrieval_evidence_sufficient = rag.get("evidence_sufficient")
     if retrieval_evidence_sufficient is False:
         gaps.append("retrieval-evidence-gap")
+    index_freshness = rag.get("index_freshness", "unknown")
+    if index_freshness not in {"current", "stale", "unknown"}:
+        raise ValidationFailed("Research RAG index_freshness degeri gecersiz")
+    stale_reasons_value = rag.get("stale_reasons", [])
+    if not isinstance(stale_reasons_value, list):
+        raise ValidationFailed("Research RAG stale_reasons liste olmali")
+    stale_reasons: list[str] = []
+    for reason in stale_reasons_value:
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
+            raise ValidationFailed("Research RAG stale_reasons bounded metin olmali")
+        stale_reasons.append(reason)
+    snapshot_only = rag.get("snapshot_only", False)
+    if not isinstance(snapshot_only, bool):
+        raise ValidationFailed("Research RAG snapshot_only boolean olmali")
+    reindex_recommended = rag.get("reindex_recommended", bool(stale_reasons))
+    if not isinstance(reindex_recommended, bool):
+        raise ValidationFailed("Research RAG reindex_recommended boolean olmali")
+    if index_freshness == "stale" or stale_reasons or snapshot_only:
+        gaps.append("retrieval-index-stale")
     for citation in citations:
         if len(evidence) >= budget["maximum_items"] or selected_chars >= budget["maximum_chars"]:
             gaps.append("evidence-budget-exhausted")
@@ -345,10 +366,45 @@ def _bounded_evidence(
         "truncated_items": truncated_items,
         "budget": dict(budget),
         "retrieval_evidence_sufficient": retrieval_evidence_sufficient,
+        "index_freshness": index_freshness,
+        "stale_reasons": list(dict.fromkeys(stale_reasons)),
+        "snapshot_only": snapshot_only,
+        "reindex_recommended": reindex_recommended,
         "uncovered_identifiers": list(rag.get("uncovered_identifiers", [])),
         "gaps": list(dict.fromkeys(gaps)),
     }
     return tuple(evidence), tuple(snapshots), by_id, coverage
+
+
+def _objection_conflicts(
+    result: OpenCodeResearchResult, role: RoleResult
+) -> tuple[Conflict, ...]:
+    """Expose bounded adapter objections as unresolved evidence gaps."""
+
+    if not result.objections:
+        return ()
+    finding_ids = tuple(item.finding_id for item in role.findings)
+    left_id = finding_ids[0] if finding_ids else "research-objection-anchor"
+    conflicts: list[Conflict] = []
+    for objection in result.objections:
+        if not isinstance(objection, str) or not objection.strip() or len(objection) > 1000:
+            raise ValidationFailed("Research objection bounded metin olmali")
+        if scan_text(objection, relative_path="opencode-research-objection"):
+            raise PolicyViolation("Research objection secret taramasini gecemedi")
+        objection_digest = digest(objection)[7:]
+        right_id = f"objection:{objection_digest}"
+        if right_id == left_id:
+            right_id = f"objection:{objection_digest}:right"
+        conflicts.append(
+            Conflict(
+                conflict_id=f"research-objection:{objection_digest}",
+                kind=ConflictKind.EVIDENCE_GAP,
+                left_finding_id=left_id,
+                right_finding_id=right_id,
+                detail=objection,
+            )
+        )
+    return tuple(conflicts)
 
 
 def _role_result(
@@ -580,6 +636,29 @@ def run_research(
         if rag.get("generation_digest") != plan.body["generation_digest"]:
             raise PolicyViolation("Research retrieval generation drift")
         evidence, snapshots, by_citation, evidence_coverage = _bounded_evidence(home, plan, rag)
+        live_rag = project_rag_status(home, plan.project_slug)
+        if live_rag.get("state") != "ready":
+            raise PolicyViolation("Research live project RAG hazir degil")
+        live_source_revision = live_rag.get("source_revision")
+        if not isinstance(live_source_revision, str) or not live_source_revision.strip():
+            raise PolicyViolation("Research live source revision eksik")
+        if live_rag.get("generation_digest") != plan.body["generation_digest"]:
+            raise PolicyViolation("Research live retrieval generation drift")
+        live_intent_digest = digest(
+            {
+                "operation": "research.run",
+                "project_id": plan.project_id,
+                "question": question.question,
+                "source_revision": live_source_revision,
+            }
+        )
+        service = ResearchService()
+        service.validate_question(
+            question,
+            current_source_revision=live_source_revision,
+            current_intent_digest=live_intent_digest,
+            snapshots=snapshots,
+        )
         package = {
             "schema": "zekam-opencode-research-package/v1",
             "question": question.question,
@@ -651,6 +730,7 @@ def run_research(
         execution = require_opencode_execution(agent_result)
         execution_evidence = execution.as_dict()
         role_result, verification = _role_result(agent_result, by_citation)
+        conflicts = _objection_conflicts(agent_result, role_result)
         evidence_manifest_digest = digest(evidence)
         dispatch = DispatchReport(
             question_id=question.question_id,
@@ -659,18 +739,11 @@ def run_research(
             groups=tuple((item.agent_type,) for item in execution.calls),
             results=(role_result,),
         )
-        service = ResearchService()
-        service.validate_question(
-            question,
-            current_source_revision=str(plan.body["source_revision"]),
-            current_intent_digest=question.intent_digest,
-            snapshots=snapshots,
-        )
         report = service.build_report(
             question,
             dispatch,
             report_id=f"research-report:{plan.run_digest[7:]}",
-            conflicts=(),
+            conflicts=conflicts,
             verification=verification,
             snapshots=snapshots,
             evidence_manifest_digest=evidence_manifest_digest,
@@ -679,10 +752,7 @@ def run_research(
         report_document = report.as_dict()
         report_document.pop("report_digest")
         report_document["evidence_coverage"] = evidence_coverage
-        if (
-            evidence_coverage["state"] == "partial"
-            and report_document["status"] == "answered"
-        ):
+        if evidence_coverage["state"] != "complete" and report_document["status"] == "answered":
             report_document["status"] = "partial"
         report_document["agent_execution"] = execution_evidence
         report_document["report_digest"] = digest(report_document)

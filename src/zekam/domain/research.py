@@ -506,7 +506,11 @@ class Conflict:
 
     @property
     def is_unresolved(self) -> bool:
-        return self.kind is ConflictKind.DIRECT_CONTRADICTION and self.resolved_by is None
+        return self.kind in {
+            ConflictKind.DIRECT_CONTRADICTION,
+            ConflictKind.STALE_SOURCE,
+            ConflictKind.EVIDENCE_GAP,
+        } and self.resolved_by is None
 
     def as_dict(self) -> dict[str, Any]:
         return {

@@ -581,6 +581,7 @@ def _operational_usage(database: Path) -> dict[str, Any]:
         "terminal_runs": 0,
         "unknown_runs": 0,
         "model_refs": (),
+        "usage_by_model": (),
         **usage,
     }
     if not database.is_file():
@@ -598,29 +599,66 @@ def _operational_usage(database: Path) -> dict[str, Any]:
                 "coalesce(sum(duration_seconds),0),coalesce(sum(cost_micros),0),"
                 "coalesce(sum(disk_bytes),0) from evolution_child_terminal"
             ).fetchone()
-            model_refs: tuple[str, ...] = ()
             attestation = connection.execute(
                 "select 1 from sqlite_master where type='table' "
                 "and name='evolution_runtime_attestation'"
             ).fetchone()
             if attestation is not None:
-                model_rows = connection.execute(
-                    "select distinct a.model_ref from evolution_child_terminal t "
+                usage_rows = connection.execute(
+                    "select t.status,t.provider_calls,t.tokens,t.duration_seconds,"
+                    "t.cost_micros,t.disk_bytes,a.model_ref "
+                    "from evolution_child_terminal t "
                     "join evolution_child_effect_claim c on c.reservation_id=t.reservation_id "
                     "join evolution_child_reservation r on r.reservation_id=c.reservation_id "
-                    "join evolution_runtime_attestation a "
+                    "left join evolution_runtime_attestation a "
                     "on a.authorization_digest=r.authorization_digest "
                     "and a.plan_digest=r.plan_digest "
-                    "where a.model_ref is not null and trim(a.model_ref)<>'' "
-                    "order by a.model_ref"
+                    "order by t.reservation_id"
                 ).fetchall()
-                model_refs = tuple(str(row[0]) for row in model_rows)
+            else:
+                usage_rows = connection.execute(
+                    "select status,provider_calls,tokens,duration_seconds,cost_micros,"
+                    "disk_bytes,null from evolution_child_terminal "
+                    "order by reservation_id"
+                ).fetchall()
+            buckets: dict[str, dict[str, int | str]] = {}
+            for terminal in usage_rows:
+                status = str(terminal[0])
+                model_ref = str(terminal[6]).strip() if terminal[6] is not None else ""
+                model_ref = model_ref or "unknown"
+                bucket = buckets.setdefault(
+                    model_ref,
+                    {
+                        "model_ref": model_ref,
+                        "terminal_runs": 0,
+                        "unknown_runs": 0,
+                        "provider_calls": 0,
+                        "tokens": 0,
+                        "duration_seconds": 0,
+                        "cost_micros": 0,
+                        "disk_bytes": 0,
+                    },
+                )
+                bucket["terminal_runs"] += 1
+                if status == "unknown":
+                    bucket["unknown_runs"] += 1
+                bucket["provider_calls"] += int(terminal[1])
+                bucket["tokens"] += int(terminal[2])
+                bucket["duration_seconds"] += int(terminal[3])
+                bucket["cost_micros"] += int(terminal[4])
+                bucket["disk_bytes"] += int(terminal[5])
+            model_refs = tuple(sorted(ref for ref in buckets if ref != "unknown"))
+            usage_by_model = tuple(
+                {key: bucket[key] for key in bucket}
+                for _, bucket in sorted(buckets.items())
+            )
         assert row is not None
         return {
             "available": True,
             "terminal_runs": int(row[0]),
             "unknown_runs": int(row[1] or 0),
             "model_refs": model_refs,
+            "usage_by_model": usage_by_model,
             "provider_calls": int(row[2]),
             "tokens": int(row[3]),
             "duration_seconds": int(row[4]),

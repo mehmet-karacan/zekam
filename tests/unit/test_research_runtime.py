@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -660,6 +661,106 @@ def test_research_evidence_budget_gap_is_explicitly_partial(
     assert "retrieval-evidence-gap" in coverage["gaps"]
     assert coverage["uncovered_identifiers"] == ["MusteriService"]
     assert result["report"]["status"] == "partial"
+
+
+def test_research_query_staleness_is_carried_into_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": [{"chunk_id": "chunk-1"}],
+            "index_freshness": "stale",
+            "stale_reasons": ["project-source-revision-stale"],
+            "snapshot_only": True,
+            "reindex_recommended": True,
+        },
+    )
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+
+    coverage = result["report"]["evidence_coverage"]
+    assert coverage["index_freshness"] == "stale"
+    assert coverage["stale_reasons"] == ["project-source-revision-stale"]
+    assert coverage["snapshot_only"] is True
+    assert coverage["reindex_recommended"] is True
+    assert "retrieval-index-stale" in coverage["gaps"]
+    assert coverage["state"] == "partial"
+    assert result["report"]["status"] == "partial"
+
+
+def test_research_objections_become_unresolved_evidence_conflicts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+
+    class ObjectionAdapter(FakeAdapter):
+        def execute(self, package):  # type: ignore[no-untyped-def]
+            result = super().execute(package)
+            return replace(result, objections=("Kayitlar arasinda kapsam boslugu var.",))
+
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=ObjectionAdapter(),
+    )
+
+    conflicts = result["report"]["unresolved_conflicts"]
+    assert len(conflicts) == 1
+    assert conflicts[0]["kind"] == "evidence-gap"
+    assert conflicts[0]["detail"] == "Kayitlar arasinda kapsam boslugu var."
+    assert result["report"]["status"] == "partial"
+
+
+def test_research_run_rejects_live_source_revision_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    monkeypatch.setattr(
+        subject,
+        "project_rag_status",
+        lambda *_args, **_kwargs: {
+            "state": "ready",
+            "generation_digest": digest("generation"),
+            "source_revision": digest("live-drift"),
+        },
+    )
+
+    with pytest.raises(PolicyViolation, match="stale arastirma sorusu"):
+        run_research(
+            store,
+            home,
+            plan,
+            expected_run_digest=plan.run_digest,
+            authorize_remote_query=True,
+            authorize_agent_run=True,
+            adapter=FakeAdapter(),
+        )
 
 
 def test_research_evidence_empty_result_is_explicit_evidence_gap(
