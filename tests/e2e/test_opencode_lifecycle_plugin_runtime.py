@@ -52,7 +52,12 @@ tool.schema = { string: () => ({ max: () => ({}) }) }
     (root / "PROJE_MANIFESTI.yaml").write_text("project:\n  slug: zekam\n", encoding="utf-8")
     fake_source = root / "fake-zekam.js"
     fake_source.write_text(
-        """if (Bun.argv.includes("resume")) {
+        """import { appendFileSync } from "node:fs"
+
+if (Bun.env.ZEKAM_CAPTURE) {
+  appendFileSync(Bun.env.ZEKAM_CAPTURE, JSON.stringify(Bun.argv.slice(2)) + "\\n")
+}
+if (Bun.argv.includes("resume")) {
   console.log('ZEKAM_RESUME_PACKET_V1\\n{"schema":"zekam-resume-packet/v1","read_only":true,"grants_authority":false}')
   process.exit(0)
 }
@@ -79,7 +84,42 @@ process.exit(Number.isInteger(code) ? code : 1)
     )
     runner = root / "runner.js"
     runner.write_text(
-        """import { ZekamLifecycle } from "./zekam-lifecycle.js"
+        """import pluginV2, { ZekamLifecycle } from "./zekam-lifecycle.js"
+
+if (Bun.env.RUN_V2_SETUP === "1") {
+  const pending = []
+  const waiters = []
+  const registrations = []
+  const push = (event) => {
+    const waiter = waiters.shift()
+    if (waiter) waiter(event)
+    else pending.push(event)
+  }
+  const subscribe = () => ({
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        const event = pending.length > 0
+          ? pending.shift()
+          : await new Promise((resolve) => waiters.push(resolve))
+        if (event === null) return
+        yield event
+      }
+    },
+  })
+  await pluginV2.setup({
+    location: { directory: process.cwd() },
+    event: { subscribe },
+    session: { hook: async (name) => { registrations.push(`session:${name}`) } },
+    tool: { hook: async (name) => { registrations.push(`tool:${name}`) } },
+  })
+  push({ type: "session.created", data: { sessionID: "v2-created" } })
+  push({ type: "session.deleted", data: { sessionID: "v2-deleted" } })
+  await Bun.sleep(250)
+  push(null)
+  await Bun.sleep(50)
+  console.log(JSON.stringify({ registrations }))
+  process.exit(0)
+}
 
 const count = Number(Bun.env.EMIT_COUNT ?? "1")
 const prefix = Bun.env.SESSION_PREFIX ?? "runtime"
@@ -140,6 +180,31 @@ def test_plugin_injects_bounded_resume_packet_once_per_session(tmp_path: Path) -
     document = json.loads(result.stdout.splitlines()[-1])
     assert len(document["system"]) == 1
     assert document["system"][0].startswith("ZEKAM_RESUME_PACKET_V1")
+
+
+def test_v2_setup_registers_hooks_and_forwards_lifecycle_events(tmp_path: Path) -> None:
+    runner, fake_executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "v2-calls.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=fake_executable,
+        RUN_V2_SETUP="1",
+        ZEKAM_CAPTURE=str(capture),
+    )
+
+    assert result.returncode == 0, result.stderr
+    registration_document = json.loads(result.stdout.splitlines()[-1])
+    assert set(registration_document["registrations"]) >= {
+        "session:context",
+        "session:compaction",
+        "tool:execute.before",
+        "tool:execute.after",
+    }
+    calls = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
+    event_types = {call[call.index("--type") + 1] for call in calls if "--type" in call}
+    assert {"session.created", "session.deleted"} <= event_types
 
 
 def _native_opencode() -> Path:

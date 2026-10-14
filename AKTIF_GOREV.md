@@ -1227,7 +1227,7 @@ executable yoluna yollar ve kapatma fonksiyonunu kaydeder.
 Kanit:
 
 - `OPENCODE_EXECUTABLE=... python -m pytest -q tests/e2e/test_opencode_lifecycle_plugin_runtime.py`:
-  `9 passed`.
+  `10 passed`.
 - `PYTHONPATH=src python -m pytest -q tests/unit/test_opencode_agent_bootstrap.py` ile bootstrap
   template/ownership testleri gecti; ayni dosyanin native testi executable yolu acik verilerek
   ayrica `passed` oldu.
@@ -1235,6 +1235,9 @@ Kanit:
   veya credential cagrisi yapilmadi. Gercek event capture'da `session.created` goruldu.
 - Persistent `serve` + ayni server'a baglanan `run` ve `session delete` istemci akisinda
   `session.created` ve `session.deleted` olaylari gercek event capture ile goruldu.
+- Provider-free V2 harness'i `session:context`, `session:compaction`, `tool:execute.before` ve
+  `tool:execute.after` kayitlarini ve sentetik created/deleted yonlendirmesini `passed` olarak
+  olctu; bu, gercek model/tool calismasi kabulü degildir.
 
 Bu checkpoint V2 plugin yukleme ve created/deleted olay teslimini kanitlar; native compaction,
 tool hook, MCP/shell siniri, harici kaynak, canli model ve release kabul kapilari acik kalir. Dört kullanici
