@@ -100,10 +100,19 @@ def _resource(root: Path, ref: object, expected_digest: object) -> tuple[Path, b
     try:
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(root)
-        payload = resolved.read_bytes()
     except (OSError, ValueError) as exc:
         raise PolicyViolation("Benchmark catalog resource missing or escaped") from exc
-    if not resolved.is_file() or not 0 < len(payload) <= _MAX_RESOURCE_BYTES:
+    try:
+        if not resolved.is_file() or resolved.stat().st_size <= 0:
+            raise PolicyViolation("Benchmark catalog resource type/size invalid")
+    except OSError as exc:
+        raise PolicyViolation("Benchmark catalog resource type/size invalid") from exc
+    try:
+        with resolved.open("rb") as stream:
+            payload = stream.read(_MAX_RESOURCE_BYTES + 1)
+    except OSError as exc:
+        raise PolicyViolation("Benchmark catalog resource okunamadi") from exc
+    if len(payload) > _MAX_RESOURCE_BYTES:
         raise PolicyViolation("Benchmark catalog resource type/size invalid")
     if digest_of_bytes(payload) != expected_digest:
         raise PolicyViolation("Benchmark catalog resource digest drift")

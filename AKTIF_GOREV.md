@@ -2129,6 +2129,16 @@ calistirma sozlesmesi degismez.
 Bu dar dilim WP-08/12 benchmark kaynak tuketimi boslugunu daraltir; gercek model
 ve release gate kabul matrisi halen aciktir.
 
+### 10.68 15 Ekim 2026 Benchmark catalog resource kapisi
+
+Benchmark catalog resource dosyalari `read_bytes` yerine 1 MiB limit+1 bounded
+stream ile okunur. Resource stat sonrasinda buyurse veya limit asarsa digest ve
+task kaniti uretilmeden typed policy hatasi verilir; symlink ve path ownership
+kontrolleri korunur.
+
+Bu dar dilim WP-08/12 catalog kaynak tuketimi boslugunu daraltir; gercek model
+ve release gate kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
