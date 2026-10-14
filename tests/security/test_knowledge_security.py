@@ -128,6 +128,25 @@ def test_reparse_directory_izlenmez_without_windows_privilege(
     assert not any(item.path.endswith("disari.txt") for item in report.decisions)
 
 
+def test_reparse_root_rejected_without_windows_privilege(
+    sample_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_lstat = Path.lstat
+
+    def mocked_lstat(path: Path) -> object:
+        if path == sample_tree:
+            return type(
+                "ReparseRootStat",
+                (),
+                {"st_mode": stat.S_IFDIR, "st_file_attributes": 0x400},
+            )()
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", mocked_lstat)
+    with pytest.raises(PolicyViolation, match="symlink/junction"):
+        DirectoryScanner(sample_tree).scan()
+
+
 def test_girdi_sayisi_siniri_uygulanir(sample_tree: Path) -> None:
     with pytest.raises(PolicyViolation):
         DirectoryScanner(sample_tree, limits=ScanLimits(max_entries=1)).scan()

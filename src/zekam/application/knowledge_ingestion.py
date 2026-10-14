@@ -104,6 +104,12 @@ class DirectoryScanner:
     ignore_names: frozenset[str] = frozenset()
 
     def scan(self) -> ScanReport:
+        try:
+            root_info = self.allowed_root.lstat()
+        except OSError as exc:
+            raise PolicyViolation("izinli kok bulunamadi") from exc
+        if stat.S_ISLNK(root_info.st_mode) or _is_reparse(root_info):
+            raise PolicyViolation("izinli kok symlink/junction olamaz")
         root = self.allowed_root.resolve()
         if not root.is_dir():
             raise PolicyViolation("izinli kok bulunamadi")
