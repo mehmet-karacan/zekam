@@ -1441,6 +1441,11 @@ Salt-okunur gercek kullanici envanteri ayni oturumda `integration status --json`
 `pending_project_cleanup=[]`; mevcut `.agents/skills` conflict'i korunarak migration no-op/plan-only
 kaldi. HOME veya credential tasinmadi ve native global ayar yazilmadi.
 
+MCP ayni isim conflict'inde default yol yabanci girdiyi korur; `--adopt` yalniz acik kullanici
+secimiyle destructive sahiplik devridir ve eski yabanci degerin rollback'te geri gelmesi garanti
+edilmez. Farkli isimli yabanci girdiler icin Codex/Claude parametrik apply ve rollback kaniti
+eklendi.
+
 WP-02 kutulari yine de tamamen kapanmadi: Claude Code ve Gemini CLI bu hostta yok,
 Codex/OpenCode sabit reviewed acceptance surumleriyle eslesmiyor; native instruction discovery
 ve duplicate skill winner davranisi gercek yeni oturumda olculmedi. OpenCode dogrudan `git push`

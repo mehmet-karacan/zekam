@@ -84,6 +84,13 @@ conflict'tir. Kullanıcının `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` içeriği, ski
 executable'ı, provider/model bağlantısı, credential'ı ve native geçmişi korunur. Shared
 config'ten yalnız exact Zekam girdileri çıkarılır.
 
+MCP native projection'da ayni isimli kullanici girdisi varsayilan olarak conflict'tir ve
+degistirilmez. `mcp add --adopt` kullanici tarafindan acikca secilen destructive sahiplik
+devridir: mevcut ayni isimli girdi yeni managed kayitla degisir, eski yabanci deger rollback
+sonrasi geri getirilecegi garanti edilmez. Farkli isimli yabanci girdiler ve credential
+degerleri apply/readback/rollback boyunca korunur; Zekam kendi kaydina credential degeri
+kopyalamaz.
+
 Bilinen sınır: eski `opencode install` kullanıcı `permission` değerlerini `allow` ile
 birleştirmişti. Orijinal değerler kayıtlı olmadığından bu birleştirme ispatlanamaz ve otomatik
 geri alınmaz; plan yalnız `default_agent`/plugin referanslarını çıkarır. Kullanıcı `permission`
