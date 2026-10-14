@@ -789,7 +789,7 @@ tamamlanmadigi icin WP-04.05 aciktir.
 - [ ] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
 - [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
 - [ ] **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
-- [ ] **WP-05.05** — Exact/lexical/dense/graph sinyallerini skor toplamıyla körlemesine karıştırma. Reranker yoksa açıklanmış fallback; query için gereksiz full-tree içerik/qualification tekrarı yapma; selected citation freshness'ini koru.
+- [x] **WP-05.05** — Exact/lexical/dense/graph sinyallerini skor toplamıyla körlemesine karıştırma. Reranker yoksa açıklanmış fallback; query için gereksiz full-tree içerik/qualification tekrarı yapma; selected citation freshness'ini koru.
 - [ ] **WP-05.06** — Performans karşılaştırmasında aynı anlamı arayan Türkçe soru, exact sembol ve ilişki qrels kullan. Source-only filtre yüzünden belgelerin yok olmasını veya kalite düşüşünü hız kazancı sayma.
 
 **Üretilen sözleşme/çıktı:** Versioned `IndexPlan/Generation/EmbeddingCacheKey/RetrievalEvidence` kontratları; öneri `tests/integration/test_incremental_project_index.py`, `tests/e2e/test_natural_language_document_update.py`, benchmark raw JSON.
@@ -921,6 +921,19 @@ yapmaz ve kalici ledger ayni proje/effect icin sonraki claim'i reddeder.
 Iptal edilen effect de muhafazakar olarak belirsiz sinifina alinir.
 127 ilgili cevrimdisi test gecti. Provider-side dogrulama, batch yeniden
 gruplanmasi ve canli kabul kaniti acik oldugundan WP-05.04 halen aciktir.
+
+**14 Ekim 2026 — WP-05.05 kapanis kaniti:** Retrieval RRF exact, lexical,
+dense ve iliski sinyallerini rank tabanli birlestirir; graph reranker binding
+uyusmazligi, kullanilamazlik, hazir olmama ve seed yoklugunda acik bypass
+trace'iyle fused sirayi korur. Reranker hatasi veya eksik sonucu citation ve
+cevap kimligini bozmaz; generation, source revision, source/content digest ve
+rank izi secili citation'a bagli kalir. Graph kapali baseline ile binding drift
+fallback'i ayni citation ve generation kimligini koruyan regresyon testleriyle
+dogrulandi. `test_code_graph_ranking.py`, `test_retrieval.py`,
+`test_project_rag_runtime.py`, `test_project_rag_pending_publish.py` ve
+`test_embedded_project_rag.py` birlikte 234 test gecti. Canli provider kalite ve
+performans olcumu bu kapanisin kapsami degildir; WP-05.03, WP-05.04 ve WP-05.06
+icin acik kanit olarak izlenir.
 
 **13 Ekim 2026 07:40 checkpoint:** Kullanici istegiyle bu sohbet
 duraklatildi. Son push edilen HEAD, commit edilmemis runtime taslagi,

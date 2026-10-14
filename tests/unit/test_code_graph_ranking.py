@@ -546,3 +546,62 @@ def test_graph_off_baseline_regression_result_is_byte_for_byte(tmp_path: Path) -
         assert baseline["graph_reranker"] is None
     finally:
         index.close()
+
+
+def test_graph_bypass_preserves_exact_citations_and_generation_identity(
+    tmp_path: Path,
+) -> None:
+    index, provider, rag = _graph_off_rag(tmp_path)
+    graph = FakeGraph(
+        _generation(project_id="other-project", revision=REVISION, tree_digest=TREE),
+        symbols_by_file={"src/mod_0.py": (_id("a"),)},
+        file_by_symbol={},
+        raw_edges={},
+    )
+
+    def chunk_file(chunk_id: str) -> str | None:
+        return f"src/mod_{chunk_id[-1]}.py" if chunk_id.startswith("chunk-") else None
+
+    try:
+        reranker = compose_graph_reranker(
+            graph,
+            project_id=PROJECT,
+            source_revision=REVISION,
+            tree_digest=TREE,
+            chunk_file=chunk_file,
+            enabled=True,
+        )
+        assert reranker is not None
+        result = EmbeddedProjectRAG(
+            rag.index, provider, rag.embedding_policy, reranker=reranker
+        ).query(
+            "ADR-0006",
+            project_id=PROJECT,
+            expected_source_revision=REVISION,
+            expected_tree_digest=TREE,
+        )
+        baseline = rag.query(
+            "ADR-0006",
+            project_id=PROJECT,
+            expected_source_revision=REVISION,
+            expected_tree_digest=TREE,
+        )
+        generation = index.generation(PROJECT)
+        assert result["state"] == "answered"
+        assert result["generation_digest"] == generation.generation_digest
+        assert result["source_revision"] == generation.source_revision == REVISION
+        assert result["citations"] == baseline["citations"]
+        assert result["used_chunk_ids"] == baseline["used_chunk_ids"]
+        assert result["graph_reranker"] == {
+            "used": True,
+            "state": "ready",
+            "bypass": "binding-mismatch",
+        }
+        assert result["citations"]
+        for citation in result["citations"]:
+            assert citation["source_revision"] == REVISION
+            assert citation["source_digest"].startswith("sha256:")
+            assert citation["content_digest"].startswith("sha256:")
+            assert citation["rank_trace"]["fused_rank"] >= 1
+    finally:
+        index.close()
