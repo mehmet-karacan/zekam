@@ -1853,6 +1853,16 @@ karari korunur.
 Bu dar dilim WP-04.01/04.04'un sistem deny override boslugunu daraltir; tam
 discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.40 15 Ekim 2026 Git stdout bounded kapisi
+
+Salt-okunur Git adapter'i stdout'u `subprocess.run` ile sinirsiz bellege
+toplamak yerine akista bounded reader ile okur. Cikti limiti veya 30 saniyelik
+komut suresi asilirsa process tree sonlandirilir ve `GitCommandError` uretilir;
+basarisiz Git sonucu ile UTF-8 redaksiyonlu basarili cikti sozlesmesi korunur.
+
+Bu dar dilim WP-06.05'in bounded history/diff kaynak okuyucusu bellek ve sure
+sinirini daraltir; gercek Jira/Confluence baglantisi ve canli kabul aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

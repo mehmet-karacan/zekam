@@ -7,6 +7,7 @@ dogrular.
 from __future__ import annotations
 
 import hashlib
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,16 @@ def test_non_repository_directory_is_not_reported_as_repository(source_tree: Pat
 
 def test_observe_returns_none_for_non_repository(source_tree: Path) -> None:
     assert source_reader.observe(source_tree) is None
+
+
+def test_git_stdout_is_bounded_during_read(
+    source_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "-C", str(source_tree), "init", "-q"], check=True)
+    monkeypatch.setattr(source_reader, "MAX_OUTPUT_BYTES", 1)
+
+    with pytest.raises(source_reader.GitCommandError, match="cikti sinirini"):
+        source_reader.run_read_only(source_tree, "status", "--porcelain")
 
 
 # -- Kesif kaynagi degistirmez ----------------------------------------------------

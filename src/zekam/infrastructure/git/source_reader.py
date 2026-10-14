@@ -14,12 +14,22 @@ Ek olarak:
 
 from __future__ import annotations
 
+import os
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
 from zekam.domain.errors import PolicyViolation
+from zekam.infrastructure.process.bounded_stream import (
+    BoundedReader,
+    finish_pipes,
+    hard_kill_tree,
+    start_process_tree,
+    wait_for,
+)
 
 #: Izin verilen salt okunur alt komutlar.
 READ_ONLY_COMMANDS: Final[frozenset[str]] = frozenset(
@@ -41,6 +51,8 @@ READ_ONLY_COMMANDS: Final[frozenset[str]] = frozenset(
 
 #: Komut zaman asimi (saniye).
 COMMAND_TIMEOUT = 30
+#: Git stdout icin akista uygulanan bellek siniri.
+MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +80,7 @@ class GitCommandError(PolicyViolation):
 
 
 def run_read_only(root: Path, *arguments: str) -> str:
-    """Salt okunur bir Git komutu calistirir ve stdout dondurur."""
+    """Salt okunur bir Git komutunu bounded stdout ile calistirir."""
     if not arguments:
         raise PolicyViolation("Git komutu bos olamaz")
     subcommand = arguments[0]
@@ -86,21 +98,41 @@ def run_read_only(root: Path, *arguments: str) -> str:
         *arguments,
     ]
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            # Git ciktisi UTF-8'dir; locale kodlamasi (cp1254) Turkce mesajlari bozar.
-            encoding="utf-8",
-            errors="replace",
-            timeout=COMMAND_TIMEOUT,
-            check=False,
+        tree = start_process_tree(
+            tuple(command),
+            root,
+            env=os.environ.copy(),
+            stderr=subprocess.DEVNULL,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (OSError, PolicyViolation, subprocess.SubprocessError) as exc:
         raise GitCommandError(f"Git komutu calistirilamadi: {subcommand}") from exc
-    if completed.returncode != 0:
-        raise GitCommandError(f"Git komutu basarisiz: {subcommand}")
-    return completed.stdout
+
+    process = tree.process
+    reader = BoundedReader(process.stdout, MAX_OUTPUT_BYTES)
+    reader_thread = threading.Thread(target=reader.read, daemon=True)
+    reader_thread.start()
+    if process.stdin is not None:
+        process.stdin.close()
+
+    status = "exited"
+    try:
+        status = wait_for(
+            process,
+            time.monotonic() + COMMAND_TIMEOUT,
+            reader.overflow,
+        )
+        if status == "overflow":
+            raise GitCommandError(f"Git komutu cikti sinirini asiyor: {subcommand}")
+        if status == "deadline":
+            raise GitCommandError(f"Git komutu zaman asimi: {subcommand}")
+        if process.returncode != 0:
+            raise GitCommandError(f"Git komutu basarisiz: {subcommand}")
+        # Git ciktisi UTF-8'dir; locale kodlamasi (cp1254) Turkce mesajlari bozar.
+        return bytes(reader.buffer).decode("utf-8", errors="replace")
+    finally:
+        if status != "exited" or process.poll() is None:
+            hard_kill_tree(tree)
+        finish_pipes(tree, (reader_thread,))
 
 
 def is_inside_work_tree(root: Path) -> bool:
