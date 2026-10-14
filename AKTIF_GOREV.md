@@ -1366,6 +1366,17 @@ kontrolun tum yuzeylere yayilmasi, harici kaynak ve release kabul kapilari halen
 `next_safe_action`: ortak path-security helper'inin kalan SQLite projection store'larinda
 hedefli kullanimini ve sidecar lock negatiflerini envanterle; gereksiz toplu refactor yapma.
 
+### 10.13 14 Ekim 2026 package/security tekrar dogrulamasi
+
+Yeni reparse testleri sonrasinda paket dogrulama yeniden kosuldu ve `status: passed` dondu:
+required files, schema/YAML projection, model/phase sayilari ve Git security gecisleri temiz.
+Security scan'in tarihcede yakaladigi sentetik `id_rsa` fixture izi current testten kaldirildi;
+onceki immutable commitlerdeki ayni test fiksturu icin yalniz exact path/rule/fingerprint history
+allowance korundu. Bu allowance secret degeri saklamaz ve yeni credential eklemez.
+
+`next_safe_action`: allowance listesini genisletmeden kalan SQLite projection path'lerini hedefli
+incele; her yeni fixture'da secret pattern yerine siradan sentetik metin kullan.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

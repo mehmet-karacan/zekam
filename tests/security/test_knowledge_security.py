@@ -34,7 +34,7 @@ def sample_tree(tmp_path: Path) -> Path:
     (root / "src" / "modul.py").write_text("x = 1\n", encoding="utf-8")
     (root / "README.md").write_text("# baslik\n", encoding="utf-8")
     (root / ".env").write_text("ZEKAM_DATABASE_PASSWORD=gizli\n", encoding="utf-8")
-    (root / "id_rsa").write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
+    (root / "id_rsa").write_text("synthetic-key-material\n", encoding="utf-8")
     (root / "araclar.exe").write_bytes(b"MZ\x00")
     (root / ".git" / "config").write_text("[core]\n", encoding="utf-8")
     (root / "node_modules" / "paket" / "index.js").write_text("x", encoding="utf-8")
