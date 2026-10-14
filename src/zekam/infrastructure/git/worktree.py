@@ -17,7 +17,7 @@ from typing import BinaryIO
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import TreeFingerprint, assert_relative_path
-from zekam.infrastructure.git.source_reader import COMMAND_TIMEOUT, GitCommandError, run_read_only
+from zekam.infrastructure.git.source_reader import GitCommandError, run_read_only
 
 #: Direct-source degisiklik kanitini salt okunur cikaran Git komutlari.
 _WORKTREE_COMMANDS = frozenset({"diff"})
@@ -37,18 +37,12 @@ def _run(root: Path, *arguments: str, check: bool = True) -> subprocess.Complete
         *arguments,
     ]
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=COMMAND_TIMEOUT,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise GitCommandError(f"Git komutu calistirilamadi: {arguments[0]}") from exc
-    if check and completed.returncode != 0:
-        raise GitCommandError(f"Git komutu basarisiz: {arguments[0]}")
-    return completed
+        output = run_read_only(root, *arguments)
+    except GitCommandError:
+        if check:
+            raise
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+    return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
 
 def fingerprint(root: Path) -> TreeFingerprint:

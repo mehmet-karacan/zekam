@@ -1893,6 +1893,16 @@ raporlanir ve toplam gozlem sayisi bounded limitte kesilir.
 Bu dar dilim WP-04.04'un CAS orphan/unsafe traversal kaynak tuketimi boslugunu
 daraltir; tam native dosya sistemi yarisi ve kabul matrisi aciktir.
 
+### 10.44 15 Ekim 2026 worktree diff bounded kapisi
+
+Bound source worktree diff kaniti, dogrudan `subprocess.run` stdout toplamak
+yerine ortak salt-okunur Git adapter'inin bounded reader, timeout ve process
+cleanup akisindan gecer. `CompletedProcess` uyumluluk yuzeyi korunur; diff ve
+degisen yol kaniti ayni stdout limitiyle uretilir.
+
+Bu dar dilim WP-06.05'in worktree kanit toplama bellek/sure boslugunu daraltir;
+tam native Git/provider kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
