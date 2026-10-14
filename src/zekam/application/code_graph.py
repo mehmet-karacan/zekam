@@ -18,6 +18,7 @@ drift produces a new generation that supersedes the previous one atomically.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -41,6 +42,9 @@ MAX_GRAPH_SOURCE_BYTES: int = 4 * 1024 * 1024
 # structural extractor cannot interpret reliably.  Keep the rule narrow so a
 # regular ``build`` or ``static`` source directory remains eligible.
 _GENERATED_GRAPH_DIRS = frozenset({".next", "_next"})
+_DENIED_GRAPH_DIRS = frozenset(
+    {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
+)
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -218,24 +222,41 @@ def _discover_source_files(source_root: Path) -> list[Path]:
     if not source_root.is_dir() or _is_link_or_reparse(source_root):
         raise ValidationFailed("Graph source root dizin olmali")
     files: list[Path] = []
-    for path in sorted(source_root.rglob("*")):
-        if not path.is_file():
-            continue
+    pending: list[Path] = [source_root]
+    while pending:
+        directory = pending.pop()
         try:
-            relative = path.relative_to(source_root)
-        except ValueError:
-            continue
-        if _has_link_component(source_root, relative):
-            continue
-        if any(part.casefold() in _GENERATED_GRAPH_DIRS for part in relative.parts):
-            continue
-        if any(
-            part.casefold()
-            in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
-            for part in relative.parts
-        ):
-            continue
-        files.append(relative)
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise ValidationFailed("Graph source dizin okunamadi") from exc
+        child_directories: list[Path] = []
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                relative = path.relative_to(source_root)
+            except ValueError:
+                continue
+            if _is_link_or_reparse(path):
+                continue
+            try:
+                is_directory = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+            except OSError:
+                # A race or permission error must not turn into an implicit
+                # source read; the inaccessible entry is excluded fail-closed.
+                continue
+            parts = tuple(part.casefold() for part in relative.parts)
+            if any(part in _GENERATED_GRAPH_DIRS or part in _DENIED_GRAPH_DIRS for part in parts):
+                continue
+            if is_directory:
+                child_directories.append(path)
+            elif is_file:
+                files.append(relative)
+        # Reverse push preserves lexical traversal order without collecting a
+        # potentially unbounded recursive rglob result first.
+        pending.extend(reversed(child_directories))
+    files.sort()
     return files
 
 

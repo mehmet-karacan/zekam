@@ -1809,6 +1809,18 @@ yerlesik negation kurallari case-insensitive olarak korunur; kullanici
 Bu dar dilim WP-04.01'in deny-tree metadata/eligibility guvenlik boslugunu
 daraltir; tam discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.36 15 Ekim 2026 graph deny-tree traversal kapisi
+
+Code graph source discovery, `Path.rglob` ile once tum agaci bellege almak
+yerine isim sirali `os.scandir` kuyrugu kullanir. `.git`, `.venv`, cache ve
+Next.js generated agaclari kuyruga alinmadan budanir; symlink/reparse girdileri
+izlenmez, erisim hatali girdiler fail-closed disarida kalir. Plan manifesti
+hala deterministik sirali relative path ve digest kaydini uretir.
+
+Bu dar dilim WP-06.03'un graph discovery bellek/traversal performans ve deny-tree
+guvenlik boslugunu daraltir; tam source limitleri, parser/resolver ve kabul
+matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

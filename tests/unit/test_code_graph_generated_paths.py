@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from zekam.application import code_graph as code_graph_module
 from zekam.application.code_graph import plan_graph_build
 from zekam.application.code_graph_polyglot import PolyglotStructuralExtractor
 
@@ -75,6 +76,36 @@ def test_graph_plan_skips_casefolded_generated_and_tool_dirs(tmp_path: Path) -> 
         source_root,
         project_id="casefold-paths",
         project_slug="casefold-paths",
+        source_revision="r1",
+        extractor=PolyglotStructuralExtractor(),
+        created_at="2026-10-15T00:00:00Z",
+    )
+
+    assert [path for path, _digest in plan.file_manifests] == ["main.py"]
+
+
+def test_graph_discovery_prunes_denied_tree_before_scandir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = tmp_path / "project"
+    source_root.mkdir()
+    (source_root / "main.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+    denied = source_root / ".GIT"
+    denied.mkdir()
+    (denied / "history.py").write_text("def history():\n    return 0\n", encoding="utf-8")
+
+    original_scandir = code_graph_module.os.scandir
+
+    def guarded_scandir(path: object) -> object:
+        if Path(path).name.casefold() == ".git":
+            raise AssertionError("deny agaci taranmamali")
+        return original_scandir(path)
+
+    monkeypatch.setattr(code_graph_module.os, "scandir", guarded_scandir)
+    plan = plan_graph_build(
+        source_root,
+        project_id="pruned-paths",
+        project_slug="pruned-paths",
         source_revision="r1",
         extractor=PolyglotStructuralExtractor(),
         created_at="2026-10-15T00:00:00Z",
