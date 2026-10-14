@@ -46,7 +46,9 @@ class IgnoreRule:
         return self.regex.match(candidate) is not None
 
 
-def _translate(pattern: str, *, anchored: bool) -> re.Pattern[str]:
+def _translate(
+    pattern: str, *, anchored: bool, case_sensitive: bool = True
+) -> re.Pattern[str]:
     """Glob desenini bastan eslesen bir duzenli ifadeye cevirir."""
     parts: list[str] = []
     index = 0
@@ -75,10 +77,13 @@ def _translate(pattern: str, *, anchored: bool) -> re.Pattern[str]:
     body = "".join(parts)
     # Anchored kural kok'e sabitlenir; digeri her derinlikte eslesir.
     expression = f"^{body}(?:/.*)?$" if anchored else f"^(?:.*/)?{body}(?:/.*)?$"
-    return re.compile(expression)
+    flags = 0 if case_sensitive else re.IGNORECASE
+    return re.compile(expression, flags)
 
 
-def parse_rule(line: str, *, base: str = "") -> IgnoreRule | None:
+def parse_rule(
+    line: str, *, base: str = "", case_sensitive: bool = True
+) -> IgnoreRule | None:
     """Tek satiri kurala cevirir. Yorum veya bos satir icin `None` doner."""
     stripped = line.rstrip("\n").rstrip("\r")
     if not stripped.strip() or stripped.lstrip().startswith("#"):
@@ -102,7 +107,7 @@ def parse_rule(line: str, *, base: str = "") -> IgnoreRule | None:
         negated=negated,
         directory_only=directory_only,
         anchored=anchored,
-        regex=_translate(stripped, anchored=anchored),
+        regex=_translate(stripped, anchored=anchored, case_sensitive=case_sensitive),
         base=base,
     )
 
@@ -114,9 +119,17 @@ class IgnoreMatcher:
     rules: tuple[IgnoreRule, ...] = ()
 
     @classmethod
-    def from_lines(cls, lines: Iterable[str], *, base: str = "") -> IgnoreMatcher:
+    def from_lines(
+        cls,
+        lines: Iterable[str],
+        *,
+        base: str = "",
+        case_sensitive: bool = True,
+    ) -> IgnoreMatcher:
         """Satir dizisinden matcher uretir."""
-        parsed = [parse_rule(line, base=base) for line in lines]
+        parsed = [
+            parse_rule(line, base=base, case_sensitive=case_sensitive) for line in lines
+        ]
         return cls(tuple(rule for rule in parsed if rule is not None))
 
     def extended(self, other: IgnoreMatcher) -> IgnoreMatcher:
@@ -187,4 +200,7 @@ SYSTEM_DENY_LINES: tuple[str, ...] = (
 
 def system_deny_matcher() -> IgnoreMatcher:
     """Sistem seviyesinde her zaman uygulanan yoksayma kurallari."""
-    return IgnoreMatcher.from_lines(SYSTEM_DENY_LINES)
+    # Kaynak yollarinin buyuk-kucuk harf davranisi platforma gore degisir.
+    # Yerlesik deny listesi, `.GIT`, `.ENV` veya buyuk uzantili credential
+    # dosyasinin platform farki nedeniyle okunmasina izin vermemelidir.
+    return IgnoreMatcher.from_lines(SYSTEM_DENY_LINES, case_sensitive=False)

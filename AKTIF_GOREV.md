@@ -1798,6 +1798,17 @@ erken kapatmaz; sonrasindaki local call dogru procedure symbol'ine baglanir.
 Bu dar dilim WP-06.03'un PL/SQL structural owner ve locator boslugunu daraltir;
 tam PL/SQL grammar/resolver ve cross-file kabul matrisi aciktir.
 
+### 10.35 15 Ekim 2026 sistem deny casefold kapisi
+
+Yerlesik kaynak tarama deny listesi, platformlarin buyuk-kucuk harf davranisi
+farkli olsa da `.GIT`, `.VENV`, `__PYCACHE__`, `.ENV` ve buyuk uzantili credential
+dosyalarini ayni sekilde icerik disinda birakir. Ornek ortam dosyalari icin
+yerlesik negation kurallari case-insensitive olarak korunur; kullanici
+`.gitignore` ve `.zekamignore` kurallari onceki case-sensitive davranisini surdurur.
+
+Bu dar dilim WP-04.01'in deny-tree metadata/eligibility guvenlik boslugunu
+daraltir; tam discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

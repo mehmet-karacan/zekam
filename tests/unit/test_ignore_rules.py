@@ -103,6 +103,20 @@ def test_system_deny_list_excludes_known_directories(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
+        ".GIT",
+        "NODE_MODULES",
+        "src/__PYCACHE__",
+        "build/.VENV",
+        ".MYPY_CACHE",
+    ],
+)
+def test_system_deny_list_is_case_insensitive_for_directories(path: str) -> None:
+    assert system_deny_matcher().is_ignored(path, is_directory=True)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
         "gizli.pem",
         "sunucu.key",
         "kimlik.p12",
@@ -117,9 +131,28 @@ def test_system_deny_list_excludes_credential_files(path: str) -> None:
     assert system_deny_matcher().is_ignored(path)
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["CONFIG.PEM", "PRIVATE.KEY", "TOKEN.P12", ".ENV", ".ENV.PRODUCTION", "a.PYC"],
+)
+def test_system_deny_list_is_case_insensitive_for_files(path: str) -> None:
+    assert system_deny_matcher().is_ignored(path)
+
+
 @pytest.mark.parametrize("path", [".env.example", ".env.sample"])
 def test_example_environment_files_are_kept(path: str) -> None:
     assert not system_deny_matcher().is_ignored(path)
+
+
+@pytest.mark.parametrize("path", [".ENV.EXAMPLE", ".ENV.SAMPLE"])
+def test_uppercase_example_environment_files_are_kept(path: str) -> None:
+    assert not system_deny_matcher().is_ignored(path)
+
+
+def test_user_rules_keep_case_sensitive_matching() -> None:
+    rules = matcher("build/")
+    assert rules.is_ignored("build", is_directory=True)
+    assert not rules.is_ignored("BUILD", is_directory=True)
 
 
 def test_regular_source_files_are_not_denied() -> None:
