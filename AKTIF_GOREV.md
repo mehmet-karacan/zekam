@@ -1769,6 +1769,16 @@ uygulama zamanindaki kaynak degisimiyle gecersizlesmez.
 Bu dar dilim WP-04.06/06.03'un plan/apply source ownership boslugunu daraltir;
 tam discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.32 15 Ekim 2026 graph source read failure tipi
+
+Graph plan/apply kaynak dosyasi silinmis, okunamaz veya yarista kaybolmus ise
+ham isletim sistemi hatasi disari sizmaz; kaynak kaniti uretilmeden
+`ValidationFailed` ile durur. Link/reparse ve digest drift kapilariyla ayni
+fail-closed akis korunur.
+
+Bu dar dilim WP-04.06/06.03'un kaynak okuma hata siniflamasini daraltir;
+tam discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

@@ -51,7 +51,7 @@ def _is_link_or_reparse(path: Path) -> bool:
             return True
         attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
     except OSError:
-        return True
+        return False
     return bool(attributes & 0x400)
 
 
@@ -62,6 +62,13 @@ def _has_link_component(source_root: Path, relative: Path) -> bool:
         if _is_link_or_reparse(current):
             return True
     return False
+
+
+def _read_source_bytes(source_root: Path, relative: Path) -> bytes:
+    try:
+        return (source_root / relative).read_bytes()
+    except OSError as exc:
+        raise ValidationFailed("Graph source okunamadi") from exc
 
 
 def _safe_relative(value: str) -> str:
@@ -246,7 +253,7 @@ def plan_graph_build(
         relative_path = relative.as_posix()
         if not extractor.supports(relative_path):
             continue
-        content = (source_root / relative).read_bytes()
+        content = _read_source_bytes(source_root, relative)
         if len(content) > MAX_GRAPH_SOURCE_BYTES:
             raise ValidationFailed("Graph source dosya boyut sinirini asiyor")
         manifests.append((relative_path, digest_of_bytes(content)))
@@ -286,7 +293,7 @@ def apply_graph_build(
     for relative_path, content_digest in plan.file_manifests:
         if _has_link_component(source_root, Path(relative_path)):
             raise ValidationFailed("Graph source link/reparse drift")
-        content = (source_root / relative_path).read_bytes()
+        content = _read_source_bytes(source_root, Path(relative_path))
         if len(content) > MAX_GRAPH_SOURCE_BYTES:
             raise ValidationFailed("Graph source dosya boyut sinirini asiyor")
         if digest_of_bytes(content) != content_digest:

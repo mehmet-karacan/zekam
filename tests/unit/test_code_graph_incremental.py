@@ -215,3 +215,23 @@ def test_apply_rejects_link_drift_after_plan(
             apply_graph_build(store, extractor, source_root, plan)
     finally:
         store.close()
+
+
+def test_apply_rejects_missing_source_as_validation_error(tmp_path: Path) -> None:
+    source_root = _write(tmp_path, {"mod.py": "def f():\n    return 1\n"})
+    extractor = PythonAstExtractor()
+    plan = plan_graph_build(
+        source_root,
+        project_id=_PROJECT_ID,
+        project_slug=_SLUG,
+        source_revision=_REVISION,
+        extractor=extractor,
+        created_at=_CREATED_AT,
+    )
+    (source_root / "mod.py").unlink()
+    store = SQLiteCodeGraphStore(tmp_path / "g.sqlite3", create=True)
+    try:
+        with pytest.raises(ValidationFailed, match="source okunamadi"):
+            apply_graph_build(store, extractor, source_root, plan)
+    finally:
+        store.close()
