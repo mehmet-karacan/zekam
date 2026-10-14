@@ -58,6 +58,10 @@ _PLSQL_RE = re.compile(
     rf"(?im)^\s*create\s+(?:or\s+replace\s+)?(?:editionable\s+|noneditionable\s+)?"
     rf"(?P<kind>package(?:\s+body)?|procedure|function)\s+(?P<name>{_IDENTIFIER})"
 )
+_PLSQL_BLOCK_TOKEN = re.compile(
+    r"(?im)\bBEGIN\b|\bIF\b|\bLOOP\b|\bCASE\b|"
+    r"\bEND(?:\s+[A-Za-z_$][A-Za-z0-9_$#]*)?\s*;"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,9 +199,17 @@ def _body_end(masked: str, opening: int) -> int:
     return cursor if depth == 0 else -1
 
 
-def _plsql_end(text: str, start: int) -> int:
-    match = re.search(r"(?im)^\s*end(?:\s+[A-Za-z_$][A-Za-z0-9_$#]*)?\s*;", text[start:])
-    return start + match.end() if match is not None else len(text)
+def _plsql_end(masked: str, start: int) -> int:
+    depth = 0
+    for match in _PLSQL_BLOCK_TOKEN.finditer(masked, start):
+        token = match.group(0).lstrip().upper()
+        if token.startswith("END"):
+            if depth == 0:
+                return match.end()
+            depth -= 1
+        else:
+            depth += 1
+    return len(masked)
 
 
 def _language(relative_path: str) -> str:
@@ -265,9 +277,9 @@ def _extract(
                     name=match.group("name"),
                     kind=kind,
                     start=match.start(),
-                    end=_plsql_end(text, match.start()),
+                    end=_plsql_end(masked, match.start()),
                     body_start=match.end(),
-                    body_end=_plsql_end(text, match.start()),
+                    body_end=_plsql_end(masked, match.start()),
                 )
             )
     else:

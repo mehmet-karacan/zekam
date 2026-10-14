@@ -1789,6 +1789,15 @@ icerir; digest ve plan sirasi korunur.
 Bu dar dilim WP-04.01/06.03'un deny-tree metadata boslugunu daraltir; tam
 discovery metadata esitlemesi ve kabul matrisi aciktir.
 
+### 10.34 15 Ekim 2026 PL/SQL nested block siniri
+
+Polyglot PL/SQL declaration locator'i maskelenmis `BEGIN`, `IF`, `LOOP`, `CASE`
+ve `END` tokenlarini dengeler. Ic `END IF` veya `END LOOP` prosedur govdesini
+erken kapatmaz; sonrasindaki local call dogru procedure symbol'ine baglanir.
+
+Bu dar dilim WP-06.03'un PL/SQL structural owner ve locator boslugunu daraltir;
+tam PL/SQL grammar/resolver ve cross-file kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

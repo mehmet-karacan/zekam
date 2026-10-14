@@ -171,6 +171,41 @@ def test_polyglot_marks_class_members_as_methods(
     assert members == {"helper": GraphNodeKind.METHOD, "run": GraphNodeKind.METHOD}
 
 
+def test_plsql_nested_block_keeps_call_owner(tmp_path: Path) -> None:
+    extraction = _extract(
+        tmp_path,
+        "db/load_data.pkb",
+        """
+        CREATE OR REPLACE PROCEDURE save_data AS
+        BEGIN
+            NULL;
+        END;
+        /
+        CREATE OR REPLACE PROCEDURE load_data AS
+        BEGIN
+            IF 1 = 1 THEN
+                NULL;
+            END IF;
+            save_data();
+        END;
+        /
+        """,
+    )
+
+    load_data = next(
+        symbol
+        for symbol in extraction.symbols
+        if symbol.qualified_name == "db.load_data.load_data"
+    )
+    call = next(
+        edge
+        for edge in extraction.edges
+        if edge.relation is GraphRelation.CALLS and edge.target_qualified_name == "save_data"
+    )
+    assert call.source_symbol_id == load_data.symbol_id
+    assert load_data.end_line >= 11
+
+
 def test_polyglot_extractor_runs_through_plan_and_sqlite_generation(tmp_path: Path) -> None:
     source_root = tmp_path / "project"
     source_root.mkdir()
