@@ -1430,7 +1430,8 @@ Windows symlink skip'i privilege siniriyla sinirli kaldı. Native OpenCode V2 li
 MCP icin `mcp_integrations.py` native hedef dosyanin tum mevcut parent zincirinde
 `symlink/reparse` reddi, guvenli native root admission'i ve rollback planindan once
 receipt-sonrasi native digest drift kontrolu ekledi. Yeni negatif kanitler:
-`tests/unit/test_mcp_integration.py` ve `tests/e2e/test_cli_mcp.py` toplam `21 passed`.
+`tests/unit/test_mcp_integration.py` ve `tests/e2e/test_cli_mcp.py` toplam `23 passed`;
+Codex ve Claude yabanci girdi/credential korumasi da ayri parametrik fixture ile olculdu.
 Commit `f3c05bb` ASCII-only mesajla origin/main'e push edildi.
 
 Salt-okunur gercek kullanici envanteri ayni oturumda `integration status --json` ve

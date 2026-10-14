@@ -931,3 +931,104 @@ def test_mcp_rollback_plan_rejects_native_drift_before_render(
     assert "rollback native config drift" in rollback.output
     restored = json.loads(opencode.read_text(encoding="utf-8"))
     assert restored["mcp"]["servers"]["sample"]["command"] == ["user-drift"]
+
+
+@pytest.mark.parametrize("client", ["codex", "claude-code"])
+def test_mcp_foreign_entries_and_credentials_survive_apply_and_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: str
+) -> None:
+    """Codex ve Claude yabanci MCP girdilerini ve credential degerlerini korur."""
+
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, (client,))
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+
+    foreign_secret = f"{client}-foreign-secret"
+    if client == "codex":
+        native_path = native / ".codex" / "config.toml"
+        native_path.parent.mkdir(parents=True)
+        native_path.write_text(
+            '[mcp_servers."user-owned"]\n'
+            'command = "user-server"\n'
+            'args = []\n'
+            'env_vars = ["USER_TOKEN"]\n',
+            encoding="utf-8",
+        )
+    else:
+        native_path = native / ".claude.json"
+        native_path.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "user-owned": {
+                            "type": "stdio",
+                            "command": "user-server",
+                            "args": [],
+                            "env": {"USER_TOKEN": foreign_secret},
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+    add_args = [
+        "mcp",
+        "add",
+        "managed",
+        "--command",
+        "managed-server",
+        "--env-var",
+        "SAMPLE_TOKEN",
+        "--client",
+        client,
+        "--home",
+        str(home),
+        "--json",
+    ]
+    plan = json.loads(runner.invoke(app, add_args).output)
+    applied = runner.invoke(
+        app, [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"]
+    )
+    assert applied.exit_code == 0, applied.output
+    receipt = json.loads(applied.output)
+
+    projected = native_path.read_text(encoding="utf-8")
+    assert foreign_secret not in projected if client == "codex" else foreign_secret in projected
+    assert "user-owned" in projected
+    assert "managed" in projected
+    assert foreign_secret not in projected.split("managed", 1)[-1]
+
+    rollback_args = [
+        "mcp",
+        "rollback",
+        "--receipt",
+        receipt["receipt_digest"],
+        "--home",
+        str(home),
+        "--json",
+    ]
+    rollback_plan = json.loads(runner.invoke(app, rollback_args).output)
+    rolled_back = runner.invoke(
+        app,
+        [
+            *rollback_args[:-1],
+            "--plan-digest",
+            rollback_plan["plan_digest"],
+            "--uygula",
+            "--json",
+        ],
+    )
+    assert rolled_back.exit_code == 0, rolled_back.output
+    if client == "codex":
+        restored_toml = tomllib.loads(native_path.read_text(encoding="utf-8"))
+        assert restored_toml["mcp_servers"]["user-owned"]["command"] == "user-server"
+        assert restored_toml["mcp_servers"]["user-owned"]["env_vars"] == ["USER_TOKEN"]
+    else:
+        restored_json = json.loads(native_path.read_text(encoding="utf-8"))
+        assert restored_json["mcpServers"]["user-owned"]["env"]["USER_TOKEN"] == foreign_secret
