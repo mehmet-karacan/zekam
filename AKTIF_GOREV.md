@@ -1699,6 +1699,17 @@ Bu dar dilim WP-06.05'in malformed Git log kanit boslugunu daraltir;
 gercek issue/Confluence okuma, canli provider ve tam proje degisiklik baglantisi
 halen aciktir.
 
+### 10.25 15 Ekim 2026 bounded Git log tail dogrulamasi
+
+History parser'i MAX_COMMITS kesmesinden sonra kalan bounded kayitlarin temel
+alan bicimini de kontrol eder. Bozuk SHA veya ayirici sayisi tasiyan tail kaydi
+gorunume alinmasa bile `GitCommandError` ile reddedilir; truncated sonucu
+malformed girdiyi gizlemez.
+
+Bu dar dilim WP-06.05'in bounded history tail kanit boslugunu daraltir;
+gercek issue/Confluence okuma, canli provider ve tam proje degisiklik baglantisi
+halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

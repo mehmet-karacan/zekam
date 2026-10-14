@@ -25,6 +25,13 @@ def test_parse_log_entries_accepts_single_trailing_separator() -> None:
     assert history._parse_log_entries(valid + "\x1e") == [valid]
 
 
+def test_parse_log_entries_rejects_malformed_bounded_tail() -> None:
+    valid = "a" * 40 + "\x1f\x1f2026-10-15T00:00:00+00:00\x1fSKYRSM-5659 konu"
+
+    with pytest.raises(GitCommandError, match="Git log kaydi beklenen sekilde degil"):
+        history._parse_log_entries(valid + "\x1e" + "malformed" + "\x1e")
+
+
 def test_diff_files_rejects_incomplete_nul_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

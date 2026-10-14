@@ -149,6 +149,10 @@ def _parse_log_entries(log: str) -> list[str]:
         parts.pop()
     if any(not item.strip() for item in parts):
         raise GitCommandError("Git log kaydi eksik")
+    for item in parts:
+        fields = item.strip("\n").split(_FIELD_SEPARATOR)
+        if len(fields) != 4 or _SHA.fullmatch(fields[0]) is None:
+            raise GitCommandError("Git log kaydi beklenen sekilde degil")
     return parts
 
 
