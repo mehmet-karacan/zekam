@@ -160,6 +160,155 @@ def test_run_step_dependency_cannot_cross_run_boundary(tmp_path: Path) -> None:
             )
 
 
+def test_run_and_steps_use_optimistic_recovery_transitions_and_receipts(tmp_path: Path) -> None:
+    path, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        config, project, _, _ = _authority(uow)
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Run lifecycle",
+            state="ready",
+            payload_digest=digest("run-lifecycle"),
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=digest("run-plan"),
+            budget={},
+        )
+        first = uow.add_run_step(
+            run_id=run.id,
+            step_key="first",
+            input_digest=digest("first-input"),
+        )
+        second = uow.add_run_step(
+            run_id=run.id,
+            step_key="second",
+            input_digest=digest("second-input"),
+            dependencies=(first.id,),
+        )
+        running = uow.transition_run(
+            run_id=run.id,
+            expected_status="planned",
+            to_status="running",
+        )
+        assert running.status == "running"
+        with pytest.raises(ValidationFailed, match="dependency"):
+            uow.transition_run_step(
+                step_id=second.id,
+                expected_status="pending",
+                to_status="ready",
+            )
+        ready = uow.transition_run_step(
+            step_id=first.id,
+            expected_status="pending",
+            to_status="ready",
+        )
+        assert ready.status == "ready"
+        executing = uow.transition_run_step(
+            step_id=first.id,
+            expected_status="ready",
+            to_status="running",
+        )
+        assert executing.status == "running"
+        done = uow.transition_run_step(
+            step_id=first.id,
+            expected_status="running",
+            to_status="succeeded",
+            evidence_digest=digest("first-evidence"),
+        )
+        assert done.evidence_digest == digest("first-evidence")
+        assert uow.transition_run_step(
+            step_id=second.id,
+            expected_status="pending",
+            to_status="ready",
+        ).status == "ready"
+        with pytest.raises(ValidationFailed, match="tum adimlar"):
+            uow.transition_run(
+                run_id=run.id,
+                expected_status="running",
+                to_status="succeeded",
+                terminal_receipt_digest=digest("premature-run-receipt"),
+            )
+        uow.transition_run_step(
+            step_id=second.id,
+            expected_status="ready",
+            to_status="running",
+        )
+        uow.transition_run_step(
+            step_id=second.id,
+            expected_status="running",
+            to_status="succeeded",
+            evidence_digest=digest("second-evidence"),
+        )
+        with pytest.raises(ValidationFailed, match="stale"):
+            uow.transition_run(
+                run_id=run.id,
+                expected_status="planned",
+                to_status="running",
+            )
+        completed = uow.transition_run(
+            run_id=run.id,
+            expected_status="running",
+            to_status="succeeded",
+            terminal_receipt_digest=digest("run-receipt"),
+        )
+        assert completed.terminal_receipt_digest == digest("run-receipt")
+        uow.commit()
+
+    restarted = SQLiteOperationalStore(path)
+    with restarted.unit_of_work() as uow:
+        assert uow.get_run(run.id).terminal_receipt_digest == digest("run-receipt")
+        assert [item.status for item in uow.list_run_steps(run.id)] == [
+            "succeeded",
+            "succeeded",
+        ]
+
+
+def test_checkpoint_requires_run_order_and_nonterminal_source_binding(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        config, project, _, snapshot = _authority(uow)
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Ordered checkpoint",
+            state="ready",
+            payload_digest=digest("ordered-checkpoint"),
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            source_snapshot_id=snapshot.id,
+            plan_digest=digest("ordered-plan"),
+            budget={},
+        )
+        with pytest.raises(ValidationFailed, match="sirali"):
+            uow.record_checkpoint(
+                run_id=run.id,
+                sequence=2,
+                checkpoint_digest=digest({"step": "later"}),
+                payload={"step": "later"},
+            )
+        first = uow.record_checkpoint(
+            run_id=run.id,
+            sequence=1,
+            source_snapshot_id=snapshot.id,
+            checkpoint_digest=digest({"step": "first"}),
+            payload={"step": "first"},
+        )
+        assert first.sequence == 1
+        with pytest.raises(ValidationFailed, match="sirali"):
+            uow.record_checkpoint(
+                run_id=run.id,
+                sequence=3,
+                checkpoint_digest=digest({"step": "third"}),
+                payload={"step": "third"},
+            )
+        uow.commit()
+
+
 def test_uow_without_commit_rolls_back_every_related_row(tmp_path: Path) -> None:
     path, store = _store(tmp_path)
 

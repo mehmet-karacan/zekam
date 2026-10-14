@@ -2233,6 +2233,35 @@ def test_wp0501_alias_chunk_id_with_same_content_hits_same_scope(
         connection.close()
 
 
+def test_wp0501_cache_reads_are_bounded_by_scope_not_chunk_count(tmp_path: Path) -> None:
+    """A warm scope uses one set read for many chunks instead of N point reads."""
+    connection = runtime._cache(tmp_path / "vectors.sqlite3")
+    scope = _wp0501_scope()
+    chunks = tuple(
+        _wp0501_chunk(f"wp0501-bulk-{index}", f"CREATE TABLE T_{index} (ID NUMBER)")
+        for index in range(50)
+    )
+    for chunk in chunks:
+        content_digest = digest_of_bytes(chunk.text.encode("utf-8"))
+        _wp0501_seed_row(connection, scope, chunk.chunk_id, content_digest)
+    connection.commit()
+    statements: list[str] = []
+    connection.set_trace_callback(statements.append)
+    try:
+        result = runtime._cached_vectors(
+            connection, chunks, {chunk.chunk_id: scope for chunk in chunks}
+        )
+        assert len(result) == len(chunks)
+        vector_reads = [
+            statement
+            for statement in statements
+            if "select chunk_id,content_digest,vector_blob,vector_digest" in statement
+        ]
+        assert len(vector_reads) == 1
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("implicit_transactions", [False, True])
 def test_wp0501_alias_hit_with_missing_chunk_allows_next_batch_transaction(
     tmp_path: Path, implicit_transactions: bool

@@ -41,6 +41,31 @@ from zekam.infrastructure.sqlite.unit_test_ledger import SQLiteUnitTestLedger
 _WORK_STATES: Final = frozenset(
     {"proposed", "ready", "active", "blocked", "verification", "completed", "cancelled", "archived"}
 )
+_RUN_STATUSES: Final = frozenset(
+    {"planned", "running", "succeeded", "failed", "cancelled", "unknown"}
+)
+_RUN_TRANSITIONS: Final = {
+    "planned": frozenset({"running", "cancelled", "unknown"}),
+    "running": frozenset({"succeeded", "failed", "cancelled", "unknown"}),
+    # An unknown run is a recovery boundary.  It may only be explicitly
+    # re-opened or terminalized after its owner has supplied a fresh receipt.
+    "unknown": frozenset({"running", "succeeded", "failed", "cancelled"}),
+    "succeeded": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+}
+_RUN_STEP_STATUSES: Final = frozenset(
+    {"pending", "ready", "running", "succeeded", "failed", "cancelled", "unknown"}
+)
+_RUN_STEP_TRANSITIONS: Final = {
+    "pending": frozenset({"ready", "cancelled", "unknown"}),
+    "ready": frozenset({"running", "cancelled", "unknown"}),
+    "running": frozenset({"succeeded", "failed", "cancelled", "unknown"}),
+    "unknown": frozenset({"ready", "running", "failed", "cancelled"}),
+    "succeeded": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+}
 _TRANSITIONS: Final = {
     "proposed": frozenset({"ready", "cancelled"}),
     "ready": frozenset({"active", "blocked", "cancelled"}),
@@ -807,6 +832,65 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Run constraint ihlali") from exc
         return RunRecord(run_id, work_item_id, "planned", plan_digest)
 
+    def transition_run(
+        self,
+        *,
+        run_id: str,
+        expected_status: str,
+        to_status: str,
+        terminal_receipt_digest: str | None = None,
+    ) -> RunRecord:
+        """Apply one optimistic, receipt-aware run state transition.
+
+        A run is never silently retried from an unknown state.  The caller must
+        name the observed status and terminal outcomes must carry a durable
+        receipt digest, so a stale worker cannot overwrite a newer owner.
+        """
+        connection = self._db()
+        row = connection.execute(
+            "select id, work_item_id, status, plan_digest, terminal_receipt_digest"
+            " from run where id=?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValidationFailed("Run bulunamadi")
+        if expected_status not in _RUN_STATUSES or to_status not in _RUN_STATUSES:
+            raise ValidationFailed("Run status gecersiz")
+        if row["status"] != expected_status:
+            raise ValidationFailed("Run stale status")
+        if to_status not in _RUN_TRANSITIONS[expected_status]:
+            raise ValidationFailed("Run status gecisi gecersiz")
+        if to_status in {"succeeded", "failed", "cancelled"}:
+            if terminal_receipt_digest is None:
+                raise ValidationFailed("Terminal Run receipt gerekiyor")
+            _validate_digest(terminal_receipt_digest, "Run terminal receipt")
+            if to_status == "succeeded":
+                incomplete = connection.execute(
+                    "select 1 from run_step where run_id=? and status<>'succeeded' limit 1",
+                    (run_id,),
+                ).fetchone()
+                if incomplete is not None:
+                    raise ValidationFailed("Succeeded Run icin tum adimlar basarili olmali")
+        elif terminal_receipt_digest is not None:
+            raise ValidationFailed("Nonterminal Run receipt yasak")
+        try:
+            updated = connection.execute(
+                "update run set status=?, terminal_receipt_digest=?, updated_at=?"
+                " where id=? and status=?",
+                (to_status, terminal_receipt_digest, _now(), run_id, expected_status),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValidationFailed("Run status gecisi constraint ihlali") from exc
+        if updated.rowcount != 1:
+            raise ValidationFailed("Run stale status")
+        return RunRecord(
+            row["id"],
+            row["work_item_id"],
+            to_status,
+            row["plan_digest"],
+            terminal_receipt_digest,
+        )
+
     def add_run_step(
         self,
         *,
@@ -849,6 +933,80 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Run step/dependency constraint ihlali") from exc
         return RunStepRecord(step_id, run_id, step_key, "pending", input_digest, None)
 
+    def transition_run_step(
+        self,
+        *,
+        step_id: str,
+        expected_status: str,
+        to_status: str,
+        evidence_digest: str | None = None,
+    ) -> RunStepRecord:
+        """Transition a step only after its dependency graph is satisfied."""
+        connection = self._db()
+        row = connection.execute(
+            "select id,run_id,step_key,status,input_digest,evidence_digest"
+            " from run_step where id=?",
+            (step_id,),
+        ).fetchone()
+        if row is None:
+            raise ValidationFailed("Run step bulunamadi")
+        if expected_status not in _RUN_STEP_STATUSES or to_status not in _RUN_STEP_STATUSES:
+            raise ValidationFailed("Run step status gecersiz")
+        if row["status"] != expected_status:
+            raise ValidationFailed("Run step stale status")
+        if to_status not in _RUN_STEP_TRANSITIONS[expected_status]:
+            raise ValidationFailed("Run step status gecisi gecersiz")
+        if to_status in {"ready", "running"}:
+            pending = connection.execute(
+                "select 1 from run_step_dependency d join run_step dep"
+                " on dep.id=d.depends_on_step_id"
+                " where d.run_step_id=? and dep.status<>'succeeded' limit 1",
+                (step_id,),
+            ).fetchone()
+            if pending is not None:
+                raise ValidationFailed("Run step dependency tamamlanmadi")
+        if evidence_digest is not None:
+            _validate_digest(evidence_digest, "Run step evidence")
+        if to_status == "succeeded" and evidence_digest is None:
+            raise ValidationFailed("Succeeded Run step evidence gerekiyor")
+        try:
+            updated = connection.execute(
+                "update run_step set status=?, evidence_digest=?, updated_at=?"
+                " where id=? and status=?",
+                (to_status, evidence_digest, _now(), step_id, expected_status),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValidationFailed("Run step status gecisi constraint ihlali") from exc
+        if updated.rowcount != 1:
+            raise ValidationFailed("Run step stale status")
+        return RunStepRecord(
+            row["id"],
+            row["run_id"],
+            row["step_key"],
+            to_status,
+            row["input_digest"],
+            evidence_digest,
+        )
+
+    def list_run_steps(self, run_id: str) -> tuple[RunStepRecord, ...]:
+        self.get_run(run_id)
+        rows = self._db().execute(
+            "select id,run_id,step_key,status,input_digest,evidence_digest"
+            " from run_step where run_id=? order by created_at,id",
+            (run_id,),
+        ).fetchall()
+        return tuple(
+            RunStepRecord(
+                row["id"],
+                row["run_id"],
+                row["step_key"],
+                row["status"],
+                row["input_digest"],
+                row["evidence_digest"],
+            )
+            for row in rows
+        )
+
     def record_checkpoint(
         self,
         *,
@@ -862,9 +1020,31 @@ class SQLiteOperationalUnitOfWork:
         _validate_digest(checkpoint_digest, "Checkpoint")
         if digest(payload) != checkpoint_digest:
             raise ValidationFailed("Checkpoint digest payload ile eslesmiyor")
+        connection = self._db()
+        run = connection.execute(
+            "select status,source_snapshot_id from run where id=?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise ValidationFailed("Run bulunamadi")
+        if run["status"] in {"succeeded", "failed", "cancelled"}:
+            raise ValidationFailed("Terminal Run checkpoint alamaz")
+        if (
+            run["source_snapshot_id"] is not None
+            and source_snapshot_id is not None
+            and run["source_snapshot_id"] != source_snapshot_id
+        ):
+            raise ValidationFailed("Checkpoint source snapshot Run ile eslesmiyor")
+        last = connection.execute(
+            "select max(sequence) as sequence from checkpoint where run_id=?", (run_id,)
+        ).fetchone()
+        expected_sequence = (
+            1 if last is None or last["sequence"] is None else int(last["sequence"]) + 1
+        )
+        if sequence != expected_sequence:
+            raise ValidationFailed("Checkpoint sequence sirali olmali")
         checkpoint_id = str(new_uuid7())
         try:
-            self._db().execute(
+            connection.execute(
                 "insert into checkpoint(id, run_id, sequence, source_snapshot_id,"
                 " checkpoint_digest, payload_json, created_at) values (?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -969,13 +1149,21 @@ class SQLiteOperationalUnitOfWork:
         row = (
             self._db()
             .execute(
-                "select id, work_item_id, status, plan_digest from run where id = ?", (run_id,)
+                "select id, work_item_id, status, plan_digest, terminal_receipt_digest"
+                " from run where id = ?",
+                (run_id,),
             )
             .fetchone()
         )
         if row is None:
             raise ValidationFailed("Run bulunamadi")
-        return RunRecord(row["id"], row["work_item_id"], row["status"], row["plan_digest"])
+        return RunRecord(
+            row["id"],
+            row["work_item_id"],
+            row["status"],
+            row["plan_digest"],
+            row["terminal_receipt_digest"],
+        )
 
     def list_checkpoints(self, run_id: str) -> tuple[CheckpointRecord, ...]:
         rows = (

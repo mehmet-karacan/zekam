@@ -243,6 +243,11 @@ class ArchiveInspector:
                     or stream.tell() + name_len + extra_len + comment_len > central_end
                 ):
                     raise PolicyViolation("ZIP metadata siniri veya ZIP64 destegi asildi")
+                if flags & 0x0001:
+                    # Sifreli girdinin icerigi bu metadata akisinda dogrulanamaz;
+                    # sifreli arsivleri izinli gostermek guvenli olmayan bir
+                    # eligibility karari uretir. Fail-closed reddet.
+                    raise PolicyViolation("sifreli ZIP girdisi desteklenmiyor")
                 name_bytes = stream.read(name_len)
                 if len(name_bytes) != name_len:
                     raise PolicyViolation("gecersiz ZIP girdi adi")

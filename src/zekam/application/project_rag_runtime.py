@@ -1621,21 +1621,59 @@ def _cached_vectors(
     chunks: tuple[Chunk, ...],
     scope_by_chunk: dict[str, str],
 ) -> dict[str, tuple[float, ...]]:
-    result: dict[str, tuple[float, ...]] = {}
+    """Load reusable vectors with bounded set reads and deterministic aliases.
+
+    An index with tens of thousands of chunks used to issue one exact ``SELECT``
+    and, on a miss, one alias ``SELECT`` per chunk.  Apart from making unchanged
+    indexing unnecessarily expensive, that made the cache path compete with the
+    provider work it is meant to avoid.  Grouping the reads by cache scope keeps
+    the lookup count bounded by scope count and the SQLite bind limit while
+    preserving the old exact/alias precedence and corruption checks.
+    """
+
+    if not chunks:
+        return {}
+
+    # A SQLite build may expose a lower variable limit than the usual 999.  Keep
+    # a conservative margin because every statement also binds its scope.
+    max_content_bindings = 400
+    requested: dict[str, set[str]] = {}
+    content_by_chunk: dict[str, str] = {}
     for chunk in chunks:
         scope_digest = scope_by_chunk[chunk.chunk_id]
         content_digest = digest_of_bytes(chunk.text.encode("utf-8"))
-        row = connection.execute(
-            "select vector_blob,vector_digest from vector_cache_v2 where scope_digest=?"
-            " and chunk_id=? and content_digest=?",
-            (scope_digest, chunk.chunk_id, content_digest),
-        ).fetchone()
+        requested.setdefault(scope_digest, set()).add(content_digest)
+        content_by_chunk[chunk.chunk_id] = content_digest
+
+    exact: dict[tuple[str, str], sqlite3.Row] = {}
+    aliases: dict[tuple[str, str], sqlite3.Row] = {}
+    for scope_digest, content_digests in requested.items():
+        ordered_digests = tuple(sorted(content_digests))
+        for start in range(0, len(ordered_digests), max_content_bindings):
+            page = ordered_digests[start : start + max_content_bindings]
+            placeholders = ",".join("?" for _ in page)
+            rows = connection.execute(
+                "select chunk_id,content_digest,vector_blob,vector_digest "
+                f"from vector_cache_v2 where scope_digest=? and content_digest in ({placeholders}) "
+                "order by content_digest asc,vector_digest asc",
+                (scope_digest, *page),
+            ).fetchall()
+            for row in rows:
+                key = (str(row["chunk_id"]), str(row["content_digest"]))
+                exact[key] = row
+                alias_key = (scope_digest, str(row["content_digest"]))
+                # The query is ordered by vector_digest, matching the previous
+                # ``order by ... limit 1`` alias selection exactly.
+                aliases.setdefault(alias_key, row)
+
+    result: dict[str, tuple[float, ...]] = {}
+    pending_aliases: list[tuple[str, str, str, bytes, str]] = []
+    for chunk in chunks:
+        scope_digest = scope_by_chunk[chunk.chunk_id]
+        content_digest = content_by_chunk[chunk.chunk_id]
+        row = exact.get((chunk.chunk_id, content_digest))
         if row is None:
-            alias = connection.execute(
-                "select vector_blob,vector_digest from vector_cache_v2 where scope_digest=?"
-                " and content_digest=? order by vector_digest asc limit 1",
-                (scope_digest, content_digest),
-            ).fetchone()
+            alias = aliases.get((scope_digest, content_digest))
             if alias is None:
                 continue
             alias_blob = bytes(alias["vector_blob"])
@@ -1646,31 +1684,32 @@ def _cached_vectors(
             # Select one valid prior vector deterministically; profile/content
             # equality is still mandatory and the selected digest is checked.
             row = alias
-            # The alias write is one atomic cache insert and must not leak an
-            # open transaction: ``_index`` opens the next provider batch with
-            # "begin immediate" on this same connection, which fails inside an
-            # implicitly opened transaction.  Commit before returning.
-            connection.execute("begin immediate")
-            try:
-                connection.execute(
-                    "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
-                    (
-                        scope_digest,
-                        chunk.chunk_id,
-                        content_digest,
-                        alias_blob,
-                        alias_digest,
-                        dt.datetime.now(dt.UTC).isoformat(),
-                    ),
-                )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
+            pending_aliases.append(
+                (scope_digest, chunk.chunk_id, content_digest, alias_blob, alias_digest)
+            )
         blob = bytes(row["vector_blob"])
         if digest_of_bytes(blob) != str(row["vector_digest"]):
             raise PolicyViolation("Vector cache digest drift")
         result[chunk.chunk_id] = _vector_from_blob(blob)
+
+    if pending_aliases:
+        # Alias writes are committed together.  This keeps the connection free
+        # for the next provider batch even when callers use sqlite's implicit
+        # transaction mode and avoids one write transaction per renamed chunk.
+        connection.execute("begin immediate")
+        try:
+            created_at = dt.datetime.now(dt.UTC).isoformat()
+            connection.executemany(
+                "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
+                (
+                    (*item, created_at)
+                    for item in pending_aliases
+                ),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
     return result
 
 

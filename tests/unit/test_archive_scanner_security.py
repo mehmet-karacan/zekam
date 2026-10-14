@@ -176,6 +176,22 @@ def test_zip_symlink_girdisi_reddedilir(tmp_path: Path) -> None:
     assert report.reason_for("kisayol.txt") == "arsiv baglantisi reddedildi"
 
 
+def test_zip_sifreli_girdi_fail_closed_reddedilir(tmp_path: Path) -> None:
+    # stdlib zipfile sifreli yazamaz; merkezi ve yerel giris bayraklarini
+    # metadata seviyesinde ayarlayarak gercek sifreli girisi temsil et.
+    raw = bytearray(_zip_bytes([("gizli.txt", b"gizli")]))
+    local = raw.find(b"PK\x03\x04")
+    central = raw.find(b"PK\x01\x02")
+    assert local >= 0 and central >= 0
+    struct.pack_into("<H", raw, local + 6, 0x0001)
+    struct.pack_into("<H", raw, central + 8, 0x0001)
+    archive = tmp_path / "sifreli.zip"
+    archive.write_bytes(raw)
+
+    with pytest.raises(PolicyViolation, match="sifreli ZIP"):
+        ArchiveInspector().inspect(archive)
+
+
 def test_zip_duplicate_girdi_fail_closed_reddedilir(tmp_path: Path) -> None:
     archive = tmp_path / "cift.zip"
     archive.write_bytes(

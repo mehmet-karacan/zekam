@@ -67,6 +67,7 @@ class RunRecord:
     work_item_id: str
     status: str
     plan_digest: str
+    terminal_receipt_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +247,15 @@ class OperationalUnitOfWork(Protocol):
         source_snapshot_id: str | None = None,
     ) -> RunRecord: ...
 
+    def transition_run(
+        self,
+        *,
+        run_id: str,
+        expected_status: str,
+        to_status: str,
+        terminal_receipt_digest: str | None = None,
+    ) -> RunRecord: ...
+
     def add_run_step(
         self,
         *,
@@ -254,6 +264,17 @@ class OperationalUnitOfWork(Protocol):
         input_digest: str,
         dependencies: tuple[str, ...] = (),
     ) -> RunStepRecord: ...
+
+    def transition_run_step(
+        self,
+        *,
+        step_id: str,
+        expected_status: str,
+        to_status: str,
+        evidence_digest: str | None = None,
+    ) -> RunStepRecord: ...
+
+    def list_run_steps(self, run_id: str) -> tuple[RunStepRecord, ...]: ...
 
     def record_checkpoint(
         self,

@@ -328,6 +328,7 @@ def _run_document(run: Any) -> dict[str, Any]:
         "work_item_id": run.work_item_id,
         "status": run.status,
         "plan_digest": run.plan_digest,
+        "terminal_receipt_digest": run.terminal_receipt_digest,
     }
 
 
@@ -411,12 +412,14 @@ def run_show_command(
         assert store is not None
         with store.unit_of_work() as uow:
             run = uow.get_run(run_id)
+            steps = [_step_document(item) for item in uow.list_run_steps(run_id)]
             checkpoints = [_checkpoint_document(item) for item in uow.list_checkpoints(run_id)]
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
     document = {
         "run": _run_document(run),
+        "steps": steps,
         "checkpoints": checkpoints,
         "checkpoint_count": len(checkpoints),
         "read_only": True,
@@ -426,6 +429,49 @@ def run_show_command(
         console.print_json(json.dumps(document, ensure_ascii=False))
     else:
         console.print(f"{run.id}\t{run.status}\tcheckpoint={len(checkpoints)}")
+
+
+@app.command("run-transition")
+def run_transition_command(
+    run_id: Annotated[str, typer.Argument()],
+    expected_status: Annotated[str, typer.Option("--beklenen-durum")],
+    target: Annotated[str, typer.Option("--hedef")],
+    terminal_receipt_digest: Annotated[
+        str | None, typer.Option("--terminal-receipt-digest")
+    ] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run'i optimistic status ve terminal receipt ile ilerletir."""
+    try:
+        if not apply:
+            document = {
+                "run_id": run_id,
+                "expected_status": expected_status,
+                "target": target,
+                "terminal_receipt_digest": terminal_receipt_digest,
+                "apply": False,
+            }
+        else:
+            store = sqlite_operational_store(home, realm)
+            assert store is not None
+            with store.unit_of_work() as uow:
+                run = uow.transition_run(
+                    run_id=run_id,
+                    expected_status=expected_status,
+                    to_status=target,
+                    terminal_receipt_digest=terminal_receipt_digest,
+                )
+                uow.commit()
+            document = {"run": _run_document(run), "apply": True}
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Run durumu guncellendi: {run_id} ({target})")
 
 
 @app.command("run-step")
@@ -473,6 +519,70 @@ def run_step_command(
         console.print_json(json.dumps(document, ensure_ascii=False))
     else:
         console.print(f"Run adimi olusturuldu: {document['step']['id']}")
+
+
+@app.command("run-step-transition")
+def run_step_transition_command(
+    step_id: Annotated[str, typer.Argument()],
+    expected_status: Annotated[str, typer.Option("--beklenen-durum")],
+    target: Annotated[str, typer.Option("--hedef")],
+    evidence_digest: Annotated[str | None, typer.Option("--evidence-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run adimini dependency ve evidence kurallariyla ilerletir."""
+    try:
+        if not apply:
+            document = {
+                "step_id": step_id,
+                "expected_status": expected_status,
+                "target": target,
+                "evidence_digest": evidence_digest,
+                "apply": False,
+            }
+        else:
+            store = sqlite_operational_store(home, realm)
+            assert store is not None
+            with store.unit_of_work() as uow:
+                step = uow.transition_run_step(
+                    step_id=step_id,
+                    expected_status=expected_status,
+                    to_status=target,
+                    evidence_digest=evidence_digest,
+                )
+                uow.commit()
+            document = {"step": _step_document(step), "apply": True}
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Run adimi guncellendi: {step_id} ({target})")
+
+
+@app.command("run-steps")
+def run_steps_command(
+    run_id: Annotated[str, typer.Argument()],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run adimlarini kanonik SQLite authority'den okur."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            rows = [_step_document(item) for item in uow.list_run_steps(run_id)]
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(rows, ensure_ascii=False))
+    else:
+        for row in rows:
+            console.print(f"{row['id']}\t{row['status']}\t{row['step_key']}")
 
 
 @app.command("checkpoint")
