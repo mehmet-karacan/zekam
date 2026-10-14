@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import zekam.application.skill_packages as skill_packages
+import zekam.domain.skill_package as skill_package
 from zekam.application.skill_packages import (
     apply_projection_plan,
     build_projection_plan,
@@ -96,6 +97,21 @@ def test_directory_import_rejects_symlink(tmp_path: Path) -> None:
         pytest.skip("Current Windows token cannot create a symlink")
 
     with pytest.raises(PolicyViolation, match="symlink/junction"):
+        SkillPackage.read_directory(root.resolve())
+
+
+def test_directory_import_stops_at_file_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "zekam-arastirma-uygulama"
+    root.mkdir()
+    for relative, payload in _files().items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    monkeypatch.setattr(skill_package, "MAX_FILES", 1)
+
+    with pytest.raises(ValidationFailed, match="file count"):
         SkillPackage.read_directory(root.resolve())
 
 

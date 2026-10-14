@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import stat
 import unicodedata
@@ -39,6 +40,41 @@ _WINDOWS_RESERVED_STEMS = frozenset(
 _FRONTMATTER_FIELDS = frozenset(
     {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 )
+MAX_DIRECTORIES = 4096
+
+
+def _iter_directory_files(root: Path):
+    pending = [root]
+    visited = 0
+    while pending:
+        directory = pending.pop()
+        visited += 1
+        if visited > MAX_DIRECTORIES:
+            raise ValidationFailed("Skill package directory count invalid")
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    try:
+                        info = target.lstat()
+                        attributes = getattr(info, "st_file_attributes", 0)
+                        reparse = bool(
+                            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                        )
+                        if stat.S_ISLNK(info.st_mode) or reparse:
+                            raise PolicyViolation("Skill package symlink/junction rejected")
+                        if entry.is_dir(follow_symlinks=False):
+                            if entry.name != "__pycache__":
+                                pending.append(target)
+                        elif entry.is_file(follow_symlinks=False):
+                            if target.suffix not in {".pyc", ".pyo"}:
+                                yield target
+                        else:
+                            raise PolicyViolation("Skill package special file rejected")
+                    except OSError as exc:
+                        raise ValidationFailed("Skill package entry metadata unreadable") from exc
+        except OSError as exc:
+            raise ValidationFailed("Skill package directory unreadable") from exc
 
 
 class _UniqueLoader(yaml.SafeLoader):
@@ -307,21 +343,25 @@ class SkillPackage:
         if not root.is_absolute() or not root.is_dir() or root.is_symlink():
             raise PolicyViolation("Skill package root must be a real absolute directory")
         files: dict[str, bytes] = {}
-        for path in sorted(root.rglob("*")):
-            info = path.lstat()
-            attributes = getattr(info, "st_file_attributes", 0)
-            reparse = bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
-            if path.is_symlink() or reparse:
-                raise PolicyViolation("Skill package symlink/junction rejected")
-            if path.is_dir():
-                continue
-            if not path.is_file():
-                raise PolicyViolation("Skill package special file rejected")
+        total_bytes = 0
+        for path in _iter_directory_files(root):
             relative = path.relative_to(root)
             # Uretilmis bytecode paketin parcasi degildir; yerel calistirma digest'i degistirmemeli.
             if "__pycache__" in relative.parts or relative.suffix in {".pyc", ".pyo"}:
                 continue
-            files[relative.as_posix()] = path.read_bytes()
+            try:
+                size = path.stat(follow_symlinks=False).st_size
+            except OSError as exc:
+                raise ValidationFailed("Skill package file metadata okunamadi") from exc
+            if size > MAX_FILE_BYTES:
+                raise ValidationFailed("Skill file size invalid")
+            total_bytes += size
+            if total_bytes > MAX_PACKAGE_BYTES:
+                raise ValidationFailed("Skill package size invalid")
+            try:
+                files[relative.as_posix()] = path.read_bytes()
+            except OSError as exc:
+                raise ValidationFailed("Skill package file okunamadi") from exc
             if len(files) > MAX_FILES:
                 raise ValidationFailed("Skill package file count invalid")
         return cls.parse(root.name, files)

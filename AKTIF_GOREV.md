@@ -1923,6 +1923,16 @@ limitleri tam agac `rglob` belleklestirmesini engeller.
 Bu dar dilim WP-11.03'un yerel CAS dogrulama kaynak tuketimi boslugunu
 daraltir; tam native filesystem yarisi ve restore kabul matrisi aciktir.
 
+### 10.47 15 Ekim 2026 skill package traversal kapisi
+
+Skill package directory import'u tum `rglob` listesini bellekte kurmaz. Link,
+reparse ve special file girdileri fail-closed reddedilir; `__pycache__`/bytecode
+atlanir, dosya ve directory limitleri okuma sirasinda uygulanir. Dosya boyutu
+ve toplam paket boyutu okunmadan once bounded olarak denetlenir.
+
+Bu dar dilim WP-10.02'nin skill package kaynak tuketimi ve path guvenligi
+boslugunu daraltir; native client projection kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
