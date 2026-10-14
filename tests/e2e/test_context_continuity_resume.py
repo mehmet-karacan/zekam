@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import sys
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -25,6 +26,7 @@ from zekam.domain.context_continuity import (
     EvidenceReference,
     TargetRouteBinding,
 )
+from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.clients.adapters import SubprocessClientAdapter
 
 pytestmark = pytest.mark.e2e
@@ -79,11 +81,12 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
     realm_id = uuid4()
     project_id = uuid4()
     work_item_id = uuid4()
+    plan_id = uuid4()
     checkpoint = Checkpoint(
         "checkpoint-1",
         str(project_id),
         str(work_item_id),
-        "plan-1",
+        str(plan_id),
         "revision-1",
         ("inspect", "implement", "verify"),
         ("inspect",),
@@ -93,6 +96,9 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
         digest("journal-head"),
         "reacquire-work-and-implement",
         NOW,
+        source_fingerprint=digest("source"),
+        test_fingerprint=digest("test"),
+        config_fingerprint=digest("config"),
     )
     snapshot = ContinuitySnapshot(
         str(project_id),
@@ -155,6 +161,9 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             snapshot=snapshot,
             checkpoint=checkpoint,
             current_source_revision="revision-1",
+            current_source_fingerprint=digest("source"),
+            current_test_fingerprint=digest("test"),
+            current_config_fingerprint=digest("config"),
             target_client=target.descriptor,
             observed_at=NOW,
         )
@@ -180,7 +189,7 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             "realm_id": str(realm_id),
             "project_id": str(project_id),
             "work_item_id": str(work_item_id),
-            "plan_id": None,
+            "plan_id": str(plan_id),
             "step_id": "implement",
             "parent_assignment_id": str(parent_assignment_id),
             "role": "builder",
@@ -202,6 +211,7 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             context_manifest_digest=checkpoint.context_manifest_digest,
             assignment_digest=digest(assignment_body),
             parent_assignment_id=parent_assignment_id,
+            plan_id=plan_id,
             step_id="implement",
             created_at=NOW,
         )
@@ -224,11 +234,30 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
             ),
             created_at=NOW,
         )
+        if next_client == "claude-code":
+            with pytest.raises(PolicyViolation, match="assignment plan binding"):
+                dispatcher.dispatch(
+                    handoff=handoff,
+                    snapshot=snapshot,
+                    checkpoint=checkpoint,
+                    current_source_revision="revision-1",
+                    current_source_fingerprint=digest("source"),
+                    current_test_fingerprint=digest("test"),
+                    current_config_fingerprint=digest("config"),
+                    assignment=replace(assignment, plan_id=uuid4()),
+                    invocation=invocation,
+                    adapter=target,
+                    cwd=tmp_path,
+                    timeout_seconds=30,
+                )
         result = dispatcher.dispatch(
             handoff=handoff,
             snapshot=snapshot,
             checkpoint=checkpoint,
             current_source_revision="revision-1",
+            current_source_fingerprint=digest("source"),
+            current_test_fingerprint=digest("test"),
+            current_config_fingerprint=digest("config"),
             assignment=assignment,
             invocation=invocation,
             adapter=target,

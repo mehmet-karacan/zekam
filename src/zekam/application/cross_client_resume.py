@@ -26,27 +26,35 @@ class CrossClientResumeDispatchService:
         snapshot: ContinuitySnapshot,
         checkpoint: Checkpoint,
         current_source_revision: str,
+        current_source_fingerprint: str | None = None,
+        current_test_fingerprint: str | None = None,
+        current_config_fingerprint: str | None = None,
         assignment: AgentAssignment,
         invocation: AgentInvocation,
         adapter: ClientLifecycleAdapter,
         cwd: Path,
         timeout_seconds: int,
     ) -> DispatchResult:
+        if str(assignment.project_id) != snapshot.project_id:
+            raise PolicyViolation("Cross-client assignment project binding uyusmuyor")
+        if str(assignment.work_item_id) != snapshot.work_item_id:
+            raise PolicyViolation("Cross-client assignment work binding uyusmuyor")
+        if assignment.plan_id is None or str(assignment.plan_id) != checkpoint.plan_revision_id:
+            raise PolicyViolation("Cross-client assignment plan binding uyusmuyor")
+        if assignment.context_manifest_digest != snapshot.context_manifest_digest:
+            raise PolicyViolation("Cross-client assignment context manifest drift")
+        if assignment.step_id is None or assignment.step_id not in checkpoint.pending_steps:
+            raise PolicyViolation("Cross-client assignment next safe step binding uyusmuyor")
         instructions = self.continuity.resume(
             handoff=handoff,
             snapshot=snapshot,
             checkpoint=checkpoint,
             current_source_revision=current_source_revision,
+            current_source_fingerprint=current_source_fingerprint,
+            current_test_fingerprint=current_test_fingerprint,
+            current_config_fingerprint=current_config_fingerprint,
             target_client=adapter.descriptor,
         )
-        if str(assignment.project_id) != snapshot.project_id:
-            raise PolicyViolation("Cross-client assignment project binding uyusmuyor")
-        if str(assignment.work_item_id) != snapshot.work_item_id:
-            raise PolicyViolation("Cross-client assignment work binding uyusmuyor")
-        if assignment.context_manifest_digest != snapshot.context_manifest_digest:
-            raise PolicyViolation("Cross-client assignment context manifest drift")
-        if assignment.step_id is None or assignment.step_id not in checkpoint.pending_steps:
-            raise PolicyViolation("Cross-client assignment next safe step binding uyusmuyor")
         if invocation.client_id != instructions.client:
             raise PolicyViolation("Cross-client invocation target client drift")
         return CanonicalAgentDispatchService(self.assignment_store).dispatch(

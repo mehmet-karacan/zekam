@@ -614,6 +614,9 @@ class Checkpoint:
     next_safe_action: str
     created_at: dt.datetime
     grants_authority: bool = False
+    source_fingerprint: str | None = None
+    test_fingerprint: str | None = None
+    config_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.grants_authority:
@@ -628,6 +631,18 @@ class Checkpoint:
         _safe_logical(self.source_revision, "Checkpoint source revision")
         for value in (self.context_manifest_digest, self.journal_head_digest):
             parse_digest(value)
+        fingerprints = (
+            self.source_fingerprint,
+            self.test_fingerprint,
+            self.config_fingerprint,
+        )
+        if any(value is not None for value in fingerprints) and any(
+            value is None for value in fingerprints
+        ):
+            raise ValidationFailed("Checkpoint source/test/config fingerprint binding tam")
+        for value in fingerprints:
+            if value is not None:
+                parse_digest(value)
         plan = set(self.plan_steps)
         completed = set(self.completed_steps)
         pending = set(self.pending_steps)
@@ -645,7 +660,7 @@ class Checkpoint:
         return digest(self.body())
 
     def body(self) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "checkpoint_id": self.checkpoint_id,
             "project_id": self.project_id,
             "work_item_id": self.work_item_id,
@@ -663,6 +678,17 @@ class Checkpoint:
             "created_at": self.created_at,
             "grants_authority": False,
         }
+        if self.source_fingerprint is not None:
+            body["fingerprints"] = {
+                "source": self.source_fingerprint,
+                "test": self.test_fingerprint,
+                "config": self.config_fingerprint,
+            }
+        return body
+
+    @property
+    def has_fingerprint_binding(self) -> bool:
+        return self.source_fingerprint is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -882,6 +908,9 @@ def validate_resume(
     checkpoint: Checkpoint,
     *,
     current_source_revision: str,
+    current_source_fingerprint: str | None = None,
+    current_test_fingerprint: str | None = None,
+    current_config_fingerprint: str | None = None,
 ) -> None:
     if handoff.from_client != handoff.to_client and not handoff.cross_client_ready:
         raise PolicyViolation("Cross-client handoff capability/route replan kapisini gecemedi")
@@ -898,3 +927,18 @@ def validate_resume(
         raise PolicyViolation(
             "Continuity source revision stale; yeniden compile/re-acquire gerekir"
         )
+    if checkpoint.has_fingerprint_binding:
+        current_fingerprints = (
+            current_source_fingerprint,
+            current_test_fingerprint,
+            current_config_fingerprint,
+        )
+        if any(value is None for value in current_fingerprints):
+            raise PolicyViolation("Continuity fingerprint binding eksik")
+        expected_fingerprints = (
+            checkpoint.source_fingerprint,
+            checkpoint.test_fingerprint,
+            checkpoint.config_fingerprint,
+        )
+        if current_fingerprints != expected_fingerprints:
+            raise PolicyViolation("Continuity source/test/config fingerprint drift")

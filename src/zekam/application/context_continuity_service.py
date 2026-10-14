@@ -162,6 +162,9 @@ class ContextContinuityService:
         snapshot: ContinuitySnapshot,
         checkpoint: Checkpoint,
         current_source_revision: str,
+        current_source_fingerprint: str | None = None,
+        current_test_fingerprint: str | None = None,
+        current_config_fingerprint: str | None = None,
         target_client: ClientDescriptor | None = None,
         observed_at: dt.datetime | None = None,
     ) -> ResumeInstructions:
@@ -170,6 +173,9 @@ class ContextContinuityService:
             snapshot,
             checkpoint,
             current_source_revision=current_source_revision,
+            current_source_fingerprint=current_source_fingerprint,
+            current_test_fingerprint=current_test_fingerprint,
+            current_config_fingerprint=current_config_fingerprint,
         )
         if handoff.from_client != handoff.to_client:
             if target_client is None:

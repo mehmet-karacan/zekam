@@ -199,6 +199,72 @@ def test_checkpoint_requires_exact_partition_and_completed_results() -> None:
 
 
 @pytest.mark.parametrize(
+    "drift",
+    ("source", "test", "config"),
+)
+def test_resume_rejects_bound_source_test_or_config_fingerprint_drift(
+    drift: str,
+) -> None:
+    checkpoint = Checkpoint(
+        "checkpoint-1",
+        "project-1",
+        "work-1",
+        "plan-1",
+        "revision-1",
+        ("read", "build"),
+        ("read",),
+        ("build",),
+        (("read", digest("read-result")),),
+        digest("manifest"),
+        digest("journal"),
+        "reacquire-work",
+        NOW,
+        source_fingerprint=digest("source"),
+        test_fingerprint=digest("test"),
+        config_fingerprint=digest("config"),
+    )
+    snapshot = ContinuitySnapshot(
+        "project-1",
+        "work-1",
+        checkpoint.checkpoint_digest,
+        checkpoint.journal_head_digest,
+        checkpoint.context_manifest_digest,
+        checkpoint.source_revision,
+        ("docs/context.md",),
+        ("reacquire-work",),
+        (EvidenceReference("benchmark", "model-decision:latest", DIGEST),),
+        NOW,
+    )
+    handoff = FinalizedHandoff(
+        "codex",
+        "codex",
+        "model-ref-a",
+        "model-ref-a",
+        snapshot.snapshot_digest,
+        checkpoint.checkpoint_digest,
+        checkpoint.source_revision,
+        NOW,
+    )
+    current = {
+        "source": digest("source"),
+        "test": digest("test"),
+        "config": digest("config"),
+    }
+    current[drift] = digest(f"changed-{drift}")
+
+    with pytest.raises(PolicyViolation, match="fingerprint drift"):
+        ContextContinuityService().resume(
+            handoff=handoff,
+            snapshot=snapshot,
+            checkpoint=checkpoint,
+            current_source_revision="revision-1",
+            current_source_fingerprint=current["source"],
+            current_test_fingerprint=current["test"],
+            current_config_fingerprint=current["config"],
+        )
+
+
+@pytest.mark.parametrize(
     "target",
     (
         ("codex", "claude-code", ClientKind.CLAUDE_CODE),

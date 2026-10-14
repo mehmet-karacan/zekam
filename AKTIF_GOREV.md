@@ -1025,6 +1025,14 @@ generation kabul kosusu henuz tamamlanmadigi icin WP-06.03 acik kalir.
 
 **Kabul ve negatif testler:** Testler: process kill (effect önce/sonra), restart, başka client/model, dirty/source/config drift, aynı işi çift başlatma, iki writer, bozuk/missing evidence, expired grant, already-final ve idempotent outbox.
 
+**14 Ekim 2026 — WP-07.04 kismi kanit:** Checkpoint artik source/test/config
+fingerprint uclusunu tam digest bagiyla saklar; cross-client resume assignment
+plan kimligini checkpoint revision'ina baglar ve fingerprint eksikligi veya
+drift'inde fail-closed reddeder. Native model/CLI devam testlerinde plan drift
+ve her uc fingerprint drift vakasi dahil 15 test gecti. Canonical Work/Run,
+lease/claim/receipt store binding'i ve mevcut grant'in kaynagindan yeniden
+dogrulanmasi henuz tamamlanmadigi icin WP-07.04 acik kalir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
