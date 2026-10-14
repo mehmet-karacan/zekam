@@ -398,6 +398,36 @@ def run_create_command(
         console.print(f"Run olusturuldu: {document['run']['id']}")
 
 
+@app.command("run-show")
+def run_show_command(
+    run_id: Annotated[str, typer.Argument()],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run durumunu ve durable checkpoint ozetini salt okunur gosterir."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            run = uow.get_run(run_id)
+            checkpoints = [_checkpoint_document(item) for item in uow.list_checkpoints(run_id)]
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    document = {
+        "run": _run_document(run),
+        "checkpoints": checkpoints,
+        "checkpoint_count": len(checkpoints),
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"{run.id}\t{run.status}\tcheckpoint={len(checkpoints)}")
+
+
 @app.command("run-step")
 def run_step_command(
     run_id: Annotated[str, typer.Argument()],
