@@ -35,6 +35,7 @@ OPERATIONAL_RELATIVE_PATH = "state/operational.db"
 RECEIPT_RELATIVE_PATH = "state/manifests/bootstrap-receipt.json"
 BACKUP_CONTRACT_RELATIVE_PATH = "state/manifests/backup-contract.json"
 MAX_CONFIG_BYTES = 1_048_576
+MAX_METADATA_BYTES = 4 * 1024 * 1024
 FAULT_POINTS = frozenset({"after-layout", "after-config", "after-database", "before-publish"})
 _PROCESS_LOCK_GUARD = threading.Lock()
 _PROCESS_OWNED_LOCKS: set[Path] = set()
@@ -72,8 +73,14 @@ def _exact_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _load_exact_json(path: Path, *, label: str) -> object:
     try:
+        if path.stat().st_size > MAX_METADATA_BYTES:
+            raise OSError("metadata exceeds bound")
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_METADATA_BYTES + 1)
+        if len(raw) > MAX_METADATA_BYTES:
+            raise OSError("metadata exceeds bound")
         return json.loads(
-            path.read_text(encoding="utf-8"),
+            raw.decode("utf-8", errors="strict"),
             object_pairs_hook=_exact_json_object,
         )
     except (OSError, UnicodeError, json.JSONDecodeError, ConfigurationError) as exc:
@@ -92,7 +99,20 @@ def _canonical_digest(value: object) -> str:
 
 
 def _file_digest(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        if path.stat().st_size > MAX_METADATA_BYTES:
+            raise OSError("metadata exceeds bound")
+        value = hashlib.sha256()
+        with path.open("rb") as stream:
+            total = 0
+            while chunk := stream.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_METADATA_BYTES:
+                    raise OSError("metadata exceeds bound")
+                value.update(chunk)
+    except OSError:
+        raise
+    return "sha256:" + value.hexdigest()
 
 
 def _write_json(path: Path, value: object, *, mode: int = 0o600) -> None:

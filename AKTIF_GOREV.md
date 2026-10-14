@@ -2015,6 +2015,15 @@ gibi durumlarda freshness `unknown` kalir; stale kaynak current diye sunulmaz.
 Bu dar dilim WP-03/06 freshness bellek boslugunu daraltir; canli provider ve
 native repository kabul matrisi halen aciktir.
 
+### 10.56 15 Ekim 2026 Fresh bootstrap metadata kapisi
+
+Fresh bootstrap receipt, lock, stage marker, layout ve config digest okumalari
+4 MiB metadata siniri ve bounded stream digest kullanir. Oversized veya yarista
+buyuyen metadata typed configuration hatasiyla reddedilir; yarim staging yayinlanmaz.
+
+Bu dar dilim WP-00/11 fresh home recovery bellek boslugunu daraltir; gercek cihaz
+restore donguleri ve native scheduler kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
