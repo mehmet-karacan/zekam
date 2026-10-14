@@ -78,6 +78,64 @@ _ALLOWED_FIELDS: dict[str, frozenset[str]] = {
         {"SeqId", "IProject", "SeqName", "DbSeqName", "LschemaName", "SeqType"}
     ),
     "SnpScen": frozenset({"ScenNo", "IPackage", "IPop", "ITrt", "ScenName", "ScenVersion"}),
+    "SnpScenTask": frozenset(
+        {"ScenNo", "ScenTaskNo", "Nno", "OrdTrt", "TaskName1", "TaskName2", "TaskName3", "TaskType"}
+    ),
+    "SnpScenStep": frozenset(
+        {
+            "ScenNo",
+            "Nno",
+            "StepName",
+            "StepType",
+            "TableName",
+            "ModCode",
+            "OkNextStep",
+            "KoNextStep",
+        }
+    ),
+    "SnpVarScen": frozenset(
+        {"ScenNo", "ITxtVar", "VarName", "VarDatatype", "VarParam", "VarParamOrder", "IndStore"}
+    ),
+    "SnpPopMapping": frozenset(
+        {"IDataSet", "IPopCol", "ISourceTab", "ISrcSet", "ITxtMap", "ExeDb"}
+    ),
+    "SnpReferencedObject": frozenset({"IObject", "ObjectPKasString", "ObjectAKasString"}),
+    "SnpKey": frozenset(
+        {
+            "IKey",
+            "ITable",
+            "KeyName",
+            "ConsType",
+            "CheckFlow",
+            "CheckStat",
+            "IndActive",
+            "IndChange",
+            "IndDb",
+        }
+    ),
+    "SnpKeyCol": frozenset({"IKey", "ICol", "Pos"}),
+    "SnpJoin": frozenset(
+        {
+            "IJoin",
+            "IScTablePk",
+            "ITableFk",
+            "ITablePk",
+            "ITxtComplex",
+            "PkCatalog",
+            "PkSchema",
+            "PkTableAlias",
+            "PkTableName",
+            "FkName",
+            "FkType",
+            "DelRule",
+            "UpdRule",
+            "CheckFlow",
+            "CheckStat",
+            "IndActive",
+            "IndChange",
+        }
+    ),
+    "SnpJoinCol": frozenset({"IJoin", "IColFk", "IColPk", "Pos", "PkColName"}),
     "SnpTxtHeader": frozenset({"ITxt", "Txt", "Enc"}),
 }
 _FORBIDDEN_CLASSES = frozenset(
@@ -143,6 +201,18 @@ def _sha256_file(path: Path) -> str:
         while block := stream.read(1024 * 1024):
             value.update(block)
     return f"sha256:{value.hexdigest()}"
+
+
+def _verify_smart_source_unchanged(path: Path, expected_digest: str) -> None:
+    source, before = _regular_file(path)
+    observed_digest = _sha256_file(source)
+    after = source.lstat()
+    if (before.st_dev, before.st_ino, before.st_size) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+    ) or observed_digest != expected_digest:
+        raise PolicyViolation("ODI Smart Export okuma sirasinda degisti")
 
 
 def _reject_xml_declarations(path: Path) -> None:
@@ -485,6 +555,7 @@ def build_sanitized_odi_plan(
 ) -> OdiSanitizedPlan:
     source_digest, _ = _validate_smart_xml(source)
     objects, excluded = _objects(source)
+    _verify_smart_source_unchanged(source, source_digest)
     texts: dict[str, str] = {}
     skipped_secret = 0
     for item in objects.get("SnpTxtHeader", []):
@@ -504,27 +575,73 @@ def build_sanitized_odi_plan(
         if _nonnull(item.get("ITable"))
     }
     columns: dict[str, list[dict[str, str]]] = defaultdict(list)
+    columns_by_id: dict[str, dict[str, str]] = {}
     for item in objects.get("SnpCol", []):
         if key := _nonnull(item.get("ITable")):
             columns[key].append(item)
+        if column_id := _nonnull(item.get("ICol")):
+            columns_by_id[column_id] = item
     datasets: dict[str, str] = {}
     for item in objects.get("SnpDataSet", []):
         if (dataset := _nonnull(item.get("IDataSet"))) and (pop := _nonnull(item.get("IPop"))):
             datasets[dataset] = pop
     sources: dict[str, list[dict[str, str]]] = defaultdict(list)
+    source_tabs: dict[str, dict[str, str]] = {}
     for item in objects.get("SnpSourceTab", []):
+        if source_id := _nonnull(item.get("ISourceTab")):
+            source_tabs[source_id] = item
         pop = _nonnull(item.get("IPop")) or datasets.get(str(item.get("IDataSet", "")))
         if pop:
             sources[pop].append(item)
     mappings: dict[str, list[dict[str, str]]] = defaultdict(list)
+    pop_columns: dict[str, dict[str, str]] = {}
     for item in objects.get("SnpPopCol", []):
         if pop := _nonnull(item.get("IPop")):
             mappings[pop].append(item)
+        if pop_col := _nonnull(item.get("IPopCol")):
+            pop_columns[pop_col] = item
+    pop_mappings: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpPopMapping", []):
+        pop_col = pop_columns.get(str(item.get("IPopCol", "")))
+        pop = _nonnull(pop_col.get("IPop")) if pop_col else None
+        if pop is None:
+            pop = datasets.get(str(item.get("ISrcSet", "")))
+        if pop:
+            pop_mappings[pop].append(item)
     clauses: dict[str, list[dict[str, str]]] = defaultdict(list)
     for item in objects.get("SnpPopClause", []):
         pop = _nonnull(item.get("IPop")) or datasets.get(str(item.get("IDataSet", "")))
         if pop:
             clauses[pop].append(item)
+
+    scenario_tasks: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpScenTask", []):
+        if scenario_id := _nonnull(item.get("ScenNo")):
+            scenario_tasks[scenario_id].append(item)
+    scenario_steps: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpScenStep", []):
+        if scenario_id := _nonnull(item.get("ScenNo")):
+            scenario_steps[scenario_id].append(item)
+    scenario_vars: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpVarScen", []):
+        if scenario_id := _nonnull(item.get("ScenNo")):
+            scenario_vars[scenario_id].append(item)
+    key_by_id = {
+        key_id: item for item in objects.get("SnpKey", []) if (key_id := _nonnull(item.get("IKey")))
+    }
+    key_columns: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpKeyCol", []):
+        if key_id := _nonnull(item.get("IKey")):
+            key_columns[key_id].append(item)
+    join_by_id = {
+        join_id: item
+        for item in objects.get("SnpJoin", [])
+        if (join_id := _nonnull(item.get("IJoin")))
+    }
+    join_columns: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for item in objects.get("SnpJoinCol", []):
+        if join_id := _nonnull(item.get("IJoin")):
+            join_columns[join_id].append(item)
 
     profile = ChunkProfile(name="odi11g-smart-sanitized-v1", max_tokens=2048, overlap_tokens=0)
     chunks: list[Chunk] = []
@@ -552,6 +669,47 @@ def build_sanitized_odi_plan(
                 profile_digest=profile.profile_digest,
             )
         )
+
+    def datastore_ref(table_id: str | None) -> str | None:
+        if not table_id or table_id not in tables:
+            return None
+        table = tables[table_id]
+        model = models.get(str(table.get("IMod", "")), {})
+        schema = _nonnull(model.get("LschemaName")) or "unknown"
+        name = _nonnull(table.get("TableName")) or f"ITable={table_id}"
+        return f"datastore:{schema}.{name}"
+
+    def column_ref(column_id: str | None) -> str | None:
+        if not column_id or column_id not in columns_by_id:
+            return None
+        column = columns_by_id[column_id]
+        table_ref = datastore_ref(_nonnull(column.get("ITable")))
+        name = _nonnull(column.get("ColName")) or f"ICol={column_id}"
+        return f"{table_ref}.{name}" if table_ref else None
+
+    known_object_ids: set[str] = set()
+    for records in objects.values():
+        for record in records:
+            for field in (
+                "IProject",
+                "IFolder",
+                "IMod",
+                "ISmod",
+                "ITable",
+                "ICol",
+                "IPop",
+                "IPopCol",
+                "IDataSet",
+                "ISourceTab",
+                "IPackage",
+                "IStep",
+                "ITrt",
+                "ScenNo",
+                "IKey",
+                "IJoin",
+            ):
+                if value := _nonnull(record.get(field)):
+                    known_object_ids.add(value)
 
     for pop_record in objects.get("SnpPop", []):
         pop_id = _nonnull(pop_record.get("IPop"))
@@ -621,6 +779,35 @@ def build_sanitized_odi_plan(
             column = _nonnull(mapping.get("ColName")) or "unknown-column"
             expression = texts.get(str(mapping.get("ITxtMap", "")))
             lines.append(f"Mapping: {column}" + (f" <- {expression}" if expression else ""))
+        for mapping in pop_mappings.get(pop_id, [])[:200]:
+            pop_col = pop_columns.get(str(mapping.get("IPopCol", "")), {})
+            column = (
+                _nonnull(pop_col.get("ColName")) or f"IPopCol={mapping.get('IPopCol', 'missing')}"
+            )
+            expression = texts.get(str(mapping.get("ITxtMap", "")))
+            lines.append(f"MappingRef: {column}" + (f" <- {expression}" if expression else ""))
+            source_tab = source_tabs.get(str(mapping.get("ISourceTab", "")))
+            if source_tab is None:
+                source_tab = next(iter(sources.get(pop_id, ())), None)
+            source_table_id = _nonnull(source_tab.get("ITable")) if source_tab else None
+            source_ref = datastore_ref(source_table_id)
+            if source_ref:
+                edges.append(
+                    {
+                        "relation": "maps-from",
+                        "source": f"interface:{name}",
+                        "target": source_ref,
+                    }
+                )
+            else:
+                unresolved.append(
+                    {
+                        "relation": "maps-from",
+                        "source": f"interface:{name}",
+                        "target": f"datastore:ITable={source_table_id or 'missing'}",
+                        "reason": "mapping-source-unresolved",
+                    }
+                )
         for clause in clauses.get(pop_id, [])[:40]:
             expression = texts.get(str(clause.get("ITxtSql", "")))
             if expression:
@@ -658,6 +845,119 @@ def build_sanitized_odi_plan(
             f"ODI 11g datastore {schema}.{name}",
             lines,
         )
+
+    key_refs: dict[str, str] = {}
+    for key_id, key in sorted(key_by_id.items()):
+        key_name = _nonnull(key.get("KeyName")) or f"IKey={key_id}"
+        key_ref = f"key:{key_name}#IKey={key_id}"
+        key_refs[key_id] = key_ref
+        lines = [
+            f"Key: {key_name}",
+            f"ConstraintType: {_nonnull(key.get('ConsType')) or 'unknown'}",
+        ]
+        add("Key", f"{key_name}#IKey={key_id}", f"ODI 11g key {key_name}", lines)
+        table_ref = datastore_ref(_nonnull(key.get("ITable")))
+        if table_ref:
+            edges.append({"relation": "has-key", "source": table_ref, "target": key_ref})
+        else:
+            unresolved.append(
+                {
+                    "relation": "has-key",
+                    "source": key_ref,
+                    "target": f"datastore:ITable={key.get('ITable') or 'missing'}",
+                    "reason": "key-table-unresolved",
+                }
+            )
+    for key_id, records in sorted(key_columns.items()):
+        key_ref = key_refs.get(key_id)
+        if key_ref is None:
+            continue
+        for record in records:
+            column = column_ref(_nonnull(record.get("ICol")))
+            if column:
+                edges.append(
+                    {"relation": "key-contains-column", "source": key_ref, "target": column}
+                )
+            else:
+                unresolved.append(
+                    {
+                        "relation": "key-contains-column",
+                        "source": key_ref,
+                        "target": f"column:ICol={record.get('ICol') or 'missing'}",
+                        "reason": "key-column-unresolved",
+                    }
+                )
+
+    join_refs: dict[str, str] = {}
+    for join_id, join in sorted(join_by_id.items()):
+        join_ref = f"join:IJoin={join_id}"
+        join_refs[join_id] = join_ref
+        lines = [
+            f"Join: {join.get('PkTableName') or 'unknown'} <- {join.get('FkName') or 'unknown'}",
+            f"DeleteRule: {_nonnull(join.get('DelRule')) or 'unknown'}",
+            f"UpdateRule: {_nonnull(join.get('UpdRule')) or 'unknown'}",
+        ]
+        add("Join", f"IJoin={join_id}", f"ODI 11g join IJoin={join_id}", lines)
+        pk_ref = datastore_ref(_nonnull(join.get("ITablePk")))
+        fk_ref = datastore_ref(_nonnull(join.get("ITableFk")))
+        if pk_ref and fk_ref:
+            edges.append({"relation": "join-connects", "source": fk_ref, "target": pk_ref})
+        else:
+            unresolved.append(
+                {
+                    "relation": "join-connects",
+                    "source": join_ref,
+                    "target": f"datastore:ITable={join.get('ITablePk') or 'missing'}",
+                    "reason": "join-table-unresolved",
+                }
+            )
+    for join_id, records in sorted(join_columns.items()):
+        join_ref = join_refs.get(join_id)
+        if join_ref is None:
+            continue
+        for record in records:
+            pk_col = column_ref(_nonnull(record.get("IColPk")))
+            fk_col = column_ref(_nonnull(record.get("IColFk")))
+            if pk_col and fk_col:
+                edges.append({"relation": "join-connects", "source": fk_col, "target": pk_col})
+            else:
+                unresolved.append(
+                    {
+                        "relation": "join-connects",
+                        "source": join_ref,
+                        "target": f"column:ICol={record.get('IColPk') or 'missing'}",
+                        "reason": "join-column-unresolved",
+                    }
+                )
+
+    for index, reference in enumerate(objects.get("SnpReferencedObject", []), start=1):
+        object_id = _nonnull(reference.get("IObject"))
+        primary = _nonnull(reference.get("ObjectPKasString")) or "-"
+        alternate = _nonnull(reference.get("ObjectAKasString")) or "-"
+        reference_ref = f"reference:{index}:IObject={object_id or 'missing'}"
+        add(
+            "Reference",
+            reference_ref,
+            f"ODI 11g referenced object {object_id or 'missing'}",
+            [f"PrimaryKey: {primary}", f"AlternateKey: {alternate}"],
+        )
+        if object_id and object_id in known_object_ids:
+            edges.append(
+                {
+                    "relation": "references-object",
+                    "source": reference_ref,
+                    "target": f"object:IObject={object_id}",
+                }
+            )
+        else:
+            unresolved.append(
+                {
+                    "relation": "references-object",
+                    "source": reference_ref,
+                    "target": f"object:IObject={object_id or 'missing'}",
+                    "reason": "referenced-object-unresolved",
+                }
+            )
 
     pop_names = {item.get("IPop"): item.get("PopName") for item in objects.get("SnpPop", [])}
     trt_names = {item.get("ITrt"): item.get("TrtName") for item in objects.get("SnpTrt", [])}
@@ -734,6 +1034,7 @@ def build_sanitized_odi_plan(
             ("interface", _nonnull(scenario.get("IPop")), scenario_pops),
             ("procedure", _nonnull(scenario.get("ITrt")), scenario_trts),
         )
+        scenario_ref = f"scenario:{scenario_name}#ScenNo={scenario_id}"
         for relation_kind, reference_id, registry in references:
             if reference_id is None:
                 continue
@@ -757,11 +1058,113 @@ def build_sanitized_odi_plan(
             edges.append(
                 {
                     "relation": "scenario-refers-to",
-                    "source": f"scenario:{scenario_name}#ScenNo={scenario_id}",
+                    "source": scenario_ref,
                     "target": f"{relation_kind}:{target_name}",
                 }
             )
             lines.append(f"{relation_kind.title()}: {target_name}")
+
+        for index, task in enumerate(
+            sorted(
+                scenario_tasks.get(scenario_id, []),
+                key=lambda row: (row.get("Nno", ""), row.get("ScenTaskNo", "")),
+            ),
+            start=1,
+        ):
+            task_key = _nonnull(task.get("ScenTaskNo")) or f"Nno={task.get('Nno') or index}"
+            task_ref = f"scenario-task:{scenario_id}#{task_key}"
+            task_name = (
+                _nonnull(task.get("TaskName1"))
+                or _nonnull(task.get("TaskName2"))
+                or _nonnull(task.get("TaskName3"))
+                or task_key
+            )
+            task_lines = [
+                f"Scenario: {scenario_name}",
+                f"Task: {task_name}",
+                f"Type: {_nonnull(task.get('TaskType')) or 'unknown'}",
+                f"Order: {_nonnull(task.get('Nno')) or 'unknown'}",
+            ]
+            add(
+                "ScenarioTask",
+                f"{scenario_id}#{task_key}",
+                f"ODI 11g scenario task {task_name}",
+                task_lines,
+            )
+            edges.append(
+                {"relation": "scenario-contains-task", "source": scenario_ref, "target": task_ref}
+            )
+            lines.append(f"Task: {task_name}")
+
+        step_numbers = {
+            _nonnull(step.get("Nno"))
+            for step in scenario_steps.get(scenario_id, [])
+            if _nonnull(step.get("Nno"))
+        }
+        for index, step in enumerate(
+            sorted(scenario_steps.get(scenario_id, []), key=lambda row: row.get("Nno", "")),
+            start=1,
+        ):
+            step_number = _nonnull(step.get("Nno")) or str(index)
+            step_ref = f"scenario-step:{scenario_id}#Nno={step_number}"
+            step_name = _nonnull(step.get("StepName")) or f"Nno={step_number}"
+            step_lines = [
+                f"Scenario: {scenario_name}",
+                f"Step: {step_name}",
+                f"Type: {_nonnull(step.get('StepType')) or 'unknown'}",
+            ]
+            add(
+                "ScenarioStep",
+                f"{scenario_id}#Nno={step_number}",
+                f"ODI 11g scenario step {step_name}",
+                step_lines,
+            )
+            edges.append(
+                {"relation": "scenario-contains-step", "source": scenario_ref, "target": step_ref}
+            )
+            lines.append(f"Step: {step_name}")
+            for field, relation in (
+                ("OkNextStep", "scenario-step-next-ok"),
+                ("KoNextStep", "scenario-step-next-ko"),
+            ):
+                next_step = _nonnull(step.get(field))
+                if next_step is None:
+                    continue
+                target = f"scenario-step:{scenario_id}#Nno={next_step}"
+                if next_step in step_numbers:
+                    edges.append({"relation": relation, "source": step_ref, "target": target})
+                else:
+                    unresolved.append(
+                        {
+                            "relation": relation,
+                            "source": step_ref,
+                            "target": target,
+                            "reason": "scenario-step-next-unresolved",
+                        }
+                    )
+
+        for index, variable in enumerate(scenario_vars.get(scenario_id, []), start=1):
+            variable_name = _nonnull(variable.get("VarName")) or f"variable-{index}"
+            variable_ref = f"scenario-variable:{scenario_id}#{variable_name}"
+            variable_lines = [
+                f"Scenario: {scenario_name}",
+                f"Variable: {variable_name}",
+                f"Datatype: {_nonnull(variable.get('VarDatatype')) or 'unknown'}",
+            ]
+            add(
+                "ScenarioVariable",
+                f"{scenario_id}#{variable_name}",
+                f"ODI 11g scenario variable {variable_name}",
+                variable_lines,
+            )
+            edges.append(
+                {
+                    "relation": "scenario-contains-variable",
+                    "source": scenario_ref,
+                    "target": variable_ref,
+                }
+            )
+            lines.append(f"Variable: {variable_name}")
         add(
             "Scenario",
             f"{scenario_name}#ScenNo={scenario_id}",

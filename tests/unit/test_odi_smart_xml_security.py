@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
+from zekam.application import odi11g_smart_export as smart_export
 from zekam.application.odi11g_smart_export import _validate_smart_xml
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
@@ -41,3 +43,38 @@ def test_smart_xml_accepts_plain_utf16_and_rejects_malformed(tmp_path: Path) -> 
     source.write_bytes(b"<SunopsisExport>")
     with pytest.raises(ValidationFailed, match="parse"):
         _validate_smart_xml(source)
+
+
+def test_smart_export_rejects_source_mutation_after_object_parse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "SmartExport.xml"
+    source.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<SunopsisExport><SmartExportList />
+<Object class="com.sunopsis.dwg.dbobj.SnpModel">
+  <Field name="IMod">1</Field>
+  <Field name="ModName">MODEL_A</Field>
+  <Field name="LschemaName">LOG.GPU</Field>
+</Object>
+</SunopsisExport>""",
+        encoding="utf-8",
+    )
+    original_objects = smart_export._objects
+
+    def mutate_after_parse(path: Path):
+        parsed = original_objects(path)
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("MODEL_A", "MODEL_B"),
+            encoding="utf-8",
+        )
+        return parsed
+
+    monkeypatch.setattr(smart_export, "_objects", mutate_after_parse)
+
+    with pytest.raises(PolicyViolation, match="degisti"):
+        smart_export.build_sanitized_odi_plan(
+            project_id=UUID("00000000-0000-0000-0000-000000000001"),
+            project_slug="gpu",
+            source=source,
+        )

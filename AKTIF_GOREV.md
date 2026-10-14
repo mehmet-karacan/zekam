@@ -972,11 +972,15 @@ manifest alaninda saklanir ve lineage kenarina cevirmek reddedilir. Yeni e2e
 regresyonu sahte `unknown` kenarini reddeder. Downloads'taki gercek Smart Export
 yalnizca yerel, salt-okunur preflight/sanitize ile sinandi: 62.8 MB, 41.442
 nesne, `sha256:d98cdf5c04092d8964e4ef3724d21f652599a32946dd34944457bda771d51195`,
-913 sanitized chunk, 1.255 exact edge, 0 unresolved relation. Ancak
-`SnpReferencedObject`, `SnpScenTask`, `SnpScenStep`, `SnpPopMapping`, key/join
-ve senaryo degiskeni siniflari henuz lineage kapsaminda degildir; bu nedenle
-WP-06.01 acik kalir. Ham dosya depoya alinmadi; provider veya Oracle cagrisi
-yapilmadi.
+Yeni allowlist ve exact ID baglariyla `SnpScenTask`, `SnpScenStep`,
+`SnpPopMapping`, `SnpReferencedObject`, key/join ve senaryo degiskeni
+metadata'si korunur; kaynak degisimi parse sonrasinda da digest/stat ile
+reddedilir. Ayni export read-only kosusunda 21.636 sanitized chunk, 9.063
+exact edge ve 16.366 unresolved relation uretildi. Unresolved kayitlarin buyuk
+bolumu `SnpReferencedObject` hedef baginin bu exportta genel nesne kimligine
+cozulememesidir; sahte edge uretilmedi. WP-06.01 gercek 11g referans semantigi
+ve kalan unresolved cozumleri icin acik kalir. Ham dosya depoya alinmadi;
+provider veya Oracle cagrisi yapilmadi.
 
 **14 Ekim 2026 — WP-06.03 kismi kanit:** Polyglot structural extractor Java,
 JavaScript, TypeScript, TSX ve PL/SQL uzantilarini Python AST extractor'undan ayri

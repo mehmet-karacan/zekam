@@ -401,6 +401,61 @@ def test_smart_export_keeps_unresolved_references_without_fabricating_lineage(
     assert all("unknown" not in item["target"] for item in document["lineage_edges"])
 
 
+def test_smart_export_keeps_scenario_mapping_reference_key_and_join_metadata(
+    tmp_path: Path,
+) -> None:
+    home = _home(tmp_path)
+    source = tmp_path / "SmartExport-relations.xml"
+    source.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<SunopsisExport><SmartExportList />
+<Object class="com.sunopsis.dwg.dbobj.SnpModel"><Field name="IMod">1</Field><Field name="ModName">GPU</Field><Field name="LschemaName">LOG.GPU</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpTable"><Field name="ITable">10</Field><Field name="IMod">1</Field><Field name="TableName">SRC</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpTable"><Field name="ITable">20</Field><Field name="IMod">1</Field><Field name="TableName">TGT</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpCol"><Field name="ICol">11</Field><Field name="ITable">10</Field><Field name="ColName">ID</Field><Field name="Pos">1</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpCol"><Field name="ICol">21</Field><Field name="ITable">20</Field><Field name="ColName">ID</Field><Field name="Pos">1</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpPop"><Field name="IPop">30</Field><Field name="ITable">20</Field><Field name="PopName">I_TGT</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpDataSet"><Field name="IDataSet">40</Field><Field name="IPop">30</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpSourceTab"><Field name="IDataSet">40</Field><Field name="ITable">10</Field><Field name="TableName">SRC</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpPopCol"><Field name="IPop">30</Field><Field name="IPopCol">31</Field><Field name="ICol">21</Field><Field name="ISourceTab">50</Field><Field name="ColName">ID</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpPopMapping"><Field name="IDataSet">40</Field><Field name="IPopCol">31</Field><Field name="ISourceTab">50</Field><Field name="ISrcSet">40</Field><Field name="ITxtMap">99</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScen"><Field name="ScenNo">500</Field><Field name="IPop">30</Field><Field name="ScenName">GPU_LOAD</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenTask"><Field name="ScenNo">500</Field><Field name="ScenTaskNo">1</Field><Field name="Nno">1</Field><Field name="TaskName1">LOAD</Field><Field name="TaskType">INTERFACE</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScenStep"><Field name="ScenNo">500</Field><Field name="Nno">1</Field><Field name="StepName">LOAD</Field><Field name="StepType">INTERFACE</Field><Field name="OkNextStep">2</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpVarScen"><Field name="ScenNo">500</Field><Field name="ITxtVar">70</Field><Field name="VarName">RUN_ID</Field><Field name="VarDatatype">STRING</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpReferencedObject"><Field name="IObject">20</Field><Field name="ObjectPKasString">TABLE:20</Field><Field name="ObjectAKasString">TGT</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpKey"><Field name="IKey">60</Field><Field name="ITable">20</Field><Field name="KeyName">PK_TGT</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpKeyCol"><Field name="IKey">60</Field><Field name="ICol">21</Field><Field name="Pos">1</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpJoin"><Field name="IJoin">80</Field><Field name="ITablePk">20</Field><Field name="ITableFk">10</Field><Field name="PkTableName">TGT</Field><Field name="FkName">FK_TGT</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpJoinCol"><Field name="IJoin">80</Field><Field name="IColPk">21</Field><Field name="IColFk">11</Field><Field name="Pos">1</Field></Object>
+</SunopsisExport>""",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        cli.app,
+        ["project", "odi-smart-status", "gpu", str(source), "--home", str(home), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["object_counts"]["SnpScenTask"] == 1
+    assert document["object_counts"]["SnpScenStep"] == 1
+    assert document["object_counts"]["SnpPopMapping"] == 1
+    assert document["object_counts"]["SnpReferencedObject"] == 1
+    assert document["object_counts"]["SnpKey"] == 1
+    assert document["object_counts"]["SnpJoin"] == 1
+    relations = {item["relation"] for item in document["lineage_edges"]}
+    assert {
+        "scenario-contains-task",
+        "scenario-contains-step",
+        "scenario-contains-variable",
+        "maps-from",
+        "references-object",
+        "key-contains-column",
+        "join-connects",
+    } <= relations
+    assert all("unknown" not in item["target"] for item in document["lineage_edges"])
+
+
 @pytest.mark.parametrize("declaration_offset", [5000, 1024 * 1024 - 2])
 def test_smart_export_rejects_doctype_after_the_first_four_kib(
     tmp_path: Path, declaration_offset: int
