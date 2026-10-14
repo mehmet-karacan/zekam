@@ -1943,6 +1943,17 @@ alinmadan once sinirlanir.
 Bu dar dilim WP-10.02'nin client projection drift kontrolu kaynak tuketimi
 boslugunu daraltir; native client ve watcher kabul matrisi aciktir.
 
+### 10.49 15 Ekim 2026 Obsidian generation traversal kapisi
+
+Obsidian generation publish ve live validation akislari manifestteki bounded
+dosya sayisini asabilecek bir agaci `rglob` ile tamamen toplamadan, ortak
+`scandir` akisi ile inceler. Link/reparse ve special file reddedilir; dosya ve
+dizin limitleri tarama sirasinda uygulanir, expected path karsilastirmasi ayni
+sekilde korunur.
+
+Bu dar dilim WP-11.03'un Obsidian projection kaynak tuketimi ve path guvenligi
+boslugunu daraltir; native watcher/restore kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

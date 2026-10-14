@@ -71,6 +71,7 @@ from zekam.domain.session_continuity import (
 )
 from zekam.infrastructure import local_backup
 from zekam.infrastructure.embedding import infinity_bge as bge
+from zekam.infrastructure.storage import obsidian_projection_store as obsidian_store
 from zekam.infrastructure.storage.obsidian_projection_store import (
     LocalObsidianProjectionStore,
 )
@@ -804,6 +805,19 @@ def test_obsidian_generation_root_size_and_publish_symlink_guards(tmp_path: Path
             expected_manifest_digest=bundle.manifest_digest,
             expected_receipt_digest=bundle.receipt_digest,
         )
+
+
+def test_obsidian_generation_walk_stops_at_file_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generation = tmp_path / "generation"
+    generation.mkdir()
+    (generation / "one.md").write_text("one\n", encoding="utf-8")
+    (generation / "two.md").write_text("two\n", encoding="utf-8")
+    monkeypatch.setattr(obsidian_store, "MAX_GENERATION_FILES", 1)
+
+    with pytest.raises(PolicyViolation, match="file bounded"):
+        tuple(obsidian_store._iter_generation_files(generation))
 
 
 def test_obsidian_stable_vault_removes_old_managed_file(tmp_path: Path) -> None:

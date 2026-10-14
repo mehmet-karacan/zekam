@@ -32,6 +32,8 @@ _EXCLUSION_REASONS = {
     "connection-string",
     "raw-content-marker",
 }
+MAX_GENERATION_FILES = 4098
+MAX_GENERATION_DIRECTORIES = 4096
 
 
 def _unsafe(path: Path) -> bool:
@@ -63,6 +65,39 @@ def _safe_relative(value: str) -> None:
 def _regular(path: Path) -> None:
     if _unsafe(path) or not path.is_file():
         raise PolicyViolation("Obsidian projection regular, symlink olmayan file ister")
+
+
+def _iter_generation_files(root: Path):
+    pending = [root]
+    visited_directories = 0
+    observed_files = 0
+    while pending:
+        directory = pending.pop()
+        visited_directories += 1
+        if visited_directories > MAX_GENERATION_DIRECTORIES:
+            raise PolicyViolation("Obsidian generation directory bounded disi")
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    if _unsafe(target):
+                        raise PolicyViolation("Obsidian generation symlink/reparse tasiyamaz")
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(target)
+                        elif entry.is_file(follow_symlinks=False):
+                            observed_files += 1
+                            if observed_files > MAX_GENERATION_FILES:
+                                raise PolicyViolation(
+                                    "Obsidian generation file bounded disi"
+                                )
+                            yield target
+                        else:
+                            raise PolicyViolation("Obsidian generation special file tasiyamaz")
+                    except OSError as exc:
+                        raise PolicyViolation("Obsidian generation entry okunamadi") from exc
+        except OSError as exc:
+            raise PolicyViolation("Obsidian generation directory okunamadi") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +144,7 @@ class LocalObsidianProjectionStore:
                 raise ValidationFailed("Obsidian stable vault marker okunamadi") from exc
 
         managed: set[str] = set()
-        for source in sorted(generation_root.rglob("*")):
-            if not source.is_file():
-                continue
+        for source in _iter_generation_files(generation_root):
             _regular(source)
             relative = source.relative_to(generation_root).as_posix()
             _safe_relative(relative)
@@ -559,12 +592,9 @@ class LocalObsidianProjectionStore:
             parse_digest(str(exclusion["record_digest"]))
         if receipt["file_count"] != len(files):
             raise PolicyViolation("Obsidian projection receipt file count drift")
-        actual_paths: set[str] = set()
-        for candidate in root.rglob("*"):
-            if _unsafe(candidate):
-                raise PolicyViolation("Obsidian generation symlink/reparse tasiyamaz")
-            if candidate.is_file():
-                actual_paths.add(candidate.relative_to(root).as_posix())
+        actual_paths = {
+            candidate.relative_to(root).as_posix() for candidate in _iter_generation_files(root)
+        }
         total_payload_size = 0
         for row in files:
             if not isinstance(row, dict) or set(row) != {
