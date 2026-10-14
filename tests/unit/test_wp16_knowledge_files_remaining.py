@@ -324,6 +324,15 @@ def test_audit_stops_walk_after_limit(tmp_path: Path, monkeypatch: pytest.Monkey
     assert str(nested) not in visited
 
 
+def test_link_probe_fails_closed_on_metadata_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def denied_lstat(_path: Path):
+        raise PermissionError("metadata denied")
+
+    monkeypatch.setattr(Path, "lstat", denied_lstat)
+
+    assert knowledge_files._is_link_or_reparse(Path("opaque")) is True
+
+
 def test_audit_artifact_duplicate_secret_missing_unreadable_and_public(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

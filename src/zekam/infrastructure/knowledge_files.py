@@ -55,8 +55,10 @@ _AUDIT_LIMIT = 10_000
 def _is_link_or_reparse(path: Path) -> bool:
     try:
         info = path.lstat()
-    except OSError:
+    except FileNotFoundError:
         return False
+    except OSError:
+        return True
     return path.is_symlink() or bool(
         int(getattr(info, "st_file_attributes", 0))
         & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
