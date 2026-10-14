@@ -50,6 +50,7 @@ class KnowledgeFileIssue:
 
 _AUDIT_NOTE_ROOTS = ("global", "projeler", "inbox", "archive")
 _AUDIT_LIMIT = 10_000
+_CAS_AUDIT_LIMIT = 10_000
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -613,12 +614,82 @@ class KnowledgeFileStore:
         if _is_link_or_reparse(cas_root):
             issues.add(KnowledgeFileIssue("unsafe-cas-root", "artifacts/sha256"))
         elif cas_root.is_dir():
-            for target in cas_root.rglob("*"):
-                relative = target.relative_to(self.home).as_posix()
-                depth = len(target.relative_to(cas_root).parts)
-                if _is_link_or_reparse(target) or (target.is_dir() and depth != 1):
-                    issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
-                elif target.is_file() and relative not in expected_artifacts:
-                    issues.add(KnowledgeFileIssue("orphan-cas-object", relative))
+            observed_cas = 0
+            stop_cas_audit = False
+            try:
+                with os.scandir(cas_root) as prefix_scan:
+                    for prefix_entry in prefix_scan:
+                        observed_cas += 1
+                        if observed_cas > _CAS_AUDIT_LIMIT:
+                            issues.add(
+                                KnowledgeFileIssue("audit-limit-exceeded", "artifacts/sha256")
+                            )
+                            stop_cas_audit = True
+                            break
+                        prefix = Path(prefix_entry.path)
+                        prefix_relative = prefix.relative_to(self.home).as_posix()
+                        if _is_link_or_reparse(prefix):
+                            issues.add(KnowledgeFileIssue("unsafe-cas-path", prefix_relative))
+                            continue
+                        try:
+                            prefix_is_dir = prefix_entry.is_dir(follow_symlinks=False)
+                            prefix_is_file = prefix_entry.is_file(follow_symlinks=False)
+                        except OSError:
+                            issues.add(KnowledgeFileIssue("unsafe-cas-path", prefix_relative))
+                            continue
+                        if prefix_is_file:
+                            if prefix_relative not in expected_artifacts:
+                                issues.add(
+                                    KnowledgeFileIssue("orphan-cas-object", prefix_relative)
+                                )
+                            continue
+                        if not prefix_is_dir:
+                            issues.add(KnowledgeFileIssue("unsafe-cas-path", prefix_relative))
+                            continue
+                        try:
+                            with os.scandir(prefix) as object_scan:
+                                for object_entry in object_scan:
+                                    observed_cas += 1
+                                    if observed_cas > _CAS_AUDIT_LIMIT:
+                                        issues.add(
+                                            KnowledgeFileIssue(
+                                                "audit-limit-exceeded", "artifacts/sha256"
+                                            )
+                                        )
+                                        stop_cas_audit = True
+                                        break
+                                    target = Path(object_entry.path)
+                                    relative = target.relative_to(self.home).as_posix()
+                                    if _is_link_or_reparse(target):
+                                        issues.add(
+                                            KnowledgeFileIssue("unsafe-cas-path", relative)
+                                        )
+                                        continue
+                                    try:
+                                        target_is_dir = object_entry.is_dir(
+                                            follow_symlinks=False
+                                        )
+                                        target_is_file = object_entry.is_file(
+                                            follow_symlinks=False
+                                        )
+                                    except OSError:
+                                        issues.add(
+                                            KnowledgeFileIssue("unsafe-cas-path", relative)
+                                        )
+                                        continue
+                                    if target_is_dir or not target_is_file:
+                                        issues.add(
+                                            KnowledgeFileIssue("unsafe-cas-path", relative)
+                                        )
+                                    elif relative not in expected_artifacts:
+                                        issues.add(
+                                            KnowledgeFileIssue("orphan-cas-object", relative)
+                                        )
+                        except OSError:
+                            issues.add(KnowledgeFileIssue("unsafe-cas-path", prefix_relative))
+                        if stop_cas_audit:
+                            break
+            except OSError:
+                issues.add(KnowledgeFileIssue("unsafe-cas-path", "artifacts/sha256"))
 
         return tuple(sorted(issues))

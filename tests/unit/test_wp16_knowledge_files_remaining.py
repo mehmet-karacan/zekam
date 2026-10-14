@@ -333,6 +333,18 @@ def test_link_probe_fails_closed_on_metadata_error(monkeypatch: pytest.MonkeyPat
     assert knowledge_files._is_link_or_reparse(Path("opaque")) is True
 
 
+def test_audit_bounds_cas_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _store(tmp_path)
+    prefix = store.home / "artifacts" / "sha256" / "aa"
+    prefix.mkdir(parents=True, exist_ok=True)
+    (prefix / "orphan").write_bytes(b"orphan")
+    monkeypatch.setattr(knowledge_files, "_CAS_AUDIT_LIMIT", 1)
+
+    kinds = {issue.kind for issue in store.audit(notes=(), artifacts=())}
+
+    assert "audit-limit-exceeded" in kinds
+
+
 def test_audit_artifact_duplicate_secret_missing_unreadable_and_public(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

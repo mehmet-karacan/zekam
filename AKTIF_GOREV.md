@@ -1883,6 +1883,16 @@ CAS audit'i icin sahte olumlu guvenlik kaniti uretilmez.
 Bu dar dilim WP-04.04'un bilgi dosyasi ownership ve path guvenligi boslugunu
 daraltir; native ACL/race kabul matrisi aciktir.
 
+### 10.43 15 Ekim 2026 bounded CAS audit kapisi
+
+Knowledge file-plane CAS audit'i `rglob` ile derin agaci bellekte toplamayi
+birakir. Beklenen iki seviyeli `prefix/object` yapisi `scandir` akisi ile
+incelenir; derin veya link/reparse girdileri tekrar izlenmeden unsafe olarak
+raporlanir ve toplam gozlem sayisi bounded limitte kesilir.
+
+Bu dar dilim WP-04.04'un CAS orphan/unsafe traversal kaynak tuketimi boslugunu
+daraltir; tam native dosya sistemi yarisi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
