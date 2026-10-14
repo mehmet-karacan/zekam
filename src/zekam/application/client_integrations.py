@@ -86,10 +86,11 @@ _SECRET_ASSIGNMENT = re.compile(
     rb"(?i)(?:password|passwd|secret|token|api[-_ ]?key|apikey|private[-_ ]?key)"
     rb"[\"'\s]*[:=]"
 )
-MAX_SECRET_SCAN_BYTES = 4 * 1024 * 1024
+MAX_INTEGRATION_FILE_BYTES = 4 * 1024 * 1024
+MAX_SECRET_SCAN_BYTES = MAX_INTEGRATION_FILE_BYTES
 
 
-def _contains_secret_assignment(path: Path) -> bool:
+def _read_integration_file(path: Path, *, label: str) -> bytes:
     try:
         info = path.lstat()
         is_reparse = bool(
@@ -97,15 +98,22 @@ def _contains_secret_assignment(path: Path) -> bool:
             & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
         )
         if stat.S_ISLNK(info.st_mode) or is_reparse or not stat.S_ISREG(info.st_mode):
-            return False
-        if info.st_size > MAX_SECRET_SCAN_BYTES:
-            return True
+            raise PolicyViolation(f"CLI integration {label} regular file olmali")
+        if info.st_size > MAX_INTEGRATION_FILE_BYTES:
+            raise PolicyViolation(f"CLI integration {label} boyut siniri asildi")
         with path.open("rb") as stream:
-            payload = stream.read(MAX_SECRET_SCAN_BYTES + 1)
-        if len(payload) > MAX_SECRET_SCAN_BYTES:
-            return True
-        return bool(_SECRET_ASSIGNMENT.search(payload))
-    except OSError:
+            payload = stream.read(MAX_INTEGRATION_FILE_BYTES + 1)
+        if len(payload) > MAX_INTEGRATION_FILE_BYTES:
+            raise PolicyViolation(f"CLI integration {label} boyut siniri asildi")
+        return payload
+    except OSError as exc:
+        raise PolicyViolation(f"CLI integration {label} okunamadi") from exc
+
+
+def _contains_secret_assignment(path: Path) -> bool:
+    try:
+        return bool(_SECRET_ASSIGNMENT.search(_read_integration_file(path, label="secret scan")))
+    except PolicyViolation:
         return True
 
 
@@ -472,9 +480,7 @@ def _source_head(core: Path, *, packaged_fallback: str) -> str:
 def _file_digest(path: Path) -> str | None:
     if not path.exists():
         return None
-    if not path.is_file() or path.is_symlink():
-        raise PolicyViolation("CLI integration config regular file olmali")
-    return digest_of_bytes(path.read_bytes())
+    return digest_of_bytes(_read_integration_file(path, label="config"))
 
 
 def _artifact_digest(path: Path) -> str:
