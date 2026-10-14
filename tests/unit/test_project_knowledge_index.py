@@ -152,6 +152,37 @@ def test_sql_and_plsql_structural_units_extract_create_objects(
     assert all("CREATE" in unit.text.upper() for unit in extracted)
 
 
+def test_markdown_units_preserve_heading_paths_paragraphs_and_tables() -> None:
+    source = (
+        "# Overview\n\n"
+        "Intro paragraph.\n\n"
+        "## Details\n\n"
+        "| Name | Value |\n| --- | --- |\n| alpha | one |\n\n"
+        "- first\n- second\n"
+    )
+    units = knowledge_index._file_units("README.md", source, 4)
+    assert [unit.kind for unit in units] == [
+        UnitKind.HEADING,
+        UnitKind.PARAGRAPH,
+        UnitKind.HEADING,
+        UnitKind.TABLE,
+        UnitKind.LIST,
+    ]
+    assert units[0].locator.heading_path == ("Overview",)
+    assert units[2].locator.heading_path == ("Overview", "Details")
+    assert units[3].locator.line_start == 7
+    assert units[3].locator.line_end == 9
+    assert units[4].locator.heading_path == ("Overview", "Details")
+
+
+def test_markdown_fenced_code_gets_code_locator() -> None:
+    units = knowledge_index._file_units("guide.md", "```python\nprint(1)\n```\n", 0)
+    assert len(units) == 1
+    assert units[0].kind is UnitKind.CODE
+    assert units[0].locator.line_start == 1
+    assert units[0].locator.line_end == 3
+
+
 def test_python_ast_fallback_splits_a_token_heavy_single_line(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

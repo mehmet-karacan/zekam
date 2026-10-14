@@ -104,8 +104,12 @@ _SUPPORTED_SUFFIXES = frozenset(
 )
 _SUPPORTED_NAMES = frozenset({"dockerfile", "makefile"})
 _STRUCTURAL_CODE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".ts", ".tsx"})
+_MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 _STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function)\b")
 _STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_MARKDOWN_HEADING = re.compile(r"^\s{0,3}(?P<marks>#{1,6})\s+(?P<title>\S.*?)\s*$")
+_MARKDOWN_LIST = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")
+_MARKDOWN_FENCE = re.compile(r"^\s*(```+|~~~+)")
 _SQL_STRUCTURAL_SUFFIXES = frozenset({".sql", ".pks", ".pkb"})
 _SQL_DECLARATION = re.compile(
     r"(?m)^[ \t]*create\s+(?:or\s+replace\s+)?"
@@ -684,9 +688,116 @@ def _sql_structural_units(
     return tuple(units) if units else None
 
 
+def _markdown_units(
+    relative_path: str, text: str, start_order: int
+) -> tuple[ContentUnit, ...] | None:
+    """Markdown baslik, paragraf, liste, tablo ve fenced code birimleri uretir."""
+    lines = text.splitlines()
+    if not lines:
+        return ()
+    units: list[ContentUnit] = []
+    heading_stack: list[tuple[int, str]] = []
+
+    def append(kind: UnitKind, body_lines: list[str], first: int, last: int) -> None:
+        body = "\n".join(body_lines).strip()
+        if not body:
+            return
+        locator = Locator(
+            relative_path=relative_path,
+            line_start=first,
+            line_end=last,
+            heading_path=tuple(title for _, title in heading_stack),
+        )
+        if len(body) <= MAX_CHUNK_CHARACTERS and estimate_tokens(body) <= MAX_CHUNK_TOKENS:
+            units.append(
+                ContentUnit(
+                    unit_id=f"{relative_path}#L{first}-L{last}-{kind.value}",
+                    kind=kind,
+                    text=body,
+                    locator=locator,
+                    order=start_order + len(units),
+                )
+            )
+            return
+        units.extend(_line_units(relative_path, body, start_order + len(units), first_line=first))
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip():
+            index += 1
+            continue
+        heading = _MARKDOWN_HEADING.match(line)
+        if heading:
+            level = len(heading.group("marks"))
+            title = heading.group("title").strip()
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            heading_stack.append((level, title))
+            append(UnitKind.HEADING, [title], index + 1, index + 1)
+            index += 1
+            continue
+        fence = _MARKDOWN_FENCE.match(line)
+        if fence:
+            first = index + 1
+            body_lines = [line]
+            marker = fence.group(1)[0]
+            index += 1
+            while index < len(lines):
+                body_lines.append(lines[index])
+                if lines[index].lstrip().startswith(marker * 3):
+                    index += 1
+                    break
+                index += 1
+            append(UnitKind.CODE, body_lines, first, index)
+            continue
+        if "|" in line and index + 1 < len(lines) and "|" in lines[index + 1]:
+            first = index + 1
+            body_lines = [line]
+            index += 1
+            while index < len(lines) and lines[index].strip() and "|" in lines[index]:
+                body_lines.append(lines[index])
+                index += 1
+            append(UnitKind.TABLE, body_lines, first, index)
+            continue
+        if _MARKDOWN_LIST.match(line):
+            first = index + 1
+            body_lines = [line]
+            index += 1
+            while index < len(lines) and (
+                _MARKDOWN_LIST.match(lines[index]) or not lines[index].strip()
+            ):
+                if lines[index].strip():
+                    body_lines.append(lines[index])
+                index += 1
+            append(UnitKind.LIST, body_lines, first, index)
+            continue
+        first = index + 1
+        body_lines = [line]
+        index += 1
+        while index < len(lines):
+            candidate = lines[index]
+            if (
+                not candidate.strip()
+                or _MARKDOWN_HEADING.match(candidate)
+                or _MARKDOWN_FENCE.match(candidate)
+                or _MARKDOWN_LIST.match(candidate)
+                or "|" in candidate
+            ):
+                break
+            body_lines.append(candidate)
+            index += 1
+        append(UnitKind.PARAGRAPH, body_lines, first, index)
+    return tuple(units)
+
+
 def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
-    """Python AST, Java/JS/TS/SQL structural; belirsizde bounded line fallback."""
+    """Python/code/SQL/Markdown structural; belirsizde bounded line fallback."""
     suffix = PurePosixPath(relative_path).suffix.lower()
+    if suffix in _MARKDOWN_SUFFIXES:
+        structural = _markdown_units(relative_path, text, start_order)
+        if structural is not None:
+            return structural
     if suffix in _SQL_STRUCTURAL_SUFFIXES:
         structural = _sql_structural_units(relative_path, text, start_order)
         if structural is not None:
