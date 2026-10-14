@@ -117,7 +117,7 @@ def query_issue_history(root: Path, issue_key: str) -> IssueHistory:
     head = run_read_only(root, "rev-parse", "HEAD").strip()
     shallow = run_read_only(root, "rev-parse", "--is-shallow-repository").strip() == "true"
     # Anahtar sinirlari: `SKYRSM-56590` ve `XSKYRSM-5659` eslesmez.
-    pattern = rf"(^|[^A-Za-z0-9-]){re.escape(key)}([^0-9]|$)"
+    pattern = rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)"
     log = run_read_only(
         root,
         "log",
@@ -164,7 +164,7 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
     parents = tuple(item for item in parents_raw.split() if _SHA.fullmatch(item))
     subject = subject[:MAX_SUBJECT_CHARS]
     # `--grep` govdede de arar; anahtar subject'te yoksa bunu acikca isaretle.
-    key_pattern = re.compile(rf"(^|[^A-Za-z0-9-]){re.escape(key)}([^0-9]|$)")
+    key_pattern = re.compile(rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)")
     matched_in = "subject" if key_pattern.search(subject) else "body"
     subject_redacted = bool(scan_text(subject, relative_path="history-subject.txt"))
     if subject_redacted:

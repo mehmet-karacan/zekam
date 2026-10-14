@@ -78,6 +78,9 @@ def test_key_boundaries_prevent_prefix_and_other_project_false_positives(repo: P
     _commit(repo, "SKYRSM-56590 baska is", a_txt="x\n")
     _commit(repo, "XSKYRSM-5659 baska proje", b_txt="y\n")
     _commit(repo, "TLCSKY-5659 baska anahtar", c_txt="z\n")
+    _commit(repo, "SKYRSM-5659abc ekli metin", e_txt="v\n")
+    _commit(repo, "SKYRSM-5659-ekli tire", f_txt="u\n")
+    _commit(repo, "SKYRSM-5659_ekli alt cizgi", g_txt="t\n")
     real = _commit(repo, "duzeltme (SKYRSM-5659): gercek", d_txt="w\n")
     result = query_issue_history(repo, "SKYRSM-5659")
     assert [item.commit for item in result.commits] == [real]
