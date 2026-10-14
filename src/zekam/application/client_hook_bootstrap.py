@@ -19,6 +19,7 @@ _REPARSE_POINT = 0x400
 _COMMAND_MARKER = "-m zekam.interfaces.cli.client hook --client "
 _LEGACY_COMMAND_PREFIX = "python " + _COMMAND_MARKER
 _VERSIONS = {"codex": "0.154.0", "claude-code": "2.1.224"}
+MAX_HOOK_CONFIG_BYTES = 4 * 1024 * 1024
 # Gecmis gozden gecirilmis surumler (git gecmisi): yalniz cleanup sahiplik kaniti icindir;
 # yeni hook'lar daima guncel surumle uretilir.
 _LEGACY_VERSIONS = {"codex": ("0.150.1", "0.153.1"), "claude-code": ()}
@@ -63,10 +64,20 @@ def _assert_safe_path(user_home: Path, path: Path) -> None:
         raise ConfigurationError("Hook bootstrap hedefi regular file olmali")
 
 
+def _read_hook_text(path: Path) -> str:
+    if path.stat(follow_symlinks=False).st_size > MAX_HOOK_CONFIG_BYTES:
+        raise ConfigurationError("Hook config dosyasi boyut siniri asildi")
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_HOOK_CONFIG_BYTES + 1)
+    if len(payload) > MAX_HOOK_CONFIG_BYTES:
+        raise ConfigurationError("Hook config dosyasi boyut siniri asildi")
+    return payload.decode("utf-8")
+
+
 def _load(path: Path) -> tuple[dict[str, Any], str | None]:
     if not path.exists():
         return {}, None
-    text = path.read_text(encoding="utf-8")
+    text = _read_hook_text(path)
     try:
         document = json.loads(text)
     except (UnicodeError, json.JSONDecodeError) as exc:
@@ -279,7 +290,7 @@ def apply_client_hook_bootstrap(plan: ClientHookBootstrapPlan) -> None:
         user_home = item.path.parents[1]
         _assert_safe_home(user_home)
         _assert_safe_path(user_home, item.path)
-        current = item.path.read_text(encoding="utf-8") if item.path.exists() else None
+        current = _read_hook_text(item.path) if item.path.exists() else None
         if current != item.original_text:
             raise ConfigurationError("Hook bootstrap plani dosya drift nedeniyle stale")
         if item.action == "unchanged":

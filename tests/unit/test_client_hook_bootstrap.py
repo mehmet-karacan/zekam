@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import zekam.application.client_hook_bootstrap as client_hook_bootstrap
 from zekam.application.client_hook_bootstrap import (
     apply_client_hook_bootstrap,
     plan_client_hook_bootstrap,
@@ -27,6 +28,17 @@ def _plan(home: Path):  # type: ignore[no-untyped-def]
         python_executable=Path(sys.executable),
         policy=ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True),
     )
+
+
+def test_hook_reader_rejects_oversized_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "hooks.json"
+    monkeypatch.setattr(client_hook_bootstrap, "MAX_HOOK_CONFIG_BYTES", 8)
+    target.write_bytes(b"123456789")
+
+    with pytest.raises(ConfigurationError, match="boyut siniri"):
+        client_hook_bootstrap._load(target)
 
 
 def test_default_policy_does_not_generate_codex_or_claude_hooks(tmp_path: Path) -> None:
