@@ -460,16 +460,16 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
 **İncelenecek/değişecek konumlar:** `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `opencode.json`, `config/zekam.default.yaml`, `client_integrations`, `client_instruction_bootstrap`, `mcp_integrations`, native adapter ve izin üreticileri; eski global parçalar yalnız migration kanıtıdır.
 
 - [ ] **WP-02.01** — Kök ve alt dizin için ince giriş üret; tekrar eden instruction/skill kopyalarını mevcut kanonik generator üzerinden tekilleştir. Zekam dışı yeni oturumda inert davranışı gerçek hostta sınayarak göster.
-- [ ] **WP-02.02** — İstemci metadata/instruction/hook/MCP/shell/subagent desteğini sürüm bazında ayrı kaydet. Destek yoksa manual komut ezberi yerine açık destek sınırı ve kurulabilir adapter planı ver.
+- [x] **WP-02.02** — İstemci metadata/instruction/hook/MCP/shell/subagent desteğini sürüm bazında ayrı kaydet. Destek yoksa manual komut ezberi yerine açık destek sınırı ve kurulabilir adapter planı ver.
 - [ ] **WP-02.03** — Onaylı görevde shell allow hedefini host-native policy ile uygula. Push/yayın exception'ını model prompt'una değil uygulanabilir araç/transport sınırına bağla; başarısız guard'ı başarı sayma.
-- [ ] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
-- [ ] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
+- [x] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
+- [x] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
 
 **Üretilen sözleşme/çıktı:** `ClientCapabilityProfile` ve scoped startup/MCP/permission planı; mevcut record tipleri korunur. Yeni öneri `tests/e2e/test_natural_language_workspace_entry.py` ve `tests/security/test_publish_authorization_boundary.py`.
 
 **Kabul ve negatif testler:** Testler: kök/alt/başka proje/fresh session, duplicate entry, global conflict, rollback, shell allow fiili davranışı, onaysız direct/indirect publication ve onaylı scope dışı yayın reddi.
 
-**13 Ekim 2026 ara durum — WP-02 acik:** `integration entry` exact kayitli Zekam
+**14 Ekim 2026 ara durum — WP-02 kismi kapali:** `integration entry` exact kayitli Zekam
 kokunde ve alt dizinde kanonik `AGENTS.md`'ye baglanan ince girisi planlar ve
 claim/receipt ile uygular; Zekam disi kaynakta inerttir. Conflict, drift,
 idempotent tekrar ve global istemci ayarlarina yazmama fixture testleri vardir.
@@ -480,7 +480,9 @@ sinandi; dolayli shell yayini engellenmis sayilmaz. Bu nedenle WP-02.01 ve
 WP-02.03 kutulari kapanmadi. Ortak MCP icin mevcut plan/apply/readback/rollback
 testleri genisletildi. Global sahiplik envanterinde tasinabilir kanitli artifact
 bulunmadi; uc proje skill conflict'i korunarak repo disinda salt okunur plan
-kaydedildi. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
+kaydedildi. WP-02.02 capability matrisi, WP-02.04 ortak MCP ve WP-02.05 legacy plan kutulari
+yerel kanitla kapatildi; WP-02.01 ve WP-02.03 native host/transport kosullari nedeniyle acik
+kaldı. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
