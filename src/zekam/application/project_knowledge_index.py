@@ -18,6 +18,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
@@ -62,7 +63,7 @@ NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
 NON_SEMANTIC_BASELINE_DIMENSION = 1024
 REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
 REAL_EMBEDDING_DIMENSION = 1024
-INDEXER_VERSION = "zekam-project-source-indexer/v3"
+INDEXER_VERSION = "zekam-project-source-indexer/v4"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
 
@@ -107,6 +108,7 @@ _SUPPORTED_NAMES = frozenset({"dockerfile", "makefile"})
 _STRUCTURAL_CODE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".ts", ".tsx"})
 _MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 _STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function|enum|record)\b")
+_STRUCTURAL_TYPE_ALIAS = re.compile(r"\btype\s+[A-Za-z_$][A-Za-z0-9_$]*")
 _STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _MARKDOWN_HEADING = re.compile(r"^\s{0,3}(?P<marks>#{1,6})\s+(?P<title>\S.*?)\s*$")
 _MARKDOWN_LIST = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")
@@ -499,6 +501,62 @@ def _function_body_opening(masked: str, cursor: int) -> int | None:
     return None
 
 
+def _type_alias_end(masked: str, cursor: int) -> int | None:
+    """Bir TypeScript/Flow type alias'in bounded bitisini bul."""
+    length = len(masked)
+    while cursor < length and masked[cursor].isspace():
+        cursor += 1
+    if cursor < length and masked[cursor] == "<":
+        angle = 1
+        cursor += 1
+        while cursor < length and angle:
+            character = masked[cursor]
+            if character == "<":
+                angle += 1
+            elif character == ">":
+                angle -= 1
+            cursor += 1
+        if angle:
+            return None
+    while cursor < length and masked[cursor].isspace():
+        cursor += 1
+    if cursor >= length or masked[cursor] != "=":
+        return None
+    equals = cursor
+    cursor += 1
+    braces = 0
+    brackets = 0
+    parentheses = 0
+    while cursor < length:
+        character = masked[cursor]
+        if character == "{":
+            braces += 1
+        elif character == "}":
+            braces -= 1
+            if braces < 0:
+                return None
+        elif character == "[":
+            brackets += 1
+        elif character == "]":
+            brackets -= 1
+            if brackets < 0:
+                return None
+        elif character == "(":
+            parentheses += 1
+        elif character == ")":
+            parentheses -= 1
+            if parentheses < 0:
+                return None
+        elif character == ";" and not (braces or brackets or parentheses):
+            if not masked[equals + 1 : cursor].strip():
+                return None
+            return cursor + 1
+        cursor += 1
+    if braces or brackets or parentheses or not masked[equals + 1 :].strip():
+        return None
+    return length
+
+
 def _structural_code_units(
     relative_path: str, text: str, start_order: int
 ) -> tuple[ContentUnit, ...] | None:
@@ -523,7 +581,7 @@ def _structural_code_units(
     if depth != 0:
         return None
 
-    candidates: list[tuple[str, int, int]] = []
+    candidates: list[tuple[int, str, int, int]] = []
     for match in _STRUCTURAL_DECLARATION.finditer(masked):
         if depth_before[match.start()] != 0:
             continue
@@ -556,15 +614,34 @@ def _structural_code_units(
             return None
         start_line = text.count("\n", 0, match.start()) + 1
         end_line = text.count("\n", 0, closing - 1) + 1
-        if candidates and start_line <= candidates[-1][2]:
-            return None
-        candidates.append((name, start_line, end_line))
+        candidates.append((match.start(), name, start_line, end_line))
+    for match in _STRUCTURAL_TYPE_ALIAS.finditer(masked):
+        if depth_before[match.start()] != 0:
+            continue
+        name_start = match.start() + len("type")
+        while name_start < len(masked) and masked[name_start].isspace():
+            name_start += 1
+        name_match = _STRUCTURAL_IDENTIFIER.match(masked, name_start)
+        if name_match is None:
+            continue
+        closing = _type_alias_end(masked, name_match.end())
+        if closing is None:
+            continue
+        start_line = text.count("\n", 0, match.start()) + 1
+        end_line = text.count("\n", 0, closing - 1) + 1
+        candidates.append((match.start(), name_match.group(0), start_line, end_line))
     if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    if any(
+        previous[3] >= current[2]
+        for previous, current in pairwise(candidates)
+    ):
         return None
 
     units: list[ContentUnit] = []
     next_line = 1
-    for name, first, last in candidates:
+    for _, name, first, last in candidates:
         if next_line < first:
             units.extend(
                 _line_units(

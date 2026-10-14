@@ -104,6 +104,11 @@ def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
             "public record Point(int x, int y) {}\n",
             "Point",
         ),
+        (
+            "types.ts",
+            "type User<T> = {\n  id: T;\n  active: boolean;\n};\n",
+            "User",
+        ),
     ],
 )
 def test_structural_code_units_extract_top_level_declarations(
@@ -120,6 +125,47 @@ def test_structural_code_units_extract_top_level_declarations(
     assert symbols[0].text == expected
     expected_order = 4 if relative_path.endswith(".java") and "package app;" in source else 3
     assert symbols[0].order == expected_order
+
+
+def test_structural_code_units_extract_type_aliases_in_source_order() -> None:
+    source = (
+        "type User = { id: string; };\n"
+        "\n"
+        "export class Service {\n"
+        "  run(): User { return { id: 'x' }; }\n"
+        "}\n"
+    )
+    units = knowledge_index._file_units("service.ts", source, 0)
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+
+    assert [unit.locator.symbol for unit in symbols] == ["User", "Service"]
+    assert symbols[0].text == "type User = { id: string; };"
+    assert symbols[0].locator.line_start == 1
+    assert symbols[0].locator.line_end == 1
+    assert symbols[1].locator.line_start == 3
+
+
+def test_structural_code_units_ignore_type_words_in_literals_and_nested_bodies() -> None:
+    source = (
+        "function outer() {\n"
+        "  const value = 'type Hidden = string;';\n"
+        "  return value;\n"
+        "}\n"
+        "type Visible = string | number;\n"
+    )
+    units = knowledge_index._file_units("types.ts", source, 0)
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+
+    assert [unit.locator.symbol for unit in symbols] == ["outer", "Visible"]
+    assert sum("Hidden" in unit.text for unit in symbols) == 1
+
+
+def test_structural_code_units_accept_type_alias_at_file_end_without_semicolon() -> None:
+    units = knowledge_index._file_units("types.ts", "type Result<T> = T | null\n", 0)
+    symbols = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+
+    assert [unit.locator.symbol for unit in symbols] == ["Result"]
+    assert symbols[0].text == "type Result<T> = T | null"
 
 
 def test_structural_code_units_ignore_braces_in_literals_and_nested_declarations() -> None:

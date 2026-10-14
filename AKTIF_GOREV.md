@@ -1655,6 +1655,18 @@ manifest kabulü ve `git diff --check` temizdir.
 Bu dilim WP-11.03/04'un kaynak census boslugunu daraltir; gercek cihazda iki
 dongulu restore, scheduler ve release kabul kapilari halen aciktir.
 
+### 10.21 15 Ekim 2026 TypeScript type alias parcasi
+
+Proje kaynak indeksleyicisi, ust duzey TypeScript/Flow `type` alias bildirimlerini
+generic parametre, nesne tipi, tuple ve fonksiyon tipi gibi dengeli govdelerle
+sembol parcacigina ayirir. Maskelenmis yorum/dizgi icerigi alias olarak taninmaz;
+semicolon olmayan dosya sonu alias'i da bounded olarak desteklenir. Belirsiz veya
+dengeyi bozan alias'lar onceki satir parcasi fallback'ine duser. Indexer surumu
+4'e yukseltildi ve type alias locator testleri eklendi.
+
+Bu dar dilim WP-04.03'un TypeScript declaration boslugunu daraltir; tam AST/
+Tree-sitter kalitesi, diger dil yuzeyleri ve kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
