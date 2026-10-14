@@ -409,6 +409,29 @@ def _objection_conflicts(
     return tuple(conflicts)
 
 
+def _execution_usage(execution: Any) -> tuple[dict[str, Any], ...]:
+    """Report model identity while keeping provider usage unknown explicit."""
+
+    by_model: dict[str, dict[str, Any]] = {}
+    for call in execution.calls:
+        model_ref = f"{call.provider_id}/{call.model_id}"
+        bucket = by_model.setdefault(
+            model_ref,
+            {
+                "model_ref": model_ref,
+                "provider_calls": 0,
+                "tokens": None,
+                "duration_seconds": None,
+                "cost_micros": None,
+                "disk_bytes": None,
+                "metrics_state": "unknown",
+                "measurement_reason": "OpenCode execution event usage alani tasimiyor",
+            },
+        )
+        bucket["provider_calls"] += 1
+    return tuple(by_model.values())
+
+
 def _role_result(
     result: OpenCodeResearchResult, by_citation: dict[str, dict[str, Any]]
 ) -> tuple[RoleResult, CitationVerification]:
@@ -756,7 +779,9 @@ def run_research(
         report_document["evidence_coverage"] = evidence_coverage
         if evidence_coverage["state"] != "complete" and report_document["status"] == "answered":
             report_document["status"] = "partial"
-        report_document["agent_execution"] = execution_evidence
+        report_document["agent_execution"] = execution_evidence | {
+            "usage_by_model": _execution_usage(execution),
+        }
         report_document["report_digest"] = digest(report_document)
         projection = _materialize_report(
             store,
