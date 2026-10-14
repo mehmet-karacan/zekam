@@ -1007,6 +1007,30 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
+    def list_runs(self, work_item_id: str) -> tuple[RunRecord, ...]:
+        """Return the canonical runs attached to one Work item, read-only."""
+        if not isinstance(work_item_id, str) or not work_item_id.strip():
+            raise ValidationFailed("Work id bos veya gecersiz")
+        rows = (
+            self._db()
+            .execute(
+                "select id,work_item_id,status,plan_digest,terminal_receipt_digest "
+                "from run where work_item_id=? order by created_at,id",
+                (work_item_id,),
+            )
+            .fetchall()
+        )
+        return tuple(
+            RunRecord(
+                row["id"],
+                row["work_item_id"],
+                row["status"],
+                row["plan_digest"],
+                row["terminal_receipt_digest"],
+            )
+            for row in rows
+        )
+
     def record_checkpoint(
         self,
         *,

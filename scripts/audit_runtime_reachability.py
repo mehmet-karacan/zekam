@@ -230,6 +230,21 @@ def _wheel_inventory(wheel: Path) -> tuple[tuple[str, ...], list[str]]:
     return tuple(sorted(names)), findings
 
 
+def _missing_reachable_wheel_modules(
+    reachable_modules: tuple[str, ...], wheel_entries: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Return source runtime modules that have no importable wheel file."""
+
+    entries = set(wheel_entries)
+    missing: list[str] = []
+    for module in reachable_modules:
+        module_path = module.replace(".", "/")
+        candidates = (f"{module_path}.py", f"{module_path}/__init__.py")
+        if not any(candidate in entries for candidate in candidates):
+            missing.append(module)
+    return tuple(missing)
+
+
 def audit(repository: Path, wheel: Path | None = None) -> AuditReport:
     repository = repository.resolve()
     source_root = repository / "src"
@@ -250,6 +265,10 @@ def audit(repository: Path, wheel: Path | None = None) -> AuditReport:
     if wheel is not None:
         wheel_entries, wheel_findings = _wheel_inventory(wheel.resolve())
         findings.extend(wheel_findings)
+        if not any(item.startswith("wheel-unreadable:") for item in wheel_findings):
+            missing = _missing_reachable_wheel_modules(reachable, wheel_entries)
+            if missing:
+                findings.append(f"wheel-missing-reachable-runtime:{','.join(missing)}")
     return AuditReport(
         findings=tuple(sorted(set(findings))),
         reachable_modules=reachable,

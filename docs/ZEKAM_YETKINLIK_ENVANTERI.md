@@ -28,7 +28,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | Markdown knowledge | `ready` | `knowledge scan/inspect/ingest/list/show/search/create/update/archive/restore/mutation-status`; global/project/work filtreleri | — |
 | ODI 11g lineage | `partial` | `project odi-preflight/odi-bind`; digest-bound local-only export bağlantısı | Gerçek GPU/SKY exportuyla object-aware sanitizer ve exact lineage graph doğrulanmadan embedding kapalı |
 | Project Researcher | `ready` | Digest-bound `research run/status/report`; OpenCode researcher + bağımsız verifier | — |
-| Fikir üretme ve geliştirme | `scaffold` | Intake türleri ve storage kökleri | generate/review/save/promote akışı eksik |
+| Fikir üretme ve geliştirme | `partial` | `idea propose/review/work-plan`; digest-only kanıt ve `knowledge` fikir notu türü | Proposal/review salt okunur ve secret-free; kalıcı kaydetme/promote ve Work oluşturma explicit effect bridge bekliyor |
 | Raporlama | `partial` | `scheduler report/rebuild` | Machine-readable rapor yüzeyi var; gösterim show/refresh ayrı değil |
 | Model benchmark | `partial` | `model benchmark/decide/health/portable-inspect`, `model campaign plan/run/status/report` | Windows-native pipeline kampanyası hazır; portable import, gerçek provider, baseline ve release gate hâlâ kapalı |
 | Unit Test Engineering | `partial` | `test plan/run/status/report/pause/resume/cancel`; Java/Maven/JaCoCo adapter'ı; `unit-test-engineering` skill lifecycle; operational SQLite v6 migration ve backup receipt | Windows üzerindeki gerçek Maven/JUnit/JaCoCo fixture koşusu doğrulandı; skill revision aday durumda ve managed activation ile canlı model qualification ayrı açık plan/yetki bekliyor |

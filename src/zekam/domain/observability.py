@@ -127,6 +127,15 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract(
         "knowledge mutation-status", "Markdown mutation receipt durumunu okur", mutating=False
     ),
+    CommandContract("idea propose", "Secret-free fikir adayi uretir", mutating=False),
+    CommandContract(
+        "idea review", "Fikir adaylarini deterministic dedup ile inceler", mutating=False
+    ),
+    CommandContract(
+        "idea work-plan",
+        "Fikirden Work'a explicit scope/approval planini okur",
+        mutating=False,
+    ),
     CommandContract(
         "knowledge ingest",
         "Belgeyi normalize eder ve aktive eder",

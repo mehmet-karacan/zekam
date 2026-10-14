@@ -146,6 +146,21 @@ def test_wheel_inventory_rejects_symlink_entry(tmp_path: Path) -> None:
     assert "wheel-entry-not-regular:zekam/link.py" in findings
 
 
+def test_wheel_inventory_requires_every_reachable_runtime_module(tmp_path: Path) -> None:
+    wheel = tmp_path / "incomplete.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("zekam-0.1.0.dist-info/METADATA", "Name: zekam\n")
+
+    repository = Path(__file__).resolve().parents[2]
+    report = audit(repository, wheel)
+
+    assert any(
+        item.startswith("wheel-missing-reachable-runtime:")
+        and "zekam.interfaces.cli.main" in item
+        for item in report.findings
+    )
+
+
 def test_governance_repository_port_is_explicit_and_fail_closed() -> None:
     realm = Realm.create()
     connection = object()

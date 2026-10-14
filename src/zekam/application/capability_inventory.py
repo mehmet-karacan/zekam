@@ -164,11 +164,12 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability(
         "ideas",
         "Idea generation, review and promotion",
-        "scaffold",
-        (),
+        "partial",
+        ("idea propose", "idea review", "idea work-plan", "knowledge note_kind=idea"),
         ("zekam-memory-curator",),
-        ("tests/unit/test_intake.py",),
-        "Idea classification and storage roots exist; generation/review/save surfaces do not.",
+        ("tests/unit/test_intake.py", "tests/unit/test_idea_proposals.py"),
+        "Proposal/review is read-only and secret-free; persistence and Work creation still "
+        "require an explicit future effect bridge.",
     ),
     Capability(
         "reports",

@@ -70,6 +70,7 @@ from zekam.interfaces.cli import configuration as configuration_commands
 from zekam.interfaces.cli import continuity as continuity_commands
 from zekam.interfaces.cli import db as db_commands
 from zekam.interfaces.cli import evolve as evolve_commands
+from zekam.interfaces.cli import idea as idea_commands
 from zekam.interfaces.cli import integration as integration_commands
 from zekam.interfaces.cli import jira as jira_commands
 from zekam.interfaces.cli import knowledge as knowledge_commands
@@ -176,6 +177,7 @@ app.add_typer(continuity_commands.app)
 app.add_typer(configuration_commands.config_app)
 app.add_typer(configuration_commands.permission_app)
 app.add_typer(jira_commands.app)
+app.add_typer(idea_commands.app)
 app.add_typer(route_commands.app)
 app.add_typer(research_commands.app)
 app.add_typer(surface_commands.app)
@@ -345,6 +347,8 @@ _WORK_STATUS_PHRASES = (
     "durum",
     "ne yaptin",
     "ne yapildi",
+    "hangi model",
+    "ne kadar surdu",
     "work status",
     "status",
 )
@@ -418,6 +422,49 @@ def _ask_work_status(
             items: list[dict[str, Any]] = []
             for item in rows:
                 counts[item.state] = counts.get(item.state, 0) + 1
+                events = list(uow.list_work_events(item.id))
+                runs: list[dict[str, Any]] = []
+                for run in uow.list_runs(item.id):
+                    receipt_status = "recorded" if run.terminal_receipt_digest else "unknown"
+                    runs.append(
+                        {
+                            "id": run.id,
+                            "status": run.status,
+                            "plan_digest": run.plan_digest,
+                            "terminal_receipt_digest": run.terminal_receipt_digest,
+                            "receipt": {
+                                "status": receipt_status,
+                                "digest": run.terminal_receipt_digest,
+                            },
+                            "steps": [
+                                {
+                                    "id": step.id,
+                                    "step_key": step.step_key,
+                                    "status": step.status,
+                                    "evidence_digest": step.evidence_digest,
+                                }
+                                for step in uow.list_run_steps(run.id)
+                            ],
+                            "checkpoints": [
+                                {
+                                    "id": checkpoint.id,
+                                    "sequence": checkpoint.sequence,
+                                    "checkpoint_digest": checkpoint.checkpoint_digest,
+                                }
+                                for checkpoint in uow.list_checkpoints(run.id)
+                            ],
+                            # Run budget is a limit, never an actual usage measurement.
+                            "usage": {
+                                "status": "unknown",
+                                "model": "unknown",
+                                "provider_calls": None,
+                                "tokens": None,
+                                "duration_seconds": None,
+                                "cost_micros": None,
+                                "reason": "run-usage-receipt-missing",
+                            },
+                        }
+                    )
                 items.append(
                     {
                         "id": item.id,
@@ -426,6 +473,12 @@ def _ask_work_status(
                         "title": item.title,
                         "revision": item.revision,
                         "evidence_digest": item.evidence_digest,
+                        "events": events,
+                        "runs": runs,
+                        "usage": {
+                            "status": "unknown",
+                            "reason": "run-usage-receipt-missing",
+                        },
                     }
                 )
             projects.append(
@@ -433,19 +486,33 @@ def _ask_work_status(
                     "project_ref": ref,
                     "project_id": project.id,
                     "counts": counts,
+                    "items": items,
                     "open_items": [
                         item
                         for item in items
                         if item["state"] not in {"completed", "cancelled", "archived"}
                     ],
+                    "usage": {
+                        "status": "unknown",
+                        "reason": "run-usage-receipt-missing",
+                    },
                 }
             )
-        uow.commit()
+        # No commit: this report is a read-only snapshot of operational authority.
     document = {
         "schema": "zekam-work-status/v1",
         "status": "reported",
         "project_refs": list(refs),
         "projects": projects,
+        "usage": {
+            "status": "unknown",
+            "model": "unknown",
+            "provider_calls": None,
+            "tokens": None,
+            "duration_seconds": None,
+            "cost_micros": None,
+            "reason": "run-usage-receipt-missing",
+        },
         "provider_calls": 0,
         "index_triggered": False,
         "read_only": True,
@@ -455,7 +522,13 @@ def _ask_work_status(
         _print_json(document)
     else:
         total = sum(len(item["open_items"]) for item in projects)
-        console.print(f"acik is: {total}")
+        completed = sum(
+            sum(1 for work in item["items"] if work["state"] == "completed")
+            for item in projects
+        )
+        total_items = sum(len(item["items"]) for item in projects)
+        console.print(f"toplam is: {total_items}; tamamlanan: {completed}; acik: {total}")
+        console.print("model/sure/maliyet: unknown (usage receipt yok)")
         for project in projects:
             console.print(f"{project['project_ref']}: {len(project['open_items'])} acik is")
 
