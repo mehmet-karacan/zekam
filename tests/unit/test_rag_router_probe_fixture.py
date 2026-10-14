@@ -30,8 +30,30 @@ PROJECTS = (
 _doc: dict[str, Any] = json.loads(FIXTURE.read_text(encoding="utf-8"))
 _cases: list[dict[str, Any]] = _doc["cases"]
 _by_id = {case["id"]: case for case in _cases}
+
+
+def _source_revision_is_usable() -> bool:
+    """Use source assertions only when the checked-out fixture matches its gold revision."""
+
+    if not (SOURCE_ROOT / ".git").exists():
+        return False
+    revision = _doc.get("source_revision")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(SOURCE_ROOT), "merge-base", "--is-ancestor", revision, "HEAD"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 _needs_source = pytest.mark.skipif(
-    not (SOURCE_ROOT / ".git").exists(), reason="gpu-fusion kaynak koku bu makinede yok"
+    not _source_revision_is_usable(),
+    reason="gpu-fusion gold source revision local HEAD ile uyusmuyor veya kaynak yok",
 )
 
 
