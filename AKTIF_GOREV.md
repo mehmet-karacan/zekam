@@ -1168,6 +1168,29 @@ qualification ve release acceptance matrisi yetkili ortam kanıtı bekleyen aç�
 `next_safe_action`: mevcut local test/manifest kanıtını koruyarak canlı kabul bağımlılıklarını ayrı scope'ta
 çalıştır; bu kapılar kanıtlanmadan WP-02..12 veya GATE-I/GATE-U tamamlandı işareti koyma.
 
+### 10.2 14 Ekim 2026 yerel regresyon doğrulaması
+
+Checkpoint sonrasında yalnız kaynak kökündeki yerel ve provider-free doğrulamalar tekrarlandı:
+
+- `tests/unit/test_request_routing.py tests/e2e/test_cli_request_route.py tests/unit/test_code_graph_polyglot_extractor.py`: 57 passed.
+- `tests/e2e/test_cli_package_acceptance.py tests/unit/test_operational_store.py tests/e2e/test_cli_work_status_natural.py`: 59 passed.
+- `tests/unit/test_archive_scanner_security.py tests/unit/test_model_qualification.py tests/unit/test_idea_proposals.py tests/e2e/test_cli_ideas.py`: 22 passed; duplicate ZIP girdisi için beklenen Python uyarısı.
+- `tests/e2e/test_cli_backup.py tests/e2e/test_cli_local_worker_scheduler.py tests/e2e/test_cli_local_core.py`: 35 passed.
+- `python scripts/paket_dogrula.py`: `status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]`.
+
+Bu sonuçlar yerel davranışın güncel committe korunduğunu gösterir; gerçek OpenCode/Codex/Claude/Gemini
+binary kabulü, Jira/Confluence/ODI/ GPU-SKY kaynak erişimi, provider/model qualification ve tam
+release matrisi için kanıt üretmez. Açık kapılar aşağıdaki bağımsız gruplardır:
+
+1. Native host ve shell/MCP/push sınırı: WP-02, WP-03.04 ve WP-12.02'nin gerçek istemci/OS koşusu.
+2. Harici kaynak bağları: WP-06.01, WP-06.02, WP-06.04, WP-06.05 için yetkili revision ve okuma kanıtı.
+3. Canlı model ve performans: WP-08.05, WP-12.03 için provider bütçesi, gerçek ölçüm ve qrels.
+4. Test mühendisliği ve devam: WP-09.01..06 için hedef gerçek Maven projesi, taze JaCoCo ve bağımsız verifier.
+5. Kesinti/backup/rollback kabulü: WP-07.03..05 ve WP-11.02..04 için gerçek race, crash, native devam ve restore koşusu.
+6. GATE-I/GATE-U: bağımsız inceleme, doğal dil kabul matrisi ve release-scope kanıtlarının tek zincirde birleşmesi.
+
+Bu gruplar tamamlanmadan ilgili kutular ve `ready` etiketleri açık kalır; yerel test başarısı canlı kabul yerine yazılmaz.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
