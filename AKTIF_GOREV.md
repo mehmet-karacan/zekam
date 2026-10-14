@@ -1248,6 +1248,26 @@ izole fixture olarak kur; sonra WP-02..12 icin kalan canli, harici kaynak, perfo
 kapilarini tek tek kanitla. `tamamlandi` iddiasi icin acik kapilari kapatma veya `not-run` olarak
 raporlama gerekir.
 
+### 10.6 14 Ekim 2026 dogal dil yerel regresyon kaniti
+
+OpenCode v2 degisikligi sonrasinda dogal dil routing ve RAG yuzeyleri provider-free tekrar kosuldu:
+
+- `tests/unit/test_natural_language_dispatch.py tests/unit/test_natural_request_scope.py
+  tests/unit/test_natural_request_retrieval.py tests/unit/test_natural_request_answer.py`:
+  `116 passed`.
+- `tests/integration/test_natural_request_evidence.py tests/integration/test_natural_request_cli_fanout.py`:
+  `21 passed, 1 skipped`; Windows symlink yetkisi olmayan negatif fixture `not-run` kaldi.
+- `tests/e2e/test_natural_language_workspace_entry.py tests/e2e/test_cli_project_rag.py -k not real`:
+  `24 passed, 2 deselected`.
+
+Bu kanitlar deterministic proje/scope, citation kapisi ve offline RAG akisinin yerel regresyonunu
+gosterir. Gercek native discovery, Jira/Confluence/ODI okuma, canli model, performans qrels ve
+release acceptance yerine yazilmaz; WP-03.02/04/05 ve WP-12.02/03 acik kalir.
+
+`next_safe_action`: Windows symlink negatifini privilege gerektirmeyen junction/fixture ile
+yeniden kos; ardindan native compaction/tool hook ve canli kaynak kapilarini ayri evidence olarak
+topla. Kullaniciya ait untracked prototype/target yollarini stage etme.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
