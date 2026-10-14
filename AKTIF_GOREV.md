@@ -1199,6 +1199,23 @@ CLI bu hostta bulunamadı. `tests/integration/test_real_maven_unit_test_fixture.
 geçti. OpenCode lifecycle sunucu koşusu sonuç üretmeden sonlandırıldığı için kabul kanıtına
 çevrilmedi; bu kapı `not-run` olarak kaldı.
 
+### 10.4 14 Ekim 2026 14:13 checkpointi
+
+Bu checkpoint'te HEAD `dab4d02` ve `origin/main` ile senkron durumdadır. Son yerel kanıtlar
+paket doğrulaması `passed`, Git güvenlik bulgusu yok, yönlendirme/graph 57, paket/work 59,
+güvenlik/model/fikir 22, backup/scheduler/core 35 ve Maven fixture 2 test geçişidir.
+
+Native OpenCode probe'u `v2.0.29` binary'sinin çalıştığını, fakat lifecycle kabul fixture'ının
+`--log-level ERROR` argümanını reddettiğini gösterdi; bu sürümde geçerli değer küçük harfli
+`error` olmalıdır. Bu nedenle native lifecycle kapısı henüz kabul edilmedi ve test düzeltmesi
+sonraki devam adımına bırakıldı. Codex `0.162.0-alpha.17.2` çalışıyor; Claude Code ve Gemini
+CLI bu hostta yok.
+
+`next_safe_action`: OpenCode lifecycle fixture'ında log-level değerini sürüm uyumlu hale getir,
+izole native server health/session/delete akışını tekrar çalıştır, sonra kalan native/MCP,
+harici kaynak, canlı model ve release kapılarını kanıtla. Kullanıcı tarafından tutulan dört
+untracked prototype/target yolu stage edilmedi ve değiştirilmedi.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
