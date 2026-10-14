@@ -1975,6 +1975,17 @@ scan basari kaniti uretmeden typed validation hatasi verir.
 Bu dar dilim WP-06.05'in security scan history/list bellek ve sure boslugunu
 daraltir; cat-file batch input/output ve canli repository kabul matrisi aciktir.
 
+### 10.52 15 Ekim 2026 Git security batch output kapisi
+
+Git security `cat-file` batch-check ve batch akislari da bounded reader, 30
+saniye timeout ve process-tree cleanup kullanir. Kimlik ve blob istekleri
+parcalanir; her batch stdout 64 MiB sinirini asarsa secret taramasi eksik
+basari uretmeden validation hatasi verir. Ham icerik rapor veya kanonik kayda
+alinmaz.
+
+Bu dar dilim WP-06.05'in batch blob okuma bellek/sure boslugunu daraltir;
+buyuk repository icin chunked scan ve canli kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

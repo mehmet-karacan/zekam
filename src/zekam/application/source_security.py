@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -12,8 +15,17 @@ from zekam.application.secret_detection import SecretFinding, scan_text
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.git.source_reader import run_read_only
+from zekam.infrastructure.process.bounded_stream import (
+    BoundedReader,
+    finish_pipes,
+    hard_kill_tree,
+    start_process_tree,
+    wait_for,
+)
 
 MAX_BLOB_BYTES = 2 * 1024 * 1024
+MAX_BATCH_OUTPUT_BYTES = 64 * 1024 * 1024
+MAX_BATCH_CHECK_OBJECTS = 4096
 MAX_HISTORY_BLOBS = 20_000
 _BACKUP_SUFFIXES = frozenset({".bak", ".backup", ".dump", ".key", ".p12", ".pfx", ".pem"})
 _BACKUP_NAMES = frozenset({".env", "credentials", "credentials.json", "secrets.json"})
@@ -98,14 +110,50 @@ def _git(root: Path, *arguments: str) -> bytes:
 
 
 def _git_with_input(root: Path, payload: bytes, *arguments: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "-C", str(root), *arguments],
-        input=payload,
-        check=True,
-        capture_output=True,
-        timeout=30,
+    if not arguments:
+        raise ValidationFailed("Git security komutu bos olamaz")
+    command = (
+        "git",
+        "-c",
+        "core.hooksPath=",
+        "-c",
+        "protocol.ext.allow=never",
+        "-C",
+        str(root),
+        *arguments,
     )
-    return completed.stdout
+    try:
+        tree = start_process_tree(
+            command,
+            root,
+            env=os.environ.copy(),
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, PolicyViolation, subprocess.SubprocessError) as exc:
+        raise ValidationFailed("Git security batch baslatilamadi") from exc
+    process = tree.process
+    reader = BoundedReader(process.stdout, MAX_BATCH_OUTPUT_BYTES)
+    reader_thread = threading.Thread(target=reader.read, daemon=True)
+    reader_thread.start()
+    status = "started"
+    try:
+        if process.stdin is not None:
+            process.stdin.write(payload)
+            process.stdin.close()
+        status = wait_for(process, time.monotonic() + 30, reader.overflow)
+        if status == "overflow":
+            raise ValidationFailed("Git security batch cikti sinirini asiyor")
+        if status == "deadline":
+            raise ValidationFailed("Git security batch zaman asimi")
+        if process.returncode != 0:
+            raise ValidationFailed("Git security batch basarisiz")
+        return bytes(reader.buffer)
+    except OSError as exc:
+        raise ValidationFailed("Git security batch pipe hatasi") from exc
+    finally:
+        if status != "exited" or process.poll() is None:
+            hard_kill_tree(tree)
+        finish_pipes(tree, (reader_thread,))
 
 
 def _validate_root(root: Path) -> Path:
@@ -181,46 +229,83 @@ def _history_entries(root: Path) -> tuple[tuple[str, str], ...]:
     return tuple(entries)
 
 
+def _chunks(values: tuple[str, ...], size: int) -> tuple[tuple[str, ...], ...]:
+    if size <= 0:
+        raise ValidationFailed("Git security batch boyutu gecersiz")
+    return tuple(values[offset : offset + size] for offset in range(0, len(values), size))
+
+
+def _content_chunks(
+    eligible: tuple[tuple[str, int], ...],
+) -> tuple[tuple[tuple[str, int], ...], ...]:
+    chunks: list[tuple[tuple[str, int], ...]] = []
+    current: list[tuple[str, int]] = []
+    current_size = 0
+    for oid, blob_size in eligible:
+        # The response contains a header, the blob body, and a trailing newline.
+        response_size = blob_size + len(oid) + 64
+        if response_size > MAX_BATCH_OUTPUT_BYTES:
+            raise ValidationFailed("Git blob batch cikti sinirina sigmiyor")
+        if current and current_size + response_size > MAX_BATCH_OUTPUT_BYTES:
+            chunks.append(tuple(current))
+            current = []
+            current_size = 0
+        current.append((oid, blob_size))
+        current_size += response_size
+    if current:
+        chunks.append(tuple(current))
+    return tuple(chunks)
+
+
 def _blob_texts(root: Path, object_ids: tuple[str, ...]) -> dict[str, str]:
     unique = tuple(dict.fromkeys(object_ids))
     if not unique:
         return {}
-    request = "".join(f"{oid}\n" for oid in unique).encode("ascii")
-    metadata = _git_with_input(
-        root,
-        request,
-        "cat-file",
-        "--batch-check=%(objectname) %(objecttype) %(objectsize)",
-    )
-    eligible: list[str] = []
-    for line in metadata.splitlines():
-        parts = line.decode("ascii", errors="strict").split()
-        if len(parts) == 3 and parts[1] == "blob" and int(parts[2]) <= MAX_BLOB_BYTES:
-            eligible.append(parts[0])
-    batch_request = "".join(f"{oid}\n" for oid in eligible).encode("ascii")
-    batch = _git_with_input(root, batch_request, "cat-file", "--batch")
+    eligible: list[tuple[str, int]] = []
+    for object_chunk in _chunks(unique, MAX_BATCH_CHECK_OBJECTS):
+        request = "".join(f"{oid}\n" for oid in object_chunk).encode("ascii")
+        metadata = _git_with_input(
+            root,
+            request,
+            "cat-file",
+            "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+        )
+        for line in metadata.splitlines():
+            parts = line.decode("ascii", errors="strict").split()
+            if len(parts) == 3 and parts[1] == "blob":
+                blob_size = int(parts[2])
+                if blob_size <= MAX_BLOB_BYTES:
+                    eligible.append((parts[0], blob_size))
     texts: dict[str, str] = {}
-    offset = 0
-    for expected_oid in eligible:
-        header_end = batch.find(b"\n", offset)
-        if header_end < 0:
-            raise ValidationFailed("Git batch blob header eksik")
-        header = batch[offset:header_end].decode("ascii", errors="strict").split()
-        if len(header) != 3 or header[0] != expected_oid or header[1] != "blob":
-            raise ValidationFailed("Git batch blob sirasi gecersiz")
-        size = int(header[2])
-        body_start = header_end + 1
-        body_end = body_start + size
-        payload = batch[body_start:body_end]
-        if len(payload) != size or batch[body_end : body_end + 1] != b"\n":
-            raise ValidationFailed("Git batch blob govdesi eksik")
-        offset = body_end + 1
-        if b"\0" in payload:
-            continue
-        try:
-            texts[expected_oid] = payload.decode("utf-8", errors="strict")
-        except UnicodeDecodeError:
-            continue
+    for content_chunk in _content_chunks(tuple(eligible)):
+        batch_request = "".join(f"{oid}\n" for oid, _ in content_chunk).encode("ascii")
+        batch = _git_with_input(root, batch_request, "cat-file", "--batch")
+        offset = 0
+        for expected_oid, expected_size in content_chunk:
+            header_end = batch.find(b"\n", offset)
+            if header_end < 0:
+                raise ValidationFailed("Git batch blob header eksik")
+            header = batch[offset:header_end].decode("ascii", errors="strict").split()
+            if (
+                len(header) != 3
+                or header[0] != expected_oid
+                or header[1] != "blob"
+                or int(header[2]) != expected_size
+            ):
+                raise ValidationFailed("Git batch blob sirasi gecersiz")
+            size = int(header[2])
+            body_start = header_end + 1
+            body_end = body_start + size
+            payload = batch[body_start:body_end]
+            if len(payload) != size or batch[body_end : body_end + 1] != b"\n":
+                raise ValidationFailed("Git batch blob govdesi eksik")
+            offset = body_end + 1
+            if b"\0" in payload:
+                continue
+            try:
+                texts[expected_oid] = payload.decode("utf-8", errors="strict")
+            except UnicodeDecodeError:
+                continue
     return texts
 
 
