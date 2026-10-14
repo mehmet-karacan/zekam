@@ -259,6 +259,8 @@ CAPABILITIES: tuple[Capability, ...] = (
             "memory search",
             "memory candidates",
             "memory hygiene",
+            "memory review",
+            "memory promote",
         ),
         ("zekam-memory-curator",),
         (
@@ -267,8 +269,8 @@ CAPABILITIES: tuple[Capability, ...] = (
             "tests/unit/test_memory_continuity_orchestrator.py",
             "tests/e2e/test_cross_harness_memory_continuity.py",
         ),
-        "Read-only status/inspect/search/candidates/hygiene yuzeyi mevcut; promote "
-        "ve memory-sourced recipe activation kapalıdır.",
+        "Review/promote claim ve receipt ile explicit effect'tir; memory-sourced recipe "
+        "activation ve native two-cycle acceptance ayri kanit ister.",
     ),
     Capability(
         "jira",
