@@ -42,6 +42,7 @@ _R = f"{{{_REL_NS}}}"
 MAX_DOCX_ENTRIES = 4_096
 MAX_DOCX_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 100
+MAX_DOCX_CENTRAL_DIRECTORY_BYTES = 4 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_PDF_PAGES = 1_000
 
@@ -121,6 +122,8 @@ def _bounded_zip_entry_count(payload: bytes) -> int:
         raise ValidationFailed("DOCX zip yapisi gecersiz")
     if count > MAX_DOCX_ENTRIES:
         raise PolicyViolation("DOCX girdi sayisi sinirini asiyor")
+    if central_size > MAX_DOCX_CENTRAL_DIRECTORY_BYTES:
+        raise PolicyViolation("DOCX ZIP metadata bellek sinirini asiyor")
     return count
 
 
@@ -178,7 +181,7 @@ class DocxParser:
     """Stdlib tabanli, bounded OOXML DOCX parser'i."""
 
     parser_ref: str = "zekam.parser.docx-ooxml"
-    parser_version: str = "2"
+    parser_version: str = "3"
 
     @property
     def parser_profile(self) -> dict[str, Any]:
@@ -194,6 +197,7 @@ class DocxParser:
                 "entries": MAX_DOCX_ENTRIES,
                 "expanded_bytes": MAX_DOCX_EXPANDED_BYTES,
                 "compression_ratio": MAX_DOCX_COMPRESSION_RATIO,
+                "central_directory_bytes": MAX_DOCX_CENTRAL_DIRECTORY_BYTES,
             },
         }
 

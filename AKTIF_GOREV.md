@@ -1618,6 +1618,19 @@ gercek Java hedefi, scheduler/restore cihaz kabulü ve release GATE-I/GATE-U kap
 kapalmaz. `next_safe_action`, bu yetkili kanitlari ayri scope'ta toplamak ve acik
 kutulari `ready` olarak isaretlememektir.
 
+### 10.18 15 Ekim 2026 DOCX ZIP metadata kapisi
+
+DOCX parser, merkezi dizin boyutunu `ZipFile` olusturulmadan once
+`MAX_DOCX_CENTRAL_DIRECTORY_BYTES` ile sinirlar ve limiti parser profilinde tasir.
+Boyut asimi fail-closed `PolicyViolation` ile durur; mevcut girdi sayisi, acilmis
+bayt, sikistirma orani, traversal, symlink, duplicate, XML DTD/entity, external
+relationship ve etkin icerik kapilari korunur. Parser surumu 3'e yukseltildi.
+Yeni erken-reddetme testi ile parser + manifest kabul paketi **19 passed**,
+`paket_dogrula.py`, Ruff ve `git diff --check` temizdir.
+
+Bu dilim DOCX merkezi dizin metadata baskisini azaltir; WP-04.05'in diger belge
+yuzeyleri, tam format matrisi ve canli/release kabulleri halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

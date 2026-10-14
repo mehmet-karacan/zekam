@@ -84,6 +84,27 @@ def test_docx_rejects_excess_zip_entries_before_materializing_zipfile(
         DocxParser().parse(output.getvalue())
 
 
+def test_docx_rejects_oversized_central_directory_before_materializing_zipfile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        info = zipfile.ZipInfo("word/document.xml")
+        info.comment = b"x" * 256
+        bundle.writestr("[Content_Types].xml", "<Types/>")
+        bundle.writestr(info, "<document/>")
+
+    monkeypatch.setattr(document_parsers, "MAX_DOCX_CENTRAL_DIRECTORY_BYTES", 100)
+
+    def forbidden_zipfile(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("ZIP metadata siniri oncesi ZipFile olusturuldu")
+
+    monkeypatch.setattr(document_parsers.zipfile, "ZipFile", forbidden_zipfile)
+    with pytest.raises(PolicyViolation, match="metadata bellek"):
+        DocxParser().parse(output.getvalue())
+
+
 @pytest.mark.parametrize(
     "xml",
     [
