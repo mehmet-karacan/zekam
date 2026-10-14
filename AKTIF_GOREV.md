@@ -1903,6 +1903,16 @@ degisen yol kaniti ayni stdout limitiyle uretilir.
 Bu dar dilim WP-06.05'in worktree kanit toplama bellek/sure boslugunu daraltir;
 tam native Git/provider kabul matrisi aciktir.
 
+### 10.45 15 Ekim 2026 backup kaynak traversal kapisi
+
+Local backup source census'i tree `rglob` sonucunu tamamen topladiktan sonra
+dosya sayisini kontrol etmez. `scandir` akisi symlink/reparse girdilerini
+izlemeden ve `MAX_FILES` asilir asılmaz durarak kaynak listesini olusturur;
+sidecar filtreleri ile final siralama korunur.
+
+Bu dar dilim WP-11.03'un backup kaynak bellek ve traversal siniri boslugunu
+daraltir; restore/native dosya sistemi kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

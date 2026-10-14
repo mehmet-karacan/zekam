@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import stat
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -212,32 +213,64 @@ def _snapshot_database(source: Path, target: Path, mode: int) -> None:
     _sync_file(target)
 
 
+def _walk_tree_files(root: Path) -> Iterator[Path]:
+    """Yield private tree files without following links or buffering a full tree."""
+
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    try:
+                        info = target.lstat()
+                        is_reparse = bool(
+                            int(getattr(info, "st_file_attributes", 0))
+                            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+                        )
+                        if stat.S_ISLNK(info.st_mode) or is_reparse:
+                            raise PolicyViolation("Backup source tree cannot contain links")
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(target)
+                        elif entry.is_file(follow_symlinks=False):
+                            yield target
+                        else:
+                            raise PolicyViolation("Backup source tree entry must be regular")
+                    except OSError as exc:
+                        raise PolicyViolation("Backup source tree entry unreadable") from exc
+        except OSError as exc:
+            raise PolicyViolation("Backup source tree unreadable") from exc
+
+
 def _sources(home: Path) -> tuple[tuple[str, Path, str], ...]:
     database_set = set(_DATABASES)
     found: dict[str, tuple[Path, str]] = {}
+
+    def add(relative: str, path: Path, kind: str) -> None:
+        found[relative] = (path, kind)
+        if len(found) > MAX_FILES:
+            raise PolicyViolation("Backup file count exceeds bound")
+
     for relative in _DATABASES:
         path = home / relative
         if path.exists() or path.is_symlink():
-            found[relative] = (path, "sqlite")
+            add(relative, path, "sqlite")
     for relative in _FILES:
         path = home / relative
         if path.exists() or path.is_symlink():
-            found[relative] = (path, "file")
+            add(relative, path, "file")
     for root_name in _TREES:
         root = home / root_name
         if not root.exists():
             continue
         if root.is_symlink() or not root.is_dir():
             raise PolicyViolation("Backup source tree invalid")
-        for path in root.rglob("*"):
-            if path.is_dir() and not path.is_symlink():
-                continue
+        for path in _walk_tree_files(root):
             relative = path.relative_to(home).as_posix()
             if relative in database_set or relative.endswith(_SIDECAR_SUFFIXES):
                 continue
-            found[relative] = (path, "file")
-    if len(found) > MAX_FILES:
-        raise PolicyViolation("Backup file count exceeds bound")
+            add(relative, path, "file")
     return tuple((name, *found[name]) for name in sorted(found))
 
 

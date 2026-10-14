@@ -1407,6 +1407,31 @@ def test_backup_source_count_and_create_preconditions(
         local_backup.create_bundle(cast(Any, services), empty, tmp_path / "bundle-two")
 
 
+def test_backup_sources_stop_tree_generator_at_file_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    tree = home / "artifacts"
+    tree.mkdir(parents=True)
+    first = tree / "first"
+    second = tree / "second"
+    requested: list[Path] = []
+
+    def bounded_walk(_root: Path):
+        requested.append(first)
+        yield first
+        requested.append(second)
+        yield second
+
+    monkeypatch.setattr(local_backup, "_walk_tree_files", bounded_walk)
+    monkeypatch.setattr(local_backup, "MAX_FILES", 0)
+
+    with pytest.raises(PolicyViolation, match="file count"):
+        local_backup._sources(home)
+
+    assert requested == [first]
+
+
 @pytest.mark.parametrize(
     ("directories", "entries", "message"),
     [
