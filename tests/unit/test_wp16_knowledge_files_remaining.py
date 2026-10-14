@@ -299,6 +299,31 @@ def test_audit_bounds_walk_and_rejects_unsafe_note_root(
     assert {"unsafe-note-root", "audit-limit-exceeded"} <= kinds
 
 
+def test_audit_stops_walk_after_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _store(tmp_path)
+    inbox = store.home / "inbox" / "user"
+    nested = inbox / "nested"
+    nested.mkdir(parents=True, exist_ok=True)
+    (inbox / "first.md").write_text("# first\n", encoding="utf-8")
+    (nested / "second.md").write_text("# second\n", encoding="utf-8")
+    monkeypatch.setattr(knowledge_files, "_AUDIT_LIMIT", 0)
+
+    visited: list[str] = []
+    real_walk = knowledge_files.os.walk
+
+    def tracking_walk(*args: object, **kwargs: object):
+        for directory, directory_names, file_names in real_walk(*args, **kwargs):
+            visited.append(directory)
+            yield directory, directory_names, file_names
+
+    monkeypatch.setattr(knowledge_files.os, "walk", tracking_walk)
+
+    kinds = {issue.kind for issue in store.audit(notes=(), artifacts=())}
+
+    assert "audit-limit-exceeded" in kinds
+    assert str(nested) not in visited
+
+
 def test_audit_artifact_duplicate_secret_missing_unreadable_and_public(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

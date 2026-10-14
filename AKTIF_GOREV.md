@@ -1863,6 +1863,16 @@ basarisiz Git sonucu ile UTF-8 redaksiyonlu basarili cikti sozlesmesi korunur.
 Bu dar dilim WP-06.05'in bounded history/diff kaynak okuyucusu bellek ve sure
 sinirini daraltir; gercek Jira/Confluence baglantisi ve canli kabul aciktir.
 
+### 10.41 15 Ekim 2026 bilgi dosyasi audit traversal kapisi
+
+Knowledge file-plane audit'i Markdown gozlem limiti asildiginda yalniz icteki
+dosya listesini degil, kalan dizin kuyrugunu ve sonraki audit root'larini da
+hemen durdurur. `audit-limit-exceeded` tek bounded kesit kaniti olarak korunur;
+buyuyen bilgi agacinda gereksiz traversal ve kaynak tuketimi yapilmaz.
+
+Bu dar dilim WP-04.04'un bilgi dosyasi audit performans ve kaynak siniri
+boslugunu daraltir; tam native dosya sistemi yarisi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

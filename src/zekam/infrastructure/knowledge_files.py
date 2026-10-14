@@ -543,7 +543,10 @@ class KnowledgeFileStore:
                     issues.add(KnowledgeFileIssue("public-projection-unsafe", relative))
 
         observed = 0
+        stop_audit = False
         for root_name in _AUDIT_NOTE_ROOTS:
+            if stop_audit:
+                break
             root = self.home / root_name
             if _is_link_or_reparse(root):
                 issues.add(KnowledgeFileIssue("unsafe-note-root", root_name))
@@ -564,6 +567,7 @@ class KnowledgeFileStore:
                     observed += 1
                     if observed > _AUDIT_LIMIT:
                         issues.add(KnowledgeFileIssue("audit-limit-exceeded", root_name))
+                        stop_audit = True
                         break
                     target = parent / name
                     relative = target.relative_to(self.home).as_posix()
@@ -571,6 +575,8 @@ class KnowledgeFileStore:
                         issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
                     elif relative not in expected_notes:
                         issues.add(KnowledgeFileIssue("unmanifested-note", relative))
+                if stop_audit:
+                    break
 
         expected_artifacts: set[str] = set()
         for artifact in artifacts:
