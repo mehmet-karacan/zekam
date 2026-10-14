@@ -35,6 +35,7 @@ from zekam.infrastructure.process.bounded_stream import (
 READ_ONLY_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "rev-parse",
+        "rev-list",
         "status",
         "log",
         "show-ref",

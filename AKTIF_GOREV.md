@@ -1965,6 +1965,16 @@ kalir ve mevcutlik iddiasi uydurulmaz.
 Bu dar dilim WP-03/06'nin RAG source freshness bellek ve sure boslugunu daraltir;
 canli provider ve native repository kabul matrisi aciktir.
 
+### 10.51 15 Ekim 2026 Git security list output kapisi
+
+Git security index, worktree ve history listelemeleri ortak bounded salt-okunur
+Git adapter'ine baglanir; `rev-list` read-only allowlist'e alinmistir. Buyuyen
+history/list stdout'u 8 MiB ve timeout sinirlarindan gecer, asimda security
+scan basari kaniti uretmeden typed validation hatasi verir.
+
+Bu dar dilim WP-06.05'in security scan history/list bellek ve sure boslugunu
+daraltir; cat-file batch input/output ve canli repository kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

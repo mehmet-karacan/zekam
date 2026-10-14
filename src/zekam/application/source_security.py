@@ -11,6 +11,7 @@ from typing import Any
 from zekam.application.secret_detection import SecretFinding, scan_text
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.infrastructure.git.source_reader import run_read_only
 
 MAX_BLOB_BYTES = 2 * 1024 * 1024
 MAX_HISTORY_BLOBS = 20_000
@@ -90,13 +91,10 @@ class GitSecurityReport:
 
 
 def _git(root: Path, *arguments: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "-C", str(root), *arguments],
-        check=True,
-        capture_output=True,
-        timeout=30,
-    )
-    return completed.stdout
+    try:
+        return run_read_only(root, *arguments).encode("utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError, PolicyViolation) as exc:
+        raise ValidationFailed("Git security komutu bounded olarak okunamadi") from exc
 
 
 def _git_with_input(root: Path, payload: bytes, *arguments: str) -> bytes:
