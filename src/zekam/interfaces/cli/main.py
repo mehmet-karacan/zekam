@@ -59,6 +59,7 @@ from zekam.application.setup import (
 from zekam.application.workspace_resume import build_resume_packet, render_resume_prompt
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
+from zekam.domain.intake import normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
@@ -333,6 +334,132 @@ def _ask_clarification(exc: AskProjectUnresolved, *, output_json: bool) -> None:
     raise typer.Exit(EXIT_CLARIFICATION)
 
 
+_WORK_STATUS_PHRASES = (
+    "ne kadar is kaldi",
+    "kalan isler",
+    "kalan is",
+    "hangi islerimiz",
+    "hangi isler var",
+    "nerede kaldik",
+    "nerde kaldik",
+    "durum",
+    "ne yaptin",
+    "ne yapildi",
+    "work status",
+    "status",
+)
+
+
+def _is_work_status_question(question: str) -> bool:
+    """Read-only Work raporunu RAG'den once secen bounded niyet kapisi."""
+
+    normalized = normalize_text(question)
+    return any(phrase in normalized for phrase in _WORK_STATUS_PHRASES)
+
+
+def _work_status_refs(
+    resolved_home: Path,
+    question: str,
+    explicit_project: str | None,
+) -> tuple[tuple[str, ...], str | None]:
+    """Work status icin yalniz registry'de dogrulanmis proje slug'lari dondurur."""
+
+    registered = _registered_project_refs(resolved_home)
+    if explicit_project is not None:
+        selected = resolve_registered_project(resolved_home, explicit_project)
+        return (selected,), None
+    route = route_request(
+        question,
+        catalog=load_project_families(),
+        registered_projects=tuple(RegisteredProject(ref) for ref in sorted(registered)),
+    )
+    if route.status == "clarification-required" and route.project_refs:
+        return (), "Hangi Zekam projesinin is durumunu gormek istiyorsunuz?"
+    refs = tuple(ref for ref in route.project_refs if ref in registered)
+    if route.project_refs and not refs:
+        return (), "Sordugunuz proje kayitli degil; once dogru Zekam projesini belirtin."
+    return (refs or tuple(sorted(registered))), None
+
+
+def _ask_work_status(
+    resolved_home: Path,
+    question: str,
+    *,
+    explicit_project: str | None,
+    output_json: bool,
+) -> None:
+    """Kanonik SQLite Work durumunu retrieval/provider baslatmadan raporlar."""
+
+    refs, clarification = _work_status_refs(resolved_home, question, explicit_project)
+    if clarification is not None:
+        document = {
+            "schema": "zekam-work-status/v1",
+            "status": "clarification-required",
+            "question": clarification,
+            "project_refs": [],
+            "provider_calls": 0,
+            "index_triggered": False,
+            "read_only": True,
+            "grants_authority": False,
+        }
+        if output_json:
+            _print_json(document)
+        else:
+            console.print(clarification)
+        raise typer.Exit(EXIT_CLARIFICATION)
+
+    store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
+    projects: list[dict[str, Any]] = []
+    with store.unit_of_work() as uow:
+        for ref in refs:
+            project = uow.resolve_project(ref)
+            rows = uow.list_work(project_id=project.id)
+            counts: dict[str, int] = {}
+            items: list[dict[str, Any]] = []
+            for item in rows:
+                counts[item.state] = counts.get(item.state, 0) + 1
+                items.append(
+                    {
+                        "id": item.id,
+                        "type": item.kind,
+                        "state": item.state,
+                        "title": item.title,
+                        "revision": item.revision,
+                        "evidence_digest": item.evidence_digest,
+                    }
+                )
+            projects.append(
+                {
+                    "project_ref": ref,
+                    "project_id": project.id,
+                    "counts": counts,
+                    "open_items": [
+                        item
+                        for item in items
+                        if item["state"] not in {"completed", "cancelled", "archived"}
+                    ],
+                }
+            )
+        uow.commit()
+    document = {
+        "schema": "zekam-work-status/v1",
+        "status": "reported",
+        "project_refs": list(refs),
+        "projects": projects,
+        "provider_calls": 0,
+        "index_triggered": False,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if output_json:
+        _print_json(document)
+    else:
+        total = sum(len(item["open_items"]) for item in projects)
+        console.print(f"acik is: {total}")
+        for project in projects:
+            console.print(f"{project['project_ref']}: {len(project['open_items'])} acik is")
+
+
 def _ask_natural_request_retrieval(
     resolved_home: Path,
     question: str,
@@ -401,6 +528,14 @@ def ask(
 
     try:
         resolved_home = resolve_home(home).resolve(strict=True)
+        if _is_work_status_question(question):
+            _ask_work_status(
+                resolved_home,
+                question,
+                explicit_project=project,
+                output_json=output_json,
+            )
+            return
         if project is None:
             natural_scope, registered_refs = _natural_request_scope(resolved_home, question)
             if natural_scope.status == "selected" and len(natural_scope.project_refs) > 1:
