@@ -370,6 +370,37 @@ def test_smart_export_import_is_content_addressed_and_sanitizer_excludes_topolog
     assert "never-embed-this" not in status.output
 
 
+def test_smart_export_keeps_unresolved_references_without_fabricating_lineage(
+    tmp_path: Path,
+) -> None:
+    home = _home(tmp_path)
+    source = tmp_path / "SmartExport-unresolved.xml"
+    source.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<SunopsisExport><SmartExportList />
+<Object class="com.sunopsis.dwg.dbobj.SnpModel"><Field name="IMod">1</Field><Field name="ModName">GPU</Field><Field name="LschemaName">LOG.GPU</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpPop"><Field name="IPop">30</Field><Field name="ITable">999</Field><Field name="PopName">BROKEN_FLOW</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpDataSet"><Field name="IDataSet">40</Field><Field name="IPop">30</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpSourceTab"><Field name="IDataSet">40</Field><Field name="ITable">888</Field><Field name="TableName">MISSING_SOURCE</Field></Object>
+<Object class="com.sunopsis.dwg.dbobj.SnpScen"><Field name="ScenNo">500</Field><Field name="IPackage">404</Field><Field name="IPop">30</Field><Field name="ScenName">BROKEN_SCENARIO</Field><Field name="ScenVersion">001</Field></Object>
+</SunopsisExport>""",
+        encoding="utf-8",
+    )
+    status = CliRunner().invoke(
+        cli.app,
+        ["project", "odi-smart-status", "gpu", str(source), "--home", str(home), "--json"],
+    )
+    assert status.exit_code == 0, status.output
+    document = json.loads(status.output)
+    assert document["unresolved_relation_count"] == 3
+    assert {item["reason"] for item in document["unresolved_relations"]} == {
+        "target-datastore-unresolved",
+        "source-datastore-unresolved",
+        "scenario-reference-unresolved",
+    }
+    assert all("unknown" not in item["target"] for item in document["lineage_edges"])
+
+
 @pytest.mark.parametrize("declaration_offset", [5000, 1024 * 1024 - 2])
 def test_smart_export_rejects_doctype_after_the_first_four_kib(
     tmp_path: Path, declaration_offset: int

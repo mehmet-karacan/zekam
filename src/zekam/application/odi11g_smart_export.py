@@ -114,6 +114,7 @@ class OdiSanitizedPlan:
     chunks: tuple[Chunk, ...]
     source_digest: str
     lineage_edges: tuple[dict[str, str], ...]
+    unresolved_relations: tuple[dict[str, str], ...]
     object_counts: dict[str, int]
     excluded_object_counts: dict[str, int]
     skipped_secret_expressions: int
@@ -528,6 +529,7 @@ def build_sanitized_odi_plan(
     profile = ChunkProfile(name="odi11g-smart-sanitized-v1", max_tokens=2048, overlap_tokens=0)
     chunks: list[Chunk] = []
     edges: list[dict[str, str]] = []
+    unresolved: list[dict[str, str]] = []
 
     def add(kind: str, identity: str, title: str, lines: list[str]) -> None:
         text = "\n".join([title, *lines]).strip()[:12000]
@@ -569,10 +571,22 @@ def build_sanitized_odi_plan(
             or "unknown"
         )
         lines = [f"Interface: {name}", f"Target: {target_schema}.{target}"]
+        target_id = _nonnull(pop_record.get("ITable"))
+        target_resolved = target_id is not None and target_id in tables
+        if not target_resolved:
+            unresolved.append(
+                {
+                    "relation": "writes-to",
+                    "source": f"interface:{name}",
+                    "target": f"datastore:ITable={target_id or 'missing'}",
+                    "reason": "target-datastore-unresolved",
+                }
+            )
         for src in sorted(
             sources.get(pop_id, []),
             key=lambda row: (row.get("LschemaName", ""), row.get("TableName", "")),
         ):
+            src_table_id = _nonnull(src.get("ITable"))
             src_table = tables.get(str(src.get("ITable", "")), {})
             src_model = models.get(str(src_table.get("IMod", "")), {})
             src_name = (
@@ -586,13 +600,23 @@ def build_sanitized_odi_plan(
             lines.append(
                 f"Source: {src_schema}.{src_name} alias={_nonnull(src.get('SrcTabAlias')) or '-'}"
             )
-            edges.append(
-                {
-                    "relation": "reads-from",
-                    "source": f"interface:{name}",
-                    "target": f"datastore:{src_schema}.{src_name}",
-                }
-            )
+            if src_table_id is not None and src_table_id in tables:
+                edges.append(
+                    {
+                        "relation": "reads-from",
+                        "source": f"interface:{name}",
+                        "target": f"datastore:{src_schema}.{src_name}",
+                    }
+                )
+            else:
+                unresolved.append(
+                    {
+                        "relation": "reads-from",
+                        "source": f"interface:{name}",
+                        "target": f"datastore:ITable={src_table_id or 'missing'}",
+                        "reason": "source-datastore-unresolved",
+                    }
+                )
         for mapping in mappings.get(pop_id, [])[:80]:
             column = _nonnull(mapping.get("ColName")) or "unknown-column"
             expression = texts.get(str(mapping.get("ITxtMap", "")))
@@ -601,13 +625,14 @@ def build_sanitized_odi_plan(
             expression = texts.get(str(clause.get("ITxtSql", "")))
             if expression:
                 lines.append(f"{_nonnull(clause.get('ClauseType')) or 'Clause'}: {expression}")
-        edges.append(
-            {
-                "relation": "writes-to",
-                "source": f"interface:{name}",
-                "target": f"datastore:{target_schema}.{target}",
-            }
-        )
+        if target_resolved:
+            edges.append(
+                {
+                    "relation": "writes-to",
+                    "source": f"interface:{name}",
+                    "target": f"datastore:{target_schema}.{target}",
+                }
+            )
         add("Interface", f"{name}#IPop={pop_id}", f"ODI 11g interface {name}", lines)
 
     for table_id, table in sorted(
@@ -647,6 +672,8 @@ def build_sanitized_odi_plan(
             continue
         lines = [f"Package: {package_name}"]
         for step in package_steps.get(package_key, []):
+            step_pop = _nonnull(step.get("IPop"))
+            step_trt = _nonnull(step.get("ITrt"))
             target = (
                 _nonnull(pop_names.get(step.get("IPop")))
                 or _nonnull(trt_names.get(step.get("ITrt")))
@@ -656,17 +683,89 @@ def build_sanitized_odi_plan(
             step_name = step.get("StepName") or step.get("StepType") or step.get("IStep")
             lines.append(f"Step: {step_name} -> {target}")
             if target:
-                edges.append(
-                    {
-                        "relation": "invokes",
-                        "source": f"package:{package_name}",
-                        "target": str(target),
-                    }
-                )
+                if (step_pop and step_pop in pop_names) or (step_trt and step_trt in trt_names):
+                    edges.append(
+                        {
+                            "relation": "invokes",
+                            "source": f"package:{package_name}",
+                            "target": str(target),
+                        }
+                    )
+                else:
+                    unresolved.append(
+                        {
+                            "relation": "invokes",
+                            "source": f"package:{package_name}",
+                            "target": f"step:{step.get('IStep') or 'missing'}",
+                            "reason": "package-step-target-unresolved",
+                        }
+                    )
         add(
             "Package",
             f"{package_name}#IPackage={package_key}",
             f"ODI 11g package {package_name}",
+            lines,
+        )
+
+    scenario_packages = {
+        _nonnull(item.get("IPackage")): item
+        for item in objects.get("SnpPackage", [])
+        if _nonnull(item.get("IPackage"))
+    }
+    scenario_pops = {
+        _nonnull(item.get("IPop")): item
+        for item in objects.get("SnpPop", [])
+        if _nonnull(item.get("IPop"))
+    }
+    scenario_trts = {
+        _nonnull(item.get("ITrt")): item
+        for item in objects.get("SnpTrt", [])
+        if _nonnull(item.get("ITrt"))
+    }
+    for scenario in objects.get("SnpScen", []):
+        scenario_id = _nonnull(scenario.get("ScenNo")) or digest(scenario)[-12:]
+        scenario_name = _nonnull(scenario.get("ScenName")) or f"ScenNo={scenario_id}"
+        lines = [
+            f"Scenario: {scenario_name}",
+            f"Version: {_nonnull(scenario.get('ScenVersion')) or 'unknown'}",
+        ]
+        references = (
+            ("package", _nonnull(scenario.get("IPackage")), scenario_packages),
+            ("interface", _nonnull(scenario.get("IPop")), scenario_pops),
+            ("procedure", _nonnull(scenario.get("ITrt")), scenario_trts),
+        )
+        for relation_kind, reference_id, registry in references:
+            if reference_id is None:
+                continue
+            referenced = registry.get(reference_id)
+            if referenced is None:
+                unresolved.append(
+                    {
+                        "relation": "scenario-refers-to",
+                        "source": f"scenario:{scenario_name}#ScenNo={scenario_id}",
+                        "target": f"{relation_kind}:id={reference_id}",
+                        "reason": "scenario-reference-unresolved",
+                    }
+                )
+                continue
+            target_name = (
+                _nonnull(referenced.get("PackName"))
+                or _nonnull(referenced.get("PopName"))
+                or _nonnull(referenced.get("TrtName"))
+                or f"id={reference_id}"
+            )
+            edges.append(
+                {
+                    "relation": "scenario-refers-to",
+                    "source": f"scenario:{scenario_name}#ScenNo={scenario_id}",
+                    "target": f"{relation_kind}:{target_name}",
+                }
+            )
+            lines.append(f"{relation_kind.title()}: {target_name}")
+        add(
+            "Scenario",
+            f"{scenario_name}#ScenNo={scenario_id}",
+            f"ODI 11g scenario {scenario_name}",
             lines,
         )
 
@@ -705,17 +804,26 @@ def build_sanitized_odi_plan(
     edge_tuple = tuple(
         sorted(edges, key=lambda row: (row["source"], row["relation"], row["target"]))
     )
+    unresolved_tuple = tuple(
+        sorted(
+            unresolved,
+            key=lambda row: (row["source"], row["relation"], row["target"], row["reason"]),
+        )
+    )
     manifest_doc = {
         "schema": SMART_SANITIZED_SCHEMA,
         "project_id": str(project_id),
         "project_slug": project_slug,
         "source_digest": source_digest,
+        "source_format": "odi11g-smart-export",
         "sanitizer_profile": "odi11g-smart-sanitized-v1",
         "object_counts": object_counts,
         "excluded_object_counts": dict(sorted(excluded.items())),
         "chunk_count": len(chunks),
         "lineage_edge_count": len(edge_tuple),
         "lineage_edges": edge_tuple,
+        "unresolved_relation_count": len(unresolved_tuple),
+        "unresolved_relations": unresolved_tuple,
         "skipped_secret_expressions": skipped_secret,
         "raw_xml_embedded": False,
         "credentials_embedded": False,
@@ -730,6 +838,7 @@ def build_sanitized_odi_plan(
         tuple(chunks),
         source_digest,
         edge_tuple,
+        unresolved_tuple,
         object_counts,
         dict(excluded),
         skipped_secret,

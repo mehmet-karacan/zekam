@@ -941,7 +941,7 @@ adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
 
 **İncelenecek/değişecek konumlar:** `odi11g_smart_export.py`, `oracle_metadata_index.py`, `code_graph*`, `atlassian_mcp_server.py`, `project_history_query.py`, ilgili SQLite graph ve CLI/MCP adapter'ları.
 
-- [ ] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
+- [x] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
 - [ ] **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
 - [ ] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
 - [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
@@ -950,6 +950,17 @@ adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
 **Üretilen sözleşme/çıktı:** `SourceRelationship` exact/inferred/unresolved ayrımı, source-edge provenance ve scoped remote read kayıtları. Öneri `tests/integration/test_odi_project_lineage.py`, `tests/e2e/test_issue_document_code_context.py`.
 
 **Kabul ve negatif testler:** Testler: gerçek/sanitized 11g fixture, unresolved ref, sahte edge reddi, Oracle metadata-only, cross-project ACL, Jira 401/403/404/429/pagination, changed attachment, XML secret ve stale graph.
+
+**14 Ekim 2026 — WP-06.01 kapanis kaniti:** `odi11g_smart_export.py` Smart Export
+sanitizer'i model/datastore/column/package/scenario kimliklerini exact ODI 11g
+alanlarindan cikarir. Senaryo ve package referanslari exact ID ile baglanir;
+cozulemeyen target, source ve scenario referanslari `unresolved_relations`
+manifest alaninda saklanir ve lineage kenarina cevirmek reddedilir. Yeni e2e
+regresyonu sahte `unknown` kenarini reddeder. Downloads'taki gercek Smart Export
+yalnizca yerel, salt-okunur preflight/sanitize ile sinandi: 62.8 MB, 41.442
+nesne, `sha256:d98cdf5c04092d8964e4ef3724d21f652599a32946dd34944457bda771d51195`,
+913 sanitized chunk, 1.255 exact edge, 0 unresolved relation. Ham dosya depoya
+alinmadi; provider veya Oracle cagrisi yapilmadi.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
