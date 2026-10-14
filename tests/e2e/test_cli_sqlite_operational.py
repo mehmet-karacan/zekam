@@ -268,6 +268,24 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
         )
         uow.commit()
 
+    preview = _invoke(
+        runner,
+        "work",
+        "run-create",
+        work_id,
+        "--config-revision",
+        config.id,
+        "--plan-digest",
+        digest("plan"),
+        "--budget-json",
+        '{"calls": 2, "marker": "synthetic-secret"}',
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert preview.exit_code == 0, preview.stdout
+    assert "synthetic-secret" not in preview.stdout
+
     run = _invoke(
         runner,
         "work",

@@ -371,7 +371,8 @@ def run_create_command(
                 "work_item_id": work_item_id,
                 "config_revision_id": config_revision,
                 "plan_digest": plan_digest,
-                "budget": budget,
+                "budget_digest": digest(budget),
+                "budget_keys": sorted(budget),
                 "source_snapshot_id": source_snapshot,
                 "apply": False,
             }
