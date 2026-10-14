@@ -153,7 +153,7 @@ def _native_opencode() -> Path:
     if candidate.suffix.casefold() in {".bat", ".cmd", ".ps1"}:
         candidate = candidate.parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
     if not candidate.is_file():
-        pytest.fail(f"OpenCode native executable bulunamadi: {candidate}")
+        pytest.skip(f"OpenCode native executable unavailable: {candidate}")
     return candidate.resolve()
 
 
