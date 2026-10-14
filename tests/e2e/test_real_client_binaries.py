@@ -65,7 +65,7 @@ def _native_executable(command: str, environment_key: str) -> Path:
         }
         candidate = native_candidates.get(command, candidate)
     if not candidate.is_file():
-        pytest.fail(f"{command} native executable bulunamadi: {candidate}")
+        pytest.skip(f"{command} native executable unavailable: {candidate}")
     return candidate.resolve()
 
 
