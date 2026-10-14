@@ -1913,6 +1913,16 @@ sidecar filtreleri ile final siralama korunur.
 Bu dar dilim WP-11.03'un backup kaynak bellek ve traversal siniri boslugunu
 daraltir; restore/native dosya sistemi kabul matrisi aciktir.
 
+### 10.46 15 Ekim 2026 local CAS iterator kapisi
+
+Local content-addressed store `iter_objects` yalniz sabit `sha256/prefix/shard`
+yerlesimini `scandir` ile okur; content dosyalari digest sirasinda akar, link
+ve reparse girdileri fail-closed reddedilir. Directory ve nesne sayisi
+limitleri tam agac `rglob` belleklestirmesini engeller.
+
+Bu dar dilim WP-11.03'un yerel CAS dogrulama kaynak tuketimi boslugunu
+daraltir; tam native filesystem yarisi ve restore kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

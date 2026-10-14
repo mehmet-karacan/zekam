@@ -26,6 +26,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -43,6 +44,8 @@ FORBIDDEN_METADATA_KEYS: frozenset[str] = frozenset(
 ALGORITHM_DIRECTORY = "sha256"
 CONTENT_SUFFIX = ".bin"
 METADATA_SUFFIX = ".json"
+MAX_OBJECTS = 100_000
+MAX_DIRECTORY_ENTRIES = 100_000
 
 
 class IntegrityError(ValidationFailed):
@@ -172,7 +175,7 @@ class LocalContentAddressedStore:
         base = self.root / ALGORITHM_DIRECTORY
         if not base.is_dir():
             return
-        for path in sorted(base.rglob(f"*{CONTENT_SUFFIX}")):
+        for path in _iter_content_paths(base):
             yield self.stat(DIGEST_PREFIX + path.stem)
 
     def verify_all(self) -> tuple[str, ...]:
@@ -207,6 +210,94 @@ def _validate_metadata(metadata: dict[str, str]) -> dict[str, str]:
         if key.lower() in FORBIDDEN_METADATA_KEYS:
             raise PolicyViolation(f"Metadata secret alani tasiyamaz: {key}")
     return dict(sorted(metadata.items()))
+
+
+def _iter_content_paths(base: Path) -> Iterator[Path]:
+    """Walk the fixed sha256/prefix/object layout with a bounded stream."""
+
+    observed = 0
+    first_entries = _sorted_entries(
+        base,
+        limit=MAX_DIRECTORY_ENTRIES,
+        message="CAS kok girdisi siniri asildi",
+    )
+    for first_entry in first_entries:
+        first = Path(first_entry.path)
+        if _is_link_or_reparse(first):
+            raise ValidationFailed("CAS prefix link veya reparse olamaz")
+        try:
+            if not first_entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError as exc:
+            raise ValidationFailed("CAS prefix okunamadi") from exc
+        second_entries = _sorted_entries(
+            first,
+            limit=MAX_DIRECTORY_ENTRIES,
+            message="CAS shard girdisi siniri asildi",
+        )
+        for second_entry in second_entries:
+            second = Path(second_entry.path)
+            if _is_link_or_reparse(second):
+                raise ValidationFailed("CAS shard link veya reparse olamaz")
+            try:
+                if not second_entry.is_dir(follow_symlinks=False):
+                    continue
+            except OSError as exc:
+                raise ValidationFailed("CAS shard okunamadi") from exc
+            object_entries = _sorted_entries(
+                second,
+                limit=MAX_OBJECTS,
+                message="CAS nesne dizini siniri asildi",
+                suffix=CONTENT_SUFFIX,
+            )
+            for object_entry in object_entries:
+                target = Path(object_entry.path)
+                if _is_link_or_reparse(target):
+                    raise ValidationFailed("CAS nesnesi link veya reparse olamaz")
+                try:
+                    if not object_entry.is_file(follow_symlinks=False):
+                        raise ValidationFailed("CAS nesnesi regular dosya olmali")
+                except OSError as exc:
+                    raise ValidationFailed("CAS nesnesi okunamadi") from exc
+                observed += 1
+                if observed > MAX_OBJECTS:
+                    raise PolicyViolation("CAS nesne sayisi siniri asildi")
+                yield target
+
+
+def _sorted_entries(
+    directory: Path,
+    *,
+    limit: int,
+    message: str,
+    suffix: str | None = None,
+) -> list[os.DirEntry[str]]:
+    entries: list[os.DirEntry[str]] = []
+    try:
+        with os.scandir(directory) as scan:
+            for entry in scan:
+                if suffix is not None and not entry.name.endswith(suffix):
+                    continue
+                if len(entries) >= limit:
+                    raise PolicyViolation(message)
+                entries.append(entry)
+    except OSError as exc:
+        raise ValidationFailed("CAS dizini okunamadi") from exc
+    entries.sort(key=lambda entry: entry.name)
+    return entries
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ValidationFailed("CAS metadata okunamadi") from exc
+    return path.is_symlink() or bool(
+        int(getattr(info, "st_file_attributes", 0))
+        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
 
 
 def _atomic_write(target: Path, payload: bytes) -> None:

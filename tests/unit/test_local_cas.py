@@ -9,6 +9,7 @@ import pytest
 
 from zekam.domain.canonical import DIGEST_PREFIX
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
+from zekam.infrastructure.storage import local_cas
 from zekam.infrastructure.storage.local_cas import (
     CONTENT_SUFFIX,
     IntegrityError,
@@ -126,6 +127,17 @@ def test_delete_removes_content_and_metadata(store: LocalContentAddressedStore) 
 def test_iter_objects_is_sorted_by_digest(store: LocalContentAddressedStore) -> None:
     digests = sorted(store.put(bytes([index])).digest for index in range(5))
     assert [info.digest for info in store.iter_objects()] == digests
+
+
+def test_iter_objects_stops_at_object_limit(
+    store: LocalContentAddressedStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store.put(b"bir")
+    store.put(b"iki")
+    monkeypatch.setattr(local_cas, "MAX_OBJECTS", 1)
+
+    with pytest.raises(PolicyViolation, match="nesne sayisi"):
+        tuple(store.iter_objects())
 
 
 def test_ensure_is_idempotent(tmp_path: Path) -> None:
