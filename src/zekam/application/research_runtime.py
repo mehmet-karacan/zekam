@@ -416,8 +416,8 @@ def _objection_conflicts(
     return tuple(conflicts)
 
 
-def _execution_usage(execution: Any) -> tuple[dict[str, Any], ...]:
-    """Report model identity while keeping provider usage unknown explicit."""
+def _execution_usage(execution: Any) -> list[dict[str, Any]]:
+    """Report JSON-array model usage while keeping unknowns explicit."""
 
     by_model: dict[str, dict[str, Any]] = {}
     for call in execution.calls:
@@ -436,7 +436,10 @@ def _execution_usage(execution: Any) -> tuple[dict[str, Any], ...]:
             },
         )
         bucket["provider_calls"] += 1
-    return tuple(by_model.values())
+    # Research reports are persisted as canonical JSON.  Return the same list
+    # shape exposed by that wire contract instead of an in-memory tuple that
+    # silently becomes a list during materialization.
+    return list(by_model.values())
 
 
 def _role_result(

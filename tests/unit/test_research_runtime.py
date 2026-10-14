@@ -193,7 +193,7 @@ def test_research_run_status_report_and_replay(monkeypatch, tmp_path: Path) -> N
     assert report["report"]["status"] == "answered"
     assert report["report"]["findings"][0]["finding_id"] == "finding-1"
     assert report["report"]["agent_execution"]["delegated_agent_calls"] == 2
-    assert report["report"]["agent_execution"]["usage_by_model"] == (
+    assert report["report"]["agent_execution"]["usage_by_model"] == [
         {
             "model_ref": "test/test-model",
             "provider_calls": 2,
@@ -204,7 +204,7 @@ def test_research_run_status_report_and_replay(monkeypatch, tmp_path: Path) -> N
             "metrics_state": "unknown",
             "measurement_reason": "OpenCode execution event usage alani tasimiyor",
         },
-    )
+    ]
     assert result["receipt"]["evidence_digest"] == report["report"]["report_digest"]
     assert replay["replayed"] is True
     assert replay["state"] == "completed"
