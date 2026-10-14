@@ -15,6 +15,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from zekam.domain.canonical import digest
+from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli.main import app
 
@@ -339,6 +340,31 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
     listed = _invoke(runner, "work", "checkpoints", run_id, "--home", str(home), "--json")
     assert listed.exit_code == 0, listed.stdout
     assert len(json.loads(listed.stdout)) == 1
+
+
+def test_work_resume_reads_a_bounded_recent_window(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap(database)
+    store = SQLiteOperationalStore(database)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="resume-demo", display_name="Resume Demo")
+        for index in range(105):
+            uow.create_work(
+                project_id=project.id,
+                kind="task",
+                title=f"Acik is {index}",
+                state="ready",
+                payload_digest=digest({"index": index}),
+            )
+        uow.commit()
+
+    result = _invoke(CliRunner(), "work", "resume", "--home", str(home), "--json")
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert document["bounded"] is True
+    assert len(document["open_items"]) == 100
 
 
 def test_local_runtime_is_composed_in_real_cli_and_survives_restart(tmp_path: Path) -> None:

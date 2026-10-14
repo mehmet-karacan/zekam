@@ -22,6 +22,7 @@ app = typer.Typer(name="work", help="Yerel work graph", no_args_is_help=True)
 console = Console()
 _MAX_ACTIVE_SPEC_BYTES = 1_048_576
 _MAX_JSON_ARGUMENT_BYTES = 262_144
+_RESUME_WORK_LIMIT = 100
 
 
 @app.command("resume")
@@ -36,7 +37,7 @@ def resume_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
-            items = uow.list_work()
+            items = uow.list_work_limited(limit=_RESUME_WORK_LIMIT)
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -60,6 +61,8 @@ def resume_command(
         "next_safe_action": "ready work item sec" if open_items else "acik is bulunmuyor",
         "read_only": True,
         "grants_authority": False,
+        "bounded": True,
+        "work_limit": _RESUME_WORK_LIMIT,
     }
     if output_json:
         console.print_json(json.dumps(document, ensure_ascii=False))
