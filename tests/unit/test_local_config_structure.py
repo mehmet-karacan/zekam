@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
+from zekam.application import local_config_structure as local_config_module
 from zekam.application.local_config_structure import (
     MAX_LOCAL_CONFIG_BYTES,
     parse_local_config_structure,
@@ -72,6 +74,48 @@ def test_rejects_symlink(tmp_path: Path) -> None:
         pytest.skip("Symlink creation unavailable")
     with pytest.raises(PolicyViolation):
         parse_local_config_structure(tmp_path, link.name)
+
+
+def test_rejects_reparse_source_root_before_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "reparse-root"
+    root.mkdir()
+    (root / ".env").write_text("SAFE=synthetic-value\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        local_config_module,
+        "_is_symlink_or_junction",
+        lambda candidate: candidate == root,
+    )
+
+    with pytest.raises(PolicyViolation, match=r"kok.*symlink|junction|reparse"):
+        parse_local_config_structure(root, ".env")
+
+
+def test_rejects_config_file_identity_change_after_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / ".env"
+    path.write_text("SAFE=synthetic-value\n", encoding="utf-8")
+    original_stat = Path.stat
+    calls = 0
+
+    def drifting_stat(candidate: Path, *args: object, **kwargs: object) -> os.stat_result:
+        nonlocal calls
+        result = original_stat(candidate, *args, **kwargs)
+        if candidate == path:
+            calls += 1
+            if calls == 2:
+                values = list(result)
+                values[1] += 1  # st_ino: same bytes, different file object
+                return os.stat_result(values)
+        return result
+
+    monkeypatch.setattr(Path, "stat", drifting_stat)
+
+    with pytest.raises(PolicyViolation, match="degisti"):
+        parse_local_config_structure(tmp_path, path.name)
 
 
 def test_limits_and_errors_do_not_include_values(tmp_path: Path) -> None:

@@ -603,7 +603,18 @@ def _latest_native_checkpoint_event(home: Path, session_id: str | None) -> dict[
     ]
     if not candidates:
         return None
-    return max(candidates, key=lambda item: (str(item["occurred_at"]), str(item["event_id"])))
+    # The lifecycle chain sequence is the ordering authority.  Wall-clock time
+    # can arrive out of order when a client flushes a delayed checkpoint after
+    # a newer one; choosing by ``occurred_at`` would resume an older state.
+    return max(
+        candidates,
+        key=lambda item: (
+            item.get("sequence")
+            if isinstance(item.get("sequence"), int) and not isinstance(item.get("sequence"), bool)
+            else 0,
+            str(item["event_id"]),
+        ),
+    )
 
 
 def _load_checkpoint(home: Path, event: Mapping[str, Any]) -> dict[str, Any]:

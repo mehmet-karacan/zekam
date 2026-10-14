@@ -6,6 +6,7 @@ Degerler ve icerik digest'i sonuc nesnesine hicbir zaman alinmaz.
 
 from __future__ import annotations
 
+import os
 import re
 import stat
 from dataclasses import dataclass, field
@@ -29,6 +30,12 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?(?P<key>[^:=\s]+)\s*[:=]")
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int, int]:
+    """Bir yerel config girdisinin degismez dosya kimligini dondurur."""
+
+    return (info.st_dev, info.st_ino, info.st_mode)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +83,13 @@ def _read_bounded(root: Path, relative_path: str, max_bytes: int) -> bytes:
     ):
         raise ValidationFailed("Yerel config byte siniri gecersiz")
     assert_safe_relative(relative_path, "config relative path")
-    resolved_root = root.resolve(strict=True)
+    root_candidate = Path(os.path.abspath(os.fspath(root)))
+    if _is_symlink_or_junction(root_candidate):
+        raise PolicyViolation("Config koku symlink veya junction kullanamaz")
+    resolved_root = root_candidate.resolve(strict=True)
     if not resolved_root.is_dir():
         raise PolicyViolation("Config koku dizin olmali")
+    root_before = resolved_root.stat()
     candidate = resolved_root
     for part in PurePosixPath(relative_path).parts:
         candidate = candidate / part
@@ -104,12 +115,15 @@ def _read_bounded(root: Path, relative_path: str, max_bytes: int) -> bytes:
                 if len(payload) > max_bytes or len(payload) > before.st_size:
                     raise PolicyViolation("Config okuma sirasinda degisti")
         after = resolved.stat()
+        root_after = resolved_root.stat()
     except OSError as exc:
         raise PolicyViolation("Config kaynagi guvenli okunamadi") from exc
     if (
         len(payload) != before.st_size
         or before.st_size != after.st_size
+        or _stat_identity(before) != _stat_identity(after)
         or before.st_mtime_ns != after.st_mtime_ns
+        or _stat_identity(root_before) != _stat_identity(root_after)
     ):
         raise PolicyViolation("Config okuma sirasinda degisti")
     return bytes(payload)

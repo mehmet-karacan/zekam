@@ -17,6 +17,12 @@ import pytest
 from typer.testing import CliRunner
 
 from zekam.application.composition import build_context
+from zekam.application.local_continuity_native import (
+    NativeClient,
+    checkpoint_native_session,
+    resume_native_checkpoint,
+    start_native_session,
+)
 from zekam.application.opencode_lifecycle import lifecycle_root, recent_events
 from zekam.application.workspace_resume import build_resume_packet
 from zekam.domain.canonical import digest
@@ -461,6 +467,50 @@ def test_checkpoint_is_idempotent_and_chain_is_valid(world: World) -> None:
         "session.created",
         "session.checkpoint",
     ]
+
+
+def test_resume_uses_session_sequence_when_checkpoint_times_are_out_of_order(
+    world: World,
+) -> None:
+    client = NativeClient("claude-code", version="2.1.0")
+    started = start_native_session(
+        world.home,
+        client=client,
+        project_ref="fixture",
+        work_item_id=world.work_id,
+        now=dt.datetime(2026, 10, 14, 12, 0, 0, tzinfo=dt.UTC),
+    )
+    session_id = started["session_id"]
+    checkpoint_native_session(
+        world.home,
+        session_id=session_id,
+        client=client,
+        project_ref="fixture",
+        work_item_id=world.work_id,
+        source_root=world.repo,
+        pending="ilk bekleyen adim",
+        now=dt.datetime(2026, 10, 14, 12, 5, 0, tzinfo=dt.UTC),
+    )
+    # A delayed client can report a newer sequence with an older wall-clock time.
+    checkpoint_native_session(
+        world.home,
+        session_id=session_id,
+        client=client,
+        project_ref="fixture",
+        work_item_id=world.work_id,
+        source_root=world.repo,
+        pending="son bekleyen adim",
+        now=dt.datetime(2026, 10, 14, 11, 55, 0, tzinfo=dt.UTC),
+    )
+
+    resumed = resume_native_checkpoint(
+        world.home,
+        source_root=world.repo,
+        session_id=session_id,
+    )
+
+    assert resumed["status"] == "ready"
+    assert resumed["checkpoint"]["self_reported"]["pending"] == "son bekleyen adim"
 
 
 def test_help_documents_native_commands() -> None:

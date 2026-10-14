@@ -72,7 +72,60 @@ class _Declaration:
 
 
 def _mask_non_code(text: str) -> str:
-    """Mask comments/literals while preserving offsets and newlines."""
+    """Mask comments/literals while preserving offsets and newlines.
+
+    JavaScript and TypeScript regular-expression literals can contain quote
+    characters (for example ``['"]``).  Treating those quotes as the start of
+    a string makes the later brace balance check report a valid file as a
+    syntax error, so regex literals get masked as one lexical unit too.
+    """
+
+    def regex_start(position: int) -> bool:
+        previous = position - 1
+        while previous >= 0 and text[previous].isspace():
+            previous -= 1
+        if previous < 0 or text[previous] in "=([{,:;!&|?":
+            return True
+        word_match = re.search(r"[A-Za-z_$][A-Za-z0-9_$]*$", text[: previous + 1])
+        return bool(
+            word_match
+            and word_match.group(0)
+            in {
+                "return",
+                "case",
+                "throw",
+                "else",
+                "do",
+                "yield",
+                "await",
+                "typeof",
+                "void",
+                "delete",
+            }
+        )
+
+    def regex_end(position: int) -> int | None:
+        cursor = position + 1
+        in_class = False
+        while cursor < length:
+            current_regex = text[cursor]
+            if current_regex in {"\n", "\r"}:
+                return None
+            if current_regex == "\\":
+                cursor += 2
+                continue
+            if current_regex == "[":
+                in_class = True
+            elif current_regex == "]":
+                in_class = False
+            elif current_regex == "/" and not in_class:
+                cursor += 1
+                while cursor < length and (text[cursor].isalpha() or text[cursor].isdigit()):
+                    cursor += 1
+                return cursor
+            cursor += 1
+        return None
+
     chars = list(text)
     index = 0
     length = len(chars)
@@ -98,6 +151,14 @@ def _mask_non_code(text: str) -> str:
                 chars[position] = " "
             index = end
             continue
+        if current == "/" and regex_start(index):
+            end = regex_end(index)
+            if end is not None:
+                for position in range(index, end):
+                    if chars[position] != "\n":
+                        chars[position] = " "
+                index = end
+                continue
         if current in {"'", '"', "`"}:
             quote = current
             end = index + 1

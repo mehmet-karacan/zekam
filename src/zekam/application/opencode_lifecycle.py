@@ -645,7 +645,21 @@ def resume_projection(
     quarantine_invalid: bool = False,
 ) -> dict[str, Any]:
     events = list(recent_events(home, limit=5000, quarantine_invalid=quarantine_invalid))
-    events.sort(key=lambda item: (item["occurred_at"], item["event_id"]))
+    # Per-session sequence is the lifecycle ordering authority.  Client clocks
+    # can be skewed or a buffered event can arrive with an older wall-clock
+    # timestamp; replaying by ``occurred_at`` would apply a close before its
+    # preceding checkpoint and produce a false resumable status.
+    events.sort(
+        key=lambda item: (
+            str(item["session_id"]),
+            item.get("sequence")
+            if isinstance(item.get("sequence"), int)
+            and not isinstance(item.get("sequence"), bool)
+            else 0,
+            str(item["occurred_at"]),
+            str(item["event_id"]),
+        )
+    )
     sessions: dict[str, dict[str, Any]] = {}
     pending_tools: dict[str, tuple[str, dt.datetime]] = {}
     observed_at = now or dt.datetime.now(dt.UTC)

@@ -189,6 +189,35 @@ def test_checkpoint_then_deleted_preserves_checkpoint_state(tmp_path: Path) -> N
     assert resume_projection(tmp_path)["sessions"][0]["status"] == "closed-checkpointed"
 
 
+def test_resume_projection_uses_session_sequence_when_event_times_arrive_out_of_order(
+    tmp_path: Path,
+) -> None:
+    record_event(
+        tmp_path,
+        event_type="session.created",
+        session_id="ses_out_of_order",
+        now=NOW,
+    )
+    record_event(
+        tmp_path,
+        event_type="session.checkpoint",
+        session_id="ses_out_of_order",
+        now=NOW + dt.timedelta(seconds=5),
+    )
+    # The third event was flushed with an older client timestamp; sequence is
+    # still the authoritative lifecycle order.
+    record_event(
+        tmp_path,
+        event_type="session.deleted",
+        session_id="ses_out_of_order",
+        now=NOW - dt.timedelta(seconds=5),
+    )
+
+    session = resume_projection(tmp_path)["sessions"][0]
+
+    assert session["status"] == "closed-checkpointed"
+
+
 def test_semantic_checkpoint_preserves_completed_pending_and_next_action(tmp_path: Path) -> None:
     record_event(
         tmp_path,

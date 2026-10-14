@@ -133,6 +133,23 @@ def test_polyglot_does_not_create_call_edges_from_comments_or_strings(tmp_path: 
     )
 
 
+def test_polyglot_masks_javascript_regex_literals_without_losing_braces(
+    tmp_path: Path,
+) -> None:
+    extraction = _extract(
+        tmp_path,
+        "src/download.js",
+        r'''
+        function parseFilename(header) {
+            const pattern = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            return pattern.exec(header);
+        }
+        ''',
+    )
+    assert extraction.file.parse_state == "parsed"
+    assert any(symbol.qualified_name.endswith("parseFilename") for symbol in extraction.symbols)
+
+
 def test_polyglot_extractor_runs_through_plan_and_sqlite_generation(tmp_path: Path) -> None:
     source_root = tmp_path / "project"
     source_root.mkdir()
