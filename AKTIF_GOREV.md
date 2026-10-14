@@ -492,10 +492,10 @@ kaldı. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 **İncelenecek/değişecek konumlar:** `src/zekam/application/request_routing.py`, `jira_issue_routing.py`, `project_rag_runtime.py`; family/Jira config; mevcut skill/host tool dağıtımı. Gerekirse öneri `natural_language_dispatch.py`.
 
 - [x] **WP-03.01** — Modelin yorumladığı niyeti allowlisted capability ve deterministic project/scope doğrulamasına çevir; intent'i execution izni sayma. Genel soru Zekam/gpu diye yanlış hedeflenmesin.
-- [ ] **WP-03.02** — Açık proje, Jira prefix'i, mevcut Work ve oturum referansı için öncelik/çatışma politikasını testlerle sabitle. “Bunu da GPU için ekle” çok turlu örneğinde gerçek dosya ve önceki scope bağını doğrula.
+- [x] **WP-03.02** — Açık proje, Jira prefix'i, mevcut Work ve oturum referansı için öncelik/çatışma politikasını testlerle sabitle. “Bunu da GPU için ekle” çok turlu örneğinde gerçek dosya ve önceki scope bağını doğrula.
 - [x] **WP-03.03** — Tek projenin sorgusunu yalnız o projeye yönlendir; açık karşılaştırmada ayrı scoped results birleştir. Kayıtsız/belirsiz proje için en az gerekli açıklamayı sor, tüm repo embedding başlatma.
-- [ ] **WP-03.04** — Native ajanın discovery'de doğru tool/skill'i seçmesini ve iç komutları kendisinin çalıştırmasını bağla. Kullanıcıya programatik isim, digest veya JSON yazdıran yol kabulden kalsın.
-- [ ] **WP-03.05** — Açıklama üretimi retrieval'dan ayrı kaydedilsin; locator'lı kaynaklar olmadan kesin teknik iddia veya sahte işlem başarısı çıkmasın. Araç kesintisi doğal dille doğru raporlansın.
+- [x] **WP-03.04** — Native ajanın discovery'de doğru tool/skill'i seçmesini ve iç komutları kendisinin çalıştırmasını bağla. Kullanıcıya programatik isim, digest veya JSON yazdıran yol kabulden kalsın.
+- [x] **WP-03.05** — Açıklama üretimi retrieval'dan ayrı kaydedilsin; locator'lı kaynaklar olmadan kesin teknik iddia veya sahte işlem başarısı çıkmasın. Araç kesintisi doğal dille doğru raporlansın.
 
 **Üretilen sözleşme/çıktı:** Öneri `NaturalRequestContext → ValidatedIntent/ProjectScope → CapabilityInvocation` sözleşmesi; `tests/unit/test_natural_language_dispatch.py`, `tests/e2e/test_natural_language_project_workflow.py`.
 
@@ -605,6 +605,33 @@ testleri birlikte 46/46 gecti; Ruff ve diff kontrolu temiz. Bu kanit
 WP-03.03'un yerel CLI kabulunu kapatir. Native istemcinin gercek oturumda
 tool/skill secimi WP-03.04, cevap aciklamasinin tam kaniti WP-03.05 ve
 WP-12 kabul matrisi kapsaminda aciktir.
+
+**14 Ekim 2026 — WP-03 kapanis kaniti:**
+`natural_request_scope.py`, `natural_request_evidence.py` ve route testleri
+explicit proje, Jira prefix'i, acik Work ve dogrulanmis oturum sinyallerini
+celiskide netlestirir; gercek SQLite Work/proje readback'i ve gercek kaynak dosyasi
+SHA-256 readback'iyle “Bunu da GPU icin ekle” baginin baska projeye sizmasi reddedilir.
+Kanit dosya icerigini donmeden, salt okunur ve authority'siz kalir.
+
+`zekam ask` artik tek proje ve acik fan-out yollarinda retrieval govdesini ayri
+`zekam-natural-request-answer/v1` envelope'ina baglar. Human output yalniz cevap
+metnini gosterir; `--json` istenmedikce UUID, digest veya programatik JSON yazdirmaz.
+Locator, kaynak digest'i ve proje UUID'si zinciri gecersizse sabit belirsizlik;
+indeks/sorgu kesintisinde sabit basarisizlik; clarification'da sabit netlestirme
+mesaji doner. Gecerli iki gercek SQLite indeksiyle yapilan fan-out'ta iki ayri
+proje citation'i korunur, indeks ve generation degismez.
+
+OpenCode v2.0.29 native taze oturum probu `zekam ask` yolunu, Jira sorusunda
+`jira-is-kaydi` skill'ini ve diger proje sorusunda skill'siz ask yolunu secti;
+ikinci taze oturum ic komut calistirdi ve sonucu dogal dille raporladi. Native
+Python ortaminda paket kurulumu olmadigi icin bu probe cevap yerine bounded
+“modul bulunamadi, sorgu islenmedi” raporu verdi; kurulum veya baska komut
+calistirilmadi. Yerel `PYTHONPATH=src` test yolu ayni istegi provider'siz
+calistirabilir. Bu sinir, native provider/kurulum qualification'ini iddia etmez.
+
+WP-03.02, WP-03.03, WP-03.04 ve WP-03.05 kutulari bu kanit zinciriyle kapatildi;
+WP-02 native host aciklari ve WP-06 Jira issue icerik baglantisi kendi paketlerinde
+ayri kalir.
 
 ### WP-04 — Tam Envanter, Güvenli Parser Ve Proje Bilgi Girdileri
 

@@ -34,10 +34,10 @@
 
 **Interfaces:** Consume `RequestRoute`, verified `ContextSignal`, and operational readback evidence. Produce a selected or clarification-required `NaturalRequestScope` with no authority.
 
-- [ ] Run the focused scope/evidence tests and record any concrete gap.
-- [ ] Add a regression test before changing code when a gap exists.
-- [ ] Implement the smallest deterministic fix and rerun the focused tests.
-- [ ] Commit the verified change with an ASCII Turkish message.
+- [x] Run the focused scope/evidence tests and record any concrete gap.
+- [x] Add a regression test before changing code when a gap exists.
+- [x] Implement the smallest deterministic fix and rerun the focused tests.
+- [x] Commit the verified change with an ASCII Turkish message.
 
 ### Task 2: Canonical CLI retrieval and native-friendly rendering
 
@@ -47,10 +47,10 @@
 
 **Interfaces:** Consume `resolve_natural_request_scope`, `retrieve_natural_request`, and `answer_natural_request`. Produce one scoped retrieval envelope and a concise human-readable answer by default; preserve JSON only behind `--json`.
 
-- [ ] Write failing tests for default human output and fail-closed unavailable/clarification output.
-- [ ] Compose retrieval with the answer validator without invoking providers or mutations.
-- [ ] Keep JSON output schema stable and include retrieval separately from answer text.
-- [ ] Run targeted CLI and real dual-index tests, then commit and push.
+- [x] Write failing tests for default human output and fail-closed unavailable/clarification output.
+- [x] Compose retrieval with the answer validator without invoking providers or mutations.
+- [x] Keep JSON output schema stable and include retrieval separately from answer text.
+- [x] Run targeted CLI and real dual-index tests, then commit and push.
 
 ### Task 3: Native discovery evidence and acceptance record
 
@@ -60,17 +60,17 @@
 
 **Interfaces:** Use canonical `AGENTS.md` and thin client redirectors. Record whether a fresh native session actually selected the matching `zekam` command and summarized evidence.
 
-- [ ] Inspect the installed native CLI capability without sending a mutating request.
-- [ ] If a real read-only native probe is available, capture only bounded schema-free evidence; otherwise record the exact blocker.
-- [ ] Close only the acceptance boxes proven by tests and keep external-host gaps explicit.
-- [ ] Commit and push the evidence update.
+- [x] Inspect the installed native CLI capability without sending a mutating request.
+- [x] If a real read-only native probe is available, capture only bounded schema-free evidence; otherwise record the exact blocker.
+- [x] Close only the acceptance boxes proven by tests and keep external-host gaps explicit.
+- [x] Commit and push the evidence update.
 
 ### Task 4: WP-03 closeout and verification
 
 **Files:** `AKTIF_GOREV.md`, `AKTIF_GOREV.yaml`, and the plan status.
 
-- [ ] Run the complete WP-03 focused test set, Ruff, and diff checks.
-- [ ] Regenerate the YAML projection from the Markdown authority.
-- [ ] Verify Git status contains no protected user artifacts staged.
-- [ ] Commit the closeout and push `main`.
+- [x] Run the complete WP-03 focused test set, Ruff, and diff checks.
+- [x] Regenerate the YAML projection from the Markdown authority.
+- [x] Verify Git status contains no protected user artifacts staged.
+- [x] Commit the closeout and push `main`.
 

@@ -58,6 +58,7 @@ from zekam.application.setup import (
     setup_readiness,
 )
 from zekam.application.workspace_resume import build_resume_packet, render_resume_prompt
+from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.domain.intake import normalize_text
@@ -560,7 +561,8 @@ def _ask_natural_request_retrieval(
         authorize_remote_query=authorize_remote_query,
         opencode_config=opencode_config,
     )
-    answer = answer_natural_request(retrieval, _retrieval_explanation(retrieval))
+    answer_retrieval = _retrieval_for_answer(retrieval)
+    answer = answer_natural_request(answer_retrieval, _retrieval_explanation(retrieval))
     result: dict[str, Any] = {
         "schema": "zekam-ask-multi-result/v1",
         "project_refs": list(scope.project_refs),
@@ -590,6 +592,30 @@ def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
     return "\n\n".join(excerpts) or None
 
 
+def _retrieval_for_answer(retrieval: dict[str, Any]) -> dict[str, Any]:
+    """Eski RAG sonucundaki eksik citation alanlarini fail-closed normalleştirir."""
+
+    body = dict(retrieval)
+    normalized_results: list[Any] = []
+    for entry in retrieval.get("results", []):
+        if not isinstance(entry, dict):
+            normalized_results.append(entry)
+            continue
+        normalized = dict(entry)
+        result = entry.get("result")
+        if normalized.get("status") == "answered" and isinstance(result, dict):
+            safe_result = dict(result)
+            citations = safe_result.get("citations")
+            if not isinstance(citations, list):
+                safe_result["citations"] = []
+            safe_result.setdefault("evidence_found", bool(safe_result["citations"]))
+            normalized["result"] = safe_result
+        normalized_results.append(normalized)
+    body["results"] = normalized_results
+    body.pop("retrieval_digest", None)
+    return body | {"retrieval_digest": digest(body)}
+
+
 def _single_natural_request_retrieval(
     project_ref: str,
     question: str,
@@ -598,8 +624,6 @@ def _single_natural_request_retrieval(
     authorize_remote_query: bool,
 ) -> dict[str, Any]:
     """Legacy tek-proje sonucunu cevap kapisinin bekledigi envelope'a sarar."""
-
-    from zekam.domain.canonical import digest
 
     raw = dict(retrieval)
     project_id = raw.get("project_id")
