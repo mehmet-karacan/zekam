@@ -62,6 +62,17 @@ MAX_QUERY_BYTES = 16 * 1024
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _FileIdentity = tuple[int, int, int, int, int, int]
 _SourceIdentity = tuple[_FileIdentity | None, ...]
+_REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT
+    )
 
 
 def _stable_read[**P, R](
@@ -160,8 +171,8 @@ class SQLiteKnowledgeIndex:
             self._source_identity_at_open = self._source_file_identity()
         else:
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if path.is_symlink() or path.parent.is_symlink():
-                raise ConfigurationError("Knowledge index path symlink olamaz")
+            if _is_link_or_reparse(path) or _is_link_or_reparse(path.parent):
+                raise ConfigurationError("Knowledge index path symlink/junction olamaz")
         connection: sqlite3.Connection | None = None
         try:
             connection = (
@@ -221,8 +232,8 @@ class SQLiteKnowledgeIndex:
     def _single_writer(self) -> Iterator[None]:
         self._require_writable()
         lock_path = Path(str(self.path) + ".writer.lock")
-        if lock_path.is_symlink():
-            raise ConfigurationError("Knowledge writer lock symlink olamaz")
+        if _is_link_or_reparse(lock_path):
+            raise ConfigurationError("Knowledge writer lock symlink/junction olamaz")
         descriptor = os.open(
             lock_path,
             os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
@@ -273,7 +284,7 @@ class SQLiteKnowledgeIndex:
         """Metadata identity plus WAL/journal admission; never follows symlink ancestors."""
         try:
             for parent in self.path.parents:
-                if not stat.S_ISDIR(parent.lstat().st_mode):
+                if _is_link_or_reparse(parent) or not stat.S_ISDIR(parent.lstat().st_mode):
                     raise ConfigurationError(
                         "Knowledge read-only path ancestor must be a directory"
                     )
@@ -289,7 +300,7 @@ class SQLiteKnowledgeIndex:
                         ) from None
                     identities.append(None)
                     continue
-                if not stat.S_ISREG(info.st_mode):
+                if _is_link_or_reparse(candidate) or not stat.S_ISREG(info.st_mode):
                     raise ConfigurationError(
                         "Knowledge read-only file/sidecar must be regular, not symlink"
                     )

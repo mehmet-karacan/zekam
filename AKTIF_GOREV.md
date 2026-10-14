@@ -1350,6 +1350,22 @@ harici kaynak ve release kabul kapilarini kapatmaz.
 `next_safe_action`: ayni reparse parity'sini gerekiyorsa diger SQLite projection stores'larinda
 hedefli olarak denetle; ortak private path helper'i uzerinden duplicate security kodu olusturma.
 
+### 10.12 14 Ekim 2026 knowledge index reparse kaniti
+
+SQLite knowledge index de graph store ile ayni junction/reparse sinirina getirildi: writable
+index path/parent, writer lock, read-only ancestor ve offline sidecar identity kontrolleri
+`lstat` reparse metadata'sini de reddediyor. Windows file-symlink yetkisi gerektirmeyen negatif
+test path'in daha acilmadan durdugunu kanitliyor.
+
+Kanıt: `tests/unit/test_sqlite_knowledge_index.py`: `80 passed, 6 skipped`; skip'ler mevcut
+gercek symlink fixture'larinin Windows yetki siniridir, mock reparse negatifi kosmustur.
+
+Bu parity duzeltmesi projection path guvenligini kapsar; diger SQLite projection'larinda ayni
+kontrolun tum yuzeylere yayilmasi, harici kaynak ve release kabul kapilari halen aciktir.
+
+`next_safe_action`: ortak path-security helper'inin kalan SQLite projection store'larinda
+hedefli kullanimini ve sidecar lock negatiflerini envanterle; gereksiz toplu refactor yapma.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

@@ -513,6 +513,19 @@ def test_read_only_path_wrong_types_and_relative_paths_are_typed_rejections(valu
         SQLiteKnowledgeIndex(value, read_only=True)
 
 
+def test_reparse_path_rejected_without_platform_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "junction-like.db"
+    monkeypatch.setattr(
+        knowledge_index_module,
+        "_is_link_or_reparse",
+        lambda candidate: candidate == path,
+    )
+    with pytest.raises(ConfigurationError, match="symlink/junction"):
+        SQLiteKnowledgeIndex(path, create=True)
+
+
 def test_read_only_missing_path_or_create_conflict_creates_nothing(tmp_path: Path) -> None:
     path = tmp_path / "missing-parent" / "index.db"
     before = _filesystem_snapshot(tmp_path)
