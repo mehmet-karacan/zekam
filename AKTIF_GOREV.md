@@ -1832,6 +1832,16 @@ veya path guvenligi icin sahte olumlu kanit uretemez.
 Bu dar dilim WP-04.01/04.02 ve WP-06.03'un fail-closed path metadata boslugunu
 daraltir; tam native race ve kabul matrisi aciktir.
 
+### 10.38 15 Ekim 2026 DOCX XML agac limitleri
+
+DOCX Expat on taramasi DTD/entity ve external entity reddinin yaninda element
+sayisi ile ağaç derinligini de bounded olarak denetler. Limit asimi
+ElementTree kurulmadan once `PolicyViolation` ile durur; parser profili bu iki
+limiti acikca tasir ve gecerli belge locator davranisi degismez.
+
+Bu dar dilim WP-04.05'in DOCX XML bellek/derinlik riskini daraltir; PDF,
+diger XML yuzeyleri, ZIP merkezi dizin ve tam kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

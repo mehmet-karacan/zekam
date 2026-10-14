@@ -118,6 +118,29 @@ def test_docx_xml_rejects_dtd_and_entity(xml: bytes) -> None:
         document_parsers._xml(xml, "fixture")
 
 
+@pytest.mark.parametrize(
+    ("xml", "limits", "message"),
+    [
+        (b"<a><b/><c/></a>", {"MAX_DOCX_XML_ELEMENTS": 2}, "element"),
+        (
+            b"<a><b><c/></b></a>",
+            {"MAX_DOCX_XML_ELEMENTS": 10, "MAX_DOCX_XML_DEPTH": 2},
+            "derinlik",
+        ),
+    ],
+)
+def test_docx_xml_rejects_bounded_tree_limits(
+    monkeypatch: pytest.MonkeyPatch,
+    xml: bytes,
+    limits: dict[str, int],
+    message: str,
+) -> None:
+    for attribute, value in limits.items():
+        monkeypatch.setattr(document_parsers, attribute, value)
+    with pytest.raises(PolicyViolation, match=message):
+        document_parsers._xml(xml, "fixture")
+
+
 def test_docx_parser_rejects_dtd_in_document_part() -> None:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as bundle:

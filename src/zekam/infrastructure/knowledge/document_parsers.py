@@ -43,6 +43,8 @@ MAX_DOCX_ENTRIES = 4_096
 MAX_DOCX_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 100
 MAX_DOCX_CENTRAL_DIRECTORY_BYTES = 4 * 1024 * 1024
+MAX_DOCX_XML_ELEMENTS = 16_384
+MAX_DOCX_XML_DEPTH = 256
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_PDF_PAGES = 1_000
 
@@ -129,6 +131,8 @@ def _bounded_zip_entry_count(payload: bytes) -> int:
 
 def _xml(payload: bytes, label: str) -> ElementTree.Element:
     guard = expat.ParserCreate()
+    element_count = 0
+    depth = 0
 
     def reject_declaration(*_args: object) -> None:
         raise PolicyViolation("DOCX XML DTD veya entity deklarasyonu tasiyor")
@@ -136,9 +140,24 @@ def _xml(payload: bytes, label: str) -> ElementTree.Element:
     def reject_external(*_args: object) -> int:
         raise PolicyViolation("DOCX XML external entity tasiyor")
 
+    def start_element(*_args: object) -> None:
+        nonlocal depth, element_count
+        element_count += 1
+        depth += 1
+        if element_count > MAX_DOCX_XML_ELEMENTS:
+            raise PolicyViolation("DOCX XML element sinirini asiyor")
+        if depth > MAX_DOCX_XML_DEPTH:
+            raise PolicyViolation("DOCX XML derinlik sinirini asiyor")
+
+    def end_element(*_args: object) -> None:
+        nonlocal depth
+        depth -= 1
+
     guard.StartDoctypeDeclHandler = reject_declaration
     guard.EntityDeclHandler = reject_declaration
     guard.ExternalEntityRefHandler = reject_external
+    guard.StartElementHandler = start_element
+    guard.EndElementHandler = end_element
     try:
         guard.Parse(payload, True)
         return ElementTree.fromstring(payload)
@@ -198,6 +217,8 @@ class DocxParser:
                 "expanded_bytes": MAX_DOCX_EXPANDED_BYTES,
                 "compression_ratio": MAX_DOCX_COMPRESSION_RATIO,
                 "central_directory_bytes": MAX_DOCX_CENTRAL_DIRECTORY_BYTES,
+                "xml_elements": MAX_DOCX_XML_ELEMENTS,
+                "xml_depth": MAX_DOCX_XML_DEPTH,
             },
         }
 
