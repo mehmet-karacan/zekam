@@ -19,8 +19,8 @@ from zekam.application.knowledge_file_plane import (
 from zekam.application.markdown_knowledge import show_markdown_knowledge
 from zekam.application.operational_store import OperationalStore
 from zekam.application.project_rag_runtime import (
-    project_rag_status,
     project_rag_source_freshness,
+    project_rag_status,
     query_registered_project,
     read_project_citation,
     resolve_project_source,
