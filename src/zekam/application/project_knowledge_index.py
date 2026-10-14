@@ -84,6 +84,8 @@ _SUPPORTED_SUFFIXES = frozenset(
         ".kts",
         ".md",
         ".php",
+        ".pks",
+        ".pkb",
         ".py",
         ".rb",
         ".rs",
@@ -104,6 +106,13 @@ _SUPPORTED_NAMES = frozenset({"dockerfile", "makefile"})
 _STRUCTURAL_CODE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".ts", ".tsx"})
 _STRUCTURAL_DECLARATION = re.compile(r"\b(class|interface|function)\b")
 _STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_SQL_STRUCTURAL_SUFFIXES = frozenset({".sql", ".pks", ".pkb"})
+_SQL_DECLARATION = re.compile(
+    r"(?m)^[ \t]*create\s+(?:or\s+replace\s+)?"
+    r"(?P<kind>package\s+body|package|procedure|function|trigger|view|table|type)\s+"
+    r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -597,13 +606,96 @@ def _structural_code_units(
     return tuple(units)
 
 
+def _sql_structural_units(
+    relative_path: str, text: str, start_order: int
+) -> tuple[ContentUnit, ...] | None:
+    """SQL/PLSQL top-level CREATE bloklarini bounded sembol parcasi yap."""
+    masked = _mask_structural_literals(text)
+    if masked is None:
+        return None
+    masked_lines = masked.splitlines(keepends=True)
+    rebuilt: list[str] = []
+    for line in masked_lines:
+        marker = line.find("--")
+        rebuilt.append(line if marker < 0 else line[:marker] + " " * (len(line) - marker))
+    masked = "".join(rebuilt)
+    matches = tuple(_SQL_DECLARATION.finditer(masked))
+    if not matches:
+        return None
+    lines = text.splitlines()
+    units: list[ContentUnit] = []
+    cursor = 0
+
+    def line_number(offset: int) -> int:
+        return text.count("\n", 0, offset) + 1
+
+    for match_index, match in enumerate(matches):
+        start = match.start()
+        end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(text)
+        body = text[start:end].strip()
+        if not body:
+            continue
+        first = line_number(start)
+        last = line_number(end - 1)
+        if cursor < first:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    "\n".join(lines[cursor : first - 1]),
+                    start_order + len(units),
+                    first_line=cursor + 1,
+                )
+            )
+        name = match.group("name").split(".")[-1]
+        if len(body) <= MAX_CHUNK_CHARACTERS and estimate_tokens(body) <= MAX_CHUNK_TOKENS:
+            units.append(
+                ContentUnit(
+                    unit_id=f"{relative_path}#L{first}-L{last}-S{name}",
+                    kind=UnitKind.SYMBOL,
+                    text=body,
+                    locator=Locator(
+                        relative_path=relative_path,
+                        line_start=first,
+                        line_end=last,
+                        symbol=name,
+                    ),
+                    order=start_order + len(units),
+                )
+            )
+        else:
+            units.extend(
+                _line_units(
+                    relative_path,
+                    body,
+                    start_order + len(units),
+                    first_line=first,
+                )
+            )
+        cursor = last
+    if cursor < len(lines):
+        units.extend(
+            _line_units(
+                relative_path,
+                "\n".join(lines[cursor:]),
+                start_order + len(units),
+                first_line=cursor + 1,
+            )
+        )
+    return tuple(units) if units else None
+
+
 def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
-    """Python AST, Java/JS/TS structural; belirsizde bounded line fallback."""
-    if PurePosixPath(relative_path).suffix.lower() in _STRUCTURAL_CODE_SUFFIXES:
+    """Python AST, Java/JS/TS/SQL structural; belirsizde bounded line fallback."""
+    suffix = PurePosixPath(relative_path).suffix.lower()
+    if suffix in _SQL_STRUCTURAL_SUFFIXES:
+        structural = _sql_structural_units(relative_path, text, start_order)
+        if structural is not None:
+            return structural
+    if suffix in _STRUCTURAL_CODE_SUFFIXES:
         structural = _structural_code_units(relative_path, text, start_order)
         if structural is not None:
             return structural
-    if PurePosixPath(relative_path).suffix.lower() != ".py":
+    if suffix != ".py":
         return _line_units(relative_path, text, start_order)
     try:
         tree = ast.parse(text)

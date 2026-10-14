@@ -124,6 +124,34 @@ def test_structural_code_units_fall_back_on_unbalanced_source() -> None:
     assert units and all(unit.kind is UnitKind.CODE for unit in units)
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "source", "symbols"),
+    [
+        (
+            "schema.sql",
+            "-- onceki yorum\nCREATE TABLE app_users (id NUMBER);\n"
+            "CREATE OR REPLACE VIEW active_users AS SELECT id FROM app_users;\n",
+            ["app_users", "active_users"],
+        ),
+        (
+            "pkg.pkb",
+            "CREATE OR REPLACE PACKAGE BODY app_pkg AS\n"
+            "  FUNCTION answer RETURN NUMBER IS\n"
+            "  BEGIN RETURN 42; END;\nEND app_pkg;\n/\n",
+            ["app_pkg"],
+        ),
+    ],
+)
+def test_sql_and_plsql_structural_units_extract_create_objects(
+    relative_path: str, source: str, symbols: list[str]
+) -> None:
+    units = knowledge_index._file_units(relative_path, source, 2)
+    extracted = [unit for unit in units if unit.kind is UnitKind.SYMBOL]
+    assert [unit.locator.symbol for unit in extracted] == symbols
+    assert all(unit.locator.relative_path == relative_path for unit in extracted)
+    assert all("CREATE" in unit.text.upper() for unit in extracted)
+
+
 def test_python_ast_fallback_splits_a_token_heavy_single_line(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
