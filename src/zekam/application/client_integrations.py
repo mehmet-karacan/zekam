@@ -86,14 +86,27 @@ _SECRET_ASSIGNMENT = re.compile(
     rb"(?i)(?:password|passwd|secret|token|api[-_ ]?key|apikey|private[-_ ]?key)"
     rb"[\"'\s]*[:=]"
 )
+MAX_SECRET_SCAN_BYTES = 4 * 1024 * 1024
 
 
 def _contains_secret_assignment(path: Path) -> bool:
-    return (
-        path.is_file()
-        and not path.is_symlink()
-        and bool(_SECRET_ASSIGNMENT.search(path.read_bytes()))
-    )
+    try:
+        info = path.lstat()
+        is_reparse = bool(
+            int(getattr(info, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(info.st_mode) or is_reparse or not stat.S_ISREG(info.st_mode):
+            return False
+        if info.st_size > MAX_SECRET_SCAN_BYTES:
+            return True
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_SECRET_SCAN_BYTES + 1)
+        if len(payload) > MAX_SECRET_SCAN_BYTES:
+            return True
+        return bool(_SECRET_ASSIGNMENT.search(payload))
+    except OSError:
+        return True
 
 
 @dataclass(frozen=True, slots=True)

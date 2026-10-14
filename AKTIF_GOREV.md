@@ -2044,6 +2044,15 @@ resume sessizce eksik veri uretmeden typed validation hatasi verir.
 Bu dar dilim WP-02/07 lifecycle resume bellek ve retention boslugunu daraltir;
 gercek native OpenCode host kabul matrisi halen aciktir.
 
+### 10.59 15 Ekim 2026 Client integration secret scan kapisi
+
+Native client integration secret assignment taramasi regular-file/reparse
+kontrolu, 4 MiB bounded okuma ve oversized/unreadable girdilerde fail-closed
+sonuc kullanir. Secret degeri rapora veya kanonik kayda yazilmaz.
+
+Bu dar dilim WP-02/08 client integration guvenlik bellek boslugunu daraltir;
+gercek Claude/Gemini host kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
