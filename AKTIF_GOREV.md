@@ -793,7 +793,7 @@ tam traversal kabul matrisi henuz yok; WP-04.02 acik kalir.
 
 **İncelenecek/değişecek konumlar:** `project_rag_runtime.py`, `project_knowledge_index.py`, `embedding_provider.py`, `embedding_routing.py`, `knowledge_index.py`, `embedded_project_rag.py`, `retrieval_service.py`, `infrastructure/sqlite/knowledge_index.py` ve mevcut provider ledger/cache.
 
-- [ ] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
+- [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
 - [ ] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
 - [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
 - [ ] **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
@@ -811,7 +811,16 @@ ayni kapsamda alias vektorunu yeniden kullanir; yanlis kapsam, bozuk vektor
 digest'i ve kimliksiz eski cache satiri yeniden kullanilmaz. Alias secimi
 indexli ve tek satira sinirlidir. Ilgili 69 test gecti. Gercek coklu
 generation/artimli embedding ve benchmark kabul kaniti tamamlanmadigindan
-WP-05.01/02 aciktir.
+WP-05.02 aciktir.
+
+**14 Ekim 2026 — WP-05.01 kapanis kaniti:** Gercek local SQLite indeks akisi,
+ayni kaynak agacinda yalniz HEAD degistiginde ayni chunk icerigi ve exact
+embedding profili icin vector cache'i yeniden kullandi. Ilk kosuda bir provider
+batch'i ve bir yeni embedding varken ikinci kosuda `cache_hits=1`, yeni
+embedding ve provider batch sayisi sifir kaldi; source revision degisti, tree
+digest ve profil kimligi korundu, generation digest'i yeni nesil olarak yayinlandi.
+`test_head_revision_change_reuses_document_embedding_cache` ile kanitlandi.
+WP-05.02'nin rename/delete ownership ve hazir generation kabul kaniti aciktir.
 
 **13 Ekim 2026 ara durum — uc sinirli embedding batch:** Indeks plani
 ve uygulama ayni batch planlayicisini kullanir. Planlayici en fazla
