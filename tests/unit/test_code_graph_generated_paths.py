@@ -36,3 +36,27 @@ def test_graph_plan_skips_next_generated_output_but_keeps_source_code(
     )
 
     assert [path for path, _digest in plan.file_manifests] == ["src/app.js"]
+
+
+def test_graph_plan_skips_symlinked_source_file(tmp_path: Path) -> None:
+    source_root = tmp_path / "project"
+    source_root.mkdir()
+    (source_root / "real.py").write_text("def real():\n    return 1\n", encoding="utf-8")
+    outside = tmp_path / "outside.py"
+    outside.write_text("def escaped():\n    return 2\n", encoding="utf-8")
+    link = source_root / "escaped.py"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"Symlink olusturulamadi: {exc}")
+
+    plan = plan_graph_build(
+        source_root,
+        project_id="symlink-paths",
+        project_slug="symlink-paths",
+        source_revision="r1",
+        extractor=PolyglotStructuralExtractor(),
+        created_at="2026-10-15T00:00:00Z",
+    )
+
+    assert [path for path, _digest in plan.file_manifests] == ["real.py"]

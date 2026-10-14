@@ -43,6 +43,27 @@ MAX_GRAPH_SOURCE_BYTES: int = 4 * 1024 * 1024
 _GENERATED_GRAPH_DIRS = frozenset({".next", "_next"})
 
 
+def _is_link_or_reparse(path: Path) -> bool:
+    """Do not let graph discovery follow symlink or Windows reparse paths."""
+
+    try:
+        if path.is_symlink():
+            return True
+        attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
+    except OSError:
+        return True
+    return bool(attributes & 0x400)
+
+
+def _has_link_component(source_root: Path, relative: Path) -> bool:
+    current = source_root
+    for part in relative.parts:
+        current /= part
+        if _is_link_or_reparse(current):
+            return True
+    return False
+
+
 def _safe_relative(value: str) -> str:
     path = PurePosixPath(value)
     if (
@@ -187,7 +208,7 @@ def graph_store_path(home: Path, project_slug: str) -> Path:
 
 
 def _discover_source_files(source_root: Path) -> list[Path]:
-    if not source_root.is_dir():
+    if not source_root.is_dir() or _is_link_or_reparse(source_root):
         raise ValidationFailed("Graph source root dizin olmali")
     files: list[Path] = []
     for path in sorted(source_root.rglob("*")):
@@ -196,6 +217,8 @@ def _discover_source_files(source_root: Path) -> list[Path]:
         try:
             relative = path.relative_to(source_root)
         except ValueError:
+            continue
+        if _has_link_component(source_root, relative):
             continue
         if any(part.casefold() in _GENERATED_GRAPH_DIRS for part in relative.parts):
             continue

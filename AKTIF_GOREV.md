@@ -1749,6 +1749,16 @@ deterministik edge sirasi, confidence ve graph identity ayni tutuldu.
 Bu dar dilim WP-06.03'un Python graph performans borcunu azaltir; generation,
 resolver ve cross-file kabul matrisi halen aciktir.
 
+### 10.30 15 Ekim 2026 graph source link kapisi
+
+Code graph source plan'i kok, dosya ve ara dizin yol bilesenlerinde symlink veya
+Windows reparse point gorurse kaynagi izlemez; linkli girdiyi manifest disinda
+tutar, linkli kokte ise fail-closed durur. Normal kaynak dosyalarinin digest ve
+plan sirasi degismez.
+
+Bu dar dilim WP-04.01/06.03'un graph source ownership ve path guvenligi
+boslugunu daraltir; tam discovery metadata esitlemesi ve kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
