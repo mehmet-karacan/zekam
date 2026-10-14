@@ -36,6 +36,12 @@ from zekam.domain.errors import ValidationFailed
 #: Maximum source file bytes the structural extractor will accept.
 MAX_GRAPH_SOURCE_BYTES: int = 4 * 1024 * 1024
 
+# Next.js emits browser bundles under these directory names.  They are build
+# output rather than authored source and can contain syntax that the bounded
+# structural extractor cannot interpret reliably.  Keep the rule narrow so a
+# regular ``build`` or ``static`` source directory remains eligible.
+_GENERATED_GRAPH_DIRS = frozenset({".next", "_next"})
+
 
 def _safe_relative(value: str) -> str:
     path = PurePosixPath(value)
@@ -190,6 +196,8 @@ def _discover_source_files(source_root: Path) -> list[Path]:
         try:
             relative = path.relative_to(source_root)
         except ValueError:
+            continue
+        if any(part.casefold() in _GENERATED_GRAPH_DIRS for part in relative.parts):
             continue
         if any(
             part in {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
