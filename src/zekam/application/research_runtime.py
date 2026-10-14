@@ -61,6 +61,14 @@ _LOCAL_REALM_ID = str(uuid5(NAMESPACE_URL, "zekam://realm/yerel"))
 _REPORT_BEGIN = "<!-- zekam-research-report-json-begin -->"
 _REPORT_END = "<!-- zekam-research-report-json-end -->"
 
+# Evidence limits are derived from the question token budget.  The ceilings
+# protect old or hand-crafted plans from becoming unbounded while the
+# per-run budget determines the normal delivery size.
+_EVIDENCE_CHARS_PER_TOKEN = 4
+_EVIDENCE_ITEM_TOKEN_TARGET = 256
+_MAX_EVIDENCE_ITEMS = 64
+_MAX_EVIDENCE_CHARS = 128_000
+
 
 class ResearchAdapter(Protocol):
     def execute(self, package: dict[str, Any]) -> OpenCodeResearchResult: ...
@@ -149,7 +157,10 @@ def build_research_run_plan(
         "generation_digest": rag["generation_digest"],
         "retrieval": {
             "maximum_remote_query_operations": 1,
+            # Retained for consumers of the v1 plan schema.  New runtimes use
+            # the token-derived budget below instead of truncating at five.
             "maximum_evidence_chunks": 5,
+            "evidence_budget": _derived_evidence_budget(question_contract),
             "row_data_allowed": False,
         },
         "agents": {
@@ -201,16 +212,73 @@ def _question_from_plan(plan: ResearchRunPlan) -> ResearchQuestion:
     )
 
 
+def _derived_evidence_budget(question: ResearchQuestion) -> dict[str, int]:
+    """Derive bounded evidence delivery from the research token budget."""
+
+    return {
+        "maximum_items": min(
+            _MAX_EVIDENCE_ITEMS,
+            max(1, question.budget.max_tokens // _EVIDENCE_ITEM_TOKEN_TARGET),
+        ),
+        "maximum_chars": min(
+            _MAX_EVIDENCE_CHARS,
+            max(_EVIDENCE_CHARS_PER_TOKEN, question.budget.max_tokens * _EVIDENCE_CHARS_PER_TOKEN),
+        ),
+    }
+
+
+def _evidence_budget(plan: ResearchRunPlan) -> dict[str, int]:
+    """Read an optional plan budget, retaining dynamic defaults for old plans."""
+
+    question = _question_from_plan(plan)
+    default = _derived_evidence_budget(question)
+    retrieval = plan.body.get("retrieval", {})
+    if not isinstance(retrieval, dict):
+        raise ValidationFailed("Research retrieval plani object olmali")
+    configured = retrieval.get("evidence_budget")
+    if configured is None:
+        return default
+    if not isinstance(configured, dict):
+        raise ValidationFailed("Research evidence budget object olmali")
+    values: dict[str, int] = {}
+    for key, ceiling in (
+        ("maximum_items", _MAX_EVIDENCE_ITEMS),
+        ("maximum_chars", _MAX_EVIDENCE_CHARS),
+    ):
+        value = configured.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValidationFailed(f"Research evidence budget {key} pozitif tamsayi olmali")
+        if value > ceiling:
+            raise PolicyViolation(f"Research evidence budget {key} bounded siniri asiyor")
+        values[key] = value
+    return values
+
+
 def _bounded_evidence(
     home: Path, plan: ResearchRunPlan, rag: dict[str, Any]
-) -> tuple[tuple[dict[str, Any], ...], tuple[SourceSnapshot, ...], dict[str, dict[str, Any]]]:
+) -> tuple[
+    tuple[dict[str, Any], ...],
+    tuple[SourceSnapshot, ...],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
     evidence: list[dict[str, Any]] = []
     snapshots: list[SourceSnapshot] = []
     by_id: dict[str, dict[str, Any]] = {}
     citations = rag.get("citations", [])
     if not isinstance(citations, list):
         raise ValidationFailed("Research RAG citations liste olmali")
-    for citation in citations[:5]:
+    budget = _evidence_budget(plan)
+    selected_chars = 0
+    truncated_items = 0
+    gaps: list[str] = []
+    retrieval_evidence_sufficient = rag.get("evidence_sufficient")
+    if retrieval_evidence_sufficient is False:
+        gaps.append("retrieval-evidence-gap")
+    for citation in citations:
+        if len(evidence) >= budget["maximum_items"] or selected_chars >= budget["maximum_chars"]:
+            gaps.append("evidence-budget-exhausted")
+            break
         if not isinstance(citation, dict):
             raise ValidationFailed("Research RAG citation object olmali")
         citation_id = str(citation.get("chunk_id", ""))
@@ -220,16 +288,23 @@ def _bounded_evidence(
             citation_id,
             generation_digest=str(plan.body["generation_digest"]),
         )
+        source_revision = str(reopened["source_revision"])
+        if source_revision != str(plan.body["source_revision"]):
+            raise PolicyViolation("Research evidence source revision drift")
         body = str(reopened["body"])
         if scan_text(body, relative_path=str(reopened["source_ref"])):
             raise PolicyViolation("Research evidence secret taramasini gecemedi")
         original_content_digest = str(reopened["content_digest"])
-        delivered_body = body[:4000]
+        remaining_chars = budget["maximum_chars"] - selected_chars
+        delivered_body = body[:remaining_chars]
+        selected_chars += len(delivered_body)
+        if len(delivered_body) < len(body):
+            truncated_items += 1
         delivered_payload_digest = digest(delivered_body)
         item = {
             "citation_id": citation_id,
             "source_ref": reopened["source_ref"],
-            "source_revision": reopened["source_revision"],
+            "source_revision": source_revision,
             "original_content_digest": original_content_digest,
             "delivered_payload_digest": delivered_payload_digest,
             "content_digest": reopened["content_digest"],
@@ -248,7 +323,32 @@ def _bounded_evidence(
                 revision=str(reopened["source_revision"]),
             )
         )
-    return tuple(evidence), tuple(snapshots), by_id
+    if not citations:
+        gaps.append("no-citations")
+    if len(evidence) < len(citations) and "evidence-budget-exhausted" not in gaps:
+        gaps.append("evidence-budget-exhausted")
+    if truncated_items:
+        gaps.append("evidence-body-truncated")
+    if not evidence and gaps:
+        state = "evidence-gap"
+    elif gaps:
+        state = "partial"
+    else:
+        state = "complete"
+    coverage = {
+        "schema": "zekam-research-evidence-coverage/v1",
+        "state": state,
+        "requested_items": len(citations),
+        "selected_items": len(evidence),
+        "omitted_items": len(citations) - len(evidence),
+        "selected_chars": selected_chars,
+        "truncated_items": truncated_items,
+        "budget": dict(budget),
+        "retrieval_evidence_sufficient": retrieval_evidence_sufficient,
+        "uncovered_identifiers": list(rag.get("uncovered_identifiers", [])),
+        "gaps": list(dict.fromkeys(gaps)),
+    }
+    return tuple(evidence), tuple(snapshots), by_id, coverage
 
 
 def _role_result(
@@ -302,9 +402,26 @@ def _report_markdown(question: str, report: dict[str, Any]) -> str:
         f"**Soru:** {question}",
         f"**Durum:** {report['status']}",
         "",
-        "## Doğrulanmış bulgular",
-        "",
     ]
+    coverage = report.get("evidence_coverage")
+    if isinstance(coverage, dict):
+        lines.extend(
+            [
+                "## Kanıt kapsamı",
+                "",
+                f"- Durum: {coverage.get('state', 'unknown')}",
+                (
+                    f"- Seçilen kanıt: {coverage.get('selected_items', 0)} / "
+                    f"{coverage.get('requested_items', 0)}"
+                ),
+                (
+                    f"- Açıklar: "
+                    f"{', '.join(str(item) for item in coverage.get('gaps', [])) or 'yok'}"
+                ),
+                "",
+            ]
+        )
+    lines.extend(["## Doğrulanmış bulgular", ""])
     if findings:
         for item in findings:
             lines.append(f"- {item['claim']} (`{item['confidence']}`)")
@@ -462,7 +579,7 @@ def run_research(
         )
         if rag.get("generation_digest") != plan.body["generation_digest"]:
             raise PolicyViolation("Research retrieval generation drift")
-        evidence, snapshots, by_citation = _bounded_evidence(home, plan, rag)
+        evidence, snapshots, by_citation, evidence_coverage = _bounded_evidence(home, plan, rag)
         package = {
             "schema": "zekam-opencode-research-package/v1",
             "question": question.question,
@@ -561,6 +678,12 @@ def run_research(
         assert_no_swallowed_results(dispatch, report)
         report_document = report.as_dict()
         report_document.pop("report_digest")
+        report_document["evidence_coverage"] = evidence_coverage
+        if (
+            evidence_coverage["state"] == "partial"
+            and report_document["status"] == "answered"
+        ):
+            report_document["status"] = "partial"
         report_document["agent_execution"] = execution_evidence
         report_document["report_digest"] = digest(report_document)
         projection = _materialize_report(
@@ -610,6 +733,7 @@ def run_research(
         "remote_query_operations": 1,
         "root_agent_calls": agent_result.root_agent_calls,
         "delegated_agent_calls": agent_result.delegated_agent_calls,
+        "evidence_coverage": report_document["evidence_coverage"],
         "replayed": False,
         "grants_authority": False,
     }

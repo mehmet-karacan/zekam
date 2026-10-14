@@ -678,3 +678,112 @@ def test_evolution_report_exposes_bounded_real_metric_values_and_usage(
     assert report["actual_usage"]["evaluations"] == pair["actual_usage"]
     assert report["candidates"][0]["risk"] == "AUTO_SAFE"
     assert report["candidates"][0]["blockers"] == ()
+
+
+def test_evolution_report_carries_canonical_usage_receipt_model_and_metrics(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    state = home / "state"
+    state.mkdir(parents=True)
+    operational = state / "operational.db"
+    usage = {
+        "provider_calls": 1,
+        "tokens": 42,
+        "duration_seconds": 12,
+        "cost_micros": 7,
+        "disk_bytes": 99,
+        "concurrency": 1,
+    }
+    reservation_id = "reservation-1"
+    authorization_digest = digest("authorization-1")
+    plan_digest = digest("plan-1")
+    grant_digest = digest("grant-1")
+    finished_at = "2026-09-07T12:02:00+00:00"
+    with sqlite3.connect(operational) as connection:
+        connection.executescript(EVOLUTION_AUTHORITY_DDL)
+        connection.execute(
+            "insert into evolution_child_reservation values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                reservation_id,
+                "idempotency-1",
+                grant_digest,
+                plan_digest,
+                json.dumps({"model_ref": "provider/model-a"}),
+                authorization_digest,
+                "{}",
+                *usage.values(),
+                "2026-09-07T12:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "insert into evolution_child_effect_claim values(?,?,?,?)",
+            (
+                reservation_id,
+                authorization_digest,
+                digest("effect-1"),
+                "2026-09-07T12:00:30+00:00",
+            ),
+        )
+        connection.execute(
+            "insert into evolution_runtime_attestation values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                digest("attestation-1"),
+                grant_digest,
+                plan_digest,
+                authorization_digest,
+                digest("task-scope"),
+                digest("policy"),
+                digest("verifier"),
+                digest("validator"),
+                digest("source-lineage"),
+                digest("protected-manifest"),
+                digest("dependency-manifest"),
+                "provider/model-a",
+                "provider-a",
+                "local",
+                "verifier-a",
+                "executor-a",
+                "2026-09-07T12:00:40+00:00",
+                "2026-09-07T13:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "insert into evolution_child_terminal values(?,?,?,?,?,?,?,?,?)",
+            (
+                reservation_id,
+                "completed",
+                digest("evidence-1"),
+                usage["provider_calls"],
+                usage["tokens"],
+                usage["duration_seconds"],
+                usage["cost_micros"],
+                usage["disk_bytes"],
+                finished_at,
+            ),
+        )
+        connection.commit()
+
+    zero_budget = {
+        "provider_calls": 0,
+        "tokens": 0,
+        "duration_seconds": 0,
+        "cost_micros": 0,
+        "disk_bytes": 0,
+        "concurrency": 0,
+    }
+    plan = {
+        "state": "setup-required",
+        "setup_gaps": ("native",),
+        "blockers": (),
+        "runtime": {"running_jobs": 0},
+        "supervisor": {"state": "absent"},
+        "permissions": {"budget_limits": zero_budget},
+    }
+
+    report = build_evolution_report(build_context(home=home), plan=plan)
+
+    assert report["actual_usage"]["model_refs"] == ("provider/model-a",)
+    assert report["actual_usage"]["tokens"] == 42
+    assert report["actual_usage"]["duration_seconds"] == 12
+    assert report["actual_usage"]["cost_micros"] == 7

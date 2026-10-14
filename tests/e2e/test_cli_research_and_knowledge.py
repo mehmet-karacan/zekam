@@ -77,6 +77,9 @@ def test_research_cli_dry_run_is_provider_free_and_apply_requires_digest_and_aut
     plan = json.loads(dry.output)
     assert plan["dry_run"] is True
     assert plan["provider_calls_performed"] == 0
+    assert plan["retrieval"]["maximum_evidence_chunks"] == 5
+    assert plan["retrieval"]["evidence_budget"]["maximum_items"] > 5
+    assert plan["retrieval"]["evidence_budget"]["maximum_chars"] > 4000
     runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
     assert runtime.status().ready_jobs == 0
 

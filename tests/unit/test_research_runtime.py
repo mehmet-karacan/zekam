@@ -9,6 +9,7 @@ import pytest
 from zekam.application import research_runtime as subject
 from zekam.application.home import HomeLayout
 from zekam.application.research_runtime import (
+    ResearchRunPlan,
     build_research_run_plan,
     research_report,
     research_status,
@@ -495,6 +496,287 @@ def test_citation_tracks_original_and_delivered_digest(monkeypatch, tmp_path: Pa
     assert citation["source_content_digest"] == digest("class Demo")
     assert citation["content_digest"] == digest("class DemoMusteriService {}")
     assert citation["slice_digest"] == citation["content_digest"]
+
+
+def _plan_with_evidence_budget(
+    plan: ResearchRunPlan, *, maximum_items: int, maximum_chars: int
+) -> ResearchRunPlan:
+    body = json.loads(json.dumps(plan.body))
+    body["retrieval"]["evidence_budget"] = {
+        "maximum_items": maximum_items,
+        "maximum_chars": maximum_chars,
+    }
+    stable = {
+        key: value
+        for key, value in body.items()
+        if key not in {"run_digest", "idempotency_key", "projection_ref", "dry_run"}
+    }
+    run_digest = digest(stable)
+    body.update(
+        {
+            "run_digest": run_digest,
+            "idempotency_key": f"research:{run_digest}",
+            "projection_ref": (
+                f"projeler/{plan.project_slug}/arastirmalar/generated/{run_digest[7:]}.md"
+            ),
+            "dry_run": True,
+        }
+    )
+    return ResearchRunPlan(body)
+
+
+def _legacy_plan_without_evidence_budget(plan: ResearchRunPlan) -> ResearchRunPlan:
+    body = json.loads(json.dumps(plan.body))
+    body["retrieval"].pop("evidence_budget", None)
+    stable = {
+        key: value
+        for key, value in body.items()
+        if key not in {"run_digest", "idempotency_key", "projection_ref", "dry_run"}
+    }
+    run_digest = digest(stable)
+    body.update(
+        {
+            "run_digest": run_digest,
+            "idempotency_key": f"research:{run_digest}",
+            "projection_ref": (
+                f"projeler/{plan.project_slug}/arastirmalar/generated/{run_digest[7:]}.md"
+            ),
+            "dry_run": True,
+        }
+    )
+    return ResearchRunPlan(body)
+
+
+def test_research_evidence_budget_reads_more_than_legacy_five(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    citations = [{"chunk_id": f"chunk-{index}"} for index in range(1, 7)]
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": citations,
+        },
+    )
+
+    def read_citation(_home, _slug, citation_id, **_kwargs):  # type: ignore[no-untyped-def]
+        body = f"class Demo{citation_id.removeprefix('chunk-')} {{}}"
+        return {
+            "source_ref": f"src/main/Demo{citation_id}.java",
+            "source_revision": digest("revision"),
+            "content_digest": digest(body),
+            "locator": {"relative_path": f"src/main/Demo{citation_id}.java", "start_line": 1},
+            "body": body,
+        }
+
+    monkeypatch.setattr(subject, "read_project_citation", read_citation)
+
+    class ObservingAdapter(FakeAdapter):
+        package: dict[str, object] | None = None
+
+        def execute(self, package):  # type: ignore[no-untyped-def]
+            self.package = package
+            return super().execute(package)
+
+    adapter = ObservingAdapter()
+    plan = _legacy_plan_without_evidence_budget(
+        build_research_run_plan(
+            store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+        )
+    )
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=adapter,
+    )
+
+    assert adapter.package is not None
+    assert len(adapter.package["evidence"]) == 6  # type: ignore[index]
+    coverage = result["report"]["evidence_coverage"]
+    assert coverage["state"] == "complete"
+    assert coverage["requested_items"] == 6
+    assert coverage["selected_items"] == 6
+    assert result["report"]["status"] == "answered"
+
+
+def test_research_evidence_budget_gap_is_explicitly_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    citations = [{"chunk_id": f"chunk-{index}"} for index in range(1, 5)]
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": citations,
+            "evidence_sufficient": False,
+            "uncovered_identifiers": ["MusteriService"],
+        },
+    )
+
+    def read_citation(_home, _slug, citation_id, **_kwargs):  # type: ignore[no-untyped-def]
+        body = f"evidence-{citation_id}-" + ("x" * 40)
+        return {
+            "source_ref": f"src/main/{citation_id}.java",
+            "source_revision": digest("revision"),
+            "content_digest": digest(body),
+            "locator": {"relative_path": f"src/main/{citation_id}.java", "start_line": 1},
+            "body": body,
+        }
+
+    monkeypatch.setattr(subject, "read_project_citation", read_citation)
+    plan = _plan_with_evidence_budget(
+        build_research_run_plan(
+            store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+        ),
+        maximum_items=2,
+        maximum_chars=32,
+    )
+
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+
+    coverage = result["report"]["evidence_coverage"]
+    assert coverage["state"] == "partial"
+    assert coverage["selected_items"] == 1
+    assert coverage["omitted_items"] == 3
+    assert "evidence-budget-exhausted" in coverage["gaps"]
+    assert "retrieval-evidence-gap" in coverage["gaps"]
+    assert coverage["uncovered_identifiers"] == ["MusteriService"]
+    assert result["report"]["status"] == "partial"
+
+
+def test_research_evidence_empty_result_is_explicit_evidence_gap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+
+    evidence, snapshots, by_citation, coverage = subject._bounded_evidence(
+        home,
+        plan,
+        {"citations": []},
+    )
+
+    assert evidence == ()
+    assert snapshots == ()
+    assert by_citation == {}
+    assert coverage["state"] == "evidence-gap"
+    assert coverage["gaps"] == ["no-citations"]
+
+
+def test_research_evidence_budget_still_scans_secret_after_legacy_fifth(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    citations = [{"chunk_id": f"chunk-{index}"} for index in range(1, 7)]
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": citations,
+        },
+    )
+    read_ids: list[str] = []
+
+    def read_citation(_home, _slug, citation_id, **_kwargs):  # type: ignore[no-untyped-def]
+        read_ids.append(citation_id)
+        body = f"safe-{citation_id}"
+        if citation_id == "chunk-6":
+            body = "pass" + "word = 'regression-secret'"
+        return {
+            "source_ref": f"src/main/{citation_id}.java",
+            "source_revision": digest("revision"),
+            "content_digest": digest(body),
+            "locator": {"relative_path": f"src/main/{citation_id}.java", "start_line": 1},
+            "body": body,
+        }
+
+    monkeypatch.setattr(subject, "read_project_citation", read_citation)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+
+    with pytest.raises(PolicyViolation, match="secret"):
+        run_research(
+            store,
+            home,
+            plan,
+            expected_run_digest=plan.run_digest,
+            authorize_remote_query=True,
+            authorize_agent_run=True,
+            adapter=FakeAdapter(),
+        )
+    assert read_ids == [f"chunk-{index}" for index in range(1, 7)]
+
+
+def test_research_evidence_budget_preserves_freshness_gate_after_legacy_fifth(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    citations = [{"chunk_id": f"chunk-{index}"} for index in range(1, 7)]
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": citations,
+        },
+    )
+    read_ids: list[str] = []
+
+    def read_citation(_home, _slug, citation_id, **_kwargs):  # type: ignore[no-untyped-def]
+        read_ids.append(citation_id)
+        body = f"safe-{citation_id}"
+        return {
+            "source_ref": f"src/main/{citation_id}.java",
+            "source_revision": (
+                digest("stale-revision")
+                if citation_id == "chunk-6"
+                else digest("revision")
+            ),
+            "content_digest": digest(body),
+            "locator": {"relative_path": f"src/main/{citation_id}.java", "start_line": 1},
+            "body": body,
+        }
+
+    monkeypatch.setattr(subject, "read_project_citation", read_citation)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+
+    with pytest.raises(PolicyViolation, match="source revision"):
+        run_research(
+            store,
+            home,
+            plan,
+            expected_run_digest=plan.run_digest,
+            authorize_remote_query=True,
+            authorize_agent_run=True,
+            adapter=FakeAdapter(),
+        )
+    assert read_ids == [f"chunk-{index}" for index in range(1, 7)]
 
 
 def test_research_run_rejects_tampered_citation_slice_digest(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]

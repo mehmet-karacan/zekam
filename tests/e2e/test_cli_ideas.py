@@ -151,10 +151,37 @@ def test_idea_work_create_requires_exact_approval_scope_and_writes_canonical_wor
     assert document["state"] == "work-created"
     assert document["creates_work"] is True
     assert document["work"]["kind"] == "idea"
+    assert document["operational_job_id"]
+    assert document["receipt_digest"].startswith("sha256:")
+    assert document["operational_terminal_evidence_digest"] == document["receipt_digest"]
+
+    replayed = runner.invoke(
+        app,
+        [
+            "idea",
+            "work-create",
+            proposed.output,
+            "--project",
+            "demo",
+            "--approval-scope-digest",
+            scope_digest,
+            "--uygula",
+            "--json",
+            "--home",
+            str(home),
+        ],
+    )
+    assert replayed.exit_code == 0, replayed.output
+    replay_document = json.loads(replayed.output)
+    assert replay_document["operational_job_id"] == document["operational_job_id"]
+    assert replay_document["receipt_digest"] == document["receipt_digest"]
+    assert replay_document["work"]["id"] == document["work"]["id"]
 
     listed = runner.invoke(
         app,
         ["work", "list", "--proje", "demo", "--json", "--home", str(home)],
     )
     assert listed.exit_code == 0, listed.output
-    assert json.loads(listed.output)[0]["type"] == "idea"
+    listed_work = json.loads(listed.output)
+    assert len(listed_work) == 1
+    assert listed_work[0]["type"] == "idea"

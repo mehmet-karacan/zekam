@@ -580,6 +580,7 @@ def _operational_usage(database: Path) -> dict[str, Any]:
         "available": False,
         "terminal_runs": 0,
         "unknown_runs": 0,
+        "model_refs": (),
         **usage,
     }
     if not database.is_file():
@@ -597,11 +598,29 @@ def _operational_usage(database: Path) -> dict[str, Any]:
                 "coalesce(sum(duration_seconds),0),coalesce(sum(cost_micros),0),"
                 "coalesce(sum(disk_bytes),0) from evolution_child_terminal"
             ).fetchone()
+            model_refs: tuple[str, ...] = ()
+            attestation = connection.execute(
+                "select 1 from sqlite_master where type='table' "
+                "and name='evolution_runtime_attestation'"
+            ).fetchone()
+            if attestation is not None:
+                model_rows = connection.execute(
+                    "select distinct a.model_ref from evolution_child_terminal t "
+                    "join evolution_child_effect_claim c on c.reservation_id=t.reservation_id "
+                    "join evolution_child_reservation r on r.reservation_id=c.reservation_id "
+                    "join evolution_runtime_attestation a "
+                    "on a.authorization_digest=r.authorization_digest "
+                    "and a.plan_digest=r.plan_digest "
+                    "where a.model_ref is not null and trim(a.model_ref)<>'' "
+                    "order by a.model_ref"
+                ).fetchall()
+                model_refs = tuple(str(row[0]) for row in model_rows)
         assert row is not None
         return {
             "available": True,
             "terminal_runs": int(row[0]),
             "unknown_runs": int(row[1] or 0),
+            "model_refs": model_refs,
             "provider_calls": int(row[2]),
             "tokens": int(row[3]),
             "duration_seconds": int(row[4]),
