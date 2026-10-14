@@ -65,6 +65,7 @@ KNOWN_LEGACY_BODY_DIGESTS: Mapping[str, str] = MappingProxyType(
 )
 CURRENT_VERSION_ID = "managed-instructions/v1/current"
 UNKNOWN_VERSION_ID = "unknown"
+MAX_INSTRUCTION_FILE_BYTES = 4 * 1024 * 1024
 
 
 class ManagedInstructionConflict(ConfigurationError):
@@ -154,7 +155,13 @@ def _current_section(eol: str) -> str:
 def read_instruction_text(path: Path) -> str:
     """Read exact text (no newline translation) so user bytes survive a rewrite."""
 
-    return path.read_bytes().decode("utf-8")
+    if path.stat(follow_symlinks=False).st_size > MAX_INSTRUCTION_FILE_BYTES:
+        raise ConfigurationError("Client instruction dosyasi boyut siniri asildi")
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_INSTRUCTION_FILE_BYTES + 1)
+    if len(payload) > MAX_INSTRUCTION_FILE_BYTES:
+        raise ConfigurationError("Client instruction dosyasi boyut siniri asildi")
+    return payload.decode("utf-8")
 
 
 @dataclass(frozen=True, slots=True)

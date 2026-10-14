@@ -2139,6 +2139,16 @@ kontrolleri korunur.
 Bu dar dilim WP-08/12 catalog kaynak tuketimi boslugunu daraltir; gercek model
 ve release gate kabul matrisi halen aciktir.
 
+### 10.69 15 Ekim 2026 Client instruction stream kapisi
+
+Native client instruction ve managed migration okuyucusu 4 MiB bounded stream
+kullanir. Oversized veya yarista buyuyen kullanici dosyasi parse, migration ya
+da rollback metni olarak kabul edilmeden ConfigurationError ile durur; mevcut
+user-text ownership ve exact readback kapilari korunur.
+
+Bu dar dilim WP-02/07 instruction migration kaynak tuketimi boslugunu daraltir;
+gercek native multi-client kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

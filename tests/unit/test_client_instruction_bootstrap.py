@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import zekam.application.client_instruction_bootstrap as client_instruction_bootstrap
 from zekam.application.client_instruction_bootstrap import (
     apply_client_instruction_bootstrap,
     plan_client_instruction_bootstrap,
@@ -21,6 +22,17 @@ def _home(tmp_path: Path) -> Path:
 
 def _all_enabled() -> ClientIntegrationPolicy:
     return ClientIntegrationPolicy(opencode=True, codex=True, claude_code=True)
+
+
+def test_instruction_reader_rejects_oversized_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "AGENTS.md"
+    monkeypatch.setattr(client_instruction_bootstrap, "MAX_INSTRUCTION_FILE_BYTES", 8)
+    target.write_bytes(b"123456789")
+
+    with pytest.raises(ConfigurationError, match="boyut siniri"):
+        client_instruction_bootstrap.read_instruction_text(target)
 
 
 def test_missing_client_instruction_files_are_created_and_idempotent(tmp_path: Path) -> None:
