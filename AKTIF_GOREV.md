@@ -1233,14 +1233,14 @@ Kanit:
   ayrica `passed` oldu.
 - Native provider-free kosu gecersiz `missing/nope` model kimligi ile sinirlandi; gercek provider
   veya credential cagrisi yapilmadi. Gercek event capture'da `session.created` goruldu.
-- Standalone delete komutu ayri private server actigi icin ilk stdio plugin oturumuna
-  `session.deleted` terminal olayini teslim etmedi; bu olay icin native kabul iddiasi kurulmadı.
+- Persistent `serve` + ayni server'a baglanan `run` ve `session delete` istemci akisinda
+  `session.created` ve `session.deleted` olaylari gercek event capture ile goruldu.
 
-Bu checkpoint V2 plugin yukleme ve olayin teslimini kanitlar; native delete, compaction, tool hook,
-MCP/shell siniri, harici kaynak, canli model ve release kabul kapilari acik kalir. Dört kullanici
+Bu checkpoint V2 plugin yukleme ve created/deleted olay teslimini kanitlar; native compaction,
+tool hook, MCP/shell siniri, harici kaynak, canli model ve release kabul kapilari acik kalir. Dört kullanici
 untracked prototype/target yolu stage edilmedi ve degistirilmedi.
 
-`next_safe_action`: native delete/compaction icin ayni persistent server/client akisini ayri bir
+`next_safe_action`: native compaction ve tool hook icin ayni persistent server/client akisini ayri bir
 izole fixture olarak kur; sonra WP-02..12 icin kalan canli, harici kaynak, performans ve release
 kapilarini tek tek kanitla. `tamamlandi` iddiasi icin acik kapilari kapatma veya `not-run` olarak
 raporlama gerekir.
