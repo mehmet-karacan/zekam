@@ -1377,6 +1377,27 @@ allowance korundu. Bu allowance secret degeri saklamaz ve yeni credential ekleme
 `next_safe_action`: allowance listesini genisletmeden kalan SQLite projection path'lerini hedefli
 incele; her yeni fixture'da secret pattern yerine siradan sentetik metin kullan.
 
+### 10.14 14 Ekim 2026 operational ve projection reparse parity kaniti
+
+Kalan yuksek etkili SQLite path yuzeylerinde junction/reparse kontrolleri dar kapsamla
+tamamlandi. Dormant V4 close/PreCompact acilislarinda ortak lstat metadata kontroli,
+operational schema'da leaf ve tum parent zinciri kontrolu, evidence routing/improvement/model
+registry store'larinda ise ortak `path_or_parent_is_link_or_reparse` yardimcisi kullaniliyor.
+Boylece `Path.is_symlink()` false donen Windows reparse noktasi `resolve()` veya SQLite URI
+acilisina ulasmadan duruyor.
+
+Kanıtlar: `tests/unit/test_local_continuity_v4_writer.py`: `28 passed`; dormant macOS
+PreCompact test modulleri bu Windows hostunda `pwd/fcntl` import siniri nedeniyle kolekte
+edilmiyor, degisiklikler `py_compile` ile ayrica dogrulandi. Operational schema reparse,
+v3, v5 ve v6 kosulari toplam `102 passed`; ortak local file/store yuzeyi `45 passed, 5 skipped`.
+Commitler `aecfc18`, `eb8454e`, `216faf7` ASCII-only mesajlarla origin/main'e push edildi.
+
+Bu kanit yerel path guvenligini genisletir; WP-04 parser/format, WP-07 gercek race/crash,
+canli provider/model, harici Jira/Confluence/ODI ve release kabul kapilarini kapatmaz.
+
+`next_safe_action`: kalan SQLite projection path'lerini ayni ortak yardimciyla envanterle
+ve yalniz somut sidecar/lock acigi varsa hedefli test ekle; toplu refactor yapma.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
