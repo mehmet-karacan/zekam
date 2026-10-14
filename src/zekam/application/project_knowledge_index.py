@@ -63,9 +63,11 @@ NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
 NON_SEMANTIC_BASELINE_DIMENSION = 1024
 REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
 REAL_EMBEDDING_DIMENSION = 1024
-INDEXER_VERSION = "zekam-project-source-indexer/v4"
+INDEXER_VERSION = "zekam-project-source-indexer/v5"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
+MAX_XML_ELEMENTS = 16_384
+MAX_XML_DEPTH = 256
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _SUPPORTED_SUFFIXES = frozenset(
@@ -880,6 +882,17 @@ def _xml_structural_units(
         root = ET.fromstring(text)
     except ET.ParseError:
         return None
+
+    pending: list[tuple[ET.Element, int]] = [(root, 1)]
+    element_count = 0
+    while pending:
+        element, depth = pending.pop()
+        element_count += 1
+        if element_count > MAX_XML_ELEMENTS:
+            raise PolicyViolation("XML element sayisi sinirini asiyor")
+        if depth > MAX_XML_DEPTH:
+            raise PolicyViolation("XML element derinligi sinirini asiyor")
+        pending.extend((child, depth + 1) for child in reversed(list(element)))
 
     def tag_name(tag: str) -> str:
         return tag.rsplit("}", 1)[-1]

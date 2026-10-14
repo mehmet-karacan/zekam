@@ -1667,6 +1667,16 @@ dengeyi bozan alias'lar onceki satir parcasi fallback'ine duser. Indexer surumu
 Bu dar dilim WP-04.03'un TypeScript declaration boslugunu daraltir; tam AST/
 Tree-sitter kalitesi, diger dil yuzeyleri ve kabul matrisi halen aciktir.
 
+### 10.22 15 Ekim 2026 XML agac limitleri
+
+Proje kaynak XML parcacigi, DTD/entity deklarasyon kapisina ek olarak bounded
+element sayisi ve agac derinligi kontrolu uygular. Limit asimi `PolicyViolation`
+ile fail-closed reddedilir; gecerli XML'de var olan child entry locator semantigi
+korunur. Indexer surumu 5'e yukseltildi ve element/derinlik sinir testleri eklendi.
+
+Bu dar dilim WP-04.05'in kaynak XML bellek ve derinlik riskini azaltir; ODI,
+belge parser'lari, diger XML girisleri ve tam kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

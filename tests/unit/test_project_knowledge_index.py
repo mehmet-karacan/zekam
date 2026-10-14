@@ -168,6 +168,26 @@ def test_structural_code_units_accept_type_alias_at_file_end_without_semicolon()
     assert symbols[0].text == "type Result<T> = T | null"
 
 
+@pytest.mark.parametrize(
+    ("xml", "attribute", "limit", "error"),
+    [
+        ("<root><child/><child/></root>", "MAX_XML_ELEMENTS", 2, "element sayisi"),
+        ("<root><child><leaf/></child></root>", "MAX_XML_DEPTH", 2, "derinligi"),
+    ],
+)
+def test_xml_structural_units_reject_bounded_tree_limits(
+    monkeypatch: pytest.MonkeyPatch,
+    xml: str,
+    attribute: str,
+    limit: int,
+    error: str,
+) -> None:
+    monkeypatch.setattr(knowledge_index, attribute, limit)
+
+    with pytest.raises(PolicyViolation, match=error):
+        knowledge_index._file_units("bounded.xml", xml, 0)
+
+
 def test_structural_code_units_ignore_braces_in_literals_and_nested_declarations() -> None:
     source = 'class Box {\n  method() { return "}"; }\n}\nfunction tail() { return 1; }\n'
     units = knowledge_index._file_units("box.js", source, 0)
