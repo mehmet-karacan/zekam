@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 from zekam.interfaces.cli.main import app
 
 
-def test_removed_raw_transition_command_cannot_bypass_projection_close() -> None:
+def test_raw_transition_evidence_alias_cannot_bypass_projection_close() -> None:
     result = CliRunner().invoke(
         app,
         [
@@ -23,4 +23,4 @@ def test_removed_raw_transition_command_cannot_bypass_projection_close() -> None
     )
 
     assert result.exit_code == 2
-    assert "No such command 'transition'" in result.output
+    assert "No such option: --kanit" in result.output
