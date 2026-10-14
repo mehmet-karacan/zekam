@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -659,6 +660,22 @@ SCHEMA_DIGESTS = {
     6: V6_SCHEMA_DIGEST,
 }
 
+_REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT
+    )
+
+
+def _path_or_parent_is_link_or_reparse(path: Path) -> bool:
+    return any(_is_link_or_reparse(candidate) for candidate in (path, *path.parents))
+
 
 def _schema_table_columns(version: int) -> tuple[tuple[str, tuple[str, ...]], ...]:
     connection = sqlite3.connect(":memory:")
@@ -688,7 +705,7 @@ V2_TABLE_NAMES = tuple(table for table, _columns in _TABLE_COLUMNS[2])
 
 
 def _connect(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
-    if path.is_symlink() or (path.exists() and not path.is_file()):
+    if _path_or_parent_is_link_or_reparse(path) or (path.exists() and not path.is_file()):
         raise ConfigurationError("Operational SQLite path regular file olmali")
     if read_only:
         connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
@@ -923,7 +940,7 @@ def bootstrap(path: Path, *, target_version: int = SCHEMA_VERSION) -> Operationa
 
 def bootstrap_v4(path: Path) -> OperationalSchemaStatus:
     """Create a fresh dormant v4 database without changing the v3 default API."""
-    if path.exists() or path.is_symlink():
+    if _path_or_parent_is_link_or_reparse(path) or path.exists():
         raise ConfigurationError("Operational SQLite fresh v4 empty destination required")
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = _connect(path)
@@ -945,7 +962,7 @@ def bootstrap_v4(path: Path) -> OperationalSchemaStatus:
 def bootstrap_v5(path: Path) -> OperationalSchemaStatus:
     """Create a fresh v5 integration fixture; it registers no standing grant."""
 
-    if path.exists() or path.is_symlink():
+    if _path_or_parent_is_link_or_reparse(path) or path.exists():
         raise ConfigurationError("Operational SQLite fresh v5 empty destination required")
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = _connect(path)
@@ -967,7 +984,7 @@ def bootstrap_v5(path: Path) -> OperationalSchemaStatus:
 def bootstrap_v6(path: Path) -> OperationalSchemaStatus:
     """Create a fresh v6 (unit-test ledger) fixture; existing databases use the orchestrator."""
 
-    if path.exists() or path.is_symlink():
+    if _path_or_parent_is_link_or_reparse(path) or path.exists():
         raise ConfigurationError("Operational SQLite fresh v6 empty destination required")
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = _connect(path)
@@ -1021,7 +1038,7 @@ def upgrade(path: Path, *, target_version: int = SCHEMA_VERSION) -> OperationalS
 
 def status(path: Path) -> OperationalSchemaStatus:
     """Read integrity and exact schema state without mutating the file."""
-    if not path.is_file() or path.is_symlink():
+    if _path_or_parent_is_link_or_reparse(path) or not path.is_file():
         return OperationalSchemaStatus(False, None, False, False)
     connection: sqlite3.Connection | None = None
     try:
