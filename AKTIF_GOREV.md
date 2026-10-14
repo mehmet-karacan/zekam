@@ -1287,6 +1287,28 @@ native compaction ve tool calistirma, MCP/shell, harici kaynak ve release kabul 
 `next_safe_action`: canli kaynak ve model gerektiren kapilar icin yetkili ortami ve butceyi
 ayristir; native compaction/tool acceptance'i provider-free callback kanitindan ayri raporla.
 
+### 10.8 14 Ekim 2026 native istemci ve Maven probe kaniti
+
+Provider-free ortam probe'u hedefli olarak yeniden kosuldu:
+
+- `tests/integration/test_real_maven_unit_test_fixture.py`: `2 passed` (Java `21.0.11`, Maven
+  `3.9.16`; test-only fixture ve taze rapor kaniti).
+- `tests/e2e/test_codex_lifecycle_hook_runtime.py tests/e2e/test_claude_lifecycle_hook_runtime.py
+  tests/e2e/test_real_client_binaries.py`: `1 passed, 5 skipped`. Codex kurulu `0.162.0-alpha.17.2`
+  sabitlenmis kabul surumu degil; Claude ve Gemini CLI yok; tarihsel OpenCode/Codex binary
+  eslesmeleri de kurulu degil. Bu skip'ler basariya cevrilmedi.
+- `OPENCODE_EXECUTABLE=... python -m pytest -q tests/e2e/test_opencode_lifecycle_plugin_runtime.py`:
+  `10 passed`; native persistent server/session lifecycle ve provider-free V2 callback kaniti
+  10.7 ile ayni kapsamda korundu.
+
+Bu probe yerel toolchain/fixture sagligini gosterir; canli provider, harici Jira/Confluence/ODI,
+gercek kaynak revision'i, performans qrels'i, sabitlenmis eski client acceptance'i veya release
+kapsamini kapatmaz. Ilgili WP-02..12 kutulari ve GATE-I/GATE-U bu nedenle acik kalir.
+
+`next_safe_action`: mevcut kurulu Codex alpha surumu icin yeni acceptance sozlesmesi tanimlamadan
+versiyon kapisini acma; yetkili sabit binary veya kullanici karari saglandiginda native matrisini
+ayri calistir. Harici kaynak ve canli model kaniti yokken `completed` sonucu uretme.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
