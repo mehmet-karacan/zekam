@@ -57,11 +57,11 @@
 - Direct shell allow and direct `git push`/publish deny remain host-native.
 - Indirect shell publication is reported as an explicit limitation unless a deterministic host guard can be tested without a live provider.
 
-- [ ] Step 1: Run direct policy, security boundary, and Windows CLI tests.
-- [ ] Step 2: Fix a concrete direct-policy failure if present; do not claim indirect coverage from prompt text.
-- [ ] Step 3: Add/update a provider-free limitation test or evidence note for scanner-bypassed commands.
-- [ ] Step 4: Re-run tests and package validator; update WP-02.03 status honestly.
-- [ ] Step 5: Commit and push.
+- [x] Step 1: Run direct policy, security boundary, and Windows CLI tests.
+- [x] Step 2: Fix a concrete direct-policy failure if present; do not claim indirect coverage from prompt text.
+- [x] Step 3: Add/update a provider-free limitation test or evidence note for scanner-bypassed commands.
+- [x] Step 4: Re-run tests and package validator; update WP-02.03 status honestly.
+- [x] Step 5: Commit and push.
 
 ### Task 3: MCP projection and legacy ownership plan
 
@@ -92,4 +92,4 @@
 - [x] Step 2: Check every WP-02 checkbox against an exact test, receipt, or real-host observation; leave unsupported acceptance unchecked.
 - [x] Step 3: Regenerate `AKTIF_GOREV.yaml` from the canonical Markdown source.
 - [x] Step 4: Run `git diff --check`, package validator, and final status inspection excluding preexisting user untracked files.
-- [ ] Step 5: Commit and push the final evidence update.
+- [x] Step 5: Commit and push the final evidence update.
