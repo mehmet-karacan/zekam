@@ -35,6 +35,7 @@ from zekam.application.project_rag_runtime import (
     resolve_question_project,
     resolve_registered_project,
 )
+from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -349,6 +350,78 @@ def test_single_project_keeps_legacy_ask_contract(
     assert document["project_ref"] == "sky-spring-ui"
     assert observed["project"] == "sky-spring-ui"
     assert observed["question"] == question
+
+
+def test_single_project_binds_separate_answer_envelope_and_human_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _comparison_home(tmp_path)
+    question = "sky-spring-ui servisi nasil calisiyor?"
+    source_digest = digest({"fixture": "source"})
+
+    def fake_query(home_arg: Path, slug: str, q: str, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "project_id": UI_ID,
+            "project_slug": slug,
+            "answer_excerpt": "Kanita bagli servis aciklamasi.",
+            "evidence_found": True,
+            "citations": [
+                {
+                    "project_scope": UI_ID,
+                    "source_ref": "src/service.py",
+                    "source_digest": source_digest,
+                    "locator": {"relative_path": "src/service.py"},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(cli, "query_registered_project", fake_query)
+
+    structured = CliRunner().invoke(
+        cli.app, ["ask", question, "--home", str(home), "--json"]
+    )
+    assert structured.exit_code == 0, structured.output
+    document = json.loads(structured.output)
+    assert document["schema"] == "zekam-ask-result/v1"
+    assert document["retrieval"]["answer_excerpt"] == "Kanita bagli servis aciklamasi."
+    assert document["answer"]["schema"] == "zekam-natural-request-answer/v1"
+    assert document["answer"]["proposed_explanation_accepted"] is True
+    assert document["answer"]["effect_claimed"] is False
+    assert document["answer"]["retrieval"]["schema"] == "zekam-natural-request-retrieval/v1"
+
+    human = CliRunner().invoke(cli.app, ["ask", question, "--home", str(home)])
+    assert human.exit_code == 0, human.output
+    assert "Kanita bagli servis aciklamasi." in human.output
+    assert "zekam-natural-request-answer" not in human.output
+
+
+def test_single_project_without_locator_does_not_print_precise_claim(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _comparison_home(tmp_path)
+
+    monkeypatch.setattr(
+        cli,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "schema": "zekam-embedded-rag-result/v1",
+            "state": "answered",
+            "project_id": UI_ID,
+            "answer_excerpt": "Uydurma kesin teknik cevap.",
+            "citations": [],
+            "evidence_found": False,
+        },
+    )
+
+    result = CliRunner().invoke(
+        cli.app, ["ask", "sky-spring-ui servisi nasil calisiyor?", "--home", str(home)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "kaynaklara dayanan dogrulanabilir bir cevap veremedim" in result.output
+    assert "Uydurma kesin teknik cevap." not in result.output
 
 
 def test_open_comparison_keeps_fanout_contract(

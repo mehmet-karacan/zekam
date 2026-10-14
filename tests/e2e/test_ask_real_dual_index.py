@@ -249,6 +249,9 @@ def test_ask_real_dual_index_fans_out_two_scoped_results(
     document = json.loads(result.output)
     assert document["schema"] == "zekam-ask-multi-result/v1"
     assert document["route"] == "natural-request-retrieval"
+    assert document["answer"]["schema"] == "zekam-natural-request-answer/v1"
+    assert document["answer"]["proposed_explanation_accepted"] is True
+    assert document["answer"]["effect_claimed"] is False
     retrieval = document["retrieval"]
     assert retrieval["status"] == "answered"
     assert retrieval["project_refs"] == ["sky-spring-ui", "sky-microservis"]

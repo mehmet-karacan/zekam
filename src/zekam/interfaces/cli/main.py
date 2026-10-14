@@ -32,6 +32,7 @@ from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
 )
+from zekam.application.natural_request_answer import answer_natural_request
 from zekam.application.natural_request_retrieval import retrieve_natural_request
 from zekam.application.natural_request_scope import (
     NaturalRequestScope,
@@ -559,26 +560,97 @@ def _ask_natural_request_retrieval(
         authorize_remote_query=authorize_remote_query,
         opencode_config=opencode_config,
     )
+    answer = answer_natural_request(retrieval, _retrieval_explanation(retrieval))
     result: dict[str, Any] = {
         "schema": "zekam-ask-multi-result/v1",
         "project_refs": list(scope.project_refs),
         "route": "natural-request-retrieval",
         "retrieval": retrieval,
+        "answer": answer,
     }
     if output_json:
         _print_json(result)
         return
-    if retrieval["status"] == "answered":
-        for entry in retrieval["results"]:
-            if entry["status"] != "answered":
-                continue
-            payload = entry["result"] or {}
-            excerpt = payload.get("answer_excerpt")
-            console.print(f"{entry['project_ref']}: {excerpt if excerpt else '(bos cevap)'}")
+    console.print(answer["answer"])
+
+
+def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
+    """Retrieval kanitindan metadata'siz, ayri aciklama onerisi olusturur."""
+
+    excerpts: list[str] = []
+    for entry in retrieval.get("results", []):
+        if not isinstance(entry, dict) or entry.get("status") != "answered":
+            continue
+        payload = entry.get("result")
+        if not isinstance(payload, dict):
+            continue
+        excerpt = payload.get("answer_excerpt")
+        if isinstance(excerpt, str) and excerpt.strip():
+            excerpts.append(excerpt.strip())
+    return "\n\n".join(excerpts) or None
+
+
+def _single_natural_request_retrieval(
+    project_ref: str,
+    question: str,
+    retrieval: dict[str, Any],
+    *,
+    authorize_remote_query: bool,
+) -> dict[str, Any]:
+    """Legacy tek-proje sonucunu cevap kapisinin bekledigi envelope'a sarar."""
+
+    from zekam.domain.canonical import digest
+
+    raw = dict(retrieval)
+    project_id = raw.get("project_id")
+    state = raw.get("state")
+    answered = isinstance(project_id, str) and bool(project_id) and state in {
+        "answered",
+        "lexical-only-degraded",
+        "abstained-low-evidence",
+    }
+    if answered:
+        citations = raw.get("citations")
+        if not isinstance(citations, list):
+            raw["citations"] = []
+        raw.setdefault("evidence_found", bool(raw.get("citations")))
+        entry: dict[str, Any] = {
+            "project_ref": project_ref,
+            "project_id": project_id,
+            "selected_by": "explicit",
+            "query_attempted": True,
+            "status": "answered",
+            "unavailable_reason": None,
+            "result": raw,
+        }
+        status = "answered"
+        reasons: list[str] = []
     else:
-        status = retrieval["status"]
-        reasons = ", ".join(retrieval["reason_codes"]) or "neden yok"
-        console.print(f"ask: {status} ({reasons})")
+        entry = {
+            "project_ref": project_ref,
+            "selected_by": "explicit",
+            "query_attempted": True,
+            "status": "unavailable",
+            "unavailable_reason": "query-unavailable",
+            "result": None,
+        }
+        status = "unavailable"
+        reasons = ["query-unavailable"]
+    body: dict[str, Any] = {
+        "schema": "zekam-natural-request-retrieval/v1",
+        "status": status,
+        "question_digest": digest({"question": question}),
+        "project_refs": [project_ref],
+        "reason_codes": reasons,
+        "results": [entry],
+        "query_count": 1,
+        "remote_query_authorized": bool(authorize_remote_query),
+        "source_access": "read-only",
+        "observation_write_possible": True,
+        "index_triggered": False,
+        "grants_authority": False,
+    }
+    return body | {"retrieval_digest": digest(body)}
 
 
 @app.command()
@@ -677,10 +749,18 @@ def ask(
         "project_ref": selected_project,
         "retrieval": retrieval,
     }
+    answer_retrieval = _single_natural_request_retrieval(
+        selected_project,
+        question,
+        retrieval,
+        authorize_remote_query=authorize_remote_query,
+    )
+    answer = answer_natural_request(answer_retrieval, _retrieval_explanation(answer_retrieval))
+    result["answer"] = answer
     if output_json:
         _print_json(result)
     else:
-        console.print(str(retrieval.get("answer_excerpt", "")))
+        console.print(answer["answer"])
 
 
 @app.command()
