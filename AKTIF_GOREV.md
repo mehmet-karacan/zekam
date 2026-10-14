@@ -1333,6 +1333,23 @@ tek basina kapatmaz. Kullaniciya ait untracked prototype/target yollarina dokunu
 `next_safe_action`: reparse/junction negatifini privilege-independent fixture ile security suite'e
 ekle; ardindan WP-04 parser/ZIP/XML kapsamlarini ve WP-07 lease/outbox crash kosularini ayri kanitla.
 
+### 10.11 14 Ekim 2026 code graph reparse kaniti
+
+SQLite code graph store'un writable path/parent ve writer lock kontrolleri ile read-only sidecar
+identity akisina Windows reparse/junction reddi eklendi. Boylece `is_symlink()` false donen
+junction girdisi graph veritabani veya lock dosyasi olarak acilamiyor. Yetki gerektirmeyen bir
+mock reparse negatif testi ile davranis sabitlendi.
+
+Kanıt: `tests/unit/test_code_graph_negatives.py tests/unit/test_code_graph_query.py
+tests/unit/test_code_graph_ranking.py`: `39 passed, 1 skipped`; tek skip gercek file symlink
+olusturma yetkisine bagli ve mock reparse kaniti bunun yerine geciyor.
+
+Bu degisiklik graph path guvenligini artirir; graph parser/resolver'in tum dil kapsami, canli
+harici kaynak ve release kabul kapilarini kapatmaz.
+
+`next_safe_action`: ayni reparse parity'sini gerekiyorsa diger SQLite projection stores'larinda
+hedefli olarak denetle; ortak private path helper'i uzerinden duplicate security kodu olusturma.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

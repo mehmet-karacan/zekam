@@ -52,6 +52,17 @@ MAX_FILES_PER_GENERATION = 200_000
 MAX_SYMBOLS_PER_GENERATION = 2_000_000
 MAX_EDGES_PER_GENERATION = 5_000_000
 MAX_BODY_BYTES = 512 * 1024
+_REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT
+    )
 
 _ParseState = str
 _FileIdentity = tuple[int, int, int, int, int, int]
@@ -88,8 +99,8 @@ class SQLiteCodeGraphStore(CodeGraphPort):
             self._source_identity_at_open = self._source_file_identity()
         else:
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if path.is_symlink() or path.parent.is_symlink():
-                raise ConfigurationError("Graph store path symlink olamaz")
+            if _is_link_or_reparse(path) or _is_link_or_reparse(path.parent):
+                raise ConfigurationError("Graph store path symlink/junction olamaz")
         connection: sqlite3.Connection | None = None
         try:
             connection = (
@@ -144,8 +155,8 @@ class SQLiteCodeGraphStore(CodeGraphPort):
     def _single_writer(self) -> Iterator[None]:
         self._require_writable()
         lock_path = Path(str(self.path) + ".writer.lock")
-        if lock_path.is_symlink():
-            raise ConfigurationError("Graph writer lock symlink olamaz")
+        if _is_link_or_reparse(lock_path):
+            raise ConfigurationError("Graph writer lock symlink/junction olamaz")
         descriptor = os.open(
             lock_path,
             os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
@@ -203,7 +214,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
     def _source_file_identity(self) -> _SourceIdentity:
         try:
             for parent in self.path.parents:
-                if not stat.S_ISDIR(parent.lstat().st_mode):
+                if _is_link_or_reparse(parent) or not stat.S_ISDIR(parent.lstat().st_mode):
                     raise ConfigurationError("Graph read-only path ancestor must be a directory")
             identities: list[_FileIdentity | None] = []
             for suffix in ("", "-wal", "-journal", "-shm"):
@@ -217,7 +228,7 @@ class SQLiteCodeGraphStore(CodeGraphPort):
                         ) from None
                     identities.append(None)
                     continue
-                if not stat.S_ISREG(info.st_mode):
+                if _is_link_or_reparse(candidate) or not stat.S_ISREG(info.st_mode):
                     raise ConfigurationError(
                         "Graph read-only file/sidecar must be regular, not symlink"
                     )

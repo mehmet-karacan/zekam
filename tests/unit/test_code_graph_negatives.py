@@ -27,6 +27,7 @@ from zekam.domain.code_graph import (
 )
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
+from zekam.infrastructure.sqlite import code_graph as code_graph_module
 
 pytestmark = pytest.mark.unit
 
@@ -80,6 +81,21 @@ def test_symlink_path_rejected(tmp_path: Path) -> None:
         pytest.skip(f"symlink unavailable: {exc}")
     with pytest.raises(ConfigurationError):
         SQLiteCodeGraphStore(link, create=True)
+
+
+def test_reparse_path_rejected_without_platform_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "junction-like.sqlite3"
+    real = tmp_path / "real.sqlite3"
+    real.write_bytes(b"x")
+    monkeypatch.setattr(
+        code_graph_module,
+        "_is_link_or_reparse",
+        lambda candidate: candidate == path,
+    )
+    with pytest.raises(ConfigurationError, match="symlink/junction"):
+        SQLiteCodeGraphStore(path, create=True)
 
 
 def test_relative_path_rejected(tmp_path: Path) -> None:
