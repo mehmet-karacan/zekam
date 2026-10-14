@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from zekam.application.opencode_lifecycle import (
+    MAX_LIFECYCLE_EVENT_BYTES,
     SCHEMA_V1,
     OpenCodeForwardBatch,
     OpenCodeLifecycleEvent,
@@ -276,6 +277,28 @@ def test_tampered_event_and_unsafe_resource_are_rejected(tmp_path: Path) -> None
             resource="C:/secret.txt",
             now=NOW,
         )
+
+
+def test_oversized_event_is_quarantined_without_unbounded_read(tmp_path: Path) -> None:
+    root = lifecycle_root(tmp_path)
+    root.mkdir(parents=True)
+    (root / "oversized.json").write_bytes(b"x" * (MAX_LIFECYCLE_EVENT_BYTES + 1))
+
+    assert recent_events(tmp_path, quarantine_invalid=True) == ()
+    assert (root / "quarantine" / "oversized.json").exists()
+
+
+def test_event_file_count_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = lifecycle_root(tmp_path)
+    root.mkdir(parents=True)
+    (root / "one.json").write_text("{}", encoding="utf-8")
+    (root / "two.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "zekam.application.opencode_lifecycle.MAX_LIFECYCLE_EVENT_FILES", 1
+    )
+
+    with pytest.raises(ValidationFailed, match="event dosya siniri"):
+        recent_events(tmp_path)
 
 
 def test_v2_events_form_a_monotonic_hash_chain(tmp_path: Path) -> None:

@@ -2034,6 +2034,16 @@ limit asiminda kalan agac sessizce complete sayilmaz.
 Bu dar dilim WP-04.04 bilgi dosyasi audit traversal bellek/sure boslugunu
 daraltir; native dosya sistemi yarisi ve tam kabul matrisi halen aciktir.
 
+### 10.58 15 Ekim 2026 OpenCode lifecycle spool kapisi
+
+OpenCode lifecycle event ve ACK spool listeleri bounded dosya sayisi, regular
+file/reparse kontrolu ve event 256 KiB / ACK 64 KiB okuma sinirlariyla taranir.
+Oversized veya bozuk event quarantine edilebilir; spool kapasitesi asilirsa
+resume sessizce eksik veri uretmeden typed validation hatasi verir.
+
+Bu dar dilim WP-02/07 lifecycle resume bellek ve retention boslugunu daraltir;
+gercek native OpenCode host kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import re
+import stat
 import tempfile
 import time
 from collections.abc import Iterable, Mapping
@@ -37,6 +38,10 @@ _EVENTS = frozenset(
 )
 _SENSITIVE_SUMMARY = re.compile(r"(?i)(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+")
 _ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|(?:^|\s)/(?:Users|home|root|etc|var)/)")
+MAX_LIFECYCLE_EVENT_FILES = 10_000
+MAX_LIFECYCLE_EVENT_BYTES = 256 * 1024
+MAX_LIFECYCLE_ACK_FILES = 10_000
+MAX_LIFECYCLE_ACK_BYTES = 64 * 1024
 
 
 def lifecycle_root(home: Path) -> Path:
@@ -91,6 +96,41 @@ def _bounded(value: str | None, *, label: str, maximum: int = 160) -> str | None
     if not cleaned or len(cleaned) > maximum or not _ID.fullmatch(cleaned):
         raise ValidationFailed(f"OpenCode lifecycle {label} gecersiz")
     return cleaned
+
+
+def _json_files(root: Path, *, maximum: int, label: str) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if not entry.name.endswith(".json"):
+                    continue
+                paths.append(Path(entry.path))
+                if len(paths) > maximum:
+                    raise ValidationFailed(f"OpenCode lifecycle {label} dosya siniri asildi")
+    except OSError as exc:
+        raise ValidationFailed(f"OpenCode lifecycle {label} dosyalari okunamadi") from exc
+    return tuple(sorted(paths, key=lambda path: path.name))
+
+
+def _read_json_text(path: Path, *, maximum: int, label: str) -> str:
+    try:
+        info = path.lstat()
+        reparse = bool(
+            int(getattr(info, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(info.st_mode) or reparse or not stat.S_ISREG(info.st_mode):
+            raise ValidationFailed(f"OpenCode lifecycle {label} regular dosya olmali")
+        if info.st_size > maximum:
+            raise ValidationFailed(f"OpenCode lifecycle {label} boyut siniri asildi")
+        with path.open("rb") as stream:
+            raw = stream.read(maximum + 1)
+        if len(raw) > maximum:
+            raise ValidationFailed(f"OpenCode lifecycle {label} boyut siniri asildi")
+        return raw.decode("utf-8", errors="strict")
+    except OSError as exc:
+        raise ValidationFailed(f"OpenCode lifecycle {label} okunamadi") from exc
 
 
 def _relative_resource(value: str | None) -> str | None:
@@ -578,11 +618,17 @@ def _verified_events(root: Path, *, quarantine_invalid: bool) -> list[dict[str, 
     verified: list[dict[str, Any]] = []
     previous_by_session: dict[str, str] = {}
     expected_by_session: dict[str, int] = {}
-    for path in sorted(root.glob("*.json")):
+    for path in _json_files(
+        root,
+        maximum=MAX_LIFECYCLE_EVENT_FILES,
+        label="event",
+    ):
         try:
-            document = json.loads(path.read_text(encoding="utf-8"))
+            document = json.loads(
+                _read_json_text(path, maximum=MAX_LIFECYCLE_EVENT_BYTES, label="event")
+            )
             event_digest = document.pop("event_digest")
-        except (OSError, KeyError, UnicodeDecodeError, json.JSONDecodeError):
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, ValidationFailed):
             if quarantine_invalid:
                 _quarantine(root, path, "unreadable")
             continue
@@ -778,13 +824,19 @@ def oldest_unacknowledged_events(home: Path, *, limit: int = 80) -> tuple[dict[s
     acknowledged: set[str] = set()
     ack_root = root / "acked"
     if ack_root.is_dir():
-        for path in ack_root.glob("*.json"):
+        for path in _json_files(
+            ack_root,
+            maximum=MAX_LIFECYCLE_ACK_FILES,
+            label="ack",
+        ):
             try:
-                receipt = json.loads(path.read_text(encoding="utf-8"))
+                receipt = json.loads(
+                    _read_json_text(path, maximum=MAX_LIFECYCLE_ACK_BYTES, label="ack")
+                )
                 local_digest = str(receipt["local_event_digest"])
                 parse_digest(local_digest)
                 parse_digest(str(receipt["canonical_digest"]))
-            except (OSError, KeyError, TypeError, ValueError, ValidationFailed):
+            except (KeyError, TypeError, ValueError, ValidationFailed, UnicodeDecodeError):
                 continue
             acknowledged.add(local_digest)
     events = [
