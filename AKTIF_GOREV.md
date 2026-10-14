@@ -1331,6 +1331,27 @@ tek basina kapatmaz. Kullaniciya ait untracked prototype/target yollarina dokunu
 `next_safe_action`: reparse/junction negatifini privilege-independent fixture ile security suite'e
 ekle; ardindan WP-04 parser/ZIP/XML kapsamlarini ve WP-07 lease/outbox crash kosularini ayri kanitla.
 
+### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
+
+WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
+Maven reactor fixture'i eklendi. Fixture parent POM, `util` ve `service` modullerinden olusuyor;
+`service` hedefi gercek Maven `-pl service -am` akisi ile bagimlisi `util`i birlikte calistiriyor.
+Her moduldaki Surefire ve JaCoCo ciktilari kosu baslangicindan sonra toplanip binding'e digest
+olarak yaziliyor; `jacoco-xml:util`, `jacoco-xml:service`, `jacoco-exec:util` ve
+`jacoco-exec:service` etiketleri birlikte dogrulaniyor. Line coverage gercek rapordan measured,
+branch olmayan iki sinif ise acik `not-applicable` olarak kalıyor.
+
+Kanıt: Java `21.0.11` / Maven `3.9.16` ile `tests/integration/test_real_maven_unit_test_fixture.py`:
+`3 passed`. Fixture ve Maven target'i `tmp_path` altinda uretildi; repo'daki kullaniciya ait
+untracked `tests/fixtures/unit_test_engineering_java/target/` stage edilmedi.
+
+Bu adim WP-09.01/02/05'in multi-module ve per-module rapor baglama boslugunu daraltir; gerçek
+hedef proje, bağımsız kalite verifier'i, kullanici hedefi/branch matrisi ve release kapilari
+halen aciktir.
+
+`next_safe_action`: test-only fixture kanitini gercek hedef Java projesi kabulüyle karistirma;
+fresh Surefire/JaCoCo, test tree ve toolchain fingerprint'i ayni kanonik raporda koru.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
