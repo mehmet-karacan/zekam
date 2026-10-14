@@ -1138,11 +1138,20 @@ push edilmistir.
 - [ ] **WP-11.02** — Scheduler varsayılanını klasör açmakla etkinleştirme. Onaylı standing grant varsa kapsam/bütçe/expiry/pause/disable/recovery ve exact native kayıt readback'ini uygula.
 - [ ] **WP-11.03** — Backup'ı SQLite online snapshot + CAS/manifest ile al; çalışan DB'yi gelişigüzel kopyalama. Restore yalnız yeni/hedefi onaylı alanda, logical digest ve dosya sahipliği doğrulamasıyla yapılır.
 - [ ] **WP-11.04** — Derived index/analytics'in yeniden kurulabileceğini, operational state'in oralardan türetilmediğini göster. Missing/corrupt CAS, disk full, outbox backlog ve cancelled recovery'de güvenli davranışı test et.
-- [ ] **WP-11.05** — Salt “core healthy” sonucunu bütün model/CLI/feature'lar hazır diye sunma. Rapor her CAP'nin gerçek eksik kurulum/kanıt/izin ayrımını taşısın.
+- [x] **WP-11.05** — Salt “core healthy” sonucunu bütün model/CLI/feature'lar hazır diye sunma. Rapor her CAP'nin gerçek eksik kurulum/kanıt/izin ayrımını taşısın.
 
 **Üretilen sözleşme/çıktı:** Runtime health + usage + backup/restore evidence; öneri `tests/e2e/test_natural_language_operations.py` ve var olan restore/fault testlerinin genişletilmesi.
 
 **Kabul ve negatif testler:** Testler: new-target restore, owner conflicts, index rebuild, backup drift, corrupt/missing object, scheduler pause and disable, two-cycle readback (yalnız onaylı gerçek cihazda), disk/full failure.
+
+**14 Ekim 2026 — WP-11.05 kapanis kaniti:** `capability_readiness` statik envanter,
+yerel kanit, izin acigi ve istemci kurulum acigini ayri raporlar; provider/network
+cagrisi yapmaz, core sagligini CAP hazirligi olarak yukseltemez ve authority vermez.
+Doctor ve `readyz` bu raporu core sagligindan ayri tasir. Capability/health, parser,
+research ve project-RAG son focused kosusunda **172 test** gecti; paket validatori,
+Ruff ve diff kontrolu temizdir. Bagimsiz WP-11 incelemesi bu ayrimi ve degisken
+readiness davranisini dogruladi. Canli provider, native scheduler ve diger acik
+WP kabul kapilari bu kapanisin disindadir.
 
 ### WP-12 — Bütünleşik Kullanıcı Kabulü, Paket Ve Yaşayan Mimari
 
