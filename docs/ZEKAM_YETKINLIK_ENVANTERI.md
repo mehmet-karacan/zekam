@@ -24,7 +24,7 @@ kanıtları ayrıca paket doğrulaması ve kabul özetiyle raporlanır.
 | OpenCode continuity ve otomatik resume | `ready` | `resume`, `opencode event/pre-compact/resume/install` | Semantik özetin kalitesi agent'ın checkpoint yazmasına bağlı |
 | Backup ve recovery | `ready` | `backup create/verify/restore`, `local-runtime recover` | — |
 | Otonom evolution | `ready` | `evolve plan/status/candidates/report/pause/resume/disable/run-once/bootstrap-plan`; typed shadow/canary/activation/rollback; Windows Task Scheduler | Canli yetki capability kaydindan degil `evolve status` grant/supervisor/native acceptance readback zincirinden belirlenir |
-| Operational Work Graph | `partial` | `project add/list`, `work create/list/resume` | Public transition/history/checkpoint komutları eksik |
+| Operational Work Graph | `partial` | `project add/list`, `work create/list/show/history/transition`, run/step/checkpoint/close, `work resume` | Lease/fencing ve native istemciler arası devam için live kanıt gerekli |
 | Markdown knowledge | `ready` | `knowledge scan/inspect/ingest/list/show/search/create/update/archive/restore/mutation-status`; global/project/work filtreleri | — |
 | ODI 11g lineage | `partial` | `project odi-preflight/odi-bind`; digest-bound local-only export bağlantısı | Gerçek GPU/SKY exportuyla object-aware sanitizer ve exact lineage graph doğrulanmadan embedding kapalı |
 | Project Researcher | `ready` | Digest-bound `research run/status/report`; OpenCode researcher + bağımsız verifier | — |
