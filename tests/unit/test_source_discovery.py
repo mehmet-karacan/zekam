@@ -908,3 +908,33 @@ def test_eligibility_excludes_file_beyond_inventory_cap(tmp_path: Path) -> None:
     assert inventoried <= {"a.txt", "b.txt"}
     assert {item.relative_path for item in report.eligibility_decisions} == inventoried
     assert {item.relative_path for item in report.files} == inventoried
+
+
+def test_read_content_false_keeps_metadata_without_opening_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    content = root / "src.py"
+    content.write_text("token = 'synthetic-value'\n", encoding="utf-8")
+    before = content.read_bytes()
+    original_open = Path.open
+
+    def refuse_content(path: Path, *args: object, **kwargs: object) -> Any:
+        if path == content:
+            raise AssertionError("content must not be opened")
+        return original_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(Path, "open", refuse_content)
+        report = discover(root, policy=DiscoveryPolicy(read_content=False))
+
+    assert report.files == ()
+    assert report.truncated is False
+    assert report.inventory_status is InventoryStatus.COMPLETE
+    entry = next(item for item in report.inventory if item.relative_path == "src.py")
+    assert entry.size_bytes == len(before)
+    assert entry.skip_reason is SkipReason.CONTENT_DISABLED
+    assert entry.eligibility is not None
+    assert entry.eligibility.reason is SkipReason.CONTENT_DISABLED
+    assert content.read_bytes() == before

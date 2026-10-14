@@ -23,7 +23,9 @@ SIRASINDA zorlanir (dev dizinler bellege yuklenmez) ve envanter asla yalnizca
 `complete` ilan edilmez. Icerik eligibility sinirlari (`max_total_files`,
 `max_total_bytes`) envanteri kesmez: envanter tam tarandiysa `complete` kalir;
 eligibility sinirlari `truncated` bayragina ve `LIMIT_REACHED` olarak atlanan
-icerik girdilerine yansir. Sinirlar fail-closed dogrulanir: icerik/envanter
+icerik girdilerine yansir. `read_content=False` secenegi icerik okumayi
+tamamen kapatir; metadata envanteri tutulur, digest/secret/binary tespiti ve
+icerik limitleri uygulanmaz. Sinirlar fail-closed dogrulanir: icerik/envanter
 sinirlari pozitif olmak zorundadir; `max_depth=0` gecerlidir.
 
 Icerik eligibility karar sozlesmesi (WP-04.01): Eligibility, metadata envanterinden
@@ -85,6 +87,7 @@ class SkipReason(StrEnum):
     SECRET = "secret"
     UNREADABLE = "unreadable"
     LIMIT_REACHED = "limit-reached"
+    CONTENT_DISABLED = "content-disabled"
 
 
 class FileKind(StrEnum):
@@ -126,6 +129,7 @@ class DiscoveryPolicy:
     max_depth: int = 100
     max_inventory_entries: int = MAX_INVENTORY_ENTRIES
     max_dir_entries: int = MAX_DIR_ENTRIES
+    read_content: bool = True
 
     def __post_init__(self) -> None:
         self._validate()
@@ -168,6 +172,8 @@ class DiscoveryPolicy:
             raise ValueError("max_dir_entries pozitif olmali")
         if self.follow_symlinks:
             raise ValueError("follow_symlinks fail-closed oldugu icin False olmali")
+        if not isinstance(self.read_content, bool):
+            raise ValueError("read_content bool olmali")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -179,6 +185,7 @@ class DiscoveryPolicy:
             "max_depth": self.max_depth,
             "max_inventory_entries": self.max_inventory_entries,
             "max_dir_entries": self.max_dir_entries,
+            "read_content": self.read_content,
         }
 
 
@@ -761,6 +768,27 @@ def discover(
                     break
                 if unreadable_file is None:
                     unreadable_file = entry_relative
+                continue
+
+            if not active_policy.read_content:
+                skipped.append(
+                    SkippedPath(
+                        entry_relative,
+                        SkipReason.CONTENT_DISABLED,
+                        "icerik okuma politikasi kapali",
+                    )
+                )
+                decision = EligibilityDecision.skipped(
+                    entry_relative, SkipReason.CONTENT_DISABLED
+                )
+                if builder.add(
+                    entry_relative,
+                    FileKind.FILE,
+                    size,
+                    skip_reason=SkipReason.CONTENT_DISABLED,
+                    eligibility=decision,
+                ):
+                    break
                 continue
 
             if len(files) >= active_policy.max_total_files:
