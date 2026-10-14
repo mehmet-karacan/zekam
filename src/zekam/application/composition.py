@@ -81,7 +81,10 @@ def build_doctor_checks(context: ApplicationContext) -> tuple[DoctorCheck, ...]:
             sqlite_checks.LocalCoreStoresCheck(
                 context=context,
             ),
-            sqlite_checks.CapabilityCheck(),
+            sqlite_checks.CapabilityCheck(
+                core_path=context.core_path,
+                settings=context.settings,
+            ),
         )
     )
     checks.append(

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from zekam.domain.canonical import digest
 
 CAPABILITY_SCHEMA = "zekam-capability-inventory/v1"
+CAPABILITY_READINESS_SCHEMA = "zekam-capability-readiness/v1"
 CapabilityStatus = Literal["ready", "partial", "scaffold"]
+CapabilityReadinessStatus = Literal["ready", "partial", "blocked"]
+CapabilityEvidenceState = Literal["observed", "unobserved", "partial", "missing"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,8 +324,28 @@ CAPABILITIES: tuple[Capability, ...] = (
 )
 
 
-def capability_inventory() -> dict[str, Any]:
-    items = [item.as_dict() for item in CAPABILITIES]
+def capability_inventory(
+    *, root: Path | None = None, settings: Any | None = None
+) -> dict[str, Any]:
+    readiness = capability_readiness(root=root, settings=settings)
+    readiness_by_id = {item["capability_id"]: item for item in readiness["capabilities"]}
+    items: list[dict[str, Any]] = []
+    for capability in CAPABILITIES:
+        item = capability.as_dict()
+        dynamic = readiness_by_id[capability.capability_id]
+        # Static inventory status remains the maturity classification. Runtime
+        # readiness is deliberately nested and repeated in explicit fields so
+        # callers cannot mistake core health for CAP readiness.
+        item.update(
+            {
+                "readiness": dynamic,
+                "readiness_status": dynamic["status"],
+                "evidence_state": dynamic["evidence_state"],
+                "permission_gap": dynamic["permission_gap"],
+                "installation_gap": dynamic["installation_gap"],
+            }
+        )
+        items.append(item)
     counts = {
         status: sum(item["status"] == status for item in items)
         for status in ("ready", "partial", "scaffold")
@@ -331,8 +356,239 @@ def capability_inventory() -> dict[str, Any]:
         "counts": counts,
         "read_only": True,
         "grants_authority": False,
+        "readiness": readiness,
+        "readiness_counts": readiness["counts"],
     }
     return body | {"inventory_digest": digest(body)}
+
+
+_DEFAULT_ALLOWED_PERMISSIONS = frozenset(
+    {"filesystem.read", "filesystem.write", "process.run"}
+)
+_CAPABILITY_PERMISSION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "native-cli-workspace-entry": ("filesystem.read",),
+    "native-helper-path": ("filesystem.read",),
+    "project-rag": ("filesystem.read",),
+    "intent-project-routing": ("filesystem.read",),
+    "opencode-continuity": ("filesystem.read", "process.run"),
+    "operational-work-graph": ("filesystem.read", "filesystem.write"),
+    "markdown-knowledge": ("filesystem.read", "filesystem.write"),
+    "odi11g-lineage": ("filesystem.read", "filesystem.write"),
+    "research": ("filesystem.read", "network.access"),
+    "ideas": ("filesystem.read", "filesystem.write"),
+    "reports": ("filesystem.read",),
+    "model-benchmark": ("filesystem.read", "process.run", "network.access"),
+    "unit-test-engineering": ("filesystem.read", "filesystem.write", "process.run"),
+    "semantic-memory": ("filesystem.read", "filesystem.write"),
+    "jira": ("filesystem.read", "network.access"),
+    "backup-recovery": ("filesystem.read", "filesystem.write"),
+    "autonomous-evolution": ("filesystem.read", "filesystem.write", "process.run"),
+}
+_CAPABILITY_CLIENT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "opencode-continuity": ("opencode",),
+    "research": ("opencode",),
+    "unit-test-engineering": ("opencode",),
+}
+_CLIENT_COMMANDS = {
+    "opencode": "opencode",
+    "codex": "codex",
+    "claude-code": "claude",
+    "gemini": "gemini",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityReadiness:
+    """Provider-free, read-only readiness observation for one capability."""
+
+    capability_id: str
+    status: CapabilityReadinessStatus
+    evidence_state: CapabilityEvidenceState
+    permission_gap: tuple[str, ...]
+    installation_gap: tuple[str, ...]
+    acceptance_gap: tuple[str, ...]
+    evidence: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "capability_id": self.capability_id,
+            "status": self.status,
+            "evidence_state": self.evidence_state,
+            # Keep the vocabulary used by capability profile consumers while
+            # making the absence of a fresh acceptance observation explicit.
+            "evidence_level": self.evidence_state,
+            "permission_gap": list(self.permission_gap),
+            "installation_gap": list(self.installation_gap),
+            "acceptance_gap": list(self.acceptance_gap),
+            "gaps": {
+                "permission": list(self.permission_gap),
+                "installation": list(self.installation_gap),
+                "acceptance": list(self.acceptance_gap),
+            },
+            "evidence": self.evidence,
+            "provider_calls": 0,
+            "network_calls": 0,
+            "read_only": True,
+            "grants_authority": False,
+        }
+
+
+def _capability_root(root: Path | None) -> Path:
+    if root is not None:
+        return root.resolve()
+    # Lazy import keeps the static inventory usable from packaging/bootstrap
+    # code without introducing a configuration import cycle.
+    from zekam.application.config import core_root
+
+    return core_root().resolve()
+
+
+def _reference_path(root: Path, reference: str) -> Path | None:
+    path = Path(reference)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return root / path
+
+
+def _allowed_permissions(settings: Any | None) -> tuple[str, ...]:
+    profile = None if settings is None else getattr(settings, "permission_profile", None)
+    allowed = None if profile is None else getattr(profile, "allowed_capabilities", None)
+    if allowed is None:
+        return tuple(sorted(_DEFAULT_ALLOWED_PERMISSIONS))
+    return tuple(sorted(str(value) for value in allowed))
+
+
+def _installed_clients(settings: Any | None) -> dict[str, bool]:
+    configured: dict[str, bool] = {}
+    if settings is not None:
+        for client in getattr(settings, "clients", ()):
+            name = str(getattr(client, "name", "")).casefold()
+            if name:
+                configured[name] = bool(getattr(client, "executable_present", False))
+    return {
+        name: configured.get(name, False) or shutil.which(command) is not None
+        for name, command in _CLIENT_COMMANDS.items()
+    }
+
+
+def _capability_readiness(
+    capability: Capability,
+    *,
+    root: Path,
+    allowed_permissions: tuple[str, ...],
+    installed_clients: dict[str, bool],
+    permission_profile_observed: bool,
+) -> CapabilityReadiness:
+    references = tuple(capability.verified_by)
+    present = tuple(
+        reference
+        for reference in references
+        if (path := _reference_path(root, reference)) is not None and path.is_file()
+    )
+    missing = tuple(reference for reference in references if reference not in present)
+    if not present:
+        evidence_state: CapabilityEvidenceState = "missing"
+    elif missing:
+        evidence_state = "partial"
+    else:
+        # Source/test declarations are not a test receipt or a live acceptance.
+        evidence_state = "unobserved"
+
+    required_permissions = _CAPABILITY_PERMISSION_REQUIREMENTS.get(
+        capability.capability_id, ("filesystem.read",)
+    )
+    permission_gap = tuple(
+        permission for permission in required_permissions if permission not in allowed_permissions
+    )
+    installation_gap = tuple(
+        f"executable:{client}"
+        for client in _CAPABILITY_CLIENT_REQUIREMENTS.get(capability.capability_id, ())
+        if not installed_clients.get(client, False)
+    )
+    acceptance_gap = (
+        (capability.gap or "Static inventory is partial; current acceptance is unobserved",)
+        if capability.status != "ready"
+        else ("Current acceptance receipt is unobserved",)
+    )
+    evidence = {
+        "declared_references": list(references),
+        "present_references": list(present),
+        "missing_references": list(missing),
+        "acceptance_observed": False,
+        # Absolute local paths are not exposed in a report that may be printed
+        # or persisted as operational evidence.
+        "source_root": "configured-core-root",
+        "permission_profile_observed": permission_profile_observed,
+    }
+    if evidence_state == "missing" or capability.status == "scaffold":
+        status: CapabilityReadinessStatus = "blocked"
+    elif (
+        evidence_state != "observed"
+        or permission_gap
+        or installation_gap
+        or acceptance_gap
+    ):
+        status = "partial"
+    else:
+        status = "ready"
+    return CapabilityReadiness(
+        capability_id=capability.capability_id,
+        status=status,
+        evidence_state=evidence_state,
+        permission_gap=permission_gap,
+        installation_gap=installation_gap,
+        acceptance_gap=acceptance_gap,
+        evidence=evidence,
+    )
+
+
+def capability_readiness(
+    *, root: Path | None = None, settings: Any | None = None
+) -> dict[str, Any]:
+    """Build a provider-free local readiness report.
+
+    This function reads source/test references, local executable discovery and
+    the resolved permission profile only. It never calls a model/provider,
+    writes state, grants authority, or treats core doctor health as CAP proof.
+    """
+
+    resolved_root = _capability_root(root)
+    allowed_permissions = _allowed_permissions(settings)
+    installed_clients = _installed_clients(settings)
+    items = [
+        _capability_readiness(
+            capability,
+            root=resolved_root,
+            allowed_permissions=allowed_permissions,
+            installed_clients=installed_clients,
+            permission_profile_observed=settings is not None,
+        ).as_dict()
+        for capability in CAPABILITIES
+    ]
+    counts = {
+        status: sum(item["status"] == status for item in items)
+        for status in ("ready", "partial", "blocked")
+    }
+    status: CapabilityReadinessStatus
+    if counts["blocked"]:
+        status = "blocked"
+    elif counts["partial"]:
+        status = "partial"
+    else:
+        status = "ready"
+    body = {
+        "schema": CAPABILITY_READINESS_SCHEMA,
+        "status": status,
+        "all_ready": status == "ready",
+        "capabilities": items,
+        "counts": counts,
+        "core_health_independent": True,
+        "provider_calls": 0,
+        "network_calls": 0,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    return body | {"readiness_digest": digest(body)}
 
 
 def compact_capability_summary() -> dict[str, list[str]]:

@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from zekam.application.capability_inventory import capability_readiness
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
 from zekam.infrastructure.sqlite.operational_schema import (
     RUNTIME_SCHEMA_VERSIONS,
@@ -211,13 +212,16 @@ class LocalCoreStoresCheck:
 class CapabilityCheck:
     check_id: str = "sqlite.capabilities"
     category: str = CATEGORY
+    core_path: Path | None = None
+    settings: Any | None = None
 
     def run(self) -> CheckResult:
+        readiness = capability_readiness(root=self.core_path, settings=self.settings)
         return CheckResult(
             self.check_id,
             self.category,
             CheckStatus.PASSED,
-            "Yerel SQLite authority ve dayanıklı runtime hazır",
+            "Yerel SQLite core hazır; CAP readiness ayrı kanıtlanır",
             evidence={
                 "supported": [
                     "project:add/list",
@@ -230,5 +234,11 @@ class CapabilityCheck:
                 ],
                 "unsupported": ["remote-provider-execution", "distributed-scheduler"],
                 "fallback": False,
+                "readiness": readiness,
+                "readiness_status": readiness["status"],
+                "readiness_counts": readiness["counts"],
+                "all_capabilities_ready": readiness["all_ready"],
+                "provider_calls": 0,
+                "network_calls": 0,
             },
         )

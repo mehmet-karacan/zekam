@@ -217,16 +217,28 @@ def main(
 @app.command("capabilities")
 def capabilities_command(
     output_json: Annotated[bool, typer.Option("--json")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=_HOME_HELP)] = None,
 ) -> None:
-    """Reviewed Zekam capability inventory with explicit readiness gaps."""
+    """Reviewed inventory plus provider-free local readiness gaps."""
 
-    document = capability_inventory()
+    context = build_context(home=home) if home is not None else None
+    document = capability_inventory(
+        root=None if context is None else context.core_path,
+        settings=None if context is None else context.settings,
+    )
     if output_json:
         _print_json(document)
         return
     counts = document["counts"]
+    readiness_counts = document["readiness_counts"]
     console.print(
         f"ready={counts['ready']} partial={counts['partial']} scaffold={counts['scaffold']}"
+    )
+    console.print(
+        "readiness="
+        f"{readiness_counts['ready']} ready, "
+        f"{readiness_counts['partial']} partial, "
+        f"{readiness_counts['blocked']} blocked"
     )
 
 

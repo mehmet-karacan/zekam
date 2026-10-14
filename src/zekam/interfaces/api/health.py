@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from zekam import __version__
+from zekam.application.capability_inventory import capability_readiness
 from zekam.application.composition import build_context, build_doctor
 from zekam.domain.app_server_protocol import schema_bundle_digest
 
@@ -36,13 +37,21 @@ def create_health_app() -> Any:
             context = build_context()
             report = build_doctor(context).run(categories=("core", "sqlite", "runtime"))
             ready = report.overall.value == "healthy"
+            readiness = capability_readiness(
+                root=context.core_path,
+                settings=context.settings,
+            )
             checks = [
                 {"check_id": item.check_id, "status": item.status.value} for item in report.results
             ]
             document = {
                 "schema": "zekam-readiness/v1",
                 "status": "ready" if ready else "not-ready",
+                "core_status": report.overall.value,
+                "capability_status": readiness["status"],
+                "all_capabilities_ready": readiness["all_ready"],
                 "checks": checks,
+                "capabilities": readiness,
                 "grants_authority": False,
             }
         except Exception as exc:  # fail closed; only sanitized category is exposed
