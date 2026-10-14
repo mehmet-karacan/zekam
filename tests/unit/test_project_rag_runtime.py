@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 
 from zekam.application import project_rag_runtime as runtime
+from zekam.application import source_discovery as source_discovery_module
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.embedding_routing import EmbeddingRouteCandidate, EmbeddingRouteKind
 from zekam.application.model_health_service import ProbeUnavailable
@@ -1328,6 +1329,24 @@ def test_source_binding_preflight_validates_exact_directory_without_writing(
     assert plan["plan_digest"].startswith("sha256:")
     assert plan["apply"] is False
     assert not (home / "projeler" / "ornek" / "baglantilar" / "source.json").exists()
+
+
+def test_source_binding_preflight_rejects_reparse_root_without_windows_privilege(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "reparse-kok"
+    source.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(runtime, "_registered_project", lambda *_: "project-1")
+    monkeypatch.setattr(
+        source_discovery_module,
+        "_is_symlink_or_junction",
+        lambda path: path == source,
+    )
+
+    with pytest.raises(PolicyViolation, match=r"symlink|reparse"):
+        runtime.build_project_source_binding_plan(home, "ornek", source)
 
 
 def test_unborn_git_source_is_controlled_validation_error(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from zekam.application import source_discovery as source_discovery_module
 from zekam.application.source_discovery import (
     BINARY_PROBE_BYTES,
     DiscoveryPolicy,
@@ -193,6 +194,22 @@ def test_root_must_be_directory(tmp_path: Path) -> None:
     target.write_text("x", encoding="utf-8")
     with pytest.raises((PolicyViolation, NotADirectoryError, FileNotFoundError)):
         discover(target)
+
+
+def test_reparse_root_is_rejected_without_windows_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "reparse-kok"
+    root.mkdir()
+
+    monkeypatch.setattr(
+        source_discovery_module,
+        "_is_symlink_or_junction",
+        lambda path: path == root,
+    )
+
+    with pytest.raises(PolicyViolation, match=r"symlink|reparse"):
+        discover(root)
 
 
 def test_assert_within_root_accepts_child(tmp_path: Path) -> None:

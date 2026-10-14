@@ -435,6 +435,23 @@ def _is_symlink_or_junction(path: Path) -> bool:
     return False
 
 
+def resolve_source_root(root: Path) -> Path:
+    """Kok reparse/symlink degilse canonical dizin yolunu dondurur.
+
+    Son path bileşenini `resolve()` etmeden once lstat tabanli kontrol ederiz;
+    boylece kaynak koku bir symlink veya Windows reparse point ise hedefe
+    takip edilmez.
+    """
+
+    candidate = Path(os.path.abspath(os.fspath(root)))
+    if _is_symlink_or_junction(candidate):
+        raise PolicyViolation("Kaynak koku symlink/junction/reparse olmamali")
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_dir():
+        raise PolicyViolation("Kaynak koku bir dizin olmali")
+    return resolved
+
+
 class _DirectoryTooLarge(Exception):
     """Tek bir dizin, `max_dir_entries` sinirini asiyor."""
 
@@ -568,9 +585,7 @@ def discover(
     ise yalnizca icerigi sinirli okunup indekslenebilir dosyalari kapsar.
     """
     active_policy = policy or DiscoveryPolicy()
-    resolved_root = root.resolve(strict=True)
-    if not resolved_root.is_dir():
-        raise PolicyViolation("Kaynak koku bir dizin olmali")
+    resolved_root = resolve_source_root(root)
     rules = matcher or build_matcher(resolved_root)
 
     files: list[DiscoveredFile] = []

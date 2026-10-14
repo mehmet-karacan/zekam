@@ -778,6 +778,14 @@ akista byte siniri korunur. Yerel unit ve mevcut CLI e2e testleri gecti.
 ODI'nin diger XML yuzeyi ile butun belge/ZIP bellek ve macro kabulleri
 tamamlanmadigi icin WP-04.05 aciktir.
 
+**14 Ekim 2026 — WP-04.02 kok reparse kapisi:** `resolve_source_root`, kok
+path'i `resolve()` etmeden once symlink/junction/reparse olarak denetler.
+Kaynak kesfi, project source binding ve CLI index girisi ayni kapidan gecer;
+cocuk symlink/junction girdileri onceki skip davranisini korur. Source discovery,
+project RAG, continuity ve ODI drift testleri birlikte 88 passed, 2 Windows
+symlink yetki skip'i verdi. Gercek checkpoint'ten yeniden baslatma API'si ve
+tam traversal kabul matrisi henuz yok; WP-04.02 acik kalir.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

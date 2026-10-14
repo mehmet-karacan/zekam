@@ -81,7 +81,12 @@ from zekam.application.request_routing import (
     load_project_families,
     route_request,
 )
-from zekam.application.source_discovery import DiscoveryReport, InventoryStatus, discover
+from zekam.application.source_discovery import (
+    DiscoveryReport,
+    InventoryStatus,
+    discover,
+    resolve_source_root,
+)
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
@@ -843,6 +848,7 @@ def _project_plan(
     embedding_candidates: tuple[EmbeddingRouteCandidate, ...] = (),
     allow_remote_source: bool = False,
 ) -> tuple[DiscoveryReport, ProjectIndexPlan]:
+    root = resolve_source_root(root)
     _, _, revision = _git_source_state(root)
     discovery = discover(root)
     plan = build_project_index_plan(
@@ -2111,8 +2117,8 @@ def build_project_source_binding_plan(
 
     slug = validate_slug(project_slug)
     project_id = _registered_project(home, slug)
-    root = source_root.resolve(strict=True)
-    if not root.is_dir() or root == Path(root.anchor):
+    root = resolve_source_root(source_root)
+    if root == Path(root.anchor):
         raise ValidationFailed("Project source root bounded directory olmali")
     head, status_digest, revision = _git_source_state(root)
     source_kind = "git" if head else "directory"
@@ -2178,7 +2184,7 @@ def resolve_project_source(home: Path, project_slug: str) -> Path:
         or document.get("project_slug") != slug
     ):
         raise PolicyViolation("Project local source binding scope drift")
-    root = Path(str(document.get("source_root", ""))).resolve(strict=True)
+    root = resolve_source_root(Path(str(document.get("source_root", ""))))
     if (
         not root.is_dir()
         or root == Path(root.anchor)
@@ -3220,7 +3226,7 @@ def main() -> int:
             command.add_argument("--question", required=True)
     args = parser.parse_args()
     index_deadline = _new_index_deadline(args.timeout_seconds) if args.command == "index" else None
-    source_root = args.project.resolve(strict=True)
+    source_root = resolve_source_root(args.project)
     home = args.home.resolve(strict=True)
     project_slug = validate_slug(args.slug or source_root.name.casefold())
     project_id = _registered_project(home, project_slug)
