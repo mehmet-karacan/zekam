@@ -25,6 +25,7 @@ from zekam.application.capability_profile import (
     ClientCapabilityProfile,
     client_capability_matrix,
 )
+from zekam.domain.errors import ValidationFailed
 
 pytestmark = pytest.mark.unit
 
@@ -237,6 +238,22 @@ def test_no_unsupported_native_feature_is_claimed() -> None:
         for profile in matrix.clients:
             for support in profile.capabilities:
                 assert support.status in CapabilityStatus.all()
+
+
+@pytest.mark.parametrize(
+    "observed_hosts",
+    [
+        {"not-a-client": "v1"},
+        {"opencode": ""},
+        {"opencode": "   "},
+        {"opencode": None},
+    ],
+)
+def test_observed_host_metadata_is_fail_closed(observed_hosts: dict[str, object]) -> None:
+    """Host metadata kimlik ve bos olmayan surum sozlesmesine uymali."""
+
+    with pytest.raises(ValidationFailed):
+        client_capability_matrix(observed_hosts=observed_hosts)  # type: ignore[arg-type]
 
 
 def _shift(

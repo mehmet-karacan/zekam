@@ -18,7 +18,7 @@ from zekam.application.code_graph import (
     graph_store_path,
     plan_graph_build,
 )
-from zekam.application.code_graph_python import PythonAstExtractor
+from zekam.application.code_graph_polyglot import PolyglotStructuralExtractor
 from zekam.application.code_graph_query import (
     graph_find,
     graph_impact,
@@ -637,7 +637,7 @@ graph_app = typer.Typer(
     help="Proje structural code graph (rebuildable, tied to plan)",
     no_args_is_help=True,
 )
-_GRAPH_EXTRACTOR = PythonAstExtractor()
+_GRAPH_EXTRACTOR = PolyglotStructuralExtractor()
 
 
 def _source_revision(source_root: Path) -> str:

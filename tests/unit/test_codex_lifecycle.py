@@ -362,6 +362,14 @@ def test_unknown_or_drifted_codex_contract_fails_closed() -> None:
         parse_codex_version_output("codex 0.150.1 extra")
 
 
+def test_prerelease_codex_version_is_parsed_but_not_reviewed() -> None:
+    version = parse_codex_version_output("codex-cli 0.162.0-alpha.17.2")
+
+    assert version == "0.162.0-alpha.17.2"
+    with pytest.raises(PolicyViolation, match="version drift"):
+        assert_reviewed_codex_version(version)
+
+
 def test_exact_version_descriptor_and_tracked_evidence() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     evidence = load_codex_contract_evidence(

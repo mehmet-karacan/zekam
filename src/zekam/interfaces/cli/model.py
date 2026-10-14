@@ -11,6 +11,8 @@ from rich.console import Console
 
 from zekam.application.home import resolve_home
 from zekam.application.model_benchmark_service import load_fixture_registry
+from zekam.application.model_qualification import build_qualification_report
+from zekam.application.model_registry import load_inventory
 from zekam.application.native_benchmark_campaign import (
     build_native_campaign,
     run_native_campaign,
@@ -137,6 +139,24 @@ def benchmark_command(
         console.print_json(json.dumps(document, sort_keys=True))
         return
     console.print(f"fixtures={len(registry.fixtures)} provider_calls=0")
+
+
+@app.command("qualification")
+def qualification_command(
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Inventory kanitlarini ve bilinmeyen qualification sinyallerini raporlar."""
+    inventory = load_inventory()
+    document = build_qualification_report(inventory.records)
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False, sort_keys=True))
+        return
+    counts = document["qualification_counts"]
+    console.print(
+        f"qualified={counts.get('qualified', 0)} "
+        f"not-qualified={counts.get('not-qualified', 0)} "
+        f"unknown={counts.get('unknown', 0)} quota=unknown"
+    )
 
 
 @app.command("decide")

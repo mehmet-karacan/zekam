@@ -41,7 +41,13 @@ MAX_HOOK_INPUT_BYTES = 64 * 1024
 _UUID_IDENTIFIER = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-_VERSION_OUTPUT = re.compile(r"^codex-cli ([0-9]+\.[0-9]+\.[0-9]+)$")
+# Codex publishes alpha/nightly builds with a semver prerelease suffix.  Parse
+# the complete token so an unreviewed build can be reported and skipped by the
+# native acceptance test; ``assert_reviewed_codex_version`` remains the exact
+# lifecycle qualification gate.
+_VERSION_OUTPUT = re.compile(
+    r"^codex-cli ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$"
+)
 _SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact"})
 _COMPACTION_TRIGGERS = frozenset({"manual", "auto"})
 CODEX_SESSION_END_REASONS = frozenset({"other"})

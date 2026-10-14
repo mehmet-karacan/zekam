@@ -23,6 +23,7 @@ from typing import Any, Final
 from zekam.application.source_discovery import DiscoveryReport
 from zekam.domain.canonical import digest
 from zekam.domain.client_integration import ClientIntegrationId
+from zekam.domain.errors import ValidationFailed
 
 #: Uretici surumu. Kurallar degisirse artirilir ve eski profiller stale olur.
 PROFILER_VERSION = "zekam-capability-profiler/v1"
@@ -735,11 +736,23 @@ def client_capability_matrix(
     kosusuna kadar `declared`/`unobserved` kalir (NL-039 / GAP-07).
     """
 
-    observed_hosts = dict(observed_hosts or {})
-    observed = {
-        ClientIntegrationId(client_id): str(version)
-        for client_id, version in observed_hosts.items()
-    }
+    if observed_hosts is None:
+        observed_input: Mapping[Any, Any] = {}
+    elif isinstance(observed_hosts, Mapping):
+        observed_input = observed_hosts
+    else:
+        raise ValidationFailed("Gozlenen host matrisi mapping olmali")
+    observed: dict[ClientIntegrationId, str] = {}
+    for client_id, version in observed_input.items():
+        if not isinstance(client_id, str):
+            raise ValidationFailed("Gozlenen host istemci kimligi metin olmali")
+        try:
+            identity = ClientIntegrationId(client_id)
+        except ValueError as exc:
+            raise ValidationFailed("Gozlenen host istemci kimligi desteklenmiyor") from exc
+        if not isinstance(version, str) or not version.strip():
+            raise ValidationFailed("Gozlenen host surumu bos olamaz")
+        observed[identity] = version.strip()
 
     # -- OpenCode ----------------------------------------------------------
     opencode = _client_profile(

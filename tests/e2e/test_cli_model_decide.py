@@ -25,6 +25,18 @@ def test_benchmark_registry_contract_is_secret_free() -> None:
     assert "://" not in result.stdout
 
 
+def test_qualification_reports_unknown_without_catalog_or_quota_evidence() -> None:
+    result = runner.invoke(app, ["model", "qualification", "--json"])
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert document["schema"] == "zekam-model-qualification/v1"
+    assert document["catalog"]["status"] == "unknown"
+    assert document["catalog_revision"] is None
+    assert document["quota"] == {"status": "unknown", "remaining_ratio": None}
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False
+
+
 def test_decide_rejects_cli_supplied_candidates_and_hard_gates(tmp_path: Path) -> None:
     evidence = digest({"evidence": 1})
     gates = {gate.value: True for gate in HARD_GATE_ORDER}
