@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -84,6 +85,21 @@ def _required(value: str, name: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise ValidationFailed(f"{name} bos/gecersiz")
     return value.strip()
+
+
+def _portable_resource(value: str) -> str:
+    """Validate a claim lock as a portable, secret-free logical resource."""
+
+    resource = _required(value, "Resource")
+    if "\\" in resource:
+        raise ValidationFailed("Resource ters bolu iceremez")
+    if re.search(r"(?:^|:)(?:[/]|[A-Za-z]:[/])", resource):
+        raise ValidationFailed("Resource mutlak yol olamaz")
+    if any(part == ".." for part in re.split(r"[/:]", resource)):
+        raise ValidationFailed("Resource `..` iceremez")
+    if scan_text(f"resource={resource}", relative_path="runtime/resource"):
+        raise PolicyViolation("Resource secret benzeri deger tasiyamaz")
+    return resource
 
 
 def _digest(value: str, name: str) -> str:
@@ -507,7 +523,7 @@ class SQLiteLocalRuntimeStore:
         _bounded_int(owner_pid, "Owner PID", minimum=1, maximum=2_147_483_647)
         token = _required(owner_token, "Owner token")
         _bounded_int(lease_seconds, "Lease suresi", minimum=1, maximum=3600)
-        normalized = tuple(sorted({_required(item, "Resource") for item in resources}))
+        normalized = tuple(sorted({_portable_resource(item) for item in resources}))
         if len(normalized) != len(resources):
             raise ValidationFailed("Resource listesi duplicate tasiyamaz")
         moment = _moment(now)

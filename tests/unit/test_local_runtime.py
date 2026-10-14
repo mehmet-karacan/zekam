@@ -342,7 +342,6 @@ def test_dead_pid_pid_reuse_and_same_pid_orphans_recover_without_data_loss(
     assert live == type(live)(0, 0, 0, 0, 0)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="SIGKILL assertion is POSIX-only")
 def test_process_kill_after_effect_claim_never_reexecutes_unknown_effect(tmp_path: Path) -> None:
     path = tmp_path / "operational.db"
     effect_path = tmp_path / "external-effect.log"
@@ -378,6 +377,8 @@ with effect_path.open('ab') as stream:
     stream.write(b'external-effect-once\\n')
     stream.flush()
     os.fsync(stream.fileno())
+if os.name == 'nt':
+    os._exit(1)
 os.kill(os.getpid(), signal.SIGKILL)
 """
     child = subprocess.run(
@@ -386,7 +387,8 @@ os.kill(os.getpid(), signal.SIGKILL)
         capture_output=True,
         text=True,
     )
-    assert child.returncode == -signal.SIGKILL
+    expected_returncode = 1 if os.name == "nt" else -signal.SIGKILL
+    assert child.returncode == expected_returncode
     assert effect_path.read_bytes() == b"external-effect-once\n"
     store = SQLiteLocalRuntimeStore(path)
     sweep = store.recover_orphans(process_incarnation_token)
@@ -615,6 +617,31 @@ def test_duplicate_resource_request_and_live_resource_conflict_are_safe(tmp_path
     path = tmp_path / "operational.db"
     assert _scalar(path, "select count(*) from local_lease") == 1
     assert _scalar(path, "select state from local_job where idempotency_key='second'") == "ready"
+
+
+@pytest.mark.parametrize(
+    "resource",
+    (
+        "/absolute/resource",
+        "C:/absolute/resource",
+        "path:project:../escape",
+        "path:project:C:/escape",
+        "path:project:src\\escape.py",
+        "resource:password=hunter-two",
+    ),
+)
+def test_claim_rejects_nonportable_or_secret_resource(tmp_path: Path, resource: str) -> None:
+    store = _store(tmp_path)
+    store.enqueue(idempotency_key="unsafe", payload={}, available_at=NOW.isoformat())
+    with pytest.raises((PolicyViolation, ValidationFailed)):
+        store.claim_next(
+            owner_id="worker",
+            owner_pid=1,
+            owner_token="one",
+            lease_seconds=30,
+            resources=(resource,),
+            now=NOW.isoformat(),
+        )
 
 
 def test_timeout_with_unknown_external_result_requires_reconciliation(tmp_path: Path) -> None:
@@ -1228,7 +1255,6 @@ def test_database_rejects_terminal_without_evidence_and_recovery_evidence_mutati
             )
 
 
-@pytest.mark.skipif(os.name == "nt", reason="SIGKILL assertion is POSIX-only")
 def test_outbox_delivery_kill_before_receipt_never_redelivers(tmp_path: Path) -> None:
     path = tmp_path / "operational.db"
     delivery_path = tmp_path / "external-delivery.log"
@@ -1257,6 +1283,8 @@ with delivery.open('ab') as stream:
     stream.write(b'delivered-once\\n')
     stream.flush()
     os.fsync(stream.fileno())
+if os.name == 'nt':
+    os._exit(1)
 os.kill(os.getpid(), signal.SIGKILL)
 """
     child = subprocess.run(
@@ -1265,7 +1293,8 @@ os.kill(os.getpid(), signal.SIGKILL)
         capture_output=True,
         text=True,
     )
-    assert child.returncode == -signal.SIGKILL
+    expected_returncode = 1 if os.name == "nt" else -signal.SIGKILL
+    assert child.returncode == expected_returncode
     assert delivery_path.read_bytes() == b"delivered-once\n"
     assert store.recover_outbox(now=(NOW + dt.timedelta(seconds=2)).isoformat()) == 1
     assert (
