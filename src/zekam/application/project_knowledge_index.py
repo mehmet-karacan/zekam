@@ -15,6 +15,7 @@ import math
 import re
 import stat
 import unicodedata
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -110,6 +111,7 @@ _STRUCTURAL_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _MARKDOWN_HEADING = re.compile(r"^\s{0,3}(?P<marks>#{1,6})\s+(?P<title>\S.*?)\s*$")
 _MARKDOWN_LIST = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")
 _MARKDOWN_FENCE = re.compile(r"^\s*(```+|~~~+)")
+_XML_UNSAFE_DECLARATION = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 _SQL_STRUCTURAL_SUFFIXES = frozenset({".sql", ".pks", ".pkb"})
 _SQL_DECLARATION = re.compile(
     r"(?m)^[ \t]*create\s+(?:or\s+replace\s+)?"
@@ -791,9 +793,57 @@ def _markdown_units(
     return tuple(units)
 
 
+def _xml_structural_units(
+    relative_path: str, text: str, start_order: int
+) -> tuple[ContentUnit, ...] | None:
+    """XML'i DTD/entity olmadan bounded entry-path metadata birimlerine ayirir."""
+    if _XML_UNSAFE_DECLARATION.search(text):
+        raise PolicyViolation("XML DTD veya entity deklarasyonu reddedildi")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+    def tag_name(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    units: list[ContentUnit] = []
+
+    def append(element: ET.Element, entry_path: str) -> None:
+        body = ET.tostring(element, encoding="unicode").strip()
+        if not body:
+            return
+        locator = Locator(relative_path=relative_path, entry_path=entry_path)
+        if len(body) > MAX_CHUNK_CHARACTERS or estimate_tokens(body) > MAX_CHUNK_TOKENS:
+            units.extend(_line_units(relative_path, body, start_order + len(units)))
+            return
+        units.append(
+            ContentUnit(
+                unit_id=f"{relative_path}#X{len(units)}",
+                kind=UnitKind.METADATA,
+                text=body,
+                locator=locator,
+                order=start_order + len(units),
+            )
+        )
+
+    root_path = f"xml/{tag_name(root.tag)}"
+    children = list(root)
+    if not children:
+        append(root, root_path)
+    else:
+        for index, child in enumerate(children, start=1):
+            append(child, f"{root_path}/{tag_name(child.tag)}[{index}]")
+    return tuple(units)
+
+
 def _file_units(relative_path: str, text: str, start_order: int) -> tuple[ContentUnit, ...]:
     """Python/code/SQL/Markdown structural; belirsizde bounded line fallback."""
     suffix = PurePosixPath(relative_path).suffix.lower()
+    if suffix == ".xml":
+        structural = _xml_structural_units(relative_path, text, start_order)
+        if structural is not None:
+            return structural
     if suffix in _MARKDOWN_SUFFIXES:
         structural = _markdown_units(relative_path, text, start_order)
         if structural is not None:

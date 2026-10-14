@@ -183,6 +183,28 @@ def test_markdown_fenced_code_gets_code_locator() -> None:
     assert units[0].locator.line_end == 3
 
 
+def test_xml_units_use_safe_entry_locators_and_reject_dtd_entities() -> None:
+    source = (
+        '<?xml version="1.0"?>\n'
+        "<project><name>zekam</name><dependency><group>app</group></dependency></project>\n"
+    )
+    units = knowledge_index._file_units("pom.xml", source, 0)
+    assert units
+    assert all(unit.kind is UnitKind.METADATA for unit in units)
+    assert all(
+        unit.locator.entry_path and not unit.locator.entry_path.startswith("/")
+        for unit in units
+    )
+    assert any("dependency" in (unit.locator.entry_path or "") for unit in units)
+
+    with pytest.raises(PolicyViolation, match=r"DTD|entity"):
+        knowledge_index._file_units(
+            "unsafe.xml",
+            '<!DOCTYPE project [<!ENTITY leak "secret">]><project>&leak;</project>',
+            0,
+        )
+
+
 def test_python_ast_fallback_splits_a_token_heavy_single_line(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
