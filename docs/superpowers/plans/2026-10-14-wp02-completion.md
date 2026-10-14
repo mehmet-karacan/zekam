@@ -40,10 +40,10 @@
 - Consumes existing canonical root and subdirectory entry generator and `ClientCapabilityMatrix`.
 - Produces deterministic duplicate-free plan/apply/readback evidence; unavailable native clients remain explicitly unobserved.
 
-- [ ] Step 1: Run the three target test groups and record exact pass/skip output.
-- [ ] Step 2: Add only the smallest missing provider-free assertion or adapter evidence for root, subdirectory, outside-workspace inert behavior, and duplicate instruction ownership.
-- [ ] Step 3: Re-run targeted tests and package validator.
-- [ ] Step 4: Update WP-02.01/02 notes only for behavior proven by tests; keep real-host blockers open when binaries are absent.
+- [x] Step 1: Run the three target test groups and record exact pass/skip output.
+- [x] Step 2: Add only the smallest missing provider-free assertion or adapter evidence for root, subdirectory, outside-workspace inert behavior, and duplicate instruction ownership.
+- [x] Step 3: Re-run targeted tests and package validator.
+- [x] Step 4: Update WP-02.01/02 notes only for behavior proven by tests; keep real-host blockers open when binaries are absent.
 - [ ] Step 5: Commit with an ASCII Turkish message and push.
 
 ### Task 2: Host-native shell and publication boundary
@@ -76,10 +76,10 @@
 - Apply is receipt-bound and readback verified; drift/conflict blocks overwrite; rollback restores prior bytes; no credentials are copied or removed.
 - Global legacy cleanup remains exact-ownership plan-only when no portable owned artifact exists.
 
-- [ ] Step 1: Run unit, integration, E2E MCP, and legacy migration tests.
-- [ ] Step 2: Close only concrete failures with deterministic tests; preserve unsupported host boundaries.
-- [ ] Step 3: Capture read-only global ownership inventory and exact migration plan evidence without changing HOME.
-- [ ] Step 4: Re-run all target tests and package validator.
+- [x] Step 1: Run unit, integration, E2E MCP, and legacy migration tests.
+- [x] Step 2: Close only concrete failures with deterministic tests; preserve unsupported host boundaries.
+- [x] Step 3: Capture read-only global ownership inventory and exact migration plan evidence without changing HOME.
+- [x] Step 4: Re-run all target tests and package validator.
 - [ ] Step 5: Commit and push.
 
 ### Task 4: Final WP-02 acceptance and evidence projection
@@ -88,8 +88,8 @@
 - Modify: `AKTIF_GOREV.md` and generated `AKTIF_GOREV.yaml`.
 - Test: complete WP-02 target matrix plus package validator.
 
-- [ ] Step 1: Run all WP-02 target tests in one command and save only tracked evidence updates.
-- [ ] Step 2: Check every WP-02 checkbox against an exact test, receipt, or real-host observation; leave unsupported acceptance unchecked.
-- [ ] Step 3: Regenerate `AKTIF_GOREV.yaml` from the canonical Markdown source.
-- [ ] Step 4: Run `git diff --check`, package validator, and final status inspection excluding preexisting user untracked files.
+- [x] Step 1: Run all WP-02 target tests in one command and save only tracked evidence updates.
+- [x] Step 2: Check every WP-02 checkbox against an exact test, receipt, or real-host observation; leave unsupported acceptance unchecked.
+- [x] Step 3: Regenerate `AKTIF_GOREV.yaml` from the canonical Markdown source.
+- [x] Step 4: Run `git diff --check`, package validator, and final status inspection excluding preexisting user untracked files.
 - [ ] Step 5: Commit and push the final evidence update.

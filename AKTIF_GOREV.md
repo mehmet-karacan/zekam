@@ -1419,6 +1419,38 @@ provider, Jira/Confluence/ODI, performans qrels ve release kabul kapilari halen 
 `next_safe_action`: kalan `local_runtime`/sidecar/lock yazim noktalarini hedefli incele;
 operational status helper'i zaten parent reparse reddettigi icin duplicate refactor yapma.
 
+### 10.16 14 Ekim 2026 WP-02 MCP ve native envanter kapanis denemesi
+
+WP-02 hedefli provider-free regresyon kosusu `89 passed, 1 skipped` verdi; proje kokusu,
+alt dizin ince girisi, baska proje inert davranisi, duplicate canonical instruction, capability
+matrix, MCP plan/apply/readback/rollback ve OpenCode publish siniri birlikte dogrulandi.
+Windows symlink skip'i privilege siniriyla sinirli kaldı. Native OpenCode V2 lifecycle kabulunde
+`10 passed` var; bu instruction discovery veya shell/push kabulunun yerine yazilmaz.
+
+MCP icin `mcp_integrations.py` native hedef dosyanin tum mevcut parent zincirinde
+`symlink/reparse` reddi, guvenli native root admission'i ve rollback planindan once
+receipt-sonrasi native digest drift kontrolu ekledi. Yeni negatif kanitler:
+`tests/unit/test_mcp_integration.py` ve `tests/e2e/test_cli_mcp.py` toplam `21 passed`.
+Commit `f3c05bb` ASCII-only mesajla origin/main'e push edildi.
+
+Salt-okunur gercek kullanici envanteri ayni oturumda `integration status --json` ve
+`integration sync --scope user --json` ile okundu. Kanit: `status_digest=sha256:670c7d9ed8f55d6555b5a2b4b8350403f569119b787bfe0bcf9481886f32d121`,
+`plan_digest=sha256:897bad95bfabec37e551abffdf293238e70188efb34f927374738df3dfdfb8ba`,
+`read_only=true`, `provider_calls=0`, `network_calls=0`, `operations=[]`,
+`pending_project_cleanup=[]`; mevcut `.agents/skills` conflict'i korunarak migration no-op/plan-only
+kaldi. HOME veya credential tasinmadi ve native global ayar yazilmadi.
+
+WP-02 kutulari yine de tamamen kapanmadi: Claude Code ve Gemini CLI bu hostta yok,
+Codex/OpenCode sabit reviewed acceptance surumleriyle eslesmiyor; native instruction discovery
+ve duplicate skill winner davranisi gercek yeni oturumda olculmedi. OpenCode dogrudan `git push`
+deny JSON policy'si mevcut olsa da gercek shell transport enforcement'i ve `bash -c`/wrapper gibi
+dolayli publication guard'i yok. Capability matrix bu durumlari `unobserved`/`declared` olarak
+koruyor; bu siniri ready veya tamamlandi diye etiketlemek kanit sozlesmesine aykiri.
+
+`next_safe_action`: WP-02 icin eksik native binary/versiyon kabul kosularini yetkili hostta,
+shell transport authorization ledger'ini ise ayri typed adapter olarak tamamla; mevcut hostta
+global migration apply veya provider cagrisi yapma.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
