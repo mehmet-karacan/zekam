@@ -822,6 +822,17 @@ class SQLiteOperationalUnitOfWork:
         step_id = str(new_uuid7())
         now = _now()
         connection = self._db()
+        run = connection.execute("select id from run where id = ?", (run_id,)).fetchone()
+        if run is None:
+            raise ValidationFailed("Run bulunamadi")
+        for dependency in dependencies:
+            dependency_row = connection.execute(
+                "select run_id from run_step where id = ?", (dependency,)
+            ).fetchone()
+            if dependency_row is None:
+                raise ValidationFailed("Run dependency bulunamadi")
+            if dependency_row["run_id"] != run_id:
+                raise ValidationFailed("Run step ayni run icinde olmali")
         try:
             connection.execute(
                 "insert into run_step(id, run_id, step_key, status, input_digest, created_at,"

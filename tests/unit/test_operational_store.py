@@ -123,6 +123,43 @@ def test_uow_persists_project_source_work_run_step_and_checkpoint(tmp_path: Path
         assert uow.list_checkpoints(run.id) == (checkpoint,)
 
 
+def test_run_step_dependency_cannot_cross_run_boundary(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        config, project, _, _ = _authority(uow)
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Dependency boundary",
+            state="ready",
+            payload_digest=digest("dependency-work"),
+        )
+        first_run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=digest("first-plan"),
+            budget={},
+        )
+        second_run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=digest("second-plan"),
+            budget={},
+        )
+        foreign_step = uow.add_run_step(
+            run_id=second_run.id,
+            step_key="foreign",
+            input_digest=digest("foreign-input"),
+        )
+        with pytest.raises(ValidationFailed, match="ayni run"):
+            uow.add_run_step(
+                run_id=first_run.id,
+                step_key="local",
+                input_digest=digest("local-input"),
+                dependencies=(foreign_step.id,),
+            )
+
+
 def test_uow_without_commit_rolls_back_every_related_row(tmp_path: Path) -> None:
     path, store = _store(tmp_path)
 
