@@ -1986,6 +1986,16 @@ alinmaz.
 Bu dar dilim WP-06.05'in batch blob okuma bellek/sure boslugunu daraltir;
 buyuk repository icin chunked scan ve canli kabul matrisi aciktir.
 
+### 10.53 15 Ekim 2026 Backup bundle census kapisi
+
+Backup kaynak agaci ve bundle/staging dogrulama yuruyusleri bounded directory ve
+file sayaclariyla ilerler; symlink, reparse point ve ozel dosya girdileri fail
+closed reddedilir. Bundle manifest disi dosya veya dizinleri eksik basariyla
+gecmez; limit asimi staging yayini olmadan typed validation hatasi uretir.
+
+Bu dar dilim WP-11.03/11.04'un backup traversal bellek/sure boslugunu daraltir;
+gercek cihaz restore donguleri ve scheduler kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

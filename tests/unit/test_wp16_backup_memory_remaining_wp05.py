@@ -1446,6 +1446,17 @@ def test_backup_sources_stop_tree_generator_at_file_limit(
     assert requested == [first]
 
 
+def test_backup_tree_entries_stop_at_directory_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "bundle"
+    (root / "nested").mkdir(parents=True)
+    monkeypatch.setattr(local_backup, "MAX_DIRECTORIES", 1)
+
+    with pytest.raises(ValidationFailed, match="directory count"):
+        tuple(local_backup._walk_tree_entries(root))
+
+
 @pytest.mark.parametrize(
     ("directories", "entries", "message"),
     [

@@ -29,6 +29,7 @@ from zekam.infrastructure.local_file_security import (
 
 BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
 MAX_FILES = 100_000
+MAX_DIRECTORIES = 100_000
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 MAX_DATABASE_BYTES = 256 * 1024 * 1024
 
@@ -217,6 +218,7 @@ def _walk_tree_files(root: Path) -> Iterator[Path]:
     """Yield private tree files without following links or buffering a full tree."""
 
     pending = [root]
+    directory_count = 1
     while pending:
         directory = pending.pop()
         try:
@@ -232,6 +234,9 @@ def _walk_tree_files(root: Path) -> Iterator[Path]:
                         if stat.S_ISLNK(info.st_mode) or is_reparse:
                             raise PolicyViolation("Backup source tree cannot contain links")
                         if entry.is_dir(follow_symlinks=False):
+                            directory_count += 1
+                            if directory_count > MAX_DIRECTORIES:
+                                raise PolicyViolation("Backup directory count exceeds bound")
                             pending.append(target)
                         elif entry.is_file(follow_symlinks=False):
                             yield target
@@ -241,6 +246,45 @@ def _walk_tree_files(root: Path) -> Iterator[Path]:
                         raise PolicyViolation("Backup source tree entry unreadable") from exc
         except OSError as exc:
             raise PolicyViolation("Backup source tree unreadable") from exc
+
+
+def _walk_tree_entries(root: Path) -> Iterator[tuple[Path, bool]]:
+    """Yield bounded bundle entries without following links or buffering a tree."""
+
+    pending = [root]
+    directory_count = 1
+    file_count = 0
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    try:
+                        info = target.lstat()
+                        is_reparse = bool(
+                            int(getattr(info, "st_file_attributes", 0))
+                            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+                        )
+                        if stat.S_ISLNK(info.st_mode) or is_reparse:
+                            raise PolicyViolation("Backup tree cannot contain links")
+                        if entry.is_dir(follow_symlinks=False):
+                            directory_count += 1
+                            if directory_count > MAX_DIRECTORIES:
+                                raise ValidationFailed("Backup directory count exceeds bound")
+                            pending.append(target)
+                            yield target, True
+                        elif entry.is_file(follow_symlinks=False):
+                            file_count += 1
+                            if file_count > MAX_FILES:
+                                raise ValidationFailed("Backup file count exceeds bound")
+                            yield target, False
+                        else:
+                            raise PolicyViolation("Backup tree entry must be regular")
+                    except OSError as exc:
+                        raise PolicyViolation("Backup tree entry unreadable") from exc
+        except OSError as exc:
+            raise PolicyViolation("Backup tree unreadable") from exc
 
 
 def _sources(home: Path) -> tuple[tuple[str, Path, str], ...]:
@@ -390,7 +434,9 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
         os.chmod(manifest, 0o400)
         _sync_file(manifest)
         for directory in sorted(
-            (item for item in staging.rglob("*") if item.is_dir()), reverse=True
+            (item for item, is_directory in _walk_tree_entries(staging) if is_directory),
+            key=lambda item: item.as_posix(),
+            reverse=True,
         ):
             _sync_directory(directory)
         _sync_directory(staging)
@@ -522,12 +568,16 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         total += info.st_size
     if not set(names) >= (_REQUIRED_DATABASES | _REQUIRED_FILES):
         raise PolicyViolation("Backup mandatory file set incomplete")
-    actual = sorted(
-        path.relative_to(bundle).as_posix() for path in bundle.rglob("*") if not path.is_dir()
-    )
-    actual_directories = sorted(
-        path.relative_to(bundle).as_posix() for path in bundle.rglob("*") if path.is_dir()
-    )
+    actual_files: list[str] = []
+    actual_directory_names: list[str] = []
+    for path, is_directory in _walk_tree_entries(bundle):
+        relative = path.relative_to(bundle).as_posix()
+        if is_directory:
+            actual_directory_names.append(relative)
+        else:
+            actual_files.append(relative)
+    actual = sorted(actual_files)
+    actual_directories = sorted(actual_directory_names)
     if (
         names != sorted(names)
         or len(names) != len(set(names))
@@ -566,7 +616,9 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             if entry["kind"] == "sqlite":
                 validate_local_sqlite_store(_DATABASE_NAMES[relative], staging / relative)
         for directory in sorted(
-            (item for item in staging.rglob("*") if item.is_dir()), reverse=True
+            (item for item, is_directory in _walk_tree_entries(staging) if is_directory),
+            key=lambda item: item.as_posix(),
+            reverse=True,
         ):
             _sync_directory(directory)
         _sync_directory(staging)
