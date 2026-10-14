@@ -24,6 +24,7 @@ from zekam.domain.mcp_integration import (
     McpTransport,
     validate_registry_entries,
 )
+from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
 
 _REGISTRY_SCHEMA = "zekam-mcp-registry/v1"
 _PLAN_SCHEMA = "zekam-mcp-sync-plan/v1"
@@ -45,6 +46,8 @@ _EXECUTABLES = {
 
 
 def _file_digest(path: Path) -> str | None:
+    if path_or_parent_is_link_or_reparse(path):
+        raise PolicyViolation("MCP native config yolu link veya reparse olamaz")
     if not path.exists():
         return None
     if path.is_symlink() or not path.is_file():
@@ -56,6 +59,8 @@ def _file_digest(path: Path) -> str | None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
+    if path_or_parent_is_link_or_reparse(path):
+        raise PolicyViolation("MCP native config yolu link veya reparse olamaz")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -68,6 +73,17 @@ def _atomic_write(path: Path, payload: bytes) -> None:
         with suppress(OSError):
             os.unlink(temporary)
         raise
+
+
+def _safe_native_root(path: Path) -> Path:
+    """Resolve a native user root only when no ancestor can redirect I/O."""
+
+    if path_or_parent_is_link_or_reparse(path):
+        raise PolicyViolation("MCP native kok yolu link veya reparse olamaz")
+    root = path.resolve(strict=True)
+    if not root.is_dir() or path_or_parent_is_link_or_reparse(root):
+        raise PolicyViolation("MCP native kok dizini guvenli olmali")
+    return root
 
 
 def _registry_body(entries: tuple[McpServerRegistration, ...]) -> dict[str, Any]:
@@ -511,7 +527,7 @@ def build_register_plan(
     native_user_root: Path,
     adopt: bool = False,
 ) -> McpSyncPlan:
-    root = native_user_root.resolve(strict=True)
+    root = _safe_native_root(native_user_root)
     before, receipt = _current_registry(context)
     mapping = {item.name.casefold(): item for item in before}
     previous_registration = mapping.get(registration.name.casefold())
@@ -598,7 +614,7 @@ def build_sync_plan(context: ApplicationContext, *, native_user_root: Path) -> M
     # Re-registering each entry builds the final native projection while keeping one registry head.
     # The common case is intentionally bounded to 128 entries.
     targets: list[dict[str, Any]] = []
-    root = native_user_root.resolve(strict=True)
+    root = _safe_native_root(native_user_root)
     current_receipt = _current_registry(context)[1]
     virtual: dict[ClientIntegrationId, bytes | None] = {}
     for client, relative in _CLIENT_PATHS.items():
@@ -666,7 +682,7 @@ def build_remove_plan(
         raise ValidationFailed("MCP registry server bulunamadi")
     registration = matches[0]
     after = tuple(item for item in before if item.name != name)
-    root = native_user_root.resolve(strict=True)
+    root = _safe_native_root(native_user_root)
     targets: list[dict[str, Any]] = []
     for client in registration.clients:
         owned = _owned_entry_digest(receipt, client, registration.name)
@@ -800,6 +816,7 @@ def sync_receipt(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[str,
 
 
 def registry_status(context: ApplicationContext, *, native_user_root: Path) -> dict[str, Any]:
+    native_root = _safe_native_root(native_user_root)
     entries, receipt = _current_registry(context)
     clients = []
     for client in _CLIENT_PATHS:
@@ -817,7 +834,7 @@ def registry_status(context: ApplicationContext, *, native_user_root: Path) -> d
         "clients": clients,
         "last_receipt_digest": None if receipt is None else receipt["receipt_digest"],
         "native_user_root_identity_digest": digest(
-            {"native_user_root": os.path.normcase(str(native_user_root.resolve(strict=True)))}
+            {"native_user_root": os.path.normcase(str(native_root))}
         ),
         "grants_authority": False,
     }
@@ -880,7 +897,7 @@ def build_rollback_plan(
         )
         if _registry_body(previous) != raw_before:
             raise PolicyViolation("MCP rollback before registry drift")
-    root = native_user_root.resolve(strict=True)
+    root = _safe_native_root(native_user_root)
     targets: list[dict[str, Any]] = []
     previous_by_name = {item.name: item for item in previous}
     current_by_name = {item.name: item for item in current}
@@ -898,6 +915,9 @@ def build_rollback_plan(
         name = str(source["server"])
         relative = _CLIENT_PATHS[client]
         path = root / relative
+        expected_current = source.get("after_digest")
+        if not isinstance(expected_current, str) or _file_digest(path) != expected_current:
+            raise PolicyViolation("MCP rollback native config drift")
         before_payload = virtual[client]
         owned = _owned_entry_digest(current_receipt, client, name)
         previous_registration = previous_by_name.get(name)
@@ -954,6 +974,7 @@ def build_rollback_plan(
 
 
 def mcp_mutation_resource(native_user_root: Path) -> str:
+    native_root = _safe_native_root(native_user_root)
     return "mcp-integrations:user:" + digest(
-        {"native_user_root": os.path.normcase(str(native_user_root.resolve(strict=True)))}
+        {"native_user_root": os.path.normcase(str(native_root))}
     )

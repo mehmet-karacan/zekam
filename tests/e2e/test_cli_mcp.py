@@ -873,3 +873,61 @@ def test_mcp_sync_detects_post_apply_drift(tmp_path: Path, monkeypatch: pytest.M
     assert sync.exit_code == 70
     assert "user drift" in sync.output
     assert opencode.read_text(encoding="utf-8") == drifted
+
+
+def test_mcp_rollback_plan_rejects_native_drift_before_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rollback plan'i olusturulmadan once apply sonrasi drift fail-closed kalir."""
+
+    home = tmp_path / "zekam-home"
+    native = tmp_path / "native-home"
+    native.mkdir()
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _write_integration_config(home, ("opencode",))
+    monkeypatch.setattr(mcp_commands.Path, "home", lambda: native)
+    monkeypatch.setattr(mcp_integrations, "_executable_present", lambda _client: True)
+    monkeypatch.setattr(mcp_integrations, "_opencode_uses_v2", lambda: True)
+    opencode = native / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    opencode.write_text(json.dumps({"mcp": {"servers": {}}}), encoding="utf-8")
+
+    add_args = [
+        "mcp",
+        "add",
+        "sample",
+        "--command",
+        "sample-server",
+        "--client",
+        "opencode",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    plan = json.loads(runner.invoke(app, add_args).output)
+    applied = runner.invoke(
+        app, [*add_args[:-1], "--plan-digest", plan["plan_digest"], "--uygula", "--json"]
+    )
+    assert applied.exit_code == 0, applied.output
+    receipt = json.loads(applied.output)
+
+    document = json.loads(opencode.read_text(encoding="utf-8"))
+    document["mcp"]["servers"]["sample"]["command"] = ["user-drift"]
+    opencode.write_text(json.dumps(document), encoding="utf-8")
+    rollback = runner.invoke(
+        app,
+        [
+            "mcp",
+            "rollback",
+            "--receipt",
+            receipt["receipt_digest"],
+            "--home",
+            str(home),
+            "--json",
+        ],
+    )
+    assert rollback.exit_code == 70
+    assert "rollback native config drift" in rollback.output
+    restored = json.loads(opencode.read_text(encoding="utf-8"))
+    assert restored["mcp"]["servers"]["sample"]["command"] == ["user-drift"]

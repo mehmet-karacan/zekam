@@ -6,9 +6,11 @@ import io
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
+import zekam.application.mcp_integrations as mcp_integrations
 from zekam.application.atlassian_mcp_server import (
     _base_url,
     _SameOriginRedirectHandler,
@@ -16,7 +18,7 @@ from zekam.application.atlassian_mcp_server import (
     serve,
 )
 from zekam.domain.client_integration import ClientIntegrationId
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.errors import ConfigurationError, PolicyViolation
 from zekam.domain.mcp_integration import McpServerRegistration, McpTransport
 
 
@@ -103,3 +105,22 @@ def test_builtin_server_stdio_handshake() -> None:
     assert response["id"] == 1
     assert response["result"]["serverInfo"]["name"] == "innova-atlassian-local"
     assert response["result"]["capabilities"] == {"tools": {}}
+
+
+def test_native_mcp_path_guard_rejects_reparse_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP native yazma, ust dizin yonlendirmesi varsa fail-closed kalir."""
+
+    target = tmp_path / "native" / ".config" / "opencode" / "opencode.json"
+    target.parent.mkdir(parents=True)
+    monkeypatch.setattr(
+        mcp_integrations,
+        "path_or_parent_is_link_or_reparse",
+        lambda _candidate: True,
+    )
+
+    with pytest.raises(PolicyViolation, match="link veya reparse"):
+        mcp_integrations._file_digest(target)
+    with pytest.raises(PolicyViolation, match="link veya reparse"):
+        mcp_integrations._atomic_write(target, b"{}")
