@@ -247,7 +247,7 @@ def _iter_content_paths(base: Path) -> Iterator[Path]:
             object_entries = _sorted_entries(
                 second,
                 limit=MAX_OBJECTS,
-                message="CAS nesne dizini siniri asildi",
+                message="CAS nesne sayisi siniri asildi",
                 suffix=CONTENT_SUFFIX,
             )
             for object_entry in object_entries:
@@ -273,13 +273,15 @@ def _sorted_entries(
     suffix: str | None = None,
 ) -> list[os.DirEntry[str]]:
     entries: list[os.DirEntry[str]] = []
+    observed = 0
     try:
         with os.scandir(directory) as scan:
             for entry in scan:
+                observed += 1
+                if observed > limit:
+                    raise PolicyViolation(message)
                 if suffix is not None and not entry.name.endswith(suffix):
                     continue
-                if len(entries) >= limit:
-                    raise PolicyViolation(message)
                 entries.append(entry)
     except OSError as exc:
         raise ValidationFailed("CAS dizini okunamadi") from exc
