@@ -459,6 +459,74 @@ export const ZekamLifecycle = async ({ directory }) => {
     },
   }
 }
+
+// OpenCode v2, V1 kanca haritasini calistirmadigi icin ayni davranisi V2
+// setup/subscribe yuzeyine tasir. V1 export'u geriye donuk fixture/runtime
+// testleri icin bilerek korunur.
+export default {
+  id: "zekam.lifecycle",
+  async setup(context) {
+    const directory = context?.location?.directory ?? context?.directory
+    if (typeof directory !== "string") return
+    const hooks = await ZekamLifecycle({ directory })
+    if (!hooks || Object.keys(hooks).length === 0) return
+
+    const controller = new AbortController()
+    const eventStream = context?.event?.subscribe?.({ signal: controller.signal })
+    if (eventStream) {
+      void (async () => {
+        try {
+          for await (const event of eventStream) {
+            const properties = event?.data ?? event?.properties ?? {}
+            await hooks.event?.({ event: { type: event?.type, properties } })
+          }
+        } catch (error) {
+          if (error?.name !== "AbortError") console.warn("Zekam V2 event subscription stopped")
+        }
+      })()
+    }
+
+    // V2 registrations are intentionally fire-and-forget: some OpenCode
+    // releases expose these as async registrations while older V2 builds do
+    // not resolve the returned promise during provider-free startup.
+    if (context?.session?.hook) {
+      void context.session.hook("context", async (event) => {
+        const system = event.system ?? (event.system = [])
+        await hooks["experimental.chat.system.transform"]?.(
+          { sessionID: event.sessionID },
+          { system: { push: (value) => system.push(
+            typeof value === "string" ? { type: "text", text: value } : value,
+          ) } },
+        )
+      })
+      void context.session.hook("compaction", async (event) => {
+        const contextParts = event.context ?? (event.context = [])
+        await hooks["experimental.session.compacting"]?.(
+          { sessionID: event.sessionID },
+          { context: { push: (value) => contextParts.push(
+            typeof value === "string" ? { type: "text", text: value } : value,
+          ) } },
+        )
+      })
+    }
+
+    if (context?.tool?.hook) {
+      void context.tool.hook("execute.before", async (event) => {
+        await hooks["tool.execute.before"]?.(
+          { ...event, sessionID: event.sessionID, callID: event.callID, tool: event.tool },
+          { args: event.input ?? event.args ?? {} },
+        )
+      })
+      void context.tool.hook("execute.after", async (event) => {
+        await hooks["tool.execute.after"]?.(
+          { ...event, sessionID: event.sessionID, callID: event.callID, tool: event.tool },
+        )
+      })
+    }
+
+    return () => controller.abort()
+  },
+}
 """
 
 _BASE_AGENT_TEMPLATES: Mapping[str, str] = {

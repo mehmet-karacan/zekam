@@ -1216,6 +1216,35 @@ izole native server health/session/delete akışını tekrar çalıştır, sonra
 harici kaynak, canlı model ve release kapılarını kanıtla. Kullanıcı tarafından tutulan dört
 untracked prototype/target yolu stage edilmedi ve değiştirilmedi.
 
+### 10.5 14 Ekim 2026 OpenCode v2 lifecycle checkpointi
+
+OpenCode `2.0.29` native host gercek Bun runtime'inda incelendi. V1 named export eklenti
+girisi v2 tarafinda yuklenmedigi icin lifecycle kaydi uretemiyordu; kaynak template'e V2
+`default`/`setup` adaptoru eklendi ve mevcut V1 runtime yolu korundu. Adaptör Zekam workspace
+sinirini yeniden kullanir, V2 event subscription ile `session.created` olayini ayni spool/fake
+executable yoluna yollar ve kapatma fonksiyonunu kaydeder.
+
+Kanit:
+
+- `OPENCODE_EXECUTABLE=... python -m pytest -q tests/e2e/test_opencode_lifecycle_plugin_runtime.py`:
+  `9 passed`.
+- `PYTHONPATH=src python -m pytest -q tests/unit/test_opencode_agent_bootstrap.py` ile bootstrap
+  template/ownership testleri gecti; ayni dosyanin native testi executable yolu acik verilerek
+  ayrica `passed` oldu.
+- Native provider-free kosu gecersiz `missing/nope` model kimligi ile sinirlandi; gercek provider
+  veya credential cagrisi yapilmadi. Gercek event capture'da `session.created` goruldu.
+- Standalone delete komutu ayri private server actigi icin ilk stdio plugin oturumuna
+  `session.deleted` terminal olayini teslim etmedi; bu olay icin native kabul iddiasi kurulmadı.
+
+Bu checkpoint V2 plugin yukleme ve olayin teslimini kanitlar; native delete, compaction, tool hook,
+MCP/shell siniri, harici kaynak, canli model ve release kabul kapilari acik kalir. Dört kullanici
+untracked prototype/target yolu stage edilmedi ve degistirilmedi.
+
+`next_safe_action`: native delete/compaction icin ayni persistent server/client akisini ayri bir
+izole fixture olarak kur; sonra WP-02..12 icin kalan canli, harici kaynak, performans ve release
+kapilarini tek tek kanitla. `tamamlandi` iddiasi icin acik kapilari kapatma veya `not-run` olarak
+raporlama gerekir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
