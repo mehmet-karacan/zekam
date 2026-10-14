@@ -192,8 +192,8 @@ CAPABILITIES: tuple[Capability, ...] = (
         ),
         ("zekam-memory-curator",),
         ("tests/unit/test_intake.py", "tests/unit/test_idea_proposals.py"),
-        "Proposal/review is read-only and secret-free; durable proposal promotion still "
-        "requires a separate explicit effect.",
+        "Proposal/review is read-only and secret-free; idea work-create now provides the "
+        "explicit scope/approval effect, while execution run/receipt linkage remains open.",
     ),
     Capability(
         "reports",
