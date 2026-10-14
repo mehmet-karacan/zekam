@@ -309,14 +309,15 @@ def test_audit_stops_walk_after_limit(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr(knowledge_files, "_AUDIT_LIMIT", 0)
 
     visited: list[str] = []
-    real_walk = knowledge_files.os.walk
+    real_iter = knowledge_files._iter_audit_note_entries
 
-    def tracking_walk(*args: object, **kwargs: object):
-        for directory, directory_names, file_names in real_walk(*args, **kwargs):
-            visited.append(directory)
-            yield directory, directory_names, file_names
+    def tracking_iter(root: Path, root_name: str):
+        for kind, relative in real_iter(root, root_name):
+            if kind == "directory":
+                visited.append(str(store.home / relative))
+            yield kind, relative
 
-    monkeypatch.setattr(knowledge_files.os, "walk", tracking_walk)
+    monkeypatch.setattr(knowledge_files, "_iter_audit_note_entries", tracking_iter)
 
     kinds = {issue.kind for issue in store.audit(notes=(), artifacts=())}
 

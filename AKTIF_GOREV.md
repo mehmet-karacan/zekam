@@ -2024,6 +2024,16 @@ buyuyen metadata typed configuration hatasiyla reddedilir; yarim staging yayinla
 Bu dar dilim WP-00/11 fresh home recovery bellek boslugunu daraltir; gercek cihaz
 restore donguleri ve native scheduler kabul matrisi halen aciktir.
 
+### 10.57 15 Ekim 2026 Knowledge note audit census kapisi
+
+Knowledge note audit'i `os.walk` yerine bounded `scandir` kuyrugu kullanir;
+dosya, dizin ve toplam girdi limitleri asildiginda audit-limit-exceeded uretilir.
+Symlink/reparse ve ozel girdiler unsafe-note-path olarak fail-closed raporlanir;
+limit asiminda kalan agac sessizce complete sayilmaz.
+
+Bu dar dilim WP-04.04 bilgi dosyasi audit traversal bellek/sure boslugunu
+daraltir; native dosya sistemi yarisi ve tam kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

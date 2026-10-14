@@ -50,6 +50,8 @@ class KnowledgeFileIssue:
 
 _AUDIT_NOTE_ROOTS = ("global", "projeler", "inbox", "archive")
 _AUDIT_LIMIT = 10_000
+_AUDIT_DIRECTORY_LIMIT = 10_000
+_AUDIT_ENTRY_LIMIT = 100_000
 _CAS_AUDIT_LIMIT = 10_000
 
 
@@ -64,6 +66,46 @@ def _is_link_or_reparse(path: Path) -> bool:
         int(getattr(info, "st_file_attributes", 0))
         & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
     )
+
+
+def _iter_audit_note_entries(root: Path, root_name: str) -> Iterator[tuple[str, str]]:
+    """Yield note audit entries through a bounded, link-safe directory queue."""
+
+    pending = [root]
+    directories = 0
+    entries_seen = 0
+    while pending:
+        directory = pending.pop()
+        yield "directory", directory.relative_to(root.parent).as_posix()
+        try:
+            with os.scandir(directory) as children:
+                for child in children:
+                    entries_seen += 1
+                    if entries_seen > _AUDIT_ENTRY_LIMIT:
+                        yield "limit", root_name
+                        return
+                    target = Path(child.path)
+                    relative = target.relative_to(root.parent).as_posix()
+                    if _is_link_or_reparse(target):
+                        yield "unsafe", relative
+                        continue
+                    try:
+                        if child.is_dir(follow_symlinks=False):
+                            directories += 1
+                            if directories > _AUDIT_DIRECTORY_LIMIT:
+                                yield "limit", root_name
+                                return
+                            pending.append(target)
+                        elif child.is_file(follow_symlinks=False):
+                            if child.name.lower().endswith(".md"):
+                                yield "file", relative
+                        else:
+                            yield "unsafe", relative
+                    except OSError:
+                        yield "unsafe", relative
+        except OSError:
+            yield "unsafe", directory.relative_to(root.parent).as_posix()
+            return
 
 
 class KnowledgeFileStore:
@@ -556,28 +598,25 @@ class KnowledgeFileStore:
                 continue
             if not root.is_dir():
                 continue
-            for directory, directory_names, file_names in os.walk(root, followlinks=False):
-                parent = Path(directory)
-                for name in tuple(directory_names):
-                    target = parent / name
-                    if _is_link_or_reparse(target):
-                        relative = target.relative_to(self.home).as_posix()
-                        issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
-                        directory_names.remove(name)
-                for name in file_names:
-                    if not name.lower().endswith(".md"):
-                        continue
-                    observed += 1
-                    if observed > _AUDIT_LIMIT:
-                        issues.add(KnowledgeFileIssue("audit-limit-exceeded", root_name))
-                        stop_audit = True
-                        break
-                    target = parent / name
-                    relative = target.relative_to(self.home).as_posix()
-                    if _is_link_or_reparse(target):
-                        issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
-                    elif relative not in expected_notes:
-                        issues.add(KnowledgeFileIssue("unmanifested-note", relative))
+            for entry_kind, relative in _iter_audit_note_entries(root, root_name):
+                if entry_kind == "directory":
+                    continue
+                if entry_kind == "unsafe":
+                    issues.add(KnowledgeFileIssue("unsafe-note-path", relative))
+                    continue
+                if entry_kind == "limit":
+                    issues.add(KnowledgeFileIssue("audit-limit-exceeded", relative))
+                    stop_audit = True
+                    break
+                if entry_kind != "file":
+                    raise ValidationFailed("Knowledge audit entry kind invalid")
+                observed += 1
+                if observed > _AUDIT_LIMIT:
+                    issues.add(KnowledgeFileIssue("audit-limit-exceeded", root_name))
+                    stop_audit = True
+                    break
+                if relative not in expected_notes:
+                    issues.add(KnowledgeFileIssue("unmanifested-note", relative))
                 if stop_audit:
                     break
 
