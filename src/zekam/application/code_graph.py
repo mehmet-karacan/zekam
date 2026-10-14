@@ -74,10 +74,15 @@ def _has_link_component(source_root: Path, relative: Path) -> bool:
 
 
 def _read_source_bytes(source_root: Path, relative: Path) -> bytes:
+    path = source_root / relative
     try:
-        return (source_root / relative).read_bytes()
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_GRAPH_SOURCE_BYTES + 1)
     except OSError as exc:
         raise ValidationFailed("Graph source okunamadi") from exc
+    if len(payload) > MAX_GRAPH_SOURCE_BYTES:
+        raise ValidationFailed("Graph source bounded boyutu asti")
+    return payload
 
 
 def _safe_relative(value: str) -> str:

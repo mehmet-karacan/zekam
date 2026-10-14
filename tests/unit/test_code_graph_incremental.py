@@ -235,3 +235,20 @@ def test_apply_rejects_missing_source_as_validation_error(tmp_path: Path) -> Non
             apply_graph_build(store, extractor, source_root, plan)
     finally:
         store.close()
+
+
+def test_plan_rejects_oversized_source_before_full_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = _write(tmp_path, {"mod.py": "12345"})
+    monkeypatch.setattr(code_graph_module, "MAX_GRAPH_SOURCE_BYTES", 4)
+
+    with pytest.raises(ValidationFailed, match="bounded boyutu"):
+        plan_graph_build(
+            source_root,
+            project_id=_PROJECT_ID,
+            project_slug=_SLUG,
+            source_revision=_REVISION,
+            extractor=PythonAstExtractor(),
+            created_at=_CREATED_AT,
+        )

@@ -2099,6 +2099,16 @@ icerik tamamlanmis gibi kabul edilmez ve mevcut fail-closed LayoutError korunur.
 Bu dar dilim WP-04.04 bilgi note kaynak tuketimi boslugunu daraltir; native ACL
 ve dosya sistemi yarisi kabul matrisi halen aciktir.
 
+### 10.65 15 Ekim 2026 Code graph kaynak stream kapisi
+
+Code graph plan/apply kaynak okuyucusu dosyayi tamamen `read_bytes` ile
+toplamadan `MAX_GRAPH_SOURCE_BYTES + 1` bounded stream okur. Oversized kaynak
+parser veya graph kaniti uretmeden typed validation hatasiyla durur; plan/apply
+link ve digest drift kapilari korunur.
+
+Bu dar dilim WP-04.01/06.03 graph kaynak bellek boslugunu daraltir; tam parser,
+resolver ve native repository kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
