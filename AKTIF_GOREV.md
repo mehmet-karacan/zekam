@@ -1398,6 +1398,27 @@ canli provider/model, harici Jira/Confluence/ODI ve release kabul kapilarini kap
 `next_safe_action`: kalan SQLite projection path'lerini ayni ortak yardimciyla envanterle
 ve yalniz somut sidecar/lock acigi varsa hedefli test ekle; toplu refactor yapma.
 
+### 10.15 14 Ekim 2026 learning ve benchmark reparse parity kaniti
+
+Envanterin sonraki dar halkasinda `SQLiteLocalLearning`, `SQLiteSkillLifecycle` ve
+`SQLiteLocalBenchmarkLab` path admission/connection kontrolleri ortak
+`path_or_parent_is_link_or_reparse` yardimcisina baglandi. Parent junction'i mevcut regular
+dosyanin `private_regular` kontrolunu gecse bile `resolve()` ve SQLite acilisindan once
+reddediliyor; artifact root ve migration backup hedefleri de ayni sinira tabi.
+
+Kanıt: `tests/unit/test_local_file_security.py`,
+`tests/unit/test_wp16_sqlite_local_stores_coverage.py`,
+`tests/unit/test_wp16_sqlite_runtime_worker_extra_coverage.py` ve
+`tests/unit/test_wp16_embedding_learning_remaining_wp05.py`: `84 passed, 5 skipped`.
+Commit `4a73038` ASCII-only mesajla origin/main'e push edildi. Windows symlink yetkisi ve
+macOS/POSIX izin semantigi skip'leri onceki kapsamla ayni kaldı.
+
+Bu adim local memory/skill/benchmark path guvenligini genisletir; gercek model benchmarki,
+provider, Jira/Confluence/ODI, performans qrels ve release kabul kapilari halen not-run/acik.
+
+`next_safe_action`: kalan `local_runtime`/sidecar/lock yazim noktalarini hedefli incele;
+operational status helper'i zaten parent reparse reddettigi icin duplicate refactor yapma.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
