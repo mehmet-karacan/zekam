@@ -1933,6 +1933,16 @@ ve toplam paket boyutu okunmadan once bounded olarak denetlenir.
 Bu dar dilim WP-10.02'nin skill package kaynak tuketimi ve path guvenligi
 boslugunu daraltir; native client projection kabul matrisi aciktir.
 
+### 10.48 15 Ekim 2026 managed projection digest kapisi
+
+Managed skill projection ownership readback'i hedef agaci `rglob` ile
+sinirsiz toplamadan bounded `scandir` akisi kullanir. Link/reparse ve special
+file girdileri reddedilir; dosya boyutu ve toplam dosya sayisi digest listesine
+alinmadan once sinirlanir.
+
+Bu dar dilim WP-10.02'nin client projection drift kontrolu kaynak tuketimi
+boslugunu daraltir; native client ve watcher kabul matrisi aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

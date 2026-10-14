@@ -115,6 +115,19 @@ def test_directory_import_stops_at_file_limit(
         SkillPackage.read_directory(root.resolve())
 
 
+def test_projected_artifact_digest_bounds_target_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "projection"
+    target.mkdir()
+    (target / "one.md").write_text("one\n", encoding="utf-8")
+    (target / "two.md").write_text("two\n", encoding="utf-8")
+    monkeypatch.setattr(skill_packages, "MAX_PROJECTED_FILES", 1)
+
+    with pytest.raises(PolicyViolation, match="file count"):
+        skill_packages.projected_artifact_digest(target)
+
+
 def test_managed_client_projection_is_shared_scoped_and_drift_safe(tmp_path: Path) -> None:
     project = (tmp_path / "project").resolve()
     project.mkdir()

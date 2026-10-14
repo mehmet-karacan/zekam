@@ -17,6 +17,9 @@ from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrati
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.skill_package import SkillPackage, SkillPackageMetadata
 
+MAX_PROJECTED_FILES = 512
+MAX_PROJECTED_FILE_BYTES = 256 * 1024
+
 
 def _real_directory(path: Path) -> bool:
     if not path.is_dir() or path.is_symlink():
@@ -52,22 +55,56 @@ def _assert_contained(root: Path, target: Path) -> None:
         current = current.parent
 
 
+def _iter_projected_files(root: Path):
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    try:
+                        info = target.lstat()
+                        attributes = getattr(info, "st_file_attributes", 0)
+                        reparse = bool(
+                            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                        )
+                        if stat.S_ISLNK(info.st_mode) or reparse:
+                            raise PolicyViolation(
+                                "Managed skill projection symlink/junction rejected"
+                            )
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(target)
+                        elif entry.is_file(follow_symlinks=False):
+                            yield target
+                        else:
+                            raise PolicyViolation(
+                                "Managed skill projection special file rejected"
+                            )
+                    except OSError as exc:
+                        raise PolicyViolation(
+                            "Managed skill projection entry metadata unreadable"
+                        ) from exc
+        except OSError as exc:
+            raise PolicyViolation("Managed skill projection directory unreadable") from exc
+
+
 def _projected_artifact_digest(target: Path) -> str:
     manifest: list[dict[str, object]] = []
-    for path in sorted(target.rglob("*")):
-        info = path.lstat()
-        attributes = getattr(info, "st_file_attributes", 0)
-        reparse = bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
-        if path.is_symlink() or reparse:
-            raise PolicyViolation("Managed skill projection symlink/junction rejected")
-        if path.is_dir():
-            continue
-        if not path.is_file():
-            raise PolicyViolation("Managed skill projection special file rejected")
+    observed = 0
+    for path in _iter_projected_files(target):
         relative = path.relative_to(target).as_posix()
         if relative == ".zekam-managed.json":
             continue
-        payload = path.read_bytes()
+        observed += 1
+        if observed > MAX_PROJECTED_FILES:
+            raise PolicyViolation("Managed skill projection file count bounded disi")
+        try:
+            if path.stat(follow_symlinks=False).st_size > MAX_PROJECTED_FILE_BYTES:
+                raise PolicyViolation("Managed skill projection file bounded disi")
+            payload = path.read_bytes()
+        except OSError as exc:
+            raise PolicyViolation("Managed skill projection file okunamadi") from exc
         manifest.append(
             {"path": relative, "digest": digest_of_bytes(payload), "size": len(payload)}
         )
