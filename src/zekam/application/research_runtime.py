@@ -278,7 +278,11 @@ def _bounded_evidence(
     if retrieval_evidence_sufficient is False:
         gaps.append("retrieval-evidence-gap")
     index_freshness = rag.get("index_freshness", "unknown")
-    if index_freshness not in {"current", "stale", "unknown"}:
+    if not isinstance(index_freshness, str) or index_freshness not in {
+        "current",
+        "stale",
+        "unknown",
+    }:
         raise ValidationFailed("Research RAG index_freshness degeri gecersiz")
     stale_reasons_value = rag.get("stale_reasons", [])
     if not isinstance(stale_reasons_value, list):
@@ -296,6 +300,8 @@ def _bounded_evidence(
     )
     if not isinstance(reindex_recommended, bool):
         raise ValidationFailed("Research RAG reindex_recommended boolean olmali")
+    if index_freshness == "unknown" and citations:
+        gaps.append("retrieval-freshness-unavailable")
     if index_freshness == "stale" or stale_reasons or snapshot_only:
         gaps.append("retrieval-index-stale")
     for citation in citations:

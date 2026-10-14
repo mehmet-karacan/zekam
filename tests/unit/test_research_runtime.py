@@ -126,6 +126,10 @@ def _runtime(tmp_path: Path, monkeypatch):  # type: ignore[no-untyped-def]
             "state": "answered",
             "generation_digest": generation,
             "citations": [{"chunk_id": "chunk-1"}],
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
         },
     )
     monkeypatch.setattr(
@@ -204,6 +208,10 @@ def test_research_forwards_exact_remote_query_authorization(
             "state": "answered",
             "generation_digest": digest("generation"),
             "citations": [{"chunk_id": "chunk-1"}],
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
         }
 
     monkeypatch.setattr(subject, "query_registered_project", query)
@@ -572,6 +580,10 @@ def test_research_evidence_budget_reads_more_than_legacy_five(
             "state": "answered",
             "generation_digest": digest("generation"),
             "citations": citations,
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
         },
     )
 
@@ -631,6 +643,10 @@ def test_research_evidence_budget_gap_is_explicitly_partial(
             "state": "answered",
             "generation_digest": digest("generation"),
             "citations": citations,
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
             "evidence_sufficient": False,
             "uncovered_identifiers": ["MusteriService"],
         },
@@ -712,6 +728,38 @@ def test_research_query_staleness_is_carried_into_report(
     assert coverage["snapshot_only"] is True
     assert coverage["reindex_recommended"] is True
     assert "retrieval-index-stale" in coverage["gaps"]
+    assert coverage["state"] == "partial"
+    assert result["report"]["status"] == "partial"
+
+
+def test_research_query_missing_freshness_is_explicit_gap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        subject,
+        "query_registered_project",
+        lambda *_args, **_kwargs: {
+            "state": "answered",
+            "generation_digest": digest("generation"),
+            "citations": [{"chunk_id": "chunk-1"}],
+        },
+    )
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        adapter=FakeAdapter(),
+    )
+    coverage = result["report"]["evidence_coverage"]
+    assert coverage["index_freshness"] == "unknown"
+    assert "retrieval-freshness-unavailable" in coverage["gaps"]
     assert coverage["state"] == "partial"
     assert result["report"]["status"] == "partial"
 
@@ -808,6 +856,10 @@ def test_research_evidence_budget_still_scans_secret_after_legacy_fifth(
             "state": "answered",
             "generation_digest": digest("generation"),
             "citations": citations,
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
         },
     )
     read_ids: list[str] = []
@@ -855,6 +907,10 @@ def test_research_evidence_budget_preserves_freshness_gate_after_legacy_fifth(
             "state": "answered",
             "generation_digest": digest("generation"),
             "citations": citations,
+            "index_freshness": "current",
+            "stale_reasons": [],
+            "snapshot_only": False,
+            "reindex_recommended": False,
         },
     )
     read_ids: list[str] = []

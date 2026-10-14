@@ -641,7 +641,7 @@ ayri kalir.
 **İncelenecek/değişecek konumlar:** `source_discovery.py`, `ignore_rules.py`, `project_knowledge_index.py`, `knowledge_ingestion.py`, `knowledge_parsers.py`, `secret_detection.py`, `knowledge_file_plane.py`, `infrastructure/knowledge/document_parsers.py`; öneri `index_selection_policy.py`.
 
 - [ ] **WP-04.01** — Discovery metadata ve içerik eligibility adımlarını ayır. Seçili ağacın `.git`, `node_modules`, `.env`, binary ve generated dosyaları dahil metadata envanterini tut; içerik okuma veya embedding için ayrı politika uygula.
-- [ ] **WP-04.02** — Traversal'ı streaming ve limitli yap; junction/symlink döngüsü veya kök dışına kaçışı engelle. Limit/erişim hatası varsa tam envanter demek yerine partial + devam checkpoint'i ver.
+- [x] **WP-04.02** — Traversal'ı streaming ve limitli yap; junction/symlink döngüsü veya kök dışına kaçışı engelle. Limit/erişim hatası varsa tam envanter demek yerine partial + devam checkpoint'i ver.
 - [ ] **WP-04.03** — Kaynak türleri için AST/structural parçalama; belge türleri için başlık/paragraf/tablo locator; XML için özel parser seç. Unknown formatı ham UTF-8 sayma; PDF/DOCX tablo/sayfa bilgisi uydurma.
 - [ ] **WP-04.04** — `.env` ve `.properties` safe key/structure parser'ını local-only uygula. Synthetic secrets'ın prompt/cache/index/log/artifact'a sızmadığını denetle; secret içeriğe birebir public hash üretme.
 - [ ] **WP-04.05** — ZIP'te traversal, symlink, entry count/byte/ratio limitleri; XML'de DTD/external entity/network expansion reddi; belgede çalışabilir macro/script yürütmeme sınırlarını uygula.
@@ -784,7 +784,15 @@ Kaynak kesfi, project source binding ve CLI index girisi ayni kapidan gecer;
 cocuk symlink/junction girdileri onceki skip davranisini korur. Source discovery,
 project RAG, continuity ve ODI drift testleri birlikte 88 passed, 2 Windows
 symlink yetki skip'i verdi. Gercek checkpoint'ten yeniden baslatma API'si ve
-tam traversal kabul matrisi henuz yok; WP-04.02 acik kalir.
+tam traversal kabul matrisi henuz yok; o tarihte WP-04.02 acik kaldi.
+
+**14 Ekim 2026 — WP-04.02 kapanis kaniti:** `resume_discovery` bounded
+checkpoint frontier'ini kok kimligi, yol siniri ve dosya metadata snapshot'i ile
+dogrular; disari tasma, `..`, absolute path, symlink/junction, kok drift'i ve
+frontier drift'i fail-closed reddeder. Dogrulama sonrasi provider-free bounded
+taze traversal ile tamamlanmamış envanter sessizce complete sayilmaz. Kaynak
+kesfi testleri **72 passed, 2 skipped**, Ruff ve diff kontrolu temizdir;
+`5dfc2a7` ile push edilmistir.
 
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
@@ -1103,13 +1111,21 @@ kosusu ve tam recovery kabul matrisi henuz olmadigi icin WP-07.03 acik kalir.
 - [ ] **WP-10.01** — Kayıt türlerini karar/deneyim/başarısızlık/ders/skill olarak ayır. Provenance, scope, freshness, superseded, conflict ve yetkili düzeltme/arşivleme yollarını doğal dile bağla.
 - [ ] **WP-10.02** — Doğrulanmış kök nedenden lesson candidate üret; aynı evidence'ı iki bağımsız gözlem sayma. Memory'yi kullanıcı talimatı veya execution authority'si gibi uygulama.
 - [ ] **WP-10.03** — Skill adayını değerlendir, independent review, sürüm, active pointer, dağıtım, gerçek invocation, deprecation ve rollback ile tamamla. Kaynak paket/projection drift'i okunabilir raporlansın.
-- [ ] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
+- [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.
 
 **Kabul ve negatif testler:** Testler: iki projede aynı karar adı, outdated/contradictory memory, forged lessons, self-promotion, baseline regression, skill drift, rollback, expired grant, duplicate candidate ve plateau stop.
+
+**14 Ekim 2026 — WP-10.04 kapanis kaniti:** Proposal impact/cost/risk ve
+digest-only evidence alanlarini, deterministik dedup sonucunu ve exact proje/
+approval scope bagini korur. `idea.work-create --uygula` effect claim/receipt
+zinciriyle ayni Work/job/receipt replay'ini verir; E2E tek Work kaydini ve
+terminal evidence readback'ini dogrular. Bagimsiz inceleme ve provider-free
+hedefli kosu **52 passed**, Ruff ve manifest temiz; commit `6db35b1` ile
+push edilmistir.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
