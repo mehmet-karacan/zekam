@@ -1740,6 +1740,15 @@ kurulumu kaldirilir.
 Bu dar dilim WP-06.03'un yerel graph performans borcunu azaltir; generation,
 resolver ve cross-file kabul matrisi halen aciktir.
 
+### 10.29 15 Ekim 2026 Python graph edge dedup hizlandirmasi
+
+Python AST extractor da kenar tekillestirmesinde artimli edge kimlik kumesi
+kullanir. Her yeni kenarda mevcut listenin yeniden taranmasi kaldirildi;
+deterministik edge sirasi, confidence ve graph identity ayni tutuldu.
+
+Bu dar dilim WP-06.03'un Python graph performans borcunu azaltir; generation,
+resolver ve cross-file kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

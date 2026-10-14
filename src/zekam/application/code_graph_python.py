@@ -112,6 +112,7 @@ def _build(
 
     symbols: list[GraphSymbol] = [file_symbol]
     edges: list[GraphEdge] = []
+    edge_ids: set[str] = set()
     qname_count: dict[str, int] = {}
     # simple-name -> symbol_id for local resolution (last definition wins).
     local_names: dict[str, str] = {}
@@ -164,8 +165,9 @@ def _build(
             confidence=confidence,
             provenance=provenance,
         )
-        if all(existing.edge_id != edge.edge_id for existing in edges):
+        if edge.edge_id not in edge_ids:
             edges.append(edge)
+            edge_ids.add(edge.edge_id)
 
     def know_local(symbol: GraphSymbol) -> None:
         local_names[symbol.qualified_name.rsplit(".", 1)[-1]] = symbol.symbol_id
