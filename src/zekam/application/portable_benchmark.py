@@ -51,9 +51,12 @@ def _read_bounded(root: Path, relative: str, *, maximum: int) -> bytes:
     if path.is_symlink() or not resolved.is_file() or not 0 < size <= maximum:
         raise PolicyViolation(f"Portable benchmark dosya kimligi/boyutu gecersiz: {relative}")
     try:
-        raw = resolved.read_bytes()
+        with resolved.open("rb") as stream:
+            raw = stream.read(maximum + 1)
     except OSError as exc:
         raise ConfigurationError(f"Portable benchmark dosyasi okunamadi: {relative}") from exc
+    if len(raw) > maximum:
+        raise PolicyViolation(f"Portable benchmark dosya boyutu yarista artti: {relative}")
     if scan_text(raw.decode("utf-8", "replace"), relative_path=relative):
         raise PolicyViolation(f"Portable benchmark secret-benzeri icerik tasiyor: {relative}")
     return raw

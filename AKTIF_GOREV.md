@@ -2119,6 +2119,16 @@ secret degerleri yine process memory disina cikmaz.
 Bu dar dilim WP-04.05 Oracle config kaynak tuketimi boslugunu daraltir; gercek
 Oracle provider, metadata ve release kabul matrisi halen aciktir.
 
+### 10.67 15 Ekim 2026 Portable benchmark stream kapisi
+
+Portable benchmark config ve dataset okuyucusu stat sonrasinda da
+`maximum + 1` bounded stream kullanir. Dosya yarista buyurse secret taramasi
+ve task parse edilmeden policy hatasiyla durur; provider cagrisi ve yabanci kod
+calistirma sozlesmesi degismez.
+
+Bu dar dilim WP-08/12 benchmark kaynak tuketimi boslugunu daraltir; gercek model
+ve release gate kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
