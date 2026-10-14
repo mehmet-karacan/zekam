@@ -1196,9 +1196,8 @@ Bu gruplar tamamlanmadan ilgili kutular ve `ready` etiketleri açık kalır; yer
 Provider-free sürüm probe'u gerçek yerel binary'lerle yapıldı: OpenCode `v2.0.29`, Codex
 `0.162.0-alpha.17.2`, Maven `3.9.16` ve Java `21.0.11 LTS` bulundu. Claude Code ve Gemini
 CLI bu hostta bulunamadı. `tests/integration/test_real_maven_unit_test_fixture.py` 2 testle
-geçti. OpenCode lifecycle sunucu koşusu, kurulu wrapper/native servis kapanış davranışı
-stabil bir terminal receipt vermediği için kabul kanıtına çevrilmedi; bu kapı `not-run`
-olarak kaldı.
+geçti. OpenCode lifecycle sunucu koşusu sonuç üretmeden sonlandırıldığı için kabul kanıtına
+çevrilmedi; bu kapı `not-run` olarak kaldı.
 
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
