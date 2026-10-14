@@ -2081,6 +2081,15 @@ policy hatasi ya da invalid journal sinifina doner.
 Bu dar dilim WP-02/07 crash recovery ve rollback kanitlarinin bellek boslugunu
 daraltir; gercek native multi-client kabul matrisi halen aciktir.
 
+### 10.63 15 Ekim 2026 MCP Codex snapshot kapisi
+
+MCP Codex TOML render ile plan/apply ve rollback sanal snapshot okumalari da
+2 MiB bounded native config okuyucusunu kullanir. Oversized veya reparse config
+render, plan ya da rollback kaniti uretmeden policy hatasiyla durur.
+
+Bu dar dilim WP-02/07 MCP istemci snapshot bellek boslugunu daraltir; gercek
+native multi-client kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

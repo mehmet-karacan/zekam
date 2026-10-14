@@ -137,3 +137,24 @@ def test_native_mcp_json_reader_rejects_oversized_input(
         mcp_integrations._read_json(target)
     with pytest.raises(PolicyViolation, match="okunamadi"):
         mcp_integrations._read_json(target, b"012345678")
+
+
+def test_native_mcp_codex_reader_rejects_oversized_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "config.toml"
+    monkeypatch.setattr(mcp_integrations, "_MAX_CONFIG_BYTES", 8)
+    target.write_bytes(b"x = 123456")
+    registration = McpServerRegistration(
+        name="sample",
+        transport=McpTransport.STDIO,
+        command=("sample",),
+    )
+
+    with pytest.raises(PolicyViolation, match="bounded boyutu"):
+        mcp_integrations._render_codex(
+            target,
+            registration,
+            owned_digest=None,
+            adopt=True,
+        )

@@ -55,6 +55,10 @@ def _bounded_config_bytes(path: Path) -> bytes:
     return raw
 
 
+def _bounded_config_snapshot(path: Path) -> bytes | None:
+    return None if not path.exists() else _bounded_config_bytes(path)
+
+
 _EXECUTABLES = {
     ClientIntegrationId.OPENCODE: "opencode",
     ClientIntegrationId.CODEX: "codex",
@@ -330,7 +334,11 @@ def _render_codex(
     source: bytes | object | None = _UNSET,
 ) -> bytes:
     if source is _UNSET:
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        text = (
+            ""
+            if not path.exists()
+            else _bounded_config_bytes(path).decode("utf-8", errors="strict")
+        )
     else:
         text = "" if source is None else source.decode("utf-8")
     if len(text.encode("utf-8")) > _MAX_CONFIG_BYTES:
@@ -461,7 +469,11 @@ def _render_remove(
         return (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     if client is ClientIntegrationId.CODEX:
         if source is _UNSET:
-            text = path.read_text(encoding="utf-8") if path.exists() else ""
+            text = (
+                ""
+                if not path.exists()
+                else _bounded_config_bytes(path).decode("utf-8", errors="strict")
+            )
         else:
             text = "" if source is None else source.decode("utf-8")
         result, managed_block = _remove_codex_block(text, registration.name)
@@ -635,7 +647,7 @@ def build_sync_plan(context: ApplicationContext, *, native_user_root: Path) -> M
     virtual: dict[ClientIntegrationId, bytes | None] = {}
     for client, relative in _CLIENT_PATHS.items():
         path = root / relative
-        virtual[client] = path.read_bytes() if path.exists() else None
+        virtual[client] = _bounded_config_snapshot(path)
     for registration in before:
         for client in registration.clients:
             if not _enabled(context, client):
@@ -764,7 +776,7 @@ def apply_sync_plan(plan: McpSyncPlan, *, authorized_plan_digest: str) -> dict[s
             path = plan.native_user_root / str(target["relative_path"])
             if _file_digest(path) != target["before_digest"]:
                 raise PolicyViolation("MCP native config changed before apply")
-            previous = path.read_bytes() if path.exists() else None
+            previous = _bounded_config_snapshot(path)
             registration = _registration(plan, str(target["server"]))
             if target.get("mode") == "remove":
                 payload = _render_remove(
@@ -920,7 +932,7 @@ def build_rollback_plan(
     virtual: dict[ClientIntegrationId, bytes | None] = {}
     for client, relative in _CLIENT_PATHS.items():
         path = root / relative
-        virtual[client] = path.read_bytes() if path.exists() else None
+        virtual[client] = _bounded_config_snapshot(path)
     raw_targets = source_plan.get("targets", ())
     if not isinstance(raw_targets, list):
         raise PolicyViolation("MCP rollback source targets invalid")
