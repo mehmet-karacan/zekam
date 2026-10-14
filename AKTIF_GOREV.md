@@ -1150,6 +1150,24 @@ varyantları eklenir. Hata/soru/onay akışında kullanıcıya teknik komut yük
 anlaşılır neden sunulur. Native gerçek oturum testi yapılmadıysa yalnız unit parser
 başarısıyla `natural-language-verified` yazılmaz.
 
+### 10.1 14 Ekim 2026 uygulama checkpointi
+
+Yerel ve kanıtlanabilir uygulama ilerlemesi şu commitlerde sabitlendi:
+
+- `c17aafe`: host metadata doğrulaması, polyglot Java/JS/TS/PLSQL graph ayrımı ve model qualification bilinmeyenleri.
+- `e784372`: fikir proposal/review/work-plan, Work olay/run/usage raporu ve wheel reachable-runtime denetimi.
+- `bb23453`: Work transition/run/step/checkpoint/close komutlarının kanonik yüzey sözleşmesi.
+- `081b998`: exact approval scope ile fikirden SQLite Work oluşturma.
+- `c0c26bd`: stale GPU fixture revision'ını başarı gibi göstermeden `skip/not-run` raporlama.
+
+Son doğrulama: paket doğrulaması `passed`, Git güvenlik bulgusu yok; değişen akışların hedef testleri yeşil.
+Tam suite koşusunda 4.179 test geçti ve 1.283 test platform/native/source fixture sınırı nedeniyle atlandı.
+Gerçek native client binary'leri, GPU/SKY kaynak revision'ı, Jira/Confluence erişimi, canlı provider/model
+qualification ve release acceptance matrisi yetkili ortam kanıtı bekleyen açık kapılardır.
+
+`next_safe_action`: mevcut local test/manifest kanıtını koruyarak canlı kabul bağımlılıklarını ayrı scope'ta
+çalıştır; bu kapılar kanıtlanmadan WP-02..12 veya GATE-I/GATE-U tamamlandı işareti koyma.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
