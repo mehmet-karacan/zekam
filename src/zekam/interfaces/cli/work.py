@@ -21,6 +21,7 @@ from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlit
 app = typer.Typer(name="work", help="Yerel work graph", no_args_is_help=True)
 console = Console()
 _MAX_ACTIVE_SPEC_BYTES = 1_048_576
+_MAX_JSON_ARGUMENT_BYTES = 262_144
 
 
 @app.command("resume")
@@ -304,3 +305,229 @@ def transition_command(
         console.print_json(json.dumps(preview, ensure_ascii=False))
     else:
         console.print(f"Gecirildi: {work_item_id} ({target.value})")
+
+
+def _json_object(raw: str, label: str) -> dict[str, Any]:
+    if not raw or len(raw.encode("utf-8")) > _MAX_JSON_ARGUMENT_BYTES:
+        raise ZekamError(f"{label} bounded JSON boyutunda olmali")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ZekamError(f"{label} JSON olmali") from exc
+    if not isinstance(value, dict):
+        raise ZekamError(f"{label} JSON nesnesi olmali")
+    return value
+
+
+def _run_document(run: Any) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "work_item_id": run.work_item_id,
+        "status": run.status,
+        "plan_digest": run.plan_digest,
+    }
+
+
+def _step_document(step: Any) -> dict[str, Any]:
+    return {
+        "id": step.id,
+        "run_id": step.run_id,
+        "step_key": step.step_key,
+        "status": step.status,
+        "input_digest": step.input_digest,
+        "evidence_digest": step.evidence_digest,
+    }
+
+
+def _checkpoint_document(checkpoint: Any) -> dict[str, Any]:
+    return {
+        "id": checkpoint.id,
+        "run_id": checkpoint.run_id,
+        "sequence": checkpoint.sequence,
+        "checkpoint_digest": checkpoint.checkpoint_digest,
+    }
+
+
+@app.command("run-create")
+def run_create_command(
+    work_item_id: Annotated[str, typer.Argument()],
+    config_revision: Annotated[str, typer.Option("--config-revision")],
+    plan_digest: Annotated[str, typer.Option("--plan-digest")],
+    budget_json: Annotated[str, typer.Option("--budget-json")],
+    source_snapshot: Annotated[str | None, typer.Option("--source-snapshot")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Work'e bagli planli bir run olusturur; provider cagirmadan SQLite'a yazar."""
+    try:
+        budget = _json_object(budget_json, "Run budget")
+        if not apply:
+            document = {
+                "work_item_id": work_item_id,
+                "config_revision_id": config_revision,
+                "plan_digest": plan_digest,
+                "budget": budget,
+                "source_snapshot_id": source_snapshot,
+                "apply": False,
+            }
+        else:
+            store = sqlite_operational_store(home, realm)
+            assert store is not None
+            with store.unit_of_work() as uow:
+                uow.get_work(work_item_id)
+                run = uow.create_run(
+                    work_item_id=work_item_id,
+                    config_revision_id=config_revision,
+                    plan_digest=plan_digest,
+                    budget=budget,
+                    source_snapshot_id=source_snapshot,
+                )
+                uow.commit()
+            document = {"run": _run_document(run), "apply": True}
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Run olusturuldu: {document['run']['id']}")
+
+
+@app.command("run-step")
+def run_step_command(
+    run_id: Annotated[str, typer.Argument()],
+    step_key: Annotated[str, typer.Argument()],
+    input_digest: Annotated[str, typer.Option("--input-digest")],
+    depends_on: Annotated[list[str] | None, typer.Option("--depends-on")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run adimina bagimliliklariyla birlikte append-only adim ekler."""
+    try:
+        dependencies = tuple(depends_on or ())
+        if not apply:
+            document = {
+                "run_id": run_id,
+                "step_key": step_key,
+                "input_digest": input_digest,
+                "depends_on": list(dependencies),
+                "apply": False,
+            }
+        else:
+            store = sqlite_operational_store(home, realm)
+            assert store is not None
+            with store.unit_of_work() as uow:
+                uow.get_run(run_id)
+                step = uow.add_run_step(
+                    run_id=run_id,
+                    step_key=step_key,
+                    input_digest=input_digest,
+                    dependencies=dependencies,
+                )
+                uow.commit()
+            document = {
+                "step": _step_document(step),
+                "depends_on": list(dependencies),
+                "apply": True,
+            }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Run adimi olusturuldu: {document['step']['id']}")
+
+
+@app.command("checkpoint")
+def checkpoint_command(
+    run_id: Annotated[str, typer.Argument()],
+    sequence: Annotated[int, typer.Option("--sequence")],
+    payload_json: Annotated[str, typer.Option("--payload-json")],
+    source_snapshot: Annotated[str | None, typer.Option("--source-snapshot")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run icin digest'i payload'dan turetilen durable checkpoint yazar."""
+    try:
+        payload = _json_object(payload_json, "Checkpoint payload")
+        checkpoint_digest = digest(payload)
+        if not apply:
+            document = {
+                "run_id": run_id,
+                "sequence": sequence,
+                "checkpoint_digest": checkpoint_digest,
+                "source_snapshot_id": source_snapshot,
+                "apply": False,
+            }
+        else:
+            store = sqlite_operational_store(home, realm)
+            assert store is not None
+            with store.unit_of_work() as uow:
+                uow.get_run(run_id)
+                checkpoint = uow.record_checkpoint(
+                    run_id=run_id,
+                    sequence=sequence,
+                    checkpoint_digest=checkpoint_digest,
+                    payload=payload,
+                    source_snapshot_id=source_snapshot,
+                )
+                uow.commit()
+            document = {"checkpoint": _checkpoint_document(checkpoint), "apply": True}
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Checkpoint yazildi: {document['checkpoint']['id']}")
+
+
+@app.command("checkpoints")
+def checkpoints_command(
+    run_id: Annotated[str, typer.Argument()],
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Run checkpoint listesini kanonik SQLite authority'den okur."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            uow.get_run(run_id)
+            rows = [_checkpoint_document(item) for item in uow.list_checkpoints(run_id)]
+            uow.commit()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(rows, ensure_ascii=False))
+    else:
+        for row in rows:
+            console.print(f"{row['sequence']}\t{row['checkpoint_digest']}")
+
+
+@app.command("close")
+def close_command(
+    work_item_id: Annotated[str, typer.Argument()],
+    revision: Annotated[int, typer.Option("--revision")],
+    evidence_digest: Annotated[str, typer.Option("--evidence-digest")],
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Evidence ve revision kontrolu ile Work'u verification'dan kapatir."""
+    transition_command(
+        work_item_id=work_item_id,
+        target=WorkState.COMPLETED,
+        revision=revision,
+        evidence_digest=evidence_digest,
+        apply=apply,
+        output_json=output_json,
+        realm=realm,
+        home=home,
+    )

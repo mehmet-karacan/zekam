@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
+from zekam.domain.canonical import digest
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli.main import app
 
 pytestmark = pytest.mark.e2e
@@ -219,6 +221,124 @@ def test_work_show_history_and_revision_guarded_transition(tmp_path: Path) -> No
         "created",
         "transitioned",
     ]
+
+
+def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -> None:
+    runner = CliRunner()
+    home = tmp_path / "home"
+    source = tmp_path / "source"
+    source.mkdir()
+    assert _invoke(runner, "init", "--home", str(home), "--persistence", "sqlite").exit_code == 0
+    assert (
+        _invoke(
+            runner,
+            "project",
+            "add",
+            str(source),
+            "--home",
+            str(home),
+            "--slug",
+            "run-demo",
+            "--uygula",
+        ).exit_code
+        == 0
+    )
+    created = _invoke(
+        runner,
+        "work",
+        "create",
+        "run-demo",
+        "Checkpointli is",
+        "--home",
+        str(home),
+        "--uygula",
+    )
+    assert created.exit_code == 0, created.stdout
+    work_id = json.loads(
+        _invoke(runner, "work", "list", "--home", str(home), "--json").stdout
+    )[0]["id"]
+
+    store = SQLiteOperationalStore(home / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        config = uow.activate_config(
+            config_digest=digest({"profile": "test"}),
+            task_digest=digest("run-task"),
+            sanitized_config={"profile": "test"},
+        )
+        uow.commit()
+
+    run = _invoke(
+        runner,
+        "work",
+        "run-create",
+        work_id,
+        "--config-revision",
+        config.id,
+        "--plan-digest",
+        digest("plan"),
+        "--budget-json",
+        '{"calls": 2}',
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert run.exit_code == 0, run.stdout
+    run_id = json.loads(run.stdout)["run"]["id"]
+
+    first_step = _invoke(
+        runner,
+        "work",
+        "run-step",
+        run_id,
+        "scan",
+        "--input-digest",
+        digest("scan-input"),
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert first_step.exit_code == 0, first_step.stdout
+    first_step_id = json.loads(first_step.stdout)["step"]["id"]
+    second_step = _invoke(
+        runner,
+        "work",
+        "run-step",
+        run_id,
+        "verify",
+        "--input-digest",
+        digest("verify-input"),
+        "--depends-on",
+        first_step_id,
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert second_step.exit_code == 0, second_step.stdout
+
+    checkpoint = _invoke(
+        runner,
+        "work",
+        "checkpoint",
+        run_id,
+        "--sequence",
+        "1",
+        "--payload-json",
+        '{"step":"verify","state":"ready"}',
+        "--home",
+        str(home),
+        "--uygula",
+        "--json",
+    )
+    assert checkpoint.exit_code == 0, checkpoint.stdout
+    checkpoint_body = json.loads(checkpoint.stdout)
+    assert checkpoint_body["checkpoint"]["sequence"] == 1
+
+    listed = _invoke(runner, "work", "checkpoints", run_id, "--home", str(home), "--json")
+    assert listed.exit_code == 0, listed.stdout
+    assert len(json.loads(listed.stdout)) == 1
 
 
 def test_local_runtime_is_composed_in_real_cli_and_survives_restart(tmp_path: Path) -> None:
