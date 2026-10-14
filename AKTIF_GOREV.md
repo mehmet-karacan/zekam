@@ -1996,6 +1996,16 @@ gecmez; limit asimi staging yayini olmadan typed validation hatasi uretir.
 Bu dar dilim WP-11.03/11.04'un backup traversal bellek/sure boslugunu daraltir;
 gercek cihaz restore donguleri ve scheduler kabul matrisi halen aciktir.
 
+### 10.54 15 Ekim 2026 Paket kaynak census kapisi
+
+Paket source/config/schema/model censusleri bounded `scandir` ile dosya ve
+dizin sayisini sinirlar; symlink/reparse ve ozel dosya girdileri reddedilir.
+Tek dosya okumalari 16 MiB ile sinirlidir ve limit asimi manifest veya digest
+uretmeden typed validation hatasina doner.
+
+Bu dar dilim WP-12.01 release source census bellek ve traversal boslugunu
+daraltir; temiz wheel kurulumu ve tam istemci kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

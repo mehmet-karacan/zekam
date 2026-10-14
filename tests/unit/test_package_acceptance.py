@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 from scripts.package_smoke import _sdist_manifest, _wheel_manifest, isolated_environment
 
+from zekam.application import package_acceptance
 from zekam.application.package_acceptance import (
     ARCHIVE_ONLY_WHEEL_PATHS,
     _file_bundle,
@@ -227,6 +228,30 @@ def test_source_bundle_rejects_symlink_and_case_collision(tmp_path: Path) -> Non
     (config / "name.yaml").write_bytes(b"collision")
     with pytest.raises(ValidationFailed, match="case-collision"):
         _package_source_bundle(package, repository)
+
+
+def test_source_bundle_traversal_and_file_reads_are_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "zekam"
+    package.mkdir()
+    (package / "one.py").write_bytes(b"one")
+    (package / "two.py").write_bytes(b"two")
+    monkeypatch.setattr(package_acceptance, "MAX_PACKAGE_FILES", 1)
+    with pytest.raises(ValidationFailed, match="file count"):
+        _package_source_bundle(package)
+
+    monkeypatch.setattr(package_acceptance, "MAX_PACKAGE_FILES", 100_000)
+    nested = package / "nested"
+    nested.mkdir()
+    monkeypatch.setattr(package_acceptance, "MAX_PACKAGE_DIRECTORIES", 1)
+    with pytest.raises(ValidationFailed, match="directory count"):
+        _package_source_bundle(package)
+
+    monkeypatch.setattr(package_acceptance, "MAX_PACKAGE_DIRECTORIES", 100_000)
+    monkeypatch.setattr(package_acceptance, "MAX_PACKAGE_FILE_BYTES", 2)
+    with pytest.raises(ValidationFailed, match="boyut sinirini"):
+        _package_source_bundle(package)
 
 
 def _manifest_for_source_entries(entries: dict[str, bytes]) -> dict[str, object]:

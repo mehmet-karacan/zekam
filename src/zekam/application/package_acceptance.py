@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from importlib import metadata
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -19,6 +20,9 @@ from zekam.domain.errors import ValidationFailed
 from zekam.domain.package_acceptance import PackageManifestV3
 
 PACKAGE_MANIFEST_NAME = "PACKAGE_RELEASE_MANIFEST.json"
+MAX_PACKAGE_FILES = 100_000
+MAX_PACKAGE_DIRECTORIES = 100_000
+MAX_PACKAGE_FILE_BYTES = 16 * 1024 * 1024
 _IGNORED_PACKAGE_PARTS = frozenset({"__pycache__"})
 _IGNORED_PACKAGE_NAMES = frozenset({".DS_Store"})
 ARCHIVE_ONLY_WHEEL_PATHS = frozenset(
@@ -97,6 +101,61 @@ def _wheel_exclusion_paths(repository_root: Path) -> frozenset[str]:
     return exclusions
 
 
+def _iter_package_files(root: Path) -> Iterator[Path]:
+    """Yield package files with bounded, link-safe directory traversal."""
+
+    pending = [root]
+    directory_count = 1
+    file_count = 0
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    target = Path(entry.path)
+                    try:
+                        info = target.lstat()
+                        is_reparse = bool(
+                            int(getattr(info, "st_file_attributes", 0))
+                            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+                        )
+                        if stat.S_ISLNK(info.st_mode) or is_reparse:
+                            raise ValidationFailed(
+                                f"Package source bundle symlink iceremez: {target.name}"
+                            )
+                        if entry.is_dir(follow_symlinks=False):
+                            directory_count += 1
+                            if directory_count > MAX_PACKAGE_DIRECTORIES:
+                                raise ValidationFailed(
+                                    "Package source directory count exceeds bound"
+                                )
+                            pending.append(target)
+                        elif entry.is_file(follow_symlinks=False):
+                            file_count += 1
+                            if file_count > MAX_PACKAGE_FILES:
+                                raise ValidationFailed("Package source file count exceeds bound")
+                            yield target
+                        else:
+                            raise ValidationFailed(
+                                f"Package source bundle regular-file olmali: {target.name}"
+                            )
+                    except OSError as exc:
+                        raise ValidationFailed("Package source bundle okunamadi") from exc
+        except OSError as exc:
+            raise ValidationFailed("Package source bundle okunamadi") from exc
+
+
+def _read_package_bytes(path: Path) -> bytes:
+    try:
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_PACKAGE_FILE_BYTES + 1)
+    except OSError as exc:
+        raise ValidationFailed(f"Package source dosyasi okunamadi: {path.name}") from exc
+    if len(payload) > MAX_PACKAGE_FILE_BYTES:
+        raise ValidationFailed(f"Package source dosyasi boyut sinirini asiyor: {path.name}")
+    return payload
+
+
 def _strict_json_document(payload: str | bytes) -> dict[str, Any]:
     """Decode one JSON object while rejecting duplicate keys and non-objects."""
 
@@ -121,19 +180,16 @@ def _file_bundle(root: Path, pattern: str = "*") -> str:
     if root.is_symlink() or not root.is_dir():
         raise ValidationFailed(f"Package bundle bulunamadi: {root.name}")
     entries = []
-    for path in sorted(root.rglob(pattern)):
-        if path.is_symlink():
-            raise ValidationFailed(f"Package bundle symlink iceremez: {path.name}")
-        mode = path.stat(follow_symlinks=False).st_mode
-        if stat.S_ISDIR(mode):
-            continue
-        if not stat.S_ISREG(mode):
-            raise ValidationFailed(f"Package bundle regular-file olmali: {path.name}")
+    for path in sorted(
+        (candidate for candidate in _iter_package_files(root) if candidate.match(pattern)),
+        key=lambda candidate: candidate.as_posix(),
+    ):
+        payload = _read_package_bytes(path)
         entries.append(
             {
                 "path": path.relative_to(root).as_posix(),
                 "content_digest": digest_of_bytes(
-                    path.read_text(encoding="utf-8")
+                    payload.decode("utf-8")
                     .replace("\r\n", "\n")
                     .replace("\r", "\n")
                     .encode("utf-8")
@@ -164,17 +220,8 @@ def _add_package_tree(
 ) -> None:
     if root.is_symlink() or not root.is_dir():
         raise ValidationFailed(f"Package source root bulunamadi: {root.name}")
-    for path in sorted(root.rglob("*")):
+    for path in sorted(_iter_package_files(root), key=lambda candidate: candidate.as_posix()):
         relative = path.relative_to(root)
-        if path.is_symlink():
-            raise ValidationFailed(f"Package source bundle symlink iceremez: {relative.as_posix()}")
-        mode = path.stat(follow_symlinks=False).st_mode
-        if stat.S_ISDIR(mode):
-            continue
-        if not stat.S_ISREG(mode):
-            raise ValidationFailed(
-                f"Package source bundle regular-file olmali: {relative.as_posix()}"
-            )
         target = destination / relative
         if target.as_posix() in excluded:
             continue
@@ -189,7 +236,7 @@ def _add_package_tree(
         folded = portable.casefold()
         if portable in entries or any(existing.casefold() == folded for existing in entries):
             raise ValidationFailed(f"Package source hedefi duplicate/case-collision: {portable}")
-        entries[portable] = digest_of_bytes(path.read_bytes())
+        entries[portable] = digest_of_bytes(_read_package_bytes(path))
 
 
 def _add_package_file(entries: dict[str, str], *, source: Path, destination: Path) -> None:
@@ -200,7 +247,7 @@ def _add_package_file(entries: dict[str, str], *, source: Path, destination: Pat
         existing.casefold() == portable.casefold() for existing in entries
     ):
         raise ValidationFailed(f"Package source hedefi duplicate/case-collision: {portable}")
-    entries[portable] = digest_of_bytes(source.read_bytes())
+    entries[portable] = digest_of_bytes(_read_package_bytes(source))
 
 
 def _package_source_entries(
