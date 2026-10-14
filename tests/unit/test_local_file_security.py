@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -8,12 +9,33 @@ import pytest
 
 from zekam.infrastructure import local_file_security
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_or_sandbox_readonly_directory,
     private_regular,
     restrict_private_tree,
     windows_codex_sandbox_sid,
 )
+
+
+def test_path_or_parent_reparse_is_rejected_without_platform_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "private" / "state.db"
+    database.parent.mkdir()
+    database.write_bytes(b"state")
+    original = Path.lstat
+
+    class _ReparseInfo:
+        st_mode = stat.S_IFREG
+        st_file_attributes = 0x400
+
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda path: _ReparseInfo() if path == database.parent else original(path),
+    )
+    assert path_or_parent_is_link_or_reparse(database) is True
 
 
 def _system_tool(name: str) -> Path:

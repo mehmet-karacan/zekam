@@ -58,6 +58,7 @@ from zekam.domain.optimization import (
     evaluate_progress,
 )
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_tree,
@@ -398,7 +399,7 @@ with closing(sqlite3.connect(":memory:")) as _schema_db:
 
 
 def _source(path: Path, expected: str) -> sqlite3.Connection:
-    if not path.is_absolute() or path.is_symlink():
+    if not path.is_absolute() or path_or_parent_is_link_or_reparse(path):
         raise ValidationFailed("Local improvement source path invalid")
     if not private_regular(path):
         raise PolicyViolation("Local improvement source identity invalid")
@@ -738,7 +739,7 @@ class OperationalExecutionReceipt:
 class SQLiteLocalImprovementStore:
     def __init__(self, path: Path, learning_path: Path, benchmark_path: Path) -> None:
         if any(
-            not item.is_absolute() or item.is_symlink()
+            not item.is_absolute() or path_or_parent_is_link_or_reparse(item)
             for item in (path, learning_path, benchmark_path)
         ):
             raise ValidationFailed("Local improvement paths must be absolute non-symlinks")
@@ -791,7 +792,7 @@ class SQLiteLocalImprovementStore:
         return True
 
     def _connect(self) -> sqlite3.Connection:
-        if not private_regular(self.path):
+        if path_or_parent_is_link_or_reparse(self.path) or not private_regular(self.path):
             raise PolicyViolation("Local improvement database identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row

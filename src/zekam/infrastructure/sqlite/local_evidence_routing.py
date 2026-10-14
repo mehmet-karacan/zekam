@@ -17,6 +17,7 @@ from typing import Any, Literal, final
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_tree,
@@ -151,7 +152,7 @@ def route_policy_stage_effect_digest(
 
 
 def _source(path: Path, expected_digest: str) -> sqlite3.Connection:
-    if not path.is_absolute() or path.is_symlink():
+    if not path.is_absolute() or path_or_parent_is_link_or_reparse(path):
         raise ValidationFailed("Local routing source path invalid")
     if not private_regular(path):
         raise PolicyViolation("Local routing source identity invalid")
@@ -363,7 +364,7 @@ class SQLiteLocalEvidenceRouter:
         self, path: Path, registry_path: Path, benchmark_path: Path, operational_path: Path
     ) -> None:
         if any(
-            not item.is_absolute() or item.is_symlink()
+            not item.is_absolute() or path_or_parent_is_link_or_reparse(item)
             for item in (path, registry_path, benchmark_path, operational_path)
         ):
             raise ValidationFailed("Local routing paths must be absolute non-symlinks")
@@ -384,7 +385,7 @@ class SQLiteLocalEvidenceRouter:
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        if not private_regular(self.path):
+        if path_or_parent_is_link_or_reparse(self.path) or not private_regular(self.path):
             raise PolicyViolation("Local routing database identity invalid")
         connection = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         connection.row_factory = sqlite3.Row
@@ -407,7 +408,10 @@ class SQLiteLocalEvidenceRouter:
             and current.schema_ok
         ):
             raise PolicyViolation("Local routing operational evidence invalid")
-        if not private_regular(self.operational_path):
+        if (
+            path_or_parent_is_link_or_reparse(self.operational_path)
+            or not private_regular(self.operational_path)
+        ):
             raise PolicyViolation("Local routing operational identity invalid")
         db = sqlite3.connect(
             f"{self.operational_path.resolve().as_uri()}?mode=ro", uri=True, timeout=5

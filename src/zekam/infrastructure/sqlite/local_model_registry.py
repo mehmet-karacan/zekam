@@ -19,6 +19,7 @@ from typing import final
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     owned_regular,
     private_directory,
     private_regular,
@@ -418,7 +419,7 @@ def discover_installed_client(
 @final
 class SQLiteLocalModelRegistry:
     def __init__(self, path: Path) -> None:
-        if not path.is_absolute() or path.is_symlink():
+        if not path.is_absolute() or path_or_parent_is_link_or_reparse(path):
             raise ValidationFailed("Local model registry path invalid")
         self.path = path
 
@@ -434,7 +435,7 @@ class SQLiteLocalModelRegistry:
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        if not private_regular(self.path):
+        if path_or_parent_is_link_or_reparse(self.path) or not private_regular(self.path):
             raise PolicyViolation("Local model registry identity invalid")
         db = sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=rw", uri=True, timeout=5)
         db.row_factory = sqlite3.Row

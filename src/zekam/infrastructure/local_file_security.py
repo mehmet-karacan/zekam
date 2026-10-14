@@ -29,6 +29,19 @@ def _is_reparse(info: os.stat_result) -> bool:
     )
 
 
+def path_or_parent_is_link_or_reparse(path: Path) -> bool:
+    """Reject a leaf or any existing ancestor that can redirect local I/O."""
+
+    for candidate in (path, *path.parents):
+        try:
+            info = candidate.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or _is_reparse(info):
+            return True
+    return False
+
+
 @lru_cache(maxsize=1)
 def windows_user_sid() -> str:
     if os.name != "nt":
