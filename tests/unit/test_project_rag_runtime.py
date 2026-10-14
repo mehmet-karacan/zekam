@@ -2106,6 +2106,23 @@ def test_wp3_deleted_source_is_freshness_unknown(
     assert obs.get("unknown") is True
 
 
+def test_wp3_oversized_changed_source_is_freshness_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git_repo(root, {"f.md": "original-committed\n"})
+    head_rev = runtime._git_source_state(root)[2]
+    state = _indexed_state_for_git(root, head_rev)
+
+    monkeypatch.setattr(runtime, "MAX_FRESHNESS_FILE_BYTES", 1)
+    (root / "f.md").write_text("too large\n", encoding="utf-8")
+    reasons, observations = runtime._source_freshness_for_query(state, root)
+
+    assert "project-source-freshness-unknown" in reasons
+    assert observations.get("unknown") is True
+
+
 # ---------------------------------------------------------------------------
 # WP-05.01 -- scoped vector cache (vector_cache_v2)
 #

@@ -149,6 +149,7 @@ MAX_EMBED_BATCH_TOKENS = 8_192
 MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
 VECTOR_DIMENSION = 1024
+MAX_FRESHNESS_FILE_BYTES = 2 * 1024 * 1024
 
 # ----------------------------------------------------------------------
 # WP2 (B01): bounded provider qualification cache.
@@ -178,6 +179,21 @@ QUALIFICATION_TTL_SECONDS = 5 * 60  # start-of-attempt; NOT a guaranteed value
 _QUALIFICATION_FAILURE_TTL_SECONDS = 30
 
 _qualification_lock = threading.Lock()
+
+
+def _read_freshness_file(path: Path) -> bytes:
+    """Read one changed source file without allowing an oversized allocation."""
+
+    try:
+        if path.stat().st_size > MAX_FRESHNESS_FILE_BYTES:
+            raise OSError("freshness file exceeds bound")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_FRESHNESS_FILE_BYTES + 1)
+    except OSError:
+        raise
+    if len(payload) > MAX_FRESHNESS_FILE_BYTES:
+        raise OSError("freshness file exceeds bound")
+    return payload
 # in-process identity -> _QualificationRecord (or failure marker); bounded LRU.
 _qualification_inprocess: dict[str, object] = {}
 _QUALIFICATION_INPROCESS_MAX = 32
@@ -602,7 +618,7 @@ def _git_source_freshness_signal(
         except (OSError, ValueError):
             return {"head": head, "unknown": True}
         try:
-            payload = candidate.read_bytes()
+            payload = _read_freshness_file(candidate)
         except OSError:
             return {"head": head, "unknown": True}
         current_digests[relative] = digest_of_bytes(payload)

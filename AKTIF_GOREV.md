@@ -2006,6 +2006,15 @@ uretmeden typed validation hatasina doner.
 Bu dar dilim WP-12.01 release source census bellek ve traversal boslugunu
 daraltir; temiz wheel kurulumu ve tam istemci kabul matrisi halen aciktir.
 
+### 10.55 15 Ekim 2026 RAG freshness dosya kapisi
+
+Git freshness sinyali degisen indexed dosyayi kaynak discovery ile ayni 2 MiB
+siniri ve parca kontrollu okuma ile inceler. Dosya siniri veya okuma yarisi
+gibi durumlarda freshness `unknown` kalir; stale kaynak current diye sunulmaz.
+
+Bu dar dilim WP-03/06 freshness bellek boslugunu daraltir; canli provider ve
+native repository kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
