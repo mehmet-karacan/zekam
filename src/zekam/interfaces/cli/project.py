@@ -12,6 +12,7 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.canonical_job_runtime import canonical_job_key
 from zekam.application.code_graph import (
     CodeGraphBuildPlan,
@@ -54,6 +55,14 @@ from zekam.application.project_rag_runtime import (
     query_registered_project,
     read_project_citation,
     resolve_project_source,
+)
+from zekam.application.source_discovery import (
+    MAX_DIR_ENTRIES,
+    MAX_INVENTORY_ENTRIES,
+    DiscoveryPolicy,
+    checkpoint_document,
+    discover,
+    resume_discovery,
 )
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identifiers import normalize_slug, validate_slug
@@ -103,6 +112,74 @@ def _resolve_project_document(
 
 def _canonical_slug(reference: str, *, home: str | None) -> str:
     return str(_resolve_project_document(reference, home=home, realm=DEFAULT_REALM_SLUG)["slug"])
+
+
+@app.command("inventory")
+def inventory_command(
+    project: Annotated[str, typer.Argument(help="Kayitli proje id, slug veya alias")],
+    resume_file: Annotated[Path | None, typer.Option("--resume-file")] = None,
+    max_entries: Annotated[
+        int, typer.Option("--max-entries", min=1, max=MAX_INVENTORY_ENTRIES)
+    ] = MAX_INVENTORY_ENTRIES,
+    max_dir_entries: Annotated[
+        int, typer.Option("--max-dir-entries", min=1, max=MAX_DIR_ENTRIES)
+    ] = MAX_DIR_ENTRIES,
+    max_depth: Annotated[int, typer.Option("--max-depth", min=0, max=100)] = 100,
+    entry_limit: Annotated[int, typer.Option("--entry-limit", min=1, max=1000)] = 100,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Icerik okumadan bounded envanter; resume yeni sinirli tarama yapar."""
+    try:
+        slug = _canonical_slug(project, home=home)
+        root = resolve_project_source(resolve_home(home), slug)
+        policy = DiscoveryPolicy(
+            read_content=False,
+            max_inventory_entries=max_entries,
+            max_dir_entries=max_dir_entries,
+            max_depth=max_depth,
+        )
+        if resume_file is None:
+            report = discover(root, policy=policy)
+        else:
+            document = json.loads(read_bounded_text(resume_file, max_bytes=64 * 1024))
+            if isinstance(document, dict) and "inventory" in document:
+                inventory = document["inventory"]
+                document = (
+                    inventory.get("resume_checkpoint") if isinstance(inventory, dict) else None
+                )
+            if not isinstance(document, dict):
+                raise PolicyViolation("Root-bound discovery checkpoint document gerekli")
+            report = resume_discovery(root, document, policy=policy)
+        entries = [entry.as_dict() for entry in report.inventory[:entry_limit]]
+        _print_json(
+            {
+                "project_ref": slug,
+                "read_only": True,
+                "metadata_only": True,
+                "source_content_reads": 0,
+                "ignore_rule_reads": "bounded",
+                "provider_calls": 0,
+                "grants_authority": False,
+                "resume_mode": "bounded-fresh-traversal",
+                "policy": policy.as_dict(),
+                "inventory": {
+                    "status": report.inventory_status.value,
+                    "stop_reason": report.inventory_stop_reason.value
+                    if report.inventory_stop_reason
+                    else None,
+                    "entry_count": report.inventory_count,
+                    "bytes": report.inventory_bytes,
+                    "entries": entries,
+                    "entry_limit": entry_limit,
+                    "entries_truncated": report.inventory_count > len(entries),
+                    "resume_checkpoint": checkpoint_document(report.inventory_checkpoint),
+                },
+            }
+        )
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise fail("Discovery envanter veya checkpoint okunamadi") from exc
 
 
 @app.command("add")

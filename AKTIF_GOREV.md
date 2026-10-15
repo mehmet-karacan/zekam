@@ -827,6 +827,16 @@ taze traversal ile tamamlanmamış envanter sessizce complete sayilmaz. Kaynak
 kesfi testleri **72 passed, 2 skipped**, Ruff ve diff kontrolu temizdir;
 `5dfc2a7` ile push edilmistir.
 
+**16 Ekim 2026 — WP-04 kalici discovery devam baglantisi:** In-memory
+checkpoint'in kok kimligi ve frontier metadata snapshot'i strict v1 JSON
+belgesine baglandi. Rapor artik `resume_checkpoint` tasir; bound metadata'siz
+yol tuple'i resume icin reddedilir. `project inventory` kayitli proje kokunde
+icerik/provider kullanmadan bounded metadata envanteri ve ayri cikti penceresi
+sunar. Resume frontier'i dogrulayip yeni bounded traversal yapar; sayfalama
+veya tum agac degismezlik kaniti degildir. Regresyon kodu hazir,
+CALISTIRILMADI. Bu dilim yeni kabul veya WP kapanisi uretmez;
+`docs/PROJE_ENVANTER_DEVAM.md`.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  

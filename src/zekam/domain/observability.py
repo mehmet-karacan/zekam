@@ -96,6 +96,9 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     ),
     CommandContract("project add", "Proje kaydeder", mutating=True, requires_apply_flag=True),
     CommandContract("project list", "Projeleri listeler", mutating=False),
+    CommandContract(
+        "project inventory", "Kayitli projenin bounded metadata envanterini okur", mutating=False
+    ),
     CommandContract("resume", "Model bagimsiz devam paketini gosterir", mutating=False),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),

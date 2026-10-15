@@ -122,6 +122,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         (
             "project add",
             "project list",
+            "project inventory",
             "work create",
             "work list",
             "work show",

@@ -57,8 +57,8 @@ from typing import Any
 from zekam.application.bounded_file import read_bounded_text
 from zekam.application.ignore_rules import IgnoreMatcher, system_deny_matcher
 from zekam.application.secret_detection import SecretFinding, scan_text
-from zekam.domain.canonical import DIGEST_PREFIX
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.canonical import DIGEST_PREFIX, digest, parse_digest
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import is_denied
 
 ZEKAM_IGNORE_FILE = ".zekamignore"
@@ -123,6 +123,7 @@ class StopReason(StrEnum):
 _MAX_CHECKPOINT_PATH_BYTES = 4096
 _MAX_CHECKPOINT_SNAPSHOT_ENTRIES = 8
 _CheckpointSnapshotEntry = tuple[str, str, int, int]
+_CHECKPOINT_SCHEMA = "zekam-discovery-checkpoint/v1"
 
 
 class _InventoryCheckpoint(tuple[str, ...]):
@@ -141,6 +142,114 @@ class _InventoryCheckpoint(tuple[str, ...]):
         value.root_identity_digest = root_identity_digest
         value.source_snapshot = source_snapshot
         return value
+
+
+def _checkpoint_path(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\x00" in value
+        or "\\" in value
+        or len(value.encode("utf-8")) > _MAX_CHECKPOINT_PATH_BYTES
+    ):
+        raise PolicyViolation("Discovery checkpoint bounded root-relative yol ister")
+    posix, windows = PurePosixPath(value), PureWindowsPath(value)
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or windows.drive
+        or posix.as_posix() != value
+        or any(part in {"", ".."} for part in posix.parts)
+    ):
+        raise PolicyViolation("Discovery checkpoint yolu root-relative olmali")
+    return value
+
+
+def checkpoint_document(checkpoint: tuple[str, ...]) -> dict[str, Any] | None:
+    """Serialize the bounded frontier with its root/snapshot; never execution authority."""
+    if not checkpoint:
+        return None
+    if not isinstance(checkpoint, _InventoryCheckpoint):
+        raise PolicyViolation("Discovery checkpoint root binding metadata gerekli")
+    body = {
+        "schema": _CHECKPOINT_SCHEMA,
+        "root_identity_digest": checkpoint.root_identity_digest,
+        "paths": list(checkpoint),
+        "source_snapshot": [
+            {"path": path, "kind": kind, "size_bytes": size, "mtime_ns": mtime}
+            for path, kind, size, mtime in checkpoint.source_snapshot
+        ],
+        "grants_authority": False,
+    }
+    document = body | {"checkpoint_digest": digest(body)}
+    checkpoint_from_document(document)
+    return document
+
+
+def checkpoint_from_document(document: dict[str, Any]) -> tuple[str, ...]:
+    """Decode a strict JSON envelope; the digest is integrity, not a grant/signature."""
+    if (
+        not isinstance(document, dict)
+        or set(document)
+        != {
+            "schema",
+            "root_identity_digest",
+            "paths",
+            "source_snapshot",
+            "grants_authority",
+            "checkpoint_digest",
+        }
+        or document["schema"] != _CHECKPOINT_SCHEMA
+        or document["grants_authority"] is not False
+    ):
+        raise PolicyViolation("Discovery checkpoint document sozlesmesi gecersiz")
+    try:
+        if not isinstance(document["root_identity_digest"], str) or not isinstance(
+            document["checkpoint_digest"], str
+        ):
+            raise ValueError("Digest metin olmali")
+        parse_digest(document["root_identity_digest"])
+        parse_digest(document["checkpoint_digest"])
+    except (ValidationFailed, ValueError, TypeError) as exc:
+        raise PolicyViolation("Discovery checkpoint document digest gecersiz") from exc
+    paths, snapshot = document["paths"], document["source_snapshot"]
+    if (
+        not isinstance(paths, list)
+        or len(paths) != 1
+        or not isinstance(snapshot, list)
+        or len(snapshot) != len(paths)
+        or len(snapshot) > _MAX_CHECKPOINT_SNAPSHOT_ENTRIES
+    ):
+        raise PolicyViolation("Discovery checkpoint document bounded frontier ister")
+    frontier = tuple(_checkpoint_path(value) for value in paths)
+    rows = []
+    for row in snapshot:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"path", "kind", "size_bytes", "mtime_ns"}
+            or type(row["kind"]) is not str
+            or row["kind"] not in {"file", "directory", "symlink", "other", "missing"}
+            or type(row["size_bytes"]) is not int
+            or type(row["mtime_ns"]) is not int
+            or not -1 <= row["size_bytes"] <= 2**63 - 1
+            or not -(2**63) <= row["mtime_ns"] <= 2**63 - 1
+        ):
+            raise PolicyViolation("Discovery checkpoint document snapshot gecersiz")
+        path = _checkpoint_path(row["path"])
+        if row["kind"] == "missing":
+            if row["size_bytes"] != -1 or row["mtime_ns"] != -1:
+                raise PolicyViolation("Discovery checkpoint missing snapshot gecersiz")
+        elif row["size_bytes"] < 0:
+            raise PolicyViolation("Discovery checkpoint snapshot size gecersiz")
+        rows.append((path, row["kind"], row["size_bytes"], row["mtime_ns"]))
+    if tuple(row[0] for row in rows) != frontier:
+        raise PolicyViolation("Discovery checkpoint frontier/snapshot uyusmuyor")
+    if (
+        digest({key: value for key, value in document.items() if key != "checkpoint_digest"})
+        != document["checkpoint_digest"]
+    ):
+        raise PolicyViolation("Discovery checkpoint document digest drift")
+    return _InventoryCheckpoint(frontier, document["root_identity_digest"], tuple(rows))
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +512,7 @@ class DiscoveryReport:
                     else None
                 ),
                 "checkpoint": list(self.inventory_checkpoint),
+                "resume_checkpoint": checkpoint_document(self.inventory_checkpoint),
                 "entry_count": self.inventory_count,
                 "entries_by_kind": {kind.value: count for kind, count in counts.items()},
                 "bytes": self.inventory_bytes,
@@ -556,9 +666,9 @@ def _validate_checkpoint_snapshot(
             info = os.lstat(candidate)
         except (OSError, PolicyViolation) as exc:
             raise PolicyViolation("Discovery checkpoint source drift") from exc
-        if not isinstance(expected_kind, str) or not isinstance(expected_size, int):
+        if not isinstance(expected_kind, str) or type(expected_size) is not int:
             raise PolicyViolation("Discovery checkpoint snapshot gecersiz")
-        if not isinstance(expected_mtime_ns, int):
+        if type(expected_mtime_ns) is not int:
             raise PolicyViolation("Discovery checkpoint snapshot gecersiz")
         if (
             _checkpoint_kind(candidate, info) != expected_kind
@@ -571,6 +681,8 @@ def _validate_checkpoint_snapshot(
 def _validate_resume_checkpoint(root: Path, checkpoint: tuple[str, ...]) -> None:
     if not isinstance(checkpoint, tuple):
         raise PolicyViolation("Discovery checkpoint tuple olmali")
+    if not isinstance(checkpoint, _InventoryCheckpoint):
+        raise PolicyViolation("Discovery checkpoint root binding metadata gerekli")
     recorded_root = getattr(checkpoint, "root_identity_digest", None)
     if recorded_root is not None and recorded_root != _root_identity_digest(root):
         raise PolicyViolation("Discovery checkpoint source root drift")
@@ -1156,7 +1268,7 @@ def discover(
 
 def resume_discovery(
     root: Path,
-    checkpoint: tuple[str, ...],
+    checkpoint: tuple[str, ...] | dict[str, Any],
     *,
     policy: DiscoveryPolicy | None = None,
     matcher: IgnoreMatcher | None = None,
@@ -1171,6 +1283,8 @@ def resume_discovery(
     """
 
     resolved_root = resolve_source_root(root)
+    if isinstance(checkpoint, dict):
+        checkpoint = checkpoint_from_document(checkpoint)
     _validate_resume_checkpoint(resolved_root, checkpoint)
     return discover(resolved_root, policy=policy, matcher=matcher)
 
