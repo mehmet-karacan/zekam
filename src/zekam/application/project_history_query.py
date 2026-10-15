@@ -166,7 +166,13 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
     parents = tuple(parents_raw.split())
     if any(_SHA.fullmatch(item) is None for item in parents):
         raise GitCommandError("Git history parent kimligi gecersiz")
-    subject_redacted = bool(scan_text(subject, relative_path="history-subject.txt"))
+    subject_redacted = bool(
+        scan_text(
+            subject,
+            relative_path="history-subject.txt",
+            skip_placeholder_lines=False,
+        )
+    )
     subject = subject[:MAX_SUBJECT_CHARS]
     # `--grep` govdede de arar; anahtar subject'te yoksa bunu acikca isaretle.
     key_pattern = re.compile(rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)")
@@ -251,7 +257,13 @@ def _hunks(
     body = lines[start:]
     # Scan the complete bounded response before truncation can split a secret
     # token into a prefix that no longer matches the detector.
-    redacted = bool(scan_text("\n".join(body), relative_path="history-diff.txt"))
+    redacted = bool(
+        scan_text(
+            "\n".join(body),
+            relative_path="history-diff.txt",
+            skip_placeholder_lines=False,
+        )
+    )
     truncated = len(body) > line_budget
     body = body[:line_budget]
     joined = "\n".join(body)

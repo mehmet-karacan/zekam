@@ -1066,6 +1066,11 @@ kesmesinden once secret taramasindan gecirilir; kesmenin secret kalibini bolup
 gorunur prefix sizdirmesi engellenir. Ilgili regresyon testleri yazildi fakat
 kullanici talimatiyla son toplu test asamasina birakildi; WP-06.05 kapanmadi.
 
+**15 Ekim 2026 - WP-06.05 placeholder redaction kapisi:** History subject ve bounded
+diff taramasi, ayni satirda placeholder benzeri metin bulunsa bile secret kalibini
+atlamaz. Genel secret taramasinin placeholder hizli yolu korunur; history'nin
+guvenlik siniri bounded tam tarama ile ayrilir. Final test kosusu bu kapinin kanitidir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

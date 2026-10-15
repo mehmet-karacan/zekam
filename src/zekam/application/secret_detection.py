@@ -190,12 +190,13 @@ def scan_text(
     relative_path: str,
     rules: tuple[SecretRule, ...] = SECRET_RULES,
     max_lines: int = 20_000,
+    skip_placeholder_lines: bool = True,
 ) -> tuple[SecretFinding, ...]:
     """Metin icerigini tarar ve deger tasimayan bulgular dondurur."""
     findings: list[SecretFinding] = []
     lines = text.splitlines()
     for line_number, line in enumerate(lines[:max_lines], start=1):
-        if _looks_like_placeholder(line):
+        if skip_placeholder_lines and _looks_like_placeholder(line):
             continue
         for rule in rules:
             match = rule.pattern.search(line)
