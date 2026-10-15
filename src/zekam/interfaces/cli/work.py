@@ -130,7 +130,8 @@ def create_command(
     number: Annotated[str | None, typer.Option("--numara")] = None,
     criterion: Annotated[list[str] | None, typer.Option("--kriter")] = None,
     idempotency_key: Annotated[
-        str | None, typer.Option("--key", "--idempotency-key", help="Tekrarlanan exact istek kimligi")
+        str | None,
+        typer.Option("--key", "--idempotency-key", help="Tekrarlanan exact istek kimligi"),
     ] = None,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
@@ -271,6 +272,95 @@ def history_command(
                 f"{event['revision']}\t{event['event_kind']}\t"
                 f"{event['from_state'] or '-'}->{event['to_state']}"
             )
+
+
+@app.command("dependencies")
+def dependencies_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Work'un canonical bagimliliklarini bounded ve salt okunur gosterir (v8)."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            project_id = uow.resolve_project(project).id if project is not None else None
+            work = uow.resolve_work(reference, project_id=project_id)
+            rows = uow.list_work_dependencies(work.id, limit=101)
+        document = {
+            "work_item_id": work.id,
+            "revision": work.revision,
+            "dependencies": list(rows[:100]),
+            "truncated": len(rows) > 100,
+            "read_only": True,
+            "grants_authority": False,
+        }
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        for row in rows[:100]:
+            console.print(f"{row['depends_on_work_id']}\t{row['state']}\t{row['title']}")
+
+
+@app.command("relate")
+def relate_command(
+    source: Annotated[str, typer.Argument(help="Bagimli Work UUID veya harici numarasi")],
+    target: Annotated[str, typer.Argument(help="Once tamamlanmasi gereken Work")],
+    revision: Annotated[int, typer.Option("--revision")],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
+    remove: Annotated[bool, typer.Option("--remove")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
+    realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Exact plan ve revision ile Work bagimliligi ekler/kaldirir (v8)."""
+    try:
+        store = sqlite_operational_store(home, realm)
+        assert store is not None
+        with store.unit_of_work() as uow:
+            project_id = uow.resolve_project(project).id if project is not None else None
+            work = uow.resolve_work(source, project_id=project_id)
+            uow.list_work_dependencies(work.id, limit=1)  # explicit v8 gate; no migration
+            dependency = uow.resolve_work(target, project_id=work.project_id)
+            if work.id == dependency.id:
+                raise ZekamError("Work kendine bagimli olamaz")
+            if work.revision != revision:
+                raise ZekamError("Work optimistic revision drift")
+            body = {
+                "schema": "zekam-work-dependency-plan/v1",
+                "work_item_id": work.id,
+                "depends_on_work_id": dependency.id,
+                "project_id": work.project_id,
+                "expected_revision": revision,
+                "action": "removed" if remove else "added",
+                "grants_authority": False,
+            }
+            expected = digest(body)
+            document: dict[str, Any] = body | {"plan_digest": expected, "apply": apply}
+            if apply:
+                if plan_digest != expected:
+                    raise ZekamError("Exact Work dependency plan digest gerekli")
+                updated = uow.change_work_dependency(
+                    work_item_id=work.id,
+                    depends_on_work_id=dependency.id,
+                    expected_revision=revision,
+                    action=str(body["action"]),
+                )
+                uow.commit()
+                document["work"] = _work_document(updated)
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json or not apply:
+        console.print_json(json.dumps(document, ensure_ascii=False))
+    else:
+        console.print(f"Bagimlilik kaydedildi: {work.id} ({body['action']})")
 
 
 @app.command("transition")

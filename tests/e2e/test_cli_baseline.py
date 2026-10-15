@@ -101,7 +101,7 @@ def test_db_status_accepts_supported_operational_v5(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
     assert document["head"] == 5
-    assert document["supported_heads"] == [3, 5, 6, 7]
+    assert document["supported_heads"] == [3, 5, 6, 7, 8]
     assert document["drift"] == []
 
 
@@ -120,7 +120,7 @@ def test_db_status_accepts_supported_operational_v6(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
     assert document["head"] == 6
-    assert document["expected_head"] == 7
+    assert document["expected_head"] == 8
     assert document["schema_ok"] is True
     assert document["drift"] == []
 

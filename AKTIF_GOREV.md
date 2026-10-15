@@ -1442,6 +1442,19 @@ Limit verilmeden kullanilan repository metodlari mevcut davranisi korur. Gercek
 SQLite fixture'inda 106 Work ve buyuyen event/run/step/checkpoint matrisi icin
 regresyon kodu hazirlandi; testler CALISTIRILMADI, final toplu asamayi bekler.
 
+**15 Ekim 2026 - WP-07 Work dependency gelistirmesi:** Additive operational v8,
+Work dependency ekleme/kaldirma olaylarini canonical Work revision/event ile ayni
+transaction/savepoint'e baglar. Mevcut edge view'i append-only history'den gelir;
+self/cross-project/duplicate/cycle ve stale revision reddedilir. Unfinished dependency
+Work state gecisini ve canonical lease/effect admission'i engeller; genel queue
+filtresi LIMIT oncesinde uygulanir. CLI work relate/dependencies exact proje/harici
+numara ve dry-run plan digest'iyle baglandi. V7->v8 migration mevcut admission,
+spool/quiescence, online backup ve parity/readback orchestrator yolunu kullanir;
+V1-v7 pinleri ve varsayilan v3 bootstrap korunur. Kullanici DB'sine migration
+UYGULANMADI. Yalniz yeni schema digest/fingerprint uretildi; cycle/scope/rollback/
+queue/CLI/migration regresyon kodu hazirlandi, testler CALISTIRILMADI. Belge:
+`docs/WORK_BAGIMLILIKLARI.md`. WP-07 ve Work kapanisi uretilmedi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

@@ -294,7 +294,7 @@ class SQLiteOperationalBackup:
         destination_parent_descriptor: int | None = None,
     ) -> OperationalBackupReceipt:
         if restoring and not (allow_v4_restore and target_version == 4):
-            if target_version in {5, 6, 7}:
+            if target_version in {5, 6, 7, 8}:
                 # Same-version restore of an admitted ledger snapshot.
                 if type(target_version) is not int:
                     raise ConfigurationError("Operational SQLite unsupported target version")

@@ -255,9 +255,9 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
         "--uygula",
     )
     assert created.exit_code == 0, created.stdout
-    work_id = json.loads(
-        _invoke(runner, "work", "list", "--home", str(home), "--json").stdout
-    )[0]["id"]
+    work_id = json.loads(_invoke(runner, "work", "list", "--home", str(home), "--json").stdout)[0][
+        "id"
+    ]
 
     store = SQLiteOperationalStore(home / "state" / "operational.db")
     with store.unit_of_work() as uow:
@@ -386,8 +386,16 @@ def test_cli_work_external_number_scope_history_and_transition(tmp_path: Path) -
     ambiguous = _invoke(runner, "work", "show", "123", "--json", "--home", str(home))
     assert ambiguous.exit_code != 0
     transitioned = _invoke(
-        runner, "work", "transition", "123", "--hedef", "active", "--revision", "1",
-        "--uygula", *args,
+        runner,
+        "work",
+        "transition",
+        "123",
+        "--hedef",
+        "active",
+        "--revision",
+        "1",
+        "--uygula",
+        *args,
     )
     assert transitioned.exit_code == 0, transitioned.stdout
     assert json.loads(transitioned.stdout)["work"]["id"] == first.id
@@ -419,6 +427,54 @@ def test_cli_keyed_work_create_returns_same_id_and_rejects_drift(tmp_path: Path)
     assert changed.exit_code != 0
     with SQLiteOperationalStore(database).unit_of_work() as uow:
         assert len(uow.list_work()) == 1
+
+
+def test_work_dependency_cli_exact_plan_scope_and_revision(tmp_path: Path) -> None:
+    from zekam.infrastructure.sqlite.operational_schema import bootstrap_v8
+
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap_v8(database)
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        project = uow.create_project(slug="dependency", display_name="Dependency")
+        a = uow.create_work(
+            project_id=project.id, kind="task", title="A", state="ready", external_number="1"
+        )
+        b = uow.create_work(
+            project_id=project.id, kind="task", title="B", state="ready", external_number="2"
+        )
+        uow.commit()
+    runner = CliRunner()
+    args = ("--project", "dependency", "--revision", "1", "--json", "--home", str(home))
+    preview = _invoke(runner, "work", "relate", "1", "2", *args)
+    assert preview.exit_code == 0, preview.stdout
+    plan = json.loads(preview.stdout)
+    assert plan["apply"] is False
+    rejected = _invoke(runner, "work", "relate", "1", "2", *args, "--uygula")
+    assert rejected.exit_code != 0
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        assert uow.get_work(a.id).revision == 1
+    applied = _invoke(
+        runner, "work", "relate", "1", "2", *args, "--uygula", "--plan-digest", plan["plan_digest"]
+    )
+    assert applied.exit_code == 0, applied.stdout
+    assert json.loads(applied.stdout)["work"]["revision"] == 2
+    listed = _invoke(
+        runner,
+        "work",
+        "dependencies",
+        "1",
+        "--project",
+        "dependency",
+        "--json",
+        "--home",
+        str(home),
+    )
+    assert listed.exit_code == 0, listed.stdout
+    assert json.loads(listed.stdout)["dependencies"][0]["depends_on_work_id"] == b.id
+    stale = _invoke(runner, "work", "relate", "1", "2", *args, "--remove")
+    assert stale.exit_code != 0
 
 
 def test_work_resume_reads_a_bounded_recent_window(tmp_path: Path) -> None:
@@ -456,12 +512,18 @@ def test_work_resume_filters_project_before_bounded_window(tmp_path: Path) -> No
         selected = uow.create_project(slug="selected", display_name="Selected")
         other = uow.create_project(slug="other", display_name="Other")
         wanted = uow.create_work(
-            project_id=selected.id, kind="task", title="Selected work", state="ready",
+            project_id=selected.id,
+            kind="task",
+            title="Selected work",
+            state="ready",
             payload_digest=digest("selected-work"),
         )
         for index in range(105):
             uow.create_work(
-                project_id=other.id, kind="task", title=f"Other {index}", state="ready",
+                project_id=other.id,
+                kind="task",
+                title=f"Other {index}",
+                state="ready",
                 payload_digest=digest({"other": index}),
             )
         uow.commit()

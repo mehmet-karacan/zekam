@@ -303,6 +303,19 @@ class OperationalUnitOfWork(Protocol):
         self, reference: str, *, project_id: str | None = None
     ) -> OperationalWorkRecord: ...
 
+    def change_work_dependency(
+        self,
+        *,
+        work_item_id: str,
+        depends_on_work_id: str,
+        expected_revision: int,
+        action: str,
+    ) -> OperationalWorkRecord: ...
+
+    def list_work_dependencies(
+        self, work_item_id: str, *, limit: int = 101
+    ) -> tuple[dict[str, Any], ...]: ...
+
     def list_work_events(
         self, work_item_id: str, *, limit: int | None = None
     ) -> tuple[dict[str, Any], ...]: ...

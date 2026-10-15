@@ -611,7 +611,7 @@ class SQLiteLocalRuntimeStore:
         row = connection.execute(
             "select value from zekam_meta where key='schema_version'"
         ).fetchone()
-        if row is None or str(row[0]) != "7":
+        if row is None or str(row[0]) not in {"7", "8"}:
             raise ConfigurationError("Bound local job requires admitted operational schema v7")
 
     @staticmethod
@@ -682,6 +682,12 @@ class SQLiteLocalRuntimeStore:
                 raise ConcurrencyConflict(
                     "Local job canonical Work/Run tuple unavailable or changed"
                 )
+            from zekam.infrastructure.sqlite.work_dependency_schema import (
+                has_unfinished_work_dependencies,
+            )
+
+            if has_unfinished_work_dependencies(connection, str(row["work_item_id"])):
+                raise ConcurrencyConflict("Local job Work dependency incomplete")
             return LocalJobBinding(
                 project_id=project_id,
                 work_item_id=str(row["work_item_id"]),
@@ -713,10 +719,10 @@ class SQLiteLocalRuntimeStore:
         binding = self._job_binding_tx(connection, str(row["id"]))
         if binding is None or binding.binding_digest != marker:
             raise PolicyViolation("Local job canonical binding missing or drifted")
-        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+        from zekam.infrastructure.sqlite.work_dependency_schema import current_binding_query
 
         current = connection.execute(
-            _CURRENT_BINDING_QUERY.replace("new.job_id", "?"), (str(row["id"]),)
+            current_binding_query(connection).replace("new.job_id", "?"), (str(row["id"]),)
         ).fetchone()
         if current is None:
             raise ConcurrencyConflict("Local job canonical Work/Run authority changed")
@@ -775,16 +781,18 @@ class SQLiteLocalRuntimeStore:
                 version = connection.execute(
                     "select value from zekam_meta where key='schema_version'"
                 ).fetchone()
-                if version is not None and str(version[0]) == "7":
-                    from zekam.infrastructure.sqlite.local_job_binding import (
-                        _CURRENT_BINDING_QUERY,
+                if version is not None and str(version[0]) in {"7", "8"}:
+                    from zekam.infrastructure.sqlite.work_dependency_schema import (
+                        current_binding_query,
                     )
 
                     # Filter before LIMIT: stale jobs cannot starve runnable jobs.
                     # A blocked dependency remains queued and becomes eligible when
                     # its canonical predecessor succeeds. Exact claims still fail
                     # explicitly through the validation below.
-                    current_query = _CURRENT_BINDING_QUERY.replace("new.job_id", "local_job.id")
+                    current_query = current_binding_query(connection).replace(
+                        "new.job_id", "local_job.id"
+                    )
                     selection += (
                         " and (json_type(payload_json,'$.work_binding_digest') is null"
                         f" or exists ({current_query}))"
@@ -1711,9 +1719,7 @@ class SQLiteLocalRuntimeStore:
         lease_seconds: int,
         now: str | None = None,
     ) -> LocalOutboxClaim:
-        if not isinstance(claim, LocalOutboxClaim) or not isinstance(
-            claim.event, LocalOutboxEvent
-        ):
+        if not isinstance(claim, LocalOutboxClaim) or not isinstance(claim.event, LocalOutboxEvent):
             raise ValidationFailed("Outbox heartbeat typed claim ister")
         _bounded_int(lease_seconds, "Outbox lease", minimum=1, maximum=3600)
         moment = _moment(now)

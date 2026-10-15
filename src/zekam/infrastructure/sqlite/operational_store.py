@@ -803,6 +803,13 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Work optimistic revision drift")
         if to_state not in _TRANSITIONS[row["state"]]:
             raise ValidationFailed("Work state transition yasak")
+        if to_state in {"ready", "active", "verification", "completed"}:
+            from zekam.infrastructure.sqlite.work_dependency_schema import (
+                has_unfinished_work_dependencies,
+            )
+
+            if has_unfinished_work_dependencies(connection, work_item_id):
+                raise ValidationFailed("Work dependency incomplete")
         revision = expected_revision + 1
         updated = connection.execute(
             "update work_item set state = ?, revision = ?, evidence_digest = ?"
@@ -1092,11 +1099,11 @@ class SQLiteOperationalUnitOfWork:
         )
 
     def assert_bound_job_current(self, job_id: str) -> None:
-        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+        from zekam.infrastructure.sqlite.work_dependency_schema import current_binding_query
 
         current = (
             self._db()
-            .execute(_CURRENT_BINDING_QUERY.replace("new.job_id", "?"), (job_id,))
+            .execute(current_binding_query(self._db()).replace("new.job_id", "?"), (job_id,))
             .fetchone()
         )
         if current is None:
@@ -1202,6 +1209,117 @@ class SQLiteOperationalUnitOfWork:
         if len(rows) != 1:
             raise ValidationFailed("Work numarasi birden fazla projede var; exact proje secin")
         return self.get_work(str(rows[0]["id"]))
+
+    def _require_work_dependencies(self) -> None:
+        if (
+            self._db()
+            .execute(
+                "select 1 from sqlite_master where type='view' and name='work_dependency_current'"
+            )
+            .fetchone()
+            is None
+        ):
+            raise ConfigurationError("Work dependencies migration-required: operational v8")
+
+    def list_work_dependencies(
+        self, work_item_id: str, *, limit: int = 101
+    ) -> tuple[dict[str, Any], ...]:
+        self._require_work_dependencies()
+        self.get_work(work_item_id)
+        clause, extra = _optional_read_limit(limit)
+        rows = (
+            self._db()
+            .execute(
+                "select d.depends_on_work_id,d.work_revision,d.event_digest,"
+                " w.title,w.external_number,w.state,w.evidence_digest"
+                " from work_dependency_current d join work_item w on w.id=d.depends_on_work_id"
+                " where d.work_item_id=? order by d.depends_on_work_id" + clause,
+                (work_item_id, *extra),
+            )
+            .fetchall()
+        )
+        return tuple(
+            dict(row)
+            | {"satisfied": row["state"] == "completed" and row["evidence_digest"] is not None}
+            for row in rows
+        )
+
+    def change_work_dependency(
+        self,
+        *,
+        work_item_id: str,
+        depends_on_work_id: str,
+        expected_revision: int,
+        action: str,
+    ) -> OperationalWorkRecord:
+        self._require_work_dependencies()
+        expected_revision = _exact_positive_int(expected_revision, "Expected revision")
+        if action not in {"added", "removed"}:
+            raise ValidationFailed("Work dependency action gecersiz")
+        current = self.get_work(work_item_id)
+        dependency = self.get_work(depends_on_work_id)
+        if current.revision != expected_revision:
+            raise ValidationFailed("Work optimistic revision drift")
+        if current.project_id != dependency.project_id or current.id == dependency.id:
+            raise ValidationFailed("Work dependency self/cross-project yasak")
+        if current.state not in {"proposed", "ready", "blocked"}:
+            raise ValidationFailed("Work dependency degisikligi proposed/ready/blocked ister")
+        connection = self._db()
+        revision = expected_revision + 1
+        now = _now()
+        event_digest = digest(
+            {
+                "schema": "zekam-work-dependency-event/v1",
+                "work_item_id": current.id,
+                "depends_on_work_id": dependency.id,
+                "revision": revision,
+                "action": action,
+            }
+        )
+        connection.execute("savepoint work_dependency_change")
+        try:
+            updated = connection.execute(
+                "update work_item set revision=? where id=? and revision=?",
+                (revision, current.id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise ValidationFailed("Work optimistic revision drift")
+            connection.execute(
+                "insert into work_revision(id,work_item_id,revision,state,payload_digest,"
+                " evidence_digest,created_at,payload_json)"
+                " select ?,work_item_id,?,state,payload_digest,evidence_digest,?,payload_json"
+                " from work_revision where work_item_id=? and revision=?",
+                (str(new_uuid7()), revision, now, current.id, expected_revision),
+            )
+            connection.execute(
+                "insert into work_event(id,work_item_id,revision,event_kind,from_state,"
+                " to_state,event_digest,created_at) values(?,?,?,?,?,?,?,?)",
+                (
+                    str(new_uuid7()),
+                    current.id,
+                    revision,
+                    "dependency-" + action,
+                    current.state,
+                    current.state,
+                    event_digest,
+                    now,
+                ),
+            )
+            connection.execute(
+                "insert into work_dependency_event(work_item_id,depends_on_work_id,"
+                " work_revision,action,event_digest,created_at) values(?,?,?,?,?,?)",
+                (current.id, dependency.id, revision, action, event_digest, now),
+            )
+        except Exception as exc:
+            connection.execute("rollback to work_dependency_change")
+            connection.execute("release work_dependency_change")
+            if isinstance(exc, sqlite3.IntegrityError):
+                raise ValidationFailed(
+                    "Work dependency cycle/scope/state constraint ihlali"
+                ) from exc
+            raise
+        connection.execute("release work_dependency_change")
+        return self.get_work(current.id)
 
     def work_state_counts(self, *, project_id: str) -> dict[str, int]:
         """Exact aggregate counts without materializing Work revision payloads."""
@@ -1328,11 +1446,11 @@ class SQLiteOperationalUnitOfWork:
         version = connection.execute(
             "select value from zekam_meta where key='schema_version'"
         ).fetchone()
-        if version is None or str(version[0]) != "7":
+        if version is None or str(version[0]) not in {"7", "8"}:
             return ()
-        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+        from zekam.infrastructure.sqlite.work_dependency_schema import current_binding_query
 
-        current = _CURRENT_BINDING_QUERY.replace("new.job_id", "jobs.id")
+        current = current_binding_query(connection).replace("new.job_id", "jobs.id")
         placeholders = ",".join("?" for _ in work_item_ids)
         rows = connection.execute(
             "select b.*,jobs.state,jobs.attempt_count,jobs.terminal_evidence_digest,"
