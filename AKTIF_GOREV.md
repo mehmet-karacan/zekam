@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.75 15 Ekim 2026 OpenCode embedding stream kapisi
+
+OpenCode embedding config okuyucusu statik boyut oncesi kontrolu ile birlikte
+bounded `max_bytes + 1` stream kullanir. Dosya okuma sirasinda buyurse veya
+kimligi/digest boyutu uyusmazsa provider metadata kaniti uretmeden typed config
+hatasi verir; secret degeri dosyadan okunmaz.
+
+Bu dar dilim WP-05 provider config kaynak tuketimi ve fail-closed kabulunu
+guclendirir; canli provider/model qualification kaniti bu dilimin disindadir.
+
 ### 10.74 15 Ekim 2026 Bootstrap ve home metadata stream kapisi
 
 Fresh bootstrap legacy config ve ZEKAM_HOME layout metadata okumasi bounded

@@ -109,7 +109,10 @@ def _secure_json_document(path: Path, *, max_bytes: int) -> Mapping[str, Any]:
     stat = candidate.stat()
     if stat.st_size < 2 or stat.st_size > max_bytes:
         raise ConfigurationError("OpenCode config dosya boyutu gecersiz")
-    raw = candidate.read_bytes()
+    with candidate.open("rb") as stream:
+        raw = stream.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise ConfigurationError("OpenCode config dosya boyutu gecersiz")
     if len(raw) != stat.st_size:
         raise ConfigurationError("OpenCode config okuma sirasinda degisti")
 
