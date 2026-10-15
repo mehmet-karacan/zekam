@@ -295,16 +295,24 @@ class OpenCodeResearchAdapter:
         executable: str = "opencode",
         cwd: Path,
         timeout_seconds: int = 600,
+        cancel: threading.Event | None = None,
     ) -> None:
         if not cwd.is_absolute() or not cwd.is_dir():
             raise ValidationFailed("OpenCode research cwd absolute directory olmali")
-        if not 1 <= timeout_seconds <= 600:
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 600:
             raise ValidationFailed("OpenCode research timeout 1..600 olmali")
         self.executable = _text(executable, "OpenCode executable", maximum=1024)
         self.cwd = cwd
         self.timeout_seconds = timeout_seconds
+        self.cancel = cancel
+
+    def _check_cancel(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            raise PolicyViolation("OpenCode research iptal edildi; sonuc yayinlanamaz")
 
     def execute(self, package: dict[str, Any]) -> OpenCodeResearchResult:
+        self._check_cancel()
+        deadline = time.monotonic() + self.timeout_seconds
         prompt = "ZEKAM_RESEARCH_EXECUTION_V1\n" + canonical_json(package)
         if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
             raise ValidationFailed("OpenCode research prompt bounded siniri asiyor")
@@ -322,6 +330,7 @@ class OpenCodeResearchAdapter:
             "Zekam bounded research",
             prompt,
         )
+        self._check_cancel()
         try:
             tree = start_process_tree(
                 argv, self.cwd, stderr=subprocess.PIPE, start_new_session=True
@@ -337,29 +346,35 @@ class OpenCodeResearchAdapter:
         stderr_reader = BoundedReader(process.stderr, per_stream_limit)
         stdout_thread = threading.Thread(target=stdout_reader.read, daemon=True)
         stderr_thread = threading.Thread(target=stderr_reader.read, daemon=True)
-        stdout_thread.start()
-        stderr_thread.start()
-        started = time.monotonic()
+        started_threads: list[threading.Thread] = []
         try:
-            process.stdin.write(prompt.encode("utf-8"))
-            process.stdin.flush()
+            for reader_thread in (stdout_thread, stderr_thread):
+                reader_thread.start()
+                started_threads.append(reader_thread)
+            # `run` already receives the bounded prompt as an argument. Sending
+            # the same payload to an unread pipe can block before wait_for.
             process.stdin.close()
-        except (BrokenPipeError, OSError) as exc:
-            hard_kill_tree(tree)
-            finish_pipes(tree, (stdout_thread, stderr_thread))
-            raise ValidationFailed("OpenCode research stdin yazilamadi") from exc
-
-        deadline = started + self.timeout_seconds
-        outcome = wait_for(process, deadline, stdout_reader.overflow, stderr_reader.overflow)
-        if outcome == "overflow":
-            hard_kill_tree(tree)
-            finish_pipes(tree, (stdout_thread, stderr_thread))
-            raise ValidationFailed("OpenCode research output bounded siniri asiyor")
-        if outcome == "deadline":
-            hard_kill_tree(tree)
-            finish_pipes(tree, (stdout_thread, stderr_thread))
-            raise ValidationFailed("OpenCode research bounded timeout")
-        finish_pipes(tree, (stdout_thread, stderr_thread))
+            outcome = wait_for(
+                process,
+                deadline,
+                stdout_reader.overflow,
+                stderr_reader.overflow,
+                cancel=self.cancel,
+            )
+            if outcome == "cancelled":
+                raise PolicyViolation("OpenCode research iptal edildi; sonuc yayinlanamaz")
+            if outcome == "overflow":
+                raise ValidationFailed("OpenCode research output bounded siniri asiyor")
+            if outcome == "deadline":
+                raise ValidationFailed("OpenCode research bounded timeout")
+            finish_pipes(tree, tuple(started_threads))
+            self._check_cancel()
+        except BaseException:
+            try:
+                hard_kill_tree(tree)
+            finally:
+                finish_pipes(tree, tuple(started_threads))
+            raise
         if stdout_reader.overflow.is_set() or stderr_reader.overflow.is_set():
             raise ValidationFailed("OpenCode research output bounded siniri asiyor")
         if process.poll() != 0:
@@ -376,6 +391,7 @@ class OpenCodeResearchAdapter:
             _strict_json(final_text, "OpenCode research result"), execution
         )
         evidence_manifest_digest = digest(package.get("evidence", []))
+        self._check_cancel()
         result = validate_opencode_research_result(
             document,
             question_digest=str(package.get("question_digest", "")),
@@ -388,6 +404,7 @@ class OpenCodeResearchAdapter:
         )
         result = replace(result, execution=execution)
         require_opencode_execution(result)
+        self._check_cancel()
         return result
 
 

@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-08 research lifecycle: programatik cancel, Ctrl+C/timeout/overflow child tree temizligi ve gec sonuc/materialization iptal kapisi eklendi. Prompt'un okunmayan stdin'e tekrar yazilip bloklanmasi kaldirildi. Yerel Python child regresyon kodu hazir, CALISTIRILMADI. Host-neutral/native child adapter ve gercek kabul halen acik.
+
 - Gorev 4 WP-05 eski ledger: exact ordered inputs/profile ile completed claim/receipt/vector yeniden dogrulanip append-only slot manifest'ine idempotent baglanir. Runtime yalniz missing cache ve unbound completed kayit varsa bounded adaylari dener. Yanlis sira/scope/tamper ve claim/receipt degismezligi regresyon kodu hazir, CALISTIRILMADI. Kayip orijinal girdi veya unknown provider sonucu otomatik cozulmez.
 
 - Gorev 4 WP-05: append-only girdi manifest/slot, atomik regrouped overlap claim kapisi ve completed parent vector/receipt'ten alt kume/sira recovery eklendi. Runtime yeni batch oncesi tekil cache miss recovery yapar; yeni+cokmus cache senaryosu regresyon kodu hazir, CALISTIRILMADI. Eski manifest'siz ledger toparlamasi, provider hesap kotasi ve gercek performance/kabul kaniti acik.

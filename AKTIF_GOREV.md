@@ -1570,6 +1570,15 @@ kodu hazir; testler CALISTIRILMADI. Gercek native host ve kapanis kabulleri acik
 
 **Kabul ve negatif testler:** Testler: missing child capability, malformed result, timeout/cancel, duplicate/cross-project envelope, same verifier identity, model unavailable, quota unknown, unsupported modality ve bounded real host deneyi.
 
+**16 Ekim 2026 — WP-08 research iptal ve child temizligi:** OpenCode
+research adapter programatik cancel event'ini bounded process wait'e tasir;
+iptal/Ctrl+C/timeout/overflow ve pipe hatasinda child tree ve pipe'lar kapanir.
+Prompt argv'de zaten tasindigindan stdin'e ikinci kez yazilip bloklanmasi
+kaldirildi. Gec sonuc ve rapor materialization oncesi cancel yeniden denetlenir;
+runtime interruption'i terminal failure/recovery akisina alir. Yerel Python
+child regresyon kodu hazir, CALISTIRILMADI. Host-neutral research, gercek host
+child capability ve canli kabul baglantilari halen acik; WP-08 kapanmadi.
+
 ### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
 
 **Bağımlılık/onay:** WP-03/07/08.  

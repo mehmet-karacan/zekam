@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -610,6 +611,7 @@ def run_research(
     opencode_config: Path | None = None,
     adapter: ResearchAdapter | None = None,
     work_binding: LocalJobBinding | None = None,
+    cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Execute one digest-bound run behind a durable effect claim."""
 
@@ -617,6 +619,8 @@ def run_research(
         raise PolicyViolation("Research apply exact run digest ister")
     if not authorize_remote_query or not authorize_agent_run:
         raise PolicyViolation("Research apply exact remote-query ve agent-run authorization ister")
+    if cancel is not None and cancel.is_set():
+        raise PolicyViolation("Research iptal edildi")
     if work_binding is not None and (
         type(work_binding) is not LocalJobBinding
         or work_binding.project_id != plan.project_id
@@ -807,9 +811,14 @@ def run_research(
             "grants_authority": False,
         }
         selected_adapter = adapter or OpenCodeResearchAdapter(
-            cwd=resolve_project_source(home, plan.project_slug)
+            cwd=resolve_project_source(home, plan.project_slug),
+            cancel=cancel,
         )
+        if cancel is not None and cancel.is_set():
+            raise PolicyViolation("Research iptal edildi")
         agent_result = selected_adapter.execute(package)
+        if cancel is not None and cancel.is_set():
+            raise PolicyViolation("Research iptal edildi; gec sonuc yayinlanamaz")
         execution = require_opencode_execution(agent_result)
         execution_evidence = execution.as_dict()
         role_result, verification = _role_result(agent_result, by_citation)
@@ -841,6 +850,8 @@ def run_research(
             "usage_by_model": _execution_usage(execution),
         }
         report_document["report_digest"] = digest(report_document)
+        if cancel is not None and cancel.is_set():
+            raise PolicyViolation("Research iptal edildi; rapor yayinlanamaz")
         projection = _materialize_report(
             store,
             KnowledgeFileStore(home),
@@ -858,7 +869,7 @@ def run_research(
             state="completed",
             evidence_digest=str(report_document["report_digest"]),
         )
-    except Exception as exc:
+    except BaseException as exc:
         failure_evidence = digest(
             {
                 "operation": "opencode.research",
