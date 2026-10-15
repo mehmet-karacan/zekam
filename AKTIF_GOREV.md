@@ -2325,6 +2325,17 @@ oversized dosya digest ve JSON dogrulamasinda fail-closed kalir.
 Bu dilim WP-05/WP-07 analytics ve Obsidian recovery kaynak tuketimi bosluklarini
 daraltir; DuckDB/native writer kabul kaniti bu dilimin disindadir.
 
+### 10.87 15 Ekim 2026 CLI ve continuity artifact stream kapisi
+
+Capability manifest, backup manifest, knowledge ingest, work spec, radar plan,
+workspace resume RAG state, native dirty-file digest ve measured-loop executable
+ve config okumalari bounded regular-file stream kullanir. Belge icerigi domain
+siniri, manifest ve planlar kendi ust sinirlariyla okunur; link/reparse, growth,
+UTF-8 veya oversized girdiler typed hata ile fail-closed kalir.
+
+Bu dilim WP-02/WP-05/WP-07 CLI ve continuity kaynak tuketimi bosluklarini
+daraltir; provider/native acceptance kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

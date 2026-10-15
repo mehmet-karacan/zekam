@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 from rich.console import Console
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.composition import build_context
 from zekam.application.research_campaign_runtime import (
     CampaignPlan,
@@ -33,8 +34,8 @@ def _read_plan_file(path: Path) -> dict[str, Any]:
     if not path.is_absolute():
         raise ValidationFailed("Plan dosyasi absolute path olmali")
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+        text = read_bounded_text(path, max_bytes=1 * 1024 * 1024)
+    except (OSError, UnicodeError) as exc:
         raise ValidationFailed(f"Plan dosyasi okunamadi: {exc}") from exc
     try:
         document = json.loads(text)

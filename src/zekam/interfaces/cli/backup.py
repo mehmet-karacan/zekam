@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.application.backup import (
     BACKUP_MANIFEST_SCHEMA,
     ArtifactEntry,
@@ -74,7 +75,11 @@ def create_command(
             if output is None:
                 console.print_json(encoded)
             else:
-                output.write_bytes((bundle.absolute() / "MANIFEST.json").read_bytes())
+                output.write_bytes(
+                    read_bounded_bytes(
+                        bundle.absolute() / "MANIFEST.json", max_bytes=16 * 1024 * 1024
+                    )
+                )
             return
         manifest = build_manifest(
             schema_state=_schema_state(home),
@@ -105,7 +110,11 @@ def verify_command(
     assert_local_effect_admission(("backup", "verify"))
     try:
         if bundle is not None:
-            if manifest_path.read_bytes() != (bundle.absolute() / "MANIFEST.json").read_bytes():
+            if read_bounded_bytes(
+                manifest_path, max_bytes=16 * 1024 * 1024
+            ) != read_bounded_bytes(
+                bundle.absolute() / "MANIFEST.json", max_bytes=16 * 1024 * 1024
+            ):
                 raise ValueError("Bundle manifest path does not match the bundle")
             document = verify_bundle(bundle.absolute())
             console.print_json(
@@ -118,7 +127,9 @@ def verify_command(
                 )
             )
             return
-        manifest = _decode(json.loads(manifest_path.read_text(encoding="utf-8")))
+        manifest = _decode(
+            json.loads(read_bounded_text(manifest_path, max_bytes=16 * 1024 * 1024))
+        )
         result = verify_manifest(manifest, _store(home))
     except (OSError, KeyError, ValueError) as exc:
         error_console.print(f"[red]Hata:[/red] manifest okunamadi ({type(exc).__name__})")

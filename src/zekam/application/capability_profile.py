@@ -20,6 +20,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.source_discovery import DiscoveryReport
 from zekam.domain.canonical import digest
 from zekam.domain.client_integration import ClientIntegrationId
@@ -260,7 +261,9 @@ def _read_text(root: Path, relative: str) -> str | None:
     try:
         if not path.is_file() or path.stat().st_size > MAX_MANIFEST_BYTES:
             return None
-        return path.read_text(encoding="utf-8", errors="replace")
+        return read_bounded_bytes(path, max_bytes=MAX_MANIFEST_BYTES).decode(
+            "utf-8", errors="replace"
+        )
     except OSError:  # pragma: no cover - okunamayan manifest yoksayilir
         return None
 

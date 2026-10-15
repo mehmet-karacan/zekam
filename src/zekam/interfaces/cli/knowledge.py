@@ -17,6 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.composition import build_context
 from zekam.application.knowledge_file_plane import note_content_digest
 from zekam.application.knowledge_ingestion import (
@@ -41,7 +42,7 @@ from zekam.application.markdown_knowledge_mutation import (
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
-from zekam.domain.knowledge import SourceFormat
+from zekam.domain.knowledge import MAX_DOCUMENT_BYTES, SourceFormat
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.knowledge.document_parsers import media_type_for
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
@@ -112,7 +113,9 @@ def _parse_vector(value: str) -> tuple[float, ...]:
 def _materialize_once(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path.exists():
-        if path.is_symlink() or not path.is_file() or path.read_bytes() != payload:
+        if path.is_symlink() or not path.is_file() or read_bounded_bytes(
+            path, max_bytes=max(1, len(payload))
+        ) != payload:
             raise ValidationFailed("Knowledge materialization replay drift")
         return
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -593,7 +596,10 @@ def ingest_command(
     if source_format is None:
         raise fail(f"Uzanti icin parser tanimli degil: {document.suffix}")
 
-    payload = document.read_bytes()
+    try:
+        payload = read_bounded_bytes(document, max_bytes=MAX_DOCUMENT_BYTES)
+    except OSError as exc:
+        raise fail("Belge boyutu veya dosya tipi bounded degil") from exc
     service = IngestionService(default_router())
     now = _now()
     try:

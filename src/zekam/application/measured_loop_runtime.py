@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.application.execution import ExecutionHost
 from zekam.application.legacy_repository_provider import legacy_repository
 from zekam.application.loop_orchestrator import measured_loop_effect_scope_digest
@@ -37,6 +38,7 @@ from zekam.domain.loop_policy import (
     LoopPolicy,
     LoopTerminalState,
 )
+
 from zekam.domain.loop_progress import (
     AttemptNoveltyFingerprint,
     LoopProgressCheckpoint,
@@ -58,6 +60,9 @@ from zekam.infrastructure.process.capability_worker import (
     CapabilityWorkerSpec,
     CapabilityWorkerStatus,
 )
+
+MAX_PINNED_EXECUTABLE_BYTES = 256 * 1024 * 1024
+MAX_LOCAL_DRIVER_CONFIG_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +164,9 @@ class PinnedLocalDriverSpec:
             raise PolicyViolation("Measured loop driver executable absolute path olmali")
         try:
             resolved = executable.resolve(strict=True)
-            executable_bytes = resolved.read_bytes()
+            executable_bytes = read_bounded_bytes(
+                resolved, max_bytes=MAX_PINNED_EXECUTABLE_BYTES
+            )
         except OSError as exc:
             raise PolicyViolation("Measured loop pinned executable okunamadi") from exc
         if (
@@ -454,8 +461,8 @@ def load_local_driver_config(
     path: Path,
 ) -> tuple[PinnedLocalDriverSpec, PinnedLocalDriverSpec, float]:
     try:
-        body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        body = json.loads(read_bounded_text(path, max_bytes=MAX_LOCAL_DRIVER_CONFIG_BYTES))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise ValidationFailed("Measured loop driver config okunamadi") from exc
     if not isinstance(body, dict) or set(body) != {
         "schema",

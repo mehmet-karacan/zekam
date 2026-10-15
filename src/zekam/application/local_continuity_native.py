@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.composition import build_context
 from zekam.application.opencode_lifecycle import recent_events, record_event
 from zekam.application.secret_detection import SECRET_RULES, scan_text
@@ -217,7 +218,9 @@ def _dirty_content_digests(root: Path, lines: list[str]) -> list[str]:
         if total > _DIRTY_BYTES_LIMIT:
             raise NativeContinuityError("source-dirty-bytes-limit-exceeded")
         try:
-            result.append(f"{relative}:{digest_of_bytes(target.read_bytes())}")
+            result.append(
+                f"{relative}:{digest_of_bytes(read_bounded_bytes(target, max_bytes=_DIRTY_BYTES_LIMIT))}"
+            )
         except OSError as exc:
             raise NativeContinuityError("source-dirty-file-unreadable") from exc
     return result

@@ -11,6 +11,7 @@ from typing import Annotated, Any
 import typer
 from rich.console import Console
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.operational_store import OperationalWorkRecord
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
@@ -72,7 +73,7 @@ def resume_command(
 
 def _read_active_spec(path: Path, expected_digest: str) -> tuple[str, tuple[str, ...], str]:
     try:
-        raw = path.read_bytes()
+        raw = read_bounded_bytes(path, max_bytes=_MAX_ACTIVE_SPEC_BYTES)
     except OSError as exc:
         raise ZekamError("Aktif gorev spec dosyasi okunamadi") from exc
     if not raw or len(raw) > _MAX_ACTIVE_SPEC_BYTES:

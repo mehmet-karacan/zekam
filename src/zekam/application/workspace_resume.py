@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.capability_inventory import compact_capability_summary
 from zekam.application.opencode_lifecycle import resume_projection
 from zekam.application.secret_detection import SECRET_RULES, scan_text
@@ -57,8 +58,8 @@ def _read_rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict
             return {"state": "unavailable"}
         if not private_regular(state_path) or state_path.stat().st_size > _RAG_STATE_LIMIT:
             raise PolicyViolation("Project RAG resume state private ve bounded olmali")
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        state = json.loads(read_bounded_text(state_path, max_bytes=_RAG_STATE_LIMIT))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise PolicyViolation("Project RAG resume state exact JSON olmali") from exc
     if (
         not isinstance(state, dict)
