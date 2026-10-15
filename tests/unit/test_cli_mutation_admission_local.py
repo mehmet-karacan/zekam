@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from zekam.application.mutation_admission import _issue_gate_a_source_capability
+from zekam.application.mutation_admission import (
+    DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
+    MutationAdmissionExemption,
+    _issue_gate_a_source_capability,
+    assert_local_effect_admission,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.interfaces.cli.main import app
 
@@ -14,6 +19,30 @@ from zekam.interfaces.cli.main import app
 def test_gate_a_capability_cannot_be_issued_outside_exact_cli_leaf() -> None:
     with pytest.raises(PolicyViolation):
         _issue_gate_a_source_capability(("continuity", "source-bind"), confirmed=True)
+
+
+@pytest.mark.parametrize("command", ["start", "checkpoint", "close"])
+def test_native_record_commands_are_explicit_local_effects(command: str) -> None:
+    path = ("continuity", "native", command)
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
+        path,
+        {"project": "fixture", "work_item": "work-ref", "client": "codex"},
+    )
+    assert admission.mutating
+    assert admission.exemption is MutationAdmissionExemption.LOCAL_EFFECT
+    assert not admission.requires_existing_hydration
+    assert not admission.grants_authority
+    assert admission.target_hints.work_ref == "work-ref"
+    assert admission.target_hints.project_ref == "fixture"
+    assert assert_local_effect_admission(path).mutating
+
+
+def test_native_resume_remains_read_only_in_admission_registry() -> None:
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
+        ("continuity", "native", "resume")
+    )
+    assert not admission.mutating
+    assert admission.exemption is None
 
 
 def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:

@@ -1393,6 +1393,12 @@ saymaz; yalniz `processStartedAt` gozlemini karsilastirir. Native resume, revisi
 ayni olsa bile farkli kaynak kokunu `root-drift` ile reddeder. Regresyon kodu
 hazirlandi; bu degisiklikler icin test CALISTIRILMADI. WP veya Work kapanisi yoktur.
 
+**15 Ekim 2026 - native mutation admission gelistirmesi:** Native start/checkpoint/
+close komutlari exact `LOCAL_EFFECT` allowlist'ine baglandi. CLI effect oncesinde
+mevcut admission kontrolunu uygular; `--work-item` parsed target hint'e dahil edilir.
+Resume salt okunur kalir. Regresyon kodu hazirlandi, testler son toplu asamayi bekler;
+bu kayit Work/grant/receipt veya native kabul basarisi uretmez.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

@@ -169,8 +169,10 @@ bu yarista dokunulmadan kalir.
 - `ZEKAM-DOD`/capability matrisi: `capability_inventory.py` ve
   `docs/ZEKAM_YETKINLIK_ENVANTERI.md` henuz native yardimci ve otomatik OpenCode batch'i ayri satir
   olarak gostermiyor (W07 teslimi).
-- Native komutlar `mutation_admission` kayit defterine (`LOCAL_EFFECT`) eklenmedi; kayit defteri
-  bu isin dosya kapsami disindaydi.
+- Native `start/checkpoint/close` komutlari `mutation_admission` kayit defterinde
+  `LOCAL_EFFECT` olarak kayitlidir; CLI leaf effect oncesinde exact admission kontrolu
+  yapar. Kayit Work/claim/grant uretmez. `resume` salt okunur kalir. Bu baglantinin
+  regresyon kodu hazir; calistirma tum gelistirmeler sonrasi final asamayi bekler.
 - `target-reached` terminali native yoldan yazilmaz (bagimsiz kalite dogrulamasi ve Work gecisi
   ayri is).
 - Canli provider/model qualification bu belgenin konusu degildir ve ayri exact yetki ister.

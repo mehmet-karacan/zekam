@@ -126,6 +126,8 @@ class CliMutationTargetHints:
 
         project_names = ["project_id", "project_uuid", "project", "proje"]
         work_names = ["work_item_id", "work_id", "work", "reference"]
+        if command_path[:2] == ("continuity", "native"):
+            work_names.append("work_item")
         if command_path and command_path[0] in {"oracle", "project"}:
             project_names.append("query")
         if command_path == ("work", "relate"):
@@ -411,6 +413,9 @@ _LOCAL_EFFECT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("backup", "verify"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "restore"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("client", "hook"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "native", "start"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "native", "checkpoint"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("continuity", "native", "close"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("continuity", "local", "drain"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("continuity", "local", "hydrate"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("continuity", "local", "checkpoint"): MutationAdmissionExemption.LOCAL_EFFECT,

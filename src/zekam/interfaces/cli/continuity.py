@@ -535,8 +535,10 @@ def _native_client(
     return NativeClient(client, version, native_session_id, model)
 
 
-def _native_execute(action: Callable[[], dict[str, Any]]) -> None:
+def _native_execute(action: Callable[[], dict[str, Any]], *, command: str) -> None:
     try:
+        if command != "resume":
+            assert_local_effect_admission(("continuity", "native", command))
         Console().print_json(json.dumps(action(), allow_nan=False))
     except NativeContinuityError as exc:
         # Reason codes are static ASCII identifiers; caller input is never echoed.
@@ -577,7 +579,8 @@ def native_start(
             client=_native_client(client, client_version, native_session_id, model),
             project_ref=project,
             work_item_id=work_item,
-        )
+        ),
+        command="start",
     )
 
 
@@ -610,7 +613,8 @@ def _native_lifecycle(
             completed=completed,
             pending=pending,
             next_safe_action=next_safe_action,
-        )
+        ),
+        command="close" if action is close_native_session else "checkpoint",
     )
 
 
@@ -702,7 +706,8 @@ def native_resume(
     _native_execute(
         lambda: resume_native_checkpoint(
             resolve_home(home), source_root=source_root, session_id=session_id
-        )
+        ),
+        command="resume",
     )
 
 
