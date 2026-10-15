@@ -32,6 +32,23 @@ class WorkReadRequest:
     clarification: str | None = None
 
 
+def explicit_work_references(question: str) -> tuple[str, ...]:
+    """Extract record references only beside explicit Work markers."""
+    return tuple(
+        dict.fromkeys(
+            match.group(1) for pattern in (_AFTER, _BEFORE) for match in pattern.finditer(question)
+        )
+    )
+
+
+def work_scope_text(question: str) -> str:
+    """A Work external key is not a project alias or Jira scope signal."""
+    spans = {match.span(1) for pattern in (_AFTER, _BEFORE) for match in pattern.finditer(question)}
+    for start, end in sorted(spans, reverse=True):
+        question = question[:start] + " " * (end - start) + question[end:]
+    return question
+
+
 def parse_work_read(question: str) -> WorkReadRequest | None:
     """Only explicit record references match; Jira/code history stays in its own route."""
     if not isinstance(question, str) or len(question) > 8192:
@@ -39,11 +56,7 @@ def parse_work_read(question: str) -> WorkReadRequest | None:
     normalized = normalize_text(question)
     if not _READ.search(normalized):
         return None
-    references = tuple(
-        dict.fromkeys(
-            match.group(1) for pattern in (_AFTER, _BEFORE) for match in pattern.finditer(question)
-        )
-    )
+    references = explicit_work_references(question)
     if not references:
         return None
     if len(references) != 1:

@@ -1473,6 +1473,15 @@ projelere dusme yolu kapatildi. Event/Run/checkpoint/edge pencereleri ve kesilme
 alanlari bounded; mutation ve Work kapanisi yoktur. Unit/CLI regresyon kodu hazir,
 testler CALISTIRILMADI; tum gelistirmeler sonrasi final asama beklenir.
 
+**15 Ekim 2026 - WP-07 native Work islem secimi gelistirmesi:** Deterministic
+router acik create/list/show/history/dependency/transition/checkpoint/close
+taleplerini allowlisted Work capability ve mevcut native komutlara baglar. Work
+harici numarasindaki proje benzeri metin scope/Jira sinyali sayilmaz. Coklu proje,
+karisik islem ve belirsiz bag yonu canonical uygulamadan once netlestirilir.
+Dispatch modeli bu niyeti yalniz ayni scope ile kabul eder; plan yetki/receipt
+vermez. Ince kok girisi `docs/WORK_DOGAL_DIL.md` akisina baglandi. Kaynak/regresyon
+kodu hazir; testler CALISTIRILMADI. Gercek native host ve kapanis kabulleri acik.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

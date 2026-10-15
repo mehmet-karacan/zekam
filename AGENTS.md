@@ -36,6 +36,8 @@ mekanizmaları CLI'ın kendisine aittir. Zekam zorunlu koordinatör veya ajan y�
 ## İhtiyaç halinde açılacaklar
 
 - Devam, recovery, Zekam Work: `00_BASLA.md`, `DEVAM_PROTOKOLU.md`, `zekam resume --json`.
+- Doğal dil Work oluşturma/durum/bağımlılık/checkpoint/kapanış: `docs/WORK_DOGAL_DIL.md`;
+  kayıt kimliği, revision ve digest'i mevcut canonical araç çıktısından kendin çöz.
 - Proje-bağlamlı soru ve citation: `zekam ask "<soru>" --json` (bounded, salt okunur).
 - Jira görevi: `jira-is-kaydi` skill'i; key için `zekam jira resolve "<soru>" --json`.
 - Model benchmark: önce yalnız `zekam model campaign plan --json`; çağrı bütçesi gösterilmeden

@@ -26,6 +26,62 @@ def _route(question: str):  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.mark.parametrize(
+    ("question", "operation"),
+    [
+        ("GPU için yeni görev oluştur", "create"),
+        ("GPU görevleri listele", "list"),
+        ("GPU work 17 durumunu değiştir", "transition"),
+        ("GPU work 17 tamamla", "close"),
+        ("GPU work 17 checkpoint kaydet", "checkpoint"),
+        ("GPU work 17 ve work 18 bagimlilik ekle", "relate"),
+        ("GPU work SKY-123 geçmişini göster", "history"),
+    ],
+)
+def test_explicit_work_operations_use_canonical_work_capability(
+    question: str, operation: str
+) -> None:
+    route = _route(question)
+    assert route.status == "selected"
+    assert route.intent == "work-management"
+    assert route.strategy == "operational-work-graph"
+    assert route.project_refs == ("gpu-fusion",)
+    document = route.as_dict()
+    assert document["work_operation"] == operation
+    assert document["native_commands"]
+    assert document["tool_invocation_performed"] is False
+    assert document["grants_authority"] is False
+    assert route.jira_issue_key is None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "GPU work 17 durumunu göster ve kapat",
+        "GPU work 17 ve work 18 detaylarını göster",
+        "GPU work 17 bağımlılık ekle",
+        "Sky görev oluştur",
+        "GPU ve Sky work 17 tamamla",
+    ],
+)
+def test_work_operations_require_unambiguous_action_and_single_project(question: str) -> None:
+    document = _route(question).as_dict()
+    assert document["status"] == "clarification-required"
+    assert document.get("native_commands", []) == []
+    assert document["grants_authority"] is False
+
+
+def test_work_create_endpoint_question_is_not_record_creation() -> None:
+    assert _route("GPU görev oluştur endpointi nasıl çalışıyor?").intent != "work-management"
+
+
+def test_local_work_external_key_cannot_supply_project_or_jira_scope() -> None:
+    route = _route("work SKY-123 geçmişini göster")
+    assert route.status == "clarification-required"
+    assert route.project_refs == ()
+    assert route.jira_issue_key is None
+
+
 def test_general_question_never_falls_back_to_only_or_ready_project() -> None:
     route = _route("Dünya çevresi kaç kilometredir?")
 

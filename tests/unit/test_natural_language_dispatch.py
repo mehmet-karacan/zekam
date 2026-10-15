@@ -44,6 +44,20 @@ def _plan_with(
     )
 
 
+def test_work_management_dispatch_preserves_native_commands_without_authority() -> None:
+    dispatch = _plan_with("GPU görev oluştur", ModelIntentProposal("work-management", "gpu-fusion"))
+    document = dispatch.as_dict()
+    assert document["status"] == "planned"
+    assert document["capability"] == "operational-work-graph"
+    assert document["work_operation"] == "create"
+    assert document["native_commands"] == ["work create"]
+    assert document["grants_authority"] is False
+    assert document["tool_invocation_performed"] is False
+    conflict = _plan_with("GPU görev oluştur", ModelIntentProposal("code-change", "gpu-fusion"))
+    assert conflict.validated_intent.status is DispatchStatus.CLARIFICATION_REQUIRED
+    assert "native_commands" not in conflict.as_dict()
+
+
 # ---------------------------------------------------------------------------
 # Genel soru: Zekam veya bir projeye yanlis hedeflenmez
 # ---------------------------------------------------------------------------
@@ -193,6 +207,7 @@ def test_capability_allowlist_matches_route_strategy_vocabulary_exactly() -> Non
         "clarify-jira-project",
         "project-unavailable",
         "project-family-incomplete",
+        "operational-work-graph",
     } == ALLOWED_CAPABILITIES
     assert {
         "general-knowledge",
@@ -202,6 +217,7 @@ def test_capability_allowlist_matches_route_strategy_vocabulary_exactly() -> Non
         "test",
         "jira-detail",
         "jira-history",
+        "work-management",
     } == ALLOWED_INTENTS
 
 

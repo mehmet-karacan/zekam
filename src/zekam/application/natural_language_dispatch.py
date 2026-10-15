@@ -39,6 +39,7 @@ from zekam.application.request_routing import (
     RequestRoute,
     route_request,
 )
+from zekam.application.work_intent import WORK_OPERATION_COMMANDS
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import validate_slug
 
@@ -54,6 +55,7 @@ ALLOWED_INTENTS: Final = frozenset(
         "test",
         "jira-detail",
         "jira-history",
+        "work-management",
     }
 )
 
@@ -74,6 +76,7 @@ ALLOWED_CAPABILITIES: Final = frozenset(
         "clarify-jira-project",
         "project-unavailable",
         "project-family-incomplete",
+        "operational-work-graph",
     }
 )
 
@@ -97,6 +100,7 @@ _INTENT_CAPABILITIES: Final = {
     "test": frozenset({"project-test"}),
     "jira-detail": frozenset({"jira-mcp", "clarify-jira-project"}),
     "jira-history": frozenset({"project-history"}),
+    "work-management": frozenset({"operational-work-graph", "clarify-project"}),
 }
 
 #: Capability → varsayilan agent rolleri (route ``agent_roles`` ile tutarli).
@@ -115,6 +119,7 @@ _CAPABILITY_AGENTS: Final = {
     "clarify-jira-project": (),
     "project-unavailable": (),
     "project-family-incomplete": (),
+    "operational-work-graph": ("coordinator",),
 }
 
 #: Route durumu → dispatch karari. Yalniz ``selected`` plan uretebilir;
@@ -251,6 +256,15 @@ class CapabilityDispatch:
             "grants_authority": False,
             "tool_invocation_performed": False,
         }
+        if self.validated_intent.capability == "operational-work-graph":
+            operations = [
+                reason.removeprefix("work-operation-")
+                for reason in self.validated_intent.reason_codes
+                if reason.startswith("work-operation-")
+            ]
+            operation = operations[0] if len(operations) == 1 else None
+            body["work_operation"] = operation
+            body["native_commands"] = list(WORK_OPERATION_COMMANDS.get(operation, ()))
         return body
 
 
@@ -312,6 +326,7 @@ _CONFLICT_CLARIFICATION: Final = {
     "code-change": ("project-question", "clarify-project"),
     "code-review": ("project-question", "clarify-project"),
     "test": ("project-question", "clarify-project"),
+    "work-management": ("work-management", "clarify-project"),
 }
 
 
@@ -390,6 +405,18 @@ def plan_capability_dispatch(
                 f"Agent rolu {role} capability {route.strategy} icin izinli degil"
             )
     status = _dispatch_status(route)
+    if route.intent == "work-management" and status is DispatchStatus.PLANNED:
+        operations = [
+            reason.removeprefix("work-operation-")
+            for reason in route.reason_codes
+            if reason.startswith("work-operation-")
+        ]
+        if (
+            len(route.project_refs) != 1
+            or len(operations) != 1
+            or operations[0] not in WORK_OPERATION_COMMANDS
+        ):
+            raise PolicyViolation("Work plani tek proje ve allowlisted exact islem ister")
     expected_agents = _CAPABILITY_AGENTS[route.strategy]
     if status is DispatchStatus.PLANNED and route.agent_roles != expected_agents:
         raise PolicyViolation(f"Planned capability agent rolleri exact olmali: {route.strategy}")
@@ -410,6 +437,7 @@ def plan_capability_dispatch(
             "code-review",
             "test",
             "project-question",
+            "work-management",
         }
         and not route.project_refs
     ):

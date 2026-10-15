@@ -18,6 +18,8 @@ import yaml
 from zekam.application.bounded_file import read_bounded_text
 from zekam.application.config import core_root, package_root
 from zekam.application.jira_issue_routing import resolve_jira_issue
+from zekam.application.natural_work_read import work_scope_text
+from zekam.application.work_intent import WORK_OPERATION_COMMANDS, infer_work_operation
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import validate_slug
@@ -168,6 +170,20 @@ class RequestRoute:
             "provider_calls": 0,
             "grants_authority": False,
         }
+        if self.intent == "work-management":
+            operations = [
+                reason.removeprefix("work-operation-")
+                for reason in self.reason_codes
+                if reason.startswith("work-operation-")
+            ]
+            operation = operations[0] if len(operations) == 1 else None
+            body["work_operation"] = operation
+            body["native_commands"] = (
+                list(WORK_OPERATION_COMMANDS.get(operation, ()))
+                if self.status == "selected"
+                else []
+            )
+            body["tool_invocation_performed"] = False
         body["route_digest"] = digest(body)
         return body
 
@@ -341,7 +357,9 @@ def route_request(
         or len(question.encode("utf-8")) > 16_384
     ):
         raise ValidationFailed("Route sorusu bounded non-empty text olmali")
-    normalized = " ".join(question.casefold().split())
+    work_operation = infer_work_operation(question)
+    scope_question = work_scope_text(question) if work_operation is not None else question
+    normalized = " ".join(scope_question.casefold().split())
     query_digest = digest({"query": question})
     available = {project.project_ref for project in registered_projects}
 
@@ -396,7 +414,7 @@ def route_request(
             or _contains(normalized, "issue")
         )
     )
-    if jira_candidate:
+    if jira_candidate and work_operation is None:
         try:
             resolution = resolve_jira_issue(question)
             family = _family_for_reference(catalog, resolution.project_ref)
@@ -512,11 +530,11 @@ def route_request(
             role_context = _matched(normalized, _UI_TERMS + _BACKEND_TERMS)
             if role_context and _matched_change(normalized):
                 project_context = tuple(dict.fromkeys((*project_context, *role_context)))
-            status = "clarification-required" if project_context else "general"
+            status = "clarification-required" if project_context or work_operation else "general"
             return RequestRoute(
                 status,
-                "project-question" if project_context else "general-knowledge",
-                "clarify-project" if project_context else "general-research",
+                "project-question" if status == "clarification-required" else "general-knowledge",
+                "clarify-project" if status == "clarification-required" else "general-research",
                 None,
                 (),
                 (),
@@ -587,6 +605,23 @@ def route_request(
             catalog.catalog_digest,
         )
 
+    if work_operation is not None:
+        ambiguous = work_operation == "ambiguous" or len(selected_available) != 1
+        return RequestRoute(
+            "clarification-required" if ambiguous else "selected",
+            "work-management",
+            "clarify-project" if ambiguous else "operational-work-graph",
+            family.family_ref if family else None,
+            tuple(member.project_ref for member in selected_available),
+            tuple(member.role for member in selected_available),
+            () if ambiguous else ("coordinator",),
+            (family_reason, "work-operation-" + work_operation),
+            matched_terms,
+            unavailable,
+            None,
+            query_digest,
+            catalog.catalog_digest,
+        )
     if _matched_change(normalized) and len(selected_available) > 1:
         return RequestRoute(
             "clarification-required",
