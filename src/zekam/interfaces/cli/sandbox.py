@@ -1,7 +1,7 @@
 """`zekam sandbox` ve `zekam git` komutlari.
 
-Salt okunur dogrulama yuzeyleri: commit mesaji politikasi, push kapisi ve
-sandbox politika ozeti. Hicbiri kendi basina mutation yapmaz.
+Commit/push-check ve sandbox politika yuzeyleri salt okunurdur. Publication
+alt komutlari kendi signed ledger ve canonical claim/receipt admission'ini kullanir.
 """
 
 from __future__ import annotations
@@ -20,9 +20,11 @@ from zekam.application.sandbox_delivery import default_policy
 from zekam.domain.commit_policy import PushRequest, check_commit_message, evaluate_push
 from zekam.domain.errors import ZekamError
 from zekam.interfaces.cli.session import EXIT_POLICY_VIOLATION, fail_from
+from zekam.interfaces.cli.git_publication import app as publication_app
 
 sandbox_app = typer.Typer(name="sandbox", help="Sandbox politika islemleri", no_args_is_help=True)
 git_app = typer.Typer(name="git", help="Commit ve push kapisi", no_args_is_help=True)
+git_app.add_typer(publication_app, name="publication")
 console = Console()
 MAX_COMMIT_MESSAGE_BYTES = 64 * 1024
 

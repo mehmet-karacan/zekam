@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 3 publication CLI composition: config-pinned public trust loader, strict plan/evidence/approval codec, native CLI plan/import/status/revoke/apply ve mutation admission baglandi. Imzali import exact replay idempotent; tarihsel completed apply yeni remote/trust islemi yapmaz. Regresyon kodu hazir, CALISTIRILMADI. Gercek producer enrollment/receipt producer ve native host enforcement kabulleri acik.
+
 - 16 Ekim 2026 yeni hedef active; onceki duraklatilmis hedef degistirilmeden kalan tum kapsam icin yeni sayac baslatildi. Gorev 3 signed SQLite publication ledger v9, gercek source receipt/CAS dogrulamasi ve atomic live-claim consumption eklendi. Migration/backup/CLI db dry-run ve runtime version destekleri baglandi; kullanici DB migration'i yapilmadi. Regresyon kodu hazir, CALISTIRILMADI. Trusted producer provisioning, gercek test/verifier receipt adapter ve publication CLI composition acik.
 
 - 16 Ekim 2026 kullanici devam karari: 15 Ekim 23:39 checkpoint duraklamasi kaldirildi. Gorev 3 typed Git publication service/gercek bounded transport ve canonical git.push claim/receipt baglantisi eklendi. Regresyon kodu hazir, CALISTIRILMADI. Production canonical authorization/evidence ledger adapter ve CLI composition siradaki acik baglantidir; native shell enforcement kabulu acik.

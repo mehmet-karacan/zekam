@@ -119,6 +119,13 @@ zekam integration rollback --receipt <receipt-id> --plan-digest <digest> --uygul
 
 ## Kabul durumu
 
+Typed yayin yolu `git publication` alt yuzeyindedir; ayrinti
+[GIT_YAYIN_ADAPTORU.md](GIT_YAYIN_ADAPTORU.md). Aktif config digest'ine pinli
+public trust, imzali gercek evidence/approval, exact source/Work/Run ve canonical
+claim/receipt gerekir. Bu yuzey serbest native shell'i izole etmez veya dolayli
+wrapper yayininin engellendigini kanitlamaz. Fixture kodu gercek host kabulu
+sayilmaz; mevcut user home'una trust/enrollment otomatik uygulanmaz.
+
 Bkz. [ZEKAM_YETKINLIK_ENVANTERI.md](ZEKAM_YETKINLIK_ENVANTERI.md). Kaynak implementasyonu,
 yerel geçiş ve CLI/model qualification ayrı raporlanır; dört CLI için gerçek kabul koşusu
 henüz yapılmamıştır.

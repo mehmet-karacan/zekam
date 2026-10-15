@@ -101,6 +101,23 @@ class SQLiteGitPublicationLedger:
         if verifier is None or not verifier.matches_receipt_digest(body, attestation):
             raise AuthorizationRequired("Publication trusted producer attestation yok")
 
+    @staticmethod
+    def _insert_immutable(connection, table: str, identity: str, values: tuple) -> None:
+        if (table, identity) not in {
+            ("git_publication_evidence", "evidence_digest"),
+            ("git_publication_authorization", "id"),
+            ("git_publication_revocation", "authorization_id"),
+        }:
+            raise PolicyViolation("Publication internal table allowlist disi")
+        existing = connection.execute(
+            f"select * from {table} where {identity}=?", (values[0],)
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing) != values:
+                raise PolicyViolation("Publication immutable import replay drift")
+            return
+        connection.execute(f"insert into {table} values({','.join('?' for _ in values)})", values)
+
     def _evidence(self, connection, evidence_digest: str, verify) -> GitPublicationEvidence:
         row = connection.execute(
             "select * from git_publication_evidence where evidence_digest=?", (evidence_digest,)
@@ -175,8 +192,10 @@ class SQLiteGitPublicationLedger:
         connection = _connect(self.database)
         try:
             connection.execute("begin immediate")
-            connection.execute(
-                "insert into git_publication_evidence values(?,?,?,?,?,?)",
+            self._insert_immutable(
+                connection,
+                "git_publication_evidence",
+                "evidence_digest",
                 (
                     evidence.evidence_digest,
                     canonical_json(evidence.body()),
@@ -239,8 +258,10 @@ class SQLiteGitPublicationLedger:
                 proofs[0].executor_id,
             }:
                 raise PolicyViolation("Publication approval independent verifier ister")
-            connection.execute(
-                "insert into git_publication_authorization values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            self._insert_immutable(
+                connection,
+                "git_publication_authorization",
+                "id",
                 (
                     str(authorization.id),
                     authorization.authorization_digest,
@@ -442,8 +463,10 @@ class SQLiteGitPublicationLedger:
         try:
             connection.execute("begin immediate")
             self._authorization(connection, authorization_id)
-            connection.execute(
-                "insert into git_publication_revocation values(?,?,?,?)",
+            self._insert_immutable(
+                connection,
+                "git_publication_revocation",
+                "authorization_id",
                 (str(authorization_id), revoked_at.isoformat(), str(producer_id), attestation),
             )
             connection.commit()

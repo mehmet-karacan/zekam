@@ -507,6 +507,16 @@ schema metadata pinleri uretildi. Unit/CLI regresyon kodu hazir, testler
 CALISTIRILMADI. Trusted producer provisioning ve gercek receipt producer/CLI
 composition baglantisi halen acik; WP-02 kapanisi uretilmedi.
 
+**16 Ekim 2026 - WP-02.03 public trust ve publication CLI:** Aktif config
+digest'ine pinli private/public-key registry loader, strict typed wire parser ve
+`git publication` subject/plan/import-evidence/import-approval/status/revoke/apply
+yuzeyi baglandi. CLI kendi signer/approval'unu uretmez; trust-file/key secenegiyle
+guven injection'i yoktur. Ayri role/key kimlikleri zorunlu, ayni imzali import
+idempotenttir. Apply exact canonical servisi, tamamlanmis replay receipt/CAS
+yolunu kullanir. Source/realm/config farki yeni yayini reddeder. Regresyon kodu
+hazir, testler CALISTIRILMADI. Gercek native producer enrollment/receipt producer
+ve host indirect shell enforcement kabulu acik; kullanici home'una yazilmadi.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  

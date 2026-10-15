@@ -336,6 +336,76 @@ def test_signed_evidence_requires_its_original_cas_bytes(signed_world):
         fixture.ledger.publication_evidence(fixture.plan.test_evidence_digest)
 
 
+def test_exact_signed_approval_import_is_idempotent(signed_world):
+    fixture = signed_world
+    producer = fixture.producers["approval"]
+    body = approval_attestation_body(fixture.plan, fixture.authorization, producer)
+    fixture.ledger.record_authorization(
+        fixture.plan,
+        fixture.authorization,
+        producer_id=producer,
+        attestation=fixture.signers["approval"].seal_digest(body),
+    )
+    with sqlite3.connect(fixture.database) as connection:
+        assert (
+            connection.execute("select count(*) from git_publication_authorization").fetchone()[0]
+            == 1
+        )
+
+
+def test_publication_cli_applies_exact_plan_then_replays_without_reloading_trust(
+    signed_world, monkeypatch, tmp_path
+):
+    import json
+    from typer.testing import CliRunner
+    from zekam.application.composition import build_context
+    from zekam.interfaces.cli import git_publication as cli
+    from zekam.interfaces.cli.main import app
+
+    fixture = signed_world
+    context = build_context(home=fixture.world.home)
+    trust = SimpleNamespace(
+        realm_id=fixture.plan.realm_id,
+        config_revision_id=fixture.plan.binding.config_revision_id,
+        config_digest=fixture.plan.binding.config_digest,
+    )
+    monkeypatch.setattr(cli, "_components", lambda _home: (context, trust, fixture.ledger))
+    monkeypatch.setattr(cli, "resolve_project_source", lambda *_args: tmp_path)
+    monkeypatch.setattr(cli, "BoundGitPushTransport", lambda _root: fixture.world.transport)
+    path = tmp_path / "publication-plan.json"
+    from zekam.domain.canonical import canonical_json
+
+    path.write_text(canonical_json(fixture.plan.body()), encoding="utf-8")
+    args = [
+        "git",
+        "publication",
+        "apply",
+        str(path),
+        "--authorization-id",
+        str(fixture.authorization.id),
+        "--plan-digest",
+        fixture.plan.plan_digest,
+        "--uygula",
+        "--home",
+        str(fixture.world.home),
+    ]
+    runner = CliRunner()
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["remote_oid"] == fixture.plan.target.head
+
+    def forbidden(_home):
+        raise AssertionError(
+            "Completed historical replay must not create authority or call transport"
+        )
+
+    monkeypatch.setattr(cli, "_components", forbidden)
+    replay = runner.invoke(app, args)
+    assert replay.exit_code == 0, replay.output
+    assert json.loads(replay.output)["canonical_replayed"] is True
+    assert fixture.world.transport.calls == 1
+
+
 @pytest.mark.parametrize(
     "field", ["realm_id", "actor_id", "work_item_id", "plan_digest", "effect_digest", "state"]
 )

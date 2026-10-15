@@ -331,6 +331,9 @@ class ActiveRuntimeContinuityIdentity:
 # authorization for non-session-start events.  Worker run/tick are scheduled
 # catch-up surfaces; their handlers retain their own exact effect admission.
 _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
+    ("git", "publication", "import-evidence"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("git", "publication", "import-approval"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("git", "publication", "revoke"): MutationAdmissionExemption.CONTROL_PLANE,
     ("auth", "revoke"): MutationAdmissionExemption.CONTROL_PLANE,
     ("init",): MutationAdmissionExemption.BOOTSTRAP,
     ("db", "upgrade"): MutationAdmissionExemption.BOOTSTRAP,
@@ -409,6 +412,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
 # explicit mutating surfaces and therefore may not be invisible to the common
 # registry.
 _LOCAL_EFFECT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
+    ("git", "publication", "apply"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "create"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "verify"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "restore"): MutationAdmissionExemption.LOCAL_EFFECT,

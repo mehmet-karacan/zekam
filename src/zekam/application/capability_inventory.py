@@ -49,12 +49,16 @@ CAPABILITIES: tuple[Capability, ...] = (
             "CLAUDE.md (@AGENTS.md)",
             "GEMINI.md (@AGENTS.md)",
             "integration status/sync (legacy global cleanup plan)",
+            "git publication plan/status/import-evidence/import-approval/revoke/apply",
         ),
         (),
         (
             "tests/integration/test_native_cli_migration.py",
             "tests/unit/test_config.py",
             "tests/unit/test_opencode_agent_bootstrap.py",
+            "tests/unit/test_git_publication.py",
+            "tests/unit/test_git_publication_trust.py",
+            "tests/unit/test_git_publication_wire.py",
         ),
         "Source implementation and fixture-home migration are tested; real per-client "
         "acceptance (A01-A21, A31-A32) has not been run, the real user-home cleanup plan "

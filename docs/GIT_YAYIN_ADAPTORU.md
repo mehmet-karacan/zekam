@@ -46,6 +46,42 @@ anlamina gelmez. Dolayli wrapper yayini engellenmis sayilmaz.
 
 ## Acik baglanti ve kabul
 
+### Native CLI ve public trust
+
+`git publication` alt yuzeyi native ajanin mevcut kimlik/kayitlardan cozecegi
+girdilerle kullanilir. Kullaniciya UUID, digest, JSON veya komut hazirlama isi
+verilmez. `plan <proje> <run> --executor-id ...` iki evidence henuz yoksa yalniz
+subject/binding/target dondurur; sahte kanit veya yayin plani uretmez. Gercek
+evidence digest'leriyle tekrar planlandiginda full immutable plan dondurulur.
+
+- `import-evidence`: trusted producer'in imzali, gercek completed job/CAS
+  kaynakli kanit envelope'unu kabul eder. `--uygula` yoksa imza dogrulandi demez.
+- `import-approval`: ayri approval producer'in exact plan icin imzali one-shot
+  Authorization envelope'unu kabul eder; CLI signer veya onay uretmez.
+- `apply`: full plan dosyasi, exact plan digest, authorization ve `--uygula`
+  ile mevcut canonical servis/transportu kullanir. Config/source drifti yeni
+  yayini reddeder; tamamlanmis exact replay yeni trust/remote cagrisi yapmaz.
+- `status`: imzasi dogrulanan canonical yetki durumunu salt okunur verir.
+- `revoke`: imzali iptal envelope'unu kabul eder. Exact tekrar yeni kayit
+  uretmez; ayni kimlikte farkli icerik immutable replay drift'tir.
+
+Public producer registry `ZEKAM_HOME/config/git-publication-trust.json` dosyasidir.
+Loader bu dosyayi olusturmaz veya sahiplenmez; private regular file ve linksiz
+parent zinciri ister. Schema `zekam-git-publication-trust/v1`, pozitif revision,
+canonical realm UUID ve 3..64 producer kaydi vardir. Her producer yalniz id,
+role (`approval`, `test`, `verification`) ve 32-byte Ed25519 public key'in canonical
+base64 degerini tasir. ID/public key tekrar edemez; her rol bulunmalidir. Private
+key, signer veya ek freeform alan kabul edilmez.
+
+Registry'nin logical digest'i aktif operational config revision'indaki
+`git_publication.trust_digest` ile exact eslesmelidir; config'in kendi sanitized
+payload digest'i de dogrulanir. Caller'in secebildigi bir trust-file veya public
+key CLI secenegi yoktur. Gercek key provisioning, config aktivasyonu ve native
+producer enrollment kendi yetki/kayit akisindan gelir; bu gelistirme kullanici
+home'una trust/anahtar yazmadi. Mevcut canonical job runtime'in exact
+`state/operational.db` yolu disindaki bir konfigde sessizce baska DB'ye
+gecilmez; acik hata verilir.
+
 Operational v9 `SQLiteGitPublicationLedger` gercek mevcut DB'de imzali kanit,
 approval, consumption ve revocation tablolarini append-only tutar. Guvenilen
 producer verifier capability'leri host composition tarafindan verilir; store
@@ -64,9 +100,9 @@ trust kaydi olusturmaz; kullanici DB'sine uygulanmadi. V9 pinleri yalniz mevcut
 in-memory schema metadata generator'uyla gelistirme sirasinda uretildi.
 
 Bu dilim typed service/gercek Git transport/canonical job baglantisidir.
-Concrete canonical authorization/evidence ledger eklendi; trusted producer
-provisioning, gercek test/verifier receipt producer baglantisi, CLI composition
-ve native host transport enforcement kabulu halen aciktir. Mevcut
+Concrete canonical authorization/evidence ledger ve CLI composition eklendi;
+gercek trusted producer provisioning/enrollment, test/verifier receipt producer
+baglantisi ve native host transport enforcement kabulu halen aciktir. Mevcut
 `git push-check` advisory domain kapisidir; bu typed servisin yerine kullanilmaz.
 Kaynakta baska yerde `evaluate_push` sonucunun true olmasi yayin yetkisi degildir.
 
