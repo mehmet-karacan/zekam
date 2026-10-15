@@ -2,6 +2,14 @@
 
 ## Work kaydini tekrar olusturmadan devam
 
+Dogal dil Work durum raporu, toplam/state sayilarini SQL GROUP BY ile tum proje
+icin hesaplar. Ayrinti penceresi proje basina en fazla 100 acik ve 20 kapali Work,
+Work basina 20 event ve 5 run, run basina 20 step ve 5 checkpoint gosterir.
+`open_count`/`counts` exact toplamdir; `*_truncated` alanlari ayrinti kesintisini
+gosterir. Tam history yerine son event/run/checkpoint pencereleri okunur; mevcut
+limitsiz public repository cagrilarinin davranisi korunur. Olculmeyen usage unknown
+kalir, run butcesi harcama gibi raporlanmaz.
+
 `work show|history|transition|close <reference> --project <project>` kayitli harici
 is numarasini veya UUID'yi canonical Work'a cozer. Ayni numara birden fazla projede
 varsa proje secilmeden devam edilmez. UUID bile verilse explicit proje siniri

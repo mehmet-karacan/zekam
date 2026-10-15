@@ -1433,6 +1433,15 @@ ile mevcut optimistic revision/evidence kapisina gider. Ayni numaranin iki proje
 olmasi, foreign UUID scope, history ve transition regresyon kodu hazirlandi; testler
 tum gelistirmeler sonrasi final asamayi bekler, CALISTIRILMADI.
 
+**15 Ekim 2026 - WP-07/WP-11 bounded Work raporu gelistirmesi:** Dogal dil Work
+raporu tum revision payload/history/run/step/checkpoint gecmisini materialize etmez.
+Proje state sayilari SQL GROUP BY ile exact hesaplanir; ayri open/closed pencereleri
+ve nested SQL LIMIT'leri kullanilir. JSON exact open_count/counts ile ayrinti
+truncation alanlarini birlikte verir; metin toplam sayiyi bounded listeden turetmez.
+Limit verilmeden kullanilan repository metodlari mevcut davranisi korur. Gercek
+SQLite fixture'inda 106 Work ve buyuyen event/run/step/checkpoint matrisi icin
+regresyon kodu hazirlandi; testler CALISTIRILMADI, final toplu asamayi bekler.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

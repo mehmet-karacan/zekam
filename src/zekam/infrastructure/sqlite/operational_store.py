@@ -138,6 +138,14 @@ def _canonical_uuid(value: object, label: str) -> str:
     return value
 
 
+def _optional_read_limit(limit: int | None) -> tuple[str, tuple[int, ...]]:
+    if limit is None:
+        return "", ()
+    if type(limit) is not int or not 1 <= limit <= 1001:
+        raise ValidationFailed("Operational read limit 1..1001 olmali")
+    return " limit ?", (limit,)
+
+
 def _work_payload(value: object) -> dict[str, Any]:
     if value is None:
         return {"summary": "", "acceptance_criteria": []}
@@ -676,9 +684,13 @@ class SQLiteOperationalUnitOfWork:
             # Key identity is scoped to the project. Neither key plaintext nor a
             # second mutable authority store is required; BEGIN IMMEDIATE and
             # the existing Work PK serialize concurrent create/replay attempts.
-            work_id = str(uuid5(NAMESPACE_URL, "zekam:work-create:v1:" + digest(
-                {"project_id": project_id, "key": idempotency_key}
-            )))
+            work_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    "zekam:work-create:v1:"
+                    + digest({"project_id": project_id, "key": idempotency_key}),
+                )
+            )
             original = connection.execute(
                 "select w.project_id,w.kind,w.title,w.external_number,"
                 " r.state,r.payload_digest,r.payload_json,r.evidence_digest"
@@ -688,8 +700,14 @@ class SQLiteOperationalUnitOfWork:
             ).fetchone()
             if original is not None:
                 if tuple(original) != (
-                    project_id, kind, title, external_number, state,
-                    payload_digest, payload_json, evidence_digest,
+                    project_id,
+                    kind,
+                    title,
+                    external_number,
+                    state,
+                    payload_digest,
+                    payload_json,
+                    evidence_digest,
                 ):
                     raise PolicyViolation("Work idempotency key input drift")
                 return self.get_work(work_id)
@@ -1019,14 +1037,15 @@ class SQLiteOperationalUnitOfWork:
             evidence_digest,
         )
 
-    def list_run_steps(self, run_id: str) -> tuple[RunStepRecord, ...]:
+    def list_run_steps(self, run_id: str, *, limit: int | None = None) -> tuple[RunStepRecord, ...]:
         self.get_run(run_id)
+        limit_clause, extra = _optional_read_limit(limit)
         rows = (
             self._db()
             .execute(
                 "select id,run_id,step_key,status,input_digest,evidence_digest"
-                " from run_step where run_id=? order by created_at,id",
-                (run_id,),
+                " from run_step where run_id=? order by created_at,id" + limit_clause,
+                (run_id, *extra),
             )
             .fetchall()
         )
@@ -1042,16 +1061,22 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
-    def list_runs(self, work_item_id: str) -> tuple[RunRecord, ...]:
+    def list_runs(self, work_item_id: str, *, limit: int | None = None) -> tuple[RunRecord, ...]:
         """Return the canonical runs attached to one Work item, read-only."""
         if not isinstance(work_item_id, str) or not work_item_id.strip():
             raise ValidationFailed("Work id bos veya gecersiz")
+        limit_clause, extra = _optional_read_limit(limit)
+        ordering = "desc" if limit is not None else "asc"
         rows = (
             self._db()
             .execute(
                 "select id,work_item_id,status,plan_digest,terminal_receipt_digest "
-                "from run where work_item_id=? order by created_at,id",
-                (work_item_id,),
+                "from run where work_item_id=? order by created_at "
+                + ordering
+                + ",id "
+                + ordering
+                + limit_clause,
+                (work_item_id, *extra),
             )
             .fetchall()
         )
@@ -1164,33 +1189,53 @@ class SQLiteOperationalUnitOfWork:
         if project_id is not None:
             clause += " and project_id=?"
             parameters.append(project_id)
-        rows = self._db().execute(
-            "select id from work_item where " + clause + " order by id limit 2",
-            tuple(parameters),
-        ).fetchall()
+        rows = (
+            self._db()
+            .execute(
+                "select id from work_item where " + clause + " order by id limit 2",
+                tuple(parameters),
+            )
+            .fetchall()
+        )
         if not rows:
             raise ValidationFailed("Work bulunamadi veya proje kapsami uyusmuyor")
         if len(rows) != 1:
             raise ValidationFailed("Work numarasi birden fazla projede var; exact proje secin")
         return self.get_work(str(rows[0]["id"]))
 
-    def list_work_events(self, work_item_id: str) -> tuple[dict[str, Any], ...]:
+    def work_state_counts(self, *, project_id: str) -> dict[str, int]:
+        """Exact aggregate counts without materializing Work revision payloads."""
+        rows = (
+            self._db()
+            .execute(
+                "select state,count(*) as total from work_item where project_id=? group by state",
+                (project_id,),
+            )
+            .fetchall()
+        )
+        return {str(row["state"]): int(row["total"]) for row in rows}
+
+    def list_work_events(
+        self, work_item_id: str, *, limit: int | None = None
+    ) -> tuple[dict[str, Any], ...]:
         """Return append-only Work events in revision order."""
         if not isinstance(work_item_id, str) or not work_item_id.strip():
             raise ValidationFailed("Work id bos veya gecersiz")
+        limit_clause, extra = _optional_read_limit(limit)
+        ordering = "desc" if limit is not None else "asc"
         rows = (
             self._db()
             .execute(
                 "select id,work_item_id,revision,event_kind,from_state,to_state,"
                 "event_digest,created_at from work_event where work_item_id=? "
-                "order by revision,id",
-                (work_item_id,),
+                "order by revision " + ordering + ",id " + ordering + limit_clause,
+                (work_item_id, *extra),
             )
             .fetchall()
         )
         if not rows:
             raise ValidationFailed("Work bulunamadi")
-        return tuple(dict(row) for row in rows)
+        return tuple(dict(row) for row in (reversed(rows) if limit is not None else rows))
 
     def list_work(self, *, project_id: str | None = None) -> tuple[OperationalWorkRecord, ...]:
         parameters: tuple[str, ...] = () if project_id is None else (project_id,)
@@ -1371,13 +1416,17 @@ class SQLiteOperationalUnitOfWork:
             row["terminal_receipt_digest"],
         )
 
-    def list_checkpoints(self, run_id: str) -> tuple[CheckpointRecord, ...]:
+    def list_checkpoints(
+        self, run_id: str, *, limit: int | None = None
+    ) -> tuple[CheckpointRecord, ...]:
+        limit_clause, extra = _optional_read_limit(limit)
+        ordering = "desc" if limit is not None else "asc"
         rows = (
             self._db()
             .execute(
                 "select id, run_id, sequence, checkpoint_digest from checkpoint"
-                " where run_id = ? order by sequence",
-                (run_id,),
+                " where run_id = ? order by sequence " + ordering + limit_clause,
+                (run_id, *extra),
             )
             .fetchall()
         )

@@ -63,6 +63,7 @@ from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.domain.intake import normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
+from zekam.domain.work import OPEN_STATES
 from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -133,8 +134,18 @@ _CONFIG_PATH = re.compile(
     re.IGNORECASE,
 )
 _CONFIG_INTENT = (
-    "yapi", "yapı", "anahtar", "analiz", "incele", "ogren", "öğren",
-    "structure", "keys", "inspect", "learn", "oku",
+    "yapi",
+    "yapı",
+    "anahtar",
+    "analiz",
+    "incele",
+    "ogren",
+    "öğren",
+    "structure",
+    "keys",
+    "inspect",
+    "learn",
+    "oku",
 )
 
 
@@ -319,8 +330,7 @@ def _clarification_question(exc: AskProjectUnresolved) -> str:
     if "selected-projects-unavailable" in exc.reason_codes and exc.matched_terms:
         term = max(exc.matched_terms, key=len)
         return (
-            f"'{term}' kayitli bir Zekam projesi degil; "
-            "hangi Zekam projesini sormak istiyorsunuz?"
+            f"'{term}' kayitli bir Zekam projesi degil; hangi Zekam projesini sormak istiyorsunuz?"
         )
     return "Hangi Zekam projesi icin sordugunuzu netlestiremedim; lutfen projeyi acikca belirtin."
 
@@ -349,6 +359,13 @@ def _ask_clarification(exc: AskProjectUnresolved, *, output_json: bool) -> None:
         console.print(f"Sonraki adim: {document['next_step']}")
     raise typer.Exit(EXIT_CLARIFICATION)
 
+
+_WORK_STATUS_OPEN_LIMIT = 100
+_WORK_STATUS_CLOSED_LIMIT = 20
+_WORK_STATUS_EVENT_LIMIT = 20
+_WORK_STATUS_RUN_LIMIT = 5
+_WORK_STATUS_STEP_LIMIT = 20
+_WORK_STATUS_CHECKPOINT_LIMIT = 5
 
 _WORK_STATUS_PHRASES = (
     "ne kadar is kaldi",
@@ -431,14 +448,31 @@ def _ask_work_status(
     with store.unit_of_work() as uow:
         for ref in refs:
             project = uow.resolve_project(ref)
-            rows = uow.list_work(project_id=project.id)
-            counts: dict[str, int] = {}
+            counts = uow.work_state_counts(project_id=project.id)
+            open_window = uow.list_work_limited(
+                project_id=project.id,
+                states=tuple(sorted(OPEN_STATES)),
+                limit=_WORK_STATUS_OPEN_LIMIT + 1,
+            )
+            closed_window = uow.list_work_limited(
+                project_id=project.id,
+                states=("completed", "cancelled", "archived"),
+                limit=_WORK_STATUS_CLOSED_LIMIT + 1,
+            )
+            rows = (
+                *open_window[:_WORK_STATUS_OPEN_LIMIT],
+                *closed_window[:_WORK_STATUS_CLOSED_LIMIT],
+            )
             items: list[dict[str, Any]] = []
             for item in rows:
-                counts[item.state] = counts.get(item.state, 0) + 1
-                events = list(uow.list_work_events(item.id))
+                events = list(uow.list_work_events(item.id, limit=_WORK_STATUS_EVENT_LIMIT + 1))
                 runs: list[dict[str, Any]] = []
-                for run in uow.list_runs(item.id):
+                run_window = uow.list_runs(item.id, limit=_WORK_STATUS_RUN_LIMIT + 1)
+                for run in run_window[:_WORK_STATUS_RUN_LIMIT]:
+                    step_window = uow.list_run_steps(run.id, limit=_WORK_STATUS_STEP_LIMIT + 1)
+                    checkpoint_window = uow.list_checkpoints(
+                        run.id, limit=_WORK_STATUS_CHECKPOINT_LIMIT + 1
+                    )
                     receipt_status = "recorded" if run.terminal_receipt_digest else "unknown"
                     runs.append(
                         {
@@ -457,7 +491,7 @@ def _ask_work_status(
                                     "status": step.status,
                                     "evidence_digest": step.evidence_digest,
                                 }
-                                for step in uow.list_run_steps(run.id)
+                                for step in step_window[:_WORK_STATUS_STEP_LIMIT]
                             ],
                             "checkpoints": [
                                 {
@@ -465,8 +499,11 @@ def _ask_work_status(
                                     "sequence": checkpoint.sequence,
                                     "checkpoint_digest": checkpoint.checkpoint_digest,
                                 }
-                                for checkpoint in uow.list_checkpoints(run.id)
+                                for checkpoint in checkpoint_window[:_WORK_STATUS_CHECKPOINT_LIMIT]
                             ],
+                            "steps_truncated": len(step_window) > _WORK_STATUS_STEP_LIMIT,
+                            "checkpoints_truncated": len(checkpoint_window)
+                            > _WORK_STATUS_CHECKPOINT_LIMIT,
                             # Run budget is a limit, never an actual usage measurement.
                             "usage": {
                                 "status": "unknown",
@@ -487,8 +524,10 @@ def _ask_work_status(
                         "title": item.title,
                         "revision": item.revision,
                         "evidence_digest": item.evidence_digest,
-                        "events": events,
+                        "events": events[-_WORK_STATUS_EVENT_LIMIT:],
+                        "events_truncated": len(events) > _WORK_STATUS_EVENT_LIMIT,
                         "runs": runs,
+                        "runs_truncated": len(run_window) > _WORK_STATUS_RUN_LIMIT,
                         "usage": {
                             "status": "unknown",
                             "reason": "run-usage-receipt-missing",
@@ -500,6 +539,12 @@ def _ask_work_status(
                     "project_ref": ref,
                     "project_id": project.id,
                     "counts": counts,
+                    "counts_scope": "all-project-work",
+                    "open_count": sum(
+                        count for state, count in counts.items() if state in OPEN_STATES
+                    ),
+                    "open_truncated": len(open_window) > _WORK_STATUS_OPEN_LIMIT,
+                    "closed_truncated": len(closed_window) > _WORK_STATUS_CLOSED_LIMIT,
                     "items": items,
                     "open_items": [
                         item
@@ -518,6 +563,15 @@ def _ask_work_status(
         "status": "reported",
         "project_refs": list(refs),
         "projects": projects,
+        "bounded": True,
+        "detail_limits": {
+            "open_work_per_project": _WORK_STATUS_OPEN_LIMIT,
+            "closed_work_per_project": _WORK_STATUS_CLOSED_LIMIT,
+            "events_per_work": _WORK_STATUS_EVENT_LIMIT,
+            "runs_per_work": _WORK_STATUS_RUN_LIMIT,
+            "steps_per_run": _WORK_STATUS_STEP_LIMIT,
+            "checkpoints_per_run": _WORK_STATUS_CHECKPOINT_LIMIT,
+        },
         "usage": {
             "status": "unknown",
             "model": "unknown",
@@ -535,16 +589,13 @@ def _ask_work_status(
     if output_json:
         _print_json(document)
     else:
-        total = sum(len(item["open_items"]) for item in projects)
-        completed = sum(
-            sum(1 for work in item["items"] if work["state"] == "completed")
-            for item in projects
-        )
-        total_items = sum(len(item["items"]) for item in projects)
+        total = sum(item["open_count"] for item in projects)
+        completed = sum(item["counts"].get("completed", 0) for item in projects)
+        total_items = sum(sum(item["counts"].values()) for item in projects)
         console.print(f"toplam is: {total_items}; tamamlanan: {completed}; acik: {total}")
         console.print("model/sure/maliyet: unknown (usage receipt yok)")
         for project in projects:
-            console.print(f"{project['project_ref']}: {len(project['open_items'])} acik is")
+            console.print(f"{project['project_ref']}: {project['open_count']} acik is")
 
 
 def _ask_natural_request_retrieval(
@@ -640,11 +691,16 @@ def _single_natural_request_retrieval(
     raw = dict(retrieval)
     project_id = raw.get("project_id")
     state = raw.get("state")
-    answered = isinstance(project_id, str) and bool(project_id) and state in {
-        "answered",
-        "lexical-only-degraded",
-        "abstained-low-evidence",
-    }
+    answered = (
+        isinstance(project_id, str)
+        and bool(project_id)
+        and state
+        in {
+            "answered",
+            "lexical-only-degraded",
+            "abstained-low-evidence",
+        }
+    )
     if answered:
         citations = raw.get("citations")
         if not isinstance(citations, list):
@@ -763,8 +819,7 @@ def ask(
                 )
                 for index, structure in enumerate(structures, start=1):
                     console.print(
-                        f"{index}. {structure['format']}: "
-                        f"redakte={structure['redacted_key_count']}"
+                        f"{index}. {structure['format']}: redakte={structure['redacted_key_count']}"
                     )
                     for key in structure["keys"][:100]:
                         console.print(f"  {key['line']}\t{key['name']}")
