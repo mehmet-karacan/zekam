@@ -1685,6 +1685,15 @@ Ruff ve diff kontrolu temizdir. Bagimsiz WP-11 incelemesi bu ayrimi ve degisken
 readiness davranisini dogruladi. Canli provider, native scheduler ve diger acik
 WP kabul kapilari bu kapanisin disindadir.
 
+**16 Ekim 2026 — WP-11.03 proje SQLite snapshot:** Local bundle v2;
+provider ledger, vector cache/knowledge index ve graph'in exact owned SQLite
+konumlarini online backup yoluna alir. Self-contained DELETE snapshot,
+integrity/FK ve restore kind dogrulamasi eklenir; opaque CAS bytes korunur.
+Opsiyonel public publication trust dosyasi dahil edilir, private key alinmaz.
+V1 okunur ama v2 snapshot kaniti diye sunulmaz. Windows traversal/ADS path
+kapisi eklendi. Regresyon kodu hazir, CALISTIRILMADI; cross-store ve gercek
+restore kabul kapilari acik. `docs/PROJE_SQLITE_YEDEKLERI.md`.
+
 ### WP-12 — Bütünleşik Kullanıcı Kabulü, Paket Ve Yaşayan Mimari
 
 **Bağımlılık/onay:** WP-02..WP-11 tamam veya açık blokajlı; final kapı her zorunlu bağı kapatır.  

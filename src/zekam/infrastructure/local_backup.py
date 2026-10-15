@@ -10,7 +10,7 @@ import sqlite3
 import stat
 import tempfile
 from collections.abc import Iterator
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from zekam.application.composition import build_context
@@ -28,7 +28,8 @@ from zekam.infrastructure.local_file_security import (
     restrict_private_tree,
 )
 
-BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
+LEGACY_BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
+BUNDLE_SCHEMA = "zekam-local-backup-bundle/v2"
 MAX_FILES = 100_000
 MAX_DIRECTORIES = 100_000
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
@@ -60,7 +61,13 @@ _TREES = (
     "runtime/outbox",
     "runtime/recovery",
 )
-_FILES = ("config.yaml", "layout.json", "bootstrap.json", "analytics/CURRENT")
+_FILES = (
+    "config.yaml",
+    "layout.json",
+    "bootstrap.json",
+    "analytics/CURRENT",
+    "config/git-publication-trust.json",
+)
 _SIDECAR_SUFFIXES = ("-journal", "-wal", "-shm")
 _DATABASE_NAMES = {
     "state/operational.db": "operational",
@@ -125,10 +132,23 @@ def _sha256(path: Path) -> str:
 
 
 def _safe_relative(value: object) -> str:
-    if type(value) is not str or not value or len(value.encode()) > 4096:
+    if (
+        type(value) is not str
+        or not value
+        or value == "."
+        or "\x00" in value
+        or "\\" in value
+        or ":" in value
+        or len(value.encode()) > 4096
+    ):
         raise ValidationFailed("Backup relative path invalid")
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or str(path) != value:
+    if (
+        path.is_absolute()
+        or PureWindowsPath(value).drive
+        or ".." in path.parts
+        or str(path) != value
+    ):
         raise ValidationFailed("Backup relative path escapes bundle")
     return value
 
@@ -210,7 +230,9 @@ def _copy_regular(source: Path, target: Path, mode: int) -> None:
         raise PolicyViolation("Backup source changed during capture")
 
 
-def _snapshot_database(source: Path, target: Path, mode: int) -> None:
+def _snapshot_database(
+    source: Path, target: Path, mode: int, *, relative: str | None = None
+) -> None:
     info = _regular(source)
     if info.st_size > MAX_DATABASE_BYTES:
         raise PolicyViolation("Backup database exceeds bound")
@@ -220,6 +242,10 @@ def _snapshot_database(source: Path, target: Path, mode: int) -> None:
     try:
         source_db.backup(target_db)
         target_db.commit()
+        if target_db.execute("pragma journal_mode=delete").fetchone() != ("delete",):
+            raise PolicyViolation("Backup snapshot self-contained DELETE journal ister")
+        if relative is not None:
+            _load_backup_sqlite_extension(relative, target_db)
         result = target_db.execute("pragma integrity_check").fetchone()
         if result is None or result[0] != "ok":
             raise PolicyViolation("Backup database snapshot is not integral")
@@ -305,7 +331,62 @@ def _walk_tree_entries(root: Path) -> Iterator[tuple[Path, bool]]:
             raise PolicyViolation("Backup tree unreadable") from exc
 
 
-def _sources(home: Path) -> tuple[tuple[str, Path, str], ...]:
+def _project_sqlite_path(relative: str) -> bool:
+    """Only owned store locations, never CAS objects or arbitrary attachments."""
+    parts = PurePosixPath(relative).parts
+    return (
+        (
+            len(parts) == 4
+            and parts[0] == "projeler"
+            and parts[2:] == ("runtime", "provider-ledger.sqlite3")
+        )
+        or (
+            len(parts) == 5
+            and parts[:3] == ("knowledge-index", "vector", "opencode-bge-m3")
+            and parts[4] in {"knowledge.sqlite3", "vector-cache.sqlite3"}
+        )
+        or (
+            len(parts) == 4
+            and parts[:2] == ("knowledge-index", "graph")
+            and parts[3] == "code-graph.sqlite3"
+        )
+    )
+
+
+def _load_backup_sqlite_extension(relative: str, db: sqlite3.Connection) -> None:
+    if _project_sqlite_path(relative) and PurePosixPath(relative).name == "knowledge.sqlite3":
+        import sqlite_vec
+
+        db.enable_load_extension(True)
+        try:
+            sqlite_vec.load(db)
+        finally:
+            db.enable_load_extension(False)
+
+
+def _validate_bundle_sqlite(relative: str, path: Path) -> None:
+    if relative in _DATABASE_NAMES:
+        validate_local_sqlite_store(_DATABASE_NAMES[relative], path)
+        return
+    if not _project_sqlite_path(relative):
+        raise PolicyViolation("Backup SQLite path contract invalid")
+    if _regular(path).st_size > MAX_DATABASE_BYTES:
+        raise PolicyViolation("Backup project SQLite exceeds bound")
+    with sqlite3.connect(
+        f"{path.resolve(strict=True).as_uri()}?mode=ro&immutable=1", uri=True, timeout=5
+    ) as db:
+        db.execute("pragma query_only=on")
+        _load_backup_sqlite_extension(relative, db)
+        if (
+            db.execute("pragma integrity_check").fetchone() != ("ok",)
+            or db.execute("pragma foreign_key_check").fetchone() is not None
+        ):
+            raise PolicyViolation("Backup project SQLite integrity invalid")
+
+
+def _sources(
+    home: Path, *, bundle_schema: str = BUNDLE_SCHEMA
+) -> tuple[tuple[str, Path, str], ...]:
     database_set = set(_DATABASES)
     found: dict[str, tuple[Path, str]] = {}
 
@@ -332,7 +413,13 @@ def _sources(home: Path) -> tuple[tuple[str, Path, str], ...]:
             relative = path.relative_to(home).as_posix()
             if relative in database_set or relative.endswith(_SIDECAR_SUFFIXES):
                 continue
-            add(relative, path, "file")
+            add(
+                relative,
+                path,
+                "sqlite"
+                if bundle_schema == BUNDLE_SCHEMA and _project_sqlite_path(relative)
+                else "file",
+            )
     return tuple((name, *found[name]) for name in sorted(found))
 
 
@@ -420,8 +507,8 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
             mode = _portable_file_mode(info)
             target = staging / relative
             if kind == "sqlite":
-                _snapshot_database(source, target, mode)
-                validate_local_sqlite_store(_DATABASE_NAMES[relative], target)
+                _snapshot_database(source, target, mode, relative=relative)
+                _validate_bundle_sqlite(relative, target)
             else:
                 _copy_regular(source, target, mode)
             copied = _regular(target)
@@ -518,7 +605,7 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         "grants_authority",
         "manifest_digest",
     }
-    if set(document) != keys or document.get("schema") != BUNDLE_SCHEMA:
+    if set(document) != keys or document.get("schema") not in {BUNDLE_SCHEMA, LEGACY_BUNDLE_SCHEMA}:
         raise ValidationFailed("Backup manifest schema invalid")
     body = dict(document)
     manifest_digest = body.pop("manifest_digest", None)
@@ -570,7 +657,12 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         if type(entry["sha256"]) is not str or len(entry["sha256"]) != 64:
             raise ValidationFailed("Backup entry digest invalid")
         path = bundle / relative
-        expected_kind = "sqlite" if relative in _DATABASE_NAMES else "file"
+        expected_kind = (
+            "sqlite"
+            if relative in _DATABASE_NAMES
+            or (document["schema"] == BUNDLE_SCHEMA and _project_sqlite_path(relative))
+            else "file"
+        )
         if entry["kind"] != expected_kind or (
             expected_kind == "file" and not _allowed_regular_path(relative)
         ):
@@ -583,11 +675,7 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         ):
             raise PolicyViolation("Backup entry drift")
         if entry["kind"] == "sqlite":
-            try:
-                name = _DATABASE_NAMES[relative]
-            except KeyError as exc:
-                raise ValidationFailed("Backup SQLite path contract invalid") from exc
-            validate_local_sqlite_store(name, path)
+            _validate_bundle_sqlite(relative, path)
         names.append(relative)
         total += info.st_size
     if not set(names) >= (_REQUIRED_DATABASES | _REQUIRED_FILES):
@@ -638,7 +726,7 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             relative = _safe_relative(entry["path"])
             _copy_regular(bundle / relative, staging / relative, int(entry["mode"]))
             if entry["kind"] == "sqlite":
-                validate_local_sqlite_store(_DATABASE_NAMES[relative], staging / relative)
+                _validate_bundle_sqlite(relative, staging / relative)
         for directory in sorted(
             (item for item, is_directory in _walk_tree_entries(staging) if is_directory),
             key=lambda item: item.as_posix(),
@@ -646,7 +734,7 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
         ):
             _sync_directory(directory)
         _sync_directory(staging)
-        restored = create_manifest_for_restored(staging)
+        restored = create_manifest_for_restored(staging, bundle_schema=document["schema"])
         if (
             restored["entries"] != document["entries"]
             or restored["directories"] != document["directories"]
@@ -663,6 +751,8 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             "file_count": document["file_count"],
             "total_bytes": document["total_bytes"],
             "status": "restored",
+            "bundle_schema": document["schema"],
+            "project_sqlite_snapshot_contract": document["schema"] == BUNDLE_SCHEMA,
             "grants_authority": False,
         }
     except BaseException:
@@ -670,12 +760,14 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
         raise
 
 
-def create_manifest_for_restored(home: Path) -> dict[str, Any]:
+def create_manifest_for_restored(
+    home: Path, *, bundle_schema: str = BUNDLE_SCHEMA
+) -> dict[str, Any]:
     """Read-only exact census used only to verify the newly restored target."""
 
     entries: list[dict[str, object]] = []
     total = 0
-    sources = _sources(home)
+    sources = _sources(home, bundle_schema=bundle_schema)
     directories = _directories(home, sources)
     for relative, source, kind in sources:
         info = _regular(source)

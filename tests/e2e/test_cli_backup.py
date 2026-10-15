@@ -37,6 +37,93 @@ def _prepare(home: Path) -> LocalContentAddressedStore:
     return LocalContentAddressedStore(home / "artifacts" / "sha256").ensure()
 
 
+def test_project_sqlite_wal_is_snapshotted_and_legacy_bundle_is_explicit(
+    home_root: Path,
+    tmp_path: Path,
+) -> None:
+    store = _prepare(home_root)
+    opaque = b"SQLite format 3\x00opaque-artifact-fixture"
+    artifact = store.put(opaque)
+    project_db = home_root / "projeler" / "wal-fixture" / "runtime" / "provider-ledger.sqlite3"
+    project_db.parent.mkdir(parents=True, mode=0o700)
+    writer = sqlite3.connect(project_db)
+    try:
+        writer.execute("pragma journal_mode=wal")
+        writer.execute("pragma wal_autocheckpoint=0")
+        writer.execute("create table fixture(value text not null)")
+        writer.commit()
+        writer.execute("pragma wal_checkpoint(truncate)")
+        writer.execute("insert into fixture values('committed-in-wal')")
+        writer.commit()
+        project_db.chmod(0o600)
+        assert Path(str(project_db) + "-wal").stat().st_size > 0
+        trust = home_root / "config" / "git-publication-trust.json"
+        trust.parent.mkdir(exist_ok=True, mode=0o700)
+        trust.write_text('{"fixture":"public-keys-only"}', encoding="utf-8")
+        trust.chmod(0o400)
+        services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+        bundle = (tmp_path / "wal-bundle").resolve()
+        document = local_backup.create_bundle(services, home_root, bundle)
+        relative = project_db.relative_to(home_root).as_posix()
+        entry = next(item for item in document["entries"] if item["path"] == relative)
+        assert document["schema"] == local_backup.BUNDLE_SCHEMA
+        assert entry["kind"] == "sqlite"
+        assert "config/git-publication-trust.json" in {item["path"] for item in document["entries"]}
+        assert not any(item["path"].endswith(("-wal", "-shm")) for item in document["entries"])
+        with sqlite3.connect(
+            f"{(bundle / relative).as_uri()}?mode=ro&immutable=1", uri=True
+        ) as snapshot:
+            assert snapshot.execute("select value from fixture").fetchall() == [
+                ("committed-in-wal",)
+            ]
+        assert store.get(artifact.digest) == opaque
+        local_backup.verify_bundle(bundle)
+        restored = (tmp_path / "restored-v2").resolve()
+        receipt = local_backup.restore_bundle(bundle, restored)
+        assert receipt["project_sqlite_snapshot_contract"] is True
+        with sqlite3.connect(
+            f"{(restored / relative).as_uri()}?mode=ro&immutable=1", uri=True
+        ) as snapshot:
+            assert snapshot.execute("select value from fixture").fetchall() == [
+                ("committed-in-wal",)
+            ]
+
+        # A v1 wire envelope remains readable; it is never called v2 snapshot evidence.
+        document["schema"] = local_backup.LEGACY_BUNDLE_SCHEMA
+        entry["kind"] = "file"
+        document["manifest_digest"] = digest(
+            {k: v for k, v in document.items() if k != "manifest_digest"}
+        )
+        manifest = bundle / "MANIFEST.json"
+        manifest.chmod(0o600)
+        manifest.write_text(canonical_json(document), encoding="utf-8")
+        manifest.chmod(0o400)
+        local_backup.verify_bundle(bundle)
+        legacy = local_backup.restore_bundle(bundle, (tmp_path / "restored-v1").resolve())
+        assert legacy["project_sqlite_snapshot_contract"] is False
+        assert legacy["bundle_schema"] == local_backup.LEGACY_BUNDLE_SCHEMA
+    finally:
+        writer.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "projeler/a\\..\\..\\escape",
+        "C:/escape",
+        "projeler/a:stream",
+        "projeler/a/../escape",
+        ".",
+        "a\x00b",
+    ],
+)
+def test_bundle_paths_reject_windows_escape_and_alternate_stream(path: str) -> None:
+    from zekam.domain.errors import ValidationFailed
+
+    with pytest.raises(ValidationFailed):
+        local_backup._safe_relative(path)
+
+
 def test_manifest_is_created_and_verified(home_root: Path) -> None:
     store = _prepare(home_root)
     store.put(b"rapor icerigi", media_type="text/plain")
@@ -323,8 +410,10 @@ def test_bundle_rechecks_source_census_before_publish(
     def sync_and_add_source(path: Path) -> None:
         nonlocal mutated
         original(path)
-        if not mutated and path.parent == bundle.parent and path.name.startswith(
-            f".{bundle.name}."
+        if (
+            not mutated
+            and path.parent == bundle.parent
+            and path.name.startswith(f".{bundle.name}.")
         ):
             late.parent.mkdir(parents=True, exist_ok=True)
             late.write_bytes(b"added-after-census")

@@ -1370,7 +1370,9 @@ def test_backup_snapshot_bounds_and_integrity(
     fake = SimpleNamespace(
         backup=lambda target: None,
         commit=lambda: None,
-        execute=lambda sql: SimpleNamespace(fetchone=lambda: None),
+        execute=lambda sql: SimpleNamespace(
+            fetchone=lambda: ("delete",) if "journal_mode" in sql else None
+        ),
         close=lambda: None,
     )
     monkeypatch.setattr("zekam.infrastructure.local_backup.sqlite3.connect", lambda *a, **k: fake)
@@ -1386,7 +1388,9 @@ def test_backup_snapshot_bounds_and_integrity(
         result = regular(source)
         return SimpleNamespace(st_size=2048) if calls > 1 else result
 
-    fake.execute = lambda sql: SimpleNamespace(fetchone=lambda: ("ok",))
+    fake.execute = lambda sql: SimpleNamespace(
+        fetchone=lambda: ("delete",) if "journal_mode" in sql else ("ok",)
+    )
 
     def fake_connect(target: object, **kwargs: object) -> Any:
         if isinstance(target, Path):
