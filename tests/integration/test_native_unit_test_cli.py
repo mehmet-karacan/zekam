@@ -269,3 +269,90 @@ def _which_without_opencode(original):
         return original(name, *args, **kwargs)
 
     return which
+
+
+def test_real_native_measurement_is_bound_to_job_checkpoint_and_exact_cas_replay(tmp_path: Path):
+    from zekam.domain.canonical import digest
+    from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+    from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+
+    env = make_env(tmp_path, binding_schema=True)
+    SQLiteLocalRuntimeStore(env.database)
+    bindings = make_bindings(env, tmp_path)
+    initial = runner.invoke(
+        app, ["test", "plan", *_plan_args(env, bindings), "--native", "--canonical-source"]
+    )
+    assert initial.exit_code == 0, initial.stdout
+    observed = _json(initial)
+    store = SQLiteOperationalStore(env.database)
+    with store.unit_of_work() as uow:
+        config = uow.activate_config(
+            config_digest=digest({}), task_digest=digest("task"), sanitized_config={}
+        )
+        snapshot = uow.capture_source_snapshot(
+            source_binding_id=bindings.source_binding_id,
+            revision_ref=env.revision,
+            tree_digest=digest("production-scope"),
+            content_digest=observed["source_content_digest"],
+            config_digest=config.config_digest,
+        )
+        run = uow.create_run(
+            work_item_id=bindings.work_item_id,
+            config_revision_id=config.id,
+            plan_digest=observed["execution"]["plan_digest"],
+            budget={"seconds": 180},
+            source_snapshot_id=snapshot.id,
+        )
+        uow.commit()
+    bindings.source_snapshot_id = snapshot.id
+    bound_plan = runner.invoke(
+        app,
+        [
+            "test",
+            "plan",
+            *_plan_args(env, bindings),
+            "--native",
+            "--run-id",
+            run.id,
+            "--canonical-work-revision",
+            "1",
+            "--home",
+            str(env.home),
+        ],
+    )
+    assert bound_plan.exit_code == 0, bound_plan.stdout
+    plan = _json(bound_plan)
+    args = [
+        *_measure_args(env, bindings, plan),
+        "--run-id",
+        run.id,
+        "--canonical-work-revision",
+        "1",
+        "--canonical-binding-digest",
+        plan["work_binding"]["binding_digest"],
+        "--authorize",
+        "--build",
+        "--allow-network",
+    ]
+    measured = runner.invoke(app, args)
+    result = _json(measured)
+    assert result["receipt_recorded"] is True, measured.stdout
+    assert result["canonical_replayed"] is False and result["canonical_job_id"]
+    with store.unit_of_work() as uow:
+        assert len(uow.list_checkpoints(run.id)) == 1
+        assert len(uow.unit_test_ledger().list_attempts(plan["request_digest"])) == 1
+        uow.activate_config(
+            config_digest=digest({"revision": 2}),
+            task_digest=digest("new-task"),
+            sanitized_config={"revision": 2},
+        )
+        uow.commit()
+    source_path = env.root / SOURCE
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    replayed = runner.invoke(app, args)
+    replay = _json(replayed)
+    assert replay["canonical_replayed"] is True, replayed.stdout
+    assert replay["evidence_digest"] == result["evidence_digest"]
+    queue = SQLiteLocalRuntimeStore(env.database, existing_only=True)
+    status = queue.job_snapshot(result["canonical_job_id"])
+    assert status["attempt_count"] == 1 and len(status["effects"]) == 1

@@ -237,9 +237,9 @@ def test_stale_ready_binding_does_not_starve_unbound_jobs(tmp_path: Path) -> Non
     )
     with store.unit_of_work() as uow:
         uow.activate_config(
-            config_digest=digest("changed"),
+            config_digest=digest({"network": "changed"}),
             task_digest=digest("changed-task"),
-            sanitized_config={"network": "deny"},
+            sanitized_config={"network": "changed"},
         )
         uow.commit()
     valid, _ = runtime.enqueue(
@@ -308,9 +308,9 @@ def test_binding_snapshot_reads_canonical_drift_without_changing_job(tmp_path: P
     assert before["work_binding"]["grants_authority"] is False
     with store.unit_of_work() as uow:
         uow.activate_config(
-            config_digest=digest("changed"),
+            config_digest=digest({"network": "changed"}),
             task_digest=digest("changed-task"),
-            sanitized_config={"network": "deny"},
+            sanitized_config={"network": "changed"},
         )
         uow.commit()
     after = runtime.job_snapshot(job.id)
@@ -416,9 +416,9 @@ def test_scoped_bound_job_resume_reports_drift_and_missing_receipt_without_paylo
         assert summary["grants_authority"] is False
         assert "omit-me" not in str(summary) and "binding-owner" not in str(summary)
         uow.activate_config(
-            config_digest=digest("changed"),
+            config_digest=digest({"network": "changed"}),
             task_digest=digest("changed-task"),
-            sanitized_config={"network": "deny"},
+            sanitized_config={"network": "changed"},
         )
         uow.commit()
     with store.unit_of_work() as uow:
@@ -511,9 +511,9 @@ def test_public_dispatch_binding_rejects_stale_config_without_enqueue(tmp_path: 
     validate_dispatch_binding(runtime, binding, idempotency_key="new-job")
     with store.unit_of_work() as uow:
         uow.activate_config(
-            config_digest=digest("changed"),
+            config_digest=digest({"network": "changed"}),
             task_digest=digest("changed-task"),
-            sanitized_config={"network": "deny"},
+            sanitized_config={"network": "changed"},
         )
         uow.commit()
     with pytest.raises(ConcurrencyConflict, match="tuple unavailable or changed"):

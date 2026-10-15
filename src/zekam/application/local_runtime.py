@@ -21,6 +21,9 @@ RUNTIME_OUTBOX_KINDS = (
     "job.quarantined",
 )
 RESERVED_JOB_OPERATIONS = (
+    "project.index",
+    "test.measure",
+    "test.run",
     "continuity.compile",
     "research.run",
     "knowledge.create",

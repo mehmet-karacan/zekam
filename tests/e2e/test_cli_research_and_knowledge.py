@@ -582,7 +582,7 @@ def test_research_cli_pins_canonical_work_binding_before_dispatch(
     database = home / "state" / "operational.db"
     with SQLiteOperationalStore(database).unit_of_work() as uow:
         config = uow.activate_config(
-            config_digest=digest("config"),
+            config_digest=digest({}),
             task_digest=digest("task"),
             sanitized_config={},
         )

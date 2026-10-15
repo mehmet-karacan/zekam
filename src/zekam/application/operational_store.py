@@ -278,6 +278,10 @@ class OperationalUnitOfWork(Protocol):
 
     def list_runs(self, work_item_id: str) -> tuple[RunRecord, ...]: ...
 
+    def assert_bound_job_current(self, job_id: str) -> None: ...
+
+    def next_checkpoint_sequence(self, run_id: str) -> int: ...
+
     def record_checkpoint(
         self,
         *,

@@ -139,7 +139,7 @@ class Env:
         return json.loads(objects.get(digest_value).decode("utf-8"))
 
 
-def make_env(tmp_path: Path) -> Env:
+def make_env(tmp_path: Path, *, binding_schema: bool = False) -> Env:
     root = tmp_path / "proje"
     shutil.copytree(FIXTURE, root, ignore=shutil.ignore_patterns("target"))
     (root / ".gitignore").write_text("target/\n", encoding="utf-8")
@@ -150,7 +150,7 @@ def make_env(tmp_path: Path) -> Env:
     home = tmp_path / "home"
     context = build_context(home=home)
     database = context.settings.database.sqlite_path(context.home)
-    assert schema.bootstrap_v6(database).schema_ok
+    assert (schema.bootstrap_v7 if binding_schema else schema.bootstrap_v6)(database).schema_ok
     store = SQLiteOperationalStore(database)
     with store.unit_of_work() as uow:
         project = uow.create_project(slug="fixture", display_name="Fixture")

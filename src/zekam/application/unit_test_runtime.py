@@ -14,12 +14,14 @@ import datetime as dt
 import subprocess
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from zekam.application.canonical_job_runtime import run_canonical_job, validate_bound_source
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.object_store import ObjectStore
 from zekam.application.unit_test_agents import (
     AgentSpecialty,
@@ -30,8 +32,10 @@ from zekam.application.unit_test_agents import (
 from zekam.application.unit_test_ledger import UnitTestLedger
 from zekam.application.unit_test_loop import UnitTestLoopService
 from zekam.application.unit_test_loop_state import (
+    ControlSignal,
     EnvironmentObservation,
     EnvironmentObserver,
+    LedgerLoopControl,
     LoopControl,
     MeasuredRun,
     UnitTestMeasurer,
@@ -618,7 +622,12 @@ def _classify(
     }.get(status, NativeOutcome.INCOMPLETE)
 
 
-def measure_native(request: UnitTestRequest, ports: NativeMeasurementPorts) -> NativeMeasurement:
+def measure_native(
+    request: UnitTestRequest,
+    ports: NativeMeasurementPorts,
+    *,
+    cancel: threading.Event | None = None,
+) -> NativeMeasurement:
     """Claim-before-effect: gercek Maven olcumu + taze rapor/digest/drift dogrulamasi + receipt.
 
     Model veya OpenCode cagrilmaz. Terminal (``target-reached``) yazilmaz; yalniz attempt +
@@ -703,7 +712,7 @@ def measure_native(request: UnitTestRequest, ports: NativeMeasurementPorts) -> N
             run_id=f"{attempt.attempt_id}-run",
             candidate_digest=candidate_digest,
             timeout_seconds=timeout,
-            cancel=threading.Event(),
+            cancel=cancel if cancel is not None else threading.Event(),
         )
     except Exception as exc:
         evidence_digest = _close_attempt(
@@ -913,4 +922,207 @@ def compose_native_measurement(
         test_tree=lambda: digest_test_tree(binding.project_root, module_dirs),
         plan_digest=binding.approved_maven_plan_digest,
         artifact_registrar=register_artifact,
+    )
+
+
+def measure_native_job(
+    request: UnitTestRequest,
+    ports: NativeMeasurementPorts,
+    *,
+    home: Path,
+    work_binding: LocalJobBinding,
+    execution_key: str = "default",
+) -> dict[str, Any]:
+    """Attach the native attempt ledger to a canonical job without replacing it."""
+
+    if (
+        type(work_binding) is not LocalJobBinding
+        or request.project_id != work_binding.project_id
+        or request.work_item_id != work_binding.work_item_id
+        or request.run_id != work_binding.run_id
+        or request.source_snapshot_id != work_binding.source_snapshot_id
+        or ports.plan_digest != work_binding.plan_digest
+    ):
+        raise PolicyViolation("Canonical measurement Work/Run/plan binding drift")
+
+    def validate_inputs() -> None:
+        observed = ports.environment.observe()
+        validate_bound_source(
+            home,
+            work_binding,
+            source_revision=request.source_revision,
+            source_binding_id=request.source_binding_id,
+            content_digest=native_source_content_digest(observed),
+        )
+        if observed.source_revision != request.source_revision:
+            raise PolicyViolation("Canonical measurement observed source revision drift")
+
+    return run_canonical_job(
+        home,
+        binding=work_binding,
+        operation="test.measure",
+        input_digest=request.request_digest,
+        execute=lambda cancellation: measure_native(
+            request, ports, cancel=cancellation
+        ).to_document(),
+        validate_inputs=validate_inputs,
+        execution_key=execution_key,
+    )
+
+
+def native_source_content_digest(observation: Any) -> str:
+    """Pin production/build bytes; test edits deliberately remain a candidate input."""
+
+    return digest(
+        {
+            "schema": "zekam-native-source-content/v1",
+            "source_revision": observation.source_revision,
+            "production_digests": dict(observation.production_digests),
+            "build_config_digest": observation.build_config_digest,
+        }
+    )
+
+
+def inspect_native_source_content(
+    request: UnitTestRequest, project_root: Path, target_modules: tuple[str, ...]
+) -> str:
+    observer = MavenEnvironmentObserver(
+        project_root=project_root,
+        target_modules=target_modules,
+        source_files=request.source_files,
+        revision_provider=lambda: _git_revision(project_root),
+        dirty_provider=lambda: _git_dirty(project_root),
+    )
+    return native_source_content_digest(observer.observe())
+
+
+def unit_test_job_input_digest(
+    request, binding, approvals, limits, *, allow_resume: bool = False
+) -> str:
+    """Pin the batch model/assignment/approval contract without persisting secrets."""
+
+    return digest(
+        {
+            "schema": "zekam-canonical-test-run-input/v1",
+            "allow_resume": allow_resume,
+            "request_digest": request.request_digest,
+            "maven_plan_digest": binding.approved_maven_plan_digest,
+            "realm_id": str(binding.realm_id),
+            "assignment_id": str(binding.coordinator_assignment_id),
+            "model_id": binding.model_id,
+            "remote_model": binding.remote_model,
+            "plan_id": str(binding.plan_id) if binding.plan_id else None,
+            "step_id": binding.step_id,
+            "approvals": asdict(approvals),
+            "limits": asdict(limits),
+        }
+    )
+
+
+@dataclass(slots=True)
+class _CanonicalLoopControl:
+    user: LedgerLoopControl
+    technical_event: threading.Event
+
+    @property
+    def technical_interruption(self) -> bool:
+        return self.technical_event.is_set()
+
+    @property
+    def cancel_event(self) -> threading.Event:
+        return self.technical_event
+
+    def signal(self) -> ControlSignal:
+        if self.technical_interruption:
+            return ControlSignal.PAUSE
+        return self.user.signal()
+
+
+def run_unit_test_job(
+    request: UnitTestRequest,
+    *,
+    home: Path,
+    store: SQLiteOperationalStore,
+    binding: UnitTestRuntimeBinding,
+    work_binding: LocalJobBinding,
+    approvals: Any,
+    limits: Any,
+    validate_context: Callable[[], None],
+    allow_resume: bool = False,
+    execution_key: str = "default",
+) -> dict[str, Any]:
+    """Run the explicit model loop behind the same canonical job/receipt boundary."""
+
+    from zekam.application.unit_test_outcome import exit_code_for_reason, terminal_document
+
+    if (
+        type(work_binding) is not LocalJobBinding
+        or request.project_id != work_binding.project_id
+        or request.work_item_id != work_binding.work_item_id
+        or request.run_id != work_binding.run_id
+        or request.source_snapshot_id != work_binding.source_snapshot_id
+        or binding.approved_maven_plan_digest != work_binding.plan_digest
+        or str(binding.project_id) != work_binding.project_id
+        or str(binding.work_item_id) != work_binding.work_item_id
+    ):
+        raise PolicyViolation("Canonical test run Work/Run/plan binding drift")
+
+    def validate_inputs() -> None:
+        validate_context()
+        content = inspect_native_source_content(
+            request, binding.project_root, binding.target_modules
+        )
+        validate_bound_source(
+            home,
+            work_binding,
+            source_revision=request.source_revision,
+            source_binding_id=request.source_binding_id,
+            content_digest=content,
+        )
+
+    def register_artifact(artifact_digest: str, size_bytes: int, media_type: str) -> None:
+        with store.unit_of_work() as uow:
+            uow.register_artifact(
+                artifact_digest=artifact_digest,
+                media_type=media_type,
+                size_bytes=size_bytes,
+                classification="local-private",
+            )
+            uow.commit()
+
+    def execute(cancellation: threading.Event) -> dict[str, Any]:
+        ledger = _ShortTransactionLedger(store)
+        runtime = compose_unit_test_runtime(
+            request,
+            ledger=ledger,
+            binding=binding,
+            artifact_registrar=register_artifact,
+            control=_CanonicalLoopControl(
+                LedgerLoopControl(ledger, request.request_digest, allow_resume=allow_resume),
+                cancellation,
+            ),
+        )
+        outcome = runtime.loop.run(request, approvals=approvals, limits=limits)
+        return {
+            "schema": "zekam-unit-test-run/v1",
+            "request_digest": outcome.request_digest,
+            "terminal": terminal_document(outcome.terminal),
+            "attempts": outcome.attempts,
+            "executed_attempts": outcome.executed_attempts,
+            "detail": list(outcome.detail),
+            "provider_calls": None if runtime.gateway.remote else 0,
+            "provider_calls_state": "not-measured" if runtime.gateway.remote else "local-only",
+            "exit_code": exit_code_for_reason(outcome.terminal.stop_reason),
+        }
+
+    return run_canonical_job(
+        home,
+        binding=work_binding,
+        operation="test.run",
+        input_digest=unit_test_job_input_digest(
+            request, binding, approvals, limits, allow_resume=allow_resume
+        ),
+        execute=execute,
+        validate_inputs=validate_inputs,
+        execution_key=execution_key,
     )

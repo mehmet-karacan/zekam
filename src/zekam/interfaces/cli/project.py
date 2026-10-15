@@ -12,6 +12,7 @@ from uuid import UUID
 import typer
 from rich.console import Console
 
+from zekam.application.canonical_job_runtime import canonical_job_key
 from zekam.application.code_graph import (
     CodeGraphBuildPlan,
     apply_graph_build,
@@ -44,6 +45,7 @@ from zekam.application.project_rag_runtime import (
     DEFAULT_INDEX_TIMEOUT_SECONDS,
     DEFAULT_REMOTE_CALL_LIMIT,
     bind_project_source,
+    build_index_job_plan,
     build_project_source_binding_plan,
     classify_project_source,
     index_registered_project,
@@ -64,6 +66,7 @@ from zekam.interfaces.cli.session import (
     fail_from,
     sqlite_operational_store,
 )
+from zekam.interfaces.cli.work_binding import resolve_optional_work_binding, work_binding_document
 
 app = typer.Typer(name="project", help="Yerel proje kayitlari", no_args_is_help=True)
 console = Console()
@@ -599,6 +602,13 @@ def index_command(
         Path, typer.Option("--opencode-config")
     ] = _DEFAULT_OPENCODE_CONFIG_FILE,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision", min=1)] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    execution_key: Annotated[str, typer.Option("--execution-key")] = "default",
 ) -> None:
     """Kaynak kodu ve Oracle metadata snapshot'ini atomik yeniler."""
 
@@ -606,6 +616,65 @@ def index_command(
         raise fail("Database metadata disclosure explicit authorization ister", 77)
     try:
         resolved_home = resolve_home(home)
+        binding = None
+        canonical = dry_run or any(
+            value is not None
+            for value in (
+                work_run,
+                work_revision,
+                work_step,
+                work_binding_digest,
+            )
+        )
+        if canonical:
+            canonical_slug = _canonical_slug(project, home=home)
+            if not dry_run and plan_digest is None:
+                raise PolicyViolation("Canonical index requires --plan-digest from dry-run")
+            plan = (
+                build_index_job_plan(
+                    resolved_home,
+                    canonical_slug,
+                    oracle_config=oracle_config,
+                    opencode_config=opencode_config,
+                    batch_size=batch_size,
+                    timeout_seconds=timeout_seconds,
+                    max_remote_provider_calls=max_provider_calls,
+                    authorize_odi_metadata=authorize_odi_metadata,
+                    authorize_remote_source=authorize_remote_source,
+                )
+                if dry_run
+                else {
+                    "project_id": _resolve_project_document(
+                        project, home=home, realm=DEFAULT_REALM_SLUG
+                    )["id"],
+                    "plan_digest": plan_digest,
+                }
+            )
+            binding = resolve_optional_work_binding(
+                resolved_home,
+                run_id=work_run,
+                work_revision=work_revision,
+                run_step_id=work_step,
+                expected_binding_digest=work_binding_digest,
+                project_id=plan["project_id"],
+                plan_digest=plan["plan_digest"],
+                apply=not dry_run,
+                replay_job_key=(
+                    canonical_job_key(
+                        work_binding_digest,
+                        "project.index",
+                        str(plan["plan_digest"]),
+                        execution_key,
+                    )
+                    if work_binding_digest is not None
+                    else None
+                ),
+            )
+            if dry_run:
+                if binding is not None:
+                    plan["work_binding"] = work_binding_document(binding)
+                _print_json(plan)
+                return
         route = project_embedding_route(resolved_home)
         if route is EmbeddingRoute.REMOTE and not authorize_remote_source:
             raise fail("Remote source disclosure explicit --authorize-remote-source ister", 77)
@@ -619,6 +688,7 @@ def index_command(
             max_remote_provider_calls=max_provider_calls,
             authorize_odi_metadata=authorize_odi_metadata,
             authorize_remote_source=authorize_remote_source,
+            **({"work_binding": binding, "execution_key": execution_key} if binding else {}),
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc

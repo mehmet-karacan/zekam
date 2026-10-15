@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from zekam.application.bounded_file import read_bounded_bytes
+from zekam.application.canonical_job_runtime import run_canonical_job, validate_bound_source
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings, load_settings
 from zekam.application.embedded_project_rag import EmbeddedProjectRAG
 from zekam.application.embedding_provider import (
@@ -45,6 +47,7 @@ from zekam.application.home import HomeLayout
 from zekam.application.knowledge_file_plane import ProjectProjection
 from zekam.application.knowledge_index import KnowledgeIndexRecord
 from zekam.application.local_embedding_composition import build_verified_mac_embedding
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.model_registry import load_inventory
 from zekam.application.odi11g_smart_export import (
@@ -3408,6 +3411,75 @@ def query_registered_project(
     )
 
 
+def build_index_job_plan(
+    home: Path,
+    project_slug: str,
+    *,
+    oracle_config: str | None = None,
+    opencode_config: Path | None = None,
+    batch_size: int = MAX_BATCH_SIZE,
+    authorize_odi_metadata: bool = False,
+    authorize_remote_source: bool = False,
+    timeout_seconds: float = DEFAULT_INDEX_TIMEOUT_SECONDS,
+    max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
+) -> dict[str, Any]:
+    """Provider-free execution contract used as the canonical Run plan digest."""
+
+    deadline = _new_index_deadline(timeout_seconds)
+    _validate_remote_call_limit(max_remote_provider_calls)
+    if type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH_SIZE:
+        raise ValidationFailed("Batch size 1..64 araliginda olmali")
+    slug = validate_slug(project_slug)
+    root = resolve_project_source(home, slug)
+    project_id = _registered_project(home, slug)
+
+    def check() -> None:
+        _check_index_budget(None, deadline)
+
+    _, _, revision = _git_source_state(root, check_budget=check)
+    discovery = discover(root, check_budget=check)
+    knowledge = load_settings(home=home).knowledge
+    odi = load_smart_binding(home, slug)
+    odi_plan_digest = None
+    if odi is not None:
+        odi_plan_digest = build_sanitized_odi_plan(
+            project_id=project_id, project_slug=slug, source=Path(str(odi["source_file"]))
+        ).plan_digest
+    oracle_identity_digest = None
+    if oracle_config is not None:
+        oracle_identity_digest = load_project_oracle_datasource(
+            root, oracle_config
+        ).connection_identity_digest
+    provider_config_digest = None
+    if knowledge.embedding_route is EmbeddingRoute.REMOTE:
+        config_path = opencode_config or default_opencode_config_file()
+        provider_config_digest = digest_of_bytes(
+            read_bounded_bytes(config_path, max_bytes=1024 * 1024)
+        )
+    body = {
+        "schema": "zekam-canonical-index-plan/v1",
+        "operation": "project.index",
+        "project_id": str(project_id),
+        "project_slug": slug,
+        "source_revision": revision,
+        "tree_digest": discovery.tree_digest,
+        "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
+        "provider_config_digest": provider_config_digest,
+        "oracle_config": oracle_config,
+        "oracle_identity_digest": oracle_identity_digest,
+        "odi_binding_digest": digest(odi) if odi else None,
+        "odi_plan_digest": odi_plan_digest,
+        "batch_size": batch_size,
+        "timeout_seconds": timeout_seconds,
+        "max_remote_provider_calls": max_remote_provider_calls,
+        "authorize_odi_metadata": authorize_odi_metadata,
+        "authorize_remote_source": authorize_remote_source,
+        "provider_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"plan_digest": digest(body)}
+
+
 def index_registered_project(
     home: Path,
     project_slug: str,
@@ -3420,17 +3492,60 @@ def index_registered_project(
     cancel: threading.Event | None = None,
     timeout_seconds: float = DEFAULT_INDEX_TIMEOUT_SECONDS,
     max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
+    work_binding: LocalJobBinding | None = None,
+    execution_key: str = "default",
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
+    slug = validate_slug(project_slug)
+    resolved_home = home.resolve(strict=True)
+    if work_binding is not None:
+        if type(work_binding) is not LocalJobBinding or work_binding.project_id != str(
+            _registered_project(resolved_home, slug)
+        ):
+            raise PolicyViolation("Canonical index project binding drift")
+        options = {
+            "oracle_config": oracle_config,
+            "opencode_config": opencode_config,
+            "batch_size": batch_size,
+            "authorize_odi_metadata": authorize_odi_metadata,
+            "authorize_remote_source": authorize_remote_source,
+            "timeout_seconds": timeout_seconds,
+            "max_remote_provider_calls": max_remote_provider_calls,
+        }
+
+        def validate_inputs() -> None:
+            plan = build_index_job_plan(resolved_home, slug, **options)
+            if plan["plan_digest"] != work_binding.plan_digest:
+                raise PolicyViolation("Canonical index plan binding drift")
+            validate_bound_source(
+                resolved_home,
+                work_binding,
+                source_revision=plan["source_revision"],
+                tree_digest=plan["tree_digest"],
+            )
+
+        return run_canonical_job(
+            resolved_home,
+            binding=work_binding,
+            operation="project.index",
+            input_digest=work_binding.plan_digest,
+            execute=lambda cancellation: index_registered_project(
+                resolved_home,
+                slug,
+                **options,
+                cancel=cancellation,
+            ),
+            validate_inputs=validate_inputs,
+            execution_key=execution_key,
+            cancel=cancel,
+        )
     deadline_monotonic = _new_index_deadline(timeout_seconds)
     _validate_remote_call_limit(max_remote_provider_calls)
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValidationFailed("Batch size 1..64 araliginda olmali")
-    slug = validate_slug(project_slug)
-    root = resolve_project_source(home, slug)
-    project_id = _registered_project(home, slug)
-    resolved_home = home.resolve(strict=True)
+    root = resolve_project_source(resolved_home, slug)
+    project_id = _registered_project(resolved_home, slug)
     route = project_embedding_route(resolved_home)
     config_file = (
         (opencode_config or default_opencode_config_file()).resolve(strict=True)

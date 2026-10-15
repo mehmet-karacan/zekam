@@ -1207,6 +1207,63 @@ yapildi. Testler kullanici karariyla son asamaya ertelendi ve HENUZ CALISTIRILMA
 WP-07 index/test birlestirmesi ve full race/crash/recovery kabul kosulari acik;
 bu gelistirme WP kapanisi veya canli provider basari kaniti degildir.
 
+**15 Ekim 2026 - WP-07 index/test canonical baglantisi teslimi:**
+`index_registered_project` ve `measure_native_job`, ayni operational v7 Work/Run/
+source/config/plan tuple'ina bagli local job/lease/effect claim/receipt ve Run
+checkpoint sinirini kullanir. Uc operation generic worker'dan ayrilir. Exact
+girdi + binding + execution key tamamlanmis sonuc icin CAS replay uretir; yeni
+key ancak halen gecerli bagla yeni kosu baslatir. Baslamis/belirsiz is sessizce
+tekrarlanmaz. Sonuc CAS digest'i artifact registry, checkpoint ve terminal job
+receipt'ini baglar. Checkpoint, guncel canonical tuple kontroluyle ayni kisa
+transaction'da yazilir. Provider/Maven calisirken SQLite write lock tutulmaz;
+heartbeat uzun islem ve sonraki kaynak dogrulamasi boyunca lease'i yeniler.
+
+Index CLI provider-free `--dry-run`, exact `--plan-digest` ve Work binding girisi
+saglar. Repository revision/tree, knowledge/profile, provider config fingerprint,
+ODI sanitized plan ve Oracle baglanti kimligi execution contract'a baglidir.
+Oracle plan sirasinda sorgulanmaz; mevcut disclosure izinleri devam eder. Test
+CLI native plan `--canonical-source` ile secili uretim byte/build config/revision
+content digest'ini verir; snapshot content_digest'i bunu pinler. Test dosyalari
+candidate olarak kalir. `--canonical-work-revision`, optional step ve exact
+binding digest plan/measure yuzeylerinde cozumlenir; existing realm/graph/source,
+Maven plan, build/network ve native attempt ledger'i korunur. Work/Run terminal
+veya config/source degismis olsa da exact tamamlanmis CAS replay yeni effect
+kapilarina girmeden okunur. Source byte drift'i yeni olcumu reddeder.
+
+Final test asamasi gelistirmeden sonra yapildi. Sonuc gruplari (ortusen testler
+oldugu icin unique toplam iddiasi yok):
+- Canonical runner + binding + CLI binding: **49 passed**.
+- Research/campaign, project RAG, unit-test runtime/CLI, resume, radar ve research
+  E2E regresyon grubu: **188 passed**.
+- Canonical runner + local runtime/consumer grubu: **84 passed**.
+- Canonical runner, project index CLI ve mevcut native Maven CLI grubu:
+  **33 passed**.
+- Yeni gercek Maven canonical native measure + checkpoint + config/production
+  degisimi sonrasi CAS replay senaryosu: **1 passed**.
+- Explicit batch, teknik kesinti ve mevcut unit-test loop/CLI/runtime grubu:
+  **57 passed**.
+Ilk kosularda config fixture digest/payload ve eksik fixture runtime config
+uyusmazliklari goruldu; veriler gercek admission sozlesmesine gore duzeltildi.
+Final kosular yesil. Bagimsiz kaynak incelemesindeki generic worker, heartbeat,
+source byte drift ve historical replay bulgulari giderildi; regresyonlarla
+kapsandi. Canli embedding/model/provider cagrisi yapilmadi; index effect testi
+provider-free fixture kullanir, Maven entegrasyon testi gercek surec calistirir.
+
+Bu teslim index, native test olcumu ve explicit model test batch baglantisini
+kapsar. Explicit `test run` icin de canonical CLI/queue yolu eklendi; model ve
+assignment kimligi, approval/budget/limit ve resume niyeti input digest'ine
+katilir. Canonical batch kisa ledger/artifact transaction'lari ve durable loop
+control kullanir; model/Maven sirasinda operational write lock tutulmaz. Lease
+kaybi kullanici iptali yerine nonfinal RECOVERY_REQUIRED terminali uretir;
+outer job unknown/recovery sinirinda kalir. Resume intent'i farkli job kimligi
+uretir; tekrar paused olan yeni tur yeni execution key ile acilir. Eski unbound
+batch yolu korunur. Batch icin provider-free adapter/ledger/receipt/replay ve
+technical interruption regresyonlari final test grubunda dogrulanir.
+WP-07.01/03/05 ve tum WP'nin kapanisi icin full native process-kill/race/recovery
+kabulleri halen aciktir. Mevcut kullanici
+DB'sine migration uygulanmadi. Kullanim/contract belgesi:
+`docs/CANONICAL_INDEX_TEST_BAGLARI.md`.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

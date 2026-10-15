@@ -1036,6 +1036,25 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
+    def assert_bound_job_current(self, job_id: str) -> None:
+        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+
+        current = (
+            self._db()
+            .execute(_CURRENT_BINDING_QUERY.replace("new.job_id", "?"), (job_id,))
+            .fetchone()
+        )
+        if current is None:
+            raise PolicyViolation("Canonical checkpoint Work/Run binding drift")
+
+    def next_checkpoint_sequence(self, run_id: str) -> int:
+        row = (
+            self._db()
+            .execute("select coalesce(max(sequence),0)+1 from checkpoint where run_id=?", (run_id,))
+            .fetchone()
+        )
+        return int(row[0])
+
     def record_checkpoint(
         self,
         *,

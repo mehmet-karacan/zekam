@@ -11,6 +11,7 @@ from uuid import UUID
 
 import typer
 
+from zekam.application.canonical_job_runtime import canonical_job_key, replay_canonical_job
 from zekam.application.code_graph import graph_store_path
 from zekam.application.composition import build_context
 from zekam.application.unit_test_intent import (
@@ -37,11 +38,15 @@ from zekam.application.unit_test_runtime import (
     UnitTestRuntimeBinding,
     compose_native_measurement,
     compose_unit_test_runtime,
+    inspect_native_source_content,
     measure_native,
+    measure_native_job,
     native_request,
+    run_unit_test_job,
+    unit_test_job_input_digest,
 )
 from zekam.domain.canonical import digest, parse_digest
-from zekam.domain.errors import ZekamError
+from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.unit_test_engineering import (
     CoverageMetric,
     CoveragePolicy,
@@ -54,6 +59,7 @@ from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 from zekam.infrastructure.unit_test_runner.maven_plan import build_unit_test_plan
+from zekam.interfaces.cli.work_binding import resolve_optional_work_binding, work_binding_document
 
 app = typer.Typer(
     name="test",
@@ -299,6 +305,15 @@ def plan_command(
             help="Native yardimci olcum plani (model/OpenCode yok; `zekam test measure` icin)",
         ),
     ] = False,
+    canonical_source: Annotated[bool, typer.Option("--canonical-source")] = False,
+    canonical_work_revision: Annotated[
+        int | None, typer.Option("--canonical-work-revision", min=1)
+    ] = None,
+    canonical_step: Annotated[str | None, typer.Option("--canonical-step")] = None,
+    canonical_binding_digest: Annotated[
+        str | None, typer.Option("--canonical-binding-digest")
+    ] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
 ) -> None:
     """Exact, provider-free plan uretir; plan yetki veya calistirma baslatmaz."""
 
@@ -324,18 +339,59 @@ def plan_command(
         graph_generation_digest=graph_generation_digest,
         native=native,
     )
-    _emit(
-        _plan_document(
-            request,
-            intent=intent,
-            model=model,
-            execution=_execution_plan(
-                project_root,
-                _native_modules(target_module) if native else tuple(target_module or ()),
-            ),
-            native=native,
-        )
+    execution = _execution_plan(
+        project_root, _native_modules(target_module) if native else tuple(target_module or ())
     )
+    document = _plan_document(
+        request, intent=intent, model=model, execution=execution, native=native
+    )
+    if canonical_source:
+        try:
+            if execution.get("status") != "ready":
+                raise PolicyViolation("Canonical source requires ready Maven plan")
+            document["source_content_digest"] = inspect_native_source_content(
+                request,
+                Path(project_root or "").resolve(strict=True),
+                _native_modules(target_module) if native else tuple(target_module or ()),
+            )
+            document["source_content_schema"] = "zekam-native-source-content/v1"
+        except (OSError, ZekamError) as exc:
+            _finish(gate_document("policy-violation", reasons=(str(exc),)), EXIT_POLICY)
+            return
+    if any(
+        value is not None
+        for value in (
+            canonical_work_revision,
+            canonical_step,
+            canonical_binding_digest,
+        )
+    ):
+        try:
+            if execution.get("status") != "ready":
+                raise PolicyViolation("Canonical plan requires ready Maven plan")
+            context = build_context(home=home)
+            canonical_binding = resolve_optional_work_binding(
+                context.home,
+                run_id=run_id,
+                work_revision=canonical_work_revision,
+                run_step_id=canonical_step,
+                expected_binding_digest=canonical_binding_digest,
+                project_id=request.project_id,
+                plan_digest=str(execution["plan_digest"]),
+                apply=False,
+            )
+            if canonical_binding is None:
+                raise PolicyViolation("Canonical measurement requires --run-id")
+            if (
+                request.work_item_id != canonical_binding.work_item_id
+                or request.source_snapshot_id != canonical_binding.source_snapshot_id
+            ):
+                raise PolicyViolation("Canonical measurement request binding drift")
+            document["work_binding"] = work_binding_document(canonical_binding)
+        except ZekamError as exc:
+            _finish(gate_document("policy-violation", reasons=(str(exc),)), EXIT_POLICY)
+            return
+    _emit(document)
 
 
 def _read_request(
@@ -464,6 +520,14 @@ def run_command(
     max_remote_calls: Annotated[int, typer.Option("--max-remote-calls")] = 0,
     resume: Annotated[bool, typer.Option("--resume")] = False,
     home: Annotated[str | None, typer.Option("--home")] = None,
+    canonical_work_revision: Annotated[
+        int | None, typer.Option("--canonical-work-revision", min=1)
+    ] = None,
+    canonical_step: Annotated[str | None, typer.Option("--canonical-step")] = None,
+    canonical_binding_digest: Annotated[
+        str | None, typer.Option("--canonical-binding-digest")
+    ] = None,
+    execution_key: Annotated[str, typer.Option("--execution-key")] = "default",
 ) -> None:
     """Exact plan/yetki/baglarla gercek local loop'u calistirir."""
 
@@ -565,6 +629,72 @@ def run_command(
             approved_limits=LoopLimits(max_remote_calls=max_remote_calls),
         )
         limits = LoopLimits(max_remote_calls=max_remote_calls)
+        if any(
+            value is not None
+            for value in (
+                canonical_work_revision,
+                canonical_step,
+                canonical_binding_digest,
+            )
+        ):
+            input_digest = unit_test_job_input_digest(
+                request, binding, approvals, limits, allow_resume=resume
+            )
+            replay_key = (
+                canonical_job_key(
+                    canonical_binding_digest,
+                    "test.run",
+                    input_digest,
+                    execution_key,
+                )
+                if canonical_binding_digest is not None
+                else None
+            )
+            canonical_binding = resolve_optional_work_binding(
+                context.home,
+                run_id=run_id,
+                work_revision=canonical_work_revision,
+                run_step_id=canonical_step,
+                expected_binding_digest=canonical_binding_digest,
+                project_id=request.project_id,
+                plan_digest=parsed_maven_digest,
+                apply=True,
+                replay_job_key=replay_key,
+            )
+            if canonical_binding is None:
+                raise PolicyViolation("Canonical test run requires --run-id")
+
+            def validate_context() -> None:
+                with store.unit_of_work() as validation:
+                    _assert_operational_bindings(
+                        validation,
+                        context=context,
+                        request=request,
+                        project_uuid=parsed_project,
+                        realm_id=parsed_realm,
+                        work_item_id=parsed_work,
+                        source_snapshot_id=source_snapshot_id or "",
+                        graph_generation_digest=graph_generation_digest or "",
+                        run_id=run_id,
+                    )
+                    validation.rollback()
+
+            document = run_unit_test_job(
+                request,
+                home=context.home,
+                store=store,
+                binding=binding,
+                work_binding=canonical_binding,
+                approvals=approvals,
+                limits=limits,
+                validate_context=validate_context,
+                allow_resume=resume,
+                execution_key=execution_key,
+            )
+            _emit(document)
+            if document["exit_code"]:
+                raise typer.Exit(int(document["exit_code"]))
+            return
         with store.unit_of_work() as uow:
             uow.assert_unit_test_bindings(
                 project_id=str(parsed_project),
@@ -703,6 +833,14 @@ def measure_command(
     build: Annotated[bool, typer.Option("--build")] = False,
     allow_network: Annotated[bool, typer.Option("--allow-network")] = False,
     home: Annotated[str | None, typer.Option("--home")] = None,
+    canonical_work_revision: Annotated[
+        int | None, typer.Option("--canonical-work-revision", min=1)
+    ] = None,
+    canonical_step: Annotated[str | None, typer.Option("--canonical-step")] = None,
+    canonical_binding_digest: Annotated[
+        str | None, typer.Option("--canonical-binding-digest")
+    ] = None,
+    execution_key: Annotated[str, typer.Option("--execution-key")] = "default",
 ) -> None:
     """Native yardimci olcum: gercek Maven/JaCoCo olcer, kaniti ledger'a yazar; model baslatmaz.
 
@@ -809,28 +947,75 @@ def measure_command(
             target_modules=modules,
             allow_network=allow_network,
         )
-        with store.unit_of_work() as uow:
-            _assert_operational_bindings(
-                uow,
-                context=context,
-                request=request,
-                project_uuid=parsed_project,
-                realm_id=parsed_realm,
-                work_item_id=parsed_work,
-                source_snapshot_id=source_snapshot_id or "",
-                graph_generation_digest=graph_generation_digest or "",
-                run_id=run_id,
+        canonical_binding = None
+        document = None
+        if any(
+            value is not None
+            for value in (
+                canonical_work_revision,
+                canonical_step,
+                canonical_binding_digest,
             )
-            uow.rollback()  # yalniz okuma kapisi; Maven calisirken kilit tutulmaz
-        result = measure_native(
-            request, compose_native_measurement(request, store=store, binding=binding)
-        )
+        ):
+            replay_key = (
+                canonical_job_key(
+                    canonical_binding_digest, "test.measure", request.request_digest, execution_key
+                )
+                if canonical_binding_digest is not None
+                else None
+            )
+            canonical_binding = resolve_optional_work_binding(
+                context.home,
+                run_id=run_id,
+                work_revision=canonical_work_revision,
+                run_step_id=canonical_step,
+                expected_binding_digest=canonical_binding_digest,
+                project_id=request.project_id,
+                plan_digest=parsed_maven_digest,
+                apply=True,
+                replay_job_key=replay_key,
+            )
+            if canonical_binding is None:
+                raise PolicyViolation("Canonical measurement requires --run-id")
+            document = replay_canonical_job(
+                context.home,
+                binding=canonical_binding,
+                operation="test.measure",
+                input_digest=request.request_digest,
+                execution_key=execution_key,
+            )
+        if document is None:
+            with store.unit_of_work() as uow:
+                _assert_operational_bindings(
+                    uow,
+                    context=context,
+                    request=request,
+                    project_uuid=parsed_project,
+                    realm_id=parsed_realm,
+                    work_item_id=parsed_work,
+                    source_snapshot_id=source_snapshot_id or "",
+                    graph_generation_digest=graph_generation_digest or "",
+                    run_id=run_id,
+                )
+                uow.rollback()  # yalniz okuma kapisi; Maven calisirken kilit tutulmaz
+            ports = compose_native_measurement(request, store=store, binding=binding)
+            if canonical_binding is not None:
+                document = measure_native_job(
+                    request,
+                    ports,
+                    home=context.home,
+                    work_binding=canonical_binding,
+                    execution_key=execution_key,
+                )
+            else:
+                document = measure_native(request, ports).to_document()
+
     except (OSError, TypeError, ValueError, ZekamError) as exc:
         _finish(gate_document("environment-missing", reasons=(str(exc),)), EXIT_ENVIRONMENT_MISSING)
         return
-    _emit(result.to_document())
-    if result.process_exit_code:
-        raise typer.Exit(result.process_exit_code)
+    _emit(document)
+    if document["exit_code"]:
+        raise typer.Exit(int(document["exit_code"]))
 
 
 def _evidence_summary(

@@ -246,6 +246,9 @@ class _Session:
         receipt_digest: str | None = None,
         extra: Mapping[str, Any] | None = None,
     ) -> _Stop:
+        if getattr(self.control, "technical_interruption", False):
+            reason = UnitTestStopReason.RECOVERY_REQUIRED
+            detail = ("technical-lease-interruption", *detail)
         self._tick()
         evidence = self._put(
             {
