@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 
+import zekam.application.model_capability_benchmark as capability_module
 from zekam.application.model_capability_benchmark import (
     CapabilityCheckpointReceipt,
     CapabilityCohortRunner,
@@ -58,6 +59,17 @@ from zekam.domain.model_capability_benchmark import (
 from zekam.domain.model_inventory import Modality
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_capability_registry_reader_rejects_oversized_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "registry.yaml"
+    target.write_bytes(b"x" * 9)
+    monkeypatch.setattr(capability_module, "MAX_CAPABILITY_REGISTRY_BYTES", 8)
+
+    with pytest.raises(ValidationFailed, match="boyut sinirini"):
+        capability_module._read_capability_bytes(target, label="registry")
 
 
 def _loaded() -> tuple[Any, Any, dict[str, CapabilityFixture]]:

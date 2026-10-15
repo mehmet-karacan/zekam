@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.81 15 Ekim 2026 Capability registry stream kapisi
+
+Capability benchmark registry ve task fixture dosyalari 4 MiB bounded
+regular-file stream ile okunur; fixture digest hesaplama da ayni siniri kullanir.
+Link/reparse, UTF-8, growth veya oversized artifact typed ValidationFailed ile
+fail-closed olur; hidden evaluator ve model qualification iddialari uretilmez.
+
+Bu dilim WP-08 capability benchmark girdisi kaynak tuketimi boslugunu daraltir;
+canli model/provider ve native host acceptance kapilari halen aciktir.
+
 ### 10.80 15 Ekim 2026 Benchmark fixture stream kapisi
 
 Model benchmark fixture registry ve local fixture artifact okumalari 4 MiB

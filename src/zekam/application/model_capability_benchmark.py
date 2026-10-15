@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import stat
 import threading
 import time
 from collections.abc import Mapping
@@ -34,6 +35,7 @@ from zekam.domain.model_capability_benchmark import (
 from zekam.domain.model_routing import AgentRole, RouteCapabilityDimension
 
 CAPABILITY_TASK_SCHEMA = "zekam-capability-task/v1"
+MAX_CAPABILITY_REGISTRY_BYTES = 4 * 1024 * 1024
 CAPABILITY_RESPONSE_SCHEMA_DIGEST = digest(
     {
         "model_response_exact_fields": [
@@ -50,6 +52,33 @@ CAPABILITY_RESPONSE_SCHEMA_DIGEST = digest(
         "version": 2,
     }
 )
+
+
+def _read_capability_bytes(path: Path, *, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ValidationFailed(f"Capability {label} regular dosya olmali")
+        if metadata.st_size > MAX_CAPABILITY_REGISTRY_BYTES:
+            raise ValidationFailed(f"Capability {label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_CAPABILITY_REGISTRY_BYTES + 1)
+    except OSError as exc:
+        raise ValidationFailed(f"Capability {label} okunamadi") from exc
+    if len(payload) > MAX_CAPABILITY_REGISTRY_BYTES:
+        raise ValidationFailed(f"Capability {label} boyut sinirini asiyor")
+    return payload
+
+
+def _read_capability_text(path: Path, *, label: str) -> str:
+    try:
+        return _read_capability_bytes(path, label=label).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed(f"Capability {label} UTF-8 olmali") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,7 +359,7 @@ def capability_acceptance_evidence_digest(
 
 
 def _sha256_file(path: Path) -> str:
-    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+    return f"sha256:{hashlib.sha256(_read_capability_bytes(path, label='fixture')).hexdigest()}"
 
 
 def load_capability_registry(
@@ -339,8 +368,8 @@ def load_capability_registry(
     repository_root: Path,
 ) -> tuple[CapabilityTaskRegistry, CapabilityExecutionProfile, dict[str, CapabilityFixture]]:
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        document = yaml.safe_load(_read_capability_text(path, label="registry"))
+    except (ValidationFailed, yaml.YAMLError) as exc:
         raise ValidationFailed("Capability registry okunamadi") from exc
     if not isinstance(document, dict) or set(document) != {
         "schema_version",
@@ -406,7 +435,7 @@ def load_capability_registry(
             resolved.relative_to(repository_root.resolve(strict=True))
         except (OSError, ValueError) as exc:
             raise PolicyViolation("Capability fixture repository disinda") from exc
-        fixture_doc = json.loads(resolved.read_text(encoding="utf-8"))
+        fixture_doc = json.loads(_read_capability_text(resolved, label="fixture"))
         if not isinstance(fixture_doc, dict) or set(fixture_doc) != {
             "schema",
             "task_id",
