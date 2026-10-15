@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.source_security import SecretScanAllowance, SecretScanAllowlist
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
@@ -23,7 +24,11 @@ def load_secret_scan_allowlist(path: Path | None = None) -> SecretScanAllowlist:
     target = candidate.resolve(strict=True)
     if not target.is_file() or target.stat().st_size > 64 * 1024:
         raise PolicyViolation("Secret scan allowlist guvenli regular file olmali")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        raw = read_bounded_text(target, max_bytes=64 * 1024)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PolicyViolation("Secret scan allowlist bounded okunamadi") from exc
+    document = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {"schema", "allowances"}:
         raise ValidationFailed("Secret scan allowlist exact shape ister")
     raw_allowances = document["allowances"]

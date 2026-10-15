@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.memory_policy import (
     MEMORY_POLICY_SCHEMA,
@@ -41,7 +42,11 @@ def load_memory_policy(path: Path | None = None) -> MemoryContinuityPolicy:
     target = candidate.resolve(strict=True)
     if not target.is_file() or target.stat().st_size > 64 * 1024:
         raise PolicyViolation("Memory continuity policy guvenli regular file olmali")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        raw = read_bounded_text(target, max_bytes=64 * 1024)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PolicyViolation("Memory continuity policy bounded okunamadi") from exc
+    document = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {
         "schema",
         "revision",

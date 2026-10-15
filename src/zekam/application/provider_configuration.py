@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.config import core_root, package_root
 from zekam.application.model_registry import load_inventory
 from zekam.application.provider_adapter import reviewed_endpoint_digest
@@ -180,8 +181,8 @@ def load_provider_bindings(path: Path | None = None) -> ProviderBindingSet:
     if not target.is_file():
         raise ConfigurationError("Model provider binding dosyasi bulunamadi")
     try:
-        document = yaml.safe_load(target.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
+        document = yaml.safe_load(read_bounded_text(target, max_bytes=4 * 1024 * 1024))
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
         raise ConfigurationError("Model provider binding dosyasi okunamadi") from exc
     if not isinstance(document, dict) or document.get("schema") != BINDING_SCHEMA:
         raise ValidationFailed("Model provider binding semasi gecersiz")

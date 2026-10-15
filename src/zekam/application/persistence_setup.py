@@ -10,6 +10,7 @@ from typing import Protocol
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.config import (
     CONFIG_SCHEMA,
     USER_CONFIG_FILE,
@@ -42,8 +43,8 @@ def _user_document(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {}
     try:
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
+        loaded = yaml.safe_load(read_bounded_text(path, max_bytes=64 * 1024)) or {}
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
         raise ConfigurationError("Kullanici config dosyasi okunamadi") from exc
     if not isinstance(loaded, dict):
         raise ConfigurationError("Kullanici config kok nesnesi mapping olmali")

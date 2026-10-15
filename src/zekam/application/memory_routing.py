@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.memory_routing import (
     MEMORY_ROUTING_SCHEMA,
@@ -38,7 +39,11 @@ def load_memory_routing_policy(path: Path | None = None) -> MemoryRoutingPolicy:
     target = candidate.resolve(strict=True)
     if not target.is_file() or target.stat().st_size > 64 * 1024:
         raise PolicyViolation("Memory routing policy guvenli regular file olmali")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        raw = read_bounded_text(target, max_bytes=64 * 1024)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PolicyViolation("Memory routing policy bounded okunamadi") from exc
+    document = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {
         "schema",
         "provider_calls_default",

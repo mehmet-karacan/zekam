@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from zekam.application.config import core_root, package_root
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
@@ -58,7 +59,11 @@ def load_mappings(path: Path | None = None) -> tuple[JiraProjectMapping, ...]:
     target = candidate.resolve(strict=True)
     if not target.is_file() or target.stat().st_size > 64 * 1024:
         raise PolicyViolation("Jira mapping dosyasi guvenli regular file olmali")
-    document: Any = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        raw = read_bounded_text(target, max_bytes=64 * 1024)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PolicyViolation("Jira mapping dosyasi bounded okunamadi") from exc
+    document: Any = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {"schema", "mappings"}:
         raise ValidationFailed("Jira mapping semasi exact olmali")
     if document["schema"] != SCHEMA or not isinstance(document["mappings"], list):

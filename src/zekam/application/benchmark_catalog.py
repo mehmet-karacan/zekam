@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.canonical import digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_benchmark import (
@@ -16,7 +17,6 @@ from zekam.domain.model_benchmark import (
     REQUIRED_SCORE_DIMENSIONS,
     BenchmarkTaskFamily,
 )
-
 _TASK_KEYS = frozenset(
     {
         "schema",
@@ -79,7 +79,9 @@ def default_catalog_root() -> Path:
 
 def _yaml_document(path: Path) -> dict[str, Any]:
     try:
-        value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueLoader)
+        value = yaml.load(
+            read_bounded_text(path, max_bytes=_MAX_RESOURCE_BYTES), Loader=_UniqueLoader
+        )
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise PolicyViolation("Benchmark catalog YAML unreadable") from exc
     if type(value) is not dict:

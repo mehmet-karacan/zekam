@@ -2291,6 +2291,17 @@ siniflandirilir; audio fixture icin 25 MiB ust siniri korunur.
 Bu dilim WP-01/WP-02 kaynak guvenligi ve WP-08 provider fixture kaynak tuketimi
 bosluklarini daraltir; canli provider ve native host kabul kaniti bu dilimin disindadir.
 
+### 10.84 15 Ekim 2026 policy ve catalog YAML stream kapisi
+
+Policy, routing, model registry, provider binding, Jira mapping, persistence
+config ve benchmark catalog YAML okumalari ortak bounded regular-file UTF-8
+stream yardimcisini kullanir. Link/reparse, non-regular, growth, UTF-8 veya
+64 KiB/4 MiB sinirini asan girdiler ilgili policy/config hatasiyla fail-closed
+siniflandirilir.
+
+Bu dilim WP-01/WP-02/WP-08 yapilandirma ve routing kaynak tuketimi bosluklarini
+daraltir; canli provider, Jira ve native host kabul kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

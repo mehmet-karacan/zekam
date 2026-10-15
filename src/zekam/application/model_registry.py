@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.errors import ConfigurationError, ValidationFailed
 from zekam.domain.model_inventory import (
     CANONICAL_MODEL_COUNT,
@@ -96,8 +97,8 @@ def load_inventory(path: Path | None = None) -> InventorySnapshot:
     if not target.is_file():
         raise ConfigurationError("Model envanteri dosyasi bulunamadi")
     try:
-        document = yaml.safe_load(target.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:  # pragma: no cover - hata metni sanitize edilir
+        document = yaml.safe_load(read_bounded_text(target, max_bytes=4 * 1024 * 1024))
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:  # pragma: no cover
         raise ConfigurationError("Model envanteri okunamadi") from exc
 
     if not isinstance(document, dict):

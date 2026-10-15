@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.capability_profile import CapabilityProfile
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -103,7 +104,11 @@ def load_project_routing_targets(path: Path | None = None) -> ProjectRoutingTarg
     target = candidate.resolve(strict=True)
     if not target.is_file() or target.stat().st_size > 64 * 1024:
         raise PolicyViolation("Project routing target dosyasi guvenli regular file olmali")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    try:
+        raw = read_bounded_text(target, max_bytes=64 * 1024)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PolicyViolation("Project routing target bounded okunamadi") from exc
+    document = yaml.safe_load(raw)
     if not isinstance(document, dict) or set(document) != {
         "schema",
         "projects",
