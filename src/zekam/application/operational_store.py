@@ -295,7 +295,11 @@ class OperationalUnitOfWork(Protocol):
     def list_work(self, *, project_id: str | None = None) -> tuple[OperationalWorkRecord, ...]: ...
 
     def list_work_limited(
-        self, *, limit: int, project_id: str | None = None
+        self,
+        *,
+        limit: int,
+        project_id: str | None = None,
+        states: tuple[str, ...] | None = None,
     ) -> tuple[OperationalWorkRecord, ...]: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...

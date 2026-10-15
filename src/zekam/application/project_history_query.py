@@ -115,13 +115,15 @@ def query_issue_history(root: Path, issue_key: str) -> IssueHistory:
 
     key = validate_issue_key(issue_key)
     head = run_read_only(root, "rev-parse", "HEAD").strip()
+    if _SHA.fullmatch(head) is None:
+        raise GitCommandError("Git history HEAD kimligi gecersiz")
     shallow = run_read_only(root, "rev-parse", "--is-shallow-repository").strip() == "true"
     # Anahtar sinirlari: `SKYRSM-56590` ve `XSKYRSM-5659` eslesmez.
     pattern = rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)"
     log = run_read_only(
         root,
         "log",
-        "HEAD",
+        head,
         "-n",
         str(MAX_COMMITS + 1),
         "--no-color",
@@ -161,12 +163,14 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
     if len(fields) != 4 or _SHA.fullmatch(fields[0]) is None:
         raise GitCommandError("Git log kaydi beklenen sekilde degil")
     sha, parents_raw, authored_at, subject = fields
-    parents = tuple(item for item in parents_raw.split() if _SHA.fullmatch(item))
+    parents = tuple(parents_raw.split())
+    if any(_SHA.fullmatch(item) is None for item in parents):
+        raise GitCommandError("Git history parent kimligi gecersiz")
+    subject_redacted = bool(scan_text(subject, relative_path="history-subject.txt"))
     subject = subject[:MAX_SUBJECT_CHARS]
     # `--grep` govdede de arar; anahtar subject'te yoksa bunu acikca isaretle.
     key_pattern = re.compile(rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)")
     matched_in = "subject" if key_pattern.search(subject) else "body"
-    subject_redacted = bool(scan_text(subject, relative_path="history-subject.txt"))
     if subject_redacted:
         subject = "[redacted: secret-pattern]"
     files_total: int | None = None
@@ -190,7 +194,15 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
 def _diff_files(root: Path, parent: str, sha: str) -> tuple[int, tuple[HistoryFile, ...]]:
     # `-z`: dosya adlari tirnaklanmaz/octal-escape edilmez (Turkce ve ozel karakterler).
     listing = run_read_only(
-        root, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", parent, sha
+        root,
+        "diff",
+        "--name-status",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        parent,
+        sha,
     )
     tokens = [item for item in listing.split("\0") if item]
     if len(tokens) % 2:
@@ -226,6 +238,7 @@ def _hunks(
         "--unified=0",
         "--no-color",
         "--no-ext-diff",
+        "--no-textconv",
         "--no-renames",
         parent,
         sha,
@@ -236,12 +249,15 @@ def _hunks(
     # Dosya basligi (diff --git/index/---/+++) atilir; hunk ilk `@@` satirinda baslar.
     start = next((index for index, line in enumerate(lines) if line.startswith("@@")), len(lines))
     body = lines[start:]
+    # Scan the complete bounded response before truncation can split a secret
+    # token into a prefix that no longer matches the detector.
+    redacted = bool(scan_text("\n".join(body), relative_path="history-diff.txt"))
     truncated = len(body) > line_budget
     body = body[:line_budget]
     joined = "\n".join(body)
     if len(joined) > MAX_HUNK_CHARS:
         joined = joined[:MAX_HUNK_CHARS]
         truncated = True
-    if scan_text(joined, relative_path="history-diff.txt"):
+    if redacted:
         return None, truncated, True, len(body)
     return joined, truncated, False, len(body)

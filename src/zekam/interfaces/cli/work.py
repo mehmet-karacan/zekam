@@ -16,7 +16,7 @@ from zekam.application.operational_store import OperationalWorkRecord
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.domain.work import WorkState, WorkType
+from zekam.domain.work import OPEN_STATES, WorkState, WorkType
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlite_operational_store
 
 app = typer.Typer(name="work", help="Yerel work graph", no_args_is_help=True)
@@ -38,7 +38,9 @@ def resume_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
-            items = uow.list_work_limited(limit=_RESUME_WORK_LIMIT)
+            items = uow.list_work_limited(
+                limit=_RESUME_WORK_LIMIT + 1, states=tuple(sorted(OPEN_STATES))
+            )
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -51,8 +53,7 @@ def resume_command(
             "title": item.title,
             "revision": item.revision,
         }
-        for item in items
-        if item.state not in {"completed", "cancelled"}
+        for item in items[:_RESUME_WORK_LIMIT]
     ]
     document = {
         "source": "sqlite-work-graph",
@@ -64,6 +65,7 @@ def resume_command(
         "grants_authority": False,
         "bounded": True,
         "work_limit": _RESUME_WORK_LIMIT,
+        "has_more": len(items) > _RESUME_WORK_LIMIT,
     }
     if output_json:
         console.print_json(json.dumps(document, ensure_ascii=False))

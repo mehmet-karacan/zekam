@@ -211,9 +211,8 @@ class SQLiteSkillLifecycle:
         self.operational_path = operational_path
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
-        if (
-            path_or_parent_is_link_or_reparse(self.learning_path)
-            or not private_regular(self.learning_path)
+        if path_or_parent_is_link_or_reparse(self.learning_path) or not private_regular(
+            self.learning_path
         ):
             raise PolicyViolation("Personal skill learning store identity invalid")
         mode = "ro" if read_only else "rw"
@@ -248,9 +247,8 @@ class SQLiteSkillLifecycle:
         operation: str | None = None,
         effect_digest: str | None = None,
     ) -> str:
-        if (
-            path_or_parent_is_link_or_reparse(self.operational_path)
-            or not private_regular(self.operational_path)
+        if path_or_parent_is_link_or_reparse(self.operational_path) or not private_regular(
+            self.operational_path
         ):
             raise PolicyViolation("Personal skill operational evidence identity invalid")
         observed = operational_status(self.operational_path)
@@ -409,13 +407,14 @@ class SQLiteSkillLifecycle:
 
         try:
             body = json.loads(str(row["activation_body_json"]))
-            if "event_digest" in row and digest(body) != str(row["event_digest"]):
+            columns = row.keys()
+            if "event_digest" in columns and digest(body) != str(row["event_digest"]):
                 return False
-            if "revision_digest" in row and str(body["revision_digest"]) != str(
+            if "revision_digest" in columns and str(body["revision_digest"]) != str(
                 row["revision_digest"]
             ):
                 return False
-            if "action" in row and str(body["action"]) != str(row["action"]):
+            if "action" in columns and str(body["action"]) != str(row["action"]):
                 return False
             effect = activation_effect_digest(
                 str(body["revision_digest"]),
@@ -846,6 +845,10 @@ class SQLiteSkillLifecycle:
                     or str(head["revision_digest"]) != rollback_from_revision_digest
                 ):
                     raise PolicyViolation("Skill rollback needs current active source revision")
+                source_event = dict(head)
+                source_event["activation_body_json"] = str(head["body_json"])
+                if not self._activation_event_effective(source_event):
+                    raise PolicyViolation("Skill rollback source needs terminal active receipt")
                 previous_event = db.execute(
                     "select event_digest,revision_digest,body_json as activation_body_json "
                     "from skill_activation_event_v2 where revision_digest=? "

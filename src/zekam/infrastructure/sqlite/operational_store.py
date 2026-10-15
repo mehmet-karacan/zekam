@@ -1131,7 +1131,11 @@ class SQLiteOperationalUnitOfWork:
         return tuple(_row_work(row) for row in rows)
 
     def list_work_limited(
-        self, *, limit: int, project_id: str | None = None
+        self,
+        *,
+        limit: int,
+        project_id: str | None = None,
+        states: tuple[str, ...] | None = None,
     ) -> tuple[OperationalWorkRecord, ...]:
         """Return at most ``limit`` most-recent work rows with a SQL ``LIMIT`` at the
         repository layer so the database never streams the full ``work_item``/
@@ -1142,13 +1146,26 @@ class SQLiteOperationalUnitOfWork:
         the result.  Salt okunur; davranisi/state'i degistirmez, yalniz sorgu
         katmaninda sinirlar.
         """
-        if not isinstance(limit, int) or limit < 0:
+        if type(limit) is not int or limit < 0:
             raise ValidationFailed("Work limit pozitif tamsayi olmali")
-        parameters: list[object] = [limit]
-        project_clause = ""
+        parameters: list[object] = []
+        clauses: list[str] = []
         if project_id is not None:
-            project_clause = " where work_item.project_id = ?"
-            parameters.insert(0, project_id)
+            clauses.append("work_item.project_id = ?")
+            parameters.append(project_id)
+        if states is not None:
+            if (
+                not isinstance(states, tuple)
+                or not states
+                or len(states) > len(_WORK_STATES)
+                or any(not isinstance(state, str) or state not in _WORK_STATES for state in states)
+                or len(set(states)) != len(states)
+            ):
+                raise ValidationFailed("Work state filter bounded exact states olmali")
+            clauses.append("work_item.state in (" + ",".join("?" for _ in states) + ")")
+            parameters.extend(states)
+        project_clause = " where " + " and ".join(clauses) if clauses else ""
+        parameters.append(limit)
         rows = (
             self._db()
             .execute(

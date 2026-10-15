@@ -983,3 +983,37 @@ def test_bootstrap_session_and_model_state_are_durable_and_type_strict(
             "select count(*) from model_health_observation"
         ).fetchone()[0]
         assert model_health_count == 1
+
+
+def test_bounded_work_state_filter_precedes_limit_and_preserves_project_scope(
+    tmp_path: Path,
+) -> None:
+    _path, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="pending", display_name="Pending")
+        other = uow.create_project(slug="other", display_name="Other")
+        oldest_open = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Older open work",
+            state="ready",
+        )
+        for index in range(110):
+            uow.create_work(
+                project_id=project.id,
+                kind="task",
+                title=f"Completed {index}",
+                state="completed",
+                evidence_digest=digest(f"completed-{index}"),
+            )
+        uow.create_work(project_id=other.id, kind="task", title="Other project", state="ready")
+        uow.create_work(project_id=project.id, kind="task", title="Archived", state="archived")
+        selected = uow.list_work_limited(limit=1, project_id=project.id, states=("ready",))
+        assert [item.id for item in selected] == [oldest_open.id]
+        assert uow.list_work_limited(limit=1, project_id=project.id)[0].state == "archived"
+        for invalid in ((), ("not-a-state",), ("ready", "ready")):
+            with pytest.raises(ValidationFailed, match="state filter"):
+                uow.list_work_limited(limit=1, states=invalid)
+        with pytest.raises(ValidationFailed):
+            uow.list_work_limited(limit=True)
+        uow.commit()

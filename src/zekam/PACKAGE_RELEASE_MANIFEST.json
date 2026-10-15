@@ -5,8 +5,8 @@
   "entrypoints": [
     "zekam"
   ],
-  "local_schema_bundle_digest": "sha256:2a69ffd0b11d30b2e077c2d9a4b2d5070d49d4635b06f565135de51cb9334698",
-  "package_source_bundle_digest": "sha256:4a200032f911c7e243f4ab2ba7704dfe0fefb60caafedebfba1f1efb4f7bc876",
+  "local_schema_bundle_digest": "sha256:bdb5cab841a51d75b55ca67668c70b6e88c17cbb3daa6889ba8e73e6bb3ec501",
+  "package_source_bundle_digest": "sha256:4c6953ecd67fc06847f83b8338ffa736c4ba32fdff38e8192e8d38a67cfbe0a7",
   "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
   "python": ">=3.12",
   "schema": "zekam-package-manifest/v3",

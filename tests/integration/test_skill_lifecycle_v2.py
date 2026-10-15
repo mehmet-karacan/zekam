@@ -1147,12 +1147,16 @@ def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
     persisted = cast(dict[str, object], json.loads(str(body)))
     assert persisted["transition"] == "rollback"
     assert persisted["rollback_from_revision_digest"] == revision_b
-    assert lifecycle.require_active_package(
-        digest("rollback-package-a"), allowed_scopes=allowed
-    )["revision_digest"] == revision_a
-    assert lifecycle.discover("research", allowed_scopes=allowed)["items"][0][
-        "revision_digest"
-    ] == revision_a
+    assert (
+        lifecycle.require_active_package(digest("rollback-package-a"), allowed_scopes=allowed)[
+            "revision_digest"
+        ]
+        == revision_a
+    )
+    assert (
+        lifecycle.discover("research", allowed_scopes=allowed)["items"][0]["revision_digest"]
+        == revision_a
+    )
     with pytest.raises(ConcurrencyConflict, match="replay drift"):
         lifecycle.rollback_to_revision(
             revision_a,
@@ -1161,3 +1165,54 @@ def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
             authorization_job_id="rollback-to-a",
             now=NOW,
         )
+
+
+@pytest.mark.parametrize("changed_column", ["event_digest", "revision_digest", "action"])
+def test_activation_readback_validates_sqlite_row_column_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changed_column: str,
+) -> None:
+    lifecycle = SQLiteSkillLifecycle(
+        (tmp_path / "learning.db").resolve(), (tmp_path / "operational.db").resolve()
+    )
+    body = {
+        "revision_digest": digest("revision"),
+        "evaluation_digest": digest("evaluation"),
+        "review_digest": digest("review"),
+        "action": "active",
+        "previous_event_digest": None,
+        "authorization_job_id": "job",
+        "authorization_claim_id": "claim",
+    }
+    monkeypatch.setattr(
+        lifecycle, "_activation_authorization", lambda *_args: ("claim", digest("receipt"))
+    )
+    values = {
+        "event_digest": digest(body),
+        "revision_digest": body["revision_digest"],
+        "action": "active",
+    }
+    with sqlite3.connect(":memory:") as db:
+        db.row_factory = sqlite3.Row
+        valid = db.execute(
+            "select ? as event_digest,? as revision_digest,? as action,? as activation_body_json",
+            (
+                values["event_digest"],
+                values["revision_digest"],
+                values["action"],
+                canonical_json(body),
+            ),
+        ).fetchone()
+        assert lifecycle._activation_event_effective(valid)
+        values[changed_column] = "revoked" if changed_column == "action" else digest("other")
+        invalid = db.execute(
+            "select ? as event_digest,? as revision_digest,? as action,? as activation_body_json",
+            (
+                values["event_digest"],
+                values["revision_digest"],
+                values["action"],
+                canonical_json(body),
+            ),
+        ).fetchone()
+        assert not lifecycle._activation_event_effective(invalid)

@@ -12,6 +12,7 @@ from zekam.application.opencode_lifecycle import resume_projection
 from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation
+from zekam.domain.work import OPEN_STATES
 from zekam.infrastructure.local_file_security import private_regular
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
@@ -220,13 +221,19 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         raise ConfigurationError("ZEKAM_HOME resume icin hazir degil") from exc
     database = resolved_home / "state" / "operational.db"
     projects: tuple[Any, ...] = ()
-    work: tuple[Any, ...] = ()
+    open_work: tuple[Any, ...] = ()
+    completed_work: tuple[Any, ...] = ()
     project_aliases: dict[str, list[str]] = {}
     if database.is_file():
         store = SQLiteOperationalStore(database)
         with store.unit_of_work() as uow:
             projects = uow.list_projects_limited(limit=_PROJECT_LIMIT, include_archived=False)
-            work = uow.list_work_limited(limit=_OPEN_WORK_LIMIT + _COMPLETED_WORK_LIMIT + 1)
+            open_work = uow.list_work_limited(
+                limit=_OPEN_WORK_LIMIT + 1, states=tuple(sorted(OPEN_STATES))
+            )
+            completed_work = uow.list_work_limited(
+                limit=_COMPLETED_WORK_LIMIT, states=("completed",)
+            )
             project_aliases = {
                 project_id: list(aliases)
                 for project_id, aliases in uow.list_project_aliases_batch(
@@ -235,11 +242,9 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             }
             uow.commit()
     project_names = {item.id: item.slug for item in projects}
-    # ``work`` is bounded newest-first (see list_work_limited DESC ordering), so
-    # recent/open selection and the recently_completed window stay correct without
-    # streaming the full work history.
-    open_work = [item for item in work if item.state not in {"completed", "cancelled"}]
-    completed_work = [item for item in work if item.state == "completed"]
+    work = open_work + completed_work
+    # Apply state selection before SQL LIMIT so completed history cannot hide
+    # older open work. Both windows remain bounded and newest-first.
     lifecycle = resume_projection(resolved_home, limit=100, quarantine_invalid=False)
     sessions = list(lifecycle["sessions"])
     latest_checkpoint = _latest_semantic_checkpoint(sessions, exclude_session_id=session_id)
@@ -273,7 +278,9 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         "latest_semantic_checkpoint": latest_checkpoint,
         "work": {
             "open": [_work_document(item, project_names) for item in open_work[:_OPEN_WORK_LIMIT]],
-            "blocked_count": sum(item.state == "blocked" for item in open_work),
+            "blocked_count": sum(item.state == "blocked" for item in open_work[:_OPEN_WORK_LIMIT]),
+            "blocked_count_scope": "returned-open-window",
+            "open_truncated": len(open_work) > _OPEN_WORK_LIMIT,
             "recently_completed": [
                 _work_document(item, project_names)
                 for item in completed_work[:_COMPLETED_WORK_LIMIT]

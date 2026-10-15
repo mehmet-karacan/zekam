@@ -1058,6 +1058,14 @@ sembol, 57.091 edge, 0 hata; `gpu-fusion` 2.112 dosya, 12.164 sembol,
 revision'i exact bagliydi. `node_modules` ve Maven `target` graph eligibility
 disinda tutuldu; metadata envanteri/icerik policy'si ayri kalir.
 
+**15 Ekim 2026 - WP-06.05 gelistirme, testler bekliyor:** Issue history sorgusu
+hareketli HEAD yerine ilk gozlenen exact commit uzerinden log okur; gecersiz HEAD
+ve parent kimlikleri fail-closed reddedilir. Git diff'inde external diff'e ek
+olarak textconv da kapatildi. Subject ve bounded diff govdesi karakter/satir
+kesmesinden once secret taramasindan gecirilir; kesmenin secret kalibini bolup
+gorunur prefix sizdirmesi engellenir. Ilgili regresyon testleri yazildi fakat
+kullanici talimatiyla son toplu test asamasina birakildi; WP-06.05 kapanmadi.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  
@@ -1089,6 +1097,15 @@ ayri SQLite baglantisinda `BEGIN IMMEDIATE` ve geri alma ile DB write lock'in
 efekt cagrisi boyunca tutulmadigini dogrudan sinadi. Iki yeni test ve mevcut
 integration kosusu birlikte gecti; process-level crash, provider/Maven canli
 kosusu ve tam recovery kabul matrisi henuz olmadigi icin WP-07.03 acik kalir.
+
+**15 Ekim 2026 - WP-07 devam gorunumu, testler bekliyor:** Bounded Work sorgusu
+artik state filtresini SQL LIMIT'ten once uygular. `work resume` ve workspace
+resume ayri acik/tamamlanmis pencereleri okur; yeni tamamlanmis kayitlar eski acik
+isi gizlemez. Archived kayitlar canonical OPEN_STATES disinda kalir. CLI has_more,
+packet open_truncated ve blocked_count_scope alanlari bounded gorunumun sinirini
+belirtir. Proje filtresi ve mevcut varsayilan sorgu davranisi korunur. Regresyon
+testleri yazildi fakat HENUZ CALISTIRILMADI; Work/lease/grant yeniden edinimi ve
+WP-07.01..05 kapanis kabulleri halen aciktir.
 
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
@@ -1160,6 +1177,14 @@ ile gecis yapar; replay ve stale CAS reddedilir. Yeni entegrasyon testi explicit
 transition, source binding ve discovery'nin eski revision'a donusunu dogruladi;
 iki hedefli kosu **2 passed**, Ruff ve paket manifest temizdir. Native CLI
 activation/distribution ve canli client kabul kaniti WP-10.03 icin acik kalir.
+
+**15 Ekim 2026 - WP-10.03 SQLite readback sertlestirmesi, testler bekliyor:**
+Activation event dogrulamasi SQLite Row uyeliginde alan adi yerine deger arama
+hatasini kaldirir; event digest, revision ve action kontrolleri `row.keys()`
+uzerinden uygulanir. Rollback source head'i de terminal active receipt ile
+dogrulanmadan hedefe gecis yapilmaz. Gercek sqlite3.Row ile uc alan bozulmasini
+sinayan regresyon testi yazildi; son toplu test asamasinda calistirilacaktir.
+Bu not WP-10.03'u kapatmaz.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 

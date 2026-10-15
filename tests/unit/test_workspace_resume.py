@@ -256,9 +256,9 @@ def test_wp8_c1_warm_resume_reads_bounded_number_of_work_rows(
         def commit(self) -> None:
             self._real.commit()
 
-        def list_work_limited(self, limit: int, *, project_id: str | None = None):  # type: ignore[no-untyped-def]
+        def list_work_limited(self, limit: int, *, project_id: str | None = None, states=None):  # type: ignore[no-untyped-def]
             observed_limits.append(limit)
-            result = self._real.list_work_limited(limit=limit, project_id=project_id)
+            result = self._real.list_work_limited(limit=limit, project_id=project_id, states=states)
             observed_rows_fetched["value"] += len(result)
             return result
 
@@ -396,3 +396,27 @@ def test_malformed_project_rag_state_degrades_without_raising(tmp_path: Path) ->
     packet = build_resume_packet(home)
 
     assert packet["projects"][0]["rag"]["state"] == "attention-required"
+
+
+def test_workspace_resume_does_not_lose_open_work_behind_completed_history(tmp_path: Path) -> None:
+    home = _operational_home(tmp_path)
+    store = SQLiteOperationalStore(home / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="resume-open", display_name="Resume Open")
+        pending = uow.create_work(
+            project_id=project.id, kind="task", title="Resume me", state="ready"
+        )
+        for index in range(40):
+            uow.create_work(
+                project_id=project.id,
+                kind="task",
+                title=f"Completed {index}",
+                state="completed",
+                evidence_digest=digest(f"completed-{index}"),
+            )
+        uow.create_work(project_id=project.id, kind="task", title="Archived", state="archived")
+        uow.commit()
+    packet = build_resume_packet(home)
+    assert [item["id"] for item in packet["work"]["open"]] == [pending.id]
+    assert len(packet["work"]["recently_completed"]) == workspace_resume._COMPLETED_WORK_LIMIT
+    assert packet["work"]["open_truncated"] is False
