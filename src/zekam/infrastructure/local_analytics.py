@@ -687,9 +687,12 @@ class LocalAnalyticsStore:
             for path in sorted(directory.iterdir()):
                 if path.is_symlink() or not path.is_file():
                     continue
-                suffix = digest_of_bytes(
-                    read_bounded_bytes(path, max_bytes=MAX_SEGMENT_BYTES)
-                )[7:23]
+                try:
+                    payload = read_bounded_bytes(path, max_bytes=MAX_SEGMENT_BYTES)
+                except OSError:
+                    suffix = "unreadable"
+                else:
+                    suffix = digest_of_bytes(payload)[7:23]
                 target = self.quarantine / f"{path.name}.{suffix}.rejected"
                 if target.exists():
                     raise ConcurrencyConflict("Local analytics quarantine collision")
@@ -766,9 +769,11 @@ class LocalAnalyticsStore:
             if manifest_path.is_symlink():
                 raise PolicyViolation("Local analytics manifest identity invalid")
             _private_regular(manifest_path, 0o400)
-            manifest = _strict_document(
-                read_bounded_bytes(manifest_path, max_bytes=65_536), maximum=65_536
-            )
+            try:
+                manifest_raw = read_bounded_bytes(manifest_path, max_bytes=65_536)
+            except OSError as exc:
+                raise PolicyViolation("Local analytics manifest digest drift") from exc
+            manifest = _strict_document(manifest_raw, maximum=65_536)
             if (
                 frozenset(manifest) != _MANIFEST_KEYS
                 or manifest.get("schema") != "zekam-local-analytics-segment-manifest/v1"
@@ -784,7 +789,10 @@ class LocalAnalyticsStore:
                 raise PolicyViolation("Local analytics manifest path drift")
             segment = self.raw / f"{segment_id}.jsonl"
             _private_regular(segment, 0o400)
-            payload = read_bounded_bytes(segment, max_bytes=MAX_SEGMENT_BYTES)
+            try:
+                payload = read_bounded_bytes(segment, max_bytes=MAX_SEGMENT_BYTES)
+            except OSError as exc:
+                raise PolicyViolation("Local analytics segment digest drift") from exc
             if len(payload) > MAX_SEGMENT_BYTES or digest_of_bytes(payload) != manifest.get(
                 "segment_digest"
             ):

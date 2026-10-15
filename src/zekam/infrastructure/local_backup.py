@@ -31,6 +31,7 @@ BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
 MAX_FILES = 100_000
 MAX_DIRECTORIES = 100_000
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_DATABASE_BYTES = 256 * 1024 * 1024
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 
@@ -179,14 +180,14 @@ def _sync_directory(path: Path) -> None:
 
 def _copy_regular(source: Path, target: Path, mode: int) -> None:
     before = _regular(source)
-    if before.st_size > MAX_TOTAL_BYTES:
+    if before.st_size > MAX_FILE_BYTES:
         raise PolicyViolation("Backup file exceeds bound")
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     copied = 0
     with source.open("rb") as source_stream, target.open("wb") as target_stream:
         while chunk := source_stream.read(1024 * 1024):
             copied += len(chunk)
-            if copied > MAX_TOTAL_BYTES:
+            if copied > MAX_FILE_BYTES:
                 raise PolicyViolation("Backup file exceeds bound")
             target_stream.write(chunk)
     os.chmod(target, mode)

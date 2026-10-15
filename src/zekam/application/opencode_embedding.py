@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.environment import environment_value
 from zekam.application.provider_adapter import (
     ProviderCall,
@@ -109,10 +110,10 @@ def _secure_json_document(path: Path, *, max_bytes: int) -> Mapping[str, Any]:
     stat = candidate.stat()
     if stat.st_size < 2 or stat.st_size > max_bytes:
         raise ConfigurationError("OpenCode config dosya boyutu gecersiz")
-    with candidate.open("rb") as stream:
-        raw = stream.read(max_bytes + 1)
-    if len(raw) > max_bytes:
-        raise ConfigurationError("OpenCode config dosya boyutu gecersiz")
+    try:
+        raw = read_bounded_bytes(candidate, max_bytes=max_bytes)
+    except OSError as exc:
+        raise ConfigurationError("OpenCode config dosya boyutu veya kimligi gecersiz") from exc
     if len(raw) != stat.st_size:
         raise ConfigurationError("OpenCode config okuma sirasinda degisti")
 

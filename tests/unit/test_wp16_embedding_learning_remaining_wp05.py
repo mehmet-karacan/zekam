@@ -107,8 +107,12 @@ def test_opencode_secure_read_parent_and_size_drift(
     with pytest.raises(ConfigurationError, match="parent"):
         embedding._secure_json_document(source, max_bytes=100_000)
     monkeypatch.setattr(embedding, "_is_link_or_reparse", original)
-    original_read = Path.read_bytes
-    monkeypatch.setattr(Path, "read_bytes", lambda self: original_read(self) + b" ")
+    original_read = embedding.read_bounded_bytes
+    monkeypatch.setattr(
+        embedding,
+        "read_bounded_bytes",
+        lambda path, *, max_bytes: original_read(path, max_bytes=max_bytes) + b" ",
+    )
     with pytest.raises(ConfigurationError, match="degisti"):
         embedding._secure_json_document(source, max_bytes=100_000)
 
