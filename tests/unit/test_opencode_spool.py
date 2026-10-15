@@ -274,3 +274,36 @@ def test_drain_recovers_pid_reuse_with_process_incarnation_marker(
     assert receipt.recovered_stale_lock is True
     assert receipt.recovery_reason == "pid-reused"
     assert not lock.exists()
+
+
+def test_drain_stale_lock_takeover_race_is_policy_rejection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = plugin_spool_root(tmp_path)
+    lock = root / ".drain.lock"
+    lock.mkdir(parents=True)
+    (lock / "owner.json").write_text(
+        json.dumps(
+            {
+                "schema": "zekam-opencode-drain-owner/v2",
+                "pid": 1234,
+                "ownerToken": str(uuid4()),
+                "startedAt": (NOW - dt.timedelta(days=2)).isoformat(),
+                "expiresAt": (NOW + dt.timedelta(minutes=5)).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original_replace = Path.replace
+
+    def race_replace(source: Path, target: Path) -> Path:
+        if source == lock:
+            raise FileNotFoundError(source)
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", race_replace)
+    monkeypatch.setattr(spool_module, "_process_alive", lambda _pid: False)
+
+    with pytest.raises(PolicyViolation, match="yarista degisti"):
+        drain_plugin_spool(tmp_path, now=NOW)
