@@ -8,6 +8,7 @@ import math
 import os
 import selectors
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -45,6 +46,34 @@ if TYPE_CHECKING:
     from zekam.application.execution import ExecutionHost
 
 FIXTURE_SCHEMA = "zekam-model-benchmark-fixtures/v1"
+MAX_BENCHMARK_FIXTURE_BYTES = 4 * 1024 * 1024
+
+
+def _read_benchmark_bytes(path: Path, *, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ValidationFailed(f"Benchmark {label} regular dosya olmali")
+        if metadata.st_size > MAX_BENCHMARK_FIXTURE_BYTES:
+            raise ValidationFailed(f"Benchmark {label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_BENCHMARK_FIXTURE_BYTES + 1)
+    except OSError as exc:
+        raise ValidationFailed(f"Benchmark {label} okunamadi") from exc
+    if len(payload) > MAX_BENCHMARK_FIXTURE_BYTES:
+        raise ValidationFailed(f"Benchmark {label} boyut sinirini asiyor")
+    return payload
+
+
+def _read_benchmark_text(path: Path, *, label: str) -> str:
+    try:
+        return _read_benchmark_bytes(path, label=label).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed(f"Benchmark {label} UTF-8 olmali") from exc
 
 
 def default_fixture_file() -> Path:
@@ -60,7 +89,7 @@ def load_fixture_registry(path: Path | None = None) -> FixtureRegistry:
     target = path or default_fixture_file()
     if not target.is_file():
         raise ConfigurationError("Model benchmark fixture registry bulunamadi")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    document = yaml.safe_load(_read_benchmark_text(target, label="fixture registry"))
     if not isinstance(document, dict) or document.get("schema") != FIXTURE_SCHEMA:
         raise ValidationFailed("Benchmark fixture registry schema gecersiz")
     rows = document.get("fixtures")
@@ -105,7 +134,10 @@ def resolve_fixture_artifact(fixture: BenchmarkFixture, *, allow_root: Path) -> 
         raise PolicyViolation("Fixture source allow-root disina cikamaz") from exc
     if not resolved.is_file():
         raise PolicyViolation("Fixture source normal dosya olmali")
-    if digest_of_bytes(resolved.read_bytes()) != fixture.content_digest:
+    if (
+        digest_of_bytes(_read_benchmark_bytes(resolved, label="fixture artifact"))
+        != fixture.content_digest
+    ):
         raise PolicyViolation("Fixture source content digest drift")
     return resolved
 
@@ -407,7 +439,7 @@ class DeterministicLocalBenchmarkAdapter:
 
     def load(self, fixture: BenchmarkFixture) -> dict[str, Any]:
         source = resolve_fixture_artifact(fixture, allow_root=self.allow_root)
-        document = json.loads(source.read_text(encoding="utf-8"))
+        document = json.loads(_read_benchmark_text(source, label="local fixture"))
         if (
             document.get("schema") != "zekam-local-benchmark-fixture/v1"
             or document.get("case_id") != fixture.case_id

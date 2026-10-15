@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.80 15 Ekim 2026 Benchmark fixture stream kapisi
+
+Model benchmark fixture registry ve local fixture artifact okumalari 4 MiB
+bounded regular-file stream kullanir. Link/reparse, UTF-8, growth veya oversized
+fixture typed ValidationFailed ile durur; allow-root ve content digest baglari
+korunur, fixture sonucu canli model qualification sayilmaz.
+
+Bu dilim WP-08 benchmark girdisi kaynak tuketimi boslugunu daraltir; provider,
+model ve native host qualification kabulleri halen ayridir.
+
 ### 10.79 15 Ekim 2026 Project RAG runtime stream kapisi
 
 Project RAG state, pending evidence, source binding ve query/CAS recovery

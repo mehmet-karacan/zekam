@@ -65,6 +65,17 @@ def test_fixture_registry_rejects_missing_file(tmp_path: Path) -> None:
         service.load_fixture_registry(tmp_path / "missing.yaml")
 
 
+def test_fixture_artifact_reader_rejects_oversized_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "case.json"
+    target.write_bytes(b"x" * 9)
+    monkeypatch.setattr(service, "MAX_BENCHMARK_FIXTURE_BYTES", 8)
+
+    with pytest.raises(ValidationFailed, match="boyut sinirini"):
+        service._read_benchmark_bytes(target, label="fixture")
+
+
 def test_fixture_artifact_rejects_symlink_directory_and_digest_drift(tmp_path: Path) -> None:
     root = tmp_path / "fixtures"
     root.mkdir()
