@@ -44,19 +44,41 @@ def activation_effect_digest(
     *,
     action: str,
     expected_previous_event_digest: str | None,
+    transition: str | None = None,
+    rollback_from_revision_digest: str | None = None,
 ) -> str:
-    """Bind one activation authorization to its exact CAS head and review."""
+    """Bind one activation authorization to its exact CAS head and review.
 
-    return digest(
-        {
-            "operation": "skill.activate-v2",
-            "revision_digest": revision_digest,
-            "evaluation_digest": evaluation_digest,
-            "review_digest": review_digest,
-            "action": action,
-            "expected_previous_event_digest": expected_previous_event_digest,
-        }
-    )
+    Existing activation effects keep their original canonical payload for replay
+    compatibility.  A rollback adds an explicit transition and source revision
+    to the effect so a normal activation cannot be reused as a rollback claim.
+    """
+
+    payload: dict[str, object] = {
+        "operation": "skill.activate-v2",
+        "revision_digest": revision_digest,
+        "evaluation_digest": evaluation_digest,
+        "review_digest": review_digest,
+        "action": action,
+        "expected_previous_event_digest": expected_previous_event_digest,
+    }
+    if transition is not None:
+        if transition != "rollback":
+            raise ValidationFailed("Skill activation transition invalid")
+        if action != "active" or rollback_from_revision_digest is None:
+            raise ValidationFailed("Skill rollback effect binding invalid")
+        parse_digest(rollback_from_revision_digest)
+        if rollback_from_revision_digest == revision_digest:
+            raise ValidationFailed("Skill rollback source and target must differ")
+        payload.update(
+            {
+                "transition": transition,
+                "rollback_from_revision_digest": rollback_from_revision_digest,
+            }
+        )
+    elif rollback_from_revision_digest is not None:
+        raise ValidationFailed("Skill rollback source requires rollback transition")
+    return digest(payload)
 
 
 def outcome_verification_effect_digest(
@@ -401,6 +423,8 @@ class SQLiteSkillLifecycle:
                 str(body["review_digest"]),
                 action=str(body["action"]),
                 expected_previous_event_digest=body["previous_event_digest"],
+                transition=body.get("transition"),
+                rollback_from_revision_digest=body.get("rollback_from_revision_digest"),
             )
             claim_id, receipt_evidence = self._activation_authorization(
                 str(body["authorization_job_id"]), effect
@@ -743,12 +767,24 @@ class SQLiteSkillLifecycle:
         expected_previous_event_digest: str | None,
         authorization_job_id: str,
         now: dt.datetime,
+        transition: str | None = None,
+        rollback_from_revision_digest: str | None = None,
     ) -> str:
         parse_digest(revision_digest)
         if expected_previous_event_digest is not None:
             parse_digest(expected_previous_event_digest)
         if action not in {"active", "deprecated", "revoked", "retired", "superseded"}:
             raise ValidationFailed("Skill activation action invalid")
+        if transition is not None:
+            if transition != "rollback":
+                raise ValidationFailed("Skill activation transition invalid")
+            if action != "active" or rollback_from_revision_digest is None:
+                raise ValidationFailed("Skill rollback transition invalid")
+            parse_digest(rollback_from_revision_digest)
+            if rollback_from_revision_digest == revision_digest:
+                raise ValidationFailed("Skill rollback source and target must differ")
+        elif rollback_from_revision_digest is not None:
+            raise ValidationFailed("Skill rollback source requires rollback transition")
         with closing(self._connect()) as db:
             db.execute("begin immediate")
             revision = db.execute(
@@ -772,6 +808,10 @@ class SQLiteSkillLifecycle:
                         str(replay_body["review_digest"]),
                         action=str(replay_body["action"]),
                         expected_previous_event_digest=replay_body["previous_event_digest"],
+                        transition=replay_body.get("transition"),
+                        rollback_from_revision_digest=replay_body.get(
+                            "rollback_from_revision_digest"
+                        ),
                     )
                 except (KeyError, TypeError, json.JSONDecodeError, ValidationFailed) as exc:
                     raise PolicyViolation("Skill activation replay evidence malformed") from exc
@@ -780,6 +820,9 @@ class SQLiteSkillLifecycle:
                 if (
                     replay_body.get("action") != action
                     or replay_body.get("previous_event_digest") != expected_previous_event_digest
+                    or replay_body.get("transition") != transition
+                    or replay_body.get("rollback_from_revision_digest")
+                    != rollback_from_revision_digest
                 ):
                     raise ConcurrencyConflict("Skill activation authorization replay drift")
                 self._activation_authorization(authorization_job_id, replay_effect)
@@ -796,6 +839,21 @@ class SQLiteSkillLifecycle:
             observed_previous = None if head is None else str(head["event_digest"])
             if observed_previous != expected_previous_event_digest:
                 raise ConcurrencyConflict("Skill activation CAS drift")
+            if transition == "rollback":
+                if (
+                    head is None
+                    or str(head["action"]) != "active"
+                    or str(head["revision_digest"]) != rollback_from_revision_digest
+                ):
+                    raise PolicyViolation("Skill rollback needs current active source revision")
+                previous_event = db.execute(
+                    "select event_digest,revision_digest,body_json as activation_body_json "
+                    "from skill_activation_event_v2 where revision_digest=? "
+                    "and action='active' order by created_at,event_digest limit 1",
+                    (revision_digest,),
+                ).fetchone()
+                if previous_event is None or not self._activation_event_effective(previous_event):
+                    raise PolicyViolation("Skill rollback target needs prior active receipt")
             if action == "active":
                 evaluation = db.execute(
                     "select e.evaluation_digest,r.review_digest from skill_evaluation_v2 e "
@@ -846,6 +904,8 @@ class SQLiteSkillLifecycle:
                 str(evaluation["review_digest"]),
                 action=action,
                 expected_previous_event_digest=observed_previous,
+                transition=transition,
+                rollback_from_revision_digest=rollback_from_revision_digest,
             )
             claim_id, receipt_evidence = self._activation_authorization(
                 authorization_job_id, effect
@@ -865,6 +925,13 @@ class SQLiteSkillLifecycle:
                 "created_at": _time(now),
                 "grants_authority": False,
             }
+            if transition == "rollback":
+                body.update(
+                    {
+                        "transition": "rollback",
+                        "rollback_from_revision_digest": rollback_from_revision_digest,
+                    }
+                )
             raw, value = _body(body)
             db.execute(
                 "insert into skill_activation_event_v2 values(?,?,?,?,?,?,?,?,?)",
@@ -882,6 +949,27 @@ class SQLiteSkillLifecycle:
             )
             db.commit()
         return value
+
+    def rollback_to_revision(
+        self,
+        revision_digest: str,
+        *,
+        from_revision_digest: str,
+        expected_previous_event_digest: str,
+        authorization_job_id: str,
+        now: dt.datetime,
+    ) -> str:
+        """Append an explicit, receipt-bound rollback to a prior active revision."""
+
+        return self.append_activation(
+            revision_digest,
+            action="active",
+            expected_previous_event_digest=expected_previous_event_digest,
+            authorization_job_id=authorization_job_id,
+            now=now,
+            transition="rollback",
+            rollback_from_revision_digest=from_revision_digest,
+        )
 
     def discover(
         self,

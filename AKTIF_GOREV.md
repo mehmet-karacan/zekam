@@ -1127,6 +1127,15 @@ terminal evidence readback'ini dogrular. Bagimsiz inceleme ve provider-free
 hedefli kosu **52 passed**, Ruff ve manifest temiz; commit `6db35b1` ile
 push edilmistir.
 
+**15 Ekim 2026 — WP-10.03 yerel rollback dilimi:** Skill v2 activation effect
+artik rollback gecisini hedef/source revision ve onceki CAS head ile ayri digest'e
+baglar. `rollback_to_revision` yalniz daha once terminal receipt ile etkinlesmis
+eski revision'a, guncel active source head ve yeni `skill.activate-v2` receipt'i
+ile gecis yapar; replay ve stale CAS reddedilir. Yeni entegrasyon testi explicit
+transition, source binding ve discovery'nin eski revision'a donusunu dogruladi;
+iki hedefli kosu **2 passed**, Ruff ve paket manifest temizdir. Native CLI
+activation/distribution ve canli client kabul kaniti WP-10.03 icin acik kalir.
+
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
 **Bağımlılık/onay:** WP-07/10; model usage WP-08.  

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -1008,4 +1010,154 @@ def test_evaluation_requires_independent_fresh_verifier_evidence() -> None:
             "p-b",
             {"quality": {"baseline": 0.0, "candidate": 1.0}},
             {"method": "exact", "sample_size": 5},
+        )
+
+
+def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
+    operational = _operational(tmp_path / "operational.db")
+    learning = _learning(tmp_path, operational)
+    lifecycle = SQLiteSkillLifecycle(learning, operational)
+    allowed = ((SkillScopeKind.PROJECT, "project-a"),)
+    origins = _origins(operational)
+    revision_a = lifecycle.propose_revision(
+        _revision(digest("rollback-package-a")), origins, now=NOW
+    )
+    revision_b = lifecycle.propose_revision(
+        replace(_revision(digest("rollback-package-b")), version=2),
+        origins,
+        now=NOW,
+    )
+
+    def pass_revision(revision: str, label: str) -> tuple[str, str]:
+        evaluation = SkillEvaluationV2(
+            revision,
+            digest(f"{label}-plan"),
+            "improved",
+            5,
+            f"{label}-evaluator",
+            f"{label}-verifier",
+            digest(f"{label}-evaluator-evidence"),
+            digest(f"{label}-verifier-evidence"),
+            f"{label}-evaluator-run",
+            f"{label}-verifier-run",
+            {"quality": {"baseline": 0.2, "candidate": 0.9}},
+            {"method": "exact", "sample_size": 5},
+        )
+        _authorize_evaluation(operational, evaluation)
+        evaluation_digest = lifecycle.record_evaluation(evaluation, now=NOW)
+        reviewer_run = f"{label}-review-run"
+        reviewer_evidence = digest(f"{label}-review-evidence")
+        _authorize_review(
+            operational,
+            revision,
+            evaluation_digest,
+            reviewer_ref=f"{label}-reviewer",
+            reviewer_evidence_digest=reviewer_evidence,
+            reviewer_execution_identity=reviewer_run,
+            approved=True,
+            reason="Deterministic rollback fixture review.",
+        )
+        review_digest = lifecycle.record_review(
+            revision,
+            evaluation_digest,
+            reviewer_ref=f"{label}-reviewer",
+            reviewer_evidence_digest=reviewer_evidence,
+            reviewer_execution_identity=reviewer_run,
+            approved=True,
+            reason="Deterministic rollback fixture review.",
+            now=NOW,
+        )
+        return evaluation_digest, review_digest
+
+    evaluation_a, review_a = pass_revision(revision_a, "rollback-a")
+    evaluation_b, review_b = pass_revision(revision_b, "rollback-b")
+
+    active_a_effect = activation_effect_digest(
+        revision_a,
+        evaluation_a,
+        review_a,
+        action="active",
+        expected_previous_event_digest=None,
+    )
+    _terminal_receipt(
+        operational,
+        run_ref="rollback-activate-a",
+        evidence_digest=digest("rollback-activate-a-evidence"),
+        operation="skill.activate-v2",
+        effect_digest=active_a_effect,
+    )
+    active_a = lifecycle.append_activation(
+        revision_a,
+        action="active",
+        expected_previous_event_digest=None,
+        authorization_job_id="rollback-activate-a",
+        now=NOW,
+    )
+    active_b_effect = activation_effect_digest(
+        revision_b,
+        evaluation_b,
+        review_b,
+        action="active",
+        expected_previous_event_digest=active_a,
+    )
+    _terminal_receipt(
+        operational,
+        run_ref="rollback-activate-b",
+        evidence_digest=digest("rollback-activate-b-evidence"),
+        operation="skill.activate-v2",
+        effect_digest=active_b_effect,
+    )
+    active_b = lifecycle.append_activation(
+        revision_b,
+        action="active",
+        expected_previous_event_digest=active_a,
+        authorization_job_id="rollback-activate-b",
+        now=NOW,
+    )
+
+    rollback_effect = activation_effect_digest(
+        revision_a,
+        evaluation_a,
+        review_a,
+        action="active",
+        expected_previous_event_digest=active_b,
+        transition="rollback",
+        rollback_from_revision_digest=revision_b,
+    )
+    _terminal_receipt(
+        operational,
+        run_ref="rollback-to-a",
+        evidence_digest=digest("rollback-to-a-evidence"),
+        operation="skill.activate-v2",
+        effect_digest=rollback_effect,
+    )
+    rollback_event = lifecycle.rollback_to_revision(
+        revision_a,
+        from_revision_digest=revision_b,
+        expected_previous_event_digest=active_b,
+        authorization_job_id="rollback-to-a",
+        now=NOW,
+    )
+
+    with sqlite3.connect(learning) as db:
+        body = db.execute(
+            "select body_json from skill_activation_event_v2 where event_digest=?",
+            (rollback_event,),
+        ).fetchone()[0]
+    persisted = cast(dict[str, object], json.loads(str(body)))
+    assert persisted["transition"] == "rollback"
+    assert persisted["rollback_from_revision_digest"] == revision_b
+    assert lifecycle.require_active_package(
+        digest("rollback-package-a"), allowed_scopes=allowed
+    )["revision_digest"] == revision_a
+    assert lifecycle.discover("research", allowed_scopes=allowed)["items"][0][
+        "revision_digest"
+    ] == revision_a
+    with pytest.raises(ConcurrencyConflict, match="replay drift"):
+        lifecycle.rollback_to_revision(
+            revision_a,
+            from_revision_digest=revision_b,
+            expected_previous_event_digest=active_a,
+            authorization_job_id="rollback-to-a",
+            now=NOW,
         )
