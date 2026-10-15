@@ -29,6 +29,7 @@ _RESUME_WORK_LIMIT = 100
 @app.command("resume")
 def resume_command(
     output_json: Annotated[bool, typer.Option("--json")] = False,
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
 ) -> None:
@@ -38,8 +39,11 @@ def resume_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
+            project_id = uow.resolve_project(project).id if project is not None else None
             items = uow.list_work_limited(
-                limit=_RESUME_WORK_LIMIT + 1, states=tuple(sorted(OPEN_STATES))
+                limit=_RESUME_WORK_LIMIT + 1,
+                project_id=project_id,
+                states=tuple(sorted(OPEN_STATES)),
             )
             uow.commit()
     except ZekamError as exc:
@@ -57,6 +61,7 @@ def resume_command(
     ]
     document = {
         "source": "sqlite-work-graph",
+        "project_id": project_id,
         "open_items": open_items,
         "blocked": [item for item in open_items if item["state"] == "blocked"],
         "recent_activity": [],

@@ -1399,6 +1399,13 @@ mevcut admission kontrolunu uygular; `--work-item` parsed target hint'e dahil ed
 Resume salt okunur kalir. Regresyon kodu hazirlandi, testler son toplu asamayi bekler;
 bu kayit Work/grant/receipt veya native kabul basarisi uretmez.
 
+**15 Ekim 2026 - WP-07 proje kapsamli Work resume gelistirmesi:** `work resume`
+`--project`/`--proje` ile exact kayitli projeye sinirlanabilir. Mevcut store'un proje
+ve OPEN_STATES filtreleri SQL LIMIT'ten once uygulanir; cikti resolved project_id ve
+bounded has_more bilgisini verir. Kayitsiz proje tum projelere genisletilmez.
+Yogun yabanci proje gecmisi ve kayitsiz proje regresyon kodu hazirlandi; testler
+kullanici talimatiyla tum gelistirmeler sonrasina ertelendi, CALISTIRILMADI.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

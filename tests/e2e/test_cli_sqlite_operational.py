@@ -388,6 +388,42 @@ def test_work_resume_reads_a_bounded_recent_window(tmp_path: Path) -> None:
     assert len(document["open_items"]) == 100
 
 
+def test_work_resume_filters_project_before_bounded_window(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap(database)
+    store = SQLiteOperationalStore(database)
+    with store.unit_of_work() as uow:
+        selected = uow.create_project(slug="selected", display_name="Selected")
+        other = uow.create_project(slug="other", display_name="Other")
+        wanted = uow.create_work(
+            project_id=selected.id, kind="task", title="Selected work", state="ready",
+            payload_digest=digest("selected-work"),
+        )
+        for index in range(105):
+            uow.create_work(
+                project_id=other.id, kind="task", title=f"Other {index}", state="ready",
+                payload_digest=digest({"other": index}),
+            )
+        uow.commit()
+
+    result = _invoke(
+        CliRunner(), "work", "resume", "--project", "selected", "--home", str(home), "--json"
+    )
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert document["project_id"] == selected.id
+    assert [item["id"] for item in document["open_items"]] == [wanted.id]
+    assert document["has_more"] is False
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False
+    missing = _invoke(
+        CliRunner(), "work", "resume", "--project", "missing", "--home", str(home), "--json"
+    )
+    assert missing.exit_code != 0
+
+
 def test_local_runtime_is_composed_in_real_cli_and_survives_restart(tmp_path: Path) -> None:
     runner = CliRunner()
     home = tmp_path / "home"
