@@ -16,6 +16,7 @@ import json
 import os
 import platform
 import sqlite3
+import stat
 import struct
 import subprocess
 import sys
@@ -139,6 +140,31 @@ from zekam.infrastructure.sqlite.operational_store import (
     SQLiteOperationalStore,
     SQLiteOperationalUnitOfWork,
 )
+
+MAX_RAG_RUNTIME_JSON_BYTES = 16 * 1024 * 1024
+
+
+def _read_rag_runtime_text(path: Path, *, label: str) -> str:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise PolicyViolation(f"Project RAG {label} regular dosya olmali")
+        if metadata.st_size > MAX_RAG_RUNTIME_JSON_BYTES:
+            raise PolicyViolation(f"Project RAG {label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_RAG_RUNTIME_JSON_BYTES + 1)
+    except OSError as exc:
+        raise PolicyViolation(f"Project RAG {label} okunamadi") from exc
+    if len(payload) > MAX_RAG_RUNTIME_JSON_BYTES:
+        raise PolicyViolation(f"Project RAG {label} boyut sinirini asiyor")
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise PolicyViolation(f"Project RAG {label} UTF-8 olmali") from exc
 
 MODEL_ID = "openai/BAAI/bge-m3"
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
@@ -776,7 +802,7 @@ def project_rag_source_freshness(home: Path, project_slug: str) -> dict[str, Any
         }
     if not _rag_scope_is_private(paths):
         raise PolicyViolation("Project RAG scoped ACL/identity drift")
-    state = json.loads(paths["state"].read_text(encoding="utf-8"))
+    state = json.loads(_read_rag_runtime_text(paths["state"], label="state"))
     if not isinstance(state, dict) or state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
     source_binding = paths["project_root"] / "baglantilar" / "source.json"
@@ -1874,8 +1900,8 @@ def _write_rag_state_cas(
     """
     with _rag_state_write_lock(path):
         try:
-            current_text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            current_text = _read_rag_runtime_text(path, label="CAS state")
+        except PolicyViolation as exc:
             raise PolicyViolation("RAG state CAS okuma hatasi") from exc
         try:
             current = json.loads(current_text)
@@ -1940,8 +1966,10 @@ def _publish_rag_state_pending(
             if not _scoped_path_is_private(paths["home"], state_path, directory=False):
                 raise PolicyViolation("Project RAG state scoped ACL/identity drift")
             try:
-                current_state = json.loads(state_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                current_state = json.loads(
+                    _read_rag_runtime_text(state_path, label="publish state")
+                )
+            except (PolicyViolation, json.JSONDecodeError) as exc:
                 raise PolicyViolation("Project RAG publish oncesi state okunamadi") from exc
             if (
                 not isinstance(current_state, dict)
@@ -2045,8 +2073,8 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
         if not _scoped_path_is_private(root, pending_path, directory=False):
             raise PolicyViolation("Project RAG pending scoped ACL/identity drift")
         try:
-            pending = json.loads(pending_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            pending = json.loads(_read_rag_runtime_text(pending_path, label="pending"))
+        except (PolicyViolation, json.JSONDecodeError) as exc:
             raise PolicyViolation("Project RAG pending JSON okunamadi") from exc
         if not isinstance(pending, dict) or pending.get("schema") != _RAG_STATE_PENDING_SCHEMA:
             raise PolicyViolation("Project RAG pending schema drift")
@@ -2097,8 +2125,10 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                 raise PolicyViolation("Project RAG pending source/tree DB baglari uyusmuyor")
             if state_path.exists() or state_path.is_symlink():
                 try:
-                    disk_state = json.loads(state_path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    disk_state = json.loads(
+                        _read_rag_runtime_text(state_path, label="pending state")
+                    )
+                except (PolicyViolation, json.JSONDecodeError) as exc:
                     raise PolicyViolation("Project RAG pending state okunamadi") from exc
                 if (
                     not isinstance(disk_state, dict)
@@ -2133,8 +2163,10 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                 if not state_path.is_file():
                     raise PolicyViolation("Project RAG onceki state bulunamadi")
                 try:
-                    old_state = json.loads(state_path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    old_state = json.loads(
+                        _read_rag_runtime_text(state_path, label="previous state")
+                    )
+                except (PolicyViolation, json.JSONDecodeError) as exc:
                     raise PolicyViolation("Project RAG onceki state okunamadi") from exc
                 if (
                     not isinstance(old_state, dict)
@@ -2223,7 +2255,7 @@ def resolve_project_source(home: Path, project_slug: str) -> Path:
         and _scoped_path_is_private(paths["home"], binding_path, directory=False)
     ):
         raise ValidationFailed("Project local source binding bulunamadi")
-    document = json.loads(binding_path.read_text(encoding="utf-8"))
+    document = json.loads(_read_rag_runtime_text(binding_path, label="source binding"))
     if (
         document.get("schema") != "zekam-project-local-source-binding/v1"
         or document.get("project_id") != str(project_id)
@@ -2274,7 +2306,7 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "retryable": False,
             "provider_calls": 0,
         }
-    state = json.loads(paths["state"].read_text(encoding="utf-8"))
+    state = json.loads(_read_rag_runtime_text(paths["state"], label="status state"))
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
         generation = index.generation(str(project_id))
         integrity = index.readiness(str(project_id))
@@ -3002,7 +3034,7 @@ def _query(
         raise ValidationFailed("Project RAG index bulunamadi")
     if not _rag_scope_is_private(paths):
         raise PolicyViolation("Project RAG scoped ACL/identity drift")
-    state = json.loads(paths["state"].read_text(encoding="utf-8"))
+    state = json.loads(_read_rag_runtime_text(paths["state"], label="query state"))
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
     stale_reasons: list[str] = []

@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.79 15 Ekim 2026 Project RAG runtime stream kapisi
+
+Project RAG state, pending evidence, source binding ve query/CAS recovery
+dosyalari 16 MiB bounded regular-file stream ile okunur. Link/reparse, UTF-8,
+growth ve oversized runtime JSON hatalari PolicyViolation ile fail-closed olur;
+generation/source/tree binding ve pending CAS recovery zinciri korunur.
+
+Bu dilim WP-05/WP-07 RAG devam ve crash recovery kaynak tuketimi boslugunu
+daraltir; canli provider kalite ve native host kabul kaniti bu dilimin disindadir.
+
 ### 10.78 15 Ekim 2026 Backup stream copy kapisi
 
 Local backup normal dosya kopyasi chunked stream ile yapilir; tek dosya ve toplam

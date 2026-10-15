@@ -29,6 +29,17 @@ from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk
 
 
+def test_rag_runtime_json_reader_rejects_oversized_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "state.json"
+    target.write_bytes(b"x" * 9)
+    monkeypatch.setattr(runtime, "MAX_RAG_RUNTIME_JSON_BYTES", 8)
+
+    with pytest.raises(PolicyViolation, match="boyut sinirini"):
+        runtime._read_rag_runtime_text(target, label="state")
+
+
 @pytest.mark.parametrize("first_publication", [False, True])
 @pytest.mark.parametrize("crash_before_cas", [False, True])
 @pytest.mark.parametrize("tampered_pending", [False, True])
