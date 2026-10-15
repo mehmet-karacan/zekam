@@ -1425,6 +1425,14 @@ Work revision/state'ini dondurur, ikinci created event yazmaz. CLI `--key` ve `-
 ile bu yola baglandi. Concurrency/revision replay/drift/project-scope ve CLI regresyon
 kodu hazirlandi; testler kullanici talimatiyla CALISTIRILMADI.
 
+**15 Ekim 2026 - WP-07 harici is numarasi cozumleme gelistirmesi:** Operational
+resolve_work UUID veya exact external_number'i optional project_id sinirinda cozer;
+SQL LIMIT 2 belirsizligi saptar, substring/tahmin yoktur. Show/history/transition/close
+CLI girisleri --project/--proje ile ayni resolver'a baglandi. Mutation canonical UUID
+ile mevcut optimistic revision/evidence kapisina gider. Ayni numaranin iki projede
+olmasi, foreign UUID scope, history ve transition regresyon kodu hazirlandi; testler
+tum gelistirmeler sonrasi final asamayi bekler, CALISTIRILMADI.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

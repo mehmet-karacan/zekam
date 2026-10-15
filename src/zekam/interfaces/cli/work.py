@@ -223,6 +223,7 @@ def _work_document(item: OperationalWorkRecord) -> dict[str, object]:
 @app.command("show")
 def show_command(
     work_item_id: Annotated[str, typer.Argument()],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -232,7 +233,8 @@ def show_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
-            document = _work_document(uow.get_work(work_item_id))
+            project_id = uow.resolve_project(project).id if project is not None else None
+            document = _work_document(uow.resolve_work(work_item_id, project_id=project_id))
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -245,6 +247,7 @@ def show_command(
 @app.command("history")
 def history_command(
     work_item_id: Annotated[str, typer.Argument()],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -254,7 +257,9 @@ def history_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
-            events = uow.list_work_events(work_item_id)
+            project_id = uow.resolve_project(project).id if project is not None else None
+            current = uow.resolve_work(work_item_id, project_id=project_id)
+            events = uow.list_work_events(current.id)
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -273,6 +278,7 @@ def transition_command(
     work_item_id: Annotated[str, typer.Argument()],
     target: Annotated[WorkState, typer.Option("--hedef")],
     revision: Annotated[int, typer.Option("--revision")],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
     evidence_digest: Annotated[str | None, typer.Option("--evidence-digest")] = None,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     output_json: Annotated[bool, typer.Option("--json")] = False,
@@ -284,7 +290,9 @@ def transition_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         with store.unit_of_work() as uow:
-            current = uow.get_work(work_item_id)
+            project_id = uow.resolve_project(project).id if project is not None else None
+            current = uow.resolve_work(work_item_id, project_id=project_id)
+            work_item_id = current.id
             payload_digest = digest(
                 {
                     "summary": current.summary,
@@ -677,6 +685,7 @@ def close_command(
     work_item_id: Annotated[str, typer.Argument()],
     revision: Annotated[int, typer.Option("--revision")],
     evidence_digest: Annotated[str, typer.Option("--evidence-digest")],
+    project: Annotated[str | None, typer.Option("--project", "--proje")] = None,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
@@ -688,6 +697,7 @@ def close_command(
         target=WorkState.COMPLETED,
         revision=revision,
         evidence_digest=evidence_digest,
+        project=project,
         apply=apply,
         output_json=output_json,
         realm=realm,

@@ -1152,6 +1152,28 @@ class SQLiteOperationalUnitOfWork:
             raise ValidationFailed("Work bulunamadi")
         return _row_work(row)
 
+    def resolve_work(
+        self, reference: str, *, project_id: str | None = None
+    ) -> OperationalWorkRecord:
+        """Resolve exact ID or external number, rejecting cross-project ambiguity."""
+        reference = _required_text(reference, "Work reference")
+        if len(reference) > 256:
+            raise ValidationFailed("Work reference bounded olmali")
+        parameters: list[object] = [reference, reference]
+        clause = "(id=? or external_number=?)"
+        if project_id is not None:
+            clause += " and project_id=?"
+            parameters.append(project_id)
+        rows = self._db().execute(
+            "select id from work_item where " + clause + " order by id limit 2",
+            tuple(parameters),
+        ).fetchall()
+        if not rows:
+            raise ValidationFailed("Work bulunamadi veya proje kapsami uyusmuyor")
+        if len(rows) != 1:
+            raise ValidationFailed("Work numarasi birden fazla projede var; exact proje secin")
+        return self.get_work(str(rows[0]["id"]))
+
     def list_work_events(self, work_item_id: str) -> tuple[dict[str, Any], ...]:
         """Return append-only Work events in revision order."""
         if not isinstance(work_item_id, str) or not work_item_id.strip():

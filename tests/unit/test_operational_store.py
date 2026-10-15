@@ -436,6 +436,29 @@ def test_checkpoint_payload_digest_drift_is_rejected(tmp_path: Path) -> None:
             )
 
 
+def test_work_reference_resolution_is_exact_project_scoped_and_ambiguity_safe(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        one = uow.create_project(slug="one", display_name="One")
+        two = uow.create_project(slug="two", display_name="Two")
+        first = uow.create_work(
+            project_id=one.id, kind="task", title="First", state="ready", external_number="123"
+        )
+        second = uow.create_work(
+            project_id=two.id, kind="task", title="Second", state="ready", external_number="123"
+        )
+        assert uow.resolve_work(first.id).id == first.id
+        assert uow.resolve_work("123", project_id=one.id).id == first.id
+        assert uow.resolve_work("123", project_id=two.id).id == second.id
+        with pytest.raises(ValidationFailed, match="birden fazla projede"):
+            uow.resolve_work("123")
+        with pytest.raises(ValidationFailed, match="proje kapsami"):
+            uow.resolve_work(first.id, project_id=two.id)
+        with pytest.raises(ValidationFailed):
+            uow.resolve_work("12", project_id=one.id)
+        uow.commit()
+
+
 def test_keyed_work_create_replays_current_revision_without_duplicate_events(tmp_path: Path) -> None:
     _, store = _store(tmp_path)
     with store.unit_of_work() as uow:

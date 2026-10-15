@@ -2,6 +2,12 @@
 
 ## Work kaydini tekrar olusturmadan devam
 
+`work show|history|transition|close <reference> --project <project>` kayitli harici
+is numarasini veya UUID'yi canonical Work'a cozer. Ayni numara birden fazla projede
+varsa proje secilmeden devam edilmez. UUID bile verilse explicit proje siniri
+korunur; numara prefix/substring eslestirmesi yapilmaz. Native ajan kullanicinin
+proje ve is numarasini bu girise tasiyabilir; revision/evidence kosullari devam eder.
+
 Native istemci ayni create istegini tekrar gonderecekse `work create <project> <title>
 --key <request-key> --uygula --json` kullanir. Key proje kapsamindadir; ayni key ve
 exact ilk create icerigi mevcut Work'un guncel revision/state'ini dondurur. Key ayni

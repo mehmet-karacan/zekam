@@ -363,6 +363,44 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
     assert len(json.loads(listed.stdout)) == 1
 
 
+def test_cli_work_external_number_scope_history_and_transition(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap(database)
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        selected = uow.create_project(slug="selected", display_name="Selected")
+        other = uow.create_project(slug="other", display_name="Other")
+        first = uow.create_work(
+            project_id=selected.id, kind="task", title="First", state="ready", external_number="123"
+        )
+        second = uow.create_work(
+            project_id=other.id, kind="task", title="Second", state="ready", external_number="123"
+        )
+        uow.commit()
+    runner = CliRunner()
+    args = ("--project", "selected", "--json", "--home", str(home))
+    shown = _invoke(runner, "work", "show", "123", *args)
+    assert shown.exit_code == 0, shown.stdout
+    assert json.loads(shown.stdout)["id"] == first.id
+    ambiguous = _invoke(runner, "work", "show", "123", "--json", "--home", str(home))
+    assert ambiguous.exit_code != 0
+    transitioned = _invoke(
+        runner, "work", "transition", "123", "--hedef", "active", "--revision", "1",
+        "--uygula", *args,
+    )
+    assert transitioned.exit_code == 0, transitioned.stdout
+    assert json.loads(transitioned.stdout)["work"]["id"] == first.id
+    history = _invoke(runner, "work", "history", "123", *args)
+    assert history.exit_code == 0, history.stdout
+    assert len(json.loads(history.stdout)) == 2
+    wrong_scope = _invoke(runner, "work", "show", second.id, *args)
+    assert wrong_scope.exit_code != 0
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        assert uow.get_work(first.id).state == "active"
+        assert uow.get_work(second.id).state == "ready"
+
+
 def test_cli_keyed_work_create_returns_same_id_and_rejects_drift(tmp_path: Path) -> None:
     home = tmp_path / "home"
     database = home / "state" / "operational.db"
