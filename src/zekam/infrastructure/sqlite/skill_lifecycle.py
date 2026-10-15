@@ -37,7 +37,7 @@ from zekam.infrastructure.sqlite.operational_schema import status as operational
 _WORD = re.compile(r"[a-z0-9çğıöşü]+", re.IGNORECASE)
 
 
-def activation_effect_digest(
+def activation_effect_body(
     revision_digest: str,
     evaluation_digest: str,
     review_digest: str,
@@ -46,7 +46,7 @@ def activation_effect_digest(
     expected_previous_event_digest: str | None,
     transition: str | None = None,
     rollback_from_revision_digest: str | None = None,
-) -> str:
+) -> dict[str, object]:
     """Bind one activation authorization to its exact CAS head and review.
 
     Existing activation effects keep their original canonical payload for replay
@@ -78,7 +78,30 @@ def activation_effect_digest(
         )
     elif rollback_from_revision_digest is not None:
         raise ValidationFailed("Skill rollback source requires rollback transition")
-    return digest(payload)
+    return payload
+
+
+def activation_effect_digest(
+    revision_digest: str,
+    evaluation_digest: str,
+    review_digest: str,
+    *,
+    action: str,
+    expected_previous_event_digest: str | None,
+    transition: str | None = None,
+    rollback_from_revision_digest: str | None = None,
+) -> str:
+    return digest(
+        activation_effect_body(
+            revision_digest,
+            evaluation_digest,
+            review_digest,
+            action=action,
+            expected_previous_event_digest=expected_previous_event_digest,
+            transition=transition,
+            rollback_from_revision_digest=rollback_from_revision_digest,
+        )
+    )
 
 
 def outcome_verification_effect_digest(
@@ -758,6 +781,106 @@ class SQLiteSkillLifecycle:
             db.commit()
         return value
 
+    def require_revision_scope(
+        self,
+        revision_digest: str,
+        *,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+    ) -> None:
+        parse_digest(revision_digest)
+        scopes = self._canonical_scopes(allowed_scopes)
+        with closing(self._connect(read_only=True)) as db:
+            row = db.execute(
+                "select scope_kind,scope_ref from skill_revision_v2 where revision_digest=?",
+                (revision_digest,),
+            ).fetchone()
+        if row is None or (SkillScopeKind(row[0]), row[1]) not in scopes:
+            raise PolicyViolation("Skill revision scope mismatch")
+
+    def activation_plan(
+        self,
+        revision_digest: str,
+        *,
+        action: str,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+        rollback_from_revision_digest: str | None = None,
+    ) -> dict[str, object]:
+        """Read exact scope, review and CAS head; grant no activation authority."""
+        parse_digest(revision_digest)
+        if action not in {"active", "deprecated", "revoked", "retired", "superseded"}:
+            raise ValidationFailed("Skill activation action invalid")
+        scopes = self._canonical_scopes(allowed_scopes)
+        with closing(self._connect(read_only=True)) as db:
+            revision = db.execute(
+                "select skill_id,scope_kind,scope_ref from skill_revision_v2 where revision_digest=?",
+                (revision_digest,),
+            ).fetchone()
+            if (
+                revision is None
+                or (SkillScopeKind(revision["scope_kind"]), revision["scope_ref"]) not in scopes
+            ):
+                raise PolicyViolation("Skill activation revision scope mismatch")
+            head = db.execute(
+                "select e.event_digest,e.action,e.revision_digest,e.body_json as activation_body_json "
+                "from skill_activation_event_v2 e where e.skill_id=? and e.scope_kind=? and e.scope_ref=? "
+                "and not exists(select 1 from skill_activation_event_v2 n where n.previous_event_digest=e.event_digest)",
+                tuple(revision),
+            ).fetchone()
+            if head is not None and not self._activation_event_effective(head):
+                raise PolicyViolation("Skill activation head terminal evidence missing")
+            if rollback_from_revision_digest is not None:
+                if (
+                    head is None
+                    or head["action"] != "active"
+                    or head["revision_digest"] != rollback_from_revision_digest
+                ):
+                    raise PolicyViolation("Skill rollback current source mismatch")
+                previous = db.execute(
+                    "select event_digest,revision_digest,body_json as activation_body_json from skill_activation_event_v2 "
+                    "where revision_digest=? and action='active' order by created_at,event_digest limit 1",
+                    (revision_digest,),
+                ).fetchone()
+                if previous is None or not self._activation_event_effective(previous):
+                    raise PolicyViolation("Skill rollback target terminal evidence missing")
+            if action == "active":
+                review = db.execute(
+                    "select e.evaluation_digest,r.review_digest from skill_evaluation_v2 e join skill_review_v2 r on r.evaluation_digest=e.evaluation_digest "
+                    "where e.revision_digest=? and e.state='improved' and e.trials>=5 and r.approved=1 "
+                    "order by r.created_at desc,r.review_digest desc limit 1",
+                    (revision_digest,),
+                ).fetchone()
+                if review is None:
+                    raise PolicyViolation("Skill activation passing evaluation/review required")
+            else:
+                if (
+                    head is None
+                    or head["action"] != "active"
+                    or head["revision_digest"] != revision_digest
+                ):
+                    raise PolicyViolation("Skill lifecycle current active revision required")
+                current = json.loads(head["activation_body_json"])
+                review = {
+                    "evaluation_digest": current["evaluation_digest"],
+                    "review_digest": current["review_digest"],
+                }
+            effect = activation_effect_body(
+                revision_digest,
+                review["evaluation_digest"],
+                review["review_digest"],
+                action=action,
+                expected_previous_event_digest=None if head is None else head["event_digest"],
+                transition="rollback" if rollback_from_revision_digest is not None else None,
+                rollback_from_revision_digest=rollback_from_revision_digest,
+            )
+        body = {
+            "schema": "zekam-skill-activation-plan/v2",
+            "effect": effect,
+            "scope": {"kind": revision["scope_kind"], "ref": revision["scope_ref"]},
+            "effect_digest": digest(effect),
+            "grants_authority": False,
+        }
+        return body | {"plan_digest": digest(body)}
+
     def append_activation(
         self,
         revision_digest: str,
@@ -862,7 +985,7 @@ class SQLiteSkillLifecycle:
                     "select e.evaluation_digest,r.review_digest from skill_evaluation_v2 e "
                     "join skill_review_v2 r on r.evaluation_digest=e.evaluation_digest "
                     "where e.revision_digest=? and e.state='improved' and e.trials>=5 "
-                    "and r.approved=1 order by r.created_at desc limit 1",
+                    "and r.approved=1 order by r.created_at desc,r.review_digest desc limit 1",
                     (revision_digest,),
                 ).fetchone()
                 if evaluation is None:

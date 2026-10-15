@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-10.03 lifecycle CLI: scoped current-head/review plan, strict plan apply, exact skill.activate-v2 claim/receipt, rollback/deprecation ve idempotent replay baglandi. Mevcut export projection kapisi korunur. Plan parity, foreign scope ve real local worker CLI replay regresyon kodu hazir, CALISTIRILMADI. Gercek evaluation/review producer ve native invocation kabulu acik.
+
 - Gorev 5 WP-08 native research: typed host capability/call bridge, logical researcher/verifier role, subject/session/catalog/digest/cancel baglari ve ortak canonical research report/replay eklendi. Usage agent_calls sayar, olculmeyen provider_calls null. Offline Codex/Claude kind fixture ve runtime regresyon kodu hazir, CALISTIRILMADI. Gercek native tool bridge/enforcement ve client kabul kapilari acik.
 
 - Gorev 5 WP-08 research lifecycle: programatik cancel, Ctrl+C/timeout/overflow child tree temizligi ve gec sonuc/materialization iptal kapisi eklendi. Prompt'un okunmayan stdin'e tekrar yazilip bloklanmasi kaldirildi. Yerel Python child regresyon kodu hazir, CALISTIRILMADI. Host-neutral/native child adapter ve gercek kabul halen acik.

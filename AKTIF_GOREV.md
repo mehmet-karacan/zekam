@@ -1650,6 +1650,15 @@ dogrulanmadan hedefe gecis yapilmaz. Gercek sqlite3.Row ile uc alan bozulmasini
 sinayan regresyon testi yazildi; son toplu test asamasinda calistirilacaktir.
 Bu not WP-10.03'u kapatmaz.
 
+**16 Ekim 2026 — WP-10.03 lifecycle CLI baglantisi:** Salt okunur
+`skill lifecycle-plan` current scope/head ve passing review'u cozer;
+`lifecycle-apply` strict bounded plan, exact digest, registered source/cwd ve
+canonical skill.activate-v2 claim/receipt ile activation/rollback/deprecation
+yapar. Append-only olay terminal receipt olmadan etkili sayilmaz; CAS ve
+idempotent replay korunur. Evaluation/review uydurulmaz, distribution mevcut
+export kapisindadir. Regresyon kodu hazir, CALISTIRILMADI; gercek producer,
+native invocation ve kabul kaniti acik. `docs/SKILL_YASAM_DONGUSU_CLI.md`.
+
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
 **Bağımlılık/onay:** WP-07/10; model usage WP-08.  

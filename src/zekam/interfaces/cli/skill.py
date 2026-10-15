@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import typer
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.client_integrations import integration_mutation_resource
 from zekam.application.composition import build_context
 from zekam.application.local_runtime_service import (
@@ -27,7 +28,7 @@ from zekam.application.skill_packages import (
     build_projection_plan,
     projection_receipt,
 )
-from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.personal_skill import (
     PersonalSkillRevision,
@@ -39,7 +40,7 @@ from zekam.domain.skill_package import SkillPackage
 from zekam.infrastructure.local_runtime_effects import LocalJournalOutboxPublisher
 from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
-from zekam.infrastructure.sqlite.skill_lifecycle import SQLiteSkillLifecycle
+from zekam.infrastructure.sqlite.skill_lifecycle import SQLiteSkillLifecycle, activation_effect_body
 
 app = typer.Typer(name="skill", help="Kisisel skill katalogu ve guvenli paket yasam dongusu")
 
@@ -94,13 +95,18 @@ def _run_claimed_effect(
     operation: str,
     effect: dict[str, object],
     idempotency_key: str,
-    apply_effect: Callable[[], dict[str, object]],
-    replay_effect: Callable[[], dict[str, object]],
+    apply_effect: Callable[[], dict[str, object]] | None = None,
+    replay_effect: Callable[[], dict[str, object]] | None = None,
+    job_bound_effect: Callable[[str], dict[str, object]] | None = None,
     logical_resources: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Run one bounded local mutation with a durable claim/receipt chain."""
 
     normalized_effect = json.loads(canonical_json(effect))
+    if job_bound_effect is None and (apply_effect is None or replay_effect is None):
+        raise PolicyViolation("Skill effect apply/replay handler gerekli")
+    if job_bound_effect is not None and (apply_effect is not None or replay_effect is not None):
+        raise PolicyViolation("Skill effect tek handler ailesi ister")
     if not isinstance(normalized_effect, dict):
         raise PolicyViolation("Skill local effect canonical body invalid")
     store = SQLiteLocalRuntimeStore(lifecycle.operational_path, existing_only=True)
@@ -127,7 +133,11 @@ def _run_claimed_effect(
     def execute(request: LocalEffectRequest) -> LocalEffectResult:
         if request.operation != operation or request.payload != normalized_effect:
             raise PolicyViolation("Skill local runtime effect binding drift")
-        document = apply_effect()
+        if job_bound_effect is not None:
+            document = job_bound_effect(job.id)
+        else:
+            assert apply_effect is not None
+            document = apply_effect()
         completed["document"] = document
         return LocalEffectResult("completed", evidence(document))
 
@@ -153,7 +163,11 @@ def _run_claimed_effect(
         raise PolicyViolation("Skill local effect existing runtime job needs recovery")
     document = completed.get("document")
     if document is None:
-        document = replay_effect()
+        if job_bound_effect is not None:
+            document = job_bound_effect(job.id)
+        else:
+            assert replay_effect is not None
+            document = replay_effect()
     terminal_evidence = evidence(document)
     snapshot = store.job_snapshot(job.id)
     if (
@@ -619,6 +633,137 @@ def evaluate_command(revision_digest: Annotated[str, typer.Argument()]) -> None:
         _emit(body | {"plan_digest": digest(body)})
     except ZekamError as exc:
         typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("lifecycle-plan")
+def lifecycle_plan_command(
+    revision_digest: Annotated[str, typer.Argument()],
+    action: Annotated[str, typer.Option("--action")] = "active",
+    rollback_from: Annotated[str | None, typer.Option("--rollback-from")] = None,
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan a reviewed activation, rollback or lifecycle action without granting it."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        _emit(
+            lifecycle.activation_plan(
+                revision_digest,
+                action=action,
+                allowed_scopes=scopes,
+                rollback_from_revision_digest=rollback_from,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("lifecycle-apply")
+def lifecycle_apply_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Apply an exact scoped plan behind canonical claim/receipt and CAS."""
+    try:
+        plan = json.loads(read_bounded_text(plan_file, max_bytes=64 * 1024))
+        if (
+            not isinstance(plan, dict)
+            or set(plan)
+            != {"schema", "effect", "scope", "effect_digest", "grants_authority", "plan_digest"}
+            or plan["schema"] != "zekam-skill-activation-plan/v2"
+            or plan["grants_authority"] is not False
+            or digest({k: v for k, v in plan.items() if k != "plan_digest"}) != plan["plan_digest"]
+        ):
+            raise PolicyViolation("Skill activation strict plan/digest gerekli")
+        effect, scope = plan["effect"], plan["scope"]
+        if (
+            not isinstance(effect, dict)
+            or not isinstance(scope, dict)
+            or set(scope) != {"kind", "ref"}
+            or scope["kind"] != "project"
+            or effect.get("operation") != "skill.activate-v2"
+            or digest(effect) != plan["effect_digest"]
+        ):
+            raise PolicyViolation("Skill activation effect/scope drift")
+        for field in ("revision_digest", "evaluation_digest", "review_digest"):
+            if not isinstance(effect[field], str):
+                raise PolicyViolation("Skill activation digest tipi gecersiz")
+            parse_digest(effect[field])
+        for value in (
+            effect["expected_previous_event_digest"],
+            effect.get("rollback_from_revision_digest"),
+        ):
+            if value is not None:
+                if not isinstance(value, str):
+                    raise PolicyViolation("Skill activation CAS digest tipi gecersiz")
+                parse_digest(value)
+        if (
+            not isinstance(scope["ref"], str)
+            or not isinstance(effect["action"], str)
+            or effect["action"] not in {"active", "deprecated", "revoked", "retired", "superseded"}
+        ):
+            raise PolicyViolation("Skill activation scope/action gecersiz")
+        expected = activation_effect_body(
+            effect["revision_digest"],
+            effect["evaluation_digest"],
+            effect["review_digest"],
+            action=effect["action"],
+            expected_previous_event_digest=effect["expected_previous_event_digest"],
+            transition=effect.get("transition"),
+            rollback_from_revision_digest=effect.get("rollback_from_revision_digest"),
+        )
+        if effect != expected:
+            raise PolicyViolation("Skill activation exact effect shape gerekli")
+        if apply and plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Skill activation --plan-digest exact olmali")
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", scope["ref"])
+        lifecycle.require_revision_scope(effect["revision_digest"], allowed_scopes=scopes)
+        if not apply:
+            _emit(plan | {"apply": False})
+            return
+
+        def mutate(job_id: str) -> dict[str, object]:
+            event = lifecycle.append_activation(
+                effect["revision_digest"],
+                action=effect["action"],
+                expected_previous_event_digest=effect["expected_previous_event_digest"],
+                authorization_job_id=job_id,
+                now=dt.datetime.now(dt.UTC),
+                transition=effect.get("transition"),
+                rollback_from_revision_digest=effect.get("rollback_from_revision_digest"),
+            )
+            evidence = digest(
+                {"activation_event_digest": event, "effect_digest": plan["effect_digest"]}
+            )
+            return {
+                "activation_event_digest": event,
+                "receipt_digest": evidence,
+                "action": effect["action"],
+                "grants_authority": False,
+            }
+
+        _emit(
+            _run_claimed_effect(
+                lifecycle,
+                resolved_home,
+                operation="skill.activate-v2",
+                effect=effect,
+                idempotency_key=f"skill-activation-v2:{plan_digest}",
+                job_bound_effect=mutate,
+                logical_resources=(f"skill-registry:personal-v2:{scope['ref']}",),
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+        typer.echo("Hata: Skill activation plan okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

@@ -1013,7 +1013,9 @@ def test_evaluation_requires_independent_fresh_verifier_evidence() -> None:
         )
 
 
-def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
+def test_skill_rollback_is_explicit_and_receipt_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     operational = _operational(tmp_path / "operational.db")
     learning = _learning(tmp_path, operational)
     lifecycle = SQLiteSkillLifecycle(learning, operational)
@@ -1071,6 +1073,14 @@ def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
 
     evaluation_a, review_a = pass_revision(revision_a, "rollback-a")
     evaluation_b, review_b = pass_revision(revision_b, "rollback-b")
+    planned = lifecycle.activation_plan(revision_a, action="active", allowed_scopes=allowed)
+    assert planned["effect_digest"] == activation_effect_digest(
+        revision_a, evaluation_a, review_a, action="active", expected_previous_event_digest=None
+    )
+    with pytest.raises(PolicyViolation, match="scope"):
+        lifecycle.activation_plan(
+            revision_a, action="active", allowed_scopes=((SkillScopeKind.PROJECT, "project-b"),)
+        )
 
     active_a_effect = activation_effect_digest(
         revision_a,
@@ -1124,6 +1134,13 @@ def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
         transition="rollback",
         rollback_from_revision_digest=revision_b,
     )
+    planned_rollback = lifecycle.activation_plan(
+        revision_a,
+        action="active",
+        allowed_scopes=allowed,
+        rollback_from_revision_digest=revision_b,
+    )
+    assert planned_rollback["effect_digest"] == rollback_effect
     _terminal_receipt(
         operational,
         run_ref="rollback-to-a",
@@ -1165,6 +1182,54 @@ def test_skill_rollback_is_explicit_and_receipt_bound(tmp_path: Path) -> None:
             authorization_job_id="rollback-to-a",
             now=NOW,
         )
+
+    # Exercise the CLI composition after a receipt-bound rollback. No mock receipt
+    # is used for this deprecation: the real worker claims and completes the effect.
+    from typer.testing import CliRunner
+    from zekam.interfaces.cli import skill as cli
+
+    monkeypatch.setattr(cli, "_paths", lambda _: (None, lifecycle, tmp_path))
+    monkeypatch.setattr(cli, "_cli_scope", lambda *_args: allowed)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.app, ["lifecycle-plan", revision_a, "--action", "deprecated", "--project", "project-a"]
+    )
+    assert result.exit_code == 0, result.output
+    deprecate_plan = json.loads(result.output)
+    plan_file = tmp_path / "activation-plan.json"
+    plan_file.write_text(result.output, encoding="utf-8")
+    preview = runner.invoke(cli.app, ["lifecycle-apply", str(plan_file)])
+    assert preview.exit_code == 0, preview.output
+    assert json.loads(preview.output)["apply"] is False
+    rejected = runner.invoke(
+        cli.app, ["lifecycle-apply", str(plan_file), "--uygula", "--plan-digest", digest("wrong")]
+    )
+    assert rejected.exit_code != 0
+    applied = runner.invoke(
+        cli.app,
+        [
+            "lifecycle-apply",
+            str(plan_file),
+            "--uygula",
+            "--plan-digest",
+            deprecate_plan["plan_digest"],
+        ],
+    )
+    assert applied.exit_code == 0, applied.output
+    first = json.loads(applied.output)
+    replay = runner.invoke(
+        cli.app,
+        [
+            "lifecycle-apply",
+            str(plan_file),
+            "--uygula",
+            "--plan-digest",
+            deprecate_plan["plan_digest"],
+        ],
+    )
+    assert replay.exit_code == 0, replay.output
+    assert json.loads(replay.output) == first
+    assert lifecycle.discover("research", allowed_scopes=allowed)["items"] == []
 
 
 @pytest.mark.parametrize("changed_column", ["event_digest", "revision_digest", "action"])

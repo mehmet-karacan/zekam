@@ -100,6 +100,15 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         "project inventory", "Kayitli projenin bounded metadata envanterini okur", mutating=False
     ),
     CommandContract("resume", "Model bagimsiz devam paketini gosterir", mutating=False),
+    CommandContract(
+        "skill lifecycle-plan", "Reviewed skill lifecycle planini okur", mutating=False
+    ),
+    CommandContract(
+        "skill lifecycle-apply",
+        "Skill lifecycle CAS ve receipt uygular",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),
     CommandContract("work show", "Tek Work kaydini gosterir", mutating=False),
