@@ -443,6 +443,79 @@ def test_digest_valid_checkpoint_shape_drift_is_integrity_error(world: World) ->
         native_module._validate_checkpoint_document(document, event=event)
 
 
+@pytest.mark.parametrize(
+    ("tail", "expected_state"),
+    [
+        (
+            [
+                {
+                    "session_id": "native.claude-code.out-of-order",
+                    "sequence": 3,
+                    "event_type": "tool.execute.after",
+                    "event_digest": "tool-after",
+                },
+                {
+                    "session_id": "native.claude-code.out-of-order",
+                    "sequence": 4,
+                    "event_type": "session.deleted",
+                    "event_digest": "deleted",
+                },
+            ],
+            "event-after-checkpoint",
+        ),
+        (
+            [
+                {
+                    "session_id": "native.claude-code.out-of-order",
+                    "sequence": 3,
+                    "event_type": "session.deleted",
+                    "event_digest": "deleted",
+                },
+                {
+                    "session_id": "native.claude-code.out-of-order",
+                    "sequence": 4,
+                    "event_type": "tool.execute.after",
+                    "event_digest": "tool-after-delete",
+                },
+            ],
+            "integrity-error",
+        ),
+    ],
+)
+def test_out_of_order_native_lifecycle_is_explicitly_classified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tail: list[dict[str, object]],
+    expected_state: str,
+) -> None:
+    session_id = "native.claude-code.out-of-order"
+    checkpoint = {
+        "session_id": session_id,
+        "sequence": 2,
+        "event_type": "session.checkpoint",
+        "event_digest": "checkpoint",
+    }
+    events = [
+        {
+            "session_id": session_id,
+            "sequence": 1,
+            "event_type": "session.created",
+            "event_digest": "created",
+        },
+        checkpoint,
+        *tail,
+    ]
+    monkeypatch.setattr(native_module, "_session_events", lambda _home, _id: events)
+
+    verdict = native_module._session_checkpoint_verdict(
+        tmp_path,
+        event=checkpoint,
+        kind="checkpoint",
+    )
+
+    assert verdict["state"] == expected_state
+
+
 def test_summaries_reject_secret_like_paths_and_multiline_without_echo(world: World) -> None:
     session_id = _start(world)["session_id"]
     secret = "api_key=" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"

@@ -110,8 +110,9 @@ kimligi `native.<client>.zekam-<uuid7>` biciminde **Zekam-uretimi** olarak isare
 
 `resume` salt okunurdur ve yetki/onay miras almaz. Durumlar: `ready`, `changed-since-checkpoint`
 (worktree/Work/kanit degisti), `source-drift` (revision farkli), `source-unavailable`,
-`evidence-missing`, `work-closed`, `binding-invalid`, `integrity-error` (checkpoint nesnesi
-bozuk), `no-checkpoint` (hicbir ilerleme uydurulmaz). `next_safe_action` yalniz `ready`
+`evidence-missing`, `work-closed`, `binding-invalid`, `interrupted-close`, `integrity-error`
+(checkpoint nesnesi veya lifecycle zinciri bozuk), `no-checkpoint` (hicbir ilerleme uydurulmaz).
+`next_safe_action` yalniz `ready`
 durumunda istemci beyanini tasir (`next_safe_action_source`); diger durumlarda Zekam'in yeniden
 dogrulama yonlendirmesidir. Mevcut `zekam resume` paketi ayni checkpoint'in ozetini
 (`latest_semantic_checkpoint`) gosterir.

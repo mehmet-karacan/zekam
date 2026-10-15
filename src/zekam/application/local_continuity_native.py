@@ -816,16 +816,50 @@ def _session_checkpoint_verdict(
     checkpoint_sequence = event.get("sequence")
     if isinstance(checkpoint_sequence, bool) or not isinstance(checkpoint_sequence, int):
         return {"state": "integrity-error", "reason": "checkpoint-sequence-invalid"}
-    after = [item for item in events if int(item.get("sequence", 0)) > checkpoint_sequence]
+
+    sequences: list[int] = []
+    for item in events:
+        sequence = item.get("sequence")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            return {"state": "integrity-error", "reason": "session-sequence-invalid"}
+        if item.get("session_id") != event.get("session_id"):
+            return {"state": "integrity-error", "reason": "session-binding-invalid"}
+        sequences.append(sequence)
+    if (
+        not events
+        or sequences != list(range(1, len(sequences) + 1))
+        or events[0].get("event_type") != "session.created"
+        or checkpoint_sequence not in sequences
+        or not any(
+            item.get("event_digest") == event.get("event_digest")
+            and item.get("event_type") == "session.checkpoint"
+            for item in events
+        )
+    ):
+        return {"state": "integrity-error", "reason": "session-event-chain-invalid"}
+
+    after = [item for item in events if item["sequence"] > checkpoint_sequence]
     deleted = [item for item in after if item.get("event_type") == "session.deleted"]
     if len(deleted) > 1:
         return {"state": "integrity-error", "reason": "duplicate-session-close"}
     if deleted:
+        deleted_sequence = deleted[0]["sequence"]
+        if any(item["sequence"] > deleted_sequence for item in events):
+            return {"state": "integrity-error", "reason": "event-after-session-delete"}
+        interstitial = [
+            item
+            for item in after
+            if checkpoint_sequence < item["sequence"] < deleted_sequence
+        ]
+        if interstitial:
+            return {"state": "event-after-checkpoint", "event_count": len(interstitial)}
         return {
             "state": "closed",
-            "close_event_sequence": deleted[0].get("sequence"),
+            "close_event_sequence": deleted_sequence,
             "close_event_digest": deleted[0].get("event_digest"),
         }
+    if any(item.get("event_type") == "session.deleted" for item in events):
+        return {"state": "integrity-error", "reason": "checkpoint-after-session-delete"}
     if kind == "close":
         return {
             "state": "interrupted-close",

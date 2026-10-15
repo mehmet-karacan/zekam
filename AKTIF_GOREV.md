@@ -1338,6 +1338,13 @@ diff kontrolu ve paket dogrulamasi temizdir. Process-kill/PID race, out-of-order
 tam spool crash ve canonical Work recovery kabul matrisi tamamlanmadigi icin WP-07.05
 ve WP-07 kapanmamistir.
 
+**15 Ekim 2026 - WP-07.05 lifecycle sirasi kapisi gelistirmesi:** Native resume artik
+session event sequence'ini, session.created baslangicini ve checkpoint event digest'ini
+birlikte dogrular. Checkpoint'ten sonra kapanis oncesi olay `event-after-checkpoint`,
+session.deleted sonrasi yeni olay veya kapanistan sonra gorunen checkpoint ise
+`integrity-error` olur; bozuk zincir sessizce `ready` sayilmaz. Bu dilimin negatif
+regresyon testi yazildi; testler son toplu kabul asamasina birakildi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
