@@ -25,6 +25,7 @@ KNOWN_CAPABILITIES = frozenset(
         "tool-use",
         "structured-result",
         "parallel-dispatch",
+        "child-dispatch",
         "cancellation",
         "model-selection",
         "sandbox-write",

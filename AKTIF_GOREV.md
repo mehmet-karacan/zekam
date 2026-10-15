@@ -1579,6 +1579,16 @@ runtime interruption'i terminal failure/recovery akisina alir. Yerel Python
 child regresyon kodu hazir, CALISTIRILMADI. Host-neutral research, gercek host
 child capability ve canli kabul baglantilari halen acik; WP-08 kapanmadi.
 
+**16 Ekim 2026 — WP-08 native research bridge:** Runtime artik trusted
+host'un typed child capability/call gozlemlerini `native_host` hook'uyla kabul
+eder. OpenCode event yolu korunur; native researcher/verifier rolleri named-agent
+zorunlulugu tasimaz. Parent/child/call kimligi, question/project/run/source ve
+catalog/capability/input/output digest baglari, budget ve cancel aktarimi ortak
+report/receipt akisina baglandi. Agent call sayisi provider call diye sunulmaz.
+Offline fixture ve canonical replay regresyon kodu hazir, CALISTIRILMADI.
+Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
+`docs/NATIVE_ARASTIRMA_KOPRUSU.md`. WP-08 kapanmadi.
+
 ### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
 
 **Bağımlılık/onay:** WP-03/07/08.  

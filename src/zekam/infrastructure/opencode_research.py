@@ -10,7 +10,10 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from zekam.infrastructure.native_research import NativeResearchExecution
 
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
@@ -155,11 +158,11 @@ class OpenCodeResearchResult:
     rejection_reasons: tuple[str, ...]
     researcher_payload_digest: str
     evidence_manifest_digest: str
-    execution: OpenCodeExecutionEvidence | None = None
+    execution: OpenCodeExecutionEvidence | NativeResearchExecution | None = None
 
     @property
     def root_agent_calls(self) -> int:
-        return 1 if self.execution is not None else 0
+        return getattr(self.execution, "root_agent_calls", 1) if self.execution is not None else 0
 
     @property
     def delegated_agent_calls(self) -> int:
@@ -435,13 +438,16 @@ def validate_opencode_research_result(
     question_digest: str,
     allowed_citation_ids: frozenset[str],
     evidence_manifest_digest: str,
+    result_schema: str = RESULT_SCHEMA,
 ) -> OpenCodeResearchResult:
     _exact_keys(
         document,
         {"schema", "question_digest", "researcher", "verification", "grants_authority"},
         "OpenCode research result",
     )
-    if document["schema"] != RESULT_SCHEMA or document["question_digest"] != question_digest:
+    if result_schema not in {RESULT_SCHEMA, "zekam-research-result/v1"}:
+        raise ValidationFailed("Research result schema desteklenmiyor")
+    if document["schema"] != result_schema or document["question_digest"] != question_digest:
         raise ValidationFailed("OpenCode research result identity drift")
     if document["grants_authority"] is not False:
         raise PolicyViolation("OpenCode research result authority veremez")

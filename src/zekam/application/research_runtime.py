@@ -51,10 +51,14 @@ from zekam.domain.research import (
     SourceSnapshot,
 )
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
+from zekam.infrastructure.native_research import (
+    NativeResearchAdapter,
+    NativeResearchHost,
+    require_research_execution,
+)
 from zekam.infrastructure.opencode_research import (
     OpenCodeResearchAdapter,
     OpenCodeResearchResult,
-    require_opencode_execution,
 )
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
@@ -172,6 +176,8 @@ def build_research_run_plan(
             "primary": "zekam-research-runner",
             "delegates": ["zekam-researcher", "zekam-verifier"],
             "maximum_model_agent_calls": 3,
+            "logical_roles": ["researcher", "verifier"],
+            "named_agents_required": False,
         },
         "requires_remote_query_authorization": True,
         "requires_agent_run_authorization": True,
@@ -426,16 +432,17 @@ def _execution_usage(execution: Any) -> list[dict[str, Any]]:
             model_ref,
             {
                 "model_ref": model_ref,
-                "provider_calls": 0,
+                "agent_calls": 0,
+                "provider_calls": None,
                 "tokens": None,
                 "duration_seconds": None,
                 "cost_micros": None,
                 "disk_bytes": None,
                 "metrics_state": "unknown",
-                "measurement_reason": "OpenCode execution event usage alani tasimiyor",
+                "measurement_reason": "Host execution event usage alani tasimiyor",
             },
         )
-        bucket["provider_calls"] += 1
+        bucket["agent_calls"] += 1
     # Research reports are persisted as canonical JSON.  Return the same list
     # shape exposed by that wire contract instead of an in-memory tuple that
     # silently becomes a list during materialization.
@@ -612,11 +619,14 @@ def run_research(
     adapter: ResearchAdapter | None = None,
     work_binding: LocalJobBinding | None = None,
     cancel: threading.Event | None = None,
+    native_host: NativeResearchHost | None = None,
 ) -> dict[str, Any]:
     """Execute one digest-bound run behind a durable effect claim."""
 
     if expected_run_digest != plan.run_digest:
         raise PolicyViolation("Research apply exact run digest ister")
+    if native_host is not None and adapter is not None:
+        raise PolicyViolation("Research tek adapter veya native host ister")
     if not authorize_remote_query or not authorize_agent_run:
         raise PolicyViolation("Research apply exact remote-query ve agent-run authorization ister")
     if cancel is not None and cancel.is_set():
@@ -753,6 +763,8 @@ def run_research(
             "project_slug": plan.project_slug,
             "source_revision": plan.body["source_revision"],
             "evidence": list(evidence),
+            "budget": question.budget.as_dict(),
+            "scope": {"project_id": plan.project_id, "run_digest": plan.run_digest},
             "output_contract": {
                 "schema": "zekam-opencode-research-result/v1",
                 "exact_top_level_keys": [
@@ -810,16 +822,20 @@ def run_research(
             },
             "grants_authority": False,
         }
-        selected_adapter = adapter or OpenCodeResearchAdapter(
-            cwd=resolve_project_source(home, plan.project_slug),
-            cancel=cancel,
+        selected_adapter = adapter or (
+            NativeResearchAdapter(native_host, cancel=cancel)
+            if native_host is not None
+            else OpenCodeResearchAdapter(
+                cwd=resolve_project_source(home, plan.project_slug),
+                cancel=cancel,
+            )
         )
         if cancel is not None and cancel.is_set():
             raise PolicyViolation("Research iptal edildi")
         agent_result = selected_adapter.execute(package)
         if cancel is not None and cancel.is_set():
             raise PolicyViolation("Research iptal edildi; gec sonuc yayinlanamaz")
-        execution = require_opencode_execution(agent_result)
+        execution = require_research_execution(agent_result)
         execution_evidence = execution.as_dict()
         role_result, verification = _role_result(agent_result, by_citation)
         conflicts = _objection_conflicts(agent_result, role_result)

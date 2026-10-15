@@ -196,19 +196,109 @@ def test_research_run_status_report_and_replay(monkeypatch, tmp_path: Path) -> N
     assert report["report"]["agent_execution"]["usage_by_model"] == [
         {
             "model_ref": "test/test-model",
-            "provider_calls": 2,
+            "agent_calls": 2,
+            "provider_calls": None,
             "tokens": None,
             "duration_seconds": None,
             "cost_micros": None,
             "disk_bytes": None,
             "metrics_state": "unknown",
-            "measurement_reason": "OpenCode execution event usage alani tasimiyor",
+            "measurement_reason": "Host execution event usage alani tasimiyor",
         },
     ]
     assert result["receipt"]["evidence_digest"] == report["report"]["report_digest"]
     assert replay["replayed"] is True
     assert replay["state"] == "completed"
     assert len(status["effects"]) == 1
+
+
+def test_native_research_host_reaches_canonical_report_and_replay(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from zekam.domain.clients import ClientCapabilityManifest, ClientKind
+    from zekam.infrastructure.native_research import NativeResearchCall
+
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Native host fixture?"
+    )
+
+    class Host:
+        capability = ClientCapabilityManifest(
+            "fixture-codex",
+            ClientKind.CODEX,
+            "fixture-v1",
+            ("cancellation", "child-dispatch", "structured-result", "tool-use"),
+        )
+        root_session_id = "fixture-native-root"
+        calls = 0
+
+        def execute_child(self, task, *, timeout_seconds, cancel):
+            self.calls += 1
+            role = task["role"]
+            if role == "researcher":
+                payload = {
+                    "outcome": "success",
+                    "findings": [
+                        {
+                            "finding_id": "native-f1",
+                            "claim": "Fixture source claim.",
+                            "confidence": "high",
+                            "citation_ids": [task["evidence"][0]["citation_id"]],
+                        }
+                    ],
+                    "objections": [],
+                    "blocker": None,
+                }
+            else:
+                payload = {
+                    "researcher_payload_digest": task["researcher_payload_digest"],
+                    "evidence_manifest_digest": task["evidence_manifest_digest"],
+                    "verified_finding_ids": ["native-f1"],
+                    "rejected_finding_ids": [],
+                    "rejection_reasons": [],
+                }
+            return NativeResearchCall(
+                "fixture-call-" + role,
+                role,
+                self.root_session_id,
+                "fixture-child-" + role,
+                "fixture-provider",
+                "fixture-model",
+                digest(task),
+                digest(payload),
+                digest(self.capability.as_dict()),
+                digest("fixture-model-catalog"),
+                payload,
+            )
+
+    host = Host()
+    result = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        native_host=host,
+    )
+    runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
+    report = research_report(runtime, store, KnowledgeFileStore(home), result["job_id"])
+    assert report["verified"] is True
+    assert report["report"]["findings"][0]["finding_id"] == "native-f1"
+    assert report["report"]["agent_execution"]["schema"] == "zekam-native-research-execution/v1"
+    assert report["report"]["agent_execution"]["root_agent_calls"] == 0
+    replay = run_research(
+        store,
+        home,
+        plan,
+        expected_run_digest=plan.run_digest,
+        authorize_remote_query=True,
+        authorize_agent_run=True,
+        native_host=host,
+    )
+    assert replay["replayed"] is True
+    assert host.calls == 2
 
 
 def test_research_forwards_exact_remote_query_authorization(

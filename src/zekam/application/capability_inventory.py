@@ -186,13 +186,14 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         "research",
-        "Project-scoped, citation-verified OpenCode research",
-        "ready",
+        "Project-scoped research with OpenCode events and a native host bridge hook",
+        "partial",
         ("research run", "research status", "research report"),
         ("zekam-research-runner", "zekam-researcher", "zekam-verifier"),
         (
             "tests/unit/test_research.py",
             "tests/unit/test_research_runtime.py",
+            "tests/unit/test_native_research.py",
             "tests/e2e/test_cli_research_and_knowledge.py",
         ),
     ),

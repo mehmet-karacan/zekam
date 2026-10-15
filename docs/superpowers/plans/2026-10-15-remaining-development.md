@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-08 native research: typed host capability/call bridge, logical researcher/verifier role, subject/session/catalog/digest/cancel baglari ve ortak canonical research report/replay eklendi. Usage agent_calls sayar, olculmeyen provider_calls null. Offline Codex/Claude kind fixture ve runtime regresyon kodu hazir, CALISTIRILMADI. Gercek native tool bridge/enforcement ve client kabul kapilari acik.
+
 - Gorev 5 WP-08 research lifecycle: programatik cancel, Ctrl+C/timeout/overflow child tree temizligi ve gec sonuc/materialization iptal kapisi eklendi. Prompt'un okunmayan stdin'e tekrar yazilip bloklanmasi kaldirildi. Yerel Python child regresyon kodu hazir, CALISTIRILMADI. Host-neutral/native child adapter ve gercek kabul halen acik.
 
 - Gorev 4 WP-05 eski ledger: exact ordered inputs/profile ile completed claim/receipt/vector yeniden dogrulanip append-only slot manifest'ine idempotent baglanir. Runtime yalniz missing cache ve unbound completed kayit varsa bounded adaylari dener. Yanlis sira/scope/tamper ve claim/receipt degismezligi regresyon kodu hazir, CALISTIRILMADI. Kayip orijinal girdi veya unknown provider sonucu otomatik cozulmez.
