@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import zekam.application.opencode_agent_bootstrap as opencode_agent_bootstrap
 from zekam.application.opencode_agent_bootstrap import (
     _AGENT_MODALITIES,
     _BASE_AGENT_TEMPLATES,
@@ -24,6 +25,17 @@ def _executable(tmp_path: Path) -> Path:
     value = tmp_path / "opencode.exe"
     value.write_text("stub", encoding="utf-8")
     return value
+
+
+def test_opencode_bootstrap_config_reader_bounds_native_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "opencode.json"
+    monkeypatch.setattr(opencode_agent_bootstrap, "MAX_BOOTSTRAP_FILE_BYTES", 8)
+    target.write_bytes(b'{"x": 10}')
+
+    with pytest.raises(ConfigurationError, match="boyut siniri"):
+        opencode_agent_bootstrap._load_config(target)
 
 
 def test_disabled_policy_makes_bootstrap_side_effect_free(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ _PLUGINS_RELATIVE = Path(".config") / "opencode" / "plugins"
 _MANAGED_AGENT_MARKER = "# zekam-managed-agent/v1"
 _MANAGED_PLUGIN_MARKER_PREFIX = "// zekam-managed-plugin/v"
 _LIFECYCLE_PLUGIN_SPEC = "./plugins/zekam-lifecycle.js"
+MAX_BOOTSTRAP_FILE_BYTES = 4 * 1024 * 1024
 _LEGACY_MANAGED_DESCRIPTIONS = (
     "description: Exact approved plan ile bagli gercek proje dosyalarini "
     "degistiren builder subagent",
@@ -955,7 +956,34 @@ def _bootstrap_input_digest(path: Path) -> str | None:
         return None
     if not path.is_file() or path.is_symlink():
         return "non-regular"
-    return digest_of_bytes(path.read_bytes())
+    return digest_of_bytes(_read_bootstrap_bytes(path, label="bootstrap input"))
+
+
+def _read_bootstrap_bytes(path: Path, *, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ConfigurationError(f"OpenCode {label} regular file olmali")
+        if metadata.st_size > MAX_BOOTSTRAP_FILE_BYTES:
+            raise ConfigurationError(f"OpenCode {label} boyut siniri asildi")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_BOOTSTRAP_FILE_BYTES + 1)
+    except OSError as exc:
+        raise ConfigurationError(f"OpenCode {label} okunamadi") from exc
+    if len(payload) > MAX_BOOTSTRAP_FILE_BYTES:
+        raise ConfigurationError(f"OpenCode {label} boyut siniri asildi")
+    return payload
+
+
+def _read_bootstrap_text(path: Path, *, label: str) -> str:
+    try:
+        return _read_bootstrap_bytes(path, label=label).decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ConfigurationError(f"OpenCode {label} UTF-8 olarak okunamadi") from exc
 
 
 def _bootstrap_input_digests(user_home: Path, paths: set[Path]) -> dict[str, str | None]:
@@ -1040,7 +1068,7 @@ def plan_opencode_agent_bootstrap(
         elif not candidate.is_file():
             conflict.append(name)
         else:
-            existing = candidate.read_text(encoding="utf-8")
+            existing = _read_bootstrap_text(candidate, label="agent")
             if existing != body:
                 managed = _MANAGED_AGENT_MARKER in existing or any(
                     description in existing for description in _LEGACY_MANAGED_DESCRIPTIONS
@@ -1053,7 +1081,7 @@ def plan_opencode_agent_bootstrap(
         for candidate in agents_path.glob("zekam-*.md"):
             if candidate.name in selected_templates or not candidate.is_file():
                 continue
-            existing = candidate.read_text(encoding="utf-8")
+            existing = _read_bootstrap_text(candidate, label="agent retire adayi")
             if _MANAGED_AGENT_MARKER in existing:
                 retire.append(candidate.name)
     legacy_retired = agents_path / ".zekam-retired"
@@ -1070,14 +1098,19 @@ def plan_opencode_agent_bootstrap(
                 or candidate_reparse
                 or not candidate.name.startswith("zekam-")
                 or candidate.suffix != ".md"
-                or _MANAGED_AGENT_MARKER not in candidate.read_text(encoding="utf-8")
+                or _MANAGED_AGENT_MARKER
+                not in _read_bootstrap_text(candidate, label="legacy retired agent")
             ):
                 raise ConfigurationError("OpenCode legacy retired agent icerigi gecersiz")
             migrate_legacy_retired.append(candidate.name)
     plugins_path = user_home / _PLUGINS_RELATIVE
     plugin_path = plugins_path / "zekam-lifecycle.js"
     plugin_exists = plugin_path.exists()
-    plugin_body = plugin_path.read_text(encoding="utf-8") if plugin_path.is_file() else ""
+    plugin_body = (
+        _read_bootstrap_text(plugin_path, label="lifecycle plugin")
+        if plugin_path.is_file()
+        else ""
+    )
     plugin_matches = plugin_body == _LIFECYCLE_PLUGIN
     plugin_managed = plugin_body.startswith(_MANAGED_PLUGIN_MARKER_PREFIX)
     plugin_to_create = not plugin_exists or (plugin_managed and not plugin_matches)
@@ -1259,8 +1292,10 @@ def _load_config(path: Path) -> Mapping[str, Any]:
     if not path.is_file():
         raise ConfigurationError("OpenCode global config regular dosya olmali")
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        loaded = json.loads(_read_bootstrap_text(path, label="global config"))
+    except ConfigurationError:
+        raise
+    except json.JSONDecodeError as exc:
         raise ConfigurationError("OpenCode global config JSON olarak okunamadi") from exc
     if not isinstance(loaded, dict):
         raise ConfigurationError("OpenCode global config JSON object olmali")

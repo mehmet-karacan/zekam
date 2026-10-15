@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.71 15 Ekim 2026 OpenCode bootstrap stream kapisi
+
+OpenCode agent, plugin ve global config bootstrap okumalari 4 MiB bounded
+regular-file stream kullanir. Oversized, linkli veya okunamayan native artifact
+plan/receipt kaniti uretmeden ConfigurationError ile durur; managed ownership ve
+atomic write kapilari korunur.
+
+Bu dar dilim WP-02/07 OpenCode bootstrap kaynak tuketimi boslugunu daraltir;
+gercek native host kabul matrisi halen aciktir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
