@@ -136,7 +136,11 @@ class DirectoryScanner:
                     raise PolicyViolation("dizin girdisi okunamadi") from exc
                 reparse = _is_reparse(info)
                 if entry.is_symlink() or reparse:
-                    reason = "symlink izlenmez" if entry.is_symlink() else "symlink/junction izlenmez"
+                    reason = (
+                        "symlink izlenmez"
+                        if entry.is_symlink()
+                        else "symlink/junction izlenmez"
+                    )
                     decisions.append(ScanDecision(relative, False, reason))
                     continue
                 if stat.S_ISDIR(info.st_mode):
@@ -147,7 +151,7 @@ class DirectoryScanner:
                 try:
                     resolved = path.resolve(strict=True)
                     resolved.relative_to(root)
-                except (OSError, ValueError) as exc:
+                except (OSError, ValueError):
                     decisions.append(
                         ScanDecision(relative, False, "izinli kok disina cikan yol reddedildi")
                     )

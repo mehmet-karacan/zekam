@@ -9,7 +9,6 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.application.backup import (
     BACKUP_MANIFEST_SCHEMA,
     ArtifactEntry,
@@ -19,6 +18,7 @@ from zekam.application.backup import (
     schema_state_from_status,
     verify_manifest,
 )
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.application.composition import build_context
 from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.domain.errors import ZekamError

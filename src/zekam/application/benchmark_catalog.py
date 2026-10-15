@@ -17,6 +17,7 @@ from zekam.domain.model_benchmark import (
     REQUIRED_SCORE_DIMENSIONS,
     BenchmarkTaskFamily,
 )
+
 _TASK_KEYS = frozenset(
     {
         "schema",

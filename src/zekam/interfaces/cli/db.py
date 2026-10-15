@@ -15,15 +15,15 @@ from rich.console import Console
 from rich.table import Table
 
 from zekam.application.composition import build_context
-from zekam.application.unit_test_migration import UnitTestLedgerMigrationAdmission
 from zekam.application.evolution_bootstrap import _spool_targets
+from zekam.application.unit_test_migration import UnitTestLedgerMigrationAdmission
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.identity import PRODUCT
-from zekam.infrastructure.sqlite.operational_backup import logical_database_digest
-from zekam.infrastructure.sqlite.operational_migration import migrate_v5_to_v6
 from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite import operational_schema as sqlite_repository
+from zekam.infrastructure.sqlite.operational_backup import logical_database_digest
+from zekam.infrastructure.sqlite.operational_migration import migrate_v5_to_v6
 
 EXIT_RUNTIME_ERROR = 70
 EXIT_DRIFT = 2

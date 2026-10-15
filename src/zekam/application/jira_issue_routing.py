@@ -9,8 +9,8 @@ from typing import Any
 
 import yaml
 
-from zekam.application.config import core_root, package_root
 from zekam.application.bounded_file import read_bounded_text
+from zekam.application.config import core_root, package_root
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 

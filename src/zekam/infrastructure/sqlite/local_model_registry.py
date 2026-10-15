@@ -19,8 +19,8 @@ from typing import final
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_file_security import (
-    path_or_parent_is_link_or_reparse,
     owned_regular,
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_tree,

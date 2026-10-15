@@ -218,9 +218,10 @@ def _dirty_content_digests(root: Path, lines: list[str]) -> list[str]:
         if total > _DIRTY_BYTES_LIMIT:
             raise NativeContinuityError("source-dirty-bytes-limit-exceeded")
         try:
-            result.append(
-                f"{relative}:{digest_of_bytes(read_bounded_bytes(target, max_bytes=_DIRTY_BYTES_LIMIT))}"
+            target_digest = digest_of_bytes(
+                read_bounded_bytes(target, max_bytes=_DIRTY_BYTES_LIMIT)
             )
+            result.append(f"{relative}:{target_digest}")
         except OSError as exc:
             raise NativeContinuityError("source-dirty-file-unreadable") from exc
     return result

@@ -38,7 +38,6 @@ from zekam.domain.loop_policy import (
     LoopPolicy,
     LoopTerminalState,
 )
-
 from zekam.domain.loop_progress import (
     AttemptNoveltyFingerprint,
     LoopProgressCheckpoint,
