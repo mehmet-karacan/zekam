@@ -48,6 +48,7 @@ import hashlib
 import os
 import stat as stat_module
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -613,7 +614,11 @@ class _DirectoryTooLarge(Exception):
     """Tek bir dizin, `max_dir_entries` sinirini asiyor."""
 
 
-def _list_bounded(directory: Path, limit: int) -> list[Path]:
+def _list_bounded(
+    directory: Path,
+    limit: int,
+    check_budget: Callable[[], None] | None = None,
+) -> list[Path]:
     """Tek dizinin girdilerini kararli (isim) sirayla ve SINIRLI listeler.
 
     `limit` girdi toplaninca dizin okumasi durur; dev dizinler bellege
@@ -621,6 +626,8 @@ def _list_bounded(directory: Path, limit: int) -> list[Path]:
     """
     entries: list[Path] = []
     for item in directory.iterdir():
+        if check_budget is not None:
+            check_budget()
         if len(entries) >= limit:
             raise _DirectoryTooLarge(str(directory))
         entries.append(item)
@@ -733,6 +740,7 @@ def discover(
     *,
     policy: DiscoveryPolicy | None = None,
     matcher: IgnoreMatcher | None = None,
+    check_budget: Callable[[], None] | None = None,
 ) -> DiscoveryReport:
     """Kaynak agacini salt okunur olarak tarar.
 
@@ -741,6 +749,8 @@ def discover(
     girdiler dahil tum kesfedilen girdileri metadata olarak tutar; eligibility
     ise yalnizca icerigi sinirli okunup indekslenebilir dosyalari kapsar.
     """
+    if check_budget is not None:
+        check_budget()
     active_policy = policy or DiscoveryPolicy()
     resolved_root = resolve_source_root(root)
     rules = matcher or build_matcher(resolved_root)
@@ -774,10 +784,16 @@ def discover(
         and dir_cap_directory is None
         and not builder.cap_stopped
     ):
+        if check_budget is not None:
+            check_budget()
         directory, depth, dir_ignored = queue.popleft()
         relative = directory.relative_to(resolved_root).as_posix()
         try:
-            entries = _list_bounded(directory, active_policy.max_dir_entries)
+            entries = (
+                _list_bounded(directory, active_policy.max_dir_entries)
+                if check_budget is None
+                else _list_bounded(directory, active_policy.max_dir_entries, check_budget)
+            )
         except _DirectoryTooLarge:
             # Dizin cok buyuk: sinirla okunamadi, tarama partial kesilir
             # (devam checkpoint'i uretilir, sahte complete yok).
@@ -808,6 +824,8 @@ def discover(
             break
 
         for entry in reversed(entries):
+            if check_budget is not None:
+                check_budget()
             entry_relative = entry.relative_to(resolved_root).as_posix()
 
             # Bir sonraki girdi envantere sigmayacaksa icerigine dokunma.

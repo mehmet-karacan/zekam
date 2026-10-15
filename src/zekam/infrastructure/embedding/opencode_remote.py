@@ -143,6 +143,29 @@ class OpenCodeEmbeddingExecutor(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveredDocumentVectors:
+    vectors: tuple[tuple[float, ...], ...]
+    evidence_digest: str
+
+
+class DocumentEmbeddingJournal(Protocol):
+    """Persist only verified vectors bound to durable provider claim/receipt evidence."""
+
+    def load(
+        self,
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+    ) -> RecoveredDocumentVectors | None: ...
+
+    def record(
+        self,
+        execution: OpenCodeEmbeddingExecution,
+        profile: EmbeddingProfile,
+        vectors: tuple[tuple[float, ...], ...],
+    ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
 class OpenCodeRuntimeInvocation:
     runner: RuntimeProviderContractRunner
     secret_ref: SecretRef
@@ -211,6 +234,7 @@ class OpenCodeRemoteEmbeddingProvider:
         dimension: int,
         max_batch_size: int = MAX_BATCH_SIZE,
         data_classification_allowlist: tuple[DataClassification, ...] = _DEFAULT_ALLOWLIST,
+        document_journal: DocumentEmbeddingJournal | None = None,
     ) -> None:
         if type(dimension) is not int or dimension < 1:
             raise ValidationFailed("OpenCode embedding dimension pozitif integer olmali")
@@ -228,6 +252,7 @@ class OpenCodeRemoteEmbeddingProvider:
         self._max_batch_size = max_batch_size
         self._allowlist = data_classification_allowlist
         self._profile: EmbeddingProfile | None = None
+        self._document_journal = document_journal
 
     def describe(self) -> EmbeddingProfile:
         if self._profile is None:
@@ -505,11 +530,26 @@ class OpenCodeRemoteEmbeddingProvider:
         profile = self.describe()
         profile.assert_policy(policy)
         started = time.monotonic_ns()
-        vectors, _ = self._vectors(
-            texts,
-            purpose=purpose,
-            classification=policy.classification,
-        )
+        prepared = self._prepare(texts, purpose=purpose, classification=policy.classification)
+        vectors = None
+        provider_call_count = 0
+        reconciliation_evidence_digest = None
+        if purpose is EmbeddingPurpose.DOCUMENT and self._document_journal is not None:
+            recovered = self._document_journal.load(prepared, profile)
+            if recovered is not None:
+                vectors = recovered.vectors
+                reconciliation_evidence_digest = recovered.evidence_digest
+        if vectors is None:
+            vectors, execution = self._vectors(
+                texts,
+                purpose=purpose,
+                classification=policy.classification,
+            )
+            provider_call_count = 1
+            for vector in vectors:
+                profile.validate_vector(vector)
+            if purpose is EmbeddingPurpose.DOCUMENT and self._document_journal is not None:
+                self._document_journal.record(execution, profile, vectors)
         latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
         for vector in vectors:
             profile.validate_vector(vector)
@@ -528,7 +568,8 @@ class OpenCodeRemoteEmbeddingProvider:
                 vector_count=len(vectors),
                 dimension=profile.dimension,
                 latency_ms=latency_ms,
-                provider_call_count=1,
+                provider_call_count=provider_call_count,
+                reconciliation_evidence_digest=reconciliation_evidence_digest,
             ),
         )
 

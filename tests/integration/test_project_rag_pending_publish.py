@@ -625,3 +625,144 @@ def test_crash_before_cas_keeps_old_ready_pointer(
         assert index.generation(PROJECT_ID).generation_digest == staged_b.generation_digest
     assert json.loads(paths["state"].read_text(encoding="utf-8")) == _result(staged_b)
     assert not runtime._rag_pending_path(paths["state"]).exists()
+
+
+@pytest.mark.parametrize("crash_before_cas", [True, False])
+def test_manifest_and_projection_publication_recovers_with_database_pointer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    crash_before_cas: bool,
+) -> None:
+    paths = _paths(tmp_path)
+    staged_a, staged_b = _ready_and_staged(paths)
+    _write_state(paths, _result(staged_a))
+    projection_path = paths["project_root"] / "PROJECT.yaml"
+    old_projection = runtime.ProjectProjection.create(
+        project_id=PROJECT_ID,
+        slug="rag-project",
+        display_name="RAG",
+        status="active",
+        source_bindings=("source:rag-project",),
+        last_source_snapshot=digest({"source_revision": staged_a.source_revision}),
+    )
+    runtime.KnowledgeFileStore(paths["home"]).publish_project_projection(old_projection)
+    old_bytes = projection_path.read_bytes()
+    runtime._write_private(paths["manifest_root"] / "combined.json", b'{"old":true}')
+    projection = runtime.ProjectProjection.create(
+        project_id=PROJECT_ID,
+        slug="rag-project",
+        display_name="RAG",
+        status="active",
+        source_bindings=("source:rag-project",),
+        last_source_snapshot=digest({"source_revision": staged_b.source_revision}),
+    )
+    manifests = {"repository.json": b'{"files":[]}', "combined.json": b'{"new":true}'}
+    publication = runtime._stage_rag_publication(
+        paths,
+        staged_b.generation_digest,
+        manifests,
+        projection,
+    )
+    result = _result(staged_b) | {
+        "combined_manifest_digest": digest_of_bytes(manifests["combined.json"])
+    }
+    real_publish = runtime.SQLiteKnowledgeIndex.publish_staged_generation
+    real_complete = runtime._complete_rag_publication
+
+    def crash(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("publication interrupted")
+
+    if crash_before_cas:
+        monkeypatch.setattr(runtime.SQLiteKnowledgeIndex, "publish_staged_generation", crash)
+    else:
+        monkeypatch.setattr(runtime, "_complete_rag_publication", crash)
+    with pytest.raises(OSError, match="publication interrupted"):
+        runtime._publish_rag_state_pending(
+            paths,
+            PROJECT_ID,
+            result,
+            staged_a.generation_digest,
+            staged_b.generation_digest,
+            publication=publication,
+        )
+    assert projection_path.read_bytes() == old_bytes
+    assert (paths["manifest_root"] / "combined.json").read_bytes() == b'{"old":true}'
+    monkeypatch.setattr(runtime.SQLiteKnowledgeIndex, "publish_staged_generation", real_publish)
+    monkeypatch.setattr(runtime, "_complete_rag_publication", real_complete)
+    recovery = runtime._recover_rag_state_pending(paths, PROJECT_ID)
+    assert recovery["status"] == ("unpublished" if crash_before_cas else "completed")
+    if crash_before_cas:
+        assert projection_path.read_bytes() == old_bytes
+    else:
+        assert projection_path.read_bytes() == projection.render()
+        assert (paths["manifest_root"] / "combined.json").read_bytes() == manifests["combined.json"]
+
+
+def test_staged_manifest_tampering_prevents_database_publication(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    staged_a, staged_b = _ready_and_staged(paths)
+    _write_state(paths, _result(staged_a))
+    projection = runtime.ProjectProjection.create(
+        project_id=PROJECT_ID,
+        slug="rag-project",
+        display_name="RAG",
+        status="active",
+        source_bindings=("source:rag-project",),
+        last_source_snapshot=digest({"source_revision": staged_b.source_revision}),
+    )
+    manifests = {"repository.json": b"{}", "combined.json": b"{}"}
+    publication = runtime._stage_rag_publication(
+        paths, staged_b.generation_digest, manifests, projection
+    )
+    staged_root = paths["manifest_root"] / "generations" / staged_b.generation_digest.split(":")[1]
+    runtime._write_private(staged_root / "repository.json", b'{"tampered":true}')
+    result = _result(staged_b) | {"combined_manifest_digest": digest_of_bytes(b"{}")}
+    with pytest.raises(runtime.PolicyViolation, match="digest drift"):
+        runtime._publish_rag_state_pending(
+            paths,
+            PROJECT_ID,
+            result,
+            staged_a.generation_digest,
+            staged_b.generation_digest,
+            publication=publication,
+        )
+    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+        assert index.generation(PROJECT_ID).generation_digest == staged_a.generation_digest
+
+
+@pytest.mark.parametrize(
+    "existing", [b"user owned content", b'{"schema":"foreign","project_id":"other"}']
+)
+def test_foreign_project_projection_rejects_before_cas(tmp_path: Path, existing: bytes) -> None:
+    paths = _paths(tmp_path)
+    staged_a, staged_b = _ready_and_staged(paths)
+    _write_state(paths, _result(staged_a))
+    projection = runtime.ProjectProjection.create(
+        project_id=PROJECT_ID,
+        slug="rag-project",
+        display_name="RAG",
+        status="active",
+        source_bindings=("source:rag-project",),
+        last_source_snapshot=digest({"source_revision": staged_b.source_revision}),
+    )
+    publication = runtime._stage_rag_publication(
+        paths,
+        staged_b.generation_digest,
+        {"repository.json": b"{}", "combined.json": b"{}"},
+        projection,
+    )
+    target = paths["project_root"] / "PROJECT.yaml"
+    target.write_bytes(existing)
+    result = _result(staged_b) | {"combined_manifest_digest": digest_of_bytes(b"{}")}
+    with pytest.raises(runtime.PolicyViolation):
+        runtime._publish_rag_state_pending(
+            paths,
+            PROJECT_ID,
+            result,
+            staged_a.generation_digest,
+            staged_b.generation_digest,
+            publication=publication,
+        )
+    assert target.read_bytes() == existing
+    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+        assert index.generation(PROJECT_ID).generation_digest == staged_a.generation_digest

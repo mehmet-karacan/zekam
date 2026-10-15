@@ -6,6 +6,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import sqlite3
 from collections.abc import Mapping
@@ -16,7 +17,11 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from zekam.application.bounded_file import read_bounded_bytes
-from zekam.application.embedding_provider import EmbeddingProbeFixture, EmbeddingPurpose
+from zekam.application.embedding_provider import (
+    EmbeddingProbeFixture,
+    EmbeddingProfile,
+    EmbeddingPurpose,
+)
 from zekam.application.model_benchmark_service import default_fixture_file, load_fixture_registry
 from zekam.application.model_registry import load_inventory
 from zekam.application.opencode_benchmark_campaign import (
@@ -44,7 +49,7 @@ from zekam.application.provider_contract_runner import (
     ProviderExecutionHost,
     RuntimeProviderContractRunner,
 )
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_invocation import GatewayTransportProvenance
 from zekam.domain.resources import LockMode, ResourceRequest
@@ -75,8 +80,10 @@ from zekam.infrastructure.embedding.opencode_remote import (
     MIN_BATCH_COSINE,
     MIN_REPEAT_COSINE,
     MIN_SEMANTIC_MARGIN,
+    OpenCodeEmbeddingExecution,
     OpenCodeRemoteEmbeddingProvider,
     OpenCodeRuntimeInvocation,
+    RecoveredDocumentVectors,
     RuntimeOpenCodeEmbeddingExecutor,
 )
 from zekam.infrastructure.local_file_security import private_directory, private_regular
@@ -142,6 +149,26 @@ end;
 create trigger if not exists provider_effect_receipt_no_delete
 before delete on provider_effect_receipt begin
   select raise(abort,'provider_effect_receipt append-only');
+end;
+create table if not exists provider_document_vector_result(
+  realm_id text not null,
+  project_id text not null,
+  effect_digest text not null,
+  profile_digest text not null,
+  claim_id text not null references provider_effect_claim(id),
+  receipt_id text not null references provider_effect_receipt(id),
+  vectors_json text not null,
+  vectors_digest text not null,
+  primary key(realm_id,project_id,effect_digest,profile_digest),
+  check(json_valid(vectors_json) and length(cast(vectors_json as blob)) between 2 and 8388608)
+) strict;
+create trigger if not exists provider_document_vector_result_no_update
+before update on provider_document_vector_result begin
+  select raise(abort,'provider_document_vector_result append-only');
+end;
+create trigger if not exists provider_document_vector_result_no_delete
+before delete on provider_document_vector_result begin
+  select raise(abort,'provider_document_vector_result append-only');
 end;
 """
 
@@ -429,6 +456,178 @@ class LiveProcessClient:
         finally:
             credential.clear()
         return ProviderCallResult(response, digest(dict(response)), outbound_id, authorization.id)
+
+
+class SQLiteDocumentEmbeddingJournal:
+    """Recover exact completed document vectors without retaining source or raw responses."""
+
+    def __init__(self, host: SQLiteProviderLedgerHost, project_id: UUID) -> None:
+        self.host = host
+        self.project_id = project_id
+
+    def _key(
+        self,
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+    ) -> tuple[str, str, str, str]:
+        if not prepared.plan.call_id.startswith("opencode-embedding-document-"):
+            raise PolicyViolation("Document vector journal document effect required")
+        if prepared.call.payload.get("model") != profile.exact_model_id:
+            raise PolicyViolation("Document vector journal model binding drift")
+        return (
+            str(self.host.realm_id),
+            str(self.project_id),
+            prepared.plan.effect_request.effect_digest,
+            profile.profile_digest,
+        )
+
+    @staticmethod
+    def _validate_vectors(
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+        vectors: tuple[tuple[float, ...], ...],
+    ) -> None:
+        inputs = prepared.call.payload.get("input")
+        if not isinstance(inputs, list | tuple) or len(vectors) != len(inputs):
+            raise PolicyViolation("Document vector journal input slot binding drift")
+        for vector in vectors:
+            profile.validate_vector(vector)
+
+    def load(
+        self,
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+    ) -> RecoveredDocumentVectors | None:
+        key = self._key(prepared, profile)
+        with self.host._connect() as db:
+            row = db.execute(
+                "select v.vectors_json,v.vectors_digest,c.realm_id,j.project_id,"
+                "c.effect_digest,c.operation,r.status,r.result_digest,r.id,"
+                "r.realm_id,j.realm_id "
+                "from provider_document_vector_result v "
+                "join provider_effect_claim c on c.id=v.claim_id "
+                "join provider_job j on j.id=c.job_id "
+                "join provider_effect_receipt r on r.id=v.receipt_id and r.claim_id=c.id "
+                "where v.realm_id=? and v.project_id=? "
+                "and v.effect_digest=? and v.profile_digest=?",
+                key,
+            ).fetchone()
+            exists = db.execute(
+                "select 1 from provider_document_vector_result "
+                "where realm_id=? and project_id=? and effect_digest=? and profile_digest=?",
+                key,
+            ).fetchone()
+        if row is None:
+            if exists is not None:
+                raise PolicyViolation("Document vector journal terminal evidence missing")
+            return None
+        if (
+            tuple(row)[2:5] != key[:3]
+            or row[5] != f"provider-contract:{prepared.plan.call_id}"
+            or row[6] != "completed"
+            or not isinstance(row[7], str)
+            or row[9] != key[0]
+            or row[10] != key[0]
+        ):
+            raise PolicyViolation("Document vector journal receipt binding drift")
+        try:
+            values = json.loads(str(row[0]))
+            if not isinstance(values, list) or any(
+                not isinstance(vector, list) for vector in values
+            ):
+                raise ValueError("vector shape")
+            vectors = tuple(tuple(vector) for vector in values)
+            self._validate_vectors(prepared, profile, vectors)
+        except (TypeError, ValueError, ValidationFailed) as exc:
+            raise PolicyViolation("Document vector journal payload invalid") from exc
+        expected = digest(
+            {"key": key, "receipt_id": str(row[8]), "response_digest": row[7], "vectors": vectors}
+        )
+        if row[1] != expected:
+            raise PolicyViolation("Document vector journal digest drift")
+        return RecoveredDocumentVectors(vectors, expected)
+
+    def record(
+        self,
+        execution: OpenCodeEmbeddingExecution,
+        profile: EmbeddingProfile,
+        vectors: tuple[tuple[float, ...], ...],
+    ) -> None:
+        prepared = execution.prepared
+        execution.assert_valid(prepared)
+        self._validate_vectors(prepared, profile, vectors)
+        key = self._key(prepared, profile)
+        response = execution.provider_result.response
+        rows = response.get("data")
+        if (
+            response.get("model") != profile.exact_model_id
+            or not isinstance(rows, list)
+            or len(rows) != len(vectors)
+        ):
+            raise PolicyViolation("Document vector journal response binding drift")
+        seen: set[int] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise PolicyViolation("Document vector journal response slot invalid")
+            slot = row.get("index")
+            raw = row.get("embedding")
+            if (
+                type(slot) is not int
+                or slot in seen
+                or not 0 <= slot < len(vectors)
+                or not isinstance(raw, list)
+                or len(raw) != profile.dimension
+                or any(type(value) not in (int, float) or not math.isfinite(value) for value in raw)
+            ):
+                raise PolicyViolation("Document vector journal response slot invalid")
+            raw_vector = tuple(float(value) for value in raw)
+            norm = math.sqrt(sum(value * value for value in raw_vector))
+            if (
+                not math.isfinite(norm)
+                or norm == 0.0
+                or tuple(value / norm for value in raw_vector) != vectors[slot]
+            ):
+                raise PolicyViolation("Document vector journal response vector drift")
+            seen.add(slot)
+        if self.load(prepared, profile) is not None:
+            raise PolicyViolation("Document vector journal duplicate result")
+        with self.host._connect() as db:
+            db.execute("begin immediate")
+            receipt = db.execute(
+                "select c.realm_id,j.project_id,c.effect_digest,c.operation,"
+                "r.status,r.result_digest,r.realm_id,j.realm_id "
+                "from provider_effect_claim c join provider_job j on j.id=c.job_id "
+                "join provider_effect_receipt r on r.claim_id=c.id where c.id=? and r.id=?",
+                (str(execution.claim.id), str(execution.receipt.id)),
+            ).fetchone()
+            expected = (
+                *key[:3],
+                f"provider-contract:{prepared.plan.call_id}",
+                "completed",
+                execution.provider_result.response_digest,
+                key[0],
+                key[0],
+            )
+            if receipt is None or tuple(receipt) != expected:
+                raise PolicyViolation("Document vector journal persisted receipt required")
+            db.execute(
+                "insert into provider_document_vector_result values(?,?,?,?,?,?,?,?)",
+                (
+                    *key,
+                    str(execution.claim.id),
+                    str(execution.receipt.id),
+                    canonical_json(vectors),
+                    digest(
+                        {
+                            "key": key,
+                            "receipt_id": str(execution.receipt.id),
+                            "response_digest": execution.provider_result.response_digest,
+                            "vectors": vectors,
+                        }
+                    ),
+                ),
+            )
+            db.commit()
 
 
 def _work(realm_id: UUID, project_id: UUID) -> ClaimedWork:

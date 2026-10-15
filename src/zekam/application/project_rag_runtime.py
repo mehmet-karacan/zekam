@@ -22,7 +22,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -115,6 +115,7 @@ from zekam.infrastructure.embedding.opencode_remote import (
 from zekam.infrastructure.git.source_reader import GitCommandError, run_read_only
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_file,
@@ -122,6 +123,7 @@ from zekam.infrastructure.local_file_security import (
 )
 from zekam.infrastructure.opencode_provider_ledger import (
     LiveProcessClient,
+    SQLiteDocumentEmbeddingJournal,
     SQLiteProviderLedgerHost,
     _work,
 )
@@ -165,6 +167,7 @@ def _read_rag_runtime_text(path: Path, *, label: str) -> str:
         return payload.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise PolicyViolation(f"Project RAG {label} UTF-8 olmali") from exc
+
 
 MODEL_ID = "openai/BAAI/bge-m3"
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
@@ -220,6 +223,8 @@ def _read_freshness_file(path: Path) -> bytes:
     if len(payload) > MAX_FRESHNESS_FILE_BYTES:
         raise OSError("freshness file exceeds bound")
     return payload
+
+
 # in-process identity -> _QualificationRecord (or failure marker); bounded LRU.
 _qualification_inprocess: dict[str, object] = {}
 _QUALIFICATION_INPROCESS_MAX = 32
@@ -483,8 +488,13 @@ def _vector_cache_scope(
     )
 
 
-def _directory_source_state(root: Path) -> tuple[str, str, str]:
-    discovery = discover(root)
+def _directory_source_state(
+    root: Path,
+    check_budget: Callable[[], None] | None = None,
+) -> tuple[str, str, str]:
+    discovery = (
+        discover(root) if check_budget is None else discover(root, check_budget=check_budget)
+    )
     if discovery.truncated:
         raise ValidationFailed("Project directory source snapshot truncated")
     if discovery.inventory_status is InventoryStatus.PARTIAL:
@@ -516,7 +526,11 @@ def classify_project_source(root: Path) -> str:
     return "git" if _has_git_marker(root) else "directory"
 
 
-def _git_source_state(root: Path) -> tuple[str, str, str]:
+def _git_source_state(
+    root: Path,
+    *,
+    check_budget: Callable[[], None] | None = None,
+) -> tuple[str, str, str]:
     """Return a stable source identity for Git roots and ordinary directories.
 
     Project registration explicitly accepts both source kinds.  Git repositories
@@ -524,31 +538,39 @@ def _git_source_state(root: Path) -> tuple[str, str, str]:
     secret-filtered discovery digest as the index plan.
     """
 
+    if check_budget is not None:
+        check_budget()
     try:
         repository_output = run_read_only(root, "rev-parse", "--show-toplevel")
     except (OSError, subprocess.SubprocessError, ZekamError):
         repository_output = None
+    if check_budget is not None:
+        check_budget()
     if repository_output is None:
         if _has_git_marker(root):
             raise ValidationFailed("Project Git source identity probe basarisiz")
-        return _directory_source_state(root)
+        return _directory_source_state(root, check_budget)
 
     try:
         repository_root = Path(repository_output.strip()).resolve(strict=True)
     except OSError:
         raise ValidationFailed("Project Git source root cozumlenemedi") from None
     if repository_root != root.resolve(strict=True):
-        return _directory_source_state(root)
+        return _directory_source_state(root, check_budget)
     try:
         head = run_read_only(root, "rev-parse", "HEAD").strip()
     except GitCommandError as exc:
         raise ValidationFailed("Project Git source committed HEAD ister") from exc
     except (OSError, subprocess.SubprocessError, ZekamError):
         raise ValidationFailed("Project Git source identity probe basarisiz") from None
+    if check_budget is not None:
+        check_budget()
     try:
         status = run_read_only(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     except (OSError, subprocess.SubprocessError, ZekamError):
         raise ValidationFailed("Project Git source identity probe basarisiz") from None
+    if check_budget is not None:
+        check_budget()
     if len(head) != 40 or any(character not in "0123456789abcdef" for character in head):
         raise ValidationFailed("Project Git source HEAD kimligi gecersiz")
     status_digest = hashlib.sha256(status.encode("utf-8", errors="replace")).hexdigest()
@@ -941,10 +963,13 @@ def _project_plan(
     knowledge: KnowledgeSettings | None = None,
     embedding_candidates: tuple[EmbeddingRouteCandidate, ...] = (),
     allow_remote_source: bool = False,
+    check_budget: Callable[[], None] | None = None,
 ) -> tuple[DiscoveryReport, ProjectIndexPlan]:
     root = resolve_source_root(root)
-    _, _, revision = _git_source_state(root)
-    discovery = discover(root)
+    _, _, revision = _git_source_state(root, check_budget=check_budget)
+    discovery = (
+        discover(root) if check_budget is None else discover(root, check_budget=check_budget)
+    )
     plan = build_project_index_plan(
         project_id=project_id,
         project_slug=project_slug,
@@ -957,6 +982,7 @@ def _project_plan(
         local_dimension=(
             knowledge.embedding_dimension if knowledge is not None else VECTOR_DIMENSION
         ),
+        **({"check_budget": check_budget} if check_budget is not None else {}),
     )
     return discovery, plan
 
@@ -1378,6 +1404,7 @@ def _provider(
         RuntimeOpenCodeEmbeddingExecutor(invocation),
         dimension=knowledge.embedding_dimension,
         max_batch_size=MAX_BATCH_SIZE,
+        document_journal=SQLiteDocumentEmbeddingJournal(host, project_id),
     )
     # ----- WP2 (B01): bounded qualification cache -------------------------
     # A warm, already-accepted provider identity must not re-run the probe.  The
@@ -1801,10 +1828,7 @@ def _cached_vectors(
             created_at = dt.datetime.now(dt.UTC).isoformat()
             connection.executemany(
                 "insert or ignore into vector_cache_v2 values(?,?,?,?,?,?)",
-                (
-                    (*item, created_at)
-                    for item in pending_aliases
-                ),
+                ((*item, created_at) for item in pending_aliases),
             )
             connection.commit()
         except Exception:
@@ -1939,6 +1963,101 @@ def _write_rag_state_cas(
 
 
 _RAG_STATE_PENDING_SCHEMA = "zekam-project-rag-state-pending/v1"
+_RAG_MANIFEST_NAMES = frozenset({"repository.json", "combined.json", "oracle.json", "odi11g.json"})
+
+
+def _stage_rag_publication(
+    paths: dict[str, Path],
+    generation_digest: str,
+    manifests: dict[str, bytes],
+    projection: ProjectProjection,
+) -> dict[str, Any]:
+    """Stage immutable derived files without changing the current public view."""
+    parse_digest(generation_digest)
+    if not {"repository.json", "combined.json"} <= manifests.keys() <= _RAG_MANIFEST_NAMES:
+        raise PolicyViolation("Project RAG publication manifest set invalid")
+    staged_root = paths["manifest_root"] / "generations" / generation_digest.split(":", 1)[1]
+    if path_or_parent_is_link_or_reparse(staged_root):
+        raise PolicyViolation("Project RAG publication staging identity drift")
+    staged_root.mkdir(parents=True, exist_ok=True)
+    restrict_private_tree(staged_root)
+    manifest_digests: dict[str, str] = {}
+    for name, payload in manifests.items():
+        if len(payload) > MAX_RAG_RUNTIME_JSON_BYTES:
+            raise PolicyViolation("Project RAG publication manifest bound exceeded")
+        target = staged_root / name
+        if target.exists():
+            existing = _read_rag_runtime_text(target, label="staged manifest").encode("utf-8")
+            if existing != payload:
+                raise PolicyViolation("Project RAG immutable staged manifest drift")
+        else:
+            _write_private(target, payload)
+        manifest_digests[name] = digest_of_bytes(payload)
+    return {"manifests": manifest_digests, "projection": projection.body()}
+
+
+def _rag_publication_payloads(
+    paths: dict[str, Path],
+    project_id: str,
+    generation_digest: str,
+    result: dict[str, Any],
+    publication: dict[str, Any],
+) -> tuple[dict[str, bytes], ProjectProjection]:
+    """Validate every staged file and projection before changing any public file."""
+    names = publication.get("manifests")
+    body = publication.get("projection")
+    if (
+        not isinstance(names, dict)
+        or not {"repository.json", "combined.json"} <= names.keys() <= _RAG_MANIFEST_NAMES
+        or not isinstance(body, dict)
+        or body.get("project_id") != project_id
+        or body.get("slug") != paths["project_root"].name
+        or body.get("last_source_snapshot")
+        != digest({"source_revision": result.get("source_revision")})
+    ):
+        raise PolicyViolation("Project RAG publication binding drift")
+    try:
+        fields = {key: value for key, value in body.items() if key != "schema"}
+        for key in (
+            "source_bindings",
+            "related_projects",
+            "technologies",
+            "database_metadata",
+            "important_docs",
+            "knowledge_scopes",
+        ):
+            if not isinstance(fields.get(key), list):
+                raise PolicyViolation("Project RAG publication projection list invalid")
+            fields[key] = tuple(fields[key])
+        projection = ProjectProjection.create(**fields)
+    except (TypeError, ValueError, ValidationFailed) as exc:
+        raise PolicyViolation("Project RAG publication projection invalid") from exc
+    if projection.body() != body:
+        raise PolicyViolation("Project RAG publication projection drift")
+    staged_root = paths["manifest_root"] / "generations" / generation_digest.split(":", 1)[1]
+    payloads: dict[str, bytes] = {}
+    for name, expected in names.items():
+        target = staged_root / name
+        if not _scoped_path_is_private(paths["home"], target, directory=False):
+            raise PolicyViolation("Project RAG staged manifest identity drift")
+        payload = _read_rag_runtime_text(target, label="staged manifest").encode("utf-8")
+        if digest_of_bytes(payload) != expected:
+            raise PolicyViolation("Project RAG staged manifest digest drift")
+        payloads[name] = payload
+    if digest_of_bytes(payloads["combined.json"]) != result.get("combined_manifest_digest"):
+        raise PolicyViolation("Project RAG publication combined manifest drift")
+    KnowledgeFileStore(paths["home"]).validate_project_projection(projection)
+    return payloads, projection
+
+
+def _complete_rag_publication(
+    paths: dict[str, Path],
+    payloads: dict[str, bytes],
+    projection: ProjectProjection,
+) -> None:
+    for name, payload in payloads.items():
+        _write_private(paths["manifest_root"] / name, payload)
+    KnowledgeFileStore(paths["home"]).publish_project_projection(projection)
 
 
 def _rag_pending_path(state_path: Path) -> Path:
@@ -1953,6 +2072,8 @@ def _publish_rag_state_pending(
     result: dict[str, Any],
     expected_current_digest: str | None,
     staged_generation_digest: str,
+    *,
+    publication: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Publish one staged index generation and its rag-state as one unit.
 
@@ -2010,6 +2131,12 @@ def _publish_rag_state_pending(
             "tree_digest": result.get("tree_digest"),
             "result": result,
         }
+        payloads = None
+        if publication is not None:
+            payloads = _rag_publication_payloads(
+                paths, project_id, staged_generation_digest, result, publication
+            )
+            pending_body["publication"] = publication
         pending_body["pending_digest"] = digest(pending_body)
         _write_private(pending_path, (canonical_json(pending_body) + "\n").encode("utf-8"))
         if not private_regular(pending_path):
@@ -2024,6 +2151,8 @@ def _publish_rag_state_pending(
             "source_revision"
         ) or generation.tree_digest != result.get("tree_digest"):
             raise PolicyViolation("Project RAG yayin source/tree binding drift")
+        if payloads is not None:
+            _complete_rag_publication(paths, *payloads)
         _write_private(state_path, (canonical_json(result) + "\n").encode("utf-8"))
         if not private_regular(state_path):
             raise PolicyViolation("Project RAG state private ACL ister")
@@ -2159,6 +2288,14 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                     not in (expected_current_digest, staged_generation_digest)
                 ):
                     raise PolicyViolation("Project RAG pending state binding drift")
+            publication = pending.get("publication")
+            if "publication" in pending:
+                if not isinstance(publication, dict):
+                    raise PolicyViolation("Project RAG pending publication invalid")
+                payloads = _rag_publication_payloads(
+                    paths, project_id, staged_generation_digest, result, publication
+                )
+                _complete_rag_publication(paths, *payloads)
             _write_private(state_path, (canonical_json(result) + "\n").encode("utf-8"))
             if not private_regular(state_path):
                 raise PolicyViolation("Project RAG state private ACL ister")
@@ -2659,12 +2796,15 @@ def _index(
     _recover_rag_state_pending(paths, str(project_id))
     knowledge = load_settings(home=paths["home"]).knowledge
     _assert_canonical_knowledge_profile(knowledge)
-    source_state_before = _git_source_state(source_root)
+    source_state_before = _git_source_state(
+        source_root, check_budget=lambda: _check_index_budget(cancel, deadline_monotonic)
+    )
     discovery, plan = _project_plan(
         source_root,
         project_id=project_id,
         project_slug=project_slug,
         knowledge=knowledge,
+        check_budget=lambda: _check_index_budget(cancel, deadline_monotonic),
     )
     _check_index_budget(cancel, deadline_monotonic)
     oracle_plan: OracleMetadataIndexPlan | None = None
@@ -2726,6 +2866,7 @@ def _index(
             knowledge=knowledge,
             embedding_candidates=(candidate,),
             allow_remote_source=True,
+            check_budget=lambda: _check_index_budget(cancel, deadline_monotonic),
         )
         if plan.embedding_route.kind is not EmbeddingRouteKind.QUALIFIED_REMOTE:
             raise PolicyViolation("Remote embedding route plan/effect drift")
@@ -2781,6 +2922,8 @@ def _index(
         cache_hits = len(vectors)
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
+        reconciled_chunks = 0
+        reconciled_batches = 0
         for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
             _check_index_budget(cancel, deadline_monotonic)
             texts = tuple(chunk.text for chunk in batch)
@@ -2811,7 +2954,10 @@ def _index(
             except Exception:
                 connection.rollback()
                 raise
-            provider_batches += 1
+            provider_batches += embedded.receipt.provider_call_count
+            if embedded.receipt.reconciliation_evidence_digest is not None:
+                reconciled_chunks += len(batch)
+                reconciled_batches += 1
             _emit_index_progress(
                 completed=len(vectors),
                 total=len(chunks),
@@ -2821,7 +2967,12 @@ def _index(
         connection.close()
     if len(vectors) != len(chunks):
         raise PolicyViolation("Project RAG vector cache incomplete")
-    if _git_source_state(source_root) != source_state_before:
+    if (
+        _git_source_state(
+            source_root, check_budget=lambda: _check_index_budget(cancel, deadline_monotonic)
+        )
+        != source_state_before
+    ):
         raise PolicyViolation("Project source indexing sirasinda degisti; generation uygulanmadi")
 
     combined_revision = digest(
@@ -2963,13 +3114,11 @@ def _index(
         )
         integrity = index.integrity()
 
-    manifest_root = paths["manifest_root"]
-    _write_private(manifest_root / "repository.json", bound_plan.manifest)
+    manifests = {"repository.json": bound_plan.manifest, "combined.json": combined_manifest}
     if bound_oracle_plan is not None:
-        _write_private(manifest_root / "oracle.json", bound_oracle_plan.manifest)
+        manifests["oracle.json"] = bound_oracle_plan.manifest
     if odi_plan is not None:
-        _write_private(manifest_root / "odi11g.json", odi_plan.manifest)
-    _write_private(manifest_root / "combined.json", combined_manifest)
+        manifests["odi11g.json"] = odi_plan.manifest
     projection = ProjectProjection.create(
         project_id=str(project_id),
         slug=project_slug,
@@ -2990,7 +3139,8 @@ def _index(
         knowledge_scopes=(f"project:{project_id}",),
         last_source_snapshot=digest({"source_revision": combined_revision}),
     )
-    projection_path = KnowledgeFileStore(paths["home"]).publish_project_projection(projection)
+    publication = _stage_rag_publication(paths, generation.generation_digest, manifests, projection)
+    projection_path = paths["project_root"] / "PROJECT.yaml"
     result = _plan_document(discovery, bound_plan, bound_oracle_plan, odi_plan) | {
         "schema": "zekam-project-rag-index/v1",
         "status": "passed",
@@ -3009,7 +3159,10 @@ def _index(
         "embedding_profile_id": knowledge.embedding_profile_id,
         "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
         "cache_hits": cache_hits,
-        "newly_embedded_chunks": len(chunks) - cache_hits,
+        "newly_embedded_chunks": len(chunks) - cache_hits - reconciled_chunks,
+        "reconciled_chunks": reconciled_chunks,
+        "reconciled_batches": reconciled_batches,
+        "provider_batch_concurrency": 1,
         "provider_batches": provider_batches,
         "probe": binding.probe,
         "ledger": binding.ledger,
@@ -3035,7 +3188,12 @@ def _index(
             "oracle_effect": oracle_receipt,
         }
     _publish_rag_state_pending(
-        paths, str(project_id), result, expected_current_digest, generation.generation_digest
+        paths,
+        str(project_id),
+        result,
+        expected_current_digest,
+        generation.generation_digest,
+        publication=publication,
     )
     return result
 

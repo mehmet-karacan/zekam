@@ -983,6 +983,31 @@ OpenCode model semasi/stale plan dogrulama sirasinda kaldi. Sonraki guvenli
 adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
 "devam et" diyene kadar yeni is baslatilmaz.
 
+**15 Ekim 2026 - WP-05 gelistirme dalgasi, testler bekliyor:** Kullanici son
+talimati geregi test kosulari son toplu dogrulama asamasina birakildi. Bu dalgada
+manifestler generation-scoped private staging'e, PROJECT.yaml ve compatibility
+manifest yayini SQLite CAS sonrasi pending recovery akisina baglandi. Mevcut
+PROJECT.yaml sahiplik/format kapisi CAS oncesi salt okunur denetlenir ve yazimda
+tekrar korunur. Kaynak kesfi, dizin girdileri ve dosya parser donguleri mevcut
+iptal/deadline butcesini kontrol eder; Git komutu kendi bounded timeout'u icinde
+dondukten sonra ayni butce tekrar denetlenir.
+
+Remote document provider icin yalniz normalize vektorleri saklayan append-only
+SQLite journal eklendi. Exact realm/project/effect/model/profile ve terminal
+claim/receipt baglari dogrulanir; tamamlanmis vektorler cache yazim kesintisinden
+sonra yeni provider cagrisi olmadan okunabilir. Sifir yeni cagri receipt'i ancak
+document reconciliation evidence digest'iyle kabul edilir. Kaynak metni ve ham
+provider yaniti journal'a yazilmaz. Belirsiz sonuc, receipt oncesi kesinti veya
+journal'a ulasmayan sonuc otomatik tekrar edilmez; mevcut recovery kapisi kalir.
+Batch concurrency bilincli olarak 1'dir; kaynak hazirliginda tek parser veya Git
+komutu icindeki anlik kesme, farkli batch gruplamasi, provider hesap kotasi ve
+canli kabul halen aciktir.
+
+Statik bagimsiz incelemenin norm hesaplama, receipt/job realm ve PROJECT.yaml
+preflight bulgulari kaynakta duzeltildi. Crash/replay/tamper, projection sahipligi,
+source cancellation ve sifir-cagri receipt testleri yazildi, HENUZ CALISTIRILMADI.
+WP-05.03/04/06 kutulari bu gelistirme notuyla kapatilmaz.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

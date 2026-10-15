@@ -1040,9 +1040,7 @@ def test_read_content_false_keeps_ignored_and_generated_metadata_visible(
     # icerikleri acilmaz, indeks dosyalari uretilmez.
     (sample_project / ".git" / "objects").mkdir(parents=True)
     (sample_project / ".git" / "config").write_text("[core]\n", encoding="utf-8")
-    (sample_project / ".env").write_text(
-        "DB_PASSWORD=EnvDegerYalnizMetadata\n", encoding="utf-8"
-    )
+    (sample_project / ".env").write_text("DB_PASSWORD=EnvDegerYalnizMetadata\n", encoding="utf-8")
     (sample_project / "veri.bin").write_bytes(b"\x00\x01binary")
     (sample_project / "gpu-ui").mkdir()
     (sample_project / "gpu-ui" / "tsconfig.tsbuildinfo").write_text("{}", encoding="utf-8")
@@ -1146,3 +1144,22 @@ def test_read_content_must_be_bool() -> None:
     assert DiscoveryPolicy(read_content=True).read_content is True
     assert DiscoveryPolicy(read_content=False).read_content is False
     assert DiscoveryPolicy(read_content=False).as_dict()["read_content"] is False
+
+
+@pytest.mark.parametrize("stop_after", [1, 4, 9])
+def test_discovery_budget_interrupts_before_full_tree_read(tmp_path: Path, stop_after: int) -> None:
+    from zekam.application.provider_adapter import ProviderCallCancelled
+
+    for index in range(20):
+        (tmp_path / f"file-{index}.md").write_text("bounded source", encoding="utf-8")
+    checks = 0
+
+    def check_budget() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == stop_after:
+            raise ProviderCallCancelled("cancelled during discovery")
+
+    with pytest.raises(ProviderCallCancelled, match="during discovery"):
+        discover(tmp_path, check_budget=check_budget)
+    assert checks == stop_after

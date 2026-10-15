@@ -269,8 +269,7 @@ def test_xml_units_use_safe_entry_locators_and_reject_dtd_entities() -> None:
     assert units
     assert all(unit.kind is UnitKind.METADATA for unit in units)
     assert all(
-        unit.locator.entry_path and not unit.locator.entry_path.startswith("/")
-        for unit in units
+        unit.locator.entry_path and not unit.locator.entry_path.startswith("/") for unit in units
     )
     assert any("dependency" in (unit.locator.entry_path or "") for unit in units)
 
@@ -815,3 +814,35 @@ def test_project_plan_rejects_files_entry_drifted_from_inventory(
             source_revision="abc123",
             expected_tree_digest=report.tree_digest,
         )
+
+
+def test_project_plan_budget_cancels_between_source_parsers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zekam.application.provider_adapter import ProviderCallCancelled
+
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text("# Source\nbounded content", encoding="utf-8")
+    report = discover(tmp_path)
+    parsed: list[str] = []
+    original = knowledge_index._file_units
+
+    def parse(path: str, text: str, order: int):
+        parsed.append(path)
+        return original(path, text, order)
+
+    def check_budget() -> None:
+        if parsed:
+            raise ProviderCallCancelled("cancelled after first source parser")
+
+    monkeypatch.setattr(knowledge_index, "_file_units", parse)
+    with pytest.raises(ProviderCallCancelled, match="after first source parser"):
+        build_project_index_plan(
+            project_id=uuid4(),
+            project_slug="budget-source",
+            source_root=tmp_path,
+            source_revision="test-revision",
+            expected_tree_digest=report.tree_digest,
+            check_budget=check_budget,
+        )
+    assert len(parsed) == 1

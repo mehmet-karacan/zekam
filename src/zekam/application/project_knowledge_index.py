@@ -16,7 +16,7 @@ import re
 import stat
 import unicodedata
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
@@ -635,10 +635,7 @@ def _structural_code_units(
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0])
-    if any(
-        previous[3] >= current[2]
-        for previous, current in pairwise(candidates)
-    ):
+    if any(previous[3] >= current[2] for previous, current in pairwise(candidates)):
         return None
 
     units: list[ContentUnit] = []
@@ -1084,6 +1081,7 @@ def build_project_index_plan(
     local_dimension: int = REAL_EMBEDDING_DIMENSION,
     allowed_relative_paths: tuple[str, ...] | None = None,
     discovery_policy: DiscoveryPolicy | None = None,
+    check_budget: Callable[[], None] | None = None,
 ) -> ProjectIndexPlan:
     """Build a deterministic source index plan without writing anywhere.
 
@@ -1100,7 +1098,11 @@ def build_project_index_plan(
     """
 
     root = source_root.resolve(strict=True)
-    discovery = discover(root, policy=discovery_policy)
+    discovery = (
+        discover(root, policy=discovery_policy)
+        if check_budget is None
+        else discover(root, policy=discovery_policy, check_budget=check_budget)
+    )
     if discovery.truncated or discovery.tree_digest != expected_tree_digest:
         raise PolicyViolation("Kaynak revision/tree drift; yeniden project scan gerekli")
     if discovery.inventory_status is InventoryStatus.PARTIAL:
@@ -1140,6 +1142,8 @@ def build_project_index_plan(
     manifest_files: list[dict[str, Any]] = []
     skipped_encoding = 0
     for item in selected:
+        if check_budget is not None:
+            check_budget()
         text = _verified_text(
             root,
             item.relative_path,
@@ -1221,6 +1225,8 @@ def build_project_index_plan(
         )
         for index, unit in enumerate(document.units)
     )
+    if check_budget is not None:
+        check_budget()
     return ProjectIndexPlan(
         project_id=project_id,
         project_slug=project_slug,

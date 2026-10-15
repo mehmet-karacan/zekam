@@ -397,14 +397,16 @@ class KnowledgeFileStore:
                 raise
             return self.home / plan.relative_path
 
-    def publish_project_projection(self, projection: ProjectProjection) -> Path:
+    def _validated_project_projection(
+        self,
+        projection: ProjectProjection,
+    ) -> tuple[bytes, bytes | None]:
         payload = projection.render()
         assert_public_safe_projection(
             payload, relative_path=f"projeler/{projection.slug}/PROJECT.yaml"
         )
         relative = f"projeler/{projection.slug}/PROJECT.yaml"
         existing_payload = self._read_optional(relative, max_bytes=2 * 1024 * 1024)
-        replace_existing = False
         if existing_payload is not None:
             try:
                 existing = yaml.safe_load(existing_payload.decode("utf-8"))
@@ -416,10 +418,18 @@ class KnowledgeFileStore:
                 or existing.get("project_id") != projection.project_id
             ):
                 raise PolicyViolation("Mevcut PROJECT.yaml authority binding drift")
-            if existing_payload == payload:
-                return self.home / relative
-            replace_existing = True
-        return self._atomic_write(relative, payload, replace_existing=replace_existing)
+        return payload, existing_payload
+
+    def validate_project_projection(self, projection: ProjectProjection) -> None:
+        """Preflight replacement eligibility without publishing or creating files."""
+        self._validated_project_projection(projection)
+
+    def publish_project_projection(self, projection: ProjectProjection) -> Path:
+        payload, existing_payload = self._validated_project_projection(projection)
+        relative = f"projeler/{projection.slug}/PROJECT.yaml"
+        if existing_payload == payload:
+            return self.home / relative
+        return self._atomic_write(relative, payload, replace_existing=existing_payload is not None)
 
     def create_note(self, manifest: KnowledgeNoteManifest, payload: bytes) -> Path:
         if manifest.classification is KnowledgeClassification.SECRET:
@@ -679,9 +689,7 @@ class KnowledgeFileStore:
                             continue
                         if prefix_is_file:
                             if prefix_relative not in expected_artifacts:
-                                issues.add(
-                                    KnowledgeFileIssue("orphan-cas-object", prefix_relative)
-                                )
+                                issues.add(KnowledgeFileIssue("orphan-cas-object", prefix_relative))
                             continue
                         if not prefix_is_dir:
                             issues.add(KnowledgeFileIssue("unsafe-cas-path", prefix_relative))
@@ -701,26 +709,16 @@ class KnowledgeFileStore:
                                     target = Path(object_entry.path)
                                     relative = target.relative_to(self.home).as_posix()
                                     if _is_link_or_reparse(target):
-                                        issues.add(
-                                            KnowledgeFileIssue("unsafe-cas-path", relative)
-                                        )
+                                        issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
                                         continue
                                     try:
-                                        target_is_dir = object_entry.is_dir(
-                                            follow_symlinks=False
-                                        )
-                                        target_is_file = object_entry.is_file(
-                                            follow_symlinks=False
-                                        )
+                                        target_is_dir = object_entry.is_dir(follow_symlinks=False)
+                                        target_is_file = object_entry.is_file(follow_symlinks=False)
                                     except OSError:
-                                        issues.add(
-                                            KnowledgeFileIssue("unsafe-cas-path", relative)
-                                        )
+                                        issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
                                         continue
                                     if target_is_dir or not target_is_file:
-                                        issues.add(
-                                            KnowledgeFileIssue("unsafe-cas-path", relative)
-                                        )
+                                        issues.add(KnowledgeFileIssue("unsafe-cas-path", relative))
                                     elif relative not in expected_artifacts:
                                         issues.add(
                                             KnowledgeFileIssue("orphan-cas-object", relative)

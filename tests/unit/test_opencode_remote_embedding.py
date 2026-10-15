@@ -675,3 +675,125 @@ def test_embed_documents_rejects_mismatched_model_field(tmp_path: Path) -> None:
     )
     with pytest.raises(PolicyViolation, match="model kimligi uyusmuyor"):
         provider.embed_documents(("internal project", "active release"), policy)
+
+
+def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path: Path) -> None:
+    from zekam.infrastructure.local_file_security import restrict_private_tree
+    from zekam.infrastructure.opencode_provider_ledger import (
+        SQLiteDocumentEmbeddingJournal,
+        SQLiteProviderLedgerHost,
+        _work,
+    )
+
+    private = tmp_path / "private"
+    private.mkdir()
+    restrict_private_tree(private)
+    project_id = uuid4()
+    host = SQLiteProviderLedgerHost(private / "provider.sqlite3", uuid4())
+    calls = 0
+
+    def invocation(prepared: PreparedProviderContractCall) -> OpenCodeRuntimeInvocation:
+        nonlocal calls
+        calls += 1
+        work = _work(host.realm_id, project_id)
+        host.register(work)
+        secret = SecretRef.create(
+            realm_id=host.realm_id,
+            name="opencode-litellm-embedding",
+            provider=prepared.plan.provider_ref,
+            purpose="embedding",
+            allowed_operations=(prepared.plan.operation,),
+            store_backend=SecretBackend.ENVIRONMENT,
+            store_locator="TEST_JOURNAL_KEY",
+        )
+        authorization = Authorization.issue(
+            realm_id=host.realm_id,
+            actor_id=uuid4(),
+            plan_digest=prepared.plan.authorization_plan_digest,
+            effect_digest=prepared.plan.effect_request.effect_digest,
+            scope=AuthorizationScope(
+                allowed_resources=(prepared.plan.target, prepared.plan.call_resource),
+                allowed_effects=(EffectKind.PROVIDER_CALL.value,),
+                provider_refs=(prepared.plan.provider_ref,),
+                secret_ref_ids=(secret.id,),
+                data_classifications=prepared.plan.data_classifications,
+            ),
+            risk="critical",
+            lifetime=dt.timedelta(minutes=5),
+        )
+        return OpenCodeRuntimeInvocation(
+            RuntimeProviderContractRunner(host=host, work=work, client=_RuntimeClient()),
+            secret,
+            authorization,
+            "journal-test",
+        )
+
+    configuration = _configuration(tmp_path)
+    provider = OpenCodeRemoteEmbeddingProvider(
+        configuration,
+        RuntimeOpenCodeEmbeddingExecutor(invocation),
+        dimension=3,
+        document_journal=SQLiteDocumentEmbeddingJournal(host, project_id),
+    )
+    profile = provider.probe(_fixture()).profile
+    policy = EmbeddingPolicy(
+        DataClassification.INTERNAL,
+        profile.profile_digest,
+        remote_disclosure_authorized=True,
+    )
+    texts = ("internal project journal source", "active release journal source")
+    first = provider.embed_documents(texts, policy)
+    assert calls == 3
+    restarted_host = SQLiteProviderLedgerHost(host.path, host.realm_id)
+    restarted = OpenCodeRemoteEmbeddingProvider(
+        configuration,
+        RuntimeOpenCodeEmbeddingExecutor(invocation),
+        dimension=3,
+        document_journal=SQLiteDocumentEmbeddingJournal(restarted_host, project_id),
+    )
+    restarted._profile = profile
+    recovered = restarted.embed_documents(texts, policy)
+    assert calls == 3
+    assert recovered.vectors == first.vectors
+    assert recovered.receipt.provider_call_count == 0
+    assert recovered.receipt.output_digest == first.receipt.output_digest
+    prepared = restarted._prepare(
+        texts, purpose=EmbeddingPurpose.DOCUMENT, classification=policy.classification
+    )
+    assert SQLiteDocumentEmbeddingJournal(restarted_host, uuid4()).load(prepared, profile) is None
+    with restarted_host._connect() as db:
+        stored = db.execute("select vectors_json from provider_document_vector_result").fetchone()[
+            0
+        ]
+        assert all(text not in stored for text in texts)
+        db.execute("drop trigger provider_document_vector_result_no_update")
+        db.execute(
+            "update provider_document_vector_result set vectors_digest=?", (digest("tampered"),)
+        )
+    with pytest.raises(PolicyViolation, match="digest drift"):
+        restarted.embed_documents(texts, policy)
+    assert calls == 3
+
+
+@pytest.mark.parametrize("purpose_name", ["query", "document"])
+def test_zero_call_embedding_receipt_requires_document_reconciliation(purpose_name: str) -> None:
+    from zekam.application.embedding_provider import EmbeddingReceipt
+
+    values = {
+        "purpose": EmbeddingPurpose(purpose_name),
+        "profile_digest": digest("profile"),
+        "input_digest": digest("input"),
+        "output_digest": digest("output"),
+        "vector_count": 1,
+        "dimension": 3,
+        "latency_ms": 0,
+        "provider_call_count": 0,
+    }
+    with pytest.raises(ValidationFailed):
+        EmbeddingReceipt(**values)
+    values["reconciliation_evidence_digest"] = digest("durable-reconciliation")
+    if purpose_name == "query":
+        with pytest.raises(ValidationFailed):
+            EmbeddingReceipt(**values)
+    else:
+        assert EmbeddingReceipt(**values).provider_call_count == 0

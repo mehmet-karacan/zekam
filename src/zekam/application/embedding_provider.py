@@ -178,12 +178,17 @@ class EmbeddingReceipt:
     dimension: int
     latency_ms: int
     provider_call_count: int
+    reconciliation_evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.purpose, EmbeddingPurpose):
             raise ValidationFailed("Embedding receipt purpose typed olmali")
         for value in (self.profile_digest, self.input_digest, self.output_digest):
             parse_digest(value)
+        if self.reconciliation_evidence_digest is not None:
+            parse_digest(self.reconciliation_evidence_digest)
+            if self.purpose is not EmbeddingPurpose.DOCUMENT or self.provider_call_count != 0:
+                raise ValidationFailed("Embedding reconciliation document zero-call receipt ister")
         if (
             type(self.vector_count) is not int
             or self.vector_count < 1
@@ -192,7 +197,8 @@ class EmbeddingReceipt:
             or type(self.latency_ms) is not int
             or self.latency_ms < 0
             or type(self.provider_call_count) is not int
-            or self.provider_call_count < 1
+            or self.provider_call_count < 0
+            or (self.provider_call_count == 0 and self.reconciliation_evidence_digest is None)
         ):
             raise ValidationFailed("Embedding receipt numeric contract gecersiz")
 

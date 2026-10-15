@@ -1793,8 +1793,8 @@ def test_warm_query_does_not_repeat_provider_qualification_probe(
     probe_runs: list[int] = []
 
     class _FakeRemoteProvider:
-        def __init__(self, configuration, executor, *, dimension, max_batch_size):
-            del executor, dimension, max_batch_size
+        def __init__(self, configuration, executor, *, dimension, max_batch_size, document_journal):
+            del executor, dimension, max_batch_size, document_journal
             self._configuration = configuration
             self._profile_digest = digest("provider-profile")
 
