@@ -67,7 +67,7 @@ def test_graph_plan_skips_casefolded_generated_and_tool_dirs(tmp_path: Path) -> 
     source_root = tmp_path / "project"
     source_root.mkdir()
     (source_root / "main.py").write_text("def main():\n    return 1\n", encoding="utf-8")
-    for directory in (".GIT", ".VENV", ".PYTEST_CACHE"):
+    for directory in (".GIT", ".VENV", ".PYTEST_CACHE", "Node_Modules", "TARGET"):
         hidden = source_root / directory
         hidden.mkdir()
         (hidden / "ignored.py").write_text("def ignored():\n    return 0\n", encoding="utf-8")

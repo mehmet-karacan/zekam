@@ -43,7 +43,15 @@ MAX_GRAPH_SOURCE_BYTES: int = 4 * 1024 * 1024
 # regular ``build`` or ``static`` source directory remains eligible.
 _GENERATED_GRAPH_DIRS = frozenset({".next", "_next"})
 _DENIED_GRAPH_DIRS = frozenset(
-    {".git", "__pycache__", ".venv", ".mypy_cache", ".pytest_cache"}
+    {
+        ".git",
+        "__pycache__",
+        ".venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        "node_modules",
+        "target",
+    }
 )
 
 

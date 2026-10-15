@@ -31,7 +31,10 @@ from zekam.domain.code_graph import (
 from zekam.domain.errors import ValidationFailed
 
 EXTRACTOR_PROFILE_SCHEMA: Final = "zekam-polyglot-structural-extractor/v1"
-EXTRACTOR_PROFILE_VERSION: Final = 1
+# Version 2 distinguishes SQL/PLSQL ``--`` comments from Java-family
+# decrement operators; persisted generations must not silently reuse the
+# previous masking profile.
+EXTRACTOR_PROFILE_VERSION: Final = 2
 _SUPPORTED_SUFFIXES = frozenset(
     {".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".sql", ".pks", ".pkb", ".plsql"}
 )
@@ -75,7 +78,7 @@ class _Declaration:
     base: str | None = None
 
 
-def _mask_non_code(text: str) -> str:
+def _mask_non_code(text: str, *, language: str | None = None) -> str:
     """Mask comments/literals while preserving offsets and newlines.
 
     JavaScript and TypeScript regular-expression literals can contain quote
@@ -148,7 +151,11 @@ def _mask_non_code(text: str) -> str:
                     chars[position] = " "
             index = end
             continue
-        if current == "-" and next_char == "-":
+        # ``--`` is a line comment in SQL/PLSQL, but it is the decrement
+        # operator in Java and JavaScript-family sources.  The language is
+        # known at the extractor boundary; do not erase the rest of a Java
+        # ``for (...; i--; ...)`` line as if it were a SQL comment.
+        if language == "plsql" and current == "-" and next_char == "-":
             end = text.find("\n", index)
             end = length if end < 0 else end
             for position in range(index, end):
@@ -260,10 +267,10 @@ class PolyglotStructuralExtractor:
 def _extract(
     relative_path: str, text: str, content_digest: str, profile_digest: str
 ) -> GraphFileExtraction:
-    masked = _mask_non_code(text)
+    language = _language(relative_path)
+    masked = _mask_non_code(text, language=language)
     if masked.count("{") != masked.count("}"):
         return _syntax_error(relative_path, content_digest, profile_digest)
-    language = _language(relative_path)
     declarations: list[_Declaration] = []
     if language == "plsql":
         for match in _PLSQL_RE.finditer(masked):

@@ -992,7 +992,7 @@ adim ve duraklama kaydi `docs/CHECKPOINT_2026-10-13_1750.md` icindedir.
 
 - [ ] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
 - [ ] **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
-- [ ] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
+- [x] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
 - [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
 - [ ] **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
 
@@ -1018,20 +1018,20 @@ cozulememesidir; sahte edge uretilmedi. WP-06.01 gercek 11g referans semantigi
 ve kalan unresolved cozumleri icin acik kalir. Ham dosya depoya alinmadi;
 provider veya Oracle cagrisi yapilmadi.
 
-**14 Ekim 2026 — WP-06.03 kismi kanit:** Polyglot structural extractor Java,
+**15 Ekim 2026 — WP-06.03 kapanis kaniti:** Polyglot structural extractor Java,
 JavaScript, TypeScript, TSX ve PL/SQL uzantilarini Python AST extractor'undan ayri
 profilde isler. Import ve containment `extracted`, tekil yerel cagrilar
 `inferred`, nitelikli veya bulunamayan cagrilar `unresolved` olarak ayrilir;
-yorum ve string icinden sahte edge uretilmez. Polyglot, negatif, domain, SQLite
-ve query/ranking graph testleri: 78 passed, 1 Windows symlink yetki skip'i.
-Gercek `gpu-fusion`, `sky-microservis` ve `sky-spring-ui` koklerinde persisted graph
-generation kabul kosusu henuz tamamlanmadigi icin WP-06.03 acik kalir.
-Provider ve remote cagri olmadan gercek `sky-spring-ui` kokunde 308 dosya,
-3.174 sembol ve 18.667 edge ile persisted graph generation olusturuldu;
-SQLite integrity ve ayni kaynak/revision ile deterministic digest tekrari
-gecti. Iki dosyada parse hatasi (`component/topluRapor/commons/Table.js`,
-`pages/DownloadButton.js`) kaldigi icin bu kosu temiz tam graph kabulu degildir
-ve WP-06.03 acik tutulur.
+yorum ve string icinden sahte edge uretilmez. `--` maskelemesi SQL/PLSQL ile
+sinirlandirildi; Java ve JavaScript decrement operatorleri kaynak graph'ini
+bozmaz ve extractor profile version 2 ile eski generation'lar sessizce yeniden
+kullanilmaz. Gercek proje koklerinde provider/remote cagri olmadan persisted
+graph plan/apply ve SQLite integrity kosusu gecti: `sky-spring-ui` 308 dosya,
+3.181 sembol, 18.716 edge, 0 hata; `sky-microservis` 1.486 dosya, 10.287
+sembol, 57.091 edge, 0 hata; `gpu-fusion` 2.112 dosya, 12.164 sembol,
+83.098 edge, 0 hata. Tum generation'larda integrity `passed` ve kaynak
+revision'i exact bagliydi. `node_modules` ve Maven `target` graph eligibility
+disinda tutuldu; metadata envanteri/icerik policy'si ayri kalir.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
@@ -2388,6 +2388,25 @@ schema check cikislari sifir, `scripts/paket_dogrula.py` sonucu `passed` ve
 `errors=0` oldu. Skip'ler bu makinede bulunmayan native client, POSIX ACL/symlink,
 gercek Akilli Kasa, OCR, local BGE ve acik remote provider kosullaridir; basari
 olarak sayilmaz.
+
+### 10.93 15 Ekim 2026 gercek polyglot graph kapanis kaniti
+
+Yeni `extractor_profile_digest=sha256:a0463d18d77486b1cf8c3a8af5c6c54635c44a1de241454e9dbd6b3869cbbab3`
+ile C:\innova\projeler altindaki uc gercek kaynak koku provider/remote cagri
+olmadan bounded plan/apply akisi ile tarandi. `sky-spring-ui` revision
+`8fe07cb64f1090e30470f32984da28a58c7a5f49` icin 308 dosya, 3.181 sembol,
+18.716 edge, 0 hata ve generation
+`sha256:edb33cbcfd8be9473dfbce5aa7c84c8773811d74b5d39550eea3f1b5b29dcd27`;
+`sky-microservis` revision `d075de6f951775776c133fe854753aa14767c6cc` icin
+1.486 dosya, 10.287 sembol, 57.091 edge, 0 hata ve generation
+`sha256:dfe4114346cb882953e9c7913c9cc4cf0f92fcf8e457513ed6e94f77230434d2`;
+`gpu-fusion` revision `485a544bc87754f3d4c7181ec291d6389798ace5` icin
+2.112 dosya, 12.164 sembol, 83.098 edge, 0 hata ve generation
+`sha256:d22aed57b667c852668ef25f69c4ba22b0d27cfbb3f25599f55938123ae6dcfe`.
+Her store integrity `passed`, ayni plan ikinci kez uygulandiginda generation
+digest'i degismedi. Graph eligibility disinda birakilan `node_modules` ve
+Maven `target` agaclari kaynak metadata politikasindan ayridir; kaynak kokleri
+degistirilmedi.
 
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 

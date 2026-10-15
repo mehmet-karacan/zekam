@@ -150,6 +150,19 @@ def test_polyglot_masks_javascript_regex_literals_without_losing_braces(
     assert any(symbol.qualified_name.endswith("parseFilename") for symbol in extraction.symbols)
 
 
+@pytest.mark.parametrize("relative_path", ["src/Example.java", "src/example.tsx"])
+def test_polyglot_does_not_treat_decrement_as_sql_comment(
+    tmp_path: Path, relative_path: str
+) -> None:
+    source = (
+        "class Example { void run() { for (int index = 2; index >= 0; index--) { } } }"
+        if relative_path.endswith(".java")
+        else "function run() { for (let index = 2; index >= 0; index--) { } }"
+    )
+    extraction = _extract(tmp_path, relative_path, source)
+    assert extraction.file.parse_state == "parsed"
+
+
 @pytest.mark.parametrize(
     "relative_path",
     ["src/Example.java", "src/example.js", "src/example.ts", "src/example.tsx"],
