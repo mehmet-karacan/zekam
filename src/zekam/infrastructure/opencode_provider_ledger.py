@@ -10,6 +10,7 @@ import math
 import os
 import sqlite3
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
@@ -735,8 +736,10 @@ class SQLiteDocumentEmbeddingJournal:
         key: tuple[str, str, str, str],
         profile: EmbeddingProfile,
         operation: str,
+        *,
+        connection: sqlite3.Connection | None = None,
     ) -> RecoveredDocumentVectors | None:
-        with self.host._connect() as db:
+        with self.host._connect() if connection is None else nullcontext(connection) as db:
             row = db.execute(
                 "select v.vectors_json,v.vectors_digest,c.realm_id,j.project_id,"
                 "c.effect_digest,c.operation,r.status,r.result_digest,r.id,"
@@ -786,6 +789,100 @@ class SQLiteDocumentEmbeddingJournal:
         if row[1] != expected:
             raise PolicyViolation("Document vector journal digest drift")
         return RecoveredDocumentVectors(vectors, expected)
+
+    def bind_completed_inputs(
+        self,
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+    ) -> dict[str, Any] | None:
+        """Append slot evidence only for an exact, completed durable batch.
+
+        No claim, receipt, remote reconciliation or success is fabricated. The
+        caller must still possess the original ordered inputs and qualified profile.
+        """
+        key = self._key(prepared, profile)
+        operation = f"provider-contract:{prepared.plan.call_id}"
+        inputs = _document_input_digests(prepared, profile)
+        with self.host._connect() as db:
+            db.execute("begin immediate")
+            completed = self._load_key(key, profile, operation, connection=db)
+            if completed is None:
+                db.rollback()
+                return None
+            self._validate_vectors(prepared, profile, completed.vectors)
+            source = db.execute(
+                "select c.job_id,v.claim_id,v.receipt_id from provider_document_vector_result v "
+                "join provider_effect_claim c on c.id=v.claim_id "
+                "where v.realm_id=? and v.project_id=? and v.effect_digest=? and v.profile_digest=?",
+                key,
+            ).fetchone()
+            if source is None:
+                raise PolicyViolation("Document input binding completed source missing")
+            body = {
+                "job_id": source["job_id"],
+                "effect_digest": key[2],
+                "operation": operation,
+                "profile_digest": key[3],
+                "input_digests": inputs,
+            }
+            binding_digest = digest(body)
+            existing = db.execute(
+                "select * from provider_document_input_manifest where job_id=?", (source["job_id"],)
+            ).fetchone()
+            if existing is None:
+                db.execute(
+                    "insert into provider_document_input_manifest values(?,?,?,?,?,?)",
+                    (
+                        body["job_id"],
+                        body["effect_digest"],
+                        operation,
+                        key[3],
+                        canonical_json(inputs),
+                        binding_digest,
+                    ),
+                )
+                db.executemany(
+                    "insert into provider_document_input_slot values(?,?,?)",
+                    [(body["job_id"], slot, value) for slot, value in enumerate(inputs)],
+                )
+            else:
+                slots = db.execute(
+                    "select slot,input_digest from provider_document_input_slot where job_id=? order by slot",
+                    (source["job_id"],),
+                ).fetchall()
+                if tuple(existing) != (
+                    body["job_id"],
+                    key[2],
+                    operation,
+                    key[3],
+                    canonical_json(inputs),
+                    binding_digest,
+                ) or [tuple(row) for row in slots] != list(enumerate(inputs)):
+                    raise PolicyViolation("Document completed input manifest drift")
+            db.commit()
+        return {
+            "status": "replayed" if existing is not None else "bound",
+            "input_count": len(inputs),
+            "manifest_digest": binding_digest,
+            "source_evidence_digest": completed.evidence_digest,
+            "claim_id": source["claim_id"],
+            "receipt_id": source["receipt_id"],
+            "provider_calls": 0,
+            "grants_authority": False,
+        }
+
+    def has_unbound_completed_inputs(self) -> bool:
+        with self.host._connect() as db:
+            return (
+                db.execute(
+                    "select 1 from provider_document_vector_result v "
+                    "join provider_effect_claim c on c.id=v.claim_id "
+                    "left join provider_document_input_manifest m on m.job_id=c.job_id "
+                    "where v.realm_id=? and v.project_id=? and m.job_id is null limit 1",
+                    (str(self.host.realm_id), str(self.project_id)),
+                ).fetchone()
+                is not None
+            )
 
     def record(
         self,

@@ -38,8 +38,18 @@ Onceki ledger satirlari silinmez veya tahmini input bagiyla doldurulmaz. Eski
 exact batch ve vector journal'i hala exact kaynak girdisiyle okunabilir.
 Slot metadata'siz eski receipt'siz/unknown/completed claim disjoint girdileri
 kanitlayamadigindan yeni manifest'li cagri fail-closed uzlastirma ister.
-Eski completed batch'in farkli gruplamasina otomatik slot retrofit yapilmaz;
-bu eski-kayit toparlama baglantisi halen aciktir. Manifest/receipt olmadan
+`bind_completed_inputs` eski completed batch icin orijinal sirali girdiler ve
+qualified profile yeniden saglandiginda exact effect/operation ve kalici
+receipt/vector kanitini ayni write transaction'inda dogrular. Sonrasinda
+manifest/slot metadata'si append edilir; mevcut claim/receipt/vector satirlari
+degismez. Exact tekrar ayni manifest digest'iyle idempotenttir; farkli batch,
+foreign scope, bozuk vector veya eksik terminal kanitta bag uydurulmaz.
+
+Runtime yalniz cache miss ve manifest'siz completed sonuc varsa mevcut tum
+chunk'larin bounded batch adaylarini bu yola verir; sonra tekil recovery yapar.
+Guncel batch exact eski batch'i yeniden kurmuyorsa otomatik tahmin yoktur.
+Orijinal girdileri/profili artik bulunamayan veya sonucu belirsiz eski
+cagrilar icin harici kanitla recovery kapisi acik kalir. Manifest/receipt olmadan
 otomatik retry veya harici provider sonucu varmis gibi kabul yoktur.
 
 Yeni tablolar mevcut private provider ledger schema'sina additive eklenir;
@@ -52,3 +62,5 @@ Regresyon kaynaklari: `tests/unit/test_opencode_remote_embedding.py` ve
 `tests/integration/test_project_rag_pending_publish.py`. Regroup/reorder,
 receiptless/unknown/completed/failed gate, proje scope'u, payload drift'i ve
 cache crash sonrasi eski+yeni girdi senaryolari hazir, CALISTIRILMADI.
+Eski completed ledger'in exact input baglama, idempotent tekrar, foreign scope,
+yanlis sira ve bozuk vector negatifleri de ayni final test asamasini bekler.

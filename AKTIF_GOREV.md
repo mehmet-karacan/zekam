@@ -1061,6 +1061,14 @@ ledger toparlamasi ve gercek provider/performance kabulleri acik kalir.
 Regresyon kodu hazir, CALISTIRILMADI; WP-05.03/04/06 kapanmadi.
 `docs/EMBEDDING_GIRDI_UZLASTIRMA.md`.
 
+**16 Ekim 2026 — WP-05 eski completed ledger baglama:** Exact orijinal
+batch ve qualified profil mevcutsa eski vector journal/claim/receipt ayni
+write transaction'inda yeniden dogrulanip append-only girdi manifest'ine
+baglanir. Tekrar idempotenttir; yeni claim/receipt/provider cagrisi uretmez.
+Runtime cache miss ve manifest'siz sonuc varsa mevcut bounded batch adaylarini
+bu yola baglar. Orijinal girdileri kayip ve belirsiz dis sonuclar icin recovery
+halen gereklidir. Regresyon kodu hazir, CALISTIRILMADI; kabul/kapanis yoktur.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

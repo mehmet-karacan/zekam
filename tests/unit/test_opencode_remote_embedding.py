@@ -677,7 +677,10 @@ def test_embed_documents_rejects_mismatched_model_field(tmp_path: Path) -> None:
         provider.embed_documents(("internal project", "active release"), policy)
 
 
-def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy_manifest", [False, True])
+def test_document_journal_recovers_vectors_without_provider_reexecution(
+    tmp_path: Path, legacy_manifest: bool
+) -> None:
     from zekam.infrastructure.local_file_security import restrict_private_tree
     from zekam.infrastructure.opencode_provider_ledger import (
         SQLiteDocumentEmbeddingJournal,
@@ -696,7 +699,7 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
         nonlocal calls
         calls += 1
         work = _work(host.realm_id, project_id)
-        if prepared.plan.call_id.startswith("opencode-embedding-document-"):
+        if not legacy_manifest and prepared.plan.call_id.startswith("opencode-embedding-document-"):
             host.register(work, document_call=prepared, profile=provider.describe())
         else:
             host.register(work)
@@ -747,6 +750,19 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
     texts = ("internal project journal source", "active release journal source")
     first = provider.embed_documents(texts, policy)
     assert calls == 3
+    assert provider.has_unbound_document_inputs() is legacy_manifest
+    before_binding = host.summary()
+    legacy_binding = provider.bind_completed_document_inputs(texts, policy)
+    assert legacy_binding["status"] == ("bound" if legacy_manifest else "replayed")
+    assert legacy_binding["provider_calls"] == 0
+    assert legacy_binding["grants_authority"] is False
+    assert provider.has_unbound_document_inputs() is False
+    replay = provider.bind_completed_document_inputs(texts, policy)
+    assert replay["status"] == "replayed"
+    assert replay["manifest_digest"] == legacy_binding["manifest_digest"]
+    assert provider.bind_completed_document_inputs(tuple(reversed(texts)), policy) is None
+    assert calls == 3
+    assert host.summary() == before_binding
     restarted_host = SQLiteProviderLedgerHost(host.path, host.realm_id)
     restarted = OpenCodeRemoteEmbeddingProvider(
         configuration,
@@ -764,6 +780,12 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
         texts, purpose=EmbeddingPurpose.DOCUMENT, classification=policy.classification
     )
     assert SQLiteDocumentEmbeddingJournal(restarted_host, uuid4()).load(prepared, profile) is None
+    assert (
+        SQLiteDocumentEmbeddingJournal(restarted_host, uuid4()).bind_completed_inputs(
+            prepared, profile
+        )
+        is None
+    )
     reordered = restarted.embed_documents(tuple(reversed(texts)), policy)
     assert reordered.vectors == tuple(reversed(first.vectors))
     assert reordered.receipt.provider_call_count == 0
@@ -788,6 +810,8 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
         )
     with pytest.raises(PolicyViolation, match="digest drift"):
         restarted.embed_documents(texts, policy)
+    with pytest.raises(PolicyViolation, match="digest drift"):
+        restarted.bind_completed_document_inputs(texts, policy)
     assert calls == 3
 
 

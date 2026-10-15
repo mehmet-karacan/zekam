@@ -2957,6 +2957,17 @@ def _index(
 
         # Recover single slots before constructing new batches. A crash between
         # provider receipt and cache commit must not cause regrouped re-disclosure.
+        bind_completed = getattr(provider, "bind_completed_document_inputs", None)
+        has_unbound = getattr(provider, "has_unbound_document_inputs", None)
+        if missing and callable(bind_completed) and callable(has_unbound) and has_unbound():
+            # Exact candidates include warm cache entries: an old completed batch
+            # may already be cached while its input manifest is still absent.
+            for candidate in _embedding_batches(
+                chunks, batch_size, model_id=profile.exact_model_id
+            ):
+                _check_index_budget(cancel, deadline_monotonic)
+                bind_completed(tuple(chunk.text for chunk in candidate), policy)
+                _check_index_budget(cancel, deadline_monotonic)
         recover = getattr(provider, "recover_documents", None)
         if callable(recover):
             for chunk in missing:

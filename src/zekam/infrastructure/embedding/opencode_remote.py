@@ -164,6 +164,14 @@ class DocumentEmbeddingJournal(Protocol):
         vectors: tuple[tuple[float, ...], ...],
     ) -> None: ...
 
+    def bind_completed_inputs(
+        self,
+        prepared: PreparedProviderContractCall,
+        profile: EmbeddingProfile,
+    ) -> dict[str, object] | None: ...
+
+    def has_unbound_completed_inputs(self) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class OpenCodeRuntimeInvocation:
@@ -609,6 +617,27 @@ class OpenCodeRemoteEmbeddingProvider:
                 provider_call_count=0,
                 reconciliation_evidence_digest=recovered.evidence_digest,
             ),
+        )
+
+    def bind_completed_document_inputs(
+        self,
+        texts: tuple[str, ...],
+        policy: EmbeddingPolicy,
+    ) -> dict[str, object] | None:
+        """Bind exact historical batch slots without invoking a provider."""
+        profile = self.describe()
+        profile.assert_policy(policy)
+        prepared = self._prepare(
+            texts, purpose=EmbeddingPurpose.DOCUMENT, classification=policy.classification
+        )
+        if self._document_journal is None:
+            return None
+        return self._document_journal.bind_completed_inputs(prepared, profile)
+
+    def has_unbound_document_inputs(self) -> bool:
+        return (
+            self._document_journal is not None
+            and self._document_journal.has_unbound_completed_inputs()
         )
 
     def embed_query(self, text: str, policy: EmbeddingPolicy) -> EmbeddingBatch:
