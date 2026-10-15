@@ -1,4 +1,6 @@
-"""Explicit externally admitted, verified operational schema migrations (v3 to v4/v5, v5 to v6).
+"""Explicit externally admitted, verified operational schema migrations.
+
+Supported paths are v3 to v4/v5, v5 to v6, and v6 to v7.
 
 V4 remains dormant: this boundary installs schema only and never creates an
 attachment, process generation, receipt, hook, decoder, or runtime writer.
@@ -495,7 +497,7 @@ def _expected_bindings(
     )
 
 
-_FORWARD_PATHS = {3: frozenset({4, 5}), 5: frozenset({6})}
+_FORWARD_PATHS = {3: frozenset({4, 5}), 5: frozenset({6}), 6: frozenset({7})}
 
 
 def _assert_forward_path(source_version: int, target_version: int) -> None:
@@ -976,4 +978,24 @@ def migrate_v5_to_v6(
         spool_targets=spool_targets,
         target_version=6,
         source_version=5,
+    )
+
+
+def migrate_v6_to_v7(
+    database: Path,
+    backup: Path,
+    *,
+    migration_lock: Path,
+    admission: OperationalMigrationAdmission,
+    spool_targets: tuple[MigrationSpoolTarget, ...],
+) -> OperationalMigrationReceipt:
+    """Add canonical runtime job bindings through the admitted backup/fencing boundary."""
+    return _migrate_v3_forward(
+        database,
+        backup,
+        migration_lock=migration_lock,
+        admission=admission,
+        spool_targets=spool_targets,
+        target_version=7,
+        source_version=6,
     )

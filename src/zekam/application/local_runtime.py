@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ValidationFailed
 
 # Compatibility publisher handles only the runtime's existing typed observations.
@@ -56,6 +57,71 @@ def _validate_kinds(value: object, label: str) -> tuple[str, ...]:
             raise ValidationFailed(f"{label} duplicate olamaz")
         kinds.append(kind)
     return tuple(kinds)
+
+
+@dataclass(frozen=True, slots=True)
+class LocalJobBinding:
+    project_id: str
+    work_item_id: str
+    work_revision: int
+    run_id: str
+    config_revision_id: str
+    config_digest: str
+    plan_digest: str
+    run_step_id: str | None = None
+    source_snapshot_id: str | None = None
+
+    def __post_init__(self) -> None:
+        from uuid import UUID
+
+        if any(
+            value is None
+            for value in (
+                self.project_id,
+                self.work_item_id,
+                self.run_id,
+                self.config_revision_id,
+            )
+        ):
+            raise ValidationFailed("Local job binding required identity missing")
+        for value in (
+            self.project_id,
+            self.work_item_id,
+            self.run_id,
+            self.config_revision_id,
+            self.run_step_id,
+            self.source_snapshot_id,
+        ):
+            if value is None:
+                continue
+            try:
+                if not isinstance(value, str) or str(UUID(value)) != value:
+                    raise ValueError("noncanonical id")
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValidationFailed("Local job binding canonical UUID required") from exc
+        if type(self.work_revision) is not int or self.work_revision < 1:
+            raise ValidationFailed("Local job binding positive Work revision required")
+        parse_digest(self.config_digest)
+        parse_digest(self.plan_digest)
+
+    def body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-local-job-binding/v1",
+            "project_id": self.project_id,
+            "work_item_id": self.work_item_id,
+            "work_revision": self.work_revision,
+            "run_id": self.run_id,
+            "config_revision_id": self.config_revision_id,
+            "config_digest": self.config_digest,
+            "plan_digest": self.plan_digest,
+            "run_step_id": self.run_step_id,
+            "source_snapshot_id": self.source_snapshot_id,
+            "grants_authority": False,
+        }
+
+    @property
+    def binding_digest(self) -> str:
+        return digest(self.body())
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +244,10 @@ class LocalRuntimeStore(Protocol):
         max_attempts: int = 1,
         available_at: str | None = None,
         timeout_at: str | None = None,
+        binding: LocalJobBinding | None = None,
     ) -> tuple[LocalJob, bool]: ...
+
+    def job_binding(self, job_id: str) -> LocalJobBinding | None: ...
 
     def claim_next(
         self,

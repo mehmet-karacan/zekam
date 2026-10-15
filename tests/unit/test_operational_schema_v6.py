@@ -326,7 +326,7 @@ def test_doctor_and_store_validation_recognize_v6(tmp_path: Path) -> None:
     assert check.status.value == "passed"
     assert check.evidence["schema_version"] == 6
     assert check.evidence["expected_schema_digest"] == schema.V6_SCHEMA_DIGEST
-    assert check.evidence["supported_runtime_schema_versions"] == [3, 5, 6]
+    assert check.evidence["supported_runtime_schema_versions"] == [3, 5, 6, 7]
     assert validate_local_sqlite_store("operational", database, require_private_identity=False) == {
         "schema_version": 6,
         "schema_digest": schema.V6_SCHEMA_DIGEST,

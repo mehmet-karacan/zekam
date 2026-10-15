@@ -15,6 +15,7 @@ from zekam.application.local_runtime import (
     LocalClaim,
     LocalClaimedWork,
     LocalJob,
+    LocalJobBinding,
     LocalLease,
     LocalOutboxClaim,
     LocalOutboxEvent,
@@ -454,6 +455,7 @@ class SQLiteLocalRuntimeStore:
         max_attempts: int = 1,
         available_at: str | None = None,
         timeout_at: str | None = None,
+        binding: LocalJobBinding | None = None,
     ) -> tuple[LocalJob, bool]:
         key = _required(idempotency_key, "Idempotency key")
         _bounded_int(max_attempts, "Local job max_attempts", minimum=1, maximum=100)
@@ -462,12 +464,22 @@ class SQLiteLocalRuntimeStore:
         timeout_text = None if timeout is None else _text(timeout)
         if timeout is not None and timeout <= available:
             raise ValidationFailed("Local job timeout available_at sonrasinda olmali")
+        _payload_json(payload)
+        if "work_binding_digest" in payload:
+            raise ValidationFailed("Local job binding marker is runtime-owned")
+        if binding is not None:
+            if type(binding) is not LocalJobBinding:
+                raise ValidationFailed("Local job exact typed binding required")
+            binding.__post_init__()
+            payload = {**payload, "work_binding_digest": binding.binding_digest}
         payload_json = _payload_json(payload)
         job_id = str(new_uuid7())
         now = _text(dt.datetime.now(dt.UTC))
         connection = self._connect()
         try:
             connection.execute("begin immediate")
+            if binding is not None:
+                self._require_binding_schema(connection)
             existing = connection.execute(
                 "select * from local_job where idempotency_key=?", (key,)
             ).fetchone()
@@ -479,6 +491,10 @@ class SQLiteLocalRuntimeStore:
                     or (timeout_at is not None and existing["timeout_at"] != timeout_text)
                 ):
                     raise ConcurrencyConflict("Local job idempotency replay payload drift")
+                if binding is not None:
+                    persisted = self._job_binding_tx(connection, str(existing["id"]))
+                    if persisted != binding:
+                        raise ConcurrencyConflict("Local job binding replay drift")
                 connection.commit()
                 return _job(existing), False
             self._insert_job(
@@ -491,14 +507,92 @@ class SQLiteLocalRuntimeStore:
                 timeout_at=timeout_text,
                 created_at=now,
             )
+            if binding is not None:
+                connection.execute(
+                    "insert into local_job_binding values(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        job_id,
+                        binding.project_id,
+                        binding.work_item_id,
+                        binding.work_revision,
+                        binding.run_id,
+                        binding.run_step_id,
+                        binding.source_snapshot_id,
+                        binding.config_revision_id,
+                        binding.config_digest,
+                        binding.plan_digest,
+                        binding.binding_digest,
+                        now,
+                    ),
+                )
             row = connection.execute("select * from local_job where id=?", (job_id,)).fetchone()
             connection.commit()
             return _job(row), True
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            if binding is not None:
+                raise ValidationFailed("Local job canonical binding rejected") from exc
+            raise
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _require_binding_schema(connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            "select value from zekam_meta where key='schema_version'"
+        ).fetchone()
+        if row is None or str(row[0]) != "7":
+            raise ConfigurationError("Bound local job requires admitted operational schema v7")
+
+    @staticmethod
+    def _job_binding_tx(connection: sqlite3.Connection, job_id: str) -> LocalJobBinding | None:
+        row = connection.execute(
+            "select * from local_job_binding where local_job_id=?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        binding = LocalJobBinding(
+            project_id=str(row["project_id"]),
+            work_item_id=str(row["work_item_id"]),
+            work_revision=int(row["work_revision"]),
+            run_id=str(row["run_id"]),
+            config_revision_id=str(row["config_revision_id"]),
+            config_digest=str(row["config_digest"]),
+            plan_digest=str(row["plan_digest"]),
+            run_step_id=row["run_step_id"],
+            source_snapshot_id=row["source_snapshot_id"],
+        )
+        if binding.binding_digest != row["binding_digest"]:
+            raise PolicyViolation("Local job binding digest drift")
+        return binding
+
+    def job_binding(self, job_id: str) -> LocalJobBinding | None:
+        connection = self._connect_readonly()
+        try:
+            self._require_binding_schema(connection)
+            return self._job_binding_tx(connection, _required(job_id, "Job id"))
+        finally:
+            connection.close()
+
+    def _validate_job_binding_tx(self, connection: sqlite3.Connection, row: sqlite3.Row) -> None:
+        payload = json.loads(str(row["payload_json"]))
+        marker = payload.get("work_binding_digest")
+        if marker is None:
+            return
+        self._require_binding_schema(connection)
+        binding = self._job_binding_tx(connection, str(row["id"]))
+        if binding is None or binding.binding_digest != marker:
+            raise PolicyViolation("Local job canonical binding missing or drifted")
+        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+
+        current = connection.execute(
+            _CURRENT_BINDING_QUERY.replace("new.job_id", "?"), (str(row["id"]),)
+        ).fetchone()
+        if current is None:
+            raise ConcurrencyConflict("Local job canonical Work/Run authority changed")
 
     def claim_next(
         self,
@@ -550,6 +644,24 @@ class SQLiteLocalRuntimeStore:
             if job_id is not None:
                 selection += " and id=?"
                 parameters += (job_id,)
+            if job_id is None:
+                version = connection.execute(
+                    "select value from zekam_meta where key='schema_version'"
+                ).fetchone()
+                if version is not None and str(version[0]) == "7":
+                    from zekam.infrastructure.sqlite.local_job_binding import (
+                        _CURRENT_BINDING_QUERY,
+                    )
+
+                    # Filter before LIMIT: stale jobs cannot starve runnable jobs.
+                    # A blocked dependency remains queued and becomes eligible when
+                    # its canonical predecessor succeeds. Exact claims still fail
+                    # explicitly through the validation below.
+                    current_query = _CURRENT_BINDING_QUERY.replace("new.job_id", "local_job.id")
+                    selection += (
+                        " and (json_type(payload_json,'$.work_binding_digest') is null"
+                        f" or exists ({current_query}))"
+                    )
             row = connection.execute(
                 "select * from local_job where state='ready' and available_at<=?"
                 " and (timeout_at is null or timeout_at>?) and attempt_count<max_attempts"
@@ -560,6 +672,7 @@ class SQLiteLocalRuntimeStore:
             if row is None:
                 connection.commit()
                 return None
+            self._validate_job_binding_tx(connection, row)
             fencing = int(row["fencing_counter"]) + 1
             lease_id = str(new_uuid7())
             expires = moment + dt.timedelta(seconds=lease_seconds)
@@ -668,6 +781,12 @@ class SQLiteLocalRuntimeStore:
         connection = self._connect()
         try:
             connection.execute("begin immediate")
+            job_row = connection.execute(
+                "select * from local_job where id=?", (work.job.id,)
+            ).fetchone()
+            if job_row is None:
+                raise PolicyViolation("Local job effect binding missing")
+            self._validate_job_binding_tx(connection, job_row)
             lease = connection.execute(
                 "select * from local_lease where id=?", (work.lease.id,)
             ).fetchone()

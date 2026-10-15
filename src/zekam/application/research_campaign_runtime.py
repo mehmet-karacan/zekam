@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.operational_store import OperationalStore
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -389,6 +390,7 @@ def run_radar_campaign(
     github_adapter: GitHubRadarPort | None = None,
     research_adapter: ResearchAdapterPort | None = None,
     analyse_dispatcher: AnalyseDispatcherPort | None = None,
+    work_binding: LocalJobBinding | None = None,
 ) -> dict[str, Any]:
     """Execute one digest-bound radar campaign stage behind a durable effect claim."""
 
@@ -398,6 +400,12 @@ def run_radar_campaign(
         raise PolicyViolation("Radar run public source read authorization ister")
     if plan.stage == "analyse" and not authorize_agent_run:
         raise PolicyViolation("Radar analyse agent run authorization ister")
+    if work_binding is not None and (
+        type(work_binding) is not LocalJobBinding
+        or work_binding.project_id != plan.project_id
+        or work_binding.plan_digest != plan.plan_digest
+    ):
+        raise PolicyViolation("Radar canonical Work/Run project-plan binding drift")
 
     db_path = home / "state" / "operational.db"
     radar_db_path = home / "state" / "radar-campaigns.db"
@@ -410,6 +418,7 @@ def run_radar_campaign(
         idempotency_key=plan.idempotency_key,
         payload=payload,
         max_attempts=1,
+        **({"binding": work_binding} if work_binding is not None else {}),
     )
     if not created:
         campaign = repo.get_campaign_by_idempotency_key(plan.idempotency_key)

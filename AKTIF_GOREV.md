@@ -1107,6 +1107,28 @@ belirtir. Proje filtresi ve mevcut varsayilan sorgu davranisi korunur. Regresyon
 testleri yazildi fakat HENUZ CALISTIRILMADI; Work/lease/grant yeniden edinimi ve
 WP-07.01..05 kapanis kabulleri halen aciktir.
 
+**15 Ekim 2026 - WP-07.02 canonical job binding gelistirmesi:** Additive
+operational v7 `local_job_binding` tablosu local job'i project/Work revision/Run/
+step/source snapshot/config revision/plan digest tuple'ina baglar. Job, outbox ve
+binding ayni transaction'da yazilir; tuple ve foreign key ihlalinde birlikte geri
+alinir. Binding ve bagli payload degistirilemez. Lease/effect admission guncel
+canonical tuple'i tekrar okur; step dependency tamamlanmadan effect baslayamaz.
+Genel kuyruk secimi bu kosullari LIMIT'ten once uygular; stale veya dependency
+bekleyen is arkadaki uygun isi engellemez. Exact job claim ise acik conflict verir.
+Research ve radar girisleri optional typed binding kabul eder; binding bir grant
+uretmez ve mevcut authorization kosullari devam eder.
+
+V1-v6 migration SQL'leri korunur; varsayilan bootstrap v3 kalir. V6->v7 icin
+ayri digest-bound dry-run/apply, pause/quiescence, spool/fencing, verified backup
+ve rollback siniri eklendi. Mevcut kullanici DB'sine migration UYGULANMADI.
+Bagimsiz kaynak incelemesindeki dependency ve kuyruk starvation bulgulari icin
+kod duzeltildi ve regresyon testleri yazildi. Testler kullanici karariyla son
+asamaya ertelendi ve HENUZ CALISTIRILMADI; yalniz Ruff/statik diff kontrolleri
+yapildi. Index/test isleri ve native checkpoint/grant/resume baglantisi ile
+race/crash ve migration kabul kosulari acik; WP-07 kapanmadi. Bu oturumdaki
+salt-okunur `resume` denemesi ZEKAM_HOME hazir olmadigi icin operational durum
+okuyamadi; belge veya sohbetten claim/receipt uretilmedi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

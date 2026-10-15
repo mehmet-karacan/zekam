@@ -78,8 +78,8 @@ def test_init_sqlite_bootstraps_and_doctor_reports_exact_profile(home_root: Path
     assert migration_document == {
         "backend": "sqlite",
         "head": 3,
-        "expected_head": 6,
-        "supported_heads": [3, 5, 6],
+        "expected_head": 7,
+        "supported_heads": [3, 5, 6, 7],
         "integrity_ok": True,
         "schema_ok": True,
         "drift": [],
@@ -101,7 +101,7 @@ def test_db_status_accepts_supported_operational_v5(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
     assert document["head"] == 5
-    assert document["supported_heads"] == [3, 5, 6]
+    assert document["supported_heads"] == [3, 5, 6, 7]
     assert document["drift"] == []
 
 
@@ -120,7 +120,7 @@ def test_db_status_accepts_supported_operational_v6(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
     assert document["head"] == 6
-    assert document["expected_head"] == 6
+    assert document["expected_head"] == 7
     assert document["schema_ok"] is True
     assert document["drift"] == []
 

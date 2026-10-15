@@ -23,7 +23,7 @@ from zekam.domain.identity import PRODUCT
 from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite import operational_schema as sqlite_repository
 from zekam.infrastructure.sqlite.operational_backup import logical_database_digest
-from zekam.infrastructure.sqlite.operational_migration import migrate_v5_to_v6
+from zekam.infrastructure.sqlite.operational_migration import migrate_v5_to_v6, migrate_v6_to_v7
 
 EXIT_RUNTIME_ERROR = 70
 EXIT_DRIFT = 2
@@ -41,8 +41,10 @@ def _expected_head() -> int:
 
 def _migration_label(current: int | None) -> str:
     expected = _expected_head()
-    if current == 5 and expected == 6:
+    if current == 5:
         return "v5 -> v6 (operational-unit-test-engineering-v6)"
+    if current == 6:
+        return "v6 -> v7 (operational-local-job-binding-v7)"
     return f"v{current} -> v{expected}"
 
 
@@ -56,6 +58,26 @@ def _unit_test_migration_plan(context, path) -> dict[str, object]:
         "database_ref": "ZEKAM_HOME/state/operational.db",
         "backup_ref": f"ZEKAM_HOME/backups/{backup.name}",
         "migration_lock_ref": "ZEKAM_HOME/runtime/operational-v6-migration.lock",
+        "source_logical_digest": source_digest,
+        "spool_target_count": len(_spool_targets(path, context.home)),
+        "control_state": "paused-or-disabled-required",
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"plan_digest": digest(body)}
+
+
+def _local_job_binding_migration_plan(context, path) -> dict[str, object]:
+    source_digest = logical_database_digest(path)
+    backup_name = f"operational-v6-before-v7-{source_digest[7:19]}.db"
+    body: dict[str, object] = {
+        "schema": "zekam-operational-local-job-binding-migration-plan/v1",
+        "source_version": 6,
+        "target_version": 7,
+        "database_ref": "ZEKAM_HOME/state/operational.db",
+        "backup_ref": f"ZEKAM_HOME/backups/{backup_name}",
+        "migration_lock_ref": "ZEKAM_HOME/runtime/operational-v7-migration.lock",
         "source_logical_digest": source_digest,
         "spool_target_count": len(_spool_targets(path, context.home)),
         "control_state": "paused-or-disabled-required",
@@ -160,34 +182,55 @@ def upgrade_command(
             console.print("[green]Bekleyen migration yok.[/green]")
             return
         if not apply:
-            if current_sqlite.schema_version == 5 and _expected_head() == 6:
-                plan = _unit_test_migration_plan(context, path)
+            if current_sqlite.schema_version in {5, 6}:
+                planner = (
+                    _unit_test_migration_plan
+                    if current_sqlite.schema_version == 5
+                    else _local_job_binding_migration_plan
+                )
+                plan = planner(context, path)
                 console.print_json(json.dumps(plan, ensure_ascii=False))
             else:
                 console.print(f"uygulanacak: {_migration_label(current_sqlite.schema_version)}")
                 console.print("[yellow]Dry-run. Uygulamak icin --uygula verin.[/yellow]")
             return
-        if current_sqlite.schema_version != 5 or _expected_head() != 6:
+        if current_sqlite.schema_version not in {5, 6}:
             raise ZekamError(
-                "Yalniz exact operational v5 -> v6 unit-test migration CLI'dan uygulanabilir"
+                "Yalniz exact operational v5 -> v6 veya v6 -> v7 migration CLI'dan uygulanabilir"
             )
-        plan = _unit_test_migration_plan(context, path)
+        target_version = int(current_sqlite.schema_version) + 1
+        planner = (
+            _unit_test_migration_plan if target_version == 6 else _local_job_binding_migration_plan
+        )
+        plan = planner(context, path)
         if plan_digest != plan["plan_digest"]:
             raise ZekamError("Exact migration plan digest gerekli")
         backup = context.home / "backups" / str(plan["backup_ref"]).split("/")[-1]
         backup.parent.mkdir(parents=True, exist_ok=True)
         restrict_private_tree(backup.parent)
-        receipt = migrate_v5_to_v6(
+        migrator = migrate_v5_to_v6 if target_version == 6 else migrate_v6_to_v7
+        admission = (
+            UnitTestLedgerMigrationAdmission(context)
+            if target_version == 6
+            else UnitTestLedgerMigrationAdmission(context, target_version=target_version)
+        )
+        receipt = migrator(
             path,
             backup,
-            migration_lock=context.home / "runtime" / "operational-v6-migration.lock",
-            admission=UnitTestLedgerMigrationAdmission(context),
+            migration_lock=context.home
+            / "runtime"
+            / f"operational-v{target_version}-migration.lock",
+            admission=admission,
             spool_targets=_spool_targets(path, context.home),
         )
         console.print_json(
             json.dumps(
                 {
-                    "schema": "zekam-operational-unit-test-migration-receipt/v1",
+                    "schema": (
+                        "zekam-operational-unit-test-migration-receipt/v1"
+                        if target_version == 6
+                        else "zekam-operational-local-job-binding-migration-receipt/v1"
+                    ),
                     "plan_digest": plan["plan_digest"],
                     "source_version": receipt.source_version,
                     "target_version": receipt.status.schema_version,

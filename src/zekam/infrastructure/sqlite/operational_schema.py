@@ -22,6 +22,8 @@ from zekam.infrastructure.sqlite.continuity_schema import SCHEMA_V2_SQL
 from zekam.infrastructure.sqlite.evolution_authority import (
     EVOLUTION_AUTHORITY_DDL as SCHEMA_V5_SQL,
 )
+from zekam.infrastructure.sqlite.local_job_binding import LOCAL_JOB_BINDING_DDL as SCHEMA_V7_SQL
+from zekam.infrastructure.sqlite.local_job_binding import MIGRATION_NAME as V7_MIGRATION_NAME
 from zekam.infrastructure.sqlite.repository import (
     _SCHEMA_V1 as _LEGACY_TABLE_SCAFFOLD,
 )
@@ -36,7 +38,7 @@ from zekam.infrastructure.sqlite.unit_test_ledger import (
 )
 
 SCHEMA_VERSION = 3
-RUNTIME_SCHEMA_VERSIONS = frozenset({3, 5, 6})
+RUNTIME_SCHEMA_VERSIONS = frozenset({3, 5, 6, 7})
 MIGRATION_NAME = "operational-authority-v1"
 
 # The historical scaffold is used only as a schema-construction detail for a
@@ -560,6 +562,12 @@ if V6_MIGRATION_NAME != "operational-unit-test-engineering-v6":
 if "sha256:" + hashlib.sha256(SCHEMA_V6_SQL.encode("utf-8")).hexdigest() != V6_MIGRATION_DIGEST:
     raise ConfigurationError("Immutable operational v6 migration SQL drift")
 V6_MIGRATION_LEDGER = (*V5_MIGRATION_LEDGER, (6, V6_MIGRATION_NAME, V6_MIGRATION_DIGEST))
+V7_MIGRATION_DIGEST = "sha256:225fec5e1b3f176f658813c1de3447000a7b7981aff43d111daced6387216b12"
+if V7_MIGRATION_NAME != "operational-local-job-binding-v7":
+    raise ConfigurationError("Immutable operational v7 migration name drift")
+if "sha256:" + hashlib.sha256(SCHEMA_V7_SQL.encode("utf-8")).hexdigest() != V7_MIGRATION_DIGEST:
+    raise ConfigurationError("Immutable operational v7 migration SQL drift")
+V7_MIGRATION_LEDGER = (*V6_MIGRATION_LEDGER, (7, V7_MIGRATION_NAME, V7_MIGRATION_DIGEST))
 _MIGRATION_SQL = {
     1: V1_SCHEMA_SQL,
     2: SCHEMA_V2_SQL,
@@ -567,6 +575,7 @@ _MIGRATION_SQL = {
     4: SCHEMA_V4_SQL,
     5: SCHEMA_V5_SQL,
     6: SCHEMA_V6_SQL,
+    7: SCHEMA_V7_SQL,
 }
 
 
@@ -651,6 +660,9 @@ if _expected_schema_fingerprint(5) != V5_SCHEMA_DIGEST:
 V6_SCHEMA_DIGEST = "sha256:6d39a1d08715cab55beac6d03b9e47f90b72c3f4c1432e59a568201c658c6888"
 if _expected_schema_fingerprint(6) != V6_SCHEMA_DIGEST:
     raise ConfigurationError("Immutable operational v6 schema fingerprint drift")
+V7_SCHEMA_DIGEST = "sha256:4de4f745b9be0729ee7abebefc1bf150d5c7cec32cb968937e8a01052a827115"
+if _expected_schema_fingerprint(7) != V7_SCHEMA_DIGEST:
+    raise ConfigurationError("Immutable operational v7 schema fingerprint drift")
 SCHEMA_DIGESTS = {
     1: V1_SCHEMA_DIGEST,
     2: V2_SCHEMA_DIGEST,
@@ -658,6 +670,7 @@ SCHEMA_DIGESTS = {
     4: V4_SCHEMA_DIGEST,
     5: V5_SCHEMA_DIGEST,
     6: V6_SCHEMA_DIGEST,
+    7: V7_SCHEMA_DIGEST,
 }
 
 _REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
@@ -738,7 +751,7 @@ def _validate_connection(connection: sqlite3.Connection) -> int:
     digest_row = connection.execute(
         "select value from zekam_meta where key='schema_digest'"
     ).fetchone()
-    expected_ledger = list(V6_MIGRATION_LEDGER[:version])
+    expected_ledger = list(V7_MIGRATION_LEDGER[:version])
     for table, label in (
         ("schema_migration", "migration ledger"),
         ("schema_revision", "schema revision"),
@@ -871,7 +884,7 @@ def _assert_quiescent(
 
 def _apply_migration(connection: sqlite3.Connection, version: int) -> None:
     _execute_script(connection, _MIGRATION_SQL[version])
-    _, name, checksum = V6_MIGRATION_LEDGER[version - 1]
+    _, name, checksum = V7_MIGRATION_LEDGER[version - 1]
     applied_at = _now()
     for table in ("schema_migration", "schema_revision"):
         connection.execute(
@@ -995,6 +1008,27 @@ def bootstrap_v6(path: Path) -> OperationalSchemaStatus:
     except sqlite3.DatabaseError as exc:
         connection.rollback()
         raise ConfigurationError("Operational SQLite v6 bootstrap rejected") from exc
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return status(path)
+
+
+def bootstrap_v7(path: Path) -> OperationalSchemaStatus:
+    """Create only a fresh v7 fixture; an existing database needs admitted migration."""
+    if _path_or_parent_is_link_or_reparse(path) or path.exists():
+        raise ConfigurationError("Operational SQLite fresh v7 empty destination required")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = _connect(path)
+    try:
+        connection.execute("begin immediate")
+        _apply_forward_path(connection, 0, 7)
+        connection.commit()
+    except sqlite3.DatabaseError as exc:
+        connection.rollback()
+        raise ConfigurationError("Operational SQLite v7 bootstrap rejected") from exc
     except Exception:
         connection.rollback()
         raise

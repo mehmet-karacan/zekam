@@ -16,6 +16,7 @@ from zekam.application.knowledge_file_plane import (
     generated_note_bytes,
     note_content_digest,
 )
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.markdown_knowledge import show_markdown_knowledge
 from zekam.application.operational_store import OperationalStore
 from zekam.application.project_rag_runtime import (
@@ -385,9 +386,7 @@ def _bounded_evidence(
     return tuple(evidence), tuple(snapshots), by_id, coverage
 
 
-def _objection_conflicts(
-    result: OpenCodeResearchResult, role: RoleResult
-) -> tuple[Conflict, ...]:
+def _objection_conflicts(result: OpenCodeResearchResult, role: RoleResult) -> tuple[Conflict, ...]:
     """Expose bounded adapter objections as unresolved evidence gaps."""
 
     if not result.objections:
@@ -610,6 +609,7 @@ def run_research(
     authorize_agent_run: bool,
     opencode_config: Path | None = None,
     adapter: ResearchAdapter | None = None,
+    work_binding: LocalJobBinding | None = None,
 ) -> dict[str, Any]:
     """Execute one digest-bound run behind a durable effect claim."""
 
@@ -617,6 +617,12 @@ def run_research(
         raise PolicyViolation("Research apply exact run digest ister")
     if not authorize_remote_query or not authorize_agent_run:
         raise PolicyViolation("Research apply exact remote-query ve agent-run authorization ister")
+    if work_binding is not None and (
+        type(work_binding) is not LocalJobBinding
+        or work_binding.project_id != plan.project_id
+        or work_binding.plan_digest != plan.run_digest
+    ):
+        raise PolicyViolation("Research canonical Work/Run project-plan binding drift")
     runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
     payload = dict(plan.body)
     payload["dry_run"] = False
@@ -624,6 +630,7 @@ def run_research(
         idempotency_key=str(plan.body["idempotency_key"]),
         payload=payload,
         max_attempts=1,
+        **({"binding": work_binding} if work_binding is not None else {}),
     )
     if not created:
         status = research_status(runtime, job.id)
