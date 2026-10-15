@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -35,6 +36,7 @@ _REQUIRED_HARD_GATES = frozenset(
 )
 _BACKPORTED_WAL_RESET_FIXES = {(3, 44, 6), (3, 50, 7)}
 _FIRST_MAINLINE_WAL_RESET_FIX = (3, 51, 3)
+MAX_CANDIDATE_EVIDENCE_BYTES = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +231,23 @@ def load_candidate_evidence(path: Path) -> list[CandidateEvidence]:
         return result
 
     try:
-        raw = path.read_text(encoding="utf-8")
+        metadata = path.lstat()
+        reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or reparse
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size > MAX_CANDIDATE_EVIDENCE_BYTES
+        ):
+            raise OSError("candidate evidence regular file or size policy")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_CANDIDATE_EVIDENCE_BYTES + 1)
+        if len(payload) > MAX_CANDIDATE_EVIDENCE_BYTES:
+            raise OSError("candidate evidence size policy")
+        raw = payload.decode("utf-8", errors="strict")
         value = json.loads(raw, object_pairs_hook=reject_duplicate)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValidationFailed("Bake-off evidence okunamadi") from exc

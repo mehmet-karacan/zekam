@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import threading
 import time
@@ -342,9 +343,28 @@ def _secret_findings(
 
 def _worktree_text(root: Path, relative_path: str) -> str | None:
     target = root / PurePosixPath(relative_path)
-    if target.is_symlink() or not target.is_file() or target.stat().st_size > MAX_BLOB_BYTES:
+    try:
+        metadata = target.lstat()
+    except OSError:
         return None
-    payload = target.read_bytes()
+    reparse = bool(
+        int(getattr(metadata, "st_file_attributes", 0))
+        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or reparse
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size > MAX_BLOB_BYTES
+    ):
+        return None
+    try:
+        with target.open("rb") as stream:
+            payload = stream.read(MAX_BLOB_BYTES + 1)
+    except OSError:
+        return None
+    if len(payload) > MAX_BLOB_BYTES:
+        return None
     if b"\0" in payload:
         return None
     try:

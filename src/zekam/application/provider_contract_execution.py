@@ -16,6 +16,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 import struct
 import wave
 import zlib
@@ -59,6 +60,8 @@ from zekam.domain.security import DataClassification
 from zekam.domain.work import EffectKind
 
 FIXTURE_SCHEMA = "zekam-model-provider-contract-fixtures/v1"
+MAX_PROVIDER_FIXTURE_BYTES = 4 * 1024 * 1024
+MAX_AUDIO_FIXTURE_BYTES = 25 * 1024 * 1024
 
 
 def default_contract_fixture_file() -> Path:
@@ -130,7 +133,25 @@ def load_provider_contract_fixtures(path: Path | None = None) -> ProviderContrac
     if not target.is_file():
         raise ConfigurationError("Provider contract fixture dosyasi bulunamadi")
     try:
-        document = yaml.safe_load(target.read_text(encoding="utf-8"))
+        metadata = target.lstat()
+        reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or reparse
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size > MAX_PROVIDER_FIXTURE_BYTES
+        ):
+            raise OSError("provider fixture regular file or size policy")
+        with target.open("rb") as stream:
+            payload = stream.read(MAX_PROVIDER_FIXTURE_BYTES + 1)
+        if len(payload) > MAX_PROVIDER_FIXTURE_BYTES:
+            raise OSError("provider fixture size policy")
+        document = yaml.safe_load(payload.decode("utf-8", errors="strict"))
+    except (OSError, UnicodeError) as exc:
+        raise ConfigurationError("Provider contract fixture dosyasi okunamadi") from exc
     except yaml.YAMLError as exc:
         raise ConfigurationError("Provider contract fixture dosyasi okunamadi") from exc
     if not isinstance(document, dict):
@@ -184,11 +205,22 @@ def review_whisper_audio_fixture(
         if current == anchor:
             break
         current = current.parent
-    max_bytes = int(fixture.get("max_bytes", 25 * 1024 * 1024))
+    try:
+        max_bytes = int(fixture.get("max_bytes", MAX_AUDIO_FIXTURE_BYTES))
+    except (TypeError, ValueError):
+        raise ConfigurationError("Whisper public fixture audio boyutu gecersiz") from None
+    if not 44 <= max_bytes <= MAX_AUDIO_FIXTURE_BYTES:
+        raise ConfigurationError("Whisper public fixture audio boyutu gecersiz")
     size = resolved.stat().st_size
     if size < 44 or size > max_bytes:
         raise ConfigurationError("Whisper public fixture audio boyutu gecersiz")
-    content = resolved.read_bytes()
+    try:
+        with resolved.open("rb") as stream:
+            content = stream.read(max_bytes + 1)
+    except OSError:
+        raise ConfigurationError("Whisper public fixture audio okunamadi") from None
+    if len(content) > max_bytes:
+        raise ConfigurationError("Whisper public fixture audio boyutu gecersiz")
     if len(content) != size or content[:4] != b"RIFF" or content[8:12] != b"WAVE":
         raise ConfigurationError("Whisper public fixture RIFF/WAVE olmali")
     try:

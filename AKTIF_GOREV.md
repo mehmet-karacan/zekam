@@ -2281,6 +2281,16 @@ atomic write kapilari korunur.
 Bu dar dilim WP-02/07 OpenCode bootstrap kaynak tuketimi boslugunu daraltir;
 gercek native host kabul matrisi halen aciktir.
 
+### 10.83 15 Ekim 2026 kaynak guvenligi ve provider fixture stream kapisi
+
+Git worktree secret taramasi, provider contract registry/audio fixture ve
+technology bake-off evidence dosyalari bounded regular-file stream kullanir.
+Link/reparse, non-regular, UTF-8, growth veya oversized girdiler fail-closed
+siniflandirilir; audio fixture icin 25 MiB ust siniri korunur.
+
+Bu dilim WP-01/WP-02 kaynak guvenligi ve WP-08 provider fixture kaynak tuketimi
+bosluklarini daraltir; canli provider ve native host kabul kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
