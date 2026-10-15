@@ -98,10 +98,28 @@ def _process_alive(pid: int) -> bool:
 
 
 def _process_started_at(pid: int) -> dt.datetime | None:
-    """Read a Windows process creation time when the host exposes it."""
+    """Read a process creation time when the host exposes it.
 
-    if pid <= 0 or os.name != "nt":
+    Windows uses the native process handle path below. POSIX hosts use the
+    already required ``psutil`` dependency so a stale PID cannot be mistaken
+    for the previous drain owner after process reuse. ``None`` is deliberately
+    ambiguous: callers retain the existing live-PID fail-closed guard.
+    """
+
+    if pid <= 0:
         return None
+    if os.name != "nt":
+        try:
+            import psutil
+        except ImportError:
+            return None
+        try:
+            created_at = float(psutil.Process(pid).create_time())
+            if created_at < 0:
+                return None
+            return dt.datetime.fromtimestamp(created_at, tz=dt.UTC)
+        except (OSError, OverflowError, ValueError, psutil.Error):
+            return None
     import ctypes
     from ctypes import wintypes
 

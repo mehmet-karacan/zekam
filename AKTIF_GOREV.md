@@ -1374,6 +1374,16 @@ redaction, v7 schema beklentisi ve cross-process qualification fixture duzeltmel
 dogrular. WP-07.05 ve WP-07 halen kapanmadi: gercek process-kill/PID race/full spool
 crash, canonical Work recovery ve native istemci kabul matrisi aciktir.
 
+**15 Ekim 2026 - WP-07.05 cross-platform PID incarnation gelistirmesi:** Python spool
+drain, Windows native process creation time yoluna ek olarak POSIX hostlarda psutil
+process creation time gozlemini de kullanir. Stale lock sahibi ayni PID ile yeniden
+kullanilan bir process ise `pid-reused` olarak recovery'ye alinir; olcum yoksa canli
+PID korumasi fail-closed kalir. Current-process ve eski incarnation regresyon kapsami
+eklendi; native plugin process-kill, tam spool crash ve canonical Work recovery kabul
+kapilari halen aciktir. Hedefli spool paketi **17 passed** verdi; tam paket kosusu
+kullanici yonlendirmesiyle tamamlanmadan durduruldu ve bu dilim icin final kabul kaniti
+uretilmedi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

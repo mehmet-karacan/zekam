@@ -122,6 +122,17 @@ def test_reused_pid_is_not_treated_as_live_owner(
     assert plan.invalid_count == 0
 
 
+def test_current_process_incarnation_is_observable_and_pid_reuse_is_rejected() -> None:
+    observed = spool_module._process_started_at(os.getpid())
+
+    assert observed is not None
+    assert observed.tzinfo is not None
+    assert spool_module._process_is_owner(os.getpid(), observed)
+    assert not spool_module._process_is_owner(
+        os.getpid(), observed - dt.timedelta(days=1)
+    )
+
+
 def test_unrecognized_spool_entry_blocks_cleanup(tmp_path: Path) -> None:
     root = plugin_spool_root(tmp_path)
     root.mkdir(parents=True)
