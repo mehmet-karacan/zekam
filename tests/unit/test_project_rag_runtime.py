@@ -1964,6 +1964,14 @@ def test_wp3_same_status_changed_content_is_not_current(
     assert "project-source-freshness-unknown" not in reasons
 
 
+def test_wp3_git_z_rename_parses_both_paths() -> None:
+    """Git ``status -z`` rename records must include the old indexed path."""
+
+    parsed = runtime._parse_git_modified_paths(b"R  docs/yeni.md\x00docs/eski.md\x00")
+
+    assert parsed == (("docs/yeni.md", "changed"), ("docs/eski.md", "deleted"))
+
+
 def test_wp3_warm_local_query_skips_corpus_plan(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

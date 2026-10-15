@@ -558,31 +558,51 @@ def _git_source_state(root: Path) -> tuple[str, str, str]:
 def _parse_git_modified_paths(status_output: bytes) -> tuple[tuple[str, str], ...]:
     """Extract (path, change-kind) pairs from ``git status --porcelain=v1 -z`` bytes.
 
-    Git ``-z`` output uses NUL-delimited records ``XY <path>`` for rename/copy
-    records (``X<space>Y<space>old<space>new``) and ``XY path`` otherwise.  We only
-    care about *which* working-tree paths changed and whether the change is a
-    deletion, so a bounded, order-preserving parse suffices.  Malformed records are
-    ignored conservatively (an unparsed dirty path cannot make a false "current").
+    Git ``-z`` output uses NUL-delimited records ``XY <path>``. Rename/copy
+    records carry a second NUL-delimited path (new path first, old path second),
+    unlike ordinary records. Both paths must be observed: an indexed old path
+    disappearing during a rename must never be mistaken for a clean source.
+    Malformed records yield a bounded sentinel so the caller fails closed.
     """
+    malformed = "\x00"
     records: list[tuple[str, str]] = []
-    for raw in status_output.split(b"\x00"):
+    fields = status_output.split(b"\x00")
+    index = 0
+    while index < len(fields):
+        raw = fields[index]
+        index += 1
         if not raw:
             continue
-        try:
-            text = raw.decode("utf-8", errors="replace")
-        except Exception:
+        if len(raw) < 3:
+            records.append((malformed, "unknown"))
             continue
-        x, y = text[:1], text[1:2]
-        rest = text[2:]
-        if rest.startswith(" "):
-            rest = rest[1:]
-        path = rest.strip()
-        if not path:
+        code = raw[:2]
+        rest = raw[2:]
+        if not rest.startswith(b" "):
+            records.append((malformed, "unknown"))
             continue
-        if "\n" in path:
-            path = path.split("\n", 1)[0]
-        change = "deleted" if (x + y) in {"D ", " D", "DD", "AD"} else "changed"
+        path_bytes = rest[1:]
+        if not path_bytes:
+            records.append((malformed, "unknown"))
+            continue
+        path = path_bytes.decode("utf-8", errors="replace")
+        if "\x00" in path:
+            records.append((malformed, "unknown"))
+            continue
+        change = "deleted" if code in {b"D ", b" D", b"DD", b"AD"} else "changed"
+        is_rename = code[:1] in {b"R", b"C"} or code[1:2] in {b"R", b"C"}
         records.append((path, change))
+        if is_rename:
+            if index >= len(fields) or not fields[index]:
+                records.append((malformed, "unknown"))
+                continue
+            old_bytes = fields[index]
+            index += 1
+            old_path = old_bytes.decode("utf-8", errors="replace")
+            if not old_path or "\x00" in old_path:
+                records.append((malformed, "unknown"))
+                continue
+            records.append((old_path, "deleted" if code[:1] == b"R" else "changed"))
     return tuple(records)
 
 
@@ -626,6 +646,8 @@ def _git_source_freshness_signal(
     except (OSError, subprocess.SubprocessError, ZekamError):
         return {"unknown": True}
     changed = _parse_git_modified_paths(status_output.encode("utf-8", errors="replace"))
+    if any(path == "\x00" for path, _kind in changed):
+        return {"head": head, "unknown": True}
     if len(changed) > _MAX_DIRTY_FRESHNESS_PATHS:
         return {"head": head, "unknown": True}
     rooted = root.resolve(strict=True)
