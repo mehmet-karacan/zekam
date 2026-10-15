@@ -31,6 +31,10 @@ def test_secret_scan_rejects_unreadable_regular_file(
     assert client_integrations._contains_secret_assignment(target) is True
 
 
+def test_secret_scan_treats_missing_file_as_empty(tmp_path: Path) -> None:
+    assert client_integrations._contains_secret_assignment(tmp_path / "missing.json") is False
+
+
 def test_integration_digest_rejects_oversized_config(tmp_path: Path) -> None:
     target = tmp_path / "config.json"
     target.write_bytes(b"x" * (client_integrations.MAX_INTEGRATION_FILE_BYTES + 1))

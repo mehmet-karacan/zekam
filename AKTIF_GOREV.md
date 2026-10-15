@@ -2159,6 +2159,17 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.72 15 Ekim 2026 Client integration native stream kapisi
+
+Client integration status, cleanup, hook/config envanteri ve rollback yedekleri
+native dosyalari 4 MiB bounded regular-file helper ile okur. Eksik dosya secret
+tarama icin bos kabul edilir; link, reparse, okunamayan veya oversized artifact
+ownership kaniti uretmeden conflict/fail-closed durumuna gecer. Native yedek ve
+restore okumalari da ayni siniri kullanir.
+
+Bu dar dilim WP-02 istemci entegrasyonu ve WP-07 recovery yuzeyindeki kaynak
+tuketimi boslugunu daraltir; gercek native host kabul matrisi halen aciktir.
+
 ### 10.71 15 Ekim 2026 OpenCode bootstrap stream kapisi
 
 OpenCode agent, plugin ve global config bootstrap okumalari 4 MiB bounded

@@ -120,6 +120,12 @@ def _read_integration_json(path: Path, *, label: str) -> Any:
 
 def _contains_secret_assignment(path: Path) -> bool:
     try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    try:
         return bool(_SECRET_ASSIGNMENT.search(_read_integration_file(path, label="secret scan")))
     except PolicyViolation:
         return True
@@ -504,8 +510,8 @@ def _render_opencode_cleanup(config_path: Path, operation: dict[str, Any]) -> by
     if _file_digest(config_path) != operation.get("before_digest"):
         raise PolicyViolation("OpenCode config changed before integration cleanup")
     try:
-        document = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = _read_integration_json(config_path, label="OpenCode config cleanup")
+    except PolicyViolation as exc:
         raise PolicyViolation("OpenCode config cleanup JSON invalid") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("OpenCode config cleanup object required")
@@ -535,8 +541,8 @@ def _render_hook_cleanup(config_path: Path, operation: dict[str, Any]) -> bytes:
     if _file_digest(config_path) != operation.get("before_digest"):
         raise PolicyViolation("Client hook config changed before cleanup")
     try:
-        document = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = _read_integration_json(config_path, label="hook config cleanup")
+    except PolicyViolation as exc:
         raise PolicyViolation("Client hook cleanup JSON invalid") from exc
     if not isinstance(document, dict):
         raise PolicyViolation("Client hook cleanup object required")
@@ -600,11 +606,12 @@ def _is_zekam_workspace(project_root: Path) -> bool:
     """Zekam kendi calisma alani: projection hedefleri varsayilan olarak korunur."""
 
     try:
-        context = json.loads(
-            (project_root / ".ai" / "repository-context.json").read_text(encoding="utf-8")
+        context = _read_integration_json(
+            project_root / ".ai" / "repository-context.json",
+            label="repository context",
         )
         manifest = (project_root / "PROJE_MANIFESTI.yaml").is_file()
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except PolicyViolation:
         return False
     return (
         manifest
@@ -631,9 +638,9 @@ def _managed_skill(
     if not _real_directory(directory) or not marker.is_file() or marker.is_symlink():
         return None, "managed-marker-or-directory-identity-invalid"
     try:
-        document = json.loads(marker.read_text(encoding="utf-8"))
+        document = _read_integration_json(marker, label="managed skill marker")
         actual = projected_artifact_digest(directory)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, PolicyViolation):
+    except PolicyViolation:
         return None, "managed-artifact-unreadable-or-drifted"
     allowed_clients: set[tuple[str, ...]] = {_KNOWN_CLIENTS[client]}
     if client is ClientIntegrationId.CODEX:
@@ -764,16 +771,22 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
                     agent_conflict: str | None = "agent-file-identity-invalid"
                     actual = None
                 else:
-                    payload = candidate.read_bytes()
-                    actual = digest_of_bytes(payload)
-                    known_legacy = actual in LEGACY_AGENT_TEMPLATE_DIGESTS.get(
-                        candidate.name, frozenset()
-                    )
-                    agent_conflict = (
-                        None
-                        if (expected is not None and payload == expected.encode()) or known_legacy
-                        else "agent-content-unowned-or-drifted"
-                    )
+                    try:
+                        payload = _read_integration_file(candidate, label="OpenCode agent")
+                    except PolicyViolation:
+                        actual = None
+                        agent_conflict = "agent-content-unreadable-or-drifted"
+                    else:
+                        actual = digest_of_bytes(payload)
+                        known_legacy = actual in LEGACY_AGENT_TEMPLATE_DIGESTS.get(
+                            candidate.name, frozenset()
+                        )
+                        agent_conflict = (
+                            None
+                            if (expected is not None and payload == expected.encode())
+                            or known_legacy
+                            else "agent-content-unowned-or-drifted"
+                        )
                 if agent_conflict is None:
                     exact_agents.add(candidate.name)
                 rows.append(
@@ -793,10 +806,15 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
             actual = None
             plugin_conflict: str | None = "plugin-file-identity-invalid"
         else:
-            payload = plugin.read_bytes()
-            actual = digest_of_bytes(payload)
-            plugin_exact = is_known_lifecycle_plugin(payload)
-            plugin_conflict = None if plugin_exact else "plugin-content-unowned-or-drifted"
+            try:
+                payload = _read_integration_file(plugin, label="OpenCode lifecycle plugin")
+            except PolicyViolation:
+                actual = None
+                plugin_conflict = "plugin-content-unreadable-or-drifted"
+            else:
+                actual = digest_of_bytes(payload)
+                plugin_exact = is_known_lifecycle_plugin(payload)
+                plugin_conflict = None if plugin_exact else "plugin-content-unowned-or-drifted"
         rows.append(
             {
                 "client": "opencode",
@@ -821,8 +839,8 @@ def _user_opencode_inventory(native_user_root: Path) -> tuple[dict[str, Any], ..
             )
         else:
             try:
-                document = json.loads(config.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                document = _read_integration_json(config, label="OpenCode config")
+            except PolicyViolation:
                 document = None
             if not isinstance(document, dict):
                 rows.append(
@@ -878,7 +896,9 @@ def _user_hook_inventory(native_user_root: Path) -> tuple[dict[str, Any], ...]:
             conflict = "hook-config-file-identity-invalid"
         else:
             try:
-                raw = path.read_text(encoding="utf-8")
+                raw = _read_integration_file(path, label="hook config").decode(
+                    "utf-8", errors="strict"
+                )
                 document = json.loads(raw)
                 if not isinstance(document, dict):
                     raise ValueError("object required")
@@ -893,7 +913,7 @@ def _user_hook_inventory(native_user_root: Path) -> tuple[dict[str, Any], ...]:
                     conflict = "hook-command-unowned-or-drifted"
                 if _contains_secret_assignment(path):
                     conflict = "secret-bearing-native-config-preserved"
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            except (PolicyViolation, UnicodeDecodeError, json.JSONDecodeError, ValueError):
                 conflict = "hook-config-json-invalid"
             except ConfigurationError:
                 conflict = "hook-command-unowned-or-drifted"
@@ -1685,7 +1705,10 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                     if _file_digest(native_config_backup) != operation["before_digest"]:
                         raise PolicyViolation("Native client config cleanup backup collision")
                 else:
-                    _atomic_write(native_config_backup, native_config.read_bytes())
+                    _atomic_write(
+                        native_config_backup,
+                        _read_integration_file(native_config, label="native config backup"),
+                    )
             native_config_backups.append((native_config, native_config_backup))
             native_digests[native_config] = (operation["before_digest"], operation["after_digest"])
             _atomic_write(native_config, rendered)
@@ -1726,7 +1749,10 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                     if _file_digest(config_backup) != plan.config_before_digest:
                         raise PolicyViolation("CLI integration config backup collision")
                 else:
-                    _atomic_write(config_backup, config_path.read_bytes())
+                    _atomic_write(
+                        config_backup,
+                        _read_integration_file(config_path, label="user config backup"),
+                    )
             _atomic_write(config_path, plan.config_after_bytes)
             if _file_digest(config_path) != digest_of_bytes(plan.config_after_bytes):
                 raise PolicyViolation("CLI integration user config readback drift")
@@ -1739,7 +1765,10 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
             try:
                 # Yalniz kendi yazdigimiz policy'yi geri al; arada degisen icerik ezilmez.
                 if _file_digest(config_path) == config_after:
-                    _atomic_write(config_path, config_backup.read_bytes())
+                    _atomic_write(
+                        config_path,
+                        _read_integration_file(config_backup, label="user config restore"),
+                    )
                 elif _file_digest(config_path) != plan.config_before_digest:
                     raise OSError("user config changed during apply; edit preserved")
             except (OSError, PolicyViolation):
@@ -1755,7 +1784,12 @@ def apply_sync_plan(plan: IntegrationSyncPlan, *, authorized_plan_digest: str) -
                 if native_config_backup is None:
                     native_config.unlink(missing_ok=True)
                 else:
-                    _atomic_write(native_config, native_config_backup.read_bytes())
+                    _atomic_write(
+                        native_config,
+                        _read_integration_file(
+                            native_config_backup, label="native config restore"
+                        ),
+                    )
             except (OSError, PolicyViolation):
                 rollback_failed = True
         for source, destination, expected in reversed(moved):
@@ -2158,18 +2192,28 @@ def apply_rollback_plan(
                     raise PolicyViolation("CLI integration rollback native config backup missing")
             elif _file_digest(native_backup) != detach["before_digest"]:
                 raise PolicyViolation("CLI integration rollback native config backup drift")
-            restored_native_configs_after.append((native_config, native_config.read_bytes()))
+            restored_native_configs_after.append(
+                (
+                    native_config,
+                    _read_integration_file(native_config, label="native config rollback"),
+                )
+            )
             if native_backup is None:
                 native_config.unlink()
             else:
-                _atomic_write(native_config, native_backup.read_bytes())
+                _atomic_write(
+                    native_config,
+                    _read_integration_file(native_backup, label="native config rollback backup"),
+                )
             if _file_digest(native_config) != detach["before_digest"]:
                 raise PolicyViolation("CLI integration rollback native config readback drift")
         backup_ref = plan.receipt.get("config_backup_ref")
         expected_before = plan.receipt.get("config_before_digest")
         if plan.receipt.get("config_after_digest") is not None:
             config_path = plan.context.home / USER_CONFIG_FILE
-            restored_config_after = config_path.read_bytes()
+            restored_config_after = _read_integration_file(
+                config_path, label="user config rollback"
+            )
             if backup_ref is None:
                 if expected_before is not None:
                     raise PolicyViolation("CLI integration rollback config backup missing")
@@ -2178,7 +2222,10 @@ def apply_rollback_plan(
                 backup = plan.context.home / str(backup_ref)
                 if _file_digest(backup) != expected_before:
                     raise PolicyViolation("CLI integration rollback config backup drift")
-                _atomic_write(config_path, backup.read_bytes())
+                _atomic_write(
+                    config_path,
+                    _read_integration_file(backup, label="user config rollback backup"),
+                )
             if _file_digest(config_path) != expected_before:
                 raise PolicyViolation("CLI integration rollback config readback drift")
     except BaseException as error:
