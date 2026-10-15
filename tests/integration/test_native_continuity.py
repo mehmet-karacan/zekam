@@ -295,6 +295,26 @@ def test_source_revision_drift_is_reported_not_trusted(world: World) -> None:
     assert drift["next_safe_action_source"] == "zekam-verification"
 
 
+def test_identical_revision_and_tree_in_different_root_cannot_resume(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session_id = _start(world)["session_id"]
+    _invoke(["checkpoint", *_checkpoint_args(world, session_id), "--pending", "bekleyen"])
+    original = native_module.read_source_state
+
+    def different_root(source_root: Path) -> dict:
+        return original(source_root) | {"root_identity_digest": digest("different-root")}
+
+    monkeypatch.setattr(native_module, "read_source_state", different_root)
+    resumed = _resume(world)
+
+    assert resumed["status"] == "source-drift"
+    assert resumed["verification"]["source"]["state"] == "root-drift"
+    assert resumed["verification"]["source"]["same_source_root"] is False
+    assert resumed["next_safe_action_source"] == "zekam-verification"
+    assert resumed["grants_authority"] is False
+
+
 def test_unverifiable_evidence_is_rejected_before_any_event(world: World) -> None:
     session_id = _start(world)["session_id"]
     for ref, reason in (

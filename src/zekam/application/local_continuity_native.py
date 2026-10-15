@@ -876,7 +876,10 @@ def _source_verdict(recorded: Mapping[str, Any], source_root: Path) -> dict[str,
         current = read_source_state(source_root)
     except NativeContinuityError as exc:
         return {"state": "unavailable", "reason": exc.reason}
-    if current["revision"] != recorded.get("revision"):
+    same_source_root = current["root_identity_digest"] == recorded.get("root_identity_digest")
+    if not same_source_root:
+        state = "root-drift"
+    elif current["revision"] != recorded.get("revision"):
         state = "revision-drift"
     elif current["worktree_digest"] != recorded.get("worktree_digest"):
         state = "worktree-changed"
@@ -888,7 +891,7 @@ def _source_verdict(recorded: Mapping[str, Any], source_root: Path) -> dict[str,
         "current_revision": current["revision"],
         "recorded_dirty": recorded.get("dirty"),
         "current_dirty": current["dirty"],
-        "same_source_root": current["root_identity_digest"] == recorded.get("root_identity_digest"),
+        "same_source_root": same_source_root,
     }
 
 
@@ -982,8 +985,8 @@ def resume_native_checkpoint(
         status = "binding-invalid"
     elif binding["state"] == "work-closed":
         status = "work-closed"
-    elif source["state"] in {"revision-drift", "unavailable"}:
-        status = "source-drift" if source["state"] == "revision-drift" else "source-unavailable"
+    elif source["state"] in {"root-drift", "revision-drift", "unavailable"}:
+        status = "source-unavailable" if source["state"] == "unavailable" else "source-drift"
     elif any(item["state"] == "missing" for item in evidence):
         status = "evidence-missing"
     elif (
@@ -1008,8 +1011,8 @@ def resume_native_checkpoint(
             "kaynak/Work/kanit durumunu yeniden dogrulayin."
         ),
         "source-drift": (
-            "Kaynak revision'i checkpoint'ten farkli; onceki ilerleme bu revision icin "
-            "dogrulanmamistir. Diff'i inceleyip yeniden olcum/dogrulama yapin."
+            "Kaynak koku veya revision'i checkpoint'ten farkli; onceki ilerleme bu kaynak "
+            "icin dogrulanmamistir. Exact kaynak bagini ve diff'i yeniden dogrulayin."
         ),
         "source-unavailable": "Kaynak koku okunamadi; exact git kokunu verip tekrar deneyin.",
         "evidence-missing": (

@@ -111,7 +111,7 @@ def test_reused_pid_is_not_treated_as_live_owner(
 ) -> None:
     candidate = _candidate(tmp_path)
     owner = json.loads((candidate / "owner.json").read_text(encoding="utf-8"))
-    owner["startedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
+    owner["processStartedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
     (candidate / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
     monkeypatch.setattr(spool_module, "_process_alive", lambda _pid: True)
     monkeypatch.setattr(spool_module, "_process_started_at", lambda _pid: NOW)
@@ -131,6 +131,23 @@ def test_current_process_incarnation_is_observable_and_pid_reuse_is_rejected() -
     assert not spool_module._process_is_owner(
         os.getpid(), observed - dt.timedelta(days=1)
     )
+
+
+def test_live_candidate_lease_start_does_not_prove_pid_reuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = _candidate(tmp_path)
+    owner_path = candidate / "owner.json"
+    owner = json.loads(owner_path.read_text(encoding="utf-8"))
+    owner["startedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
+    owner_path.write_text(json.dumps(owner), encoding="utf-8")
+    monkeypatch.setattr(spool_module, "_process_alive", lambda _pid: True)
+    monkeypatch.setattr(spool_module, "_process_started_at", lambda _pid: NOW)
+
+    plan = plan_legacy_candidate_cleanup(tmp_path, now=NOW)
+
+    assert plan.candidates == ()
+    assert candidate.exists()
 
 
 def test_unrecognized_spool_entry_blocks_cleanup(tmp_path: Path) -> None:

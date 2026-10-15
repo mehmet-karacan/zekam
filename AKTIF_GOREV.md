@@ -1384,6 +1384,15 @@ kapilari halen aciktir. Hedefli spool paketi **17 passed** verdi; tam paket kosu
 kullanici yonlendirmesiyle tamamlanmadan durduruldu ve bu dilim icin final kabul kaniti
 uretilmedi.
 
+**15 Ekim 2026 - sirali gelistirme ve son test karari:** Kullanici tum kalan
+gelistirmelerin sirasiyla uygulanmasini, her asamada commit/push yapilmasini ve
+testlerin ancak butun gelistirmelerden sonra tek toplu asamada calistirilmasini
+onayladi. Plan: `docs/superpowers/plans/2026-10-15-remaining-development.md`.
+Yeni spool candidate dogrulamasi lease `startedAt` alanini PID incarnation kaniti
+saymaz; yalniz `processStartedAt` gozlemini karsilastirir. Native resume, revision/tree
+ayni olsa bile farkli kaynak kokunu `root-drift` ile reddeder. Regresyon kodu
+hazirlandi; bu degisiklikler icin test CALISTIRILMADI. WP veya Work kapanisi yoktur.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

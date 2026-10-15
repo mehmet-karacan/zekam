@@ -129,8 +129,9 @@ Spool durumu payload/path icermeden okunur:
 `zekam opencode spool-status`. Typed stale adaylar icin once
 `zekam opencode spool-cleanup` ile plan digest'ini al, sonra ayni digest'i
 `--uygula --beklenen-plan-digest` ile kullan. Islem yalniz geri alinabilir quarantine yapar;
-raw delete yapmaz. Windows'ta aday owner PID'si yeniden kullanilmissa owner `startedAt` ile
-process creation time karsilastirilir; process identity okunamazsa aday fail-closed korunur.
+raw delete yapmaz. Aday owner PID'si yeniden kullanilmissa yalniz OS-observed
+`processStartedAt` ile process creation time karsilastirilir. Legacy `startedAt` lease
+zamanidir ve PID reuse kaniti sayilmaz; process identity okunamazsa canli aday korunur.
 
 Bos veya parse edilemeyen owner dosyali en az 24 saatlik orphan adaylar ayri planlanir:
 `zekam opencode spool-recover-invalid`, ardindan exact digest ile `--uygula`. Aktif drain lock'u,
@@ -146,6 +147,8 @@ olcumlenemiyorsa canli PID fail-closed korunur. Native close sirasinda checkpoin
 olayi yazilamadan kesinti olursa resume bunu `interrupted-close` ve
 `verification.session.state` ile aciklar; Work gecisi veya kapanis basarisi uretmez.
 CAS digest'i gecse bile checkpoint envelope semantigi bozuksa `integrity-error` doner.
+Ayni revision/tree farkli kaynak kokunde bulunsa bile resume `source-drift` ve
+`verification.source.state=root-drift` verir; istemci next-action beyani uygulanmaz.
 Stale lock devralma veya ilk lock yayinlama ayni anda baska drain sahibi tarafindan
 degistirilirse ham filesystem hatasi yerine sabit politika reddi doner; kuyruk kayitlari
 bu yarista dokunulmadan kalir.

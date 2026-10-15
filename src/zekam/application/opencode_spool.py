@@ -397,10 +397,14 @@ def _candidate(
         json.JSONDecodeError,
     ):
         return None
+    # Lease start is unrelated to process creation. Only an explicit OS marker
+    # can prove PID reuse; legacy owners without it retain the live-PID guard.
     started_at: dt.datetime | None = None
-    if "startedAt" in owner:
+    if "processStartedAt" in owner:
         try:
-            started_at = dt.datetime.fromisoformat(str(owner["startedAt"]).replace("Z", "+00:00"))
+            started_at = dt.datetime.fromisoformat(
+                str(owner["processStartedAt"]).replace("Z", "+00:00")
+            )
         except (TypeError, ValueError):
             return None
         if started_at.tzinfo is None or started_at.utcoffset() is None:
