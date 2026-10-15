@@ -970,9 +970,7 @@ def test_research_evidence_budget_preserves_freshness_gate_after_legacy_fifth(
         return {
             "source_ref": f"src/main/{citation_id}.java",
             "source_revision": (
-                digest("stale-revision")
-                if citation_id == "chunk-6"
-                else digest("revision")
+                digest("stale-revision") if citation_id == "chunk-6" else digest("revision")
             ),
             "content_digest": digest(body),
             "locator": {"relative_path": f"src/main/{citation_id}.java", "start_line": 1},
@@ -1198,3 +1196,41 @@ def test_legacy_report_replay_does_not_gain_new_verifier(monkeypatch, tmp_path: 
     assert surface["report"]["findings"][0]["finding_id"] == "legacy-finding-1"
     assert surface["report"]["report_digest"] == report_digest
     assert surface["grants_authority"] is False
+
+
+def test_research_resumes_durable_job_interrupted_before_first_lease(monkeypatch, tmp_path: Path):
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
+    queued, created = runtime.enqueue(
+        idempotency_key=plan.body["idempotency_key"],
+        payload=plan.body | {"dry_run": False},
+        max_attempts=1,
+    )
+    assert created and queued.state == "ready" and queued.attempt_count == 0
+
+    class CountingAdapter(FakeAdapter):
+        calls = 0
+
+        def execute(self, package):
+            self.calls += 1
+            return super().execute(package)
+
+    adapter = CountingAdapter()
+    for _ in range(2):
+        result = run_research(
+            store,
+            home,
+            plan,
+            expected_run_digest=plan.run_digest,
+            authorize_remote_query=True,
+            authorize_agent_run=True,
+            adapter=adapter,
+        )
+        assert result["job_id"] == queued.id and result["state"] == "completed"
+    snapshot = runtime.job_snapshot(queued.id)
+    assert adapter.calls == 1 and snapshot["attempt_count"] == 1
+    assert len(snapshot["effects"]) == 1
+    assert snapshot["effects"][0]["receipt_status"] == "completed"

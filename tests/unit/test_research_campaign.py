@@ -966,3 +966,41 @@ def test_strongest_snapshot_prefers_real_source_over_readme() -> None:
     # README-only stays README-only so the promotion guard still refuses it.
     assert _strongest_snapshot((readme,))["path"] == "README.md"
     assert _strongest_snapshot(()) == {}
+
+
+def test_radar_resumes_durable_job_before_campaign_was_created(runtime):
+    home, store, _project = runtime
+    plan = _plan(home, store)
+    queue = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
+    queued, created = queue.enqueue(
+        idempotency_key=plan.idempotency_key,
+        payload=plan.body | {"dry_run": False},
+        max_attempts=1,
+    )
+    assert created and queued.attempt_count == 0
+    adapter = FakeGitHubAdapter()
+    first = run_radar_campaign(
+        store,
+        home,
+        plan,
+        authorized_plan_digest=plan.plan_digest,
+        authorize_public_source_read=True,
+        authorize_agent_run=False,
+        github_adapter=adapter,
+    )
+    assert first["state"] == "completed" and first["job_id"] == queued.id
+    calls = len(adapter.calls)
+    assert calls > 0
+    second = run_radar_campaign(
+        store,
+        home,
+        plan,
+        authorized_plan_digest=plan.plan_digest,
+        authorize_public_source_read=True,
+        authorize_agent_run=False,
+        github_adapter=adapter,
+    )
+    assert second["replayed"] is True and len(adapter.calls) == calls
+    snapshot = queue.job_snapshot(queued.id)
+    assert snapshot["attempt_count"] == 1 and len(snapshot["effects"]) == 1
+    assert snapshot["effects"][0]["receipt_status"] == "completed"

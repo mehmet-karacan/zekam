@@ -247,6 +247,16 @@ class LocalRuntimeStore(Protocol):
         binding: LocalJobBinding | None = None,
     ) -> tuple[LocalJob, bool]: ...
 
+    def resolve_work_binding(
+        self,
+        *,
+        run_id: str,
+        work_revision: int,
+        project_id: str,
+        plan_digest: str,
+        run_step_id: str | None = None,
+    ) -> LocalJobBinding: ...
+
     def job_binding(self, job_id: str) -> LocalJobBinding | None: ...
 
     def claim_next(
@@ -371,3 +381,27 @@ class LocalRuntimeStore(Protocol):
         payload: dict[str, Any],
         now: str | None = None,
     ) -> tuple[LocalJob, bool]: ...
+
+
+def validate_dispatch_binding(
+    store: LocalRuntimeStore, binding: LocalJobBinding | None, *, idempotency_key: str
+) -> None:
+    """Check synchronous dispatch before enqueue; preserve exact terminal replay."""
+
+    if binding is None:
+        return
+    if type(binding) is not LocalJobBinding:
+        raise ValidationFailed("Local job exact typed binding required")
+    existing = store.job_snapshot(idempotency_key)
+    if existing is not None and existing["state"] == "completed":
+        observed = store.job_binding(existing["job_id"])
+    else:
+        observed = store.resolve_work_binding(
+            run_id=binding.run_id,
+            work_revision=binding.work_revision,
+            project_id=binding.project_id,
+            plan_digest=binding.plan_digest,
+            run_step_id=binding.run_step_id,
+        )
+    if observed != binding:
+        raise ValidationFailed("Local job dispatch canonical binding drift")

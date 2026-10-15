@@ -502,3 +502,22 @@ def test_bound_job_window_prioritizes_active_jobs_over_recent_terminal_history(t
         assert only["job_state"] == "running"
         assert only["effect_count"] == only["missing_receipt_count"] == 0
         uow.commit()
+
+
+def test_public_dispatch_binding_rejects_stale_config_without_enqueue(tmp_path: Path):
+    from zekam.application.local_runtime import validate_dispatch_binding
+
+    path, store, runtime, binding = _world(tmp_path)
+    validate_dispatch_binding(runtime, binding, idempotency_key="new-job")
+    with store.unit_of_work() as uow:
+        uow.activate_config(
+            config_digest=digest("changed"),
+            task_digest=digest("changed-task"),
+            sanitized_config={"network": "deny"},
+        )
+        uow.commit()
+    with pytest.raises(ConcurrencyConflict, match="tuple unavailable or changed"):
+        validate_dispatch_binding(runtime, binding, idempotency_key="new-job")
+    with sqlite3.connect(path) as db:
+        assert db.execute("select count(*) from local_job").fetchone()[0] == 0
+        assert db.execute("select count(*) from local_outbox").fetchone()[0] == 0

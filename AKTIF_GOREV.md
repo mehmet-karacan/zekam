@@ -1185,6 +1185,28 @@ Yalniz Ruff/statik diff kontrolu yapildi; testler kullanici karariyla son asamad
 calistirilacak. WP-07 index/test job birlestirmesi ve tam recovery/kapanis kabul
 kosulari acik; bu gorunum job veya Work tamamlandi iddiasi degildir.
 
+**15 Ekim 2026 - WP-07.02/04 enqueue sonrasi kesintiden devam gelistirmesi:**
+Research ve radar synchronous Python girisleri artik optional binding'i de
+enqueue oncesinde canonical tuple/dependency resolver'i ile tekrar karsilastirir.
+CLI dogrulamasi public application girisi yerine authority sayilmaz. Exact
+completed replay mevcut immutable binding esitligini korur; diger durumlar aktif
+config/Work revision/Run/plan/source/step kosullarindan gecmeden yeni job acamaz.
+
+Kok neden: enqueue replay kolu mevcut `ready`, attempt_count=0 job'i de terminal
+replay gibi ele aliyordu. Enqueue ile ilk lease arasinda kesilmis, hicbaslamamis
+job artik ayni idempotency key ile normal fenced lease/effect claim yoluna girer.
+Running/completed/failed/recovery ve denemesi baslamis kayitlar otomatik yeniden
+yurutulmez; mevcut replay/recovery kurallari korunur. Provider authorization ve
+lease/effect current-binding kontrolleri devam eder; provider sirasinda SQLite
+write transaction'i acik tutulmaz. Yeni claim/receipt authority kaynagi yoktur.
+
+Enqueue sonrasi kesinti, radar campaign olusmadan devam, tek adapter yurutmesi/
+receipt ve public dispatch stale config red testleri yazildi. Bagimsiz kaynak
+incelemesinde ek correctness/authority bulgusu cikmadi; Ruff/statik diff kontrolu
+yapildi. Testler kullanici karariyla son asamaya ertelendi ve HENUZ CALISTIRILMADI.
+WP-07 index/test birlestirmesi ve full race/crash/recovery kabul kosulari acik;
+bu gelistirme WP kapanisi veya canli provider basari kaniti degildir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

@@ -16,7 +16,7 @@ from zekam.application.knowledge_file_plane import (
     generated_note_bytes,
     note_content_digest,
 )
-from zekam.application.local_runtime import LocalJobBinding
+from zekam.application.local_runtime import LocalJobBinding, validate_dispatch_binding
 from zekam.application.markdown_knowledge import show_markdown_knowledge
 from zekam.application.operational_store import OperationalStore
 from zekam.application.project_rag_runtime import (
@@ -624,6 +624,9 @@ def run_research(
     ):
         raise PolicyViolation("Research canonical Work/Run project-plan binding drift")
     runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
+    validate_dispatch_binding(
+        runtime, work_binding, idempotency_key=str(plan.body["idempotency_key"])
+    )
     payload = dict(plan.body)
     payload["dry_run"] = False
     job, created = runtime.enqueue(
@@ -632,7 +635,10 @@ def run_research(
         max_attempts=1,
         **({"binding": work_binding} if work_binding is not None else {}),
     )
-    if not created:
+    # A durable, never-leased ready job can be resumed after interruption
+    # between enqueue and claim. All other states take the existing replay /
+    # recovery path; a prior effect is never retried by this branch.
+    if not created and (job.state != "ready" or job.attempt_count != 0):
         status = research_status(runtime, job.id)
         status["replayed"] = True
         return status

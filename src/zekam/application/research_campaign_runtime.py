@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from zekam.application.local_runtime import LocalJobBinding
+from zekam.application.local_runtime import LocalJobBinding, validate_dispatch_binding
 from zekam.application.operational_store import OperationalStore
 from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -412,6 +412,7 @@ def run_radar_campaign(
     repo = RadarCampaignRepository(radar_db_path)
     runtime = SQLiteLocalRuntimeStore(db_path, existing_only=True)
 
+    validate_dispatch_binding(runtime, work_binding, idempotency_key=plan.idempotency_key)
     payload = dict(plan.body)
     payload["dry_run"] = False
     job, created = runtime.enqueue(
@@ -420,7 +421,10 @@ def run_radar_campaign(
         max_attempts=1,
         **({"binding": work_binding} if work_binding is not None else {}),
     )
-    if not created:
+    # A durable, never-leased ready job can be resumed after interruption
+    # between enqueue and claim. All other states take the existing replay /
+    # recovery path; a prior effect is never retried by this branch.
+    if not created and (job.state != "ready" or job.attempt_count != 0):
         campaign = repo.get_campaign_by_idempotency_key(plan.idempotency_key)
         if campaign is None:
             raise PolicyViolation("Radar replay campaign kaydi bulunamadi")
