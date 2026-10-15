@@ -1123,6 +1123,11 @@ bekleyen is arkadaki uygun isi engellemez. Exact job claim ise acik conflict ver
 Research ve radar girisleri optional typed binding kabul eder; binding bir grant
 uretmez ve mevcut authorization kosullari devam eder.
 
+**15 Ekim 2026 - WP-07.02 schema pin uyumu:** Runtime schema kabul seti v7 local
+job binding migration'ini de kanonik olarak iceriyor. V6 sabit migration name,
+SQL digest ve schema fingerprint pinleri korunarak yalniz testin runtime version
+beklentisi v7 ile hizalandi; mevcut DB'ye migration uygulanmadi.
+
 V1-v6 migration SQL'leri korunur; varsayilan bootstrap v3 kalir. V6->v7 icin
 ayri digest-bound dry-run/apply, pause/quiescence, spool/fencing, verified backup
 ve rollback siniri eklendi. Mevcut kullanici DB'sine migration UYGULANMADI.
