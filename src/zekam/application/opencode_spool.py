@@ -815,7 +815,10 @@ def drain_plugin_spool(
         try:
             pid, _expires_at, _, process_started_at = _lock_owner(lock)
         except ValidationFailed:
-            lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
+            try:
+                lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
+            except FileNotFoundError as exc:
+                raise PolicyViolation("OpenCode drain lock yarista degisti") from exc
             recovery_reason = "invalid-owner"
         else:
             # A dead owner is recoverable even when its lease expiry is still in
@@ -823,7 +826,10 @@ def drain_plugin_spool(
             # wedge the spool for minutes; a live owner remains fail-closed.
             if _process_is_owner(pid, process_started_at):
                 raise PolicyViolation("OpenCode drain lock halen aktif")
-            lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
+            try:
+                lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
+            except FileNotFoundError as exc:
+                raise PolicyViolation("OpenCode stale drain lock yarista degisti") from exc
             recovery_reason = (
                 "pid-reused"
                 if process_started_at is not None and _process_alive(pid)
@@ -853,7 +859,12 @@ def drain_plugin_spool(
         candidate / "owner.json",
         owner_document,
     )
-    candidate.replace(lock)
+    try:
+        candidate.replace(lock)
+    except FileExistsError as exc:
+        # Another drainer won the atomic publication race.  Leave its owner
+        # untouched and reject this attempt without touching queued entries.
+        raise PolicyViolation("OpenCode drain lock yarista kazanildi") from exc
 
     processed = acknowledged = quarantined = 0
     try:

@@ -146,6 +146,9 @@ canli PID fail-closed korunur. Native close sirasinda checkpoint yazilip `sessio
 olayi yazilamadan kesinti olursa resume bunu `interrupted-close` ve
 `verification.session.state` ile aciklar; Work gecisi veya kapanis basarisi uretmez.
 CAS digest'i gecse bile checkpoint envelope semantigi bozuksa `integrity-error` doner.
+Stale lock devralma veya ilk lock yayinlama ayni anda baska drain sahibi tarafindan
+degistirilirse ham filesystem hatasi yerine sabit politika reddi doner; kuyruk kayitlari
+bu yarista dokunulmadan kalir.
 
 ## 4. Windows dogrulamasi
 

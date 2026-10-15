@@ -1345,6 +1345,12 @@ session.deleted sonrasi yeni olay veya kapanistan sonra gorunen checkpoint ise
 `integrity-error` olur; bozuk zincir sessizce `ready` sayilmaz. Bu dilimin negatif
 regresyon testi yazildi; testler son toplu kabul asamasina birakildi.
 
+**15 Ekim 2026 - WP-07.05 spool lock race kapisi gelistirmesi:** Stale veya bozuk drain
+lock'u baska bir sahip ayni anda degistirirse drain artik ham filesystem exception'i
+disari sizdirmadan sabit policy rejection verir. Ilk lock publication yarisi da ayni
+fail-closed sinirini kullanir; queued entry'lere dokunulmaz. Regresyon kapsami yazildi,
+testler son toplu kabul asamasina birakildi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
