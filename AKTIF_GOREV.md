@@ -1366,6 +1366,14 @@ disari sizdirmadan sabit policy rejection verir. Ilk lock publication yarisi da 
 fail-closed sinirini kullanir; queued entry'lere dokunulmaz. Regresyon kapsami yazildi,
 testler son toplu kabul asamasina birakildi.
 
+**15 Ekim 2026 - son toplu kabul kaniti:** Gelistirme sonrasi hedefli native/spool,
+history, schema ve qualification fixture grubu **63 passed**; tam paket kosusu
+**7027 passed, 1403 skipped, 0 failed, 3 warning** ile tamamlandi. Bu kosu typed native
+CAS/lifecycle, interrupted-close, PID incarnation ve spool race, history secret
+redaction, v7 schema beklentisi ve cross-process qualification fixture duzeltmelerini
+dogrular. WP-07.05 ve WP-07 halen kapanmadi: gercek process-kill/PID race/full spool
+crash, canonical Work recovery ve native istemci kabul matrisi aciktir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
