@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.82 15 Ekim 2026 OpenCode campaign fixture stream kapisi
+
+OpenCode remote fixture ve campaign scope okumalari ortak 4 MiB bounded
+regular-file stream helper kullanir. Link/reparse, UTF-8, growth veya oversized
+scope/fixture typed ValidationFailed ile durur; remote-safe public fixture ve
+provider payload digest baglari korunur, canli cagri sonucu uydurulmaz.
+
+Bu dilim WP-08 campaign girdisi kaynak tuketimi boslugunu daraltir; authorization,
+provider ve native host qualification kanitlari ayri kabul edilir.
+
 ### 10.81 15 Ekim 2026 Capability registry stream kapisi
 
 Capability benchmark registry ve task fixture dosyalari 4 MiB bounded

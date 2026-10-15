@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 
 from zekam.application.model_benchmark_service import (
+    _read_benchmark_text,
     default_fixture_file,
     load_fixture_registry,
     resolve_fixture_artifact,
@@ -580,7 +581,7 @@ def load_campaign_scope(path: Path | None = None) -> OpenCodeCampaignScope:
     target = path or default_scope_file()
     if not target.is_file():
         raise ConfigurationError("OpenCode benchmark scope bulunamadi")
-    document = yaml.safe_load(target.read_text(encoding="utf-8"))
+    document = yaml.safe_load(_read_benchmark_text(target, label="campaign scope"))
     root = _exact_mapping(document, label="scope")
     expected = {
         "schema",

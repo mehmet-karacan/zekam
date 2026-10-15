@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from zekam.application.model_benchmark_service import resolve_fixture_artifact
+from zekam.application.model_benchmark_service import (
+    _read_benchmark_text,
+    resolve_fixture_artifact,
+)
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.model_benchmark import (
@@ -195,8 +198,8 @@ def load_remote_fixture(fixture: BenchmarkFixture, *, allow_root: Path) -> Remot
 
     source = resolve_fixture_artifact(fixture, allow_root=allow_root)
     try:
-        document = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        document = json.loads(_read_benchmark_text(source, label="remote fixture"))
+    except (ValidationFailed, json.JSONDecodeError) as exc:
         raise ValidationFailed("Remote benchmark fixture JSON okunamadi") from exc
     expected_fields = {
         "schema",
