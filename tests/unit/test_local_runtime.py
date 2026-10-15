@@ -31,6 +31,19 @@ def _scalar(path: Path, query: str, parameters: tuple[object, ...] = ()) -> obje
         return connection.execute(query, parameters).fetchone()[0]
 
 
+def _source_subprocess_env() -> dict[str, str]:
+    """Carry the source-layout import path into child Python processes."""
+
+    environment = os.environ.copy()
+    existing = environment.get("PYTHONPATH")
+    source = str(Path(__file__).resolve().parents[2] / "src")
+    environment["PYTHONPATH"] = source + (
+        os.pathsep + existing if existing else ""
+    )
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
 def test_enqueue_replay_is_exact_and_payload_drift_is_rejected(tmp_path: Path) -> None:
     store = _store(tmp_path)
     first, created = store.enqueue(idempotency_key="job-1", payload={"value": 1})
@@ -383,6 +396,7 @@ os.kill(os.getpid(), signal.SIGKILL)
 """
     child = subprocess.run(
         [sys.executable, "-c", child_code, str(path), str(effect_path)],
+        env=_source_subprocess_env(),
         check=False,
         capture_output=True,
         text=True,
@@ -1289,6 +1303,7 @@ os.kill(os.getpid(), signal.SIGKILL)
 """
     child = subprocess.run(
         [sys.executable, "-c", child_code, str(path), str(delivery_path)],
+        env=_source_subprocess_env(),
         check=False,
         capture_output=True,
         text=True,
