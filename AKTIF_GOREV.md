@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.74 15 Ekim 2026 Bootstrap ve home metadata stream kapisi
+
+Fresh bootstrap legacy config ve ZEKAM_HOME layout metadata okumasi bounded
+regular-file stream ile yapilir. Link/reparse, UTF-8, boyut veya growth hatasi
+bootstrap/layout kaniti uretmeden typed hata ve unreadable issue olarak raporlanir;
+legacy PostgreSQL tespitinin salt-okunur siniri korunur.
+
+Bu dilim WP-02 baslangic ve WP-07 recovery metadata kaynak tuketimi boslugunu
+daraltir; native host kabul ve diger acik WP kapilari halen surer.
+
 ### 10.73 15 Ekim 2026 Authority ve config stream kapisi
 
 Aktif gorev authority/projection, user config ve instruction context olcumu

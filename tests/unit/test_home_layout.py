@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import zekam.application.home as home_module
 from zekam.application.home import (
     HOME_ENTRIES,
     LAYOUT_FILE,
@@ -27,6 +28,16 @@ def test_ensure_creates_every_declared_directory(home_root: Path) -> None:
     layout = HomeLayout(home_root).ensure()
     for entry in HOME_ENTRIES:
         assert (layout.root / entry.relative).is_dir(), entry.relative
+
+
+def test_verify_rejects_oversized_layout_without_unbounded_read(
+    home_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = HomeLayout(home_root).ensure()
+    monkeypatch.setattr(home_module, "MAX_LAYOUT_BYTES", 8)
+    layout.layout_file.write_bytes(b'{"schema": "x"}')
+
+    assert {issue.kind for issue in layout.verify()} == {"unreadable-layout-file"}
 
 
 def test_ensure_is_idempotent(home_root: Path) -> None:

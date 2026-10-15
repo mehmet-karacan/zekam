@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ from zekam.domain.ownership import OwnershipClass
 
 LAYOUT_SCHEMA = "zekam-home-layout/v2"
 LAYOUT_FILE = "layout.json"
+MAX_LAYOUT_BYTES = 1 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,29 @@ class HomeEntry:
     relative: str
     ownership: OwnershipClass
     description: str
+
+
+def _read_layout_document(path: Path) -> object:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ConfigurationError("layout regular dosya olmali")
+        if metadata.st_size > MAX_LAYOUT_BYTES:
+            raise ConfigurationError("layout dosyasi boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_LAYOUT_BYTES + 1)
+    except OSError as exc:
+        raise ConfigurationError("layout dosyasi okunamadi") from exc
+    if len(payload) > MAX_LAYOUT_BYTES:
+        raise ConfigurationError("layout dosyasi boyut sinirini asiyor")
+    try:
+        return json.loads(payload.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigurationError("layout JSON olarak okunamadi") from exc
 
 
 #: Kanonik ZEKAM_HOME dizin sozlesmesi.
@@ -248,8 +273,8 @@ class HomeLayout:
             yield LayoutIssue("missing-layout-file", LAYOUT_FILE, "layout.json yok")
             return
         try:
-            document = json.loads(self.layout_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            document = _read_layout_document(self.layout_file)
+        except ConfigurationError:
             yield LayoutIssue("unreadable-layout-file", LAYOUT_FILE, "layout.json okunamadi")
             return
         if document.get("schema") != LAYOUT_SCHEMA:

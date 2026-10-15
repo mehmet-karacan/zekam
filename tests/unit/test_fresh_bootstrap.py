@@ -12,6 +12,7 @@ from threading import Event
 
 import pytest
 
+import zekam.application.fresh_bootstrap as fresh_bootstrap
 from zekam.application.fresh_bootstrap import (
     BACKUP_CONTRACT_RELATIVE_PATH,
     FAULT_POINTS,
@@ -32,6 +33,16 @@ from zekam.application.home import HOME_ENTRIES, LAYOUT_SCHEMA
 from zekam.domain.errors import ConfigurationError, ValidationFailed
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
 from zekam.infrastructure.sqlite.operational_schema import status as sqlite_status
+
+
+def test_legacy_config_reader_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "config.yaml").write_bytes(b"database:\n  backend: sqlite\n")
+    monkeypatch.setattr(fresh_bootstrap, "MAX_CONFIG_BYTES", 8)
+
+    with pytest.raises(ConfigurationError, match="Legacy config guvenle"):
+        detect_legacy_postgresql_config(home)
 
 AUTHORITY_DIGEST = "sha256:" + "a" * 64
 OTHER_AUTHORITY_DIGEST = "sha256:" + "b" * 64

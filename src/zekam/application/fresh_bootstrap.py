@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -194,16 +195,40 @@ class LegacyConfigDetection:
     reasons: tuple[str, ...]
 
 
+def _read_bounded_text(path: Path, *, maximum: int, label: str) -> str:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ConfigurationError(f"{label} regular dosya olmali")
+        if metadata.st_size > maximum:
+            raise ConfigurationError(f"{label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(maximum + 1)
+    except OSError as exc:
+        raise ConfigurationError(f"{label} okunamadi") from exc
+    if len(payload) > maximum:
+        raise ConfigurationError(f"{label} boyut sinirini asiyor")
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ConfigurationError(f"{label} UTF-8 olmali") from exc
+
+
 def detect_legacy_postgresql_config(home: Path) -> LegacyConfigDetection:
     """Inspect bounded config metadata without importing a driver or connecting."""
     path = home / "config.yaml"
     if not path.is_file():
         return LegacyConfigDetection(False, ())
     try:
-        if path.stat().st_size > MAX_CONFIG_BYTES:
-            raise ConfigurationError("Legacy config boyut sinirini asiyor")
-        document = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueConfigLoader) or {}
-    except (OSError, UnicodeError, yaml.YAMLError, ConfigurationError) as exc:
+        document = yaml.load(
+            _read_bounded_text(path, maximum=MAX_CONFIG_BYTES, label="Legacy config"),
+            Loader=_UniqueConfigLoader,
+        ) or {}
+    except (ConfigurationError, yaml.YAMLError) as exc:
         raise ConfigurationError("Legacy config guvenle okunamadi") from exc
     if not isinstance(document, dict):
         raise ConfigurationError("Legacy config kok nesnesi mapping olmali")
