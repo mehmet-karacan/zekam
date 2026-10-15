@@ -38,6 +38,7 @@ from zekam.application.natural_request_scope import (
     NaturalRequestScope,
     resolve_natural_request_scope,
 )
+from zekam.application.natural_work_read import WorkReadRequest, parse_work_read, read_work_request
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_rag_runtime import (
     AskProjectUnresolved,
@@ -408,12 +409,72 @@ def _work_status_refs(
         catalog=load_project_families(),
         registered_projects=tuple(RegisteredProject(ref) for ref in sorted(registered)),
     )
-    if route.status == "clarification-required" and route.project_refs:
+    if route.status == "clarification-required":
         return (), "Hangi Zekam projesinin is durumunu gormek istiyorsunuz?"
     refs = tuple(ref for ref in route.project_refs if ref in registered)
     if route.project_refs and not refs:
         return (), "Sordugunuz proje kayitli degil; once dogru Zekam projesini belirtin."
     return (refs or tuple(sorted(registered))), None
+
+
+def _ask_work_record(
+    resolved_home: Path,
+    question: str,
+    request: WorkReadRequest,
+    *,
+    explicit_project: str | None,
+    output_json: bool,
+) -> None:
+    refs, clarification = _work_status_refs(resolved_home, question, explicit_project)
+    clarification = request.clarification or clarification
+    if clarification is None and len(refs) != 1:
+        clarification = "Hangi projenin is kaydini inceleyelim?"
+    if clarification is not None:
+        document = {
+            "schema": "zekam-natural-work-read/v1",
+            "status": "clarification-required",
+            "question": clarification,
+            "read_only": True,
+            "grants_authority": False,
+            "provider_calls": 0,
+            "index_triggered": False,
+        }
+        if output_json:
+            _print_json(document)
+        else:
+            console.print(clarification)
+        raise typer.Exit(EXIT_CLARIFICATION)
+    store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
+    with store.unit_of_work() as uow:
+        document = read_work_request(uow, request, project_ref=refs[0])
+    if output_json:
+        _print_json(document)
+    else:
+        work = document["work"]
+        console.print(f"{work['title']} — {work['state']}; revizyon {work['revision']}")
+        if request.operation == "history":
+            for event in document["events"]:
+                console.print(f"{event['revision']}\t{event['event_kind']}\t{event['to_state']}")
+        elif request.operation == "dependencies":
+            for dependency in document["dependencies"]:
+                console.print(f"{dependency['title']}\t{dependency['state']}")
+            if not document["dependencies"]:
+                console.print("Kayitli bagimlilik yok.")
+        elif request.operation == "checkpoints":
+            for run in document["runs"]:
+                console.print(f"Run {run['run_id']}: {run['status']}")
+                for checkpoint in run["checkpoints"]:
+                    console.print(f"  {checkpoint['sequence']}\t{checkpoint['checkpoint_digest']}")
+            if not document["runs"]:
+                console.print("Kayitli Run/checkpoint yok.")
+        elif work["summary"]:
+            console.print(work["summary"])
+        if (
+            document.get("truncated")
+            or document.get("runs_truncated")
+            or any(run["checkpoints_truncated"] for run in document.get("runs", []))
+        ):
+            console.print("Sonuclar bounded pencereyle sinirlandi; daha eski kayitlar var.")
 
 
 def _ask_work_status(
@@ -777,6 +838,16 @@ def ask(
 
     try:
         resolved_home = resolve_home(home).resolve(strict=True)
+        work_request = parse_work_read(question)
+        if work_request is not None:
+            _ask_work_record(
+                resolved_home,
+                question,
+                work_request,
+                explicit_project=project,
+                output_json=output_json,
+            )
+            return
         if _is_work_status_question(question):
             _ask_work_status(
                 resolved_home,

@@ -1464,6 +1464,15 @@ state toplamlari exact kalir, dependency blocked sayisinin pencere kapsami acikt
 Regresyon kodu hazirlandi; testler CALISTIRILMADI, tum gelistirmeler sonrasi final
 asama beklenir. WP/Work kapanisi uretilmedi.
 
+**15 Ekim 2026 - WP-07 dogal dil tekil okuma gelistirmesi:** Acik Work/gorev veya
+numarali is referansi tasiyan detay/gecmis/bagimlilik/checkpoint sorulari `ask`
+girisine baglandi. Exact proje ve UUID/harici numara resolver'i ayni SQLite read
+snapshot'inda kullanilir; RAG/provider/index tetiklenmez. Birden cok kayit/islem
+ve okuma-degisiklik karisimi clarification verir. Belirsiz proje isteginin tum
+projelere dusme yolu kapatildi. Event/Run/checkpoint/edge pencereleri ve kesilme
+alanlari bounded; mutation ve Work kapanisi yoktur. Unit/CLI regresyon kodu hazir,
+testler CALISTIRILMADI; tum gelistirmeler sonrasi final asama beklenir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

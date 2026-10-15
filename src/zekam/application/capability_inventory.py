@@ -122,6 +122,8 @@ CAPABILITIES: tuple[Capability, ...] = (
             "work list",
             "work show",
             "work history",
+            "work dependencies",
+            "work relate",
             "work transition",
             "work run-create",
             "work run-show",
@@ -135,7 +137,12 @@ CAPABILITIES: tuple[Capability, ...] = (
             "work resume",
         ),
         ("zekam-coordinator", "zekam-builder", "zekam-verifier"),
-        ("tests/unit/test_operational_store.py", "tests/e2e/test_cli_package_acceptance.py"),
+        (
+            "tests/unit/test_operational_store.py",
+            "tests/unit/test_work_dependencies.py",
+            "tests/unit/test_natural_work_read.py",
+            "tests/e2e/test_cli_package_acceptance.py",
+        ),
         "Lease/fencing ve native clientlar arasi devam kabulleri ayri live kanit ister.",
     ),
     Capability(
@@ -362,9 +369,7 @@ def capability_inventory(
     return body | {"inventory_digest": digest(body)}
 
 
-_DEFAULT_ALLOWED_PERMISSIONS = frozenset(
-    {"filesystem.read", "filesystem.write", "process.run"}
-)
+_DEFAULT_ALLOWED_PERMISSIONS = frozenset({"filesystem.read", "filesystem.write", "process.run"})
 _CAPABILITY_PERMISSION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "native-cli-workspace-entry": ("filesystem.read",),
     "native-helper-path": ("filesystem.read",),
@@ -522,12 +527,7 @@ def _capability_readiness(
     }
     if evidence_state == "missing" or capability.status == "scaffold":
         status: CapabilityReadinessStatus = "blocked"
-    elif (
-        evidence_state != "observed"
-        or permission_gap
-        or installation_gap
-        or acceptance_gap
-    ):
+    elif evidence_state != "observed" or permission_gap or installation_gap or acceptance_gap:
         status = "partial"
     else:
         status = "ready"

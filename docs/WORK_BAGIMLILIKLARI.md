@@ -28,6 +28,14 @@ Bu gorunum lease, grant veya Work kapanisi uretmez.
 
 ## Explicit v7 -> v8 migration
 
+Native ajan kullanicinin "17 numarali isin gecmisini goster", "work SKY-123
+bagimliliklarini goster" veya "work <id> checkpointlerini goster" isteginde `ask`
+girisiyle tekil canonical kaydi okuyabilir. UUID/harici numara ve kayitli proje
+exact cozumlenir; kullaniciya UUID/digest uretme isi verilmez. Islem okumadir,
+Work create/transition/close yetkisi uretmez. Birden cok referans veya okuma ile
+degisiklik birlikte istenirse aciklama gerekir. Gecmis en son 100 event,
+checkpoint gorunumu en son 5 Run ve her Run icin en son 5 checkpoint ile sinirlidir.
+
 Dogal dil Work raporu, `work resume` ve workspace resume ayni SQLite snapshot'inda
 bounded Work penceresi icin tek aggregate sorguyla bagimlilik ozetini okur.
 Her Work icin toplam/tamamlanmamis oncul sayisi ve blocked bilgisi bulunur.

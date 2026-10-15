@@ -101,6 +101,13 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract("work list", "Isleri listeler", mutating=False),
     CommandContract("work show", "Tek Work kaydini gosterir", mutating=False),
     CommandContract("work history", "Work olay gecmisini gosterir", mutating=False),
+    CommandContract("work dependencies", "Work bagimliliklarini gosterir", mutating=False),
+    CommandContract(
+        "work relate",
+        "Exact plan ile Work bagimliligini degistirir",
+        mutating=True,
+        requires_apply_flag=True,
+    ),
     CommandContract(
         "work transition",
         "Revision ve kanit bagli Work gecisi yapar",

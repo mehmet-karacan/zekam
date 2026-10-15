@@ -10,6 +10,57 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli.main import app
 
 
+def test_ask_exact_work_history_uses_project_scope_without_rag(tmp_path: Path, monkeypatch) -> None:
+    from zekam.interfaces.cli import main
+
+    runner = CliRunner()
+    home = tmp_path / "home"
+    assert runner.invoke(app, ["init", "--home", str(home)]).exit_code == 0
+    _project(runner, home, tmp_path / "gpu", "gpu")
+    _project(runner, home, tmp_path / "sky", "sky")
+    database = home / "state" / "operational.db"
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        for slug in ("gpu", "sky"):
+            project = uow.resolve_project(slug)
+            uow.create_work(
+                project_id=project.id, kind="task", title=slug, state="ready", external_number="17"
+            )
+        uow.commit()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Work reads must not retrieve or call providers")
+
+    monkeypatch.setattr(main, "query_registered_project", forbidden)
+    before = database.read_bytes()
+    result = runner.invoke(
+        app,
+        [
+            "ask",
+            "17 numaralı işin geçmişini göster",
+            "--project",
+            "gpu",
+            "--json",
+            "--home",
+            str(home),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["schema"] == "zekam-natural-work-read/v1"
+    assert document["project_ref"] == "gpu"
+    assert document["work"]["title"] == "gpu"
+    assert document["events"][0]["event_kind"] == "created"
+    assert document["work"]["dependencies"]["supported"] is False
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False
+    assert database.read_bytes() == before
+    for question in ("work 17 detayını göster", "Mars projesinde work 17 durumunu göster"):
+        ambiguous = runner.invoke(app, ["ask", question, "--json", "--home", str(home)])
+        assert ambiguous.exit_code != 0
+        assert json.loads(ambiguous.output)["status"] == "clarification-required"
+    assert database.read_bytes() == before
+
+
 def _project(runner: CliRunner, home: Path, root: Path, slug: str) -> None:
     root.mkdir()
     result = runner.invoke(
