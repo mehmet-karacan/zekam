@@ -1119,6 +1119,15 @@ expired/mismatch qualification senaryolarinin fake remote provider'i gercek wrap
 `document_journal` constructor bagini da kabul ediyor. Fixture degisikligi production
 cache davranisini degistirmez; ayri process warm reuse kanitini korur.
 
+**16 Ekim 2026 — WP-06.04 bounded Atlassian okuma:** Yerlesik MCP'ye
+Confluence start/limit ve dogrulanan next offset, site/content/version
+provenance ve locator baglandi. HTTP yanit boyutu sinirlandi; status kodu
+korunup response body/credential hata metninden cikarildi. Version, content
+identity ve pagination drift'i reddedilir; kimliksiz ACL veya grant uretilmez.
+Regresyon kodu hazir, CALISTIRILMADI. Canli izin paritesi, Jira attachment
+revision ve proje knowledge publication baglantisi halen acik;
+`docs/ATLASSIAN_OKUMA_KANITI.md`.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  
