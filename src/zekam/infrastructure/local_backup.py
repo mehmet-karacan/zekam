@@ -32,6 +32,7 @@ MAX_FILES = 100_000
 MAX_DIRECTORIES = 100_000
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 MAX_DATABASE_BYTES = 256 * 1024 * 1024
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 
 _DATABASES = (
     "state/operational.db",
@@ -178,8 +179,16 @@ def _sync_directory(path: Path) -> None:
 
 def _copy_regular(source: Path, target: Path, mode: int) -> None:
     before = _regular(source)
+    if before.st_size > MAX_TOTAL_BYTES:
+        raise PolicyViolation("Backup file exceeds bound")
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    target.write_bytes(source.read_bytes())
+    copied = 0
+    with source.open("rb") as source_stream, target.open("wb") as target_stream:
+        while chunk := source_stream.read(1024 * 1024):
+            copied += len(chunk)
+            if copied > MAX_TOTAL_BYTES:
+                raise PolicyViolation("Backup file exceeds bound")
+            target_stream.write(chunk)
     os.chmod(target, mode)
     _sync_file(target)
     after = _regular(source)
@@ -449,7 +458,7 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
 
 
 def _strict_document(raw: bytes) -> dict[str, Any]:
-    if not raw or len(raw) > 16 * 1024 * 1024:
+    if not raw or len(raw) > MAX_MANIFEST_BYTES:
         raise ValidationFailed("Backup manifest size invalid")
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -484,7 +493,9 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
     _regular(manifest_path)
     if not private_regular(manifest_path, 0o400):
         raise PolicyViolation("Backup manifest mode invalid")
-    document = _strict_document(manifest_path.read_bytes())
+    with manifest_path.open("rb") as stream:
+        manifest_raw = stream.read(MAX_MANIFEST_BYTES + 1)
+    document = _strict_document(manifest_raw)
     keys = {
         "schema",
         "directories",

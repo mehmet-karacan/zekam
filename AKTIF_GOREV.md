@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.78 15 Ekim 2026 Backup stream copy kapisi
+
+Local backup normal dosya kopyasi chunked stream ile yapilir; tek dosya ve toplam
+backup boyutu sinirlari kopya sirasinda uygulanir. Manifest dogrulamasi 16 MiB
+bounded stream kullanir. Kaynak census kimlik ve entry/directory drift kapilari
+korunur; staging hata durumunda yayinlanmaz.
+
+Bu dilim WP-11 backup kaynak tuketimi ve atomik yayin guvencesini guclendirir;
+gercek cihaz restore ve canli scheduler kabul matrisi halen aciktir.
+
 ### 10.77 15 Ekim 2026 Evolution metadata stream kapisi
 
 Evolution package manifest, scope transition journal ve resume admission baglari

@@ -143,6 +143,24 @@ def test_local_backup_copy_and_bundle_failures_leave_no_partial(tmp_path: Path) 
     with pytest.raises(PolicyViolation, match="not ready"):
         local_backup.create_bundle(cast(Any, _NotReady()), tmp_path, destination)
     assert not destination.exists()
+
+
+def test_local_backup_copy_stream_does_not_use_unbounded_path_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.write_bytes(b"streamed-payload")
+    source.chmod(0o600)
+
+    def forbidden(_path: Path) -> bytes:
+        raise AssertionError("unbounded Path.read_bytes called")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    local_backup._copy_regular(source, target, 0o400)
+
+    with target.open("rb") as stream:
+        assert stream.read() == b"streamed-payload"
     assert not tuple(tmp_path.glob(".bundle.*"))
 
 
