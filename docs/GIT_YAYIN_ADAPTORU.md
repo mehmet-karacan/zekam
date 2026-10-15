@@ -46,9 +46,27 @@ anlamina gelmez. Dolayli wrapper yayini engellenmis sayilmaz.
 
 ## Acik baglanti ve kabul
 
+Operational v9 `SQLiteGitPublicationLedger` gercek mevcut DB'de imzali kanit,
+approval, consumption ve revocation tablolarini append-only tutar. Guvenilen
+producer verifier capability'leri host composition tarafindan verilir; store
+signer key almaz veya kendi approval'unu uretmez. Test ve verification producer
+kimlik/capability'leri ayri olmalidir. Evidence ancak gercek completed canonical
+job/Run/receipt/artifact bagiyla ve CAS byte/digest/size readback'iyle kaydedilir;
+her okumada ayni zincir tekrar dogrulanir. Tuketim canli claim ve lease, guncel
+Work binding, yeni imza/kanit/CAS kontrolu ve tekil insert'i ayni kisa transaction'da
+yapar. Ag veya provider cagrisi bu transaction'a girmez. Replay eski tamamlanmis
+canonical kaniti okur; tuketilmis yetki yeni effect uretmez.
+
+V8->v9 additive migration mevcut digest-bound dry-run/apply, pause/quiescence,
+fencing/spool, online backup ve row parity yoluna baglidir. V1-v8 pinleri ve
+varsayilan v3 bootstrap korunur. Migration mevcut/aktif approval, signer veya
+trust kaydi olusturmaz; kullanici DB'sine uygulanmadi. V9 pinleri yalniz mevcut
+in-memory schema metadata generator'uyla gelistirme sirasinda uretildi.
+
 Bu dilim typed service/gercek Git transport/canonical job baglantisidir.
-Production canonical authorization/evidence ledger adapter'inin CLI composition'a
-baglanmasi ve native host transport enforcement kabulu halen aciktir. Mevcut
+Concrete canonical authorization/evidence ledger eklendi; trusted producer
+provisioning, gercek test/verifier receipt producer baglantisi, CLI composition
+ve native host transport enforcement kabulu halen aciktir. Mevcut
 `git push-check` advisory domain kapisidir; bu typed servisin yerine kullanilmaz.
 Kaynakta baska yerde `evaluate_push` sonucunun true olmasi yayin yetkisi degildir.
 

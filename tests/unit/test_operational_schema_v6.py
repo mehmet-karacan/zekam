@@ -140,7 +140,7 @@ def test_v6_pins_name_digest_and_fingerprint() -> None:
     assert schema.SCHEMA_DIGESTS[6] == schema.V6_SCHEMA_DIGEST
     assert schema.V6_MIGRATION_LEDGER[:5] == schema.V5_MIGRATION_LEDGER
     assert schema.V6_MIGRATION_LEDGER[-1] == (6, MIGRATION_NAME, schema.V6_MIGRATION_DIGEST)
-    assert frozenset({3, 5, 6, 7, 8}) == schema.RUNTIME_SCHEMA_VERSIONS
+    assert frozenset({3, 5, 6, 7, 8, 9}) == schema.RUNTIME_SCHEMA_VERSIONS
     # historical pins are untouched by the deliberate v6 addition
     assert schema.V5_SCHEMA_DIGEST == (
         "sha256:b76c64e6394b72fb93a7307b24661c5db142dcbd471eb5b890145722fec72117"
@@ -326,7 +326,7 @@ def test_doctor_and_store_validation_recognize_v6(tmp_path: Path) -> None:
     assert check.status.value == "passed"
     assert check.evidence["schema_version"] == 6
     assert check.evidence["expected_schema_digest"] == schema.V6_SCHEMA_DIGEST
-    assert check.evidence["supported_runtime_schema_versions"] == [3, 5, 6, 7, 8]
+    assert check.evidence["supported_runtime_schema_versions"] == [3, 5, 6, 7, 8, 9]
     assert validate_local_sqlite_store("operational", database, require_private_identity=False) == {
         "schema_version": 6,
         "schema_digest": schema.V6_SCHEMA_DIGEST,

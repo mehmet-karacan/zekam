@@ -21,7 +21,7 @@ class UnitTestLedgerMigrationAdmission:
     """
 
     def __init__(self, context: ApplicationContext, *, target_version: int = 6) -> None:
-        if type(target_version) is not int or target_version not in {6, 7, 8}:
+        if type(target_version) is not int or target_version not in {6, 7, 8, 9}:
             raise PolicyViolation("Operational ledger migration target unsupported")
         self._target_version = target_version
         database = context.settings.database.sqlite_path(context.home)

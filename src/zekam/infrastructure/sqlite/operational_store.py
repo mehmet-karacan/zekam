@@ -1489,7 +1489,7 @@ class SQLiteOperationalUnitOfWork:
         version = connection.execute(
             "select value from zekam_meta where key='schema_version'"
         ).fetchone()
-        if version is None or str(version[0]) not in {"7", "8"}:
+        if version is None or str(version[0]) not in {"7", "8", "9"}:
             return ()
         from zekam.infrastructure.sqlite.work_dependency_schema import current_binding_query
 

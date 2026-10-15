@@ -19,6 +19,10 @@ from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.sqlite.continuity_control_schema import SCHEMA_V3_SQL
 from zekam.infrastructure.sqlite.continuity_native_schema import SCHEMA_V4_SQL
 from zekam.infrastructure.sqlite.continuity_schema import SCHEMA_V2_SQL
+from zekam.infrastructure.sqlite.git_publication_schema import (
+    GIT_PUBLICATION_DDL as SCHEMA_V9_SQL,
+    MIGRATION_NAME as V9_MIGRATION_NAME,
+)
 from zekam.infrastructure.sqlite.evolution_authority import (
     EVOLUTION_AUTHORITY_DDL as SCHEMA_V5_SQL,
 )
@@ -42,7 +46,7 @@ from zekam.infrastructure.sqlite.work_dependency_schema import (
 )
 
 SCHEMA_VERSION = 3
-RUNTIME_SCHEMA_VERSIONS = frozenset({3, 5, 6, 7, 8})
+RUNTIME_SCHEMA_VERSIONS = frozenset({3, 5, 6, 7, 8, 9})
 MIGRATION_NAME = "operational-authority-v1"
 
 # The historical scaffold is used only as a schema-construction detail for a
@@ -578,6 +582,13 @@ if V8_MIGRATION_NAME != "operational-work-dependency-v8":
 if "sha256:" + hashlib.sha256(SCHEMA_V8_SQL.encode("utf-8")).hexdigest() != V8_MIGRATION_DIGEST:
     raise ConfigurationError("Immutable operational v8 migration SQL drift")
 V8_MIGRATION_LEDGER = (*V7_MIGRATION_LEDGER, (8, V8_MIGRATION_NAME, V8_MIGRATION_DIGEST))
+V9_MIGRATION_DIGEST = "sha256:9d6f8ffe66d6893f696b0f3f2d6ec8ef9a882aef84693025b31651dcdd6490a9"
+if (
+    V9_MIGRATION_NAME != "operational-git-publication-v9"
+    or "sha256:" + hashlib.sha256(SCHEMA_V9_SQL.encode("utf-8")).hexdigest() != V9_MIGRATION_DIGEST
+):
+    raise ConfigurationError("Immutable operational v9 migration drift")
+V9_MIGRATION_LEDGER = (*V8_MIGRATION_LEDGER, (9, V9_MIGRATION_NAME, V9_MIGRATION_DIGEST))
 _MIGRATION_SQL = {
     1: V1_SCHEMA_SQL,
     2: SCHEMA_V2_SQL,
@@ -587,6 +598,7 @@ _MIGRATION_SQL = {
     6: SCHEMA_V6_SQL,
     7: SCHEMA_V7_SQL,
     8: SCHEMA_V8_SQL,
+    9: SCHEMA_V9_SQL,
 }
 
 
@@ -677,6 +689,9 @@ if _expected_schema_fingerprint(7) != V7_SCHEMA_DIGEST:
 V8_SCHEMA_DIGEST = "sha256:412a2986eadfd3d80938d80502816fa9481757391cdade90e6fdd37f4d28ee46"
 if _expected_schema_fingerprint(8) != V8_SCHEMA_DIGEST:
     raise ConfigurationError("Immutable operational v8 schema fingerprint drift")
+V9_SCHEMA_DIGEST = "sha256:6191ee9991632220a7587486ae97ad24707233bde01629e60e266b164ae06a21"
+if _expected_schema_fingerprint(9) != V9_SCHEMA_DIGEST:
+    raise ConfigurationError("Immutable operational v9 schema fingerprint drift")
 SCHEMA_DIGESTS = {
     1: V1_SCHEMA_DIGEST,
     2: V2_SCHEMA_DIGEST,
@@ -686,6 +701,7 @@ SCHEMA_DIGESTS = {
     6: V6_SCHEMA_DIGEST,
     7: V7_SCHEMA_DIGEST,
     8: V8_SCHEMA_DIGEST,
+    9: V9_SCHEMA_DIGEST,
 }
 
 _REPARSE_POINT = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
@@ -766,7 +782,7 @@ def _validate_connection(connection: sqlite3.Connection) -> int:
     digest_row = connection.execute(
         "select value from zekam_meta where key='schema_digest'"
     ).fetchone()
-    expected_ledger = list(V8_MIGRATION_LEDGER[:version])
+    expected_ledger = list(V9_MIGRATION_LEDGER[:version])
     for table, label in (
         ("schema_migration", "migration ledger"),
         ("schema_revision", "schema revision"),
@@ -899,7 +915,7 @@ def _assert_quiescent(
 
 def _apply_migration(connection: sqlite3.Connection, version: int) -> None:
     _execute_script(connection, _MIGRATION_SQL[version])
-    _, name, checksum = V8_MIGRATION_LEDGER[version - 1]
+    _, name, checksum = V9_MIGRATION_LEDGER[version - 1]
     applied_at = _now()
     for table in ("schema_migration", "schema_revision"):
         connection.execute(
@@ -1065,6 +1081,24 @@ def bootstrap_v8(path: Path) -> OperationalSchemaStatus:
     except sqlite3.DatabaseError as exc:
         connection.rollback()
         raise ConfigurationError("Operational SQLite v8 bootstrap rejected") from exc
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return status(path)
+
+
+def bootstrap_v9(path: Path) -> OperationalSchemaStatus:
+    """Create a fresh fixture only; never implicitly upgrade an existing DB."""
+    if _path_or_parent_is_link_or_reparse(path) or path.exists():
+        raise ConfigurationError("Operational SQLite fresh v9 empty destination required")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = _connect(path)
+    try:
+        connection.execute("begin immediate")
+        _apply_forward_path(connection, 0, 9)
+        connection.commit()
     except Exception:
         connection.rollback()
         raise

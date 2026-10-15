@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import datetime as dt
+import secrets
+import sqlite3
 from dataclasses import replace
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
 
-from zekam.application.canonical_job_runtime import canonical_job_key
+from zekam.application.canonical_job_runtime import canonical_job_key, run_canonical_job
+from zekam.application.local_attestation import LocalAttestationSigner, LocalAttestationVerifier
 from zekam.application.git_publication import (
     GitPublicationEvidence,
     GitPublicationPlan,
@@ -17,20 +20,28 @@ from zekam.application.git_publication import (
     GitPublicationTarget,
 )
 from zekam.application.home import HomeLayout
+from zekam.application.config import load_settings
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.domain.canonical import digest
 from zekam.domain.errors import AuthorizationRequired, PolicyViolation, ValidationFailed
 from zekam.domain.security import Authorization, AuthorizationScope, AuthorizationState
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
-from zekam.infrastructure.sqlite.operational_schema import bootstrap_v8
+from zekam.infrastructure.sqlite.operational_schema import bootstrap_v9
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
+from zekam.infrastructure.sqlite.git_publication import (
+    SQLiteGitPublicationLedger,
+    evidence_attestation_body,
+    approval_attestation_body,
+    revocation_attestation_body,
+)
 
 
 @pytest.fixture
 def world(tmp_path):
     home = HomeLayout(tmp_path / "home").ensure().root
     database = home / "state" / "operational.db"
-    bootstrap_v8(database)
+    bootstrap_v9(database)
     runtime = SQLiteLocalRuntimeStore(database)
     store = SQLiteOperationalStore(database)
     with store.unit_of_work() as uow:
@@ -170,6 +181,159 @@ def test_publication_claim_receipt_and_historical_replay(world):
     job = world.runtime.job_snapshot(first["canonical_job_id"])
     assert job["state"] == "completed"
     assert job["effects"][0]["receipt_status"] == "completed"
+
+
+@pytest.fixture
+def signed_world(world):
+    signers, verifiers, producers = {}, {}, {}
+    for role in ("test", "verification", "approval"):
+        key, producer = secrets.token_bytes(32), uuid4()
+        signers[role] = LocalAttestationSigner(key)
+        verifiers[role] = {producer: LocalAttestationVerifier(key)}
+        producers[role] = producer
+    database = world.home / "state" / "operational.db"
+    ledger = SQLiteGitPublicationLedger(
+        database,
+        trusted_verifiers=verifiers,
+        objects=LocalContentAddressedStore(
+            world.home / load_settings(home=world.home).object_store_relative
+        ),
+    )
+    proofs = []
+    for role, executor in (("test", world.plan.executor_id), ("verification", uuid4())):
+        with world.store.unit_of_work() as uow:
+            run = uow.create_run(
+                work_item_id=world.plan.binding.work_item_id,
+                config_revision_id=world.plan.binding.config_revision_id,
+                plan_digest=digest(role),
+                budget={"seconds": 60},
+                source_snapshot_id=world.plan.binding.source_snapshot_id,
+            )
+            uow.commit()
+        binding = replace(world.plan.binding, run_id=run.id, plan_digest=run.plan_digest)
+        result = run_canonical_job(
+            world.home,
+            binding=binding,
+            operation="test.measure",
+            input_digest=digest(role),
+            execute=lambda _cancel: {"fixture": "completed-proof-source"},
+            validate_inputs=lambda: None,
+        )
+        # Use the actual completed receipt's artifact, not a guessed digest.
+        with sqlite3.connect(database) as connection:
+            source_digest = connection.execute(
+                "select r.evidence_digest from local_effect_receipt r join local_effect_claim c on c.id=r.claim_id where c.job_id=?",
+                (result["canonical_job_id"],),
+            ).fetchone()[0]
+        proof = GitPublicationEvidence(
+            role, world.plan.subject_digest, UUID(run.id), executor, True, dt.datetime.now(dt.UTC)
+        )
+        envelope = evidence_attestation_body(
+            proof,
+            source_job_id=result["canonical_job_id"],
+            source_evidence_digest=source_digest,
+            producer_id=producers[role],
+        )
+        ledger.record_evidence(
+            proof,
+            source_job_id=result["canonical_job_id"],
+            source_evidence_digest=source_digest,
+            producer_id=producers[role],
+            attestation=signers[role].seal_digest(envelope),
+        )
+        proofs.append(proof)
+    plan = replace(
+        world.plan,
+        test_evidence_digest=proofs[0].evidence_digest,
+        verifier_evidence_digest=proofs[1].evidence_digest,
+    )
+    world.ledger.issue(plan)
+    authorization = world.ledger.authorization
+    envelope = approval_attestation_body(plan, authorization, producers["approval"])
+    ledger.record_authorization(
+        plan,
+        authorization,
+        producer_id=producers["approval"],
+        attestation=signers["approval"].seal_digest(envelope),
+    )
+    return SimpleNamespace(
+        world=world,
+        ledger=ledger,
+        plan=plan,
+        authorization=authorization,
+        signers=signers,
+        producers=producers,
+        database=database,
+    )
+
+
+def test_signed_sqlite_ledger_authorization_consumes_only_live_claim(signed_world):
+    fixture = signed_world
+    with pytest.raises(AuthorizationRequired, match="live"):
+        fixture.ledger.consume(
+            fixture.authorization.id,
+            effect_digest=fixture.plan.effect_digest,
+            consumed_by="git-publication/v1",
+            now=dt.datetime.now(dt.UTC),
+        )
+    service = GitPublicationService(fixture.world.home, fixture.ledger, fixture.world.transport)
+    first = service.apply(fixture.plan, authorization_id=fixture.authorization.id)
+    assert fixture.ledger.get(fixture.authorization.id).state == AuthorizationState.CONSUMED
+    assert (
+        service.apply(fixture.plan, authorization_id=fixture.authorization.id)["canonical_replayed"]
+        is True
+    )
+    with sqlite3.connect(fixture.database) as connection:
+        assert (
+            connection.execute("select count(*) from git_publication_consumption").fetchone()[0]
+            == 1
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute("delete from git_publication_authorization")
+    assert first["remote_oid"] == fixture.plan.target.head
+
+
+def test_signed_revocation_prevents_new_publication(signed_world):
+    fixture = signed_world
+    now = dt.datetime.now(dt.UTC)
+    producer = fixture.producers["approval"]
+    body = revocation_attestation_body(fixture.authorization.id, now, producer)
+    fixture.ledger.revoke(
+        fixture.authorization.id,
+        revoked_at=now,
+        producer_id=producer,
+        attestation=fixture.signers["approval"].seal_digest(body),
+    )
+    service = GitPublicationService(fixture.world.home, fixture.ledger, fixture.world.transport)
+    with pytest.raises(AuthorizationRequired):
+        service.apply(fixture.plan, authorization_id=fixture.authorization.id)
+    assert fixture.world.transport.calls == 0
+
+
+def test_plain_digest_is_not_an_approval_attestation(signed_world):
+    fixture = signed_world
+    fixture.world.ledger.issue(fixture.plan)
+    with pytest.raises(AuthorizationRequired, match="attestation"):
+        fixture.ledger.record_authorization(
+            fixture.plan,
+            fixture.world.ledger.authorization,
+            producer_id=fixture.producers["approval"],
+            attestation=digest("invented-approval"),
+        )
+
+
+def test_signed_evidence_requires_its_original_cas_bytes(signed_world):
+    fixture = signed_world
+    with sqlite3.connect(fixture.database) as connection:
+        source_digest = connection.execute(
+            "select source_evidence_digest from git_publication_evidence where evidence_digest=?",
+            (fixture.plan.test_evidence_digest,),
+        ).fetchone()[0]
+    fixture.ledger._objects.delete(source_digest)
+    from zekam.domain.errors import NotFound
+
+    with pytest.raises(NotFound):
+        fixture.ledger.publication_evidence(fixture.plan.test_evidence_digest)
 
 
 @pytest.mark.parametrize(

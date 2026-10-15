@@ -495,6 +495,18 @@ aciktir. Production ledger/CLI composition ve native host indirect shell
 enforcement halen acik; bu adapter evrensel shell sandbox'i degildir. Regresyon
 kodu hazirlandi; testler CALISTIRILMADI. Belge: docs/GIT_YAYIN_ADAPTORU.md.
 
+**16 Ekim 2026 - WP-02.03 signed SQLite publication ledger:** Additive v9
+imzali evidence/authorization/consumption/revocation kayitlarini canonical DB'ye
+baglar. Evidence gercek completed job/Run/receipt/artifact ve CAS byte readback'i
+ister. Trusted producer verifier'lari host composition'dan gelir; store signer
+key veya approval uretmez. Consumption live claim/current Work binding/lease ve
+one-shot insert'i tek kisa transaction'da dogrular; ag boyunca lock tutulmaz.
+V8->v9 dry-run/apply, backup/parity/fencing/spool yolu eklendi; V1-v8 pinleri
+korundu, varsayilan bootstrap v3. Kullanici DB'sine migration uygulanmadi; yalniz
+schema metadata pinleri uretildi. Unit/CLI regresyon kodu hazir, testler
+CALISTIRILMADI. Trusted producer provisioning ve gercek receipt producer/CLI
+composition baglantisi halen acik; WP-02 kapanisi uretilmedi.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  

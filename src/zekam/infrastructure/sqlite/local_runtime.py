@@ -611,7 +611,7 @@ class SQLiteLocalRuntimeStore:
         row = connection.execute(
             "select value from zekam_meta where key='schema_version'"
         ).fetchone()
-        if row is None or str(row[0]) not in {"7", "8"}:
+        if row is None or str(row[0]) not in {"7", "8", "9"}:
             raise ConfigurationError("Bound local job requires admitted operational schema v7")
 
     @staticmethod
@@ -781,7 +781,7 @@ class SQLiteLocalRuntimeStore:
                 version = connection.execute(
                     "select value from zekam_meta where key='schema_version'"
                 ).fetchone()
-                if version is not None and str(version[0]) in {"7", "8"}:
+                if version is not None and str(version[0]) in {"7", "8", "9"}:
                     from zekam.infrastructure.sqlite.work_dependency_schema import (
                         current_binding_query,
                     )

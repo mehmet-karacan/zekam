@@ -27,6 +27,7 @@ from zekam.infrastructure.sqlite.operational_migration import (
     migrate_v5_to_v6,
     migrate_v6_to_v7,
     migrate_v7_to_v8,
+    migrate_v8_to_v9,
 )
 
 EXIT_RUNTIME_ERROR = 70
@@ -51,6 +52,8 @@ def _migration_label(current: int | None) -> str:
         return "v6 -> v7 (operational-local-job-binding-v7)"
     if current == 7:
         return "v7 -> v8 (operational-work-dependency-v8)"
+    if current == 8:
+        return "v8 -> v9 (operational-git-publication-v9)"
     return f"v{current} -> v{expected}"
 
 
@@ -114,10 +117,30 @@ def _work_dependency_migration_plan(context, path) -> dict[str, object]:
     return body | {"plan_digest": digest(body)}
 
 
+def _git_publication_migration_plan(context, path) -> dict[str, object]:
+    source_digest = logical_database_digest(path)
+    body = {
+        "schema": "zekam-operational-git-publication-migration-plan/v1",
+        "source_version": 8,
+        "target_version": 9,
+        "database_ref": "ZEKAM_HOME/state/operational.db",
+        "backup_ref": f"ZEKAM_HOME/backups/operational-v8-before-v9-{source_digest[7:19]}.db",
+        "migration_lock_ref": "ZEKAM_HOME/runtime/operational-v9-migration.lock",
+        "source_logical_digest": source_digest,
+        "spool_target_count": len(_spool_targets(path, context.home)),
+        "control_state": "paused-or-disabled-required",
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"plan_digest": digest(body)}
+
+
 _MIGRATION_PLANNERS = {
     5: _unit_test_migration_plan,
     6: _local_job_binding_migration_plan,
     7: _work_dependency_migration_plan,
+    8: _git_publication_migration_plan,
 }
 
 
@@ -225,7 +248,7 @@ def upgrade_command(
             return
         if current_sqlite.schema_version not in _MIGRATION_PLANNERS:
             raise ZekamError(
-                "Yalniz exact operational v5 -> v6, v6 -> v7 veya v7 -> v8 migration uygulanabilir"
+                "Yalniz exact operational v5 -> v6, v6 -> v7, v7 -> v8 veya v8 -> v9 migration uygulanabilir"
             )
         target_version = int(current_sqlite.schema_version) + 1
         planner = _MIGRATION_PLANNERS[current_sqlite.schema_version]
@@ -235,7 +258,12 @@ def upgrade_command(
         backup = context.home / "backups" / str(plan["backup_ref"]).split("/")[-1]
         backup.parent.mkdir(parents=True, exist_ok=True)
         restrict_private_tree(backup.parent)
-        migrator = {6: migrate_v5_to_v6, 7: migrate_v6_to_v7, 8: migrate_v7_to_v8}[target_version]
+        migrator = {
+            6: migrate_v5_to_v6,
+            7: migrate_v6_to_v7,
+            8: migrate_v7_to_v8,
+            9: migrate_v8_to_v9,
+        }[target_version]
         admission = (
             UnitTestLedgerMigrationAdmission(context)
             if target_version == 6
@@ -259,7 +287,11 @@ def upgrade_command(
                         else (
                             "zekam-operational-local-job-binding-migration-receipt/v1"
                             if target_version == 7
-                            else "zekam-operational-work-dependency-migration-receipt/v1"
+                            else (
+                                "zekam-operational-work-dependency-migration-receipt/v1"
+                                if target_version == 8
+                                else "zekam-operational-git-publication-migration-receipt/v1"
+                            )
                         )
                     ),
                     "plan_digest": plan["plan_digest"],
