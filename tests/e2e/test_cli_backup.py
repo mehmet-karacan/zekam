@@ -311,6 +311,35 @@ def test_bundle_rejects_source_census_drift_before_publish(
     assert not bundle.exists()
 
 
+def test_bundle_rechecks_source_census_before_publish(
+    home_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare(home_root)
+    late = home_root / "analytics" / "raw" / "late-after-census.jsonl"
+    bundle = (tmp_path / "census-final-drift").absolute()
+    original = local_backup._sync_directory
+    mutated = False
+
+    def sync_and_add_source(path: Path) -> None:
+        nonlocal mutated
+        original(path)
+        if not mutated and path.parent == bundle.parent and path.name.startswith(
+            f".{bundle.name}."
+        ):
+            late.parent.mkdir(parents=True, exist_ok=True)
+            late.write_bytes(b"added-after-census")
+            late.chmod(0o600)
+            mutated = True
+
+    monkeypatch.setattr(local_backup, "_sync_directory", sync_and_add_source)
+    result = runner.invoke(
+        app, ["backup", "create", "--home", str(home_root), "--bundle", str(bundle)]
+    )
+    assert result.exit_code == 70
+    assert mutated
+    assert not bundle.exists()
+
+
 @pytest.mark.parametrize("mutation", ["missing", "extra", "wrong-kind"])
 def test_self_consistent_manifest_cannot_redefine_mandatory_store_contract(
     home_root: Path, tmp_path: Path, mutation: str

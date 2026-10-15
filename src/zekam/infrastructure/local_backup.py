@@ -458,6 +458,10 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
         ):
             _sync_directory(directory)
         _sync_directory(staging)
+        # Manifest serialization and fsync can take a while for a large bundle.
+        # Recheck immediately before publication so a file added/removed or
+        # replaced during that window cannot be silently omitted from the bundle.
+        _assert_source_census_unchanged(source_census, _source_census(_sources(home)))
         os.replace(staging, destination)
         _sync_directory(destination.parent)
         return document
