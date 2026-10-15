@@ -18,7 +18,7 @@ from zekam.application.operational_store import (
     SourceSnapshotRecord,
 )
 from zekam.domain.canonical import digest
-from zekam.domain.errors import ConfigurationError, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.infrastructure.sqlite import operational_schema as schema
 from zekam.infrastructure.sqlite import operational_store as store_module
 from zekam.infrastructure.sqlite import repository as legacy_schema
@@ -434,6 +434,77 @@ def test_checkpoint_payload_digest_drift_is_rejected(tmp_path: Path) -> None:
                 checkpoint_digest=digest("different"),
                 payload={},
             )
+
+
+def test_keyed_work_create_replays_current_revision_without_duplicate_events(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="keyed", display_name="Keyed")
+        first = uow.create_work(
+            project_id=project.id, kind="task", title="Keyed work", state="ready",
+            payload={"summary": "original"}, idempotency_key="request-1",
+        )
+        uow.transition_work(
+            work_item_id=first.id, expected_revision=1, to_state="active",
+            payload_digest=digest({"summary": "original"}), event_digest=digest("active"),
+        )
+        uow.commit()
+    with store.unit_of_work() as uow:
+        replay = uow.create_work(
+            project_id=project.id, kind="task", title="Keyed work", state="ready",
+            payload={"summary": "original"}, idempotency_key="request-1",
+        )
+        assert replay.id == first.id
+        assert replay.state == "active" and replay.revision == 2
+        assert len(uow.list_work_events(first.id)) == 2
+        assert len(uow.list_work(project_id=project.id)) == 1
+        uow.commit()
+
+
+def test_keyed_work_create_rejects_input_drift_and_scopes_key_to_project(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        first_project = uow.create_project(slug="first", display_name="First")
+        other_project = uow.create_project(slug="other", display_name="Other")
+        first = uow.create_work(
+            project_id=first_project.id, kind="task", title="Original", state="ready",
+            idempotency_key="same-key",
+        )
+        with pytest.raises(PolicyViolation, match="input drift"):
+            uow.create_work(
+                project_id=first_project.id, kind="task", title="Changed", state="ready",
+                idempotency_key="same-key",
+            )
+        other = uow.create_work(
+            project_id=other_project.id, kind="task", title="Original", state="ready",
+            idempotency_key="same-key",
+        )
+        assert first.id != other.id
+        assert len(uow.list_work_events(first.id)) == 1
+        uow.commit()
+
+
+def test_concurrent_keyed_work_create_records_exactly_one_work(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="race", display_name="Race")
+        uow.commit()
+
+    def create(_index: int) -> str:
+        with store.unit_of_work() as uow:
+            item = uow.create_work(
+                project_id=project.id, kind="task", title="One work", state="ready",
+                idempotency_key="parallel-request",
+            )
+            uow.commit()
+            return item.id
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        ids = list(workers.map(create, range(8)))
+    assert len(set(ids)) == 1
+    with store.unit_of_work() as uow:
+        assert len(uow.list_work(project_id=project.id)) == 1
+        assert len(uow.list_work_events(ids[0])) == 1
 
 
 def test_work_transition_is_revision_guarded_and_completed_requires_evidence(

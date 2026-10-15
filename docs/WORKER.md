@@ -1,5 +1,20 @@
 # Yerel worker
 
+## Work kaydini tekrar olusturmadan devam
+
+Native istemci ayni create istegini tekrar gonderecekse `work create <project> <title>
+--key <request-key> --uygula --json` kullanir. Key proje kapsamindadir; ayni key ve
+exact ilk create icerigi mevcut Work'un guncel revision/state'ini dondurur. Key ayni
+kalirken title/type/payload/ilk state/evidence/harici numara degisirse istek reddedilir.
+Yeni Work veya ikinci created event uretilmez. Key verilmezse mevcut create davranisi
+korunur. Plaintext key operational kayda yazilmaz; mevcut Work PK kimligi ve ilk
+immutable revision kullanilir. Ayri schema veya migration gerekmez.
+
+`work resume --project <project> --json` proje resolver'i ve SQL LIMIT oncesi
+OPEN_STATES filtresiyle devam penceresini okur. Bu komut lease veya execution izni
+uretmez. Bu iki gelistirmenin regresyon kodu hazirdir; testler tum gelistirmeler
+sonrasi tek final asamada calistirilacaktir.
+
 Worker, fresh Mac yerel çekirdeğinin `state/operational.db` kuyruğu üzerinde
 bounded run-once olarak çalışır. Ayrı bir daemon, PostgreSQL bağlantısı, DB
 parolası, systemd birimi veya uzun ömürlü `run` komutu yoktur.

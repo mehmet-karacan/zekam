@@ -363,6 +363,26 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
     assert len(json.loads(listed.stdout)) == 1
 
 
+def test_cli_keyed_work_create_returns_same_id_and_rejects_drift(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap(database)
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        uow.create_project(slug="keyed", display_name="Keyed")
+        uow.commit()
+    runner = CliRunner()
+    args = ("--key", "request-1", "--uygula", "--json", "--home", str(home))
+    first = _invoke(runner, "work", "create", "keyed", "One work", *args)
+    replay = _invoke(runner, "work", "create", "keyed", "One work", *args)
+    assert first.exit_code == replay.exit_code == 0
+    assert json.loads(first.stdout)["work"]["id"] == json.loads(replay.stdout)["work"]["id"]
+    changed = _invoke(runner, "work", "create", "keyed", "Changed work", *args)
+    assert changed.exit_code != 0
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        assert len(uow.list_work()) == 1
+
+
 def test_work_resume_reads_a_bounded_recent_window(tmp_path: Path) -> None:
     home = tmp_path / "home"
     database = home / "state" / "operational.db"

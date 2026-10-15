@@ -224,6 +224,7 @@ class OperationalUnitOfWork(Protocol):
         payload: dict[str, Any] | None = None,
         external_number: str | None = None,
         evidence_digest: str | None = None,
+        idempotency_key: str | None = None,
     ) -> OperationalWorkRecord: ...
 
     def transition_work(

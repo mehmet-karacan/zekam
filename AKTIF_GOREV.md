@@ -1416,6 +1416,15 @@ ve operational source revision drift regresyon kodu hazirlandi; testler CALISTIR
 Bu oturumun salt-okunur resume sorgusu ZEKAM_HOME hazir olmadigi icin canonical
 Work durumu okuyamadi; kullanici DB'si hazirlanmadi ve claim/receipt uretilmedi.
 
+**15 Ekim 2026 - WP-07 idempotent Work create gelistirmesi:** Operational create
+optional bounded idempotency_key kabul eder. Proje+key'den turetilen canonical UUID
+mevcut PK ile ayni BEGIN IMMEDIATE transaction'inda tek kaydi korur; ayri authority
+veya schema yoktur. Exact ilk create icerigi revision-1 ile yeniden eslestirilir;
+payload/type/title/state/evidence/numara drift'i reddedilir. Tarihsel replay guncel
+Work revision/state'ini dondurur, ikinci created event yazmaz. CLI `--key` ve `--json`
+ile bu yola baglandi. Concurrency/revision replay/drift/project-scope ve CLI regresyon
+kodu hazirlandi; testler kullanici talimatiyla CALISTIRILMADI.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

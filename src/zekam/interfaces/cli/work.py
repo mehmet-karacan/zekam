@@ -129,6 +129,10 @@ def create_command(
     summary: Annotated[str, typer.Option("--ozet")] = "",
     number: Annotated[str | None, typer.Option("--numara")] = None,
     criterion: Annotated[list[str] | None, typer.Option("--kriter")] = None,
+    idempotency_key: Annotated[
+        str | None, typer.Option("--key", "--idempotency-key", help="Tekrarlanan exact istek kimligi")
+    ] = None,
+    output_json: Annotated[bool, typer.Option("--json")] = False,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
@@ -148,11 +152,17 @@ def create_command(
                 state=WorkState.PROPOSED.value,
                 payload={"summary": summary, "acceptance_criteria": list(criterion or ())},
                 external_number=number,
+                idempotency_key=idempotency_key,
             )
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
-    console.print(f"[green]Olusturuldu:[/green] {item.id} ({item.state})")
+    if output_json:
+        console.print_json(json.dumps({"work": _work_document(item), "apply": True}))
+    elif idempotency_key is not None:
+        console.print(f"Kayit: {item.id} ({item.state})")
+    else:
+        console.print(f"[green]Olusturuldu:[/green] {item.id} ({item.state})")
 
 
 @app.command("list")

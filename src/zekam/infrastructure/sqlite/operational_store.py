@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Final, Literal, Self
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from zekam.application.knowledge_file_plane import (
     KnowledgeClassification,
@@ -641,6 +641,7 @@ class SQLiteOperationalUnitOfWork:
         payload: dict[str, Any] | None = None,
         external_number: str | None = None,
         evidence_digest: str | None = None,
+        idempotency_key: str | None = None,
     ) -> OperationalWorkRecord:
         kind = _required_text(kind, "Work kind")
         title = _required_text(title, "Work title")
@@ -661,9 +662,38 @@ class SQLiteOperationalUnitOfWork:
             _validate_digest(evidence_digest, "Work evidence")
         if state == "completed" and evidence_digest is None:
             raise ValidationFailed("Completed Work evidence gerektirir")
-        work_id = str(new_uuid7())
-        created_at = _now()
         connection = self._db()
+        if idempotency_key is None:
+            work_id = str(new_uuid7())
+        else:
+            if (
+                not isinstance(idempotency_key, str)
+                or not 1 <= len(idempotency_key) <= 256
+                or idempotency_key != idempotency_key.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in idempotency_key)
+            ):
+                raise ValidationFailed("Work idempotency key bounded tek satir olmali")
+            # Key identity is scoped to the project. Neither key plaintext nor a
+            # second mutable authority store is required; BEGIN IMMEDIATE and
+            # the existing Work PK serialize concurrent create/replay attempts.
+            work_id = str(uuid5(NAMESPACE_URL, "zekam:work-create:v1:" + digest(
+                {"project_id": project_id, "key": idempotency_key}
+            )))
+            original = connection.execute(
+                "select w.project_id,w.kind,w.title,w.external_number,"
+                " r.state,r.payload_digest,r.payload_json,r.evidence_digest"
+                " from work_item w join work_revision r on r.work_item_id=w.id"
+                " and r.revision=1 where w.id=?",
+                (work_id,),
+            ).fetchone()
+            if original is not None:
+                if tuple(original) != (
+                    project_id, kind, title, external_number, state,
+                    payload_digest, payload_json, evidence_digest,
+                ):
+                    raise PolicyViolation("Work idempotency key input drift")
+                return self.get_work(work_id)
+        created_at = _now()
         try:
             connection.execute(
                 "insert into work_item(id, project_id, kind, title, state, revision,"
