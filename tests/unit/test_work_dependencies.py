@@ -47,6 +47,93 @@ def _complete(uow, work_id: str) -> None:
         )
 
 
+def test_dependency_summaries_count_all_edges_and_follow_completion(tmp_path: Path) -> None:
+    _path, store, _project, (a, b, c) = _world(tmp_path)
+    with store.unit_of_work() as uow:
+        uow.change_work_dependency(
+            work_item_id=a.id, depends_on_work_id=b.id, expected_revision=1, action="added"
+        )
+        uow.change_work_dependency(
+            work_item_id=a.id, depends_on_work_id=c.id, expected_revision=2, action="added"
+        )
+        _complete(uow, b.id)
+        summaries = uow.work_dependency_summaries((a.id, b.id, a.id))
+        assert summaries[a.id] == {
+            "supported": True,
+            "dependency_count": 2,
+            "unfinished_count": 1,
+            "blocked": True,
+        }
+        assert summaries[b.id]["dependency_count"] == 0
+        _complete(uow, c.id)
+        assert uow.work_dependency_summaries((a.id,))[a.id]["blocked"] is False
+        assert uow.work_dependency_summaries(()) == {}
+        with pytest.raises(ValidationFailed, match="200"):
+            uow.work_dependency_summaries((a.id,) * 201)
+        with pytest.raises(ValidationFailed, match="UUID"):
+            uow.work_dependency_summaries(("invalid",))
+
+
+def test_pre_v8_dependency_summary_is_explicitly_unknown(tmp_path: Path) -> None:
+    path = tmp_path / "old-summary.db"
+    schema.bootstrap_v7(path)
+    with SQLiteOperationalStore(path).unit_of_work() as uow:
+        project = uow.create_project(slug="old", display_name="Old")
+        work = uow.create_work(project_id=project.id, kind="task", title="Old work", state="ready")
+        assert uow.work_dependency_summaries((work.id,))[work.id] == {
+            "supported": False,
+            "dependency_count": None,
+            "unfinished_count": None,
+            "blocked": None,
+        }
+
+
+def test_resume_surfaces_canonical_dependency_blockers(tmp_path: Path, monkeypatch, capsys) -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from zekam.application import workspace_resume
+    from zekam.interfaces.cli import main
+    from zekam.interfaces.cli.main import app
+
+    home = tmp_path / "home"
+    state = home / "state"
+    state.mkdir(parents=True)
+    _path, store, _project, (a, b, _c) = _world(state)
+    with store.unit_of_work() as uow:
+        uow.change_work_dependency(
+            work_item_id=a.id, depends_on_work_id=b.id, expected_revision=1, action="added"
+        )
+        uow.commit()
+    result = CliRunner().invoke(app, ["work", "resume", "--home", str(home), "--json"])
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert [item["id"] for item in document["blocked"]] == [a.id]
+    assert document["grants_authority"] is False
+    monkeypatch.setattr(workspace_resume, "_active_skill_refs", lambda _home: [])
+    monkeypatch.setattr(workspace_resume, "_knowledge_refs", lambda _db: [])
+    monkeypatch.setattr(
+        workspace_resume,
+        "resume_projection",
+        lambda *_a, **_k: {"sessions": [], "interrupted_count": 0, "failed_count": 0},
+    )
+    packet = workspace_resume.build_resume_packet(home)
+    assert packet["work"]["blocked_count"] == 1
+    assert packet["navigation"]["blocked"] == [a.title]
+    assert "bagimlilik" in packet["next_safe_action"]
+    assert packet["grants_authority"] is False
+    monkeypatch.setattr(main, "_work_status_refs", lambda *_args: (("dependencies",), None))
+    main._ask_work_status(home, "kalan isler", explicit_project=None, output_json=True)
+    report = json.loads(capsys.readouterr().out)
+    project = report["projects"][0]
+    assert project["open_count"] == 3
+    assert project["dependency_blocked_count"] == 1
+    assert project["dependency_blocked_count_scope"] == "returned-open-window"
+    assert next(item for item in project["items"] if item["id"] == a.id)["dependencies"]["blocked"]
+    assert report["provider_calls"] == 0
+
+
 def test_v8_pins_and_old_schema_do_not_auto_migrate(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     schema.bootstrap_v7(path)

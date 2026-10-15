@@ -316,6 +316,10 @@ class OperationalUnitOfWork(Protocol):
         self, work_item_id: str, *, limit: int = 101
     ) -> tuple[dict[str, Any], ...]: ...
 
+    def work_dependency_summaries(
+        self, work_item_ids: tuple[str, ...]
+    ) -> dict[str, dict[str, Any]]: ...
+
     def list_work_events(
         self, work_item_id: str, *, limit: int | None = None
     ) -> tuple[dict[str, Any], ...]: ...

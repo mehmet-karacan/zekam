@@ -1244,6 +1244,49 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
+    def work_dependency_summaries(
+        self, work_item_ids: tuple[str, ...]
+    ) -> dict[str, dict[str, Any]]:
+        """Read exact edge counts for a bounded Work window in this snapshot."""
+        if not isinstance(work_item_ids, tuple) or len(work_item_ids) > 200:
+            raise ValidationFailed("Work dependency summary en fazla 200 Work ister")
+        ids = tuple(dict.fromkeys(_canonical_uuid(value, "Work id") for value in work_item_ids))
+        if not ids:
+            return {}
+        connection = self._db()
+        supported = (
+            connection.execute(
+                "select 1 from sqlite_master where type='view' and name='work_dependency_current'"
+            ).fetchone()
+            is not None
+        )
+        summaries = {
+            work_id: {
+                "supported": supported,
+                "dependency_count": 0 if supported else None,
+                "unfinished_count": 0 if supported else None,
+                "blocked": False if supported else None,
+            }
+            for work_id in ids
+        }
+        if supported:
+            placeholders = ",".join("?" for _ in ids)
+            rows = connection.execute(
+                "select d.work_item_id,count(*) as total,"
+                " sum(case when w.state <> 'completed' or w.evidence_digest is null"
+                " then 1 else 0 end) as unfinished"
+                " from work_dependency_current d join work_item w on w.id=d.depends_on_work_id"
+                f" where d.work_item_id in ({placeholders}) group by d.work_item_id",
+                ids,
+            ).fetchall()
+            for row in rows:
+                summaries[row["work_item_id"]].update(
+                    dependency_count=row["total"],
+                    unfinished_count=row["unfinished"],
+                    blocked=bool(row["unfinished"]),
+                )
+        return summaries
+
     def change_work_dependency(
         self,
         *,

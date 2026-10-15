@@ -30,7 +30,9 @@ def _bounded(value: object, *, limit: int = 500) -> str:
     return text[:limit]
 
 
-def _work_document(item: Any, projects: dict[str, str]) -> dict[str, Any]:
+def _work_document(
+    item: Any, projects: dict[str, str], dependencies: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "id": item.id,
         "project_ref": projects.get(item.project_id, item.project_id),
@@ -41,6 +43,7 @@ def _work_document(item: Any, projects: dict[str, str]) -> dict[str, Any]:
         "summary": _bounded(item.summary),
         "acceptance_criteria": [_bounded(value) for value in item.acceptance_criteria[:20]],
         "evidence_recorded": item.evidence_digest is not None,
+        "dependencies": dependencies,
     }
 
 
@@ -226,6 +229,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
     completed_work: tuple[Any, ...] = ()
     bound_jobs: tuple[dict[str, Any], ...] = ()
     project_aliases: dict[str, list[str]] = {}
+    dependencies: dict[str, dict[str, Any]] = {}
     if database.is_file():
         store = SQLiteOperationalStore(database)
         with store.unit_of_work() as uow:
@@ -235,6 +239,9 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             )
             completed_work = uow.list_work_limited(
                 limit=_COMPLETED_WORK_LIMIT, states=("completed",)
+            )
+            dependencies = uow.work_dependency_summaries(
+                tuple(item.id for item in (*open_work[:_OPEN_WORK_LIMIT], *completed_work))
             )
             bound_jobs = uow.list_bound_jobs_limited(
                 work_item_ids=tuple(item.id for item in open_work[:_OPEN_WORK_LIMIT]),
@@ -267,10 +274,15 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         }
         for project in projects
     ]
-    if latest_checkpoint is not None and latest_checkpoint["next_safe_action"]:
+    blocked_work = [
+        item
+        for item in open_work[:_OPEN_WORK_LIMIT]
+        if item.state == "blocked" or dependencies[item.id]["blocked"]
+    ]
+    if blocked_work:
+        next_safe_action = "Bloklu work kayitlarini ve bagimlilik kanitlarini incele."
+    elif latest_checkpoint is not None and latest_checkpoint["next_safe_action"]:
         next_safe_action = latest_checkpoint["next_safe_action"]
-    elif any(item.state == "blocked" for item in open_work):
-        next_safe_action = "Bloklu work kayitlarini kanitlariyla incele."
     elif open_work:
         next_safe_action = f"Acik work kaydina devam et: {_bounded(open_work[0].title)}"
     else:
@@ -283,15 +295,18 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         "semantic_state": semantic_state,
         "latest_semantic_checkpoint": latest_checkpoint,
         "work": {
-            "open": [_work_document(item, project_names) for item in open_work[:_OPEN_WORK_LIMIT]],
-            "blocked_count": sum(item.state == "blocked" for item in open_work[:_OPEN_WORK_LIMIT]),
+            "open": [
+                _work_document(item, project_names, dependencies[item.id])
+                for item in open_work[:_OPEN_WORK_LIMIT]
+            ],
+            "blocked_count": len(blocked_work),
             "blocked_count_scope": "returned-open-window",
             "open_truncated": len(open_work) > _OPEN_WORK_LIMIT,
             "bound_jobs": list(bound_jobs[:_BOUND_JOB_LIMIT]),
             "bound_jobs_truncated": len(bound_jobs) > _BOUND_JOB_LIMIT,
             "bound_jobs_scope": "returned-open-work-window",
             "recently_completed": [
-                _work_document(item, project_names)
+                _work_document(item, project_names, dependencies[item.id])
                 for item in completed_work[:_COMPLETED_WORK_LIMIT]
             ],
         },
@@ -309,7 +324,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 if latest_checkpoint is None
                 else _bounded_list([latest_checkpoint.get("pending")], limit=5)
             ),
-            "blocked": [_bounded(item.title) for item in open_work if item.state == "blocked"][:5],
+            "blocked": [_bounded(item.title) for item in blocked_work[:5]],
             "next_safe_action": next_safe_action,
             "relevant_decisions": _decision_refs(work),
             "relevant_skill_refs": _active_skill_refs(resolved_home),

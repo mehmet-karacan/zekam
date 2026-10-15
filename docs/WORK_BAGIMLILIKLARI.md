@@ -28,6 +28,15 @@ Bu gorunum lease, grant veya Work kapanisi uretmez.
 
 ## Explicit v7 -> v8 migration
 
+Dogal dil Work raporu, `work resume` ve workspace resume ayni SQLite snapshot'inda
+bounded Work penceresi icin tek aggregate sorguyla bagimlilik ozetini okur.
+Her Work icin toplam/tamamlanmamis oncul sayisi ve blocked bilgisi bulunur.
+Resume blocked listesi durumdan veya unfinished dependency'den gelir; canonical
+blokaj varsa self-reported checkpoint yonlendirmesinden once gorunur. Bu gorunum
+grant/lease vermez. V8 oncesinde destek ve sayilar unknown/null olarak aciklanir;
+salt-okunur rapor otomatik migration yapmaz. Raporun dependency-blocked sayisi
+yalniz dondurulen acik Work penceresini kapsar; tum proje state sayimi ayridir.
+
 Yeni tablo/view/trigger additive v8 migration'dir. V1-v7 SQL/name/digest pinleri
 korunur; varsayilan fresh bootstrap v3 kalir. Eski kullanici DB'si otomatik
 yukseltilmez. V7 Work dependency komutu `migration-required` verir.

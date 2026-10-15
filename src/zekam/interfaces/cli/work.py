@@ -45,6 +45,9 @@ def resume_command(
                 project_id=project_id,
                 states=tuple(sorted(OPEN_STATES)),
             )
+            dependencies = uow.work_dependency_summaries(
+                tuple(item.id for item in items[:_RESUME_WORK_LIMIT])
+            )
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -56,6 +59,7 @@ def resume_command(
             "state": item.state,
             "title": item.title,
             "revision": item.revision,
+            "dependencies": dependencies[item.id],
         }
         for item in items[:_RESUME_WORK_LIMIT]
     ]
@@ -63,9 +67,24 @@ def resume_command(
         "source": "sqlite-work-graph",
         "project_id": project_id,
         "open_items": open_items,
-        "blocked": [item for item in open_items if item["state"] == "blocked"],
+        "blocked": [
+            item
+            for item in open_items
+            if item["state"] == "blocked" or item["dependencies"]["blocked"]
+        ],
         "recent_activity": [],
-        "next_safe_action": "ready work item sec" if open_items else "acik is bulunmuyor",
+        "next_safe_action": (
+            "ready work item sec; guncel yetki ve lease kosullarini dogrula"
+            if any(
+                item["state"] == "ready" and not item["dependencies"]["blocked"]
+                for item in open_items
+            )
+            else (
+                "acik islerin durum ve bagimliliklarini incele"
+                if open_items
+                else "acik is bulunmuyor"
+            )
+        ),
         "read_only": True,
         "grants_authority": False,
         "bounded": True,

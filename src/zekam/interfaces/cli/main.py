@@ -463,6 +463,7 @@ def _ask_work_status(
                 *open_window[:_WORK_STATUS_OPEN_LIMIT],
                 *closed_window[:_WORK_STATUS_CLOSED_LIMIT],
             )
+            dependencies = uow.work_dependency_summaries(tuple(item.id for item in rows))
             items: list[dict[str, Any]] = []
             for item in rows:
                 events = list(uow.list_work_events(item.id, limit=_WORK_STATUS_EVENT_LIMIT + 1))
@@ -524,6 +525,7 @@ def _ask_work_status(
                         "title": item.title,
                         "revision": item.revision,
                         "evidence_digest": item.evidence_digest,
+                        "dependencies": dependencies[item.id],
                         "events": events[-_WORK_STATUS_EVENT_LIMIT:],
                         "events_truncated": len(events) > _WORK_STATUS_EVENT_LIMIT,
                         "runs": runs,
@@ -540,6 +542,11 @@ def _ask_work_status(
                     "project_id": project.id,
                     "counts": counts,
                     "counts_scope": "all-project-work",
+                    "dependency_blocked_count": sum(
+                        bool(dependencies[item.id]["blocked"])
+                        for item in open_window[:_WORK_STATUS_OPEN_LIMIT]
+                    ),
+                    "dependency_blocked_count_scope": "returned-open-window",
                     "open_count": sum(
                         count for state, count in counts.items() if state in OPEN_STATES
                     ),
@@ -596,6 +603,11 @@ def _ask_work_status(
         console.print("model/sure/maliyet: unknown (usage receipt yok)")
         for project in projects:
             console.print(f"{project['project_ref']}: {project['open_count']} acik is")
+            if project["dependency_blocked_count"]:
+                console.print(
+                    f"  gosterilen acik islerde bagimlilik bekleyen: "
+                    f"{project['dependency_blocked_count']}"
+                )
 
 
 def _ask_natural_request_retrieval(

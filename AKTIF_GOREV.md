@@ -1455,6 +1455,15 @@ UYGULANMADI. Yalniz yeni schema digest/fingerprint uretildi; cycle/scope/rollbac
 queue/CLI/migration regresyon kodu hazirlandi, testler CALISTIRILMADI. Belge:
 `docs/WORK_BAGIMLILIKLARI.md`. WP-07 ve Work kapanisi uretilmedi.
 
+**15 Ekim 2026 - WP-07 dependency rapor/resume baglantisi:** Bounded Work
+penceresi icin tek canonical aggregate sorgu dogal dil durum raporuna, work resume
+ve workspace resume'a baglandi. Unfinished dependency blocked listesine ve guvenli
+devam onerisine yansir; checkpoint'in self-reported yonlendirmesinden once gosterilir.
+V8 oncesinde dependency sayilari unknown/null; otomatik migration yoktur. Proje
+state toplamlari exact kalir, dependency blocked sayisinin pencere kapsami aciktir.
+Regresyon kodu hazirlandi; testler CALISTIRILMADI, tum gelistirmeler sonrasi final
+asama beklenir. WP/Work kapanisi uretilmedi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
