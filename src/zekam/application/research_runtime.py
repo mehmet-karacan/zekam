@@ -915,6 +915,8 @@ def research_status(runtime: SQLiteLocalRuntimeStore, reference: str) -> dict[st
         "read_only": True,
         "grants_authority": False,
     }
+    if "work_binding" in snapshot:
+        body["work_binding"] = snapshot["work_binding"]
     return body | {"result_digest": digest(body)}
 
 

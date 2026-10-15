@@ -1129,6 +1129,17 @@ race/crash ve migration kabul kosulari acik; WP-07 kapanmadi. Bu oturumdaki
 salt-okunur `resume` denemesi ZEKAM_HOME hazir olmadigi icin operational durum
 okuyamadi; belge veya sohbetten claim/receipt uretilmedi.
 
+**15 Ekim 2026 - WP-07.04 job durum gorunumu gelistirmesi:** Bagli job
+snapshot'i canonical Work/Run/step/source/config/plan referanslarini ve binding
+digest'ini salt-okunur verir. Job, effect receipt zinciri ve binding ayni read
+transaction snapshot'indan okunur. `canonical_inputs_current` yalniz mevcut
+canonical tuple/dependency kontroludur; authorization, lease veya effect baslatma
+yetkisi degildir. Config/Work/Run drift'i false gorunur, tarihsel receipt ve job
+state'i degismez. Bozuk/eksik binding sessizce kabul edilmez. Research status
+ayni gorunumu kendi result digest'ine dahil eder. Legacy unbound job ciktisi
+korunur. Regresyon testleri yazildi, son test asamasinda calistirilacak;
+WP-07 kapanisi ve tam cross-client resume halen aciktir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

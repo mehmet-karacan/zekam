@@ -270,6 +270,9 @@ class SQLiteLocalRuntimeStore:
         selected = _required(reference, "Job reference")
         connection = self._connect_readonly()
         try:
+            # Job, receipt chain and binding are one read snapshot. No write lock
+            # or new effect admission is acquired by this diagnostic surface.
+            connection.execute("begin")
             row = connection.execute(
                 "select * from local_job where id=? or idempotency_key=? order by id",
                 (selected, selected),
@@ -284,7 +287,25 @@ class SQLiteLocalRuntimeStore:
                 "where c.job_id=? order by c.claimed_at,c.id",
                 (job.id,),
             ).fetchall()
+            binding_view: dict[str, Any] = {}
+            if "work_binding_digest" in job.payload:
+                self._require_binding_schema(connection)
+                binding = self._job_binding_tx(connection, job.id)
+                # Validate marker ownership/digest even for historical jobs.
+                if binding is None or binding.binding_digest != job.payload["work_binding_digest"]:
+                    raise PolicyViolation("Local job canonical binding missing or drifted")
+                current = True
+                try:
+                    self._validate_job_binding_tx(connection, row[0])
+                except ConcurrencyConflict:
+                    current = False
+                binding_view["work_binding"] = binding.body() | {
+                    "binding_digest": binding.binding_digest,
+                    "canonical_inputs_current": current,
+                    "read_only": True,
+                }
             return {
+                **binding_view,
                 "job_id": job.id,
                 "idempotency_key": job.idempotency_key,
                 "state": job.state,

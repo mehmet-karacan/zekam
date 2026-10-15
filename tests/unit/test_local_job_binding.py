@@ -292,3 +292,38 @@ def test_pending_dependency_blocks_admission_until_predecessor_succeeds(tmp_path
         uow.commit()
     claimed = _claim(runtime, None)
     assert claimed is not None and claimed.job.id == job.id
+
+
+def test_binding_snapshot_reads_canonical_drift_without_changing_job(tmp_path: Path) -> None:
+    path, store, runtime, binding = _world(tmp_path)
+    job, _ = runtime.enqueue(
+        idempotency_key="snapshot",
+        payload={"operation": "research.run"},
+        binding=binding,
+    )
+    before = runtime.job_snapshot(job.id)
+    assert before["work_binding"]["work_item_id"] == binding.work_item_id
+    assert before["work_binding"]["binding_digest"] == binding.binding_digest
+    assert before["work_binding"]["canonical_inputs_current"] is True
+    assert before["work_binding"]["grants_authority"] is False
+    with store.unit_of_work() as uow:
+        uow.activate_config(
+            config_digest=digest("changed"),
+            task_digest=digest("changed-task"),
+            sanitized_config={"network": "deny"},
+        )
+        uow.commit()
+    after = runtime.job_snapshot(job.id)
+    assert after["work_binding"]["canonical_inputs_current"] is False
+    assert after["state"] == before["state"] == "ready"
+    assert after["effects"] == []
+    assert "owner_token" not in str(after)
+    with sqlite3.connect(path) as db:
+        assert db.execute("select count(*) from local_lease").fetchone()[0] == 0
+        assert db.execute("select count(*) from local_outbox").fetchone()[0] == 1
+
+
+def test_unbound_snapshot_preserves_legacy_shape(tmp_path: Path) -> None:
+    runtime = SQLiteLocalRuntimeStore(tmp_path / "legacy.db")
+    job, _ = runtime.enqueue(idempotency_key="legacy", payload={"operation": "research.run"})
+    assert "work_binding" not in runtime.job_snapshot(job.id)
