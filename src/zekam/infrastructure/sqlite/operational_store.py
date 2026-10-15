@@ -16,6 +16,7 @@ from zekam.application.knowledge_file_plane import (
     validate_owner_scope,
     validate_portable_relative,
 )
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.operational_store import (
     ArtifactRefRecord,
     CheckpointRecord,
@@ -33,7 +34,7 @@ from zekam.application.operational_store import (
     SourceSnapshotRecord,
 )
 from zekam.domain.canonical import canonical_json, digest, parse_digest
-from zekam.domain.errors import ConfigurationError, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import assert_portable, new_uuid7, validate_slug
 from zekam.infrastructure.sqlite.operational_schema import RUNTIME_SCHEMA_VERSIONS, status
 from zekam.infrastructure.sqlite.unit_test_ledger import SQLiteUnitTestLedger
@@ -990,11 +991,15 @@ class SQLiteOperationalUnitOfWork:
 
     def list_run_steps(self, run_id: str) -> tuple[RunStepRecord, ...]:
         self.get_run(run_id)
-        rows = self._db().execute(
-            "select id,run_id,step_key,status,input_digest,evidence_digest"
-            " from run_step where run_id=? order by created_at,id",
-            (run_id,),
-        ).fetchall()
+        rows = (
+            self._db()
+            .execute(
+                "select id,run_id,step_key,status,input_digest,evidence_digest"
+                " from run_step where run_id=? order by created_at,id",
+                (run_id,),
+            )
+            .fetchall()
+        )
         return tuple(
             RunStepRecord(
                 row["id"],
@@ -1102,12 +1107,16 @@ class SQLiteOperationalUnitOfWork:
         """Return append-only Work events in revision order."""
         if not isinstance(work_item_id, str) or not work_item_id.strip():
             raise ValidationFailed("Work id bos veya gecersiz")
-        rows = self._db().execute(
-            "select id,work_item_id,revision,event_kind,from_state,to_state,"
-            "event_digest,created_at from work_event where work_item_id=? "
-            "order by revision,id",
-            (work_item_id,),
-        ).fetchall()
+        rows = (
+            self._db()
+            .execute(
+                "select id,work_item_id,revision,event_kind,from_state,to_state,"
+                "event_digest,created_at from work_event where work_item_id=? "
+                "order by revision,id",
+                (work_item_id,),
+            )
+            .fetchall()
+        )
         if not rows:
             raise ValidationFailed("Work bulunamadi")
         return tuple(dict(row) for row in rows)
@@ -1181,6 +1190,95 @@ class SQLiteOperationalUnitOfWork:
             .fetchall()
         )
         return tuple(_row_work(row) for row in rows)
+
+    def list_bound_jobs_limited(
+        self, *, work_item_ids: tuple[str, ...], limit: int
+    ) -> tuple[dict[str, Any], ...]:
+        """Read scoped job references; never export payload, owner token or grants."""
+
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValidationFailed("Bound job limit 1..100 olmali")
+        if (
+            not isinstance(work_item_ids, tuple)
+            or len(work_item_ids) > 100
+            or any(not isinstance(item, str) or not item for item in work_item_ids)
+        ):
+            raise ValidationFailed("Bound job Work scope bounded tuple olmali")
+        if not work_item_ids:
+            return ()
+        for work_id in work_item_ids:
+            _canonical_uuid(work_id, "Bound job Work id")
+        connection = self._db()
+        version = connection.execute(
+            "select value from zekam_meta where key='schema_version'"
+        ).fetchone()
+        if version is None or str(version[0]) != "7":
+            return ()
+        from zekam.infrastructure.sqlite.local_job_binding import _CURRENT_BINDING_QUERY
+
+        current = _CURRENT_BINDING_QUERY.replace("new.job_id", "jobs.id")
+        placeholders = ",".join("?" for _ in work_item_ids)
+        rows = connection.execute(
+            "select b.*,jobs.state,jobs.attempt_count,jobs.terminal_evidence_digest,"
+            " json_extract(jobs.payload_json,'$.work_binding_digest') payload_binding_digest,"
+            f" exists({current}) canonical_inputs_current"
+            " from local_job_binding b join local_job jobs on jobs.id=b.local_job_id"
+            f" where b.work_item_id in ({placeholders})"
+            " order by case when jobs.state in ('ready','running','recovery-required')"
+            " then 0 else 1 end,jobs.updated_at desc,jobs.id desc limit ?",
+            (*work_item_ids, limit),
+        ).fetchall()
+        # Choose the bounded window first, then aggregate its receipt chains in
+        # one scan. The legacy schema has no claim(job_id) index; correlated
+        # counts would rescan the growing claim history twice for every result.
+        counts: dict[str, tuple[int, int]] = {}
+        if rows:
+            job_ids = tuple(str(row["local_job_id"]) for row in rows)
+            job_placeholders = ",".join("?" for _ in job_ids)
+            counts = {
+                str(item[0]): (int(item[1]), int(item[2]))
+                for item in connection.execute(
+                    "select c.job_id,count(*),sum(case when r.id is null then 1 else 0 end)"
+                    " from local_effect_claim c"
+                    " left join local_effect_receipt r on r.claim_id=c.id"
+                    f" where c.job_id in ({job_placeholders}) group by c.job_id",
+                    job_ids,
+                ).fetchall()
+            }
+        summaries = []
+        for row in rows:
+            effect_count, missing_receipt_count = counts.get(str(row["local_job_id"]), (0, 0))
+            binding = LocalJobBinding(
+                project_id=str(row["project_id"]),
+                work_item_id=str(row["work_item_id"]),
+                work_revision=int(row["work_revision"]),
+                run_id=str(row["run_id"]),
+                config_revision_id=str(row["config_revision_id"]),
+                config_digest=str(row["config_digest"]),
+                plan_digest=str(row["plan_digest"]),
+                run_step_id=row["run_step_id"],
+                source_snapshot_id=row["source_snapshot_id"],
+            )
+            if (
+                binding.binding_digest != row["binding_digest"]
+                or binding.binding_digest != row["payload_binding_digest"]
+            ):
+                raise PolicyViolation("Bound job resume binding digest drift")
+            summaries.append(
+                binding.body()
+                | {
+                    "binding_digest": binding.binding_digest,
+                    "job_id": str(row["local_job_id"]),
+                    "job_state": str(row["state"]),
+                    "attempt_count": int(row["attempt_count"]),
+                    "terminal_evidence_digest": row["terminal_evidence_digest"],
+                    "canonical_inputs_current": bool(row["canonical_inputs_current"]),
+                    "effect_count": effect_count,
+                    "missing_receipt_count": missing_receipt_count,
+                    "read_only": True,
+                }
+            )
+        return tuple(summaries)
 
     def get_run(self, run_id: str) -> RunRecord:
         row = (

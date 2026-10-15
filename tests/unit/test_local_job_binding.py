@@ -388,3 +388,117 @@ def test_sync_binding_resolver_rejects_pending_dependency_before_enqueue(tmp_pat
     with sqlite3.connect(path) as db:
         assert db.execute("select count(*) from local_job").fetchone()[0] == 0
         assert db.execute("select count(*) from local_outbox").fetchone()[0] == 0
+
+
+def test_scoped_bound_job_resume_reports_drift_and_missing_receipt_without_payload(tmp_path: Path):
+    path, store, runtime, binding = _world(tmp_path)
+    job, _ = runtime.enqueue(
+        idempotency_key="scoped",
+        payload={"operation": "research.run", "private_body": "omit-me"},
+        binding=binding,
+        available_at=NOW,
+    )
+    runtime.enqueue(idempotency_key="unbound", payload={"operation": "research.run"})
+    claimed = _claim(runtime, job.id)
+    runtime.claim_effect(
+        claimed,
+        operation="research.run",
+        effect_digest=digest("effect"),
+        idempotency_key="missing-receipt",
+        now=NOW,
+    )
+    with store.unit_of_work() as uow:
+        assert uow.list_bound_jobs_limited(work_item_ids=(str(uuid4()),), limit=20) == ()
+        (summary,) = uow.list_bound_jobs_limited(work_item_ids=(binding.work_item_id,), limit=20)
+        assert summary["job_id"] == job.id
+        assert summary["canonical_inputs_current"] is True
+        assert summary["effect_count"] == summary["missing_receipt_count"] == 1
+        assert summary["grants_authority"] is False
+        assert "omit-me" not in str(summary) and "binding-owner" not in str(summary)
+        uow.activate_config(
+            config_digest=digest("changed"),
+            task_digest=digest("changed-task"),
+            sanitized_config={"network": "deny"},
+        )
+        uow.commit()
+    with store.unit_of_work() as uow:
+        (changed,) = uow.list_bound_jobs_limited(work_item_ids=(binding.work_item_id,), limit=20)
+        assert changed["canonical_inputs_current"] is False
+        assert changed["job_state"] == "running" and changed["missing_receipt_count"] == 1
+        uow.commit()
+    with sqlite3.connect(path) as db:
+        assert db.execute("select count(*) from local_effect_receipt").fetchone()[0] == 0
+
+
+def test_resume_packet_bounds_canonical_jobs_and_prompt(tmp_path: Path, monkeypatch):
+    from zekam.application import workspace_resume
+
+    home = tmp_path / "home"
+    (home / "state").mkdir(parents=True)
+    path, _store, runtime, binding = _world(home / "state")
+    for ordinal in range(22):
+        runtime.enqueue(
+            idempotency_key=f"resume-{ordinal}",
+            payload={"operation": "research.run"},
+            binding=binding,
+        )
+    monkeypatch.setattr(workspace_resume, "_active_skill_refs", lambda _: [])
+    monkeypatch.setattr(workspace_resume, "_knowledge_refs", lambda _: [])
+    monkeypatch.setattr(workspace_resume, "compact_capability_summary", lambda: {})
+    monkeypatch.setattr(
+        workspace_resume,
+        "resume_projection",
+        lambda *a, **k: {
+            "sessions": [],
+            "interrupted_count": 0,
+            "failed_count": 0,
+        },
+    )
+    with sqlite3.connect(path) as db:
+        before = _logical_rows_digest(db)
+    packet = workspace_resume.build_resume_packet(home)
+    assert len(packet["work"]["bound_jobs"]) == 20
+    assert packet["work"]["bound_jobs_truncated"] is True
+    assert packet["work"]["bound_jobs_scope"] == "returned-open-work-window"
+    assert all(
+        item["work_item_id"] == binding.work_item_id for item in packet["work"]["bound_jobs"]
+    )
+    prompt = workspace_resume.render_resume_prompt(packet)
+    assert len(prompt.encode("utf-8")) <= workspace_resume._PROMPT_LIMIT
+    with sqlite3.connect(path) as db:
+        assert _logical_rows_digest(db) == before
+
+
+def test_pre_v7_bound_job_summary_is_empty_without_upgrade(tmp_path: Path):
+    path = tmp_path / "v6.db"
+    schema.bootstrap_v6(path)
+    with SQLiteOperationalStore(path).unit_of_work() as uow:
+        assert uow.list_bound_jobs_limited(work_item_ids=(str(uuid4()),), limit=20) == ()
+        uow.commit()
+    assert schema.status(path).schema_version == 6
+
+
+def test_bound_job_window_prioritizes_active_jobs_over_recent_terminal_history(tmp_path: Path):
+    _path, store, runtime, binding = _world(tmp_path)
+    active, _ = runtime.enqueue(
+        idempotency_key="older-active",
+        payload={"operation": "research.run"},
+        binding=binding,
+        available_at=NOW,
+    )
+    for ordinal in range(22):
+        runtime.enqueue(
+            idempotency_key=f"expired-{ordinal}",
+            payload={"operation": "research.run"},
+            binding=binding,
+            available_at="2020-01-01T00:00:00+00:00",
+            timeout_at="2020-01-02T00:00:00+00:00",
+        )
+    claimed = _claim(runtime, active.id)
+    assert claimed is not None
+    with store.unit_of_work() as uow:
+        (only,) = uow.list_bound_jobs_limited(work_item_ids=(binding.work_item_id,), limit=1)
+        assert only["job_id"] == active.id
+        assert only["job_state"] == "running"
+        assert only["effect_count"] == only["missing_receipt_count"] == 0
+        uow.commit()

@@ -19,6 +19,7 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 RESUME_PACKET_SCHEMA = "zekam-resume-packet/v1"
 _OPEN_WORK_LIMIT = 20
 _COMPLETED_WORK_LIMIT = 10
+_BOUND_JOB_LIMIT = 20
 _PROJECT_LIMIT = 50
 _RAG_STATE_LIMIT = 64 * 1024
 _PROMPT_LIMIT = 16 * 1024
@@ -223,6 +224,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
     projects: tuple[Any, ...] = ()
     open_work: tuple[Any, ...] = ()
     completed_work: tuple[Any, ...] = ()
+    bound_jobs: tuple[dict[str, Any], ...] = ()
     project_aliases: dict[str, list[str]] = {}
     if database.is_file():
         store = SQLiteOperationalStore(database)
@@ -233,6 +235,10 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             )
             completed_work = uow.list_work_limited(
                 limit=_COMPLETED_WORK_LIMIT, states=("completed",)
+            )
+            bound_jobs = uow.list_bound_jobs_limited(
+                work_item_ids=tuple(item.id for item in open_work[:_OPEN_WORK_LIMIT]),
+                limit=_BOUND_JOB_LIMIT + 1,
             )
             project_aliases = {
                 project_id: list(aliases)
@@ -281,6 +287,9 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             "blocked_count": sum(item.state == "blocked" for item in open_work[:_OPEN_WORK_LIMIT]),
             "blocked_count_scope": "returned-open-window",
             "open_truncated": len(open_work) > _OPEN_WORK_LIMIT,
+            "bound_jobs": list(bound_jobs[:_BOUND_JOB_LIMIT]),
+            "bound_jobs_truncated": len(bound_jobs) > _BOUND_JOB_LIMIT,
+            "bound_jobs_scope": "returned-open-work-window",
             "recently_completed": [
                 _work_document(item, project_names)
                 for item in completed_work[:_COMPLETED_WORK_LIMIT]
@@ -396,6 +405,7 @@ def render_resume_prompt(packet: dict[str, Any]) -> str:
         removable: list[Any] | None = None
         for candidate in (
             projected.get("projects"),
+            work.get("bound_jobs") if isinstance(work, dict) else None,
             work.get("recently_completed") if isinstance(work, dict) else None,
             work.get("open") if isinstance(work, dict) else None,
         ):

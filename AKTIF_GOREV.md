@@ -1163,6 +1163,28 @@ diff kontrolu yapildi; urun testleri kullanici karariyla HENUZ CALISTIRILMADI.
 Index/test job baglari, native recovery ve final kabul kosulari acik; WP-07
 kapanmadi. Mevcut operational DB'ye migration uygulanmadi, canli provider yok.
 
+**15 Ekim 2026 - WP-07.04 canonical job resume gorunumu gelistirmesi:**
+Workspace resume paketi, donen acik Work penceresine bagli local job referanslarini
+ayni operational unit-of-work snapshot'indan bounded okur. Window 21 kayitla
+truncation tespit eder ve en fazla 20 job gosterir; scope ve truncation aciktir.
+Ready/running/recovery-required job'lar terminal gecmisten once gelir. Work/Run/
+step/source/config/plan ve binding digest'i, canonical tuple'in guncelligi,
+effect ve eksik terminal receipt sayilari gorunur; payload, owner token ve
+execution yetkisi aktarilmaz. Binding/marker digest drift'i sessizce kabul edilmez.
+V3/v5/v6 bu bag tablosunu okumadan bos sonuc verir; implicit migration yoktur.
+
+Receipt sayimlari, secili bounded job penceresi icin tek gruplanmis sorguda
+hesaplanir; her job icin buyuyen effect gecmisi yeniden taranmaz. Mevcut schema'da
+claim(job_id) indeksi olmadigindan bu tek sorgu halen effect gecmisini tarayabilir;
+yeni schema/migration bu dilimde eklenmedi. Prompt boyut siniri job listesi icin
+de uygulanir, kesilmis prompt kendi projection digest'ini tasir ve authority
+vermez. Scope disi job, eksik receipt/config drift, eski schema uyumu, terminal
+gecmis altinda aktif job ve prompt/window limit regresyon testleri yazildi.
+Bagimsiz kaynak incelemesinin tekrarli receipt tarama bulgusu duzeltildi.
+Yalniz Ruff/statik diff kontrolu yapildi; testler kullanici karariyla son asamada
+calistirilacak. WP-07 index/test job birlestirmesi ve tam recovery/kapanis kabul
+kosulari acik; bu gorunum job veya Work tamamlandi iddiasi degildir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
