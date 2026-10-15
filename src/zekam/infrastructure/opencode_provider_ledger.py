@@ -170,7 +170,91 @@ create trigger if not exists provider_document_vector_result_no_delete
 before delete on provider_document_vector_result begin
   select raise(abort,'provider_document_vector_result append-only');
 end;
+create table if not exists provider_document_input_manifest(
+  job_id text primary key references provider_job(id),
+  effect_digest text not null,
+  operation text not null,
+  profile_digest text not null,
+  input_digests_json text not null check(json_valid(input_digests_json)),
+  binding_digest text not null
+) strict;
+create table if not exists provider_document_input_slot(
+  job_id text not null references provider_document_input_manifest(job_id),
+  slot integer not null check(slot between 0 and 63),
+  input_digest text not null,
+  primary key(job_id,slot)
+) strict;
+create index if not exists provider_document_input_lookup
+on provider_document_input_slot(input_digest,job_id);
+create trigger if not exists provider_document_input_manifest_no_update
+before update on provider_document_input_manifest begin
+  select raise(abort,'provider_document_input_manifest append-only');
+end;
+create trigger if not exists provider_document_input_manifest_no_delete
+before delete on provider_document_input_manifest begin
+  select raise(abort,'provider_document_input_manifest append-only');
+end;
+create trigger if not exists provider_document_input_slot_no_update
+before update on provider_document_input_slot begin
+  select raise(abort,'provider_document_input_slot append-only');
+end;
+create trigger if not exists provider_document_input_slot_no_delete
+before delete on provider_document_input_slot begin
+  select raise(abort,'provider_document_input_slot append-only');
+end;
 """
+
+
+def _document_input_digests(
+    prepared: PreparedProviderContractCall,
+    profile: EmbeddingProfile,
+) -> tuple[str, ...]:
+    if (
+        not isinstance(prepared, PreparedProviderContractCall)
+        or not isinstance(profile, EmbeddingProfile)
+        or not prepared.plan.call_id.startswith("opencode-embedding-document-")
+        or prepared.call.payload.get("model") != profile.exact_model_id
+    ):
+        raise PolicyViolation("Document input manifest typed document/profile binding gerekli")
+    inputs = prepared.call.payload.get("input")
+    if (
+        not isinstance(inputs, list | tuple)
+        or not 1 <= len(inputs) <= 64
+        or any(
+            not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > 256 * 1024
+            for text in inputs
+        )
+    ):
+        raise PolicyViolation("Document input manifest bounded input gerekli")
+    classifications = prepared.plan.data_classifications
+    if (
+        len(classifications) != 1
+        or prepared.plan.call_id
+        != f"opencode-embedding-document-{prepared.plan.fixture_digest[7:27]}"
+        or prepared.call.request_identity != prepared.plan.call_id
+        or prepared.plan.payload_digest != digest(dict(prepared.call.payload))
+        or prepared.plan.fixture_digest
+        != digest(
+            {
+                "purpose": "document",
+                "classification": classifications[0].value,
+                "texts": list(inputs),
+                "profile_digest": profile.profile_digest,
+            }
+        )
+    ):
+        raise PolicyViolation("Document input manifest prepared payload/profile drift")
+    return tuple(
+        digest(
+            {
+                "text_digest": digest(text),
+                "profile_digest": profile.profile_digest,
+                "endpoint_binding_digest": prepared.plan.endpoint_binding_digest,
+                "classifications": [item.value for item in prepared.plan.data_classifications],
+            }
+        )
+        for text in inputs
+    )
 
 
 def _time(value: str) -> dt.datetime:
@@ -220,7 +304,27 @@ class SQLiteProviderLedgerHost:
         connection.execute("pragma busy_timeout=30000")
         return connection
 
-    def register(self, work: ClaimedWork) -> None:
+    def register(
+        self,
+        work: ClaimedWork,
+        *,
+        document_call: PreparedProviderContractCall | None = None,
+        profile: EmbeddingProfile | None = None,
+    ) -> None:
+        if work.job.realm_id != self.realm_id:
+            raise PolicyViolation("Provider job realm drift")
+        if (document_call is None) != (profile is None):
+            raise PolicyViolation("Document input manifest call/profile birlikte gerekli")
+        manifest = None
+        if document_call is not None and profile is not None:
+            inputs = _document_input_digests(document_call, profile)
+            manifest = {
+                "job_id": str(work.job.id),
+                "effect_digest": document_call.plan.effect_request.effect_digest,
+                "operation": f"provider-contract:{document_call.plan.call_id}",
+                "profile_digest": profile.profile_digest,
+                "input_digests": inputs,
+            }
         with self._connect() as connection:
             connection.execute("begin immediate")
             connection.execute(
@@ -233,6 +337,25 @@ class SQLiteProviderLedgerHost:
                     work.job.created_at.isoformat(),
                 ),
             )
+            if manifest is not None:
+                connection.execute(
+                    "insert into provider_document_input_manifest values(?,?,?,?,?,?)",
+                    (
+                        manifest["job_id"],
+                        manifest["effect_digest"],
+                        manifest["operation"],
+                        manifest["profile_digest"],
+                        canonical_json(manifest["input_digests"]),
+                        digest(manifest),
+                    ),
+                )
+                connection.executemany(
+                    "insert into provider_document_input_slot values(?,?,?)",
+                    [
+                        (manifest["job_id"], slot, value)
+                        for slot, value in enumerate(manifest["input_digests"])
+                    ],
+                )
             connection.commit()
 
     def claim_effect(self, work: ClaimedWork, **kwargs: Any) -> EffectClaim:
@@ -252,6 +375,57 @@ class SQLiteProviderLedgerHost:
         with self._connect() as connection:
             connection.execute("begin immediate")
             if claim.operation.startswith("provider-contract:opencode-embedding-document-"):
+                manifest = connection.execute(
+                    "select * from provider_document_input_manifest where job_id=?",
+                    (str(work.job.id),),
+                ).fetchone()
+                if manifest is not None:
+                    body = {
+                        "job_id": manifest["job_id"],
+                        "effect_digest": manifest["effect_digest"],
+                        "operation": manifest["operation"],
+                        "profile_digest": manifest["profile_digest"],
+                        "input_digests": json.loads(manifest["input_digests_json"]),
+                    }
+                    slots = connection.execute(
+                        "select input_digest from provider_document_input_slot where job_id=? order by slot",
+                        (str(work.job.id),),
+                    ).fetchall()
+                    if (
+                        manifest["binding_digest"] != digest(body)
+                        or body["effect_digest"] != claim.effect_digest
+                        or body["operation"] != claim.operation
+                        or [row[0] for row in slots] != body["input_digests"]
+                    ):
+                        raise PolicyViolation("Document input manifest binding drift")
+                    # Claims and input overlap are checked in the same write transaction.
+                    # A legacy claim without slot evidence cannot prove disjoint inputs.
+                    overlap = connection.execute(
+                        "select c.id from provider_effect_claim c "
+                        "join provider_job j on j.id=c.job_id "
+                        "left join provider_effect_receipt r on r.claim_id=c.id "
+                        "left join provider_document_input_manifest m on m.job_id=c.job_id "
+                        "where c.realm_id=? and j.project_id=? "
+                        "and c.operation like 'provider-contract:opencode-embedding-document-%' "
+                        "and (r.id is null or r.status='completed' or r.failure_category='unknown-effect') "
+                        "and (m.job_id is null or exists (select 1 from provider_document_input_slot old "
+                        "join provider_document_input_slot new on old.input_digest=new.input_digest "
+                        "where old.job_id=c.job_id and new.job_id=?)) limit 1",
+                        (str(claim.realm_id), str(work.job.project_id), str(work.job.id)),
+                    ).fetchone()
+                    if overlap is not None:
+                        raise PolicyViolation(
+                            "Document embedding girdileri onceki claim/receipt ile uzlastirilmali"
+                        )
+                elif (
+                    connection.execute(
+                        "select 1 from provider_document_input_manifest m join provider_job j on j.id=m.job_id "
+                        "where j.realm_id=? and j.project_id=? limit 1",
+                        (str(claim.realm_id), str(work.job.project_id)),
+                    ).fetchone()
+                    is not None
+                ):
+                    raise PolicyViolation("Document embedding input manifest gerekli")
                 prior = connection.execute(
                     "select c.id from provider_effect_claim c "
                     "join provider_job j on j.id=c.job_id "
@@ -470,6 +644,7 @@ class SQLiteDocumentEmbeddingJournal:
         prepared: PreparedProviderContractCall,
         profile: EmbeddingProfile,
     ) -> tuple[str, str, str, str]:
+        _document_input_digests(prepared, profile)
         if not prepared.plan.call_id.startswith("opencode-embedding-document-"):
             raise PolicyViolation("Document vector journal document effect required")
         if prepared.call.payload.get("model") != profile.exact_model_id:
@@ -499,6 +674,68 @@ class SQLiteDocumentEmbeddingJournal:
         profile: EmbeddingProfile,
     ) -> RecoveredDocumentVectors | None:
         key = self._key(prepared, profile)
+        exact = self._load_key(key, profile, f"provider-contract:{prepared.plan.call_id}")
+        if exact is not None:
+            self._validate_vectors(prepared, profile, exact.vectors)
+            return exact
+        inputs = _document_input_digests(prepared, profile)
+        vectors = []
+        evidence = []
+        parents = {}
+        with self.host._connect() as db:
+            for input_digest in inputs:
+                row = db.execute(
+                    "select m.*,s.slot from provider_document_input_slot s "
+                    "join provider_document_input_manifest m on m.job_id=s.job_id "
+                    "join provider_job j on j.id=m.job_id "
+                    "join provider_effect_claim c on c.job_id=j.id and c.effect_digest=m.effect_digest and c.operation=m.operation "
+                    "join provider_document_vector_result v on v.claim_id=c.id and v.profile_digest=m.profile_digest "
+                    "where j.realm_id=? and j.project_id=? and m.profile_digest=? and s.input_digest=? "
+                    "order by j.created_at,j.id,s.slot limit 1",
+                    (key[0], key[1], key[3], input_digest),
+                ).fetchone()
+                if row is None:
+                    return None
+                body = {
+                    "job_id": row["job_id"],
+                    "effect_digest": row["effect_digest"],
+                    "operation": row["operation"],
+                    "profile_digest": row["profile_digest"],
+                    "input_digests": json.loads(row["input_digests_json"]),
+                }
+                slot = row["slot"]
+                if (
+                    digest(body) != row["binding_digest"]
+                    or not isinstance(body["input_digests"], list)
+                    or not 0 <= slot < len(body["input_digests"])
+                    or body["input_digests"][slot] != input_digest
+                ):
+                    raise PolicyViolation("Document regroup input binding drift")
+                parent_key = (key[0], key[1], row["effect_digest"], key[3])
+                if parent_key not in parents:
+                    parents[parent_key] = self._load_key(parent_key, profile, row["operation"])
+                parent = parents[parent_key]
+                if parent is None or len(parent.vectors) != len(body["input_digests"]):
+                    raise PolicyViolation("Document regroup terminal vector evidence missing")
+                vectors.append(parent.vectors[slot])
+                evidence.append(
+                    {
+                        "input_digest": input_digest,
+                        "slot": slot,
+                        "manifest_digest": row["binding_digest"],
+                        "result_digest": parent.evidence_digest,
+                    }
+                )
+        return RecoveredDocumentVectors(
+            tuple(vectors), digest({"requested_key": key, "slots": evidence})
+        )
+
+    def _load_key(
+        self,
+        key: tuple[str, str, str, str],
+        profile: EmbeddingProfile,
+        operation: str,
+    ) -> RecoveredDocumentVectors | None:
         with self.host._connect() as db:
             row = db.execute(
                 "select v.vectors_json,v.vectors_digest,c.realm_id,j.project_id,"
@@ -523,7 +760,7 @@ class SQLiteDocumentEmbeddingJournal:
             return None
         if (
             tuple(row)[2:5] != key[:3]
-            or row[5] != f"provider-contract:{prepared.plan.call_id}"
+            or row[5] != operation
             or row[6] != "completed"
             or not isinstance(row[7], str)
             or row[9] != key[0]
@@ -537,7 +774,10 @@ class SQLiteDocumentEmbeddingJournal:
             ):
                 raise ValueError("vector shape")
             vectors = tuple(tuple(vector) for vector in values)
-            self._validate_vectors(prepared, profile, vectors)
+            if not 1 <= len(vectors) <= 64:
+                raise ValueError("bounded vector count")
+            for vector in vectors:
+                profile.validate_vector(vector)
         except (TypeError, ValueError, ValidationFailed) as exc:
             raise PolicyViolation("Document vector journal payload invalid") from exc
         expected = digest(

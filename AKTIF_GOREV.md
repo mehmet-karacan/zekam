@@ -1051,6 +1051,16 @@ preflight bulgulari kaynakta duzeltildi. Crash/replay/tamper, projection sahipli
 source cancellation ve sifir-cagri receipt testleri yazildi, HENUZ CALISTIRILMADI.
 WP-05.03/04/06 kutulari bu gelistirme notuyla kapatilmaz.
 
+**16 Ekim 2026 — WP-05 girdi bazli uzlastirma:** Production document
+claim'leri metin saklamayan append-only slot manifest'ine baglandi. Overlap
+ve claim insert ayni SQLite transaction'inda; farkli batch/sira unknown veya
+receipt'siz effect tekrarini asamaz. Completed parent vector/receipt kaniti
+alt kumeler ve yeni sira icin yeniden okunur; runtime yeni batch kurmadan
+once cache miss slotlarini sifir cagrili receipt ile toparlar. Eski manifest'siz
+ledger toparlamasi ve gercek provider/performance kabulleri acik kalir.
+Regresyon kodu hazir, CALISTIRILMADI; WP-05.03/04/06 kapanmadi.
+`docs/EMBEDDING_GIRDI_UZLASTIRMA.md`.
+
 ### WP-06 — ODI, Oracle, Kod Grafiği Ve Jira/Confluence Bağlamı
 
 **Bağımlılık/onay:** WP-03/04/05.  

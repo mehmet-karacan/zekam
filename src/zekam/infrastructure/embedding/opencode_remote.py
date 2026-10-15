@@ -576,6 +576,41 @@ class OpenCodeRemoteEmbeddingProvider:
     def embed_documents(self, texts: tuple[str, ...], policy: EmbeddingPolicy) -> EmbeddingBatch:
         return self._embed(texts, policy, EmbeddingPurpose.DOCUMENT)
 
+    def recover_documents(
+        self, texts: tuple[str, ...], policy: EmbeddingPolicy
+    ) -> EmbeddingBatch | None:
+        """Read completed journal evidence only; never initiate a provider call."""
+        profile = self.describe()
+        profile.assert_policy(policy)
+        prepared = self._prepare(
+            texts, purpose=EmbeddingPurpose.DOCUMENT, classification=policy.classification
+        )
+        if self._document_journal is None:
+            return None
+        recovered = self._document_journal.load(prepared, profile)
+        if recovered is None:
+            return None
+        if len(recovered.vectors) != len(texts):
+            raise PolicyViolation("Document recovery slot count drift")
+        for vector in recovered.vectors:
+            profile.validate_vector(vector)
+        return EmbeddingBatch(
+            recovered.vectors,
+            EmbeddingReceipt(
+                purpose=EmbeddingPurpose.DOCUMENT,
+                profile_digest=profile.profile_digest,
+                input_digest=digest(
+                    {"texts": list(texts), "purpose": EmbeddingPurpose.DOCUMENT.value}
+                ),
+                output_digest=digest(recovered.vectors),
+                vector_count=len(texts),
+                dimension=profile.dimension,
+                latency_ms=0,
+                provider_call_count=0,
+                reconciliation_evidence_digest=recovered.evidence_digest,
+            ),
+        )
+
     def embed_query(self, text: str, policy: EmbeddingPolicy) -> EmbeddingBatch:
         return self._embed((text,), policy, EmbeddingPurpose.QUERY)
 

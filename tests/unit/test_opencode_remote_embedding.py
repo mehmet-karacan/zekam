@@ -696,7 +696,10 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
         nonlocal calls
         calls += 1
         work = _work(host.realm_id, project_id)
-        host.register(work)
+        if prepared.plan.call_id.startswith("opencode-embedding-document-"):
+            host.register(work, document_call=prepared, profile=provider.describe())
+        else:
+            host.register(work)
         secret = SecretRef.create(
             realm_id=host.realm_id,
             name="opencode-litellm-embedding",
@@ -761,11 +764,24 @@ def test_document_journal_recovers_vectors_without_provider_reexecution(tmp_path
         texts, purpose=EmbeddingPurpose.DOCUMENT, classification=policy.classification
     )
     assert SQLiteDocumentEmbeddingJournal(restarted_host, uuid4()).load(prepared, profile) is None
+    reordered = restarted.embed_documents(tuple(reversed(texts)), policy)
+    assert reordered.vectors == tuple(reversed(first.vectors))
+    assert reordered.receipt.provider_call_count == 0
+    single = restarted.recover_documents((texts[0],), policy)
+    assert single is not None
+    assert single.vectors == (first.vectors[0],)
+    assert single.receipt.provider_call_count == 0
+    assert restarted.recover_documents(("never completed input",), policy) is None
+    assert calls == 3
     with restarted_host._connect() as db:
         stored = db.execute("select vectors_json from provider_document_vector_result").fetchone()[
             0
         ]
         assert all(text not in stored for text in texts)
+        manifest = db.execute(
+            "select input_digests_json from provider_document_input_manifest"
+        ).fetchone()[0]
+        assert all(text not in manifest for text in texts)
         db.execute("drop trigger provider_document_vector_result_no_update")
         db.execute(
             "update provider_document_vector_result set vectors_digest=?", (digest("tampered"),)
@@ -797,3 +813,91 @@ def test_zero_call_embedding_receipt_requires_document_reconciliation(purpose_na
             EmbeddingReceipt(**values)
     else:
         assert EmbeddingReceipt(**values).provider_call_count == 0
+
+
+@pytest.mark.parametrize("outcome", ["receiptless", "unknown", "failed", "completed"])
+def test_regrouped_document_claims_check_input_overlap_atomically(
+    tmp_path: Path, outcome: str
+) -> None:
+    from zekam.domain.runtime import FailureCategory
+    from zekam.infrastructure.local_file_security import restrict_private_tree
+    from zekam.infrastructure.opencode_provider_ledger import SQLiteProviderLedgerHost, _work
+
+    private = tmp_path / "private"
+    private.mkdir()
+    restrict_private_tree(private)
+    host = SQLiteProviderLedgerHost(private / "provider.sqlite3", uuid4())
+    project_id = uuid4()
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), _Executor(), dimension=3)
+    profile = provider.probe(_fixture()).profile
+
+    def prepared(texts):
+        return provider._prepare(
+            texts, purpose=EmbeddingPurpose.DOCUMENT, classification=DataClassification.INTERNAL
+        )
+
+    def claim(project, call):
+        work = _work(host.realm_id, project)
+        host.register(work, document_call=call, profile=profile)
+        return host.claim_effect(
+            work,
+            operation=f"provider-contract:{call.plan.call_id}",
+            effect_digest=call.plan.effect_request.effect_digest,
+            authorization_digest=digest("fixture"),
+            idempotency_key=digest(str(work.job.id)),
+            resources=parse_requests(write=("provider:embedding",)),
+            adapter_digest=digest("adapter"),
+        )
+
+    first = claim(project_id, prepared(("uncertain regroup input", "another input")))
+    if outcome == "completed":
+        host.record_success(
+            first, result_digest=digest("result"), adapter_evidence_digest=digest("evidence")
+        )
+    elif outcome != "receiptless":
+        host.record_failure(
+            first,
+            category=FailureCategory.UNKNOWN_EFFECT
+            if outcome == "unknown"
+            else FailureCategory.PROVIDER,
+            failure_digest=digest("fixture-failure"),
+        )
+    regrouped = prepared(("new input", "uncertain regroup input"))
+    before = host.summary()["claims"]
+    if outcome == "failed":
+        claim(project_id, regrouped)
+        assert host.summary()["claims"] == before + 1
+    else:
+        with pytest.raises(PolicyViolation, match="uzlastirilmali"):
+            claim(project_id, regrouped)
+        assert host.summary()["claims"] == before
+    claim(uuid4(), regrouped)
+    claim(project_id, prepared(("disjoint input",)))
+
+
+def test_document_manifest_rejects_payload_profile_drift_before_persistence(tmp_path: Path) -> None:
+    from zekam.infrastructure.local_file_security import restrict_private_tree
+    from zekam.infrastructure.opencode_provider_ledger import SQLiteProviderLedgerHost, _work
+
+    private = tmp_path / "private"
+    private.mkdir()
+    restrict_private_tree(private)
+    host = SQLiteProviderLedgerHost(private / "provider.sqlite3", uuid4())
+    provider = OpenCodeRemoteEmbeddingProvider(_configuration(tmp_path), _Executor(), dimension=3)
+    profile = provider.probe(_fixture()).profile
+    call = provider._prepare(
+        ("original input",),
+        purpose=EmbeddingPurpose.DOCUMENT,
+        classification=DataClassification.INTERNAL,
+    )
+    changed = replace(
+        call,
+        call=replace(
+            call.call, payload={"model": profile.exact_model_id, "input": ["changed input"]}
+        ),
+    )
+    with pytest.raises(PolicyViolation, match="drift"):
+        host.register(_work(host.realm_id, uuid4()), document_call=changed, profile=profile)
+    assert host.summary()["claims"] == 0
+    with host._connect() as db:
+        assert db.execute("select count(*) from provider_job").fetchone()[0] == 0

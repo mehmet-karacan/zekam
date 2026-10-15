@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-05: append-only girdi manifest/slot, atomik regrouped overlap claim kapisi ve completed parent vector/receipt'ten alt kume/sira recovery eklendi. Runtime yeni batch oncesi tekil cache miss recovery yapar; yeni+cokmus cache senaryosu regresyon kodu hazir, CALISTIRILMADI. Eski manifest'siz ledger toparlamasi, provider hesap kotasi ve gercek performance/kabul kaniti acik.
+
 - Gorev 4 WP-06.04: yerlesik Atlassian MCP read transport bounded response/status, Confluence explicit offset/version/site-scoped provenance ve locator baglantisi eklendi. Canli cagri yapilmadi; regresyon kodu hazir, CALISTIRILMADI. Jira attachment/project knowledge ve canli permission kabulleri acik. WP-05 batch regrouping icin belirsiz cagrilarin input-level claim baginin tasarimi halen gerekli.
 
 - Gorev 4 WP-04 kalici discovery: strict kok/frontier snapshot/digest JSON codec ve kayitli proje metadata-only inventory CLI eklendi. Cikti penceresi tarama partial durumundan ayrildi; persisted resume root/drift kontrolunden sonra fresh bounded traversal yapar. Regresyon kodu hazir, CALISTIRILMADI. Parser/secret ve incremental publication kabul baglantilarinin incelemesi devam eder.

@@ -259,6 +259,72 @@ def _run_index(
     )
 
 
+def test_runtime_recovers_completed_slot_before_rebatching_after_cache_crash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    _init_git_source(source)
+    home = tmp_path / "home"
+    HomeLayout(home).ensure()
+    project_id = uuid4()
+    provider, profile = _bind_counting_local_provider(
+        monkeypatch,
+        KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL),
+    )
+    completed = {}
+    sent = []
+    original_embed = provider.embed_documents
+
+    def embed(texts, policy):
+        sent.append(texts)
+        batch = original_embed(texts, policy)
+        completed.update(zip(texts, batch.vectors, strict=True))
+        return batch
+
+    def recover(texts, policy):
+        if any(text not in completed for text in texts):
+            return None
+        vectors = tuple(completed[text] for text in texts)
+        return EmbeddingBatch(
+            vectors,
+            EmbeddingReceipt(
+                purpose=EmbeddingPurpose.DOCUMENT,
+                profile_digest=profile.profile_digest,
+                input_digest=digest({"texts": list(texts), "purpose": "document"}),
+                output_digest=digest(vectors),
+                vector_count=len(texts),
+                dimension=profile.dimension,
+                latency_ms=0,
+                provider_call_count=0,
+                reconciliation_evidence_digest=digest("fixture-terminal-evidence"),
+            ),
+        )
+
+    monkeypatch.setattr(provider, "embed_documents", embed)
+    monkeypatch.setattr(provider, "recover_documents", recover, raising=False)
+    blob = runtime._vector_blob
+
+    def crash(_vector):
+        raise OSError("fixture cache crash after completed provider result")
+
+    monkeypatch.setattr(runtime, "_vector_blob", crash)
+    with pytest.raises(OSError, match="fixture cache crash"):
+        _run_index(source, home, project_id, "regroup-recovery")
+    assert len(sent) == 1
+    monkeypatch.setattr(runtime, "_vector_blob", blob)
+    (source / "new.md").write_text("new document after crash\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "new.md"], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-qm", "new source"], check=True)
+    result = _run_index(source, home, project_id, "regroup-recovery")
+    assert len(sent) == 2
+    assert not set(sent[0]).intersection(sent[1])
+    assert result["cache_hits"] == 0
+    assert result["reconciled_chunks"] == 1
+    assert result["newly_embedded_chunks"] == 1
+    assert result["provider_batches"] == 1
+
+
 def _ready_chunk_paths(index_path: Path, project_id: Any) -> tuple[str, ...]:
     with SQLiteKnowledgeIndex(index_path, read_only=True) as index:
         generation = index.generation(str(project_id))

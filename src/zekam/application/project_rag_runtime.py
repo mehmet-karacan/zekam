@@ -1357,7 +1357,10 @@ def _provider(
 
     def invocation(prepared: PreparedProviderContractCall) -> OpenCodeRuntimeInvocation:
         work = _work(realm_id, project_id)
-        host.register(work)
+        if prepared.plan.call_id.startswith("opencode-embedding-document-"):
+            host.register(work, document_call=prepared, profile=provider.describe())
+        else:
+            host.register(work)
         secret_ref = SecretRef.create(
             realm_id=realm_id,
             name="opencode-litellm-embedding",
@@ -2927,14 +2930,8 @@ def _index(
         provider_batches = 0
         reconciled_chunks = 0
         reconciled_batches = 0
-        for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
-            _check_index_budget(cancel, deadline_monotonic)
-            texts = tuple(chunk.text for chunk in batch)
-            embedded = _embed_documents_with_retry(
-                provider, texts, policy, cancel=cancel, deadline_monotonic=deadline_monotonic
-            )
-            _check_index_budget(cancel, deadline_monotonic)
-            verify_document_embedding_batch(texts, embedded, profile)
+
+        def cache_batch(batch, embedded):  # type: ignore[no-untyped-def]
             connection.execute("begin immediate")
             try:
                 for chunk, vector in zip(batch, embedded.vectors, strict=True):
@@ -2957,6 +2954,37 @@ def _index(
             except Exception:
                 connection.rollback()
                 raise
+
+        # Recover single slots before constructing new batches. A crash between
+        # provider receipt and cache commit must not cause regrouped re-disclosure.
+        recover = getattr(provider, "recover_documents", None)
+        if callable(recover):
+            for chunk in missing:
+                _check_index_budget(cancel, deadline_monotonic)
+                texts = (chunk.text,)
+                recovered = recover(texts, policy)
+                _check_index_budget(cancel, deadline_monotonic)
+                if recovered is None:
+                    continue
+                verify_document_embedding_batch(texts, recovered, profile)
+                if (
+                    recovered.receipt.provider_call_count != 0
+                    or recovered.receipt.reconciliation_evidence_digest is None
+                ):
+                    raise PolicyViolation("Document recovery zero-call kaniti gerekli")
+                cache_batch((chunk,), recovered)
+                reconciled_chunks += 1
+                reconciled_batches += 1
+            missing = tuple(chunk for chunk in missing if chunk.chunk_id not in vectors)
+        for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
+            _check_index_budget(cancel, deadline_monotonic)
+            texts = tuple(chunk.text for chunk in batch)
+            embedded = _embed_documents_with_retry(
+                provider, texts, policy, cancel=cancel, deadline_monotonic=deadline_monotonic
+            )
+            _check_index_budget(cancel, deadline_monotonic)
+            verify_document_embedding_batch(texts, embedded, profile)
+            cache_batch(batch, embedded)
             provider_batches += embedded.receipt.provider_call_count
             if embedded.receipt.reconciliation_evidence_digest is not None:
                 reconciled_chunks += len(batch)
