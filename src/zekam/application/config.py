@@ -13,6 +13,7 @@ veya Secret Broker uzerinden gelir ve hicbir zaman loglanmaz.
 from __future__ import annotations
 
 import os
+import stat
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -39,6 +40,7 @@ from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationF
 
 CONFIG_SCHEMA = "zekam-config/v1"
 USER_CONFIG_FILE = "config.yaml"
+MAX_CONFIG_BYTES = 4 * 1024 * 1024
 
 
 class PersistenceBackend(StrEnum):
@@ -353,11 +355,34 @@ _UniqueKeyLoader.add_constructor(
 )
 
 
+def _read_config_text(path: Path) -> str:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ConfigurationError("Yapilandirma dosyasi regular dosya olmali")
+        if metadata.st_size > MAX_CONFIG_BYTES:
+            raise ConfigurationError("Yapilandirma dosyasi boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_CONFIG_BYTES + 1)
+    except OSError as exc:
+        raise ConfigurationError("Yapilandirma dosyasi okunamadi") from exc
+    if len(payload) > MAX_CONFIG_BYTES:
+        raise ConfigurationError("Yapilandirma dosyasi boyut sinirini asiyor")
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ConfigurationError("Yapilandirma dosyasi UTF-8 olmali") from exc
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+        loaded = yaml.load(_read_config_text(path), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:  # pragma: no cover - hata metni sanitize edilir
         raise ConfigurationError(f"Yapilandirma dosyasi okunamadi: {path.name}") from exc
     return _validate_document(loaded, path)

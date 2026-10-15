@@ -2159,6 +2159,17 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.73 15 Ekim 2026 Authority ve config stream kapisi
+
+Aktif gorev authority/projection, user config ve instruction context olcumu
+dosyalari bounded regular-file stream ile okunur. Boyut buyumesi, link/reparse,
+UTF-8 veya dosya kimligi hatasi yetki/projection kaniti uretmeden typed hata ya
+da bos/partial sonuc olarak sonlanir; mevcut duplicate-key ve digest denetimleri
+korunur.
+
+Bu dilim WP-02 authority/config girisi ve WP-07 devam baglarindaki kaynak tuketimi
+boslugunu daraltir; native host ve tam acceptance kapilari halen aciktir.
+
 ### 10.72 15 Ekim 2026 Client integration native stream kapisi
 
 Client integration status, cleanup, hook/config envanteri ve rollback yedekleri

@@ -61,7 +61,9 @@ def _read_bounded(path: Path, root: Path) -> bytes | None:
         resolved.relative_to(root.resolve(strict=True))
         if path.stat().st_size > MAX_INSTRUCTION_BYTES:
             return None
-        return path.read_bytes()
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_INSTRUCTION_BYTES + 1)
+        return None if len(payload) > MAX_INSTRUCTION_BYTES else payload
     except (OSError, ValueError):
         return None
 

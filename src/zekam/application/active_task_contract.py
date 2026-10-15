@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -24,6 +25,7 @@ PROJECTION_SCHEMA: Final = "zekam-active-task-projection/v1"
 GENERATOR_VERSION: Final = "active-task-contract/v1"
 AUTHORITY_REF: Final = "AKTIF_GOREV.md"
 MAX_TASK_BYTES: Final = 4 * 1024 * 1024
+MAX_PROJECTION_BYTES: Final = 1 * 1024 * 1024
 
 _TASK_FIELDS: Final = frozenset(
     {
@@ -58,6 +60,26 @@ _TASK_FIELDS_OPTIONAL: Final = frozenset(
 _TASK_FIELDS_REQUIRED: Final = _TASK_FIELDS - _TASK_FIELDS_OPTIONAL
 _TASK_ID = re.compile(r"[A-Z][A-Z0-9-]{7,127}\Z")
 _GIT_HEAD = re.compile(r"[0-9a-f]{40}\Z")
+
+
+def _read_bounded(path: Path, *, maximum: int, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ValidationFailed(f"{label} regular dosya olmali")
+        if metadata.st_size > maximum:
+            raise ValidationFailed(f"{label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(maximum + 1)
+    except OSError as exc:
+        raise ValidationFailed(f"{label} okunamadi") from exc
+    if len(payload) > maximum:
+        raise ValidationFailed(f"{label} boyut sinirini asiyor")
+    return payload
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -149,7 +171,7 @@ class ActiveTaskContract:
 
     @classmethod
     def load(cls, path: Path) -> ActiveTaskContract:
-        return cls.from_bytes(path.read_bytes())
+        return cls.from_bytes(_read_bounded(path, maximum=MAX_TASK_BYTES, label="Aktif gorev"))
 
     @classmethod
     def from_bytes(cls, payload: bytes) -> ActiveTaskContract:
@@ -265,8 +287,12 @@ class ActiveTaskContract:
 
     def verify_projection(self, path: Path) -> None:
         try:
-            value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            value = yaml.load(
+                _read_bounded(path, maximum=MAX_PROJECTION_BYTES, label="Aktif gorev projection")
+                .decode("utf-8", errors="strict"),
+                Loader=_UniqueKeyLoader,
+            )
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
             raise ValidationFailed("Aktif gorev projection okunamadi") from exc
         if not isinstance(value, dict) or value != self.projection():
             raise ValidationFailed("AKTIF_GOREV.yaml authority digest veya projection drift")

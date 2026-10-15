@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import zekam.application.config as config_module
 from zekam.application.config import (
     CONFIG_SCHEMA,
     USER_CONFIG_FILE,
@@ -28,6 +29,18 @@ def _write(path: Path, body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def test_config_reader_rejects_oversized_file_before_yaml_parse(
+    home_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = home_root / USER_CONFIG_FILE
+    monkeypatch.setattr(config_module, "MAX_CONFIG_BYTES", 8)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"schema: x\n")
+
+    with pytest.raises(ConfigurationError, match="boyut sinirini"):
+        config_module.load_config_document(target)
 
 
 def test_core_default_file_exists_and_parses(home_root: Path) -> None:
