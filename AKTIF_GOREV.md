@@ -1281,6 +1281,29 @@ cagrisi yapilmadi. Bu dilim kanit readback'ini tamamlar; WP-07.04'un tum yeni
 istemci/grant devam kabulleri ve WP-07'nin process-kill/race/recovery kabulleri
 acik kalir.
 
+**15 Ekim 2026 - WP-07.02/04 model-istemci resume lease baglantisi:**
+`CrossClientResumeDispatchService.dispatch_bound`, cross-client handoff ve
+checkpoint verisini canonical local `continuity.resume` job'ina baglar. Hedef
+istemci effect'inden once Work/Run binding, source/test/config fingerprint ve
+route/assignment scope yeniden dogrulanir; yeni istemci fenced lease ve effect
+claim edinmeden adapter baslatilmaz. Receipt ve Run checkpoint'i ayni canonical
+CAS kanit zincirine yazilir. Ayni input ve execution key replay'inde adapter
+yeniden cagirilmaz. Stale source/fingerprint enqueue oncesi reddedilir; handoff
+ve checkpoint authority/lease tasimaz. Gercek SQLite/CAS entegrasyonunda lease,
+receipt, checkpoint ve replay ile drift reddi **2 passed**; mevcut cross-client,
+canonical runner ve local runtime regresyon grubu **99 passed**. Bu dilim
+model/client re-acquire bagini kurar; process-kill/race/recovery ve tum WP-07
+kapanis kabulleri halen aciktir.
+
+Son gelistirme asamasinin en sonundaki tam test kosusu **7012 passed, 1403
+skipped, 6 failed** ile tamamlandi. Alti hata bu dilimde degistirilmeyen
+qualification-cache cross-process fake provider imzasi, operational schema v6
+beklentisi ve project history redaction testlerinde kaldi; canonical resume
+hedef kosusu **2 passed**, mevcut cross-client/canonical/local runtime regresyonu
+**99 passed** olarak korundu. Bu nedenle WP-07 ve tum proje kapanmis sayilmaz;
+process-kill/race/recovery kabul matrisi ile bu mevcut test uyumsuzluklari
+sonraki acik islerdir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

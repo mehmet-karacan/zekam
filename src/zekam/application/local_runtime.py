@@ -25,6 +25,7 @@ RESERVED_JOB_OPERATIONS = (
     "test.measure",
     "test.run",
     "continuity.compile",
+    "continuity.resume",
     "research.run",
     "knowledge.create",
     "knowledge.update",

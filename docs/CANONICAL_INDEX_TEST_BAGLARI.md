@@ -75,3 +75,13 @@ checkpoint payload digest'i, binding/input/source/claim kimlikleri ve artifact
 metadata'si CAS byte boyutu ve digest'iyle eslesmelidir. Eksik, fazla, 16 KiB
 uzeri veya uyusmayan checkpoint basari sayilmaz; bozuk kanit yeni effect
 baslatmaz. Checkpoint ve resume projection'lari grant veya lease devretmez.
+
+Cross-client resume icin `CrossClientResumeDispatchService.dispatch_bound`
+ayni yerel canonical runner'a `continuity.resume` islemiyle baglanir. Handoff,
+checkpoint, source/test/config fingerprint, assignment, invocation ve hedef
+istemci descriptor digest'leri canonical input'a katilir. Hedef istemci effect'i
+baslamadan once current Work/Run tuple'i yeniden okunur; sonra yeni model veya
+istemci kendi fenced lease/effect claim/receipt zincirini edinir. Tamamlanmis
+ayni input ve execution key tekrarinda adapter cagrilmaz, CAS sonucu okunur.
+Kaynak revision veya fingerprint stale ise enqueue yapilmadan reddedilir; eski
+sohbet, checkpoint ya da handoff tek basina lease veya grant tasimaz.
