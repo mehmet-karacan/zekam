@@ -33,6 +33,7 @@ from weakref import WeakValueDictionary
 if __name__ == "__main__":  # Keep exact class identity for the reviewed ``python -m`` entry.
     sys.modules["zekam.infrastructure.macos_precompaction_supervisor"] = sys.modules[__name__]
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.clients.codex_macos_0151_lifecycle import (
@@ -669,7 +670,7 @@ def _session_plan(path: Path) -> dict[str, object]:
         or not 1 <= info.st_size <= 8192
     ):
         raise PolicyViolation("SessionStart sealed allocation plan identity rejected")
-    raw = path.read_bytes()
+    raw = read_bounded_bytes(path, max_bytes=8192)
     plan = _strict_json(raw)
     keys = {
         "device_id",

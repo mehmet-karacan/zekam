@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.clients import ClientDescriptor, ClientKind, ClientPermissionManifest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -37,6 +38,7 @@ CODEX_HISTORICAL_WINDOWS_CONTRACT = (
 CODEX_HOOK_CONTRACT_SCHEMA = "zekam-codex-command-hook/v1"
 CODEX_CONTRACT_EVIDENCE_SCHEMA = "zekam-codex-lifecycle-contract/v1"
 MAX_HOOK_INPUT_BYTES = 64 * 1024
+MAX_CODEX_CONTRACT_EVIDENCE_BYTES = 1 * 1024 * 1024
 
 _UUID_IDENTIFIER = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -339,9 +341,9 @@ def load_codex_contract_evidence(path: Path) -> dict[str, Any]:
     """Load the tracked exact contract document and verify its semantic binding."""
 
     try:
-        raw = path.read_bytes()
+        raw = read_bounded_bytes(path, max_bytes=MAX_CODEX_CONTRACT_EVIDENCE_BYTES)
         document = json.loads(raw)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         raise ValidationFailed("Codex lifecycle contract evidence okunamadi") from exc
     if not isinstance(document, dict):
         raise ValidationFailed("Codex lifecycle contract evidence object olmali")

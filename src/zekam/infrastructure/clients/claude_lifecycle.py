@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.canonical import digest
 from zekam.domain.clients import ClientKind
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -17,6 +18,7 @@ CLAUDE_CLIENT_ID = "claude-code"
 CLAUDE_REVIEWED_VERSION = "2.1.224"
 CLAUDE_HOOK_CONTRACT_SCHEMA = "zekam-claude-command-hook/v1"
 MAX_CLAUDE_HOOK_INPUT_BYTES = 64 * 1024
+MAX_CLAUDE_CONTRACT_BYTES = 1 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _SOURCES = frozenset({"startup", "resume", "clear", "compact"})
 _TRIGGERS = frozenset({"manual", "auto"})
@@ -167,8 +169,8 @@ def parse_claude_hook_input(payload: bytes | str) -> ClaudeHookEnvelope:
 
 def load_claude_contract(path: Path) -> dict[str, Any]:
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        document = json.loads(read_bounded_text(path, max_bytes=MAX_CLAUDE_CONTRACT_BYTES))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise ValidationFailed("Claude lifecycle contract okunamadi") from exc
     if (
         not isinstance(document, dict)

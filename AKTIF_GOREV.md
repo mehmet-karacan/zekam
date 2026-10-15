@@ -2302,6 +2302,18 @@ siniflandirilir.
 Bu dilim WP-01/WP-02/WP-08 yapilandirma ve routing kaynak tuketimi bosluklarini
 daraltir; canli provider, Jira ve native host kabul kaniti bu dilimin disindadir.
 
+### 10.85 15 Ekim 2026 lifecycle ve cache artifact stream kapisi
+
+Client instruction repository context, chaos config, Codex/Claude lifecycle
+evidence, doctor OpenCode config, GitHub radar cache ve macOS SessionStart plan
+okumalari bounded regular-file stream kullaniyor. Radar blob/meta/etag cache'i,
+provider ledger database digest'i ve precompaction plan readback'i oversized,
+link/reparse, UTF-8 veya growth durumlarinda fail-closed kalir.
+
+Bu dilim WP-02 client lifecycle, WP-07 recovery ve WP-08 radar/provider cache
+kaynak tuketimi bosluklarini daraltir; canli native host ve provider acceptance
+kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

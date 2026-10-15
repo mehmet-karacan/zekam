@@ -14,7 +14,7 @@ def read_bounded_bytes(path: Path, *, max_bytes: int) -> bytes:
     metadata = path.lstat()
     reparse = bool(
         int(getattr(metadata, "st_file_attributes", 0))
-        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
     )
     if (
         stat.S_ISLNK(metadata.st_mode)

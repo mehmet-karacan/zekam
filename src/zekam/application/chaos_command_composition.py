@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.chaos_campaign import (
     ChaosEvidenceVerifier,
     CompositeFaultInjector,
@@ -42,6 +43,7 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 DRIVER_TIMEOUT_SECONDS = 120
+MAX_CHAOS_CONFIG_BYTES = 64 * 1024
 
 
 def _moment(value: object) -> dt.datetime:
@@ -258,8 +260,8 @@ def compose_command_chaos_handler(
     """Load an explicit production driver; never writes into the source repository."""
 
     try:
-        raw = json.loads(config_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raw = json.loads(read_bounded_text(config_file, max_bytes=MAX_CHAOS_CONFIG_BYTES))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise ValidationFailed("chaos driver config okunamadi") from exc
     if not isinstance(raw, Mapping):
         raise ValidationFailed("chaos driver config JSON object olmali")

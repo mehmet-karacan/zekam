@@ -23,6 +23,7 @@ from typing import Any, Final
 from urllib.parse import urlparse
 from urllib.request import build_opener
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 
 GITHUB_API_HOST: Final = "api.github.com"
@@ -36,6 +37,7 @@ MAX_TOTAL_REQUESTS: Final = 100
 MAX_TOTAL_RESPONSE_BYTES: Final = 32 * 1024 * 1024
 MAX_BLOB_BYTES: Final = 2 * 1024 * 1024
 MAX_REDIRECTS: Final = 2
+MAX_CACHE_METADATA_BYTES: Final = 1 * 1024 * 1024
 
 
 class RadarPolicyViolation(PolicyViolation):
@@ -427,8 +429,8 @@ class GitHubRadarAdapter:
         if not meta_path.exists():
             return None, None
         try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            meta = json.loads(read_bounded_text(meta_path, max_bytes=MAX_CACHE_METADATA_BYTES))
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             return None, None
         content_digest = meta.get("content_digest")
         etag = meta.get("etag")
@@ -438,7 +440,7 @@ class GitHubRadarAdapter:
         if not blob_path.exists():
             return None, None
         try:
-            data = blob_path.read_bytes()
+            data = read_bounded_bytes(blob_path, max_bytes=MAX_BLOB_BYTES)
         except OSError:
             return None, None
         if "sha256:" + hashlib.sha256(data).hexdigest() != content_digest:
@@ -515,10 +517,10 @@ class GitHubRadarAdapter:
         etag_path = self._cache_dir / "github-etag" / _url_digest(url)
         if etag_path.exists():
             try:
-                etag = etag_path.read_text(encoding="utf-8").strip()
+                etag = read_bounded_text(etag_path, max_bytes=8 * 1024).strip()
                 if etag:
                     request.add_header("If-None-Match", etag)
-            except OSError:
+            except (OSError, UnicodeError):
                 pass
         try:
             if self._url_opener is not None:

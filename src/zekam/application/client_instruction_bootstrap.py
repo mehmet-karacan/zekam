@@ -446,7 +446,7 @@ def _is_zekam_workspace_root(project_root: Path) -> bool:
         return False
     try:
         context = json.loads(
-            (project_root / ".ai" / "repository-context.json").read_text(encoding="utf-8")
+            read_instruction_text(project_root / ".ai" / "repository-context.json")
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False

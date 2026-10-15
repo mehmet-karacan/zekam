@@ -15,6 +15,7 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.embedding_provider import EmbeddingProbeFixture, EmbeddingPurpose
 from zekam.application.model_benchmark_service import default_fixture_file, load_fixture_registry
 from zekam.application.model_registry import load_inventory
@@ -555,7 +556,9 @@ def execute(database: Path, config_file: Path) -> dict[str, Any]:
         "integrity_check": "ok",
     }:
         raise PolicyViolation("Durable provider ledger restart readback drift")
-    database_digest = hashlib.sha256(database.read_bytes()).hexdigest()
+    database_digest = hashlib.sha256(
+        read_bounded_bytes(database, max_bytes=64 * 1024 * 1024)
+    ).hexdigest()
     evidence_digest = digest(
         {
             "exact_model_id": configuration.selected_model_id,

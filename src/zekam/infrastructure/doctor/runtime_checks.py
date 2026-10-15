@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.config import DatabaseSettings
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
 from zekam.application.model_context_admission import models_missing_limits
@@ -397,8 +398,8 @@ class OpenCodeModelLimitCheck:
     def run(self) -> CheckResult:
         path = self.config_path or default_opencode_config_file()
         try:
-            config = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
+            config = json.loads(read_bounded_text(path, max_bytes=4 * 1024 * 1024))
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             return _unavailable(self.check_id, type(exc).__name__)
         if not isinstance(config, dict):
             return _unavailable(self.check_id, "InvalidConfigShape")
