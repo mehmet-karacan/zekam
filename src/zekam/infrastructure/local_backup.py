@@ -22,6 +22,7 @@ from zekam.infrastructure.local_core_services import (
 )
 from zekam.infrastructure.local_file_security import (
     owned_regular,
+    path_or_parent_is_link_or_reparse,
     private_directory,
     private_regular,
     restrict_private_tree,
@@ -150,7 +151,14 @@ def _portable_file_mode(info: os.stat_result) -> int:
 
 
 def _destination(path: Path) -> Path:
-    if not path.is_absolute() or not path.parent.is_dir() or path.exists() or path.is_symlink():
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or path.exists()
+        or path.is_symlink()
+        or path_or_parent_is_link_or_reparse(path)
+        or not private_directory(path.parent)
+    ):
         raise ValidationFailed("Backup destination must be new absolute path")
     return path
 
