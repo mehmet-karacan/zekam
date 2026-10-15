@@ -359,9 +359,13 @@ class SkillPackage:
             if total_bytes > MAX_PACKAGE_BYTES:
                 raise ValidationFailed("Skill package size invalid")
             try:
-                files[relative.as_posix()] = path.read_bytes()
+                with path.open("rb") as stream:
+                    payload = stream.read(MAX_FILE_BYTES + 1)
             except OSError as exc:
                 raise ValidationFailed("Skill package file okunamadi") from exc
+            if len(payload) > MAX_FILE_BYTES:
+                raise ValidationFailed("Skill file size invalid")
+            files[relative.as_posix()] = payload
             if len(files) > MAX_FILES:
                 raise ValidationFailed("Skill package file count invalid")
         return cls.parse(root.name, files)

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.model_benchmark_service import (
     BenchmarkExecutionService,
     DeterministicLocalBenchmarkAdapter,
@@ -64,7 +65,9 @@ def _implementation_bundle_digest() -> str:
             "sources": [
                 {
                     "logical_name": source.relative_to(package_root).as_posix(),
-                    "digest": digest_of_bytes(source.read_bytes()),
+                    "digest": digest_of_bytes(
+                        read_bounded_bytes(source, max_bytes=4 * 1024 * 1024)
+                    ),
                 }
                 for source in sources
             ],

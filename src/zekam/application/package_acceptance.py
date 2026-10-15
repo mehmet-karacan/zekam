@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from zekam import __version__
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.config import package_root
 from zekam.application.opencode_agent_bootstrap import opencode_template_bundle
 from zekam.domain.app_server_protocol import schema_bundle_digest
@@ -90,7 +91,9 @@ def _wheel_exclusion_paths(repository_root: Path) -> frozenset[str]:
     if policy.is_symlink() or not policy.is_file():
         raise ValidationFailed("Hatch wheel exclusion policy regular-file olmali")
     try:
-        exclusions = _parse_wheel_exclusion_policy(policy.read_bytes())
+        exclusions = _parse_wheel_exclusion_policy(
+            read_bounded_bytes(policy, max_bytes=4 * 1024 * 1024)
+        )
     except OSError as exc:
         raise ValidationFailed("Hatch wheel exclusion policy okunamadi") from exc
     package_root = repository_root / "src" / "zekam"
@@ -345,7 +348,7 @@ def manifest_path(root: Path | None = None) -> Path:
 def load_package_manifest(root: Path | None = None) -> PackageManifestV3:
     path = manifest_path(root)
     try:
-        document = _strict_json_document(path.read_bytes())
+        document = _strict_json_document(read_bounded_bytes(path, max_bytes=4 * 1024 * 1024))
     except OSError as exc:
         raise ValidationFailed("Shipped package manifest okunamadi") from exc
     return PackageManifestV3.parse(document)

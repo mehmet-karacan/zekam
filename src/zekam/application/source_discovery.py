@@ -53,6 +53,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.ignore_rules import IgnoreMatcher, system_deny_matcher
 from zekam.application.secret_detection import SecretFinding, scan_text
 from zekam.domain.canonical import DIGEST_PREFIX
@@ -64,6 +65,7 @@ GIT_IGNORE_FILE = ".gitignore"
 
 #: Ikili tespiti icin dosyanin basindan okunan boyut.
 BINARY_PROBE_BYTES = 8192
+MAX_IGNORE_FILE_BYTES = 64 * 1024
 
 #: Eligible dosya icerigi icin kullanilan parca boyutu (bellek sinirli streaming).
 _CHUNK_SIZE = 1 << 20
@@ -413,8 +415,8 @@ def _is_binary(payload: bytes) -> bool:
 
 def _read_ignore_file(path: Path) -> list[str]:
     try:
-        return path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:  # pragma: no cover - okunamayan ignore dosyasi yoksayilir
+        return read_bounded_text(path, max_bytes=MAX_IGNORE_FILE_BYTES).splitlines()
+    except (OSError, UnicodeError):  # pragma: no cover - okunamayan ignore dosyasi yoksayilir
         return []
 
 

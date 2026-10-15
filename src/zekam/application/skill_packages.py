@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.client_integration import ClientIntegrationId, ClientIntegrationPolicy
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -102,7 +103,7 @@ def _projected_artifact_digest(target: Path) -> str:
         try:
             if path.stat(follow_symlinks=False).st_size > MAX_PROJECTED_FILE_BYTES:
                 raise PolicyViolation("Managed skill projection file bounded disi")
-            payload = path.read_bytes()
+            payload = read_bounded_bytes(path, max_bytes=MAX_PROJECTED_FILE_BYTES)
         except OSError as exc:
             raise PolicyViolation("Managed skill projection file okunamadi") from exc
         manifest.append(
@@ -233,8 +234,8 @@ def build_projection_plan(
                 state = "unmanaged-conflict"
             else:
                 try:
-                    document = json.loads(ownership.read_text(encoding="utf-8"))
-                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    document = json.loads(read_bounded_text(ownership, max_bytes=64 * 1024))
+                except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
                     state = "managed-metadata-invalid"
                 else:
                     observed_digest = str(document.get("artifact_digest"))
@@ -366,9 +367,15 @@ def _terminal_projection_matches(plan: SkillProjectionPlan) -> bool:
             if not _real_directory(target) or not ownership.is_file() or ownership.is_symlink():
                 return False
             try:
-                document = json.loads(ownership.read_text(encoding="utf-8"))
+                document = json.loads(read_bounded_text(ownership, max_bytes=64 * 1024))
                 actual = _projected_artifact_digest(target)
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError, PolicyViolation):
+            except (
+                OSError,
+                UnicodeDecodeError,
+                ValueError,
+                json.JSONDecodeError,
+                PolicyViolation,
+            ):
                 return False
             if document != _ownership_body(plan, target_info):
                 return False
@@ -456,7 +463,9 @@ def apply_projection_plan(
                 _assert_contained(plan.project_root, destination)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(payload)
-                if digest_of_bytes(destination.read_bytes()) != digest_of_bytes(payload):
+                if digest_of_bytes(
+                    read_bounded_bytes(destination, max_bytes=MAX_PROJECTED_FILE_BYTES)
+                ) != digest_of_bytes(payload):
                     raise PolicyViolation("Skill projection staged file readback drift")
             ownership_body = _ownership_body(plan, target_info)
             ownership = stage / ".zekam-managed.json"

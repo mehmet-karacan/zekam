@@ -25,6 +25,7 @@ from typing import Any
 from xml.etree import ElementTree
 from xml.parsers import expat
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import (
     MAX_DOCUMENT_BYTES,
@@ -488,7 +489,9 @@ def _tessdata_digests(executable: str, languages: tuple[str, ...]) -> dict[str, 
         model = root / f"{language}.traineddata"
         if not model.is_file():
             raise ConfigurationError(f"Tesseract dili bulunamadi: {language}")
-        found[language] = "sha256:" + hashlib.sha256(model.read_bytes()).hexdigest()
+        found[language] = "sha256:" + hashlib.sha256(
+            read_bounded_bytes(model, max_bytes=64 * 1024 * 1024)
+        ).hexdigest()
     return found
 
 
@@ -669,7 +672,9 @@ def _pdfium_build_profile(module: Any) -> dict[str, Any]:
         )
     manifest = []
     for item in sorted(build_files, key=str):
-        payload = Path(str(distribution.locate_file(item))).read_bytes()
+        payload = read_bounded_bytes(
+            Path(str(distribution.locate_file(item))), max_bytes=1 * 1024 * 1024
+        )
         manifest.append((Path(str(item)).name, hashlib.sha256(payload).hexdigest()))
     return {
         "package": "pypdfium2",

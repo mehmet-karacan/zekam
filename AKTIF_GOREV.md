@@ -2336,6 +2336,17 @@ UTF-8 veya oversized girdiler typed hata ile fail-closed kalir.
 Bu dilim WP-02/WP-05/WP-07 CLI ve continuity kaynak tuketimi bosluklarini
 daraltir; provider/native acceptance kaniti bu dilimin disindadir.
 
+### 10.88 15 Ekim 2026 package ve benchmark source stream kapisi
+
+OpenCode lifecycle instance, native benchmark source bundle, package acceptance
+manifest/policy, managed skill projection, source discovery ignore dosyalari,
+Tesseract/PDFium license artifact ve skill package source dosyalari bounded
+stream ile okunur. Uygun dosya ust sinirlari korunur; link/reparse, growth,
+oversized veya okunamayan girdiler ilgili kabul/policy hatasiyla fail-closed kalir.
+
+Bu dilim WP-01/WP-02/WP-04/WP-08 paket, benchmark ve source discovery kaynak
+tuketimi bosluklarini daraltir; canli model/provider kabul kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

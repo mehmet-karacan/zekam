@@ -54,7 +54,10 @@ def lifecycle_client_instance_id(home: Path) -> str:
     root.mkdir(parents=True, exist_ok=True)
     path = root / "client-instance-id"
     if path.is_file():
-        return _bounded(path.read_text(encoding="utf-8"), label="client_instance_id") or ""
+        return _bounded(
+            _read_json_text(path, maximum=MAX_LIFECYCLE_ACK_BYTES, label="client_instance_id"),
+            label="client_instance_id",
+        ) or ""
     value = f"opencode-{new_uuid7()}"
     descriptor, temporary = tempfile.mkstemp(prefix=".client-instance-", dir=root)
     try:
@@ -64,7 +67,9 @@ def lifecycle_client_instance_id(home: Path) -> str:
             os.fsync(output.fileno())
         with suppress(FileExistsError):
             os.link(temporary, path)
-        return path.read_text(encoding="utf-8").strip()
+        return _read_json_text(
+            path, maximum=MAX_LIFECYCLE_ACK_BYTES, label="client_instance_id"
+        ).strip()
     finally:
         Path(temporary).unlink(missing_ok=True)
 
