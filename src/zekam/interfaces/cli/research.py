@@ -23,6 +23,10 @@ from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.interfaces.cli.research_radar import app as radar_app
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlite_operational_store
+from zekam.interfaces.cli.work_binding import (
+    resolve_optional_work_binding,
+    work_binding_document,
+)
 
 app = typer.Typer(name="research", help="Kanitli project research islemleri", no_args_is_help=True)
 console = Console()
@@ -57,6 +61,16 @@ def run_command(
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    work_run: Annotated[str | None, typer.Option("--work-run", help="Canonical Run UUID")] = None,
+    work_revision: Annotated[
+        int | None, typer.Option("--work-revision", help="Exact Work revision", min=1)
+    ] = None,
+    work_step: Annotated[
+        str | None, typer.Option("--work-step", help="Canonical Run step UUID")
+    ] = None,
+    work_binding_digest: Annotated[
+        str | None, typer.Option("--work-binding-digest", help="Dry-run canonical binding digest")
+    ] = None,
 ) -> None:
     """Planı gösterir; explicit digest ve iki authorization olmadan effect yapmaz."""
 
@@ -70,8 +84,21 @@ def run_command(
             project_ref=project,
             question=question,
         )
+        binding = resolve_optional_work_binding(
+            context.home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=plan.project_id,
+            plan_digest=plan.run_digest,
+            apply=apply,
+            replay_job_key=str(plan.body["idempotency_key"]),
+        )
         if not apply:
             document = plan.body
+            if binding is not None:
+                document = document | {"work_binding": work_binding_document(binding)}
         else:
             document = run_research(
                 store,
@@ -81,6 +108,7 @@ def run_command(
                 authorize_remote_query=authorize_remote_query,
                 authorize_agent_run=authorize_agent_run,
                 opencode_config=opencode_config,
+                **({"work_binding": binding} if binding is not None else {}),
             )
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -89,6 +117,8 @@ def run_command(
     elif not apply:
         console.print(f"run_digest: {document['run_digest']}")
         console.print(f"project: {document['project_slug']}")
+        if "work_binding" in document:
+            console.print(f"work_binding_digest: {document['work_binding']['binding_digest']}")
         console.print("Dry-run; calistirmak icin exact digest ve iki authorization verin.")
     else:
         console.print(f"[green]{document['state']}[/green] {document['job_id']}")

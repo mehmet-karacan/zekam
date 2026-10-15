@@ -21,6 +21,10 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.infrastructure.radar_campaign_store import RadarCampaignRepository
 from zekam.interfaces.cli.session import HOME_HELP, REALM_HELP, fail_from, sqlite_operational_store
+from zekam.interfaces.cli.work_binding import (
+    resolve_optional_work_binding,
+    work_binding_document,
+)
 
 app = typer.Typer(
     name="radar",
@@ -118,6 +122,16 @@ def run_command(
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
     home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+    work_run: Annotated[str | None, typer.Option("--work-run", help="Canonical Run UUID")] = None,
+    work_revision: Annotated[
+        int | None, typer.Option("--work-revision", help="Exact Work revision", min=1)
+    ] = None,
+    work_step: Annotated[
+        str | None, typer.Option("--work-step", help="Canonical Run step UUID")
+    ] = None,
+    work_binding_digest: Annotated[
+        str | None, typer.Option("--work-binding-digest", help="Dry-run canonical binding digest")
+    ] = None,
 ) -> None:
     """Plan bytes/digest dogrulayarak stage'i calistirir."""
 
@@ -126,6 +140,17 @@ def run_command(
         store = sqlite_operational_store(home, realm)
         assert store is not None
         plan = _load_plan(plan_file, plan_digest)
+        binding = resolve_optional_work_binding(
+            context.home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=plan.project_id,
+            plan_digest=plan.plan_digest,
+            apply=apply,
+            replay_job_key=str(plan.body["idempotency_key"]),
+        )
         if not apply:
             document = {
                 "plan_digest": plan.plan_digest,
@@ -133,6 +158,8 @@ def run_command(
                 "dry_run": True,
                 "grants_authority": False,
             }
+            if binding is not None:
+                document["work_binding"] = work_binding_document(binding)
         else:
             document = run_radar_campaign(
                 store,
@@ -141,12 +168,15 @@ def run_command(
                 authorized_plan_digest=plan_digest,
                 authorize_public_source_read=authorize_public_source_read,
                 authorize_agent_run=authorize_agent_run,
+                **({"work_binding": binding} if binding is not None else {}),
             )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     if output_json:
         console.print_json(json.dumps(document, ensure_ascii=False))
     else:
+        if "work_binding" in document:
+            console.print(f"work_binding_digest: {document['work_binding']['binding_digest']}")
         state = document.get("state", "dry-run")
         cid = document.get("campaign_id", "")
         console.print(f"[green]{state}[/green] {cid}")

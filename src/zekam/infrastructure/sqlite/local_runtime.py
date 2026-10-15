@@ -590,6 +590,66 @@ class SQLiteLocalRuntimeStore:
             raise PolicyViolation("Local job binding digest drift")
         return binding
 
+    def resolve_work_binding(
+        self,
+        *,
+        run_id: str,
+        work_revision: int,
+        project_id: str,
+        plan_digest: str,
+        run_step_id: str | None = None,
+    ) -> LocalJobBinding:
+        """Read an exact canonical tuple; never create Work, grant or migration."""
+
+        _required(run_id, "Run id")
+        _required(project_id, "Project id")
+        if type(work_revision) is not int or work_revision < 1:
+            raise ValidationFailed("Local job binding positive Work revision required")
+        parse_digest(plan_digest)
+        connection = self._connect_readonly()
+        try:
+            connection.execute("begin")
+            self._require_binding_schema(connection)
+            row = connection.execute(
+                "select w.id work_item_id,w.revision,r.config_revision_id,"
+                " c.config_digest,r.source_snapshot_id from run r"
+                " join work_item w on w.id=r.work_item_id"
+                " join project p on p.id=w.project_id"
+                " join config_revision c on c.id=r.config_revision_id"
+                " where r.id=? and p.id=? and p.status='active'"
+                " and w.revision=? and w.state in ('ready','active','verification')"
+                " and r.status in ('planned','running') and r.plan_digest=?"
+                " and c.active=1"
+                " and (? is null or exists(select 1 from run_step s"
+                " where s.id=? and s.run_id=r.id"
+                " and s.status in ('pending','ready','running')"
+                " and not exists(select 1 from run_step_dependency d"
+                " join run_step dep on dep.id=d.depends_on_step_id"
+                " where d.run_step_id=s.id and dep.status<>'succeeded')))"
+                " and (r.source_snapshot_id is null or exists("
+                " select 1 from source_snapshot ss"
+                " join source_binding sb on sb.id=ss.source_binding_id"
+                " where ss.id=r.source_snapshot_id and sb.project_id=p.id and sb.active=1))",
+                (run_id, project_id, work_revision, plan_digest, run_step_id, run_step_id),
+            ).fetchone()
+            if row is None:
+                raise ConcurrencyConflict(
+                    "Local job canonical Work/Run tuple unavailable or changed"
+                )
+            return LocalJobBinding(
+                project_id=project_id,
+                work_item_id=str(row["work_item_id"]),
+                work_revision=int(row["revision"]),
+                run_id=run_id,
+                config_revision_id=str(row["config_revision_id"]),
+                config_digest=str(row["config_digest"]),
+                plan_digest=plan_digest,
+                run_step_id=run_step_id,
+                source_snapshot_id=row["source_snapshot_id"],
+            )
+        finally:
+            connection.close()
+
     def job_binding(self, job_id: str) -> LocalJobBinding | None:
         connection = self._connect_readonly()
         try:

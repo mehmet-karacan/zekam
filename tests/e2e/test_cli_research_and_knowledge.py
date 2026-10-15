@@ -24,7 +24,7 @@ from zekam.domain.canonical import digest
 from zekam.domain.errors import LayoutError
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
-from zekam.infrastructure.sqlite.operational_schema import bootstrap
+from zekam.infrastructure.sqlite.operational_schema import bootstrap, bootstrap_v7
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import main as cli
 
@@ -32,11 +32,11 @@ pytestmark = pytest.mark.e2e
 REALM_ID = str(uuid5(NAMESPACE_URL, "zekam://realm/yerel"))
 
 
-def _home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, binding_schema: bool = False) -> Path:
     layout = HomeLayout(tmp_path / ".zekam").ensure()
     layout.ensure_project("demo")
     database = layout.root / "state" / "operational.db"
-    bootstrap(database)
+    (bootstrap_v7 if binding_schema else bootstrap)(database)
     SQLiteLocalRuntimeStore(database)
     with SQLiteOperationalStore(database).unit_of_work() as uow:
         project = uow.create_project(slug="demo", display_name="Demo")
@@ -557,3 +557,83 @@ def test_user_markdown_update_recovers_same_cli_plan_after_completed_receipt_fau
     recovered = _invoke_json(runner, args)
     assert recovered["state"] == "completed"
     assert recovered["recovered"] is True
+
+
+def test_research_cli_pins_canonical_work_binding_before_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from zekam.interfaces.cli import research as research_cli
+
+    home = _home(tmp_path, monkeypatch, binding_schema=True)
+    runner = CliRunner()
+    base = [
+        "research",
+        "run",
+        "Demo servisi nerede?",
+        "--project",
+        "dm",
+        "--home",
+        str(home),
+        "--json",
+    ]
+    dry = runner.invoke(cli.app, base)
+    assert dry.exit_code == 0, dry.output
+    plan = json.loads(dry.output)
+    database = home / "state" / "operational.db"
+    with SQLiteOperationalStore(database).unit_of_work() as uow:
+        config = uow.activate_config(
+            config_digest=digest("config"),
+            task_digest=digest("task"),
+            sanitized_config={},
+        )
+        work = uow.create_work(
+            project_id=plan["project_id"],
+            kind="task",
+            title="Research",
+            state="ready",
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=plan["run_digest"],
+            budget={"seconds": 60},
+        )
+        uow.commit()
+    bound_args = [*base, "--work-run", run.id, "--work-revision", str(work.revision)]
+    bound = runner.invoke(cli.app, bound_args)
+    assert bound.exit_code == 0, bound.output
+    binding = json.loads(bound.output)["work_binding"]
+    text_args = bound_args.copy()
+    text_args.remove("--json")
+    text_output = runner.invoke(cli.app, text_args)
+    assert text_output.exit_code == 0, text_output.output
+    assert binding["binding_digest"] in text_output.output
+    assert binding["work_item_id"] == work.id
+    assert binding["grants_authority"] is False
+    calls = []
+
+    def dispatch(*args, **kwargs):
+        calls.append(kwargs)
+        return {"state": "fixture-dispatch", "job_id": "fixture-job"}
+
+    monkeypatch.setattr(research_cli, "run_research", dispatch)
+    apply_args = [
+        *bound_args,
+        "--uygula",
+        "--run-digest",
+        plan["run_digest"],
+        "--authorize-remote-query",
+        "--authorize-agent-run",
+    ]
+    missing = runner.invoke(cli.app, apply_args)
+    assert missing.exit_code == 77 and not calls
+    wrong = runner.invoke(cli.app, [*apply_args, "--work-binding-digest", digest("wrong")])
+    assert wrong.exit_code == 77 and not calls
+    pinned = runner.invoke(
+        cli.app, [*apply_args, "--work-binding-digest", binding["binding_digest"]]
+    )
+    assert pinned.exit_code == 0, pinned.output
+    assert len(calls) == 1
+    assert calls[0]["work_binding"].binding_digest == binding["binding_digest"]
+    assert calls[0]["authorize_remote_query"] and calls[0]["authorize_agent_run"]
+    assert SQLiteLocalRuntimeStore(database, existing_only=True).status().ready_jobs == 0

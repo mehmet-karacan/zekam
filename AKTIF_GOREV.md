@@ -1140,6 +1140,29 @@ ayni gorunumu kendi result digest'ine dahil eder. Legacy unbound job ciktisi
 korunur. Regresyon testleri yazildi, son test asamasinda calistirilacak;
 WP-07 kapanisi ve tam cross-client resume halen aciktir.
 
+**15 Ekim 2026 - WP-07.02 arastirma CLI binding girisi gelistirmesi:**
+`research run` ve `research radar run` mevcut canonical Run/Work revision/step
+referanslariyla optional binding cozumler. Dry-run JSON ve metin ciktisinda
+binding digest gorunur; apply ayni exact digest'i zorunlu tutar. Project/plan,
+aktif config, source binding, Work revision ve Run/step durumu salt-okunur
+SQLite snapshot'indan okunur; eksik veya scope disi tuple yeni job/outbox
+olusturmadan reddedilir. Senkron giris unfinished step dependency'yi de reddeder.
+
+Tamamlanmis exact idempotent job icin mevcut immutable binding tekrar okunur:
+istendigi run/revision/project/plan/step ve digest birebir eslesmelidir; tarihsel
+Work/Run terminal durumu bu salt-okunur replay'i engellemez. Ready/running/failed/
+recovery job tarihsel binding ile yeni effect yetkisi kazanamaz; current tuple
+cozumlemesi gerekir. Mevcut remote-query/public-source/agent-run authorization
+kosullari korunur. Resolver lease, claim, Work, Run veya migration olusturmaz;
+DB read transaction'i CLI dispatch/provider baslamadan kapanir.
+
+Bagimsiz incelemenin dry-run digest, unfinished dependency ve terminal replay
+bulgulari duzeltildi; resolver scope/drift, CLI exact digest/forwarding, historical
+replay ve nonterminal current-authority regresyon testleri yazildi. Ruff/statik
+diff kontrolu yapildi; urun testleri kullanici karariyla HENUZ CALISTIRILMADI.
+Index/test job baglari, native recovery ve final kabul kosulari acik; WP-07
+kapanmadi. Mevcut operational DB'ye migration uygulanmadi, canli provider yok.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

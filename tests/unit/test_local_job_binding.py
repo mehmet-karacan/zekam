@@ -327,3 +327,64 @@ def test_unbound_snapshot_preserves_legacy_shape(tmp_path: Path) -> None:
     runtime = SQLiteLocalRuntimeStore(tmp_path / "legacy.db")
     job, _ = runtime.enqueue(idempotency_key="legacy", payload={"operation": "research.run"})
     assert "work_binding" not in runtime.job_snapshot(job.id)
+
+
+def test_binding_resolver_reads_exact_tuple_without_effect_or_migration(tmp_path: Path) -> None:
+    path, _store, runtime, binding = _world(tmp_path)
+    with sqlite3.connect(path) as db:
+        before = _logical_rows_digest(db)
+    resolved = runtime.resolve_work_binding(
+        run_id=binding.run_id,
+        work_revision=binding.work_revision,
+        project_id=binding.project_id,
+        plan_digest=binding.plan_digest,
+        run_step_id=binding.run_step_id,
+    )
+    assert resolved == binding
+    with sqlite3.connect(path) as db:
+        assert _logical_rows_digest(db) == before
+        assert db.execute("select count(*) from local_job").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field", ["work_revision", "project_id", "plan_digest", "run_step_id"])
+def test_binding_resolver_rejects_stale_or_cross_scope_tuple(tmp_path: Path, field: str) -> None:
+    _path, _store, runtime, binding = _world(tmp_path)
+    args = {
+        "run_id": binding.run_id,
+        "work_revision": binding.work_revision,
+        "project_id": binding.project_id,
+        "plan_digest": binding.plan_digest,
+        "run_step_id": binding.run_step_id,
+    }
+    args[field] = (
+        binding.work_revision + 1
+        if field == "work_revision"
+        else digest("wrong-plan")
+        if field == "plan_digest"
+        else str(uuid4())
+    )
+    with pytest.raises(ConcurrencyConflict, match="tuple unavailable or changed"):
+        runtime.resolve_work_binding(**args)
+
+
+def test_sync_binding_resolver_rejects_pending_dependency_before_enqueue(tmp_path: Path) -> None:
+    path, store, runtime, binding = _world(tmp_path)
+    with store.unit_of_work() as uow:
+        dependent = uow.add_run_step(
+            run_id=binding.run_id,
+            step_key="sync-dependent",
+            input_digest=digest("dependent"),
+            dependencies=(binding.run_step_id,),
+        )
+        uow.commit()
+    with pytest.raises(ConcurrencyConflict, match="tuple unavailable or changed"):
+        runtime.resolve_work_binding(
+            run_id=binding.run_id,
+            work_revision=binding.work_revision,
+            project_id=binding.project_id,
+            plan_digest=binding.plan_digest,
+            run_step_id=dependent.id,
+        )
+    with sqlite3.connect(path) as db:
+        assert db.execute("select count(*) from local_job").fetchone()[0] == 0
+        assert db.execute("select count(*) from local_outbox").fetchone()[0] == 0
