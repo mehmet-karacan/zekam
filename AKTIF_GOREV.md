@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.77 15 Ekim 2026 Evolution metadata stream kapisi
+
+Evolution package manifest, scope transition journal ve resume admission baglari
+bounded 1 MiB regular-file stream kullanir. Link/reparse, UTF-8, growth veya
+oversized metadata typed ValidationFailed ile durur; package/source authority
+digest ve tek-kayit journal kontrolleri korunur.
+
+Bu dilim WP-07 recovery ve WP-08 admission kanitlarinda kaynak tuketimi
+boslugunu daraltir; native scheduler/model kabul kaniti bu dilimin disindadir.
+
 ### 10.76 15 Ekim 2026 OpenCode spool owner stream kapisi
 
 OpenCode legacy candidate owner, drain lock ve event spool belgeleri 256 KiB

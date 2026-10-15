@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 from collections.abc import Mapping
 from dataclasses import asdict
@@ -35,6 +36,30 @@ PREVIOUS_GIT_BLOB: Final = "5f5db911e785005840547313bc4d91bb53339dd9"
 TRANSITION_KEY: Final = "scope-transition:2c4029e9:9de9fc54"
 _TASK_EVENT_LIMIT: Final = 16
 _TASK_EVENT_OUTPUT_LIMIT: Final = 128 * 1024
+MAX_EVOLUTION_METADATA_BYTES: Final = 1 * 1024 * 1024
+
+
+def _read_evolution_text(path: Path, *, label: str) -> str:
+    try:
+        metadata = path.lstat()
+        is_reparse = bool(
+            int(getattr(metadata, "st_file_attributes", 0))
+            & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+        )
+        if stat.S_ISLNK(metadata.st_mode) or is_reparse or not stat.S_ISREG(metadata.st_mode):
+            raise ValidationFailed(f"Evolution {label} regular dosya olmali")
+        if metadata.st_size > MAX_EVOLUTION_METADATA_BYTES:
+            raise ValidationFailed(f"Evolution {label} boyut sinirini asiyor")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_EVOLUTION_METADATA_BYTES + 1)
+    except OSError as exc:
+        raise ValidationFailed(f"Evolution {label} okunamadi") from exc
+    if len(payload) > MAX_EVOLUTION_METADATA_BYTES:
+        raise ValidationFailed(f"Evolution {label} boyut sinirini asiyor")
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed(f"Evolution {label} UTF-8 olmali") from exc
 
 
 def validated_package_manifest(context: ApplicationContext) -> Path:
@@ -44,8 +69,8 @@ def validated_package_manifest(context: ApplicationContext) -> Path:
     if not manifest.is_file() or manifest.is_symlink():
         raise ValidationFailed("Evolution package manifest missing")
     try:
-        stored = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        stored = json.loads(_read_evolution_text(manifest, label="package manifest"))
+    except (ValidationFailed, json.JSONDecodeError) as exc:
         raise ValidationFailed("Evolution package manifest unreadable") from exc
     expected = build_package_manifest(context.core_path / "src" / "zekam").body()
     if stored != expected:
@@ -73,7 +98,7 @@ def _transition_journal(home: Path) -> tuple[str, str, dict[str, Any]] | None:
     path = home / "runtime" / "local-effects" / "scope-transitions" / f"{EVOLUTION_TASK_ID}.jsonl"
     if not path.is_file():
         return None
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = _read_evolution_text(path, label="scope transition journal").splitlines()
     if len(lines) != 1 or "\t" not in lines[0]:
         raise ValidationFailed("Scope transition journal exact tek kayit olmali")
     key, raw = lines[0].split("\t", maxsplit=1)
@@ -739,8 +764,8 @@ def _admission_bindings(
 
     try:
         manifest = validated_package_manifest(context)
-        document = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, ValidationFailed, json.JSONDecodeError):
+        document = json.loads(_read_evolution_text(manifest, label="package manifest"))
+    except (ValidationFailed, json.JSONDecodeError):
         return {}
     implementation = supervisor.get("implementation_digest")
     required = {

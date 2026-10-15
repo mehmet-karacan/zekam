@@ -58,6 +58,20 @@ def test_transition_journal_requires_one_receipt_gated_record(tmp_path: Path) ->
         _transition_journal(tmp_path)
 
 
+def test_transition_journal_reader_rejects_oversized_native_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = (
+        tmp_path / "runtime" / "local-effects" / "scope-transitions" / f"{EVOLUTION_TASK_ID}.jsonl"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"x" * 9)
+    monkeypatch.setattr(evolution_runtime_module, "MAX_EVOLUTION_METADATA_BYTES", 8)
+
+    with pytest.raises(ValidationFailed, match="boyut sinirini"):
+        _transition_journal(tmp_path)
+
+
 def test_transition_identity_binds_exact_current_authority() -> None:
     rewritten = SimpleNamespace(
         source_digest="sha256:9408eff417b42801580c94988c3ee3b6eef5bc02a2a54e4d979bfe8310854aba",
