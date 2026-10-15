@@ -2408,6 +2408,17 @@ digest'i degismedi. Graph eligibility disinda birakilan `node_modules` ve
 Maven `target` agaclari kaynak metadata politikasindan ayridir; kaynak kokleri
 degistirilmedi.
 
+### 10.94 15 Ekim 2026 gercek hedef Maven baseline bulgusu
+
+`C:\innova\projeler\ai-test-engineering\java-support` icin kaynak degisikligi
+yapmadan once offline `mvn -o -B clean test` kosuldu. Taze derleme sonrasi 16 testten
+15'i gecti, `JavaMetadataScannerCoverageTest.recordKindRaporlanir` testi beklenen
+1 record sembolune karsi 0 dondu ve Maven cikis kodu 1 ile sonlandi. Static POM
+incelemesinde JaCoCo eklentisi bulunmadi; bu nedenle coverage basarisi iddia edilmedi.
+Hedef projenin kaynaklari degistirilmedi, sonucu Zekam WP-09 kabulune basari olarak
+tasinmadi. Sonraki kabul icin test-only sinir, gercek hedef sahipligi ve bagimsiz
+verifier kosullari korunmalidir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
