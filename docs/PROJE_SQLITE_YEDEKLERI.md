@@ -30,11 +30,33 @@ ve mode ile dahil edilir; operational config'teki trust pin korunur. Private
 signer key veya credential dizini backup kapsamına eklenmedi. Dosyayi tasimak
 grant, producer enrollment veya publication izni uretmez.
 
-Bu akis her DB icin tutarli snapshot verir. Birden fazla store arasinda ayni
-anlik transaction veya canli dis provider uzlastirmasi kaniti degildir; bu
-kabul kapilari ayridir. Source census drift kontrolleri devam eder.
+Yeni capture, operational DB'yi once ve diger SQLite store'larini sabit sirada
+`BEGIN IMMEDIATE` ile fence'ler. Busy writer'da bekleyip is sahibini dusurmez;
+fail-closed durur. Operational lease, aktif run/job, unresolved effect/delivery,
+recovery ve pending continuity close mevcut quiescence kuraliyla denetlenir.
+Provider ledger'inda receipt'siz veya unknown effect varsa capture yapilmaz.
+Fence icinde kaynak transaction degistirilmez; connection kapanisinda rollback
+olur. Writer fence penceresi 30 saniyeyle sinirlidir; backup page progress ve
+hash donguleri deadline'i denetler. Canli provider/Maven isi bu pencereye kabul
+edilmez, aktif sahip expiring/recovery yazimiyla degistirilmez.
+
+Tum DB snapshot'lari bu ortak fence penceresinde alinir. Regular dosya
+digest'leri ayni sinirda kaydedilir; DB kilitleri birakildiktan sonra dosya
+kopyasi bu digest'le eslesmek zorundadir. Buyuk regular dosya kopyalari sirasinda
+DB kilidi tutulmaz. Manifest'in opsiyonel versioned `capture_contract` alani
+exact database_paths ve regular_file_digests setlerini tasir; verify bunlari
+entries ile eslestirir. Restore receipt'i `quiescent_cohort_contract` bilgisini
+ayri verir. Eski v1/v2 dosyalarda bu alan yoksa cohort kaniti varsayilmaz.
+
+Bu, Zekam-owned store ve claimed writer siniridir; harici uygulama dosyasi,
+canli provider sonucu veya cihazlar arasi ortak transaction kaniti degildir.
+Source census drift kontrolleri devam eder. Gercek restore/continuity kabul
+ve performans kaniti final asamada halen gereklidir.
 
 Regresyon kodu `tests/e2e/test_cli_backup.py` icinde acik WAL, committed satir,
 verify/restore, opaque CAS bytes, trust dosyasi ve v1 ayrimi icin hazirlandi.
 Testler CALISTIRILMADI; final toplu asamayi bekler. Bu gelistirmede kullanici
 home'u, gercek DB veya backup hedefi acilmadi; gercek restore kabul kaniti yoktur.
+Ek regresyon kaynaklari; butun DB writer fence'lerinin birlikte tutulmasi ve
+sonra birakilmasi, aktif sahibin degismemesi, sinir sonrasi regular file drift
+ve snapshot deadline sonrasi partial hedefin kalmamasi senaryolarini kapsar.

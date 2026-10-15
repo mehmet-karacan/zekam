@@ -9,7 +9,9 @@ import shutil
 import sqlite3
 import stat
 import tempfile
+import time
 from collections.abc import Iterator
+from contextlib import ExitStack
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -27,6 +29,7 @@ from zekam.infrastructure.local_file_security import (
     private_regular,
     restrict_private_tree,
 )
+from zekam.infrastructure.sqlite.operational_schema import _assert_quiescent
 
 LEGACY_BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
 BUNDLE_SCHEMA = "zekam-local-backup-bundle/v2"
@@ -36,6 +39,7 @@ MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_DATABASE_BYTES = 256 * 1024 * 1024
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_SNAPSHOT_WINDOW_SECONDS = 30.0
 
 _DATABASES = (
     "state/operational.db",
@@ -123,10 +127,18 @@ _REQUIRED_DIRECTORIES = frozenset(
 _REQUIRED_FILES = frozenset({"config.yaml", "layout.json"})
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, *, deadline: float | None = None) -> str:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise PolicyViolation("Backup snapshot window exceeded")
     value = hashlib.sha256()
+    size = 0
     with path.open("rb") as stream:
         while chunk := stream.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_FILE_BYTES:
+                raise PolicyViolation("Backup file exceeds bound")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise PolicyViolation("Backup snapshot window exceeded")
             value.update(chunk)
     return value.hexdigest()
 
@@ -231,7 +243,12 @@ def _copy_regular(source: Path, target: Path, mode: int) -> None:
 
 
 def _snapshot_database(
-    source: Path, target: Path, mode: int, *, relative: str | None = None
+    source: Path,
+    target: Path,
+    mode: int,
+    *,
+    relative: str | None = None,
+    deadline: float | None = None,
 ) -> None:
     info = _regular(source)
     if info.st_size > MAX_DATABASE_BYTES:
@@ -240,7 +257,17 @@ def _snapshot_database(
     source_db = sqlite3.connect(f"{source.resolve(strict=True).as_uri()}?mode=ro", uri=True)
     target_db = sqlite3.connect(target)
     try:
-        source_db.backup(target_db)
+        if deadline is not None:
+            target_db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10000)
+
+        def progress(_status: int, _remaining: int, _total: int) -> None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise PolicyViolation("Backup snapshot window exceeded")
+
+        if deadline is None:
+            source_db.backup(target_db)
+        else:
+            source_db.backup(target_db, pages=64, progress=progress, sleep=0.01)
         target_db.commit()
         if target_db.execute("pragma journal_mode=delete").fetchone() != ("delete",):
             raise PolicyViolation("Backup snapshot self-contained DELETE journal ister")
@@ -476,8 +503,76 @@ def _directories(
     return tuple(result)
 
 
+def _capture_cohort(sources: tuple[tuple[str, Path, str], ...], staging: Path) -> dict[str, Any]:
+    """Fence all DB writers, reject live effects, then capture one bounded cohort."""
+    deadline = time.monotonic() + MAX_SNAPSHOT_WINDOW_SECONDS
+    databases = sorted(
+        (row for row in sources if row[2] == "sqlite"),
+        key=lambda row: (row[0] != "state/operational.db", row[0]),
+    )
+    held: dict[str, sqlite3.Connection] = {}
+    try:
+        with ExitStack() as stack:
+            for relative, source, _kind in databases:
+                _regular(source)
+                if time.monotonic() >= deadline:
+                    raise PolicyViolation("Backup snapshot window exceeded")
+                db = sqlite3.connect(
+                    f"{source.resolve(strict=True).as_uri()}?mode=rw",
+                    uri=True,
+                    timeout=0,
+                    isolation_level=None,
+                )
+                stack.callback(db.close)
+                db.execute("pragma busy_timeout=0")
+                db.execute("begin immediate")
+                held[relative] = db
+                if relative == "state/operational.db":
+                    _assert_quiescent(db, require_terminal_close=True)
+                if (
+                    _project_sqlite_path(relative)
+                    and PurePosixPath(relative).name == "provider-ledger.sqlite3"
+                ):
+                    if (
+                        db.execute(
+                            "select 1 from provider_effect_claim c left join provider_effect_receipt r on r.claim_id=c.id "
+                            "where r.id is null or r.failure_category='unknown-effect' limit 1"
+                        ).fetchone()
+                        is not None
+                    ):
+                        raise PolicyViolation("Backup provider effect is active or unresolved")
+            operational = held.get("state/operational.db")
+            if operational is None:
+                raise PolicyViolation("Backup operational cohort source missing")
+            _assert_quiescent(operational, require_terminal_close=True)
+            # No source transaction is changed; closing the fence connections rolls back.
+            files = {
+                relative: _sha256(path, deadline=deadline)
+                for relative, path, kind in sources
+                if kind == "file"
+            }
+            for relative, source, _kind in databases:
+                _snapshot_database(
+                    source,
+                    staging / relative,
+                    _portable_file_mode(_regular(source)),
+                    relative=relative,
+                    deadline=deadline,
+                )
+            if time.monotonic() >= deadline:
+                raise PolicyViolation("Backup snapshot window exceeded")
+    except sqlite3.DatabaseError as exc:
+        raise PolicyViolation("Backup snapshot writer fence unavailable") from exc
+    return {
+        "schema": "zekam-quiescent-sqlite-cohort/v1",
+        "database_paths": sorted(held),
+        "regular_file_digests": files,
+        "grants_authority": False,
+    }
+
+
 def create_bundle(services: LocalCoreServices, home: Path, destination: Path) -> dict[str, Any]:
-    """Capture one consistent, independently verifiable local backup bundle."""
+    """Capture a quiescent DB cohort with file content bound to that boundary."""
 
     if not services.status()["all_ready"]:
         raise PolicyViolation("Local core stores are not ready for backup")
@@ -502,15 +597,17 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
             assert type(mode) is int
             path.mkdir(parents=True, exist_ok=True, mode=mode)
             os.chmod(path, mode)
+        cohort = _capture_cohort(sources, staging)
         for relative, source, kind in sources:
             info = _regular(source)
             mode = _portable_file_mode(info)
             target = staging / relative
             if kind == "sqlite":
-                _snapshot_database(source, target, mode, relative=relative)
                 _validate_bundle_sqlite(relative, target)
             else:
                 _copy_regular(source, target, mode)
+                if _sha256(target) != cohort["regular_file_digests"][relative]:
+                    raise PolicyViolation("Backup regular source changed after snapshot boundary")
             copied = _regular(target)
             total += copied.st_size
             if total > MAX_TOTAL_BYTES:
@@ -532,10 +629,14 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
             "file_count": len(entries),
             "total_bytes": total,
             "grants_authority": False,
+            "capture_contract": cohort,
         }
         document = {**body, "manifest_digest": digest(body)}
         manifest = staging / "MANIFEST.json"
-        manifest.write_bytes(canonical_json(document).encode())
+        manifest_bytes = canonical_json(document).encode()
+        if len(manifest_bytes) > MAX_MANIFEST_BYTES:
+            raise PolicyViolation("Backup manifest size exceeds bound")
+        manifest.write_bytes(manifest_bytes)
         os.chmod(manifest, 0o400)
         _sync_file(manifest)
         for directory in sorted(
@@ -605,7 +706,13 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         "grants_authority",
         "manifest_digest",
     }
-    if set(document) != keys or document.get("schema") not in {BUNDLE_SCHEMA, LEGACY_BUNDLE_SCHEMA}:
+    if (
+        set(document) not in (keys, keys | {"capture_contract"})
+        or not isinstance(document.get("schema"), str)
+        or document.get("schema") not in {BUNDLE_SCHEMA, LEGACY_BUNDLE_SCHEMA}
+        or document.get("grants_authority") is not False
+        or ("capture_contract" in document and document["schema"] != BUNDLE_SCHEMA)
+    ):
         raise ValidationFailed("Backup manifest schema invalid")
     body = dict(document)
     manifest_digest = body.pop("manifest_digest", None)
@@ -680,6 +787,22 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         total += info.st_size
     if not set(names) >= (_REQUIRED_DATABASES | _REQUIRED_FILES):
         raise PolicyViolation("Backup mandatory file set incomplete")
+    if "capture_contract" in document:
+        cohort = document["capture_contract"]
+        expected_databases = sorted(entry["path"] for entry in entries if entry["kind"] == "sqlite")
+        expected_files = {
+            entry["path"]: entry["sha256"] for entry in entries if entry["kind"] == "file"
+        }
+        if (
+            not isinstance(cohort, dict)
+            or set(cohort)
+            != {"schema", "database_paths", "regular_file_digests", "grants_authority"}
+            or cohort["schema"] != "zekam-quiescent-sqlite-cohort/v1"
+            or cohort["grants_authority"] is not False
+            or cohort["database_paths"] != expected_databases
+            or cohort["regular_file_digests"] != expected_files
+        ):
+            raise PolicyViolation("Backup snapshot cohort manifest drift")
     actual_files: list[str] = []
     actual_directory_names: list[str] = []
     for path, is_directory in _walk_tree_entries(bundle):
@@ -753,6 +876,7 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             "status": "restored",
             "bundle_schema": document["schema"],
             "project_sqlite_snapshot_contract": document["schema"] == BUNDLE_SCHEMA,
+            "quiescent_cohort_contract": "capture_contract" in document,
             "grants_authority": False,
         }
     except BaseException:

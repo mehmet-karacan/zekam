@@ -50,6 +50,9 @@ def test_project_sqlite_wal_is_snapshotted_and_legacy_bundle_is_explicit(
     try:
         writer.execute("pragma journal_mode=wal")
         writer.execute("pragma wal_autocheckpoint=0")
+        from zekam.infrastructure.opencode_provider_ledger import SCHEMA
+
+        writer.executescript(SCHEMA)
         writer.execute("create table fixture(value text not null)")
         writer.commit()
         writer.execute("pragma wal_checkpoint(truncate)")
@@ -90,6 +93,7 @@ def test_project_sqlite_wal_is_snapshotted_and_legacy_bundle_is_explicit(
 
         # A v1 wire envelope remains readable; it is never called v2 snapshot evidence.
         document["schema"] = local_backup.LEGACY_BUNDLE_SCHEMA
+        document.pop("capture_contract")
         entry["kind"] = "file"
         document["manifest_digest"] = digest(
             {k: v for k, v in document.items() if k != "manifest_digest"}
@@ -122,6 +126,112 @@ def test_bundle_paths_reject_windows_escape_and_alternate_stream(path: str) -> N
 
     with pytest.raises(ValidationFailed):
         local_backup._safe_relative(path)
+
+
+def test_bundle_fences_all_databases_then_releases_them(
+    home_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prepare(home_root)
+    services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+    databases = [path for _name, path, kind in local_backup._sources(home_root) if kind == "sqlite"]
+    original = local_backup._snapshot_database
+    checked = []
+
+    def snapshot(source, target, mode, **kwargs):
+        if not checked:
+            for database in databases:
+                connection = sqlite3.connect(database, timeout=0, isolation_level=None)
+                try:
+                    with pytest.raises(sqlite3.OperationalError, match="locked"):
+                        connection.execute("begin immediate")
+                finally:
+                    connection.close()
+                checked.append(database)
+        return original(source, target, mode, **kwargs)
+
+    monkeypatch.setattr(local_backup, "_snapshot_database", snapshot)
+    document = local_backup.create_bundle(
+        services, home_root, (tmp_path / "cohort-bundle").resolve()
+    )
+    assert len(checked) == len(databases)
+    assert document["capture_contract"]["grants_authority"] is False
+    for database in databases:
+        connection = sqlite3.connect(database, timeout=0, isolation_level=None)
+        try:
+            connection.execute("begin immediate")
+            connection.rollback()
+        finally:
+            connection.close()
+
+
+def test_bundle_rejects_active_work_without_expiring_its_owner(
+    home_root: Path, tmp_path: Path
+) -> None:
+    from zekam.domain.errors import ZekamError
+
+    _prepare(home_root)
+    services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+    job, _ = services.runtime.enqueue(
+        idempotency_key="backup-active-fixture", payload={"operation": "fixture", "effect": {}}
+    )
+    work = services.runtime.claim_next(
+        owner_id="fixture-owner",
+        owner_pid=os.getpid(),
+        owner_token="fixture-owner-token",
+        lease_seconds=60,
+        supported_operations=("fixture",),
+        job_id=job.id,
+    )
+    assert work is not None
+    before = services.runtime.job_snapshot(job.id)
+    destination = (tmp_path / "active-rejected").resolve()
+    with pytest.raises(ZekamError, match="quiescent"):
+        local_backup.create_bundle(services, home_root, destination)
+    assert services.runtime.job_snapshot(job.id) == before
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".active-rejected.*"))
+
+
+def test_bundle_rejects_regular_file_drift_after_snapshot_boundary(
+    home_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.domain.errors import PolicyViolation
+
+    _prepare(home_root)
+    services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+    original = local_backup._copy_regular
+
+    def mutate_then_copy(source, target, mode):
+        if source == home_root / "config.yaml":
+            source.write_bytes(source.read_bytes() + b"\n# fixture mutation after snapshot\n")
+        return original(source, target, mode)
+
+    monkeypatch.setattr(local_backup, "_copy_regular", mutate_then_copy)
+    destination = (tmp_path / "drift-rejected").resolve()
+    with pytest.raises(PolicyViolation, match="snapshot boundary"):
+        local_backup.create_bundle(services, home_root, destination)
+    assert not destination.exists()
+
+
+def test_bundle_snapshot_window_expiry_leaves_no_partial_target(
+    home_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zekam.domain.errors import PolicyViolation
+
+    _prepare(home_root)
+    services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+    monkeypatch.setattr(local_backup, "MAX_SNAPSHOT_WINDOW_SECONDS", 0.0)
+    destination = (tmp_path / "expired-window").resolve()
+    with pytest.raises(PolicyViolation, match="snapshot window"):
+        local_backup.create_bundle(services, home_root, destination)
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".expired-window.*"))
 
 
 def test_manifest_is_created_and_verified(home_root: Path) -> None:

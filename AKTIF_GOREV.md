@@ -1694,6 +1694,15 @@ V1 okunur ama v2 snapshot kaniti diye sunulmaz. Windows traversal/ADS path
 kapisi eklendi. Regresyon kodu hazir, CALISTIRILMADI; cross-store ve gercek
 restore kabul kapilari acik. `docs/PROJE_SQLITE_YEDEKLERI.md`.
 
+**16 Ekim 2026 — WP-11 quiescent backup cohort:** Operational quiescence,
+sabit sirali tum-DB writer fence ve 30 saniye snapshot penceresi baglandi.
+Provider receipt'siz/unknown effect ve aktif lease/run varsa backup baslamaz;
+sahip dusurulmez. Regular file digest'leri bu sinirda alinip DB kilitleri
+birakildiktan sonraki kopyayla eslestirilir. Versioned capture_contract ve
+restore ayrimi eklenir; eski bundle'a cohort kaniti yakistirilmaz. Race/aktif
+sahip/drift/deadline regresyon kodu hazir, CALISTIRILMADI. Gercek cihaz restore,
+continuity ve performans kabulleri halen acik; WP-11 kapanmadi.
+
 ### WP-12 — Bütünleşik Kullanıcı Kabulü, Paket Ve Yaşayan Mimari
 
 **Bağımlılık/onay:** WP-02..WP-11 tamam veya açık blokajlı; final kapı her zorunlu bağı kapatır.  

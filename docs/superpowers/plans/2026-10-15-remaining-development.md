@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-11 cohort: existing operational quiescence, provider unresolved-effect reddi, bounded tum-DB writer fence ve regular file boundary digest baglandi. Manifest/restore versioned cohort ayrimi tasir; eski bundle kaniti yukseltilmez. Lock release/aktif sahip/drift/deadline regresyon kodu hazir, CALISTIRILMADI. Gercek restore/continuity/performance kabul kapilari acik.
+
 - Gorev 6 WP-11.03: local bundle v2 exact owned proje SQLite dosyalarini online backup/DELETE/integrity/FK yoluna alir. V1 read/restore ayrimi, public trust dosyasi ve portable path siniri eklendi. WAL/restore/opaque CAS/v1 regresyon kodu hazir, CALISTIRILMADI. Cross-store snapshot ve gercek restore kabulu acik.
 
 - Gorev 5 WP-10.03 lifecycle CLI: scoped current-head/review plan, strict plan apply, exact skill.activate-v2 claim/receipt, rollback/deprecation ve idempotent replay baglandi. Mevcut export projection kapisi korunur. Plan parity, foreign scope ve real local worker CLI replay regresyon kodu hazir, CALISTIRILMADI. Gercek evaluation/review producer ve native invocation kabulu acik.
