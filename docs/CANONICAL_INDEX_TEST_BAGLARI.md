@@ -69,5 +69,9 @@ Lease uzun islemler ve son kaynak dogrulamasi boyunca yenilenir. Provider/Maven
 calisirken SQLite write transaction'i acik tutulmaz. Sonuc checkpoint'i guncel
 binding kontroluyle ayni kisa transaction'da yazilir; terminal receipt ayrica
 kaydedilir. Bu iki kayit arasindaki kesinti basari iddiasi uretmez ve recovery'ye
-gider. Replay bozuk/eksik CAS veya uyusmayan receipt'i kabul etmez. Checkpoint ve
-resume projection'lari grant veya lease devretmez.
+gider. Ilk sonuc ve replay ayni kanit zincirini yeniden okur: tek effect'in
+fingerprint'i ve completed receipt'i, ayni Run/job icin tekil checkpoint,
+checkpoint payload digest'i, binding/input/source/claim kimlikleri ve artifact
+metadata'si CAS byte boyutu ve digest'iyle eslesmelidir. Eksik, fazla, 16 KiB
+uzeri veya uyusmayan checkpoint basari sayilmaz; bozuk kanit yeni effect
+baslatmaz. Checkpoint ve resume projection'lari grant veya lease devretmez.

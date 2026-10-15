@@ -342,6 +342,52 @@ class SQLiteLocalRuntimeStore:
         finally:
             connection.close()
 
+    def job_completion_checkpoint(self, job_id: str, *, run_id: str) -> dict[str, Any]:
+        """Read the unique bounded checkpoint and artifact for an exact job.
+
+        This query never acquires a write transaction. Missing, duplicated or
+        oversized proof is an integrity failure, not a successful completion.
+        """
+
+        selected = _required(job_id, "Job id")
+        run = _required(run_id, "Run id")
+        connection = self._connect_readonly()
+        try:
+            connection.execute("begin")
+            self._require_binding_schema(connection)
+            rows = connection.execute(
+                "select c.id,c.run_id,c.source_snapshot_id,c.checkpoint_digest,"
+                " length(cast(c.payload_json as blob)) payload_size,"
+                " case when length(cast(c.payload_json as blob))<=16384"
+                " then c.payload_json end payload_json,"
+                " a.digest artifact_digest,a.media_type,a.size_bytes,a.classification"
+                " from checkpoint c left join artifact_ref a"
+                " on a.digest=case when json_valid(c.payload_json)"
+                " and length(cast(c.payload_json as blob))<=16384"
+                " then json_extract(c.payload_json,'$.result_digest') end"
+                " where c.run_id=? and case when json_valid(c.payload_json)"
+                " then json_extract(c.payload_json,'$.job_id') end=? limit 2",
+                (run, selected),
+            ).fetchall()
+            if len(rows) != 1:
+                raise PolicyViolation("Canonical job completion requires one exact checkpoint")
+            row = rows[0]
+            if row["payload_size"] > 16384:
+                raise PolicyViolation("Canonical job completion checkpoint exceeds size limit")
+            return {
+                "checkpoint_id": str(row["id"]),
+                "run_id": str(row["run_id"]),
+                "source_snapshot_id": row["source_snapshot_id"],
+                "checkpoint_digest": str(row["checkpoint_digest"]),
+                "payload": json.loads(str(row["payload_json"])),
+                "artifact_digest": row["artifact_digest"],
+                "media_type": row["media_type"],
+                "size_bytes": row["size_bytes"],
+                "classification": row["classification"],
+            }
+        finally:
+            connection.close()
+
     def recovery_cases(self, *, open_only: bool = True) -> tuple[LocalRecoveryCase, ...]:
         if not isinstance(open_only, bool):
             raise ValidationFailed("Recovery open_only bool olmali")

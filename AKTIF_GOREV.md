@@ -1264,6 +1264,23 @@ kabulleri halen aciktir. Mevcut kullanici
 DB'sine migration uygulanmadi. Kullanim/contract belgesi:
 `docs/CANONICAL_INDEX_TEST_BAGLARI.md`.
 
+**15 Ekim 2026 - WP-07.04 canonical tamamlanma kanit zinciri:** Ilk sonuc
+ve historical replay artik ayni salt-okunur readback ile effect fingerprint,
+completed receipt, tekil Run/job checkpoint'i, exact binding/input/claim/source
+alanlari, checkpoint digest'i, artifact metadata ve CAS byte boyutunu dogrular.
+Eksik, uyusmayan, duplicate veya 16 KiB uzeri checkpoint reddedilir; tamamlanmis
+job yeniden dispatch edilmez ve reddetme operational durumu degistirmez.
+Buyuk ikinci checkpoint uniqueness kontrolunden gizlenmez; Python'a payload
+tasima boyutu sinirlidir. Schema/migration degismedi.
+
+Gelistirme sonrasi final canonical/binding/CLI grubu **65 passed**; gercek Maven
+canonical measure + CAS replay ve local runtime/service grubu **77 passed**.
+Gruplar ortusen testler icerebilir. Bagimsiz kaynak incelemesindeki oversized
+duplicate bulgusu duzeltildi ve regresyonla kapsandi. Canli model/provider
+cagrisi yapilmadi. Bu dilim kanit readback'ini tamamlar; WP-07.04'un tum yeni
+istemci/grant devam kabulleri ve WP-07'nin process-kill/race/recovery kabulleri
+acik kalir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

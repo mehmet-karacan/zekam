@@ -49,13 +49,54 @@ def _completed_result(runtime, objects, snapshot, binding, operation, input_dige
         raise PolicyViolation("Canonical job replay payload drift")
     effects = snapshot["effects"]
     if (
-        len(effects) != 1
+        snapshot["attempt_count"] != 1
+        or snapshot["max_attempts"] != 1
+        or len(effects) != 1
         or effects[0]["operation"] != operation
+        or effects[0]["effect_digest"]
+        != digest(
+            {
+                "operation": operation,
+                "binding": binding.binding_digest,
+                "input": input_digest,
+            }
+        )
         or effects[0]["receipt_status"] != "completed"
         or effects[0]["evidence_digest"] != snapshot["terminal_evidence_digest"]
     ):
         raise PolicyViolation("Canonical job replay terminal receipt mismatch")
-    result = json.loads(objects.get(snapshot["terminal_evidence_digest"]).decode("utf-8"))
+    proof = runtime.job_completion_checkpoint(snapshot["job_id"], run_id=binding.run_id)
+    expected_checkpoint = {
+        "schema": "zekam-canonical-job-checkpoint/v1",
+        "job_id": snapshot["job_id"],
+        "claim_id": effects[0]["claim_id"],
+        "operation": operation,
+        "input_digest": input_digest,
+        "binding_digest": binding.binding_digest,
+        "result_digest": snapshot["terminal_evidence_digest"],
+        "grants_authority": False,
+    }
+    payload = proof["payload"]
+    if (
+        not isinstance(payload, dict)
+        or payload.get("grants_authority") is not False
+        or payload != expected_checkpoint
+        or digest(payload) != proof["checkpoint_digest"]
+        or proof["run_id"] != binding.run_id
+        or proof["source_snapshot_id"] != binding.source_snapshot_id
+    ):
+        raise PolicyViolation("Canonical completion checkpoint proof drift")
+    if (
+        proof["artifact_digest"] != snapshot["terminal_evidence_digest"]
+        or proof["media_type"] != "application/json"
+        or proof["classification"] != "local-private"
+        or type(proof["size_bytes"]) is not int
+    ):
+        raise PolicyViolation("Canonical completion artifact proof missing or drifted")
+    content = objects.get(snapshot["terminal_evidence_digest"])
+    if len(content) != proof["size_bytes"]:
+        raise PolicyViolation("Canonical completion artifact size drift")
+    result = json.loads(content.decode("utf-8"))
     if not isinstance(result, dict):
         raise PolicyViolation("Canonical job CAS result object required")
     return result | {"canonical_job_id": snapshot["job_id"], "canonical_replayed": True}
@@ -226,7 +267,11 @@ def run_canonical_job(
         )
         receipt = runtime.record_receipt(claim, status="completed", evidence_digest=artifact.digest)
         runtime.finish(work, state="completed", evidence_digest=receipt.evidence_digest)
-        return result | {"canonical_job_id": job.id, "canonical_replayed": False}
+        snapshot = runtime.job_snapshot(job.id)
+        if snapshot is None or snapshot["state"] != "completed":
+            raise PolicyViolation("Canonical terminal job readback failed")
+        verified = _completed_result(runtime, objects, snapshot, binding, operation, input_digest)
+        return verified | {"canonical_replayed": False}
     except Exception as exc:
         # An exception may follow a completed publication/process. Never label
         # the external effect as failed or silently repeat it without evidence.

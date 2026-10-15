@@ -515,3 +515,140 @@ def test_canonical_source_plan_uses_execution_modes_module_scope(
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["source_content_digest"]
     assert modules == [expected_modules]
+
+
+def _completion_fixture_with_incomplete_proof(world, defect):
+    import os
+    from uuid import uuid4
+
+    from zekam.domain.canonical import canonical_bytes
+
+    operation = "project.index"
+    input_digest = digest("input")
+    job, _ = world.runtime.enqueue(
+        idempotency_key=subject.canonical_job_key(
+            world.binding.binding_digest, operation, input_digest
+        ),
+        payload={"operation": operation, "input_digest": input_digest},
+        binding=world.binding,
+    )
+    work = world.runtime.claim_next(
+        owner_id="proof-fixture",
+        owner_pid=os.getpid(),
+        owner_token="fixture-owner",
+        lease_seconds=60,
+        supported_operations=(operation,),
+        job_id=job.id,
+    )
+    effect_digest = digest(
+        {"operation": operation, "binding": world.binding.binding_digest, "input": input_digest}
+    )
+    claim, _ = world.runtime.claim_effect(
+        work,
+        operation=operation,
+        effect_digest=digest("wrong-effect") if defect == "effect" else effect_digest,
+        idempotency_key=f"job:{job.id}:canonical-effect",
+    )
+    content = canonical_bytes({"observed": True})
+    objects = LocalContentAddressedStore(world.home / "artifacts" / "sha256")
+    artifact = objects.put(content, media_type="application/json")
+    payload = {
+        "schema": "zekam-canonical-job-checkpoint/v1",
+        "job_id": job.id,
+        "claim_id": claim.id,
+        "operation": operation,
+        "input_digest": input_digest,
+        "binding_digest": world.binding.binding_digest,
+        "result_digest": artifact.digest,
+        "grants_authority": False,
+    }
+    changes = {
+        "claim": ("claim_id", str(uuid4())),
+        "binding": ("binding_digest", digest("other")),
+        "input": ("input_digest", digest("other")),
+        "result": ("result_digest", digest("other")),
+        "operation": ("operation", "test.measure"),
+        "grant": ("grants_authority", True),
+        "schema": ("schema", "other"),
+        "oversized": ("extra", "x" * 17000),
+    }
+    if defect in changes:
+        key, value = changes[defect]
+        payload[key] = value
+    with world.store.unit_of_work() as uow:
+        if defect != "artifact-missing":
+            uow.register_artifact(
+                artifact_digest=artifact.digest,
+                media_type="text/plain" if defect == "artifact-media" else "application/json",
+                size_bytes=len(content) + (1 if defect == "artifact-size" else 0),
+                classification="local-private",
+            )
+        if defect != "checkpoint-missing":
+            run_id = world.binding.run_id
+            if defect == "run":
+                other = uow.create_run(
+                    work_item_id=world.binding.work_item_id,
+                    config_revision_id=world.binding.config_revision_id,
+                    plan_digest=world.binding.plan_digest,
+                    budget={"seconds": 60},
+                    source_snapshot_id=world.binding.source_snapshot_id,
+                )
+                run_id = other.id
+            uow.record_checkpoint(
+                run_id=run_id,
+                sequence=1,
+                checkpoint_digest=digest(payload),
+                payload=payload,
+                source_snapshot_id=world.binding.source_snapshot_id,
+            )
+            if defect in {"duplicate", "oversized-duplicate"}:
+                extra = payload | {
+                    "extra": "x" * 17000 if defect == "oversized-duplicate" else "duplicate"
+                }
+                uow.record_checkpoint(
+                    run_id=run_id,
+                    sequence=2,
+                    checkpoint_digest=digest(extra),
+                    payload=extra,
+                    source_snapshot_id=world.binding.source_snapshot_id,
+                )
+        uow.commit()
+    world.runtime.record_receipt(claim, status="completed", evidence_digest=artifact.digest)
+    world.runtime.finish(work, state="completed", evidence_digest=artifact.digest)
+    return job.id
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "checkpoint-missing",
+        "artifact-missing",
+        "artifact-size",
+        "artifact-media",
+        "claim",
+        "binding",
+        "input",
+        "result",
+        "operation",
+        "grant",
+        "schema",
+        "duplicate",
+        "oversized-duplicate",
+        "oversized",
+        "run",
+        "effect",
+    ],
+)
+def test_replay_rejects_incomplete_or_mismatched_completion_proof_without_redispatch(world, defect):
+    import sqlite3
+
+    from zekam.infrastructure.sqlite.operational_backup import _logical_rows_digest
+
+    job_id = _completion_fixture_with_incomplete_proof(world, defect)
+    with sqlite3.connect(world.database) as connection:
+        before = _logical_rows_digest(connection)
+    with pytest.raises(PolicyViolation):
+        run(world, lambda cancellation: pytest.fail("Invalid proof cannot redispatch"))
+    assert world.runtime.job_snapshot(job_id)["state"] == "completed"
+    with sqlite3.connect(world.database) as connection:
+        assert _logical_rows_digest(connection) == before
