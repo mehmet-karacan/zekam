@@ -23,3 +23,10 @@ aynı SQLite transaction sözleşmelerinden gelir; CLI bunları uydurmaz.
 orphan/expired lease ve belirsiz outbox kayıtlarını kanonik recovery kurallarıyla
 uzlaştırır. Ham payload, owner token veya secret yazdırılmaz. Süreç yeniden
 başlatıldığında tüm durum aynı yerel veritabanından yeniden okunur.
+
+Effect veya outbox publisher uzun surdugunde servis, SQLite write transaction'i
+acmadan claim lease'ini ayri baglantidan yeniler. Yenileme ayni owner/fencing
+tuple'ini zorunlu tutar; heartbeat kaybi sonucu basari/teslim iddiasi uretilmez,
+etki bilinmeyen receipt ve recovery-required yoluna gider. Outbox heartbeat'i
+expiry alanini dondurur, fencing sayacini degistirmez ve eski claim replay'ini
+reddeder.

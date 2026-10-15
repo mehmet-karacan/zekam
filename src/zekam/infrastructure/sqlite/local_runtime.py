@@ -1704,6 +1704,83 @@ class SQLiteLocalRuntimeStore:
         finally:
             connection.close()
 
+    def heartbeat_outbox(
+        self,
+        claim: LocalOutboxClaim,
+        *,
+        lease_seconds: int,
+        now: str | None = None,
+    ) -> LocalOutboxClaim:
+        if not isinstance(claim, LocalOutboxClaim) or not isinstance(
+            claim.event, LocalOutboxEvent
+        ):
+            raise ValidationFailed("Outbox heartbeat typed claim ister")
+        _bounded_int(lease_seconds, "Outbox lease", minimum=1, maximum=3600)
+        moment = _moment(now)
+        connection = self._connect()
+        try:
+            connection.execute("begin immediate")
+            stored = connection.execute(
+                "select o.*,d.state,d.claim_id,d.owner_id,d.owner_pid,d.owner_token,"
+                "d.fencing_counter,d.expires_at from local_outbox o"
+                " join local_outbox_delivery d on d.outbox_id=o.id where o.id=?",
+                (claim.event.id,),
+            ).fetchone()
+            if (
+                stored is None
+                or claim.event.state != "claimed"
+                or stored["state"] != "claimed"
+                or stored["claim_id"] != claim.claim_id
+                or stored["owner_id"] != claim.owner_id
+                or int(stored["owner_pid"]) != claim.owner_pid
+                or stored["owner_token"] != claim.owner_token
+                or int(stored["fencing_counter"]) != claim.fencing_token
+                or stored["payload_digest"] != claim.event.payload_digest
+                or stored["event_kind"] != claim.event.event_kind
+                or stored["job_id"] != claim.event.job_id
+                or stored["idempotency_key"] != claim.event.idempotency_key
+                or stored["expires_at"] != claim.expires_at
+            ):
+                raise ConcurrencyConflict("Outbox heartbeat exact claim/fence drift")
+            if _moment(stored["expires_at"]) <= moment:
+                raise ConcurrencyConflict("Outbox heartbeat expired claim")
+            expires = moment + dt.timedelta(seconds=lease_seconds)
+            updated = connection.execute(
+                "update local_outbox_delivery set expires_at=?,updated_at=?"
+                " where outbox_id=? and state='claimed' and claim_id=?"
+                " and fencing_counter=?",
+                (
+                    _text(expires),
+                    _text(moment),
+                    claim.event.id,
+                    claim.claim_id,
+                    claim.fencing_token,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ConcurrencyConflict("Outbox heartbeat claim kaybi")
+            event_row = connection.execute(
+                "select o.*,d.state from local_outbox o join local_outbox_delivery d"
+                " on d.outbox_id=o.id where o.id=?",
+                (claim.event.id,),
+            ).fetchone()
+            event = _outbox(event_row)
+            connection.commit()
+            return LocalOutboxClaim(
+                event,
+                claim.claim_id,
+                claim.owner_id,
+                claim.owner_pid,
+                claim.owner_token,
+                claim.fencing_token,
+                _text(expires),
+            )
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def record_outbox_receipt(
         self,
         claim: LocalOutboxClaim,

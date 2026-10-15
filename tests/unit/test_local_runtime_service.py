@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -123,6 +124,59 @@ def test_effect_executor_runs_without_database_write_lock(tmp_path: Path) -> Non
     assert service.run_worker_once(owner_id="worker", owner_pid=1, owner_token="one") is not None
     assert probe_errors == []
     assert write_probe == ["unlocked"]
+
+
+def test_long_effect_renews_fenced_lease_before_terminal_receipt(tmp_path: Path) -> None:
+    store = SQLiteLocalRuntimeStore(tmp_path / "operational.db")
+    store.enqueue(
+        idempotency_key="long-effect",
+        payload={"operation": "test/v1", "effect": {"value": 1}},
+    )
+
+    def execute(_request: LocalEffectRequest) -> LocalEffectResult:
+        time.sleep(1.25)
+        return LocalEffectResult("completed", digest("long-effect"))
+
+    service = LocalRuntimeService(
+        store,
+        effect_executor=cast(Any, execute),
+        outbox_publisher=lambda _claim: LocalDeliveryResult("delivered", digest("ok")),
+    )
+    work = service.run_worker_once(
+        owner_id="long-worker",
+        owner_pid=1,
+        owner_token="long-token",
+        lease_seconds=1,
+    )
+
+    assert work is not None
+    assert store.status().running_jobs == 0
+    assert store.status().recovery_jobs == 0
+
+
+def test_long_outbox_delivery_renews_fenced_claim_before_receipt(tmp_path: Path) -> None:
+    store = SQLiteLocalRuntimeStore(tmp_path / "operational.db")
+    store.enqueue(idempotency_key="long-delivery", payload={})
+
+    def publish(_claim) -> LocalDeliveryResult:  # type: ignore[no-untyped-def]
+        time.sleep(1.25)
+        return LocalDeliveryResult("delivered", digest("long-delivery"))
+
+    service = LocalRuntimeService(
+        store,
+        effect_executor=lambda _request: LocalEffectResult("completed", digest("unused")),
+        outbox_publisher=publish,
+    )
+    claim = service.publish_outbox_once(
+        owner_id="long-consumer",
+        owner_pid=1,
+        owner_token="long-consumer-token",
+        lease_seconds=1,
+    )
+
+    assert claim is not None
+    assert store.status().claimed_outbox == 0
+    assert store.status().recovery_outbox == 0
 
 
 def test_worker_claims_only_the_executor_operation_allowlist(tmp_path: Path) -> None:

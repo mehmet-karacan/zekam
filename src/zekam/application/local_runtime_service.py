@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -18,6 +19,55 @@ from zekam.application.local_runtime import (
 )
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
+
+_MAX_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+
+def _heartbeat_interval(lease_seconds: int) -> float:
+    return max(0.1, min(_MAX_HEARTBEAT_INTERVAL_SECONDS, lease_seconds / 3))
+
+
+class _LeaseKeeper:
+    """Renew a local claim on a separate SQLite connection while an effect runs."""
+
+    def __init__(
+        self,
+        renew: Callable[[], object],
+        *,
+        interval_seconds: float,
+        on_renew: Callable[[object], None] | None = None,
+    ) -> None:
+        self._renew = renew
+        self._interval_seconds = interval_seconds
+        self._on_renew = on_renew
+        self._stop = threading.Event()
+        self._error: Exception | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="local-runtime-lease",
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            try:
+                renewed = self._renew()
+                if self._on_renew is not None:
+                    self._on_renew(renewed)
+            except Exception as exc:  # pragma: no cover - surfaced by healthy()
+                self._error = exc
+                return
+
+    def healthy(self) -> bool:
+        return self._error is None and not self._thread.is_alive()
+
+    def stop_and_join(self) -> bool:
+        self._stop.set()
+        self._thread.join(timeout=max(2.0, self._interval_seconds * 2 + 1))
+        return self.healthy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +87,26 @@ class LocalEffectResult:
 class LocalDeliveryResult:
     status: Literal["delivered", "failed", "unknown"]
     evidence_digest: str
+
+
+def _lease_loss_result(
+    *,
+    scope: str,
+    reference: str,
+    previous: LocalEffectResult | LocalDeliveryResult,
+) -> LocalEffectResult | LocalDeliveryResult:
+    return type(previous)(
+        "unknown",
+        digest(
+            {
+                "schema": "zekam-local-runtime-lease-loss/v1",
+                "scope": scope,
+                "reference": reference,
+                "previous_status": previous.status,
+                "previous_evidence_digest": previous.evidence_digest,
+            }
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,10 +316,41 @@ class LocalRuntimeService:
         if not created:
             raise ConcurrencyConflict("Persisted effect claim yeniden calistirilamaz")
         request = LocalEffectRequest(operation.strip(), idempotency_key, effect_payload)
+        keeper = _LeaseKeeper(
+            lambda: self._store.heartbeat(
+                work.lease.id,
+                owner_id=work.lease.owner_id,
+                owner_token=work.lease.owner_token,
+                fencing_token=work.lease.fencing_token,
+                lease_seconds=lease_seconds,
+            ),
+            interval_seconds=_heartbeat_interval(lease_seconds),
+        )
+        keeper.start()
         try:
-            result = self._effect_executor(request)
-        except Exception:
-            result = LocalEffectResult("unknown", digest("effect-executor-exception"))
+            try:
+                result = self._effect_executor(request)
+            except Exception:
+                result = LocalEffectResult("unknown", digest("effect-executor-exception"))
+        finally:
+            lease_healthy = keeper.stop_and_join()
+        if lease_healthy:
+            try:
+                self._store.heartbeat(
+                    work.lease.id,
+                    owner_id=work.lease.owner_id,
+                    owner_token=work.lease.owner_token,
+                    fencing_token=work.lease.fencing_token,
+                    lease_seconds=lease_seconds,
+                )
+            except Exception:
+                lease_healthy = False
+        if not lease_healthy:
+            result = _lease_loss_result(
+                scope="effect",
+                reference=work.job.id,
+                previous=result,
+            )
         self._store.record_receipt(
             claim,
             status=result.status,
@@ -284,10 +385,51 @@ class LocalRuntimeService:
             return None
         if claim.event.event_kind not in self._outbox_dispatcher.supported_kinds:
             raise PolicyViolation("Outbox store unsupported kind claim dondurdu")
+        claim_box = [claim]
+        claim_lock = threading.Lock()
+
+        def current_claim() -> LocalOutboxClaim:
+            with claim_lock:
+                return claim_box[0]
+
+        def update_claim(value: object) -> None:
+            if not isinstance(value, LocalOutboxClaim):
+                raise ValidationFailed("Outbox heartbeat typed claim dondurmeli")
+            with claim_lock:
+                claim_box[0] = value
+
+        keeper = _LeaseKeeper(
+            lambda: self._store.heartbeat_outbox(
+                current_claim(),
+                lease_seconds=lease_seconds,
+            ),
+            interval_seconds=_heartbeat_interval(lease_seconds),
+            on_renew=update_claim,
+        )
+        keeper.start()
         try:
             result = self._outbox_dispatcher(claim)
         except Exception:
             result = LocalDeliveryResult("unknown", digest("outbox-publisher-exception"))
+        finally:
+            lease_healthy = keeper.stop_and_join()
+        if lease_healthy:
+            try:
+                update_claim(
+                    self._store.heartbeat_outbox(
+                        current_claim(),
+                        lease_seconds=lease_seconds,
+                    )
+                )
+            except Exception:
+                lease_healthy = False
+        claim = current_claim()
+        if not lease_healthy:
+            result = _lease_loss_result(
+                scope="outbox",
+                reference=claim.event.id,
+                previous=result,
+            )
         self._store.record_outbox_receipt(
             claim,
             status=result.status,

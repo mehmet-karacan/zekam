@@ -341,6 +341,14 @@ class LocalRuntimeStore(Protocol):
         now: str | None = None,
     ) -> LocalOutboxClaim | None: ...
 
+    def heartbeat_outbox(
+        self,
+        claim: LocalOutboxClaim,
+        *,
+        lease_seconds: int,
+        now: str | None = None,
+    ) -> LocalOutboxClaim: ...
+
     def record_outbox_receipt(
         self,
         claim: LocalOutboxClaim,

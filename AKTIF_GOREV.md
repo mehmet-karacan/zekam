@@ -1304,6 +1304,22 @@ hedef kosusu **2 passed**, mevcut cross-client/canonical/local runtime regresyon
 process-kill/race/recovery kabul matrisi ile bu mevcut test uyumsuzluklari
 sonraki acik islerdir.
 
+**15 Ekim 2026 - WP-07.03 local servis lease keepalive gelistirmesi:**
+`LocalRuntimeService` effect ve outbox publisher calisirken ayri SQLite
+baglantisindan fenced heartbeat keepers baslatir; yenileme araligi lease'in
+ucte biri ve en fazla 15 saniyedir. Outbox claim heartbeat'i expiry'yi uzatir,
+claim/fencing/owner tuple'ini degistirmez; eski expiry tasiyan claim receipt'e
+giremez. Keeper veya son heartbeat kaybolursa sonuc `unknown` kanit digest'iyle
+recovery-required yoluna zorlanir; servis dis yan etkiyi sessizce tekrar etmez.
+Uzun effect ve delivery regresyonlari **79 passed**; outbox/continuity recovery
+regresyon grubu **80 passed, 98 skipped** verdi. Tam paket kosusu **7011 passed,
+1403 skipped, 10 failed** ile tamamlandi. Kosu sirasinda stale generated
+projection/manifest nedeniyle gorunen 3 hata yeniden uretim sonrasi **3 passed**
+olarak kapandi. Kalan 7 hata bu dilimde degistirilmeyen qualification-cache
+cross-process fake provider imzasi (4), RAG public-safe fixture (1), schema v6
+beklentisi (1) ve history redaction (1) testleridir; WP-07.03 process-kill/race/
+recovery kabul matrisi ve tum WP-07 kapanisi halen aciktir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

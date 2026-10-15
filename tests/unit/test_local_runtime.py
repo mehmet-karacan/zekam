@@ -918,6 +918,46 @@ def test_outbox_consumer_claim_is_fenced_and_expiry_becomes_unknown_recovery(
     assert _scalar(path, "select case_kind from local_recovery_case") == ("outbox-delivery-unknown")
 
 
+def test_outbox_heartbeat_rotates_expiry_without_changing_fence(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.enqueue(idempotency_key="heartbeat", payload={})
+    claim = store.claim_outbox(
+        supported_kinds=RUNTIME_OUTBOX_KINDS,
+        owner_id="consumer",
+        owner_pid=1,
+        owner_token="token",
+        lease_seconds=1,
+        now=NOW.isoformat(),
+    )
+    assert claim is not None
+
+    renewed = store.heartbeat_outbox(
+        claim,
+        lease_seconds=30,
+        now=(NOW + dt.timedelta(milliseconds=250)).isoformat(),
+    )
+
+    assert renewed.claim_id == claim.claim_id
+    assert renewed.fencing_token == claim.fencing_token
+    assert renewed.expires_at != claim.expires_at
+    with pytest.raises(ConcurrencyConflict, match="exact claim/fence drift"):
+        store.record_outbox_receipt(
+            claim,
+            status="delivered",
+            evidence_digest=digest("stale"),
+            now=(NOW + dt.timedelta(seconds=1)).isoformat(),
+        )
+    assert (
+        store.record_outbox_receipt(
+            renewed,
+            status="delivered",
+            evidence_digest=digest("renewed"),
+            now=(NOW + dt.timedelta(seconds=1)).isoformat(),
+        ).state
+        == "delivered"
+    )
+
+
 @pytest.mark.parametrize("probe_value", [7, "", " padded "])
 def test_outbox_orphan_probe_invalid_result_rolls_back_without_false_unknown(
     tmp_path: Path,
