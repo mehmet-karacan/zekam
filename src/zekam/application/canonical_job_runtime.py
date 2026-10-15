@@ -138,7 +138,13 @@ def run_canonical_job(
     started jobs require recovery. Enqueued, never-leased work may continue.
     """
 
-    if operation not in {"project.index", "test.measure", "test.run", "continuity.resume"}:
+    if operation not in {
+        "project.index",
+        "test.measure",
+        "test.run",
+        "continuity.resume",
+        "git.push",
+    }:
         raise PolicyViolation("Canonical job operation unsupported")
     parse_digest(input_digest)
     if type(binding) is not LocalJobBinding:

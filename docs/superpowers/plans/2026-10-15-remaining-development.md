@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- 16 Ekim 2026 kullanici devam karari: 15 Ekim 23:39 checkpoint duraklamasi kaldirildi. Gorev 3 typed Git publication service/gercek bounded transport ve canonical git.push claim/receipt baglantisi eklendi. Regresyon kodu hazir, CALISTIRILMADI. Production canonical authorization/evidence ledger adapter ve CLI composition siradaki acik baglantidir; native shell enforcement kabulu acik.
+
 - 15 Ekim 2026 23:39 kullanici checkpoint/duraklama: docs/CHECKPOINT_2026-10-15_233926.md. Son gelistirme cb2918f; publication adapter kaynak incelemesi yapildi, yeni kod yazilmadi. Testler CALISTIRILMADI. Kullanici devam etmeden gelistirmeyi baslatma.
 
 - Baslangic: 578238ef2aea1af614a766039cca3787a2e1e6f0. Kullanici bu sirali gelistirme ve son test duzenini onayladi.

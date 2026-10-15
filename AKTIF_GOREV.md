@@ -484,6 +484,17 @@ kaydedildi. WP-02.02 capability matrisi, WP-02.04 ortak MCP ve WP-02.05 legacy p
 yerel kanitla kapatildi; WP-02.01 ve WP-02.03 native host/transport kosullari nedeniyle acik
 kaldı. WP-02 ve bagimli nihai kabul tamamlanmis sayilmaz.
 
+**16 Ekim 2026 - WP-02.03 typed publication dilimi:** Exact Work/Run/source,
+root/remote/ref/head plani gercek Authorization ve test/independent-verifier
+evidence store arayuzune baglandi. git.push mevcut canonical job lease/claim,
+heartbeat, CAS/checkpoint/terminal receipt ve unknown recovery akisina eklendi;
+ag sirasinda DB write lock tutulmaz. Shell-free bounded gercek Git transportu
+tek exact OID/refspec gonderir ve remote ref'i geri okur. Caller GIT override,
+hook, ext protocol, force/tags/submodule ve URL rewrite/multi-push sinirlari
+aciktir. Production ledger/CLI composition ve native host indirect shell
+enforcement halen acik; bu adapter evrensel shell sandbox'i degildir. Regresyon
+kodu hazirlandi; testler CALISTIRILMADI. Belge: docs/GIT_YAYIN_ADAPTORU.md.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  
