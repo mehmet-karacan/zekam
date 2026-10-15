@@ -45,6 +45,22 @@ REQUIRED_SYNTAX = (
     "{noformat}",
     "\\X",
 )
+
+
+def _read_bounded_bytes(path: Path, *, max_bytes: int = MAX_SOURCE_BYTES) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise OSError("reference regular file required")
+    if path.stat().st_size > max_bytes:
+        raise OSError("reference size limit exceeded")
+    with path.open("rb") as stream:
+        payload = stream.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise OSError("reference grew beyond size limit")
+    return payload
+
+
+def _read_bounded_text(path: Path, *, max_bytes: int = MAX_SOURCE_BYTES) -> str:
+    return _read_bounded_bytes(path, max_bytes=max_bytes).decode("utf-8", errors="strict")
 REFERENCE = Path(__file__).resolve().parents[1] / "references" / "JIRA_FORMAT_REFERENCE.md"
 _META_BOUNDARY = re.compile(r"\A---\n(?P<meta>.*?)\n---\n", re.DOTALL)
 _BASELINE = re.compile(
@@ -319,7 +335,7 @@ def validate_reference(document: str) -> dict[str, str | None]:
 
 def _atomic_write(path: Path, document: str) -> None:
     validate_reference(document)
-    previous = path.read_bytes() if path.exists() else None
+    previous = _read_bounded_bytes(path) if path.exists() else None
     descriptor, temporary = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
@@ -329,7 +345,7 @@ def _atomic_write(path: Path, document: str) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        if path.read_text(encoding="utf-8") != document:
+        if _read_bounded_text(path) != document:
             if previous is not None:
                 restore_descriptor, restore_temporary = tempfile.mkstemp(
                     prefix=f".{path.name}.", suffix=".restore", dir=path.parent
@@ -356,7 +372,7 @@ def refresh(
     force: bool = False,
     fetcher: Callable[[dict[str, str | None]], FetchResult] = fetch_source,
 ) -> dict[str, object]:
-    document = path.read_text(encoding="utf-8")
+    document = _read_bounded_text(path)
     metadata = validate_reference(document)
     required, reason = should_refresh(metadata, now, force=force)
     if not required:
@@ -469,7 +485,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--reference", type=Path, default=REFERENCE)
     args = parser.parse_args()
-    document = args.reference.read_text(encoding="utf-8")
+    document = _read_bounded_text(args.reference)
     try:
         metadata = validate_reference(document)
     except (ValueError, json.JSONDecodeError) as exc:

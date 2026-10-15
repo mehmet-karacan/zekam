@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.sandbox_delivery import default_policy
 from zekam.domain.commit_policy import PushRequest, check_commit_message, evaluate_push
 from zekam.domain.errors import ZekamError
@@ -23,6 +24,7 @@ from zekam.interfaces.cli.session import EXIT_POLICY_VIOLATION, fail_from
 sandbox_app = typer.Typer(name="sandbox", help="Sandbox politika islemleri", no_args_is_help=True)
 git_app = typer.Typer(name="git", help="Commit ve push kapisi", no_args_is_help=True)
 console = Console()
+MAX_COMMIT_MESSAGE_BYTES = 64 * 1024
 
 
 @sandbox_app.command("policy")
@@ -60,9 +62,13 @@ def commit_check_command(
     as_json: Annotated[bool, typer.Option("--json", help="JSON cikti")] = False,
 ) -> None:
     """Commit mesajini politikaya gore dogrular. Hook olarak kullanilabilir."""
-    message = (
-        message_file.read_text(encoding="utf-8") if message_file is not None else sys.stdin.read()
-    )
+    if message_file is not None:
+        try:
+            message = read_bounded_text(message_file, max_bytes=MAX_COMMIT_MESSAGE_BYTES)
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise fail_from(ZekamError("Commit mesaji dosyasi bounded okunamadi")) from exc
+    else:
+        message = sys.stdin.read()
     check = check_commit_message(message)
     if as_json:
         console.print_json(json.dumps(check.as_dict(), ensure_ascii=False))

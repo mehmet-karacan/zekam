@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.home import HomeLayout
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import digest, parse_digest
@@ -122,10 +123,14 @@ def materialize_research_report(
     project_root = layout.ensure_project(project_id)
     target = project_root / "raporlar" / f"arastirma-{report_id}.md"
     content_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-    if target.is_file() and target.read_bytes() == payload:
-        return ResearchReportProjection(
-            target, str(document["report_digest"]), content_digest, False
-        )
+    if target.is_file():
+        try:
+            if read_bounded_bytes(target, max_bytes=len(payload)) == payload:
+                return ResearchReportProjection(
+                    target, str(document["report_digest"]), content_digest, False
+                )
+        except OSError:
+            pass
     handle, temporary_name = tempfile.mkstemp(dir=target.parent, prefix=".tmp-", suffix=".part")
     temporary = Path(temporary_name)
     try:

@@ -32,6 +32,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.application.object_store import ObjectInfo
 from zekam.domain.canonical import DIGEST_PREFIX, parse_digest
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
@@ -46,6 +47,8 @@ CONTENT_SUFFIX = ".bin"
 METADATA_SUFFIX = ".json"
 MAX_OBJECTS = 100_000
 MAX_DIRECTORY_ENTRIES = 100_000
+MAX_CAS_OBJECT_BYTES = 256 * 1024 * 1024
+MAX_CAS_METADATA_BYTES = 64 * 1024
 
 
 class IntegrityError(ValidationFailed):
@@ -130,7 +133,11 @@ class LocalContentAddressedStore:
         metadata: dict[str, str] | None = None,
     ) -> ObjectInfo:
         """Dosya icerigini saklar."""
-        return self.put(source.read_bytes(), media_type=media_type, metadata=metadata)
+        try:
+            payload = read_bounded_bytes(source, max_bytes=MAX_CAS_OBJECT_BYTES)
+        except OSError as exc:
+            raise PolicyViolation("CAS kaynak dosyasi bounded regular olmali") from exc
+        return self.put(payload, media_type=media_type, metadata=metadata)
 
     # -- okuma -------------------------------------------------------------------
 
@@ -139,7 +146,10 @@ class LocalContentAddressedStore:
         content_path, _ = self._paths(digest)
         if not content_path.is_file():
             raise NotFound("Nesne bulunamadi")
-        payload = content_path.read_bytes()
+        try:
+            payload = read_bounded_bytes(content_path, max_bytes=MAX_CAS_OBJECT_BYTES)
+        except OSError as exc:
+            raise IntegrityError("Depodaki icerik bounded regular dosya olmali") from exc
         actual = DIGEST_PREFIX + hashlib.sha256(payload).hexdigest()
         if actual != digest:
             raise IntegrityError("Depodaki icerik beklenen digest ile uyusmuyor")
@@ -151,7 +161,12 @@ class LocalContentAddressedStore:
         if not content_path.is_file():
             raise NotFound("Nesne bulunamadi")
         if metadata_path.is_file():
-            document = json.loads(metadata_path.read_text(encoding="utf-8"))
+            try:
+                document = json.loads(
+                    read_bounded_text(metadata_path, max_bytes=MAX_CAS_METADATA_BYTES)
+                )
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise IntegrityError("CAS metadata bounded JSON olmali") from exc
             return ObjectInfo(
                 digest=document["digest"],
                 size_bytes=int(document["size_bytes"]),

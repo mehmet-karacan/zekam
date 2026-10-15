@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.operational_store import OperationalBackupReceipt
 from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.local_file_security import (
@@ -459,7 +460,10 @@ class SQLiteOperationalBackup:
             if not owned_regular(destination):
                 raise ConfigurationError("SQLite backup publication identity unsafe")
             if (
-                _serialized_digest(destination.read_bytes(), expected_version=expected_version)
+                _serialized_digest(
+                    read_bounded_bytes(destination, max_bytes=_MAX_SNAPSHOT_BYTES),
+                    expected_version=expected_version,
+                )
                 != target_digest
             ):
                 raise ConfigurationError("SQLite backup published logical drift")

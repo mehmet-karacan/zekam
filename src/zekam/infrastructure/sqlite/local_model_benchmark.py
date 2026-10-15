@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, final
 from uuid import UUID, uuid5
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import (
     canonical_json,
     digest,
@@ -972,7 +973,9 @@ class SQLiteLocalBenchmarkLab:
         value = digest_of_bytes(payload)
         target = self.artifact_root / value.removeprefix("sha256:")
         if target.exists():
-            if not private_regular(target) or target.read_bytes() != payload:
+            if not private_regular(target) or read_bounded_bytes(
+                target, max_bytes=MAX_ARTIFACT_BYTES
+            ) != payload:
                 raise ConcurrencyConflict("Local benchmark artifact overwrite drift")
         else:
             descriptor = os.open(

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.loop_change_set import (
@@ -148,7 +149,10 @@ class GitLoopPatchAdapter:
             return None
         if not target.is_file():
             raise PolicyViolation("Loop-owned path normal dosya olmali")
-        return target.read_bytes()
+        try:
+            return read_bounded_bytes(target, max_bytes=4 * 1024 * 1024)
+        except OSError as exc:
+            raise PolicyViolation("Loop-owned path bounded regular olmali") from exc
 
     def _dirty_paths(self) -> tuple[str, ...]:
         tracked = run_read_only(self.source_root, "diff", "--name-only", "-z", "HEAD", "--").split(

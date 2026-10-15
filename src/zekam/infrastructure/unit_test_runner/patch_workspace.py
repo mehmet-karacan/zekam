@@ -17,7 +17,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.unit_test_patch import (
+    MAX_FILE_BYTES,
     AppliedFile,
     AppliedPatch,
     PreimageMismatch,
@@ -36,7 +38,10 @@ def _current_digest(path: Path) -> str | None:
         return None
     if is_link_or_junction(path) or not path.is_file():
         raise PolicyViolation("Hedef dosya degil ya da baglanti")
-    return digest_of_bytes(path.read_bytes())
+    try:
+        return digest_of_bytes(read_bounded_bytes(path, max_bytes=MAX_FILE_BYTES))
+    except OSError as exc:
+        raise PolicyViolation("Hedef dosya bounded regular olmali") from exc
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -66,7 +71,7 @@ class FileSystemTestPatchWorkspace:
         for path in paths:
             target = resolve_inside(self.root, path)
             if _current_digest(target) is not None:
-                result[path] = target.read_bytes()
+                result[path] = read_bounded_bytes(target, max_bytes=MAX_FILE_BYTES)
         return result
 
     def _revalidate_real_path(
@@ -103,7 +108,11 @@ class FileSystemTestPatchWorkspace:
             current = _current_digest(targets[change.path])
             if current != change.preimage_digest:
                 raise PreimageMismatch(change.path)
-            originals[change.path] = None if current is None else targets[change.path].read_bytes()
+            originals[change.path] = (
+                None
+                if current is None
+                else read_bounded_bytes(targets[change.path], max_bytes=MAX_FILE_BYTES)
+            )
         applied: list[AppliedFile] = []
         try:
             for change in sorted(patch.files, key=lambda f: f.path):

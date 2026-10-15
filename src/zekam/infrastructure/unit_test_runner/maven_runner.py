@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.unit_test_measurement import RunStatus
 from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -276,7 +277,9 @@ def collect_outputs(
         exec_path = resolve_inside(root, jacoco_exec_path(module))
         if exec_path.is_file():
             if _fresh(exec_path, start_ns):
-                execs[module] = digest_of_bytes(exec_path.read_bytes())
+                execs[module] = digest_of_bytes(
+                    read_bounded_bytes(exec_path, max_bytes=max_report_bytes)
+                )
             else:
                 stale.append(jacoco_exec_path(module))
         integration = integration or any(
@@ -300,7 +303,9 @@ def class_digests(root: Path, module: str, class_names: tuple[str, ...]) -> dict
                 entry.name.startswith(simple + "$") and entry.suffix == ".class"
             ):
                 key = f"{module}:{package + '/' if package else ''}{entry.name}"
-                result[key] = digest_of_bytes(entry.read_bytes())
+                result[key] = digest_of_bytes(
+                    read_bounded_bytes(entry, max_bytes=64 * 1024 * 1024)
+                )
     return result
 
 

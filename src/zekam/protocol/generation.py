@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.domain.app_server_protocol import (
     PROTOCOL_SCHEMA,
     PROTOCOL_VERSION,
@@ -172,10 +173,16 @@ def generate_protocol_artifacts(output: Path, *, check: bool = False) -> bool:
     """Write resources or return whether an output directory is byte-exact."""
     rendered = render_protocol_artifacts()
     if check:
-        return all(
-            (output / name).is_file() and (output / name).read_text(encoding="utf-8") == content
-            for name, content in rendered.items()
-        )
+        for name, content in rendered.items():
+            path = output / name
+            try:
+                if not path.is_file() or read_bounded_text(
+                    path, max_bytes=max(1, len(content.encode("utf-8")))
+                ) != content:
+                    return False
+            except (OSError, UnicodeError, ValueError):
+                return False
+        return True
     output.mkdir(parents=True, exist_ok=True)
     for name, content in rendered.items():
         (output / name).write_text(content, encoding="utf-8", newline="\n")

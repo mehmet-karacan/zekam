@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+from zekam.application.bounded_file import read_bounded_text
 from zekam.application.embedding_provider import (
     EmbeddingBatch,
     EmbeddingDegradedState,
@@ -34,6 +35,7 @@ from zekam.domain.security import DataClassification
 
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+_MAX_REVISION_BYTES = 4 * 1024
 MAX_REPEAT_DELTA = 1e-6
 MAX_BATCH_DELTA = 5e-4
 MIN_BATCH_COSINE = 0.99999
@@ -221,7 +223,10 @@ def discover_local_bge(
     revision_file = cache_root / "refs" / "main"
     if revision_file.is_symlink() or not revision_file.is_file():
         raise ConfigurationError("Local BGE refs/main regular file olmali")
-    revision = revision_file.read_text(encoding="ascii").strip()
+    try:
+        revision = read_bounded_text(revision_file, max_bytes=_MAX_REVISION_BYTES).strip()
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ConfigurationError("Local BGE revision dosyasi okunamadi") from exc
     if _REVISION.fullmatch(revision) is None:
         raise ConfigurationError("Local BGE revision exact commit olmali")
     snapshot = cache_root / "snapshots" / revision

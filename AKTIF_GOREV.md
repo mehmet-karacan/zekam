@@ -2347,6 +2347,18 @@ oversized veya okunamayan girdiler ilgili kabul/policy hatasiyla fail-closed kal
 Bu dilim WP-01/WP-02/WP-04/WP-08 paket, benchmark ve source discovery kaynak
 tuketimi bosluklarini daraltir; canli model/provider kabul kaniti bu dilimin disindadir.
 
+### 10.89 15 Ekim 2026 altyapi ve test artifact stream kapisi
+
+Local CAS nesne ve metadata, Infinity BGE revision, local benchmark artifact,
+operational backup yayin, research report projection, loop patch ve Maven/JaCoCo
+ciktilari bounded regular-file stream kullanir. Test patch workspace, protocol
+artifact kontrolu, sandbox commit mesaji ve Jira referans yenileme akislari da
+boyut, link/reparse, UTF-8 ve growth kosullarinda fail-closed kalir.
+
+Bu dilim WP-02/WP-04/WP-05/WP-07/WP-08/WP-09/WP-11 altyapi ve test artifact
+kaynak tuketimi bosluklarini daraltir; final test kosusu, canli provider ve native
+host kabul kaniti ayri kapanis kapilari olarak korunur.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
