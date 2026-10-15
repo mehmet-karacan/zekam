@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -110,7 +111,7 @@ def _descriptor(client_id: str, kind: ClientKind) -> ClientDescriptor:
     )
 
 
-def _world(tmp_path: Path):
+def _world(tmp_path: Path, *, source_revision: str = "revision-1"):
     home = HomeLayout(tmp_path / "home").ensure().root
     database = home / "state" / "operational.db"
     bootstrap_v7(database)
@@ -126,7 +127,7 @@ def _world(tmp_path: Path):
         )
         source_snapshot = uow.capture_source_snapshot(
             source_binding_id=source.id,
-            revision_ref="revision-1",
+            revision_ref=source_revision,
             tree_digest=digest("tree"),
             content_digest=digest("content"),
             config_digest=config.config_digest,
@@ -342,4 +343,71 @@ def test_cross_client_resume_rejects_source_drift_before_local_job_admission(
             cwd=tmp_path,
             timeout_seconds=30,
         )
+    assert SQLiteLocalRuntimeStore(world.database, existing_only=True).status().ready_jobs == 0
+
+
+@pytest.mark.parametrize("field", ["project_id", "work_item_id"])
+def test_cross_client_resume_rejects_foreign_canonical_scope_before_job(
+    tmp_path: Path, field: str
+) -> None:
+    world = _world(tmp_path)
+    service, handoff, snapshot, checkpoint, assignment, invocation, adapter = _request_parts(world)
+    assignments = _AssignmentStore()
+    dispatcher = CrossClientResumeDispatchService(service, assignments)
+    with pytest.raises(PolicyViolation, match="canonical project/work binding mismatch"):
+        dispatcher.dispatch_bound(
+            home=world.home,
+            binding=replace(world.binding, **{field: str(uuid4())}),
+            handoff=handoff, snapshot=snapshot, checkpoint=checkpoint,
+            current_source_revision="revision-1",
+            current_source_fingerprint=digest("source"),
+            current_test_fingerprint=digest("test"),
+            current_config_fingerprint=digest("config"),
+            assignment=assignment, invocation=invocation, adapter=adapter,
+            cwd=tmp_path, timeout_seconds=30,
+        )
+    assert adapter.calls == 0
+    assert assignments.events == []
+    assert SQLiteLocalRuntimeStore(world.database, existing_only=True).status().ready_jobs == 0
+
+
+def test_cross_client_resume_requires_canonical_source_snapshot_before_effect(
+    tmp_path: Path,
+) -> None:
+    world = _world(tmp_path)
+    service, handoff, snapshot, checkpoint, assignment, invocation, adapter = _request_parts(world)
+    dispatcher = CrossClientResumeDispatchService(service, _AssignmentStore())
+    with pytest.raises(PolicyViolation, match="requires source snapshot"):
+        dispatcher.dispatch_bound(
+            home=world.home, binding=replace(world.binding, source_snapshot_id=None),
+            handoff=handoff, snapshot=snapshot, checkpoint=checkpoint,
+            current_source_revision="revision-1",
+            current_source_fingerprint=digest("source"),
+            current_test_fingerprint=digest("test"),
+            current_config_fingerprint=digest("config"),
+            assignment=assignment, invocation=invocation, adapter=adapter,
+            cwd=tmp_path, timeout_seconds=30,
+        )
+    assert adapter.calls == 0
+    assert SQLiteLocalRuntimeStore(world.database, existing_only=True).status().ready_jobs == 0
+
+
+def test_cross_client_resume_checks_operational_source_revision_not_only_client(
+    tmp_path: Path,
+) -> None:
+    world = _world(tmp_path, source_revision="revision-2")
+    service, handoff, snapshot, checkpoint, assignment, invocation, adapter = _request_parts(world)
+    dispatcher = CrossClientResumeDispatchService(service, _AssignmentStore())
+    with pytest.raises(PolicyViolation, match="Canonical job source snapshot drift"):
+        dispatcher.dispatch_bound(
+            home=world.home, binding=world.binding,
+            handoff=handoff, snapshot=snapshot, checkpoint=checkpoint,
+            current_source_revision="revision-1",
+            current_source_fingerprint=digest("source"),
+            current_test_fingerprint=digest("test"),
+            current_config_fingerprint=digest("config"),
+            assignment=assignment, invocation=invocation, adapter=adapter,
+            cwd=tmp_path, timeout_seconds=30,
+        )
+    assert adapter.calls == 0
     assert SQLiteLocalRuntimeStore(world.database, existing_only=True).status().ready_jobs == 0

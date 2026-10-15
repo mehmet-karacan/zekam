@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from zekam.application.agent_dispatch import AssignmentStore, CanonicalAgentDispatchService
-from zekam.application.canonical_job_runtime import run_canonical_job
+from zekam.application.canonical_job_runtime import run_canonical_job, validate_bound_source
 from zekam.application.context_continuity_service import ContextContinuityService
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.domain.agents import AgentAssignment, AgentInvocation
@@ -163,6 +163,16 @@ class CrossClientResumeDispatchService:
     ) -> DispatchResult:
         """Re-acquire a canonical local lease before cross-client effect."""
 
+        if type(binding) is not LocalJobBinding:
+            raise PolicyViolation("Cross-client exact canonical binding required")
+        binding.__post_init__()
+        if (
+            binding.project_id != snapshot.project_id
+            or binding.work_item_id != snapshot.work_item_id
+            or binding.project_id != str(assignment.project_id)
+            or binding.work_item_id != str(assignment.work_item_id)
+        ):
+            raise PolicyViolation("Cross-client canonical project/work binding mismatch")
         request = self._request(assignment, invocation, timeout_seconds)
         input_digest = self._input_digest(
             handoff=handoff,
@@ -191,6 +201,7 @@ class CrossClientResumeDispatchService:
                 invocation=invocation,
                 adapter=adapter,
             )
+            validate_bound_source(home, binding, source_revision=current_source_revision)
 
         result = run_canonical_job(
             home,

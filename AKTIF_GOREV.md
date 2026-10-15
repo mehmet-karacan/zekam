@@ -1406,6 +1406,16 @@ bounded has_more bilgisini verir. Kayitsiz proje tum projelere genisletilmez.
 Yogun yabanci proje gecmisi ve kayitsiz proje regresyon kodu hazirlandi; testler
 kullanici talimatiyla tum gelistirmeler sonrasina ertelendi, CALISTIRILMADI.
 
+**15 Ekim 2026 - WP-07 cross-client canonical scope gelistirmesi:** Bound resume
+artik lease/job binding projesini ve Work kimligini hedef assignment/snapshot ile
+eslestirir; farkli canonical ise ait lease altinda dispatch baslamaz. Yeni effect
+oncesinde kaynak revision'i operational source_snapshot/binding uzerinden de
+dogrulanir; yalniz istemci checkpoint beyani yeterli degildir. Exact completed
+replay mevcut receipt/CAS readback yolunda kalir. Foreign scope, missing snapshot
+ve operational source revision drift regresyon kodu hazirlandi; testler CALISTIRILMADI.
+Bu oturumun salt-okunur resume sorgusu ZEKAM_HOME hazir olmadigi icin canonical
+Work durumu okuyamadi; kullanici DB'si hazirlanmadi ve claim/receipt uretilmedi.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  
