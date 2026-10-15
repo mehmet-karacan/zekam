@@ -1320,6 +1320,24 @@ cross-process fake provider imzasi (4), RAG public-safe fixture (1), schema v6
 beklentisi (1) ve history redaction (1) testleridir; WP-07.03 process-kill/race/
 recovery kabul matrisi ve tum WP-07 kapanisi halen aciktir.
 
+**15 Ekim 2026 - WP-07.05 native checkpoint/spool recovery gelistirmesi:**
+Native checkpoint CAS nesnesi artik byte digest'inden sonra typed envelope semantigini
+de dogrular; eksik alan, client/session/source/binding/evidence drift'i exception
+olarak disari sizmaz ve `integrity-error` olarak aciklanir. `close` checkpoint'i
+`session.deleted` yazilmadan kesilirse native resume `interrupted-close` durumunu,
+eksik kapanis olayi ve recovery yonlendirmesiyle verir; bu anlatim Work transition
+ve kapanis basarisi sayilmaz. OpenCode drain lock'unda lease `startedAt` ile OS PID
+incarnation `processStartedAt` ayrildi; PID yeniden kullanimi `pid-reused` recovery
+nedeniyle karantinaya alinabilir, kimlik kaniti yoksa canli sahip fail-closed korunur.
+Hedefli native/spool regresyonu gelistirme sonrasinda **72 passed, 1 skipped** verdi.
+Tam paket kosusu **7018 passed, 1403 skipped, 6 failed** ile tamamlandi. Alti hata
+bu dilimde degistirilmeyen qualification-cache cross-process fake provider imzasi (4),
+RAG public-safe fixture (1), operational schema v6 beklentisi (1) ve project history
+redaction (1) test yuzeylerindedir. Yeni native checkpoint/spool hatasi cikmadi; Ruff,
+diff kontrolu ve paket dogrulamasi temizdir. Process-kill/PID race, out-of-order event,
+tam spool crash ve canonical Work recovery kabul matrisi tamamlanmadigi icin WP-07.05
+ve WP-07 kapanmamistir.
+
 ### WP-08 — Gerçek Alt Ajanlar, Model Seçimi Ve Araştırma
 
 **Bağımlılık/onay:** WP-03/05/07.  

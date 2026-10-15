@@ -138,6 +138,14 @@ gencler veya gecerli owner kimligi bu yoldan tasinmaz. Kuyruk kayitlari icin
 uretir ve kesinti sonraki kosuda stale lock recovery ile devam eder. `healthy=false` yalniz
 quarantine sayisinin sifir oldugu anlamina gelmez; queued kayitlar bitmeden saglikli sayilmaz.
 
+Drain lock sahibi artik lease zamanini (`startedAt`) PID incarnation kanitindan ayirir.
+Windows'ta elde edilebilen `processStartedAt` farkli bir process incarnation gosterirse
+lock `pid-reused` recovery nedeni ile karantinaya alinir; process kimligi olcumlenemiyorsa
+canli PID fail-closed korunur. Native close sirasinda checkpoint yazilip `session.deleted`
+olayi yazilamadan kesinti olursa resume bunu `interrupted-close` ve
+`verification.session.state` ile aciklar; Work gecisi veya kapanis basarisi uretmez.
+CAS digest'i gecse bile checkpoint envelope semantigi bozuksa `integrity-error` doner.
+
 ## 4. Windows dogrulamasi
 
 - `os.O_NOFOLLOW/O_NONBLOCK` Windows'ta yoktur: `continuity._json_document` icin gercek testler

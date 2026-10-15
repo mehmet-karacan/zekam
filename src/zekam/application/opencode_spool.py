@@ -329,6 +329,7 @@ class SpoolDrainReceipt:
     remaining: int
     recovered_stale_lock: bool
     receipt_digest: str
+    recovery_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -338,6 +339,7 @@ class SpoolDrainReceipt:
             "quarantined": self.quarantined,
             "remaining": self.remaining,
             "recovered_stale_lock": self.recovered_stale_lock,
+            "recovery_reason": self.recovery_reason,
             "receipt_digest": self.receipt_digest,
             "contains_prompt": False,
             "contains_response": False,
@@ -738,7 +740,7 @@ def _decode_event_args(document: Any) -> dict[str, str | None]:
     return decoded
 
 
-def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str]:
+def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str, dt.datetime | None]:
     if not lock.is_dir() or _is_link_or_reparse(lock):
         raise ConfigurationError("OpenCode drain lock regular directory olmali")
     try:
@@ -756,7 +758,32 @@ def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str]:
         token = str(UUID(str(document["ownerToken"])))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
-    return pid, expires_at, token
+    # ``startedAt`` is the drain lease timestamp emitted by the native plugin;
+    # it is not a process-incarnation proof.  The optional
+    # ``processStartedAt`` field is the OS-observed PID incarnation marker.
+    started_at: dt.datetime | None = None
+    if "startedAt" in document:
+        try:
+            started_at = dt.datetime.fromisoformat(
+                str(document["startedAt"]).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
+        if started_at.tzinfo is None or started_at.utcoffset() is None:
+            raise ValidationFailed("OpenCode drain lock owner gecersiz")
+    process_started_at: dt.datetime | None = None
+    if "processStartedAt" in document:
+        try:
+            process_started_at = dt.datetime.fromisoformat(
+                str(document["processStartedAt"]).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
+        if process_started_at.tzinfo is None or process_started_at.utcoffset() is None:
+            raise ValidationFailed("OpenCode drain lock owner gecersiz")
+    if pid <= 0 or expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        raise ValidationFailed("OpenCode drain lock owner gecersiz")
+    return pid, expires_at, token, process_started_at
 
 
 def drain_plugin_spool(
@@ -782,33 +809,49 @@ def drain_plugin_spool(
         raise ConfigurationError("OpenCode quarantine link veya reparse point olamaz")
 
     recovered = False
+    recovery_reason: str | None = None
     lock = root / _LOCK_NAME
     if lock.exists():
         try:
-            pid, _expires_at, _ = _lock_owner(lock)
+            pid, _expires_at, _, process_started_at = _lock_owner(lock)
         except ValidationFailed:
             lock.replace(quarantine / f"invalid-drain-lock.{uuid4()}")
+            recovery_reason = "invalid-owner"
         else:
             # A dead owner is recoverable even when its lease expiry is still in
             # the future. Waiting for the full lease after a crashed drain can
             # wedge the spool for minutes; a live owner remains fail-closed.
-            if _process_alive(pid):
+            if _process_is_owner(pid, process_started_at):
                 raise PolicyViolation("OpenCode drain lock halen aktif")
             lock.replace(quarantine / f"stale-drain-lock.{uuid4()}")
+            recovery_reason = (
+                "pid-reused"
+                if process_started_at is not None and _process_alive(pid)
+                else "owner-dead"
+            )
         recovered = True
 
     owner_token = str(uuid4())
     candidate = root / f".drain.candidate.{owner_token}"
     candidate.mkdir()
+    try:
+        process_started_at = _process_started_at(os.getpid())
+    except (OSError, RuntimeError, ValueError):
+        # Incarnation telemetry is diagnostic.  If the host cannot expose it,
+        # retaining the PID-only live-owner guard is safer than inventing one.
+        process_started_at = None
+    owner_document = {
+        "schema": "zekam-opencode-drain-owner/v2",
+        "pid": os.getpid(),
+        "ownerToken": owner_token,
+        "startedAt": observed_at.isoformat(),
+        "expiresAt": (observed_at + dt.timedelta(minutes=10)).isoformat(),
+    }
+    if process_started_at is not None:
+        owner_document["processStartedAt"] = process_started_at.isoformat()
     _atomic_json(
         candidate / "owner.json",
-        {
-            "schema": "zekam-opencode-drain-owner/v2",
-            "pid": os.getpid(),
-            "ownerToken": owner_token,
-            "startedAt": observed_at.isoformat(),
-            "expiresAt": (observed_at + dt.timedelta(minutes=10)).isoformat(),
-        },
+        owner_document,
     )
     candidate.replace(lock)
 
@@ -860,7 +903,7 @@ def drain_plugin_spool(
                 quarantined += 1
     finally:
         try:
-            _, _, current_token = _lock_owner(lock)
+            _, _, current_token, _ = _lock_owner(lock)
             if current_token == owner_token:
                 (lock / "owner.json").unlink()
                 lock.rmdir()
@@ -875,6 +918,7 @@ def drain_plugin_spool(
         "quarantined": quarantined,
         "remaining": remaining,
         "recovered_stale_lock": recovered,
+        "recovery_reason": recovery_reason,
         "contains_prompt": False,
         "contains_response": False,
         "grants_authority": False,
@@ -886,4 +930,5 @@ def drain_plugin_spool(
         remaining,
         recovered,
         digest(body),
+        recovery_reason,
     )

@@ -46,6 +46,38 @@ CHECKPOINT_SCHEMA = "zekam-native-checkpoint/v1"
 RESUME_SCHEMA = "zekam-native-resume/v1"
 RESOURCE_PREFIX = "native-checkpoint/"
 SESSION_PREFIX = "native."
+_CHECKPOINT_KINDS = frozenset({"checkpoint", "close"})
+_CHECKPOINT_KEYS = frozenset(
+    {
+        "schema",
+        "kind",
+        "session",
+        "client",
+        "binding",
+        "source",
+        "evidence",
+        "self_reported",
+        "authority",
+    }
+)
+_CHECKPOINT_SESSION_KEYS = frozenset({"ledger_session_id", "origin"})
+_CHECKPOINT_CLIENT_KEYS = frozenset(
+    {"name", "version", "native_session_id", "model_ref", "provenance"}
+)
+_CHECKPOINT_BINDING_KEYS = frozenset({"project_id", "project_slug", "work"})
+_CHECKPOINT_WORK_KEYS = frozenset(
+    {"work_item_id", "revision", "state", "kind", "evidence_recorded"}
+)
+_CHECKPOINT_SOURCE_KEYS = frozenset(
+    {"revision", "dirty", "dirty_path_count", "worktree_digest", "root_identity_digest"}
+)
+_CHECKPOINT_EVIDENCE_KEYS = frozenset({"ref", "kind", "verified"})
+_CHECKPOINT_SELF_REPORTED_KEYS = frozenset(
+    {"provenance", "verified", "completed", "pending", "next_safe_action"}
+)
+_CHECKPOINT_AUTHORITY_KEYS = frozenset(
+    {"grants_authority", "approval_inherited", "work_transition_verified"}
+)
 
 _CLIENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _IDENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$")
@@ -628,16 +660,181 @@ def _load_checkpoint(home: Path, event: Mapping[str, Any]) -> dict[str, Any]:
         parse_digest(object_digest)
         payload = _objects(home).get(object_digest)
         document = json.loads(payload.decode("utf-8"))
-    except (ZekamError, OSError, ValueError) as exc:
+    except (ZekamError, OSError, UnicodeError, ValueError, TypeError) as exc:
         raise NativeContinuityError("checkpoint-object-missing-or-corrupt") from exc
+    session = document.get("session") if isinstance(document, dict) else None
     if (
         not isinstance(document, dict)
         or document.get("schema") != CHECKPOINT_SCHEMA
         or digest(document) != object_digest
-        or document.get("session", {}).get("ledger_session_id") != event.get("session_id")
+        or not isinstance(session, dict)
+        or session.get("ledger_session_id") != event.get("session_id")
     ):
         raise NativeContinuityError("checkpoint-document-drift")
+    _validate_checkpoint_document(document, event=event)
     return document
+
+
+def _validate_checkpoint_document(document: Mapping[str, Any], *, event: Mapping[str, Any]) -> None:
+    """Validate the typed CAS envelope before resume reads any nested field.
+
+    The object digest proves byte integrity only.  A digest-valid object with a
+    missing or cross-bound field must remain an explainable integrity failure,
+    rather than turning into a ``KeyError`` or an accidental resume authority.
+    """
+
+    if frozenset(document) != _CHECKPOINT_KEYS:
+        raise NativeContinuityError("checkpoint-document-schema-invalid")
+    kind = document.get("kind")
+    if kind not in _CHECKPOINT_KINDS:
+        raise NativeContinuityError("checkpoint-document-schema-invalid")
+
+    session = document.get("session")
+    if (
+        not isinstance(session, dict)
+        or frozenset(session) != _CHECKPOINT_SESSION_KEYS
+        or session.get("ledger_session_id") != event.get("session_id")
+        or session.get("origin") not in {"client-reported", "zekam-generated"}
+    ):
+        raise NativeContinuityError("checkpoint-session-binding-invalid")
+
+    client = document.get("client")
+    if not isinstance(client, dict) or frozenset(client) != _CHECKPOINT_CLIENT_KEYS:
+        raise NativeContinuityError("checkpoint-client-binding-invalid")
+    try:
+        checked_client = NativeClient(
+            str(client.get("name")),
+            None if client.get("version") is None else str(client.get("version")),
+            (
+                None
+                if client.get("native_session_id") is None
+                else str(client.get("native_session_id"))
+            ),
+            None if client.get("model_ref") is None else str(client.get("model_ref")),
+        )
+    except (NativeClientError, TypeError) as exc:
+        raise NativeContinuityError("checkpoint-client-binding-invalid") from exc
+    if (
+        client != checked_client.metadata()
+        or client.get("provenance") != "client-reported"
+        or event.get("agent") not in {None, client.get("name")}
+        or event.get("model_ref") != client.get("model_ref")
+    ):
+        raise NativeContinuityError("checkpoint-client-binding-invalid")
+
+    binding = document.get("binding")
+    if not isinstance(binding, dict) or frozenset(binding) != _CHECKPOINT_BINDING_KEYS:
+        raise NativeContinuityError("checkpoint-binding-invalid")
+    for key in ("project_id", "project_slug"):
+        value = binding.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise NativeContinuityError("checkpoint-binding-invalid")
+    work = binding.get("work")
+    if work is not None:
+        if not isinstance(work, dict) or frozenset(work) != _CHECKPOINT_WORK_KEYS:
+            raise NativeContinuityError("checkpoint-binding-invalid")
+        if (
+            not isinstance(work.get("work_item_id"), str)
+            or not work["work_item_id"].strip()
+            or isinstance(work.get("revision"), bool)
+            or not isinstance(work.get("revision"), int)
+            or work["revision"] < 1
+            or not isinstance(work.get("state"), str)
+            or not isinstance(work.get("kind"), str)
+            or not isinstance(work.get("evidence_recorded"), bool)
+        ):
+            raise NativeContinuityError("checkpoint-binding-invalid")
+
+    source = document.get("source")
+    if not isinstance(source, dict) or frozenset(source) != _CHECKPOINT_SOURCE_KEYS:
+        raise NativeContinuityError("checkpoint-source-invalid")
+    revision = source.get("revision")
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise NativeContinuityError("checkpoint-source-invalid")
+    if (
+        not isinstance(source.get("dirty"), bool)
+        or isinstance(source.get("dirty_path_count"), bool)
+        or not isinstance(source.get("dirty_path_count"), int)
+        or source["dirty_path_count"] < 0
+    ):
+        raise NativeContinuityError("checkpoint-source-invalid")
+    for key in ("worktree_digest", "root_identity_digest"):
+        try:
+            parse_digest(str(source.get(key)))
+        except (ValidationFailed, TypeError) as exc:
+            raise NativeContinuityError("checkpoint-source-invalid") from exc
+
+    evidence = document.get("evidence")
+    if not isinstance(evidence, list) or len(evidence) > _MAX_EVIDENCE:
+        raise NativeContinuityError("checkpoint-evidence-invalid")
+    for item in evidence:
+        if (
+            not isinstance(item, dict)
+            or frozenset(item) != _CHECKPOINT_EVIDENCE_KEYS
+            or not isinstance(item.get("ref"), str)
+            or not item["ref"].strip()
+            or item.get("kind") not in {"object", "unit-test"}
+            or not isinstance(item.get("verified"), dict)
+        ):
+            raise NativeContinuityError("checkpoint-evidence-invalid")
+
+    self_reported = document.get("self_reported")
+    if (
+        not isinstance(self_reported, dict)
+        or frozenset(self_reported) != _CHECKPOINT_SELF_REPORTED_KEYS
+        or self_reported.get("provenance") != "client-self-reported"
+        or self_reported.get("verified") is not False
+        or any(
+            value is not None and not isinstance(value, str)
+            for value in (
+                self_reported.get("completed"),
+                self_reported.get("pending"),
+                self_reported.get("next_safe_action"),
+            )
+        )
+    ):
+        raise NativeContinuityError("checkpoint-self-report-invalid")
+
+    authority = document.get("authority")
+    if (
+        not isinstance(authority, dict)
+        or frozenset(authority) != _CHECKPOINT_AUTHORITY_KEYS
+        or any(authority.get(key) is not False for key in _CHECKPOINT_AUTHORITY_KEYS)
+    ):
+        raise NativeContinuityError("checkpoint-authority-invalid")
+
+
+def _session_checkpoint_verdict(
+    home: Path, *, event: Mapping[str, Any], kind: str
+) -> dict[str, Any]:
+    """Describe the lifecycle boundary around a checkpoint without granting Work authority."""
+
+    try:
+        events = _session_events(home, str(event["session_id"]))
+    except (ZekamError, KeyError, TypeError, ValueError):
+        return {"state": "integrity-error", "reason": "session-event-chain-invalid"}
+    checkpoint_sequence = event.get("sequence")
+    if isinstance(checkpoint_sequence, bool) or not isinstance(checkpoint_sequence, int):
+        return {"state": "integrity-error", "reason": "checkpoint-sequence-invalid"}
+    after = [item for item in events if int(item.get("sequence", 0)) > checkpoint_sequence]
+    deleted = [item for item in after if item.get("event_type") == "session.deleted"]
+    if len(deleted) > 1:
+        return {"state": "integrity-error", "reason": "duplicate-session-close"}
+    if deleted:
+        return {
+            "state": "closed",
+            "close_event_sequence": deleted[0].get("sequence"),
+            "close_event_digest": deleted[0].get("event_digest"),
+        }
+    if kind == "close":
+        return {
+            "state": "interrupted-close",
+            "close_event_sequence": None,
+            "close_event_digest": None,
+        }
+    if after:
+        return {"state": "event-after-checkpoint", "event_count": len(after)}
+    return {"state": "open"}
 
 
 def _source_verdict(recorded: Mapping[str, Any], source_root: Path) -> dict[str, Any]:
@@ -742,6 +939,11 @@ def resume_native_checkpoint(
     source = _source_verdict(document["source"], source_root)
     evidence = _evidence_verdicts(home, list(document["evidence"]))
     self_reported = document["self_reported"]
+    session_verdict = _session_checkpoint_verdict(
+        home,
+        event=event,
+        kind=str(document["kind"]),
+    )
     if binding["state"] == "invalid":
         status = "binding-invalid"
     elif binding["state"] == "work-closed":
@@ -755,6 +957,12 @@ def resume_native_checkpoint(
         or binding["state"] == "work-changed"
         or any(item["state"] == "changed" for item in evidence)
     ):
+        status = "changed-since-checkpoint"
+    elif session_verdict["state"] == "integrity-error":
+        status = "integrity-error"
+    elif session_verdict["state"] == "interrupted-close":
+        status = "interrupted-close"
+    elif session_verdict["state"] == "event-after-checkpoint":
         status = "changed-since-checkpoint"
     else:
         status = "ready"
@@ -775,6 +983,14 @@ def resume_native_checkpoint(
         ),
         "work-closed": "Bagli Work kapali; yeni hedefi kanonik Work kaydina baglayin.",
         "binding-invalid": "Proje/Work baglari dogrulanamadi; kanonik kayitla yeniden eslestirin.",
+        "interrupted-close": (
+            "Native close checkpoint'i kalici fakat session.deleted olayi yok; once kanonik "
+            "Work/close durumunu dogrulayin, sonra eksik kapanisi acikca tamamlayin."
+        ),
+        "integrity-error": (
+            "Native lifecycle olay zinciri dogrulanamadi; checkpoint'i kullanmadan kanonik "
+            "Work kaydindan recovery yapin."
+        ),
     }[status]
     return base | {
         "status": status,
@@ -790,7 +1006,12 @@ def resume_native_checkpoint(
             "evidence_refs": [item["ref"] for item in document["evidence"]],
             "self_reported": self_reported,
         },
-        "verification": {"binding": binding, "source": source, "evidence": evidence},
+        "verification": {
+            "binding": binding,
+            "source": source,
+            "evidence": evidence,
+            "session": session_verdict,
+        },
         "next_safe_action": guidance,
         "next_safe_action_source": (
             "client-self-reported"

@@ -16,9 +16,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from zekam.application import local_continuity_native as native_module
 from zekam.application.composition import build_context
 from zekam.application.local_continuity_native import (
     NativeClient,
+    NativeContinuityError,
     checkpoint_native_session,
     resume_native_checkpoint,
     start_native_session,
@@ -390,6 +392,55 @@ def test_closed_or_cancelled_work_and_close_semantics(world: World) -> None:
         )
         uow.commit()
     assert _resume(world)["status"] == "work-closed"
+
+
+def test_interrupted_native_close_is_explicitly_recoverable(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session_id = _start(world)["session_id"]
+    original_record = native_module.record_event
+
+    def interrupted_record(*args: object, **kwargs: object):
+        if kwargs.get("event_type") == "session.deleted":
+            raise OSError("simulated close interruption")
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(native_module, "record_event", interrupted_record)
+    with pytest.raises(OSError, match="simulated close interruption"):
+        native_module.close_native_session(
+            world.home,
+            session_id=session_id,
+            client=NativeClient("claude-code"),
+            project_ref="fixture",
+            work_item_id=world.work_id,
+            source_root=world.repo,
+            pending="kapanis kaniti bekleniyor",
+        )
+
+    resumed = _resume(world)
+    assert resumed["status"] == "interrupted-close"
+    assert resumed["verification"]["session"]["state"] == "interrupted-close"
+    assert resumed["next_safe_action_source"] == "zekam-verification"
+    assert "session.deleted" in resumed["next_safe_action"]
+
+
+def test_digest_valid_checkpoint_shape_drift_is_integrity_error(world: World) -> None:
+    session_id = _start(world)["session_id"]
+    result = _json(
+        _invoke(["checkpoint", *_checkpoint_args(world, session_id), "--pending", "bekleyen"])
+    )
+    event = next(
+        item
+        for item in recent_events(world.home, limit=20)
+        if item.get("event_digest") == result["event_digest"]
+    )
+    context = build_context(home=world.home)
+    root = (context.home / context.settings.object_store_relative).resolve()
+    target = next(root.rglob(f"{result['checkpoint_digest'].removeprefix('sha256:')}.bin"))
+    document = json.loads(target.read_text(encoding="utf-8"))
+    document.pop("authority")
+    with pytest.raises(NativeContinuityError, match="schema-invalid"):
+        native_module._validate_checkpoint_document(document, event=event)
 
 
 def test_summaries_reject_secret_like_paths_and_multiline_without_echo(world: World) -> None:
