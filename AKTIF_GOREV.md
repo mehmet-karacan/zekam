@@ -2159,6 +2159,16 @@ write kapilari korunur.
 Bu dar dilim WP-02/07 hook migration kaynak tuketimi boslugunu daraltir; gercek
 native multi-client kabul matrisi halen aciktir.
 
+### 10.76 15 Ekim 2026 OpenCode spool owner stream kapisi
+
+OpenCode legacy candidate owner, drain lock ve event spool belgeleri 256 KiB
+bounded regular-file stream ile okunur. Oversized, link/reparse veya malformed
+icerik stale candidate cleanup ve drain akisini fail-closed/quarantine sonucuna
+tasir; raw delete ve authority iddiasi uretilmez.
+
+Bu dilim WP-02/07 OpenCode spool recovery kaynak tuketimi boslugunu daraltir;
+gercek native lifecycle host matrisi halen aciktir.
+
 ### 10.75 15 Ekim 2026 OpenCode embedding stream kapisi
 
 OpenCode embedding config okuyucusu statik boyut oncesi kontrolu ile birlikte

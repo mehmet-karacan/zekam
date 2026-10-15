@@ -22,6 +22,7 @@ _TEMPORARY = re.compile(r"^.+\.json\.([0-9a-fA-F-]{36})\.tmp$")
 _LOCK_NAME = ".drain.lock"
 _MINIMUM_STALE_SECONDS = 300
 _INVALID_MINIMUM_STALE_SECONDS = 24 * 60 * 60
+MAX_SPOOL_DOCUMENT_BYTES = 256 * 1024
 
 
 def plugin_spool_root(home: Path) -> Path:
@@ -37,6 +38,23 @@ def _is_link_or_reparse(path: Path) -> bool:
     attributes = int(getattr(metadata, "st_file_attributes", 0))
     reparse = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
     return path.is_symlink() or bool(reparse and attributes & reparse)
+
+
+def _read_spool_text(path: Path, *, label: str) -> str:
+    metadata = path.lstat()
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or _is_link_or_reparse(path)
+        or not stat.S_ISREG(metadata.st_mode)
+    ):
+        raise OSError(f"{label} regular file olmali")
+    if metadata.st_size > MAX_SPOOL_DOCUMENT_BYTES:
+        raise OSError(f"{label} boyut sinirini asiyor")
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_SPOOL_DOCUMENT_BYTES + 1)
+    if len(payload) > MAX_SPOOL_DOCUMENT_BYTES:
+        raise OSError(f"{label} boyut sinirini asiyor")
+    return payload.decode("utf-8", errors="strict")
 
 
 def _process_alive(pid: int) -> bool:
@@ -347,7 +365,7 @@ def _candidate(
     if not owner_path.is_file() or _is_link_or_reparse(owner_path):
         return None
     try:
-        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        owner = json.loads(_read_spool_text(owner_path, label="spool owner"))
         pid = int(owner["pid"])
         owner_token = str(UUID(str(owner["ownerToken"])))
     except (
@@ -405,7 +423,7 @@ def _invalid_candidate(
     if not owner_path.is_file() or _is_link_or_reparse(owner_path):
         return None
     try:
-        json.loads(owner_path.read_text(encoding="utf-8"))
+        json.loads(_read_spool_text(owner_path, label="spool owner"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return InvalidLegacyCandidate(
             path.name, _ref(path.name), "malformed-owner-json", age_seconds
@@ -724,7 +742,7 @@ def _lock_owner(lock: Path) -> tuple[int, dt.datetime, str]:
     if not lock.is_dir() or _is_link_or_reparse(lock):
         raise ConfigurationError("OpenCode drain lock regular directory olmali")
     try:
-        raw_owner = (lock / "owner.json").read_text(encoding="utf-8")
+        raw_owner = _read_spool_text(lock / "owner.json", label="drain lock owner")
     except FileNotFoundError as exc:
         raise ValidationFailed("OpenCode drain lock owner gecersiz") from exc
     except UnicodeDecodeError as exc:
@@ -804,7 +822,9 @@ def drain_plugin_spool(
                     continue
                 processed += 1
                 try:
-                    decoded = _decode_event_args(json.loads(path.read_text(encoding="utf-8")))
+                    decoded = _decode_event_args(
+                        json.loads(_read_spool_text(path, label="spool event"))
+                    )
                     writer.record(
                         event_type=str(decoded["event_type"]),
                         session_id=str(decoded["session_id"]),

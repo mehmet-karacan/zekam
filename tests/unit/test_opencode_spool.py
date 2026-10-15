@@ -36,6 +36,19 @@ def _candidate(home: Path, *, pid: int = 999_999, age_seconds: int = 600) -> Pat
     return path
 
 
+def test_oversized_spool_owner_is_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = _candidate(tmp_path, age_seconds=24 * 60 * 60 + 600)
+    monkeypatch.setattr(spool_module, "MAX_SPOOL_DOCUMENT_BYTES", 8)
+
+    plan = plan_invalid_legacy_candidate_cleanup(tmp_path, now=NOW)
+
+    assert len(plan.candidates) == 1
+    assert plan.candidates[0].reason == "malformed-owner-json"
+    assert candidate.exists()
+
+
 def test_exact_stale_candidates_are_quarantined_without_raw_delete(tmp_path: Path) -> None:
     first = _candidate(tmp_path)
     second = _candidate(tmp_path)
