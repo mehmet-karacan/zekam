@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, final
 
+from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import ConcurrencyConflict, PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_file_security import (
@@ -675,7 +676,7 @@ class LocalAnalyticsStore:
     def _immutable_artifact(path: Path, payload: bytes) -> None:
         if path.exists():
             _private_regular(path, 0o400)
-            if path.read_bytes() != payload:
+            if read_bounded_bytes(path, max_bytes=MAX_SEGMENT_BYTES) != payload:
                 raise ConcurrencyConflict("Local analytics derived artifact replay drift")
             return
         _atomic_bytes(path, payload, mode=0o400)
@@ -686,7 +687,9 @@ class LocalAnalyticsStore:
             for path in sorted(directory.iterdir()):
                 if path.is_symlink() or not path.is_file():
                     continue
-                suffix = digest_of_bytes(path.read_bytes())[7:23]
+                suffix = digest_of_bytes(
+                    read_bounded_bytes(path, max_bytes=MAX_SEGMENT_BYTES)
+                )[7:23]
                 target = self.quarantine / f"{path.name}.{suffix}.rejected"
                 if target.exists():
                     raise ConcurrencyConflict("Local analytics quarantine collision")
@@ -731,8 +734,8 @@ class LocalAnalyticsStore:
                 if (
                     segment.is_file()
                     and manifest_path.is_file()
-                    and segment.read_bytes() == payload
-                    and manifest_path.read_bytes() == raw_manifest
+                    and read_bounded_bytes(segment, max_bytes=MAX_SEGMENT_BYTES) == payload
+                    and read_bounded_bytes(manifest_path, max_bytes=65_536) == raw_manifest
                 ):
                     return digest(manifest)
                 raise ConcurrencyConflict("Local analytics segment replay drift")
@@ -763,7 +766,9 @@ class LocalAnalyticsStore:
             if manifest_path.is_symlink():
                 raise PolicyViolation("Local analytics manifest identity invalid")
             _private_regular(manifest_path, 0o400)
-            manifest = _strict_document(manifest_path.read_bytes(), maximum=65_536)
+            manifest = _strict_document(
+                read_bounded_bytes(manifest_path, max_bytes=65_536), maximum=65_536
+            )
             if (
                 frozenset(manifest) != _MANIFEST_KEYS
                 or manifest.get("schema") != "zekam-local-analytics-segment-manifest/v1"
@@ -779,7 +784,7 @@ class LocalAnalyticsStore:
                 raise PolicyViolation("Local analytics manifest path drift")
             segment = self.raw / f"{segment_id}.jsonl"
             _private_regular(segment, 0o400)
-            payload = segment.read_bytes()
+            payload = read_bounded_bytes(segment, max_bytes=MAX_SEGMENT_BYTES)
             if len(payload) > MAX_SEGMENT_BYTES or digest_of_bytes(payload) != manifest.get(
                 "segment_digest"
             ):
@@ -1158,7 +1163,9 @@ class LocalAnalyticsStore:
 
     def current_projection(self) -> dict[str, Any]:
         _private_regular(self.current, 0o400)
-        pointer = _strict_document(self.current.read_bytes(), maximum=65_536)
+        pointer = _strict_document(
+            read_bounded_bytes(self.current, max_bytes=65_536), maximum=65_536
+        )
         if (
             frozenset(pointer) != _POINTER_KEYS
             or pointer.get("schema") != "zekam-local-analytics-current/v1"
@@ -1191,7 +1198,9 @@ class LocalAnalyticsStore:
         _private_regular(database, 0o400)
         receipt_path = self.receipts / f"{pointer['generation_digest'][7:]}.json"
         _private_regular(receipt_path, 0o400)
-        receipt = _strict_document(receipt_path.read_bytes(), maximum=65_536)
+        receipt = _strict_document(
+            read_bounded_bytes(receipt_path, max_bytes=65_536), maximum=65_536
+        )
         if digest(receipt) != receipt_digest or receipt.get("grants_authority") is not False:
             raise PolicyViolation("Local analytics rebuild receipt drift")
         pointer_without_receipt = dict(pointer)
@@ -1226,7 +1235,9 @@ class LocalAnalyticsStore:
                 raise PolicyViolation("Local analytics report path drift")
             report_path = self.reports / expected_name
             _private_regular(report_path, 0o400)
-            report = _strict_document(report_path.read_bytes(), maximum=65_536)
+            report = _strict_document(
+                read_bounded_bytes(report_path, max_bytes=65_536), maximum=65_536
+            )
             expected_keys = _MORNING_REPORT_KEYS if label == "morning" else _PROJECT_REPORT_KEYS
             if (
                 frozenset(report) != expected_keys

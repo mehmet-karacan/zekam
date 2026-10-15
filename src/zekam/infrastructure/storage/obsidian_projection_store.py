@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from uuid import UUID
 
+from zekam.application.bounded_file import read_bounded_bytes, read_bounded_text
 from zekam.domain.canonical import canonical_bytes, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.markdown_projection import (
@@ -136,7 +137,7 @@ class LocalObsidianProjectionStore:
         if marker.exists():
             _regular(marker)
             try:
-                document = json.loads(marker.read_text(encoding="utf-8"))
+                document = json.loads(read_bounded_text(marker, max_bytes=64 * 1024))
                 if document.get("schema") != "zekam-obsidian-stable-vault/v1":
                     raise ValidationFailed("Obsidian stable vault marker schema gecersiz")
                 previous = {str(item) for item in document.get("files", [])}
@@ -157,7 +158,7 @@ class LocalObsidianProjectionStore:
             temporary = Path(temporary_name)
             try:
                 with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(source.read_bytes())
+                    handle.write(read_bounded_bytes(source, max_bytes=1024 * 1024))
                     handle.flush()
                     os.fsync(handle.fileno())
                 temporary.replace(target)
@@ -398,8 +399,8 @@ class LocalObsidianProjectionStore:
         if pointer_path.stat().st_size > 16 * 1024:
             raise PolicyViolation("Obsidian CURRENT pointer bounded disi")
         try:
-            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            pointer = json.loads(read_bounded_text(pointer_path, max_bytes=16 * 1024))
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise ValidationFailed("Obsidian CURRENT pointer okunamadi") from exc
         expected_keys = {
             "schema",
@@ -487,9 +488,9 @@ class LocalObsidianProjectionStore:
         if receipt_path.stat().st_size > 1024 * 1024:
             raise PolicyViolation("Obsidian receipt bounded disi")
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = json.loads(read_bounded_text(manifest_path, max_bytes=8 * 1024 * 1024))
+            receipt = json.loads(read_bounded_text(receipt_path, max_bytes=1024 * 1024))
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise ValidationFailed("Obsidian manifest/receipt okunamadi") from exc
         if not isinstance(manifest, dict) or not isinstance(receipt, dict):
             raise ValidationFailed("Obsidian manifest/receipt object olmali")
@@ -617,7 +618,9 @@ class LocalObsidianProjectionStore:
             if target.stat().st_size > 1024 * 1024:
                 raise PolicyViolation("Obsidian projection file bounded disi")
             total_payload_size += target.stat().st_size
-            if digest_of_bytes(target.read_bytes()) != str(row["content_digest"]):
+            if digest_of_bytes(read_bounded_bytes(target, max_bytes=1024 * 1024)) != str(
+                row["content_digest"]
+            ):
                 raise PolicyViolation("Obsidian projection file digest drift")
         if total_payload_size > 64 * 1024 * 1024:
             raise PolicyViolation("Obsidian generation toplam payload bounded disi")

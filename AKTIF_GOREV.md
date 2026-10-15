@@ -2314,6 +2314,17 @@ Bu dilim WP-02 client lifecycle, WP-07 recovery ve WP-08 radar/provider cache
 kaynak tuketimi bosluklarini daraltir; canli native host ve provider acceptance
 kaniti bu dilimin disindadir.
 
+### 10.86 15 Ekim 2026 analytics ve Obsidian projection stream kapisi
+
+Local analytics segment/manifest/current pointer/receipt/report readback ve
+Obsidian stable vault marker, generation manifest/receipt/pointer ve projection
+dosyalari bounded regular-file stream kullanir. Segment 2 MiB, projection 1 MiB,
+metadata ve raporlar kendi ust sinirlariyla okunur; link/reparse, growth veya
+oversized dosya digest ve JSON dogrulamasinda fail-closed kalir.
+
+Bu dilim WP-05/WP-07 analytics ve Obsidian recovery kaynak tuketimi bosluklarini
+daraltir; DuckDB/native writer kabul kaniti bu dilimin disindadir.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir
