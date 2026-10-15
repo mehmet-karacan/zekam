@@ -1071,6 +1071,11 @@ diff taramasi, ayni satirda placeholder benzeri metin bulunsa bile secret kalibi
 atlamaz. Genel secret taramasinin placeholder hizli yolu korunur; history'nin
 guvenlik siniri bounded tam tarama ile ayrilir. Final test kosusu bu kapinin kanitidir.
 
+**15 Ekim 2026 - WP-05 qualification cache fixture uyumu:** Cross-process warm/cold/
+expired/mismatch qualification senaryolarinin fake remote provider'i gercek wrapper'in
+`document_journal` constructor bagini da kabul ediyor. Fixture degisikligi production
+cache davranisini degistirmez; ayri process warm reuse kanitini korur.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

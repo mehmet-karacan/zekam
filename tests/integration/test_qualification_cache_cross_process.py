@@ -134,8 +134,9 @@ def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
             *,
             dimension: int,
             max_batch_size: int,
+            document_journal: object | None = None,
         ) -> None:
-            del configuration, executor, dimension, max_batch_size
+            del configuration, executor, dimension, max_batch_size, document_journal
             self._profile_digest = digest("provider-profile")
 
         def probe(self, _fixture: object) -> SimpleNamespace:
