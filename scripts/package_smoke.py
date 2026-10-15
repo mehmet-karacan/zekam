@@ -23,6 +23,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from uuid import uuid4
 
+try:
+    from .bounded_io import read_bounded_bytes
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_bytes
+
 from zekam.application.package_acceptance import (
     ARCHIVE_ONLY_WHEEL_PATHS,
     _parse_wheel_exclusion_policy,
@@ -54,6 +59,7 @@ _STRIP = {
 }
 _IGNORED_PACKAGE_PARTS = frozenset({"__pycache__"})
 _IGNORED_PACKAGE_NAMES = frozenset({".DS_Store"})
+MAX_PACKAGE_ARTIFACT_BYTES = 256 * 1024 * 1024
 _NATIVE_STORAGE_PROBE = """
 import importlib.metadata
 import json
@@ -572,7 +578,9 @@ def accept_wheel(
         return PackageAcceptanceRun(
             id=uuid4(),
             manifest_digest=packaged_manifest.manifest_digest,
-            artifact_digest=digest_of_bytes(wheel.read_bytes()),
+            artifact_digest=digest_of_bytes(
+                read_bounded_bytes(wheel, max_bytes=MAX_PACKAGE_ARTIFACT_BYTES)
+            ),
             artifact_kind="wheel",
             source_revision=source_revision,
             suite_digest=suite_digest,
@@ -746,7 +754,9 @@ def accept_sdist(
         return PackageAcceptanceRun(
             id=uuid4(),
             manifest_digest=manifest_digest,
-            artifact_digest=digest_of_bytes(sdist.read_bytes()),
+            artifact_digest=digest_of_bytes(
+                read_bounded_bytes(sdist, max_bytes=MAX_PACKAGE_ARTIFACT_BYTES)
+            ),
             artifact_kind="sdist",
             source_revision=source_revision,
             suite_digest=suite_digest,

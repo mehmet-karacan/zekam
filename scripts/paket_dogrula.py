@@ -17,12 +17,19 @@ try:
 except ImportError as exc:
     raise SystemExit("PyYAML gerekli. Kurulum: python -m pip install 'PyYAML>=6.0'") from exc
 
+try:
+    from .bounded_io import read_bounded_bytes, read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_bytes, read_bounded_text
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 RESULT_PATH = Path(os.environ.get("ZEKAM_VALIDATION_RESULT_PATH", ROOT / "VALIDATION_RESULT.json"))
 PHASE_BASELINE_PATH = ROOT / "kalite" / "PHASE_PROJECTION_BASELINE.json"
+MAX_VALIDATION_TEXT_BYTES = 8 * 1024 * 1024
+MAX_VALIDATION_BINARY_BYTES = 1 * 1024 * 1024
 
 REQUIRED_FILES = [
     "README.md",
@@ -253,7 +260,7 @@ def removed_product_identity_hits(root: Path = ROOT) -> list[str]:
         ):
             continue
         try:
-            text = path.read_text(encoding="utf-8")
+            text = read_bounded_text(path, max_bytes=MAX_VALIDATION_TEXT_BYTES)
         except UnicodeDecodeError:
             continue
         if _REMOVED_PRODUCT_PATTERN.search(text):
@@ -327,7 +334,10 @@ def main() -> int:
             errors.append("Model envanteri exact 20 unique Model ID icermeli.")
         if inventory.get("technical_profile_count") != 19:
             errors.append("19 teknik profil farki korunmamis.")
-        text = (ROOT / "modeller/KANONIK_MODEL_ENVANTERI.yaml").read_text(encoding="utf-8")
+        text = read_bounded_text(
+            ROOT / "modeller/KANONIK_MODEL_ENVANTERI.yaml",
+            max_bytes=MAX_VALIDATION_TEXT_BYTES,
+        )
         if "http://" in text or "https://" in text or "api_base:" in text:
             errors.append("Aktif model envanterinde ham endpoint bulunuyor.")
         for model in models:
@@ -493,7 +503,9 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"Memory continuity policy/security gate okunamadi: {type(exc).__name__}")
 
-    template = (ROOT / "kalite/commit-template.txt").read_bytes()
+    template = read_bounded_bytes(
+        ROOT / "kalite/commit-template.txt", max_bytes=MAX_VALIDATION_BINARY_BYTES
+    )
     try:
         template.decode("ascii")
         ascii_ok = True
@@ -506,7 +518,7 @@ def main() -> int:
     secret_hits: list[str] = []
     for path in canonical_files():
         try:
-            text = path.read_text(encoding="utf-8")
+            text = read_bounded_text(path, max_bytes=MAX_VALIDATION_TEXT_BYTES)
         except UnicodeDecodeError:
             continue
         rel = path.relative_to(ROOT)
@@ -535,7 +547,9 @@ def main() -> int:
 
     context_task = ROOT / "referanslar/context-vault/AKTIF_GOREV_FOR_CONTEXT_VAULT.md"
     if context_task.exists():
-        context_text = context_task.read_text(encoding="utf-8")
+        context_text = read_bounded_text(
+            context_task, max_bytes=MAX_VALIDATION_TEXT_BYTES
+        )
         required_context_terms = [
             "openai/BAAI/bge-m3",
             "1024",

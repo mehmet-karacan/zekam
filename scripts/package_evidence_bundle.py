@@ -9,6 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+try:
+    from .bounded_io import read_bounded_bytes, read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_bytes, read_bounded_text
+
 from zekam.domain.canonical import digest, digest_of_bytes
 
 REQUIRED_GROUPS: dict[str, Callable[[Path], bool]] = {
@@ -29,12 +34,15 @@ REQUIRED_GROUPS: dict[str, Callable[[Path], bool]] = {
     "sbom": lambda path: path.name == "sbom.cdx.json",
 }
 _SHA_LINE = re.compile(r"^([0-9a-f]{64})  ([^/\\]+)$")
+MAX_EVIDENCE_JSON_BYTES = 8 * 1024 * 1024
+MAX_CHECKSUM_BYTES = 16 * 1024 * 1024
+MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 
 
 def _json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(read_bounded_text(path, max_bytes=MAX_EVIDENCE_JSON_BYTES))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Invalid JSON evidence: {path.name}") from exc
     if not isinstance(value, dict):
         raise RuntimeError(f"Evidence root must be an object: {path.name}")
@@ -53,7 +61,9 @@ def _exact_group_files(root: Path, files: tuple[Path, ...]) -> dict[str, Path]:
 
 def _validate_distribution(root: Path, checksum_file: Path) -> dict[str, str]:
     declared: dict[str, str] = {}
-    for line in checksum_file.read_text(encoding="ascii").splitlines():
+    for line in read_bounded_text(
+        checksum_file, max_bytes=MAX_CHECKSUM_BYTES, encoding="ascii"
+    ).splitlines():
         match = _SHA_LINE.fullmatch(line)
         if match is None or match.group(2) in declared:
             raise RuntimeError("Distribution SHA256SUMS syntax/uniqueness drift")
@@ -71,7 +81,9 @@ def _validate_distribution(root: Path, checksum_file: Path) -> dict[str, str]:
     if set(declared) != {path.name for path in artifacts}:
         raise RuntimeError("Distribution SHA256SUMS file set drift")
     for path in artifacts:
-        if declared[path.name] != digest_of_bytes(path.read_bytes()):
+        if declared[path.name] != digest_of_bytes(
+            read_bounded_bytes(path, max_bytes=MAX_ARTIFACT_BYTES)
+        ):
             raise RuntimeError(f"Distribution checksum drift: {path.name}")
     if (
         len([name for name in declared if name.endswith(".whl")]) != 1
@@ -198,7 +210,9 @@ def build_bundle(root: Path, source_revision: str, output: Path) -> dict[str, ob
         {
             "path": path.relative_to(root).as_posix(),
             "size": path.stat().st_size,
-            "digest": digest_of_bytes(path.read_bytes()),
+            "digest": digest_of_bytes(
+                read_bounded_bytes(path, max_bytes=MAX_ARTIFACT_BYTES)
+            ),
         }
         for path in files
     ]

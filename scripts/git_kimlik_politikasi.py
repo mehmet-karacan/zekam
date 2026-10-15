@@ -9,6 +9,11 @@ import sys
 import unicodedata
 from pathlib import Path
 
+try:
+    from .bounded_io import read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_text
+
 EXPECTED_NAME = "mehmet-karacan"
 EXPECTED_EMAIL = "karacan.mehmet@hotmail.com"
 ZERO_SHA = "0" * 40
@@ -81,7 +86,7 @@ def validate_history(tips: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _commit_msg(path: Path) -> int:
-    findings = message_findings(path.read_text(encoding="utf-8"))
+    findings = message_findings(read_bounded_text(path, max_bytes=64 * 1024))
     if findings:
         print("Commit mesaji reddedildi: " + ", ".join(findings), file=sys.stderr)
         return 1

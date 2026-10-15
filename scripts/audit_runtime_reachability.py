@@ -18,7 +18,14 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+try:
+    from .bounded_io import read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_text
+
 SCHEMA = "zekam-runtime-reachability-audit/v1"
+MAX_SOURCE_BYTES = 8 * 1024 * 1024
+MAX_CONFIG_BYTES = 1 * 1024 * 1024
 
 ARCHIVE_ONLY_SOURCE_PATHS = (
     "src/zekam/application/client_lifecycle_composition.py",
@@ -129,7 +136,9 @@ def _source_graph(source_root: Path) -> tuple[dict[str, set[str]], list[str]]:
     graph: dict[str, set[str]] = {}
     for module, path in paths.items():
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            tree = ast.parse(
+                read_bounded_text(path, max_bytes=MAX_SOURCE_BYTES), filename=str(path)
+            )
         except (OSError, SyntaxError, UnicodeError) as exc:
             findings.append(f"source-parse-failed:{module}:{type(exc).__name__}")
             continue
@@ -153,7 +162,7 @@ def _reachable(graph: dict[str, set[str]]) -> tuple[str, ...]:
 
 def _configured_exclusions(pyproject: Path) -> tuple[set[str], list[str]]:
     try:
-        document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        document = tomllib.loads(read_bounded_text(pyproject, max_bytes=MAX_CONFIG_BYTES))
         raw = document["tool"]["hatch"]["build"]["targets"]["wheel"]["exclude"]
     except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
         return set(), [f"wheel-exclusion-config-invalid:{type(exc).__name__}"]

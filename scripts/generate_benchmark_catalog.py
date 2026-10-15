@@ -10,7 +10,13 @@ from pathlib import Path
 
 import yaml
 
+try:
+    from .bounded_io import read_bounded_bytes
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_bytes
+
 ROOT = Path(__file__).resolve().parents[1]
+MAX_RESOURCE_BYTES = 1 * 1024 * 1024
 TARGETS = (ROOT / "benchmarks", ROOT / "src" / "zekam" / "benchmarks")
 FAMILIES = (
     "sql-plsql",
@@ -148,7 +154,9 @@ def main() -> int:
     failures: list[str] = []
     for path, payload in expected().items():
         if args.check:
-            if not path.is_file() or path.read_bytes() != payload:
+            if not path.is_file() or read_bounded_bytes(
+                path, max_bytes=MAX_RESOURCE_BYTES
+            ) != payload:
                 failures.append(str(path.relative_to(ROOT)))
             continue
         path.parent.mkdir(parents=True, exist_ok=True)

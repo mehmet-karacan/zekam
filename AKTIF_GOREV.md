@@ -2359,6 +2359,18 @@ Bu dilim WP-02/WP-04/WP-05/WP-07/WP-08/WP-09/WP-11 altyapi ve test artifact
 kaynak tuketimi bosluklarini daraltir; final test kosusu, canli provider ve native
 host kabul kaniti ayri kapanis kapilari olarak korunur.
 
+### 10.90 15 Ekim 2026 yardimci script artifact stream kapisi
+
+Runtime reachability, mutation gate, benchmark/schema/package manifest ureticileri,
+Git kimlik hook'u, package evidence/smoke ve paket dogrulama scriptleri bounded
+regular-file stream yardimcisini kullanir. Source, config, checksum, manifest,
+commit mesaji ve dagitim artifact boyutlari sinirlanir; link/reparse, growth,
+oversized veya strict decode hatalari kanit uretmeden durur.
+
+Bu dilim WP-01/WP-02/WP-08/WP-09 release ve kalite scriptlerinde kaynak tuketimi
+bosluklarini daraltir; final kalite/test kosusu ve gercek paket/native kabul kaniti
+ayri kapanis kapilari olarak korunur.
+
 ### 10.10 14 Ekim 2026 cok modullu Maven/JaCoCo kaniti
 
 WP-09 icin `tests/integration/test_real_maven_unit_test_fixture.py` icine gecici, test-only bir

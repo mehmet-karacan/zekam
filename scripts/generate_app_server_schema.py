@@ -5,6 +5,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+try:
+    from .bounded_io import read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_text
+
 from zekam.protocol.generation import render_protocol_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +26,13 @@ def main() -> int:
     args = parser.parse_args()
     rendered = rendered_schema()
     if args.check:
-        return 0 if TARGET.is_file() and TARGET.read_text(encoding="utf-8") == rendered else 1
+        return (
+            0
+            if TARGET.is_file()
+            and read_bounded_text(TARGET, max_bytes=max(1, len(rendered.encode("utf-8"))))
+            == rendered
+            else 1
+        )
     TARGET.write_text(rendered, encoding="utf-8", newline="\n")
     return 0
 

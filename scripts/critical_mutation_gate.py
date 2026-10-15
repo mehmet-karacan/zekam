@@ -20,9 +20,15 @@ import time
 from pathlib import Path
 from typing import Final, NamedTuple
 
+try:
+    from .bounded_io import read_bounded_bytes, read_bounded_text
+except ImportError:  # pragma: no cover - direct script execution
+    from bounded_io import read_bounded_bytes, read_bounded_text
+
 MIN_SCORE: Final = 0.75
 MUTANTS_PER_FILE: Final = 50
 TIMEOUT_SECONDS: Final = 30
+MAX_SOURCE_BYTES: Final = 8 * 1024 * 1024
 
 
 class Target(NamedTuple):
@@ -254,7 +260,12 @@ def _run_test(repo: Path, isolated_src: Path, test: str) -> tuple[int, str, floa
 
 
 def run(repo: Path) -> dict[str, object]:
-    before = {target.source: _sha256((repo / target.source).read_bytes()) for target in TARGETS}
+    before = {
+        target.source: _sha256(
+            read_bounded_bytes(repo / target.source, max_bytes=MAX_SOURCE_BYTES)
+        )
+        for target in TARGETS
+    }
     results: list[dict[str, object]] = []
     baselines: dict[str, dict[str, object]] = {}
     with tempfile.TemporaryDirectory(prefix="zekam-critical-mutation-") as raw_temp:
@@ -266,7 +277,7 @@ def run(repo: Path) -> dict[str, object]:
         for target in TARGETS:
             source_path = repo / target.source
             isolated_path = temp / target.source
-            original = source_path.read_text(encoding="utf-8")
+            original = read_bounded_text(source_path, max_bytes=MAX_SOURCE_BYTES)
             baseline_code, baseline_output, baseline_seconds = _run_test(
                 repo, isolated_src, target.test
             )
@@ -298,7 +309,12 @@ def run(repo: Path) -> dict[str, object]:
                         "output_tail": output,
                     }
                 )
-    after = {target.source: _sha256((repo / target.source).read_bytes()) for target in TARGETS}
+    after = {
+        target.source: _sha256(
+            read_bounded_bytes(repo / target.source, max_bytes=MAX_SOURCE_BYTES)
+        )
+        for target in TARGETS
+    }
     killed = sum(result["status"] == "killed" for result in results)
     survived = sum(result["status"] == "survived" for result in results)
     invalid = len(TARGETS) * MUTANTS_PER_FILE - len(results)
