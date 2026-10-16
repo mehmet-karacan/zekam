@@ -142,6 +142,7 @@ def run_canonical_job(
         "publication.trust.enroll",
         "publication.trust.rotate",
         "publication.test.attest",
+        "publication.review",
         "project.index",
         "test.measure",
         "test.run",

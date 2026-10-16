@@ -392,6 +392,69 @@ def test_source_command(
         raise fail_from(exc) from exc
 
 
+@app.command("review-plan")
+def review_plan_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    test_reference: Annotated[str, typer.Option("--test-source")],
+    builder_reference: Annotated[str, typer.Option("--builder-source")],
+    model: Annotated[str, typer.Option("--model")],
+    provider_profile: Annotated[Path, typer.Option("--provider-profile")],
+    timeout_seconds: Annotated[int, typer.Option("--timeout-seconds")] = 300,
+    allow_remote: Annotated[bool, typer.Option("--allow-remote")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Guncel kaynak, model ayrimi ve butce plani; model cagrisi yapmaz."""
+    from zekam.application.git_publication_review import prepare_publication_review
+    from zekam.application.unit_test_provider_profile import load_batch_provider_profile
+    from zekam.infrastructure.clients.opencode_batch import opencode_batch_adapter
+    from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
+
+    try:
+        document = _read(plan_file)
+        publication = publication_plan_from_body(document.get("plan", document))
+        context = _context(home)
+        objects = LocalContentAddressedStore(context.home / context.settings.object_store_relative)
+        adapter = opencode_batch_adapter(
+            str(resolve_opencode_executable()),
+            objects=objects,
+            model_id=model,
+            provider_profile=load_batch_provider_profile(provider_profile),
+            network_authorized=allow_remote,
+        )
+        prepared = prepare_publication_review(
+            context.home,
+            publication=publication,
+            test_reference=test_reference,
+            builder_reference=builder_reference,
+            adapter=adapter,
+            timeout_seconds=timeout_seconds,
+        )
+        console.print_json(json.dumps(prepared.to_document(), ensure_ascii=False))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication review plani hazirlanamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("review-source")
+def review_source_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Tamamlanmis canonical inceleme receipt'ini okur; model cagirmaz."""
+    from zekam.application.git_publication_review import read_publication_review
+
+    try:
+        context = _context(home)
+        console.print_json(
+            json.dumps(read_publication_review(context.home, reference), ensure_ascii=False)
+        )
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication review receipt okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
 @app.command("test-evidence")
 def test_evidence_command(
     producer_reference: Annotated[str, typer.Argument()],
