@@ -2340,6 +2340,10 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                 ):
                     raise PolicyViolation("Project RAG pending state binding drift")
                 _validate_rag_state_source_identity(project_id, disk_state, label="pending state")
+                if disk_state.get("generation_digest") == staged_generation_digest:
+                    for key in ("source_revision", "tree_digest", "source_identity_digest"):
+                        if key in disk_state and disk_state.get(key) != result.get(key):
+                            raise PolicyViolation("Project RAG pending state/result source drift")
             publication = pending.get("publication")
             if "publication" in pending:
                 if not isinstance(publication, dict):
