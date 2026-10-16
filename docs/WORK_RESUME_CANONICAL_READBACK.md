@@ -18,6 +18,9 @@ okunur.
 `work resume --json`, `work show --json`, dogal dil Work status ve
 `workspace_resume` ayni `run_document` projection'ini kullanir; Run fingerprint
 alanlari yuzeyler arasinda farkli okunmaz.
+Dogal dilde exact Work “goster” okumasinda da bounded son Run penceresi
+ayni projection ile doner; checkpoint okumasinda bu Run baglari checkpoint
+listesiyle birlikte korunur.
 Checkpoint readback'i de canonical `source_snapshot_id` alanini korur; kaynak
 snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 

@@ -133,6 +133,13 @@ def read_work_request(
     elif request.operation == "dependencies":
         rows = uow.list_work_dependencies(work.id, limit=101)
         body.update(dependencies=list(rows[:100]), truncated=len(rows) > 100, dependency_limit=100)
+    elif request.operation == "show":
+        runs = uow.list_runs(work.id, limit=6)
+        body.update(
+            runs=[run_document(run) for run in runs[:5]],
+            runs_truncated=len(runs) > 5,
+            run_limit=5,
+        )
     elif request.operation == "checkpoints":
         runs = uow.list_runs(work.id, limit=6)
         results = []
