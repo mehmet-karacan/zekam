@@ -1737,6 +1737,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   yapilir. Basarisiz olcum evaluator completed diye kalite basarisina yukseltilmez.
   Regresyon kaynaklari hazir, CALISTIRILMADI. SkillEvaluationV2 projection ve tam
   kalite/independence/provenance kabul kapilari acik kalir.
+
+  16 Ekim 2026 native lifecycle projection: gercek terminal evaluator/verifier/reviewer
+  source job/receipt'leri existing SkillEvaluationV2 ve review ledger'ina, own Work
+  live claim/fence ve atomic iki-row learning transaction ile baglandi. Original
+  operation'lar korunur; legacy import kontrolleri gevsetilmez. Eksik tam kalite
+  evidence'i improved/onayli review'a yukseltilmez. Regresyon kaynaklari hazir,
+  CALISTIRILMADI. Tam kalite/provenance/independence ve native invocation acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

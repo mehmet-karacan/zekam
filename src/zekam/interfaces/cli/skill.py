@@ -35,6 +35,11 @@ from zekam.application.skill_measured_aggregate import (
     read_measured_aggregate,
     run_measured_aggregate,
 )
+from zekam.application.skill_native_projection import (
+    build_native_projection_plan,
+    read_native_projection,
+    run_native_projection,
+)
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
 from zekam.application.skill_trial_aggregation import aggregate_skill_trials
 from zekam.application.unit_test_provider_profile import load_batch_provider_profile
@@ -1025,6 +1030,109 @@ def aggregate_report_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Skill aggregate terminal kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("evaluation-from-audits")
+def evaluation_from_audits_command(
+    evaluator: Annotated[str, typer.Option("--evaluator")],
+    verifier: Annotated[str, typer.Option("--verifier")],
+    reviewer: Annotated[str, typer.Option("--reviewer")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Derive lifecycle rows from actual native evidence without granting activation."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        plan, _evaluation, _review = build_native_projection_plan(
+            resolved_home,
+            project_id=registered.id,
+            evaluator_ref=evaluator,
+            verifier_ref=verifier,
+            reviewer_ref=reviewer,
+        )
+        candidate = lifecycle.evaluation_revision(plan["revision_digest"], allowed_scopes=scopes)
+        if candidate["package_digest"] != plan["package_digest"]:
+            raise PolicyViolation("Skill native projection candidate/package drift")
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if binding is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Skill native projection exact Work/plan binding required")
+
+        def validate_inputs():
+            if (
+                lifecycle.evaluation_revision(plan["revision_digest"], allowed_scopes=scopes)
+                != candidate
+            ):
+                raise PolicyViolation("Skill native projection candidate scope/body changed")
+
+        _emit(
+            run_native_projection(
+                resolved_home,
+                lifecycle=lifecycle,
+                plan=plan,
+                binding=binding,
+                allowed_scopes=scopes,
+                validate_inputs=validate_inputs,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill native projection kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("evaluation-report")
+def evaluation_report_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Read a receipt-bound native lifecycle projection and both ledger rows."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        _emit(
+            read_native_projection(
+                resolved_home,
+                reference,
+                lifecycle=lifecycle,
+                project_id=registered.id,
+                allowed_scopes=scopes,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill evaluation terminal kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

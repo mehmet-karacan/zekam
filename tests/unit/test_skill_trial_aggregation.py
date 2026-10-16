@@ -42,11 +42,13 @@ def batch(world, tmp_path, monkeypatch):
 
     monkeypatch.setattr(native.runner, "run", transport)
 
-    def execute(repetition=0, case=None, model="provider/model", reuse_session=False):
+    def execute(
+        repetition=0, case=None, model="provider/model", reuse_session=False, revision_digest=None
+    ):
         reuse_sessions[0] = reuse_session
         case = base_case if case is None else case
         plan = build_skill_trial_plan(
-            revision_digest=_plan["revision_digest"],
+            revision_digest=revision_digest or _plan["revision_digest"],
             package=package,
             case=case,
             project_id=world.binding.project_id,
@@ -69,6 +71,8 @@ def batch(world, tmp_path, monkeypatch):
             validate_inputs=lambda: None,
             authorize_remote=True,
         )
+
+    execute.package_digest = package.package_digest
 
     def aggregate(results, cases=None, project_id=None):
         return subject.aggregate_skill_trials(

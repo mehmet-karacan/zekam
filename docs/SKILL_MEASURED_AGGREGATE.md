@@ -44,10 +44,11 @@ birbirinin yerine kullanilmaz. Canonical job completed, evaluator isinin gercekt
 calistigini anlatir; aggregate.comparison_state failed/regressed/insufficient
 olabilir. Bu sonuclar denominator'dan atilmaz ve activation vermez.
 
-Bu dilimde SkillEvaluationV2 ledger projection'i yapilmaz. Gercek evaluator,
-native verifier/reviewer receipt'leri ve tam kalite/provenance/independence
-kapilarini birlestiren lifecycle producer siradaki baglantidir. Kalite kaniti
-tamamlanana kadar quality_evaluation_complete=false ve activatable=false kalir.
+Gercek evaluator/native verifier/reviewer receipt'lerini existing SkillEvaluationV2
+ve review ledger'ina aktaran non-promotable adapter
+`docs/SKILL_NATIVE_LIFECYCLE_PROJECTION.md` icindedir. Tam kalite/provenance/
+independence kapilari aciktir. Kalite kaniti tamamlanana kadar
+quality_evaluation_complete=false ve activatable=false kalir.
 
 Regresyon kaynaklari gercek canonical SQLite/CAS evaluator claim/checkpoint/
 receipt, retained case readback, replay, source artifact kaybi, oracle drift,

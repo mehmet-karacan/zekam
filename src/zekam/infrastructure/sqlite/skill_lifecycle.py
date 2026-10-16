@@ -651,49 +651,62 @@ class SQLiteSkillLifecycle:
             )
         if len(set(operational_jobs)) != 2:
             raise PolicyViolation("Skill evaluation independent operational jobs required")
-        body = evaluation.body() | {"created_at": _time(now)}
-        raw, value = _body(body)
         with closing(self._connect()) as db:
             db.execute("begin immediate")
-            exists = db.execute(
-                "select 1 from skill_revision_v2 where revision_digest=?",
-                (evaluation.revision_digest,),
-            ).fetchone()
-            if exists is None:
-                raise PolicyViolation("Skill evaluation needs persisted revision")
-            replay = db.execute(
-                "select evaluation_digest,body_json from skill_evaluation_v2 "
-                "where revision_digest=? and plan_digest=?",
-                (evaluation.revision_digest, evaluation.plan_digest),
-            ).fetchall()
-            if len(replay) > 1:
-                raise PolicyViolation("Skill evaluation replay identity ambiguous")
-            if replay:
-                try:
-                    stored = json.loads(str(replay[0]["body_json"]))
-                except json.JSONDecodeError as exc:
-                    raise PolicyViolation("Skill evaluation stored body malformed") from exc
-                if isinstance(stored, dict):
-                    stored.pop("created_at", None)
-                if canonical_json(stored) != canonical_json(evaluation.body()):
-                    raise PolicyViolation("Skill evaluation exact replay drift")
-                db.rollback()
-                return str(replay[0]["evaluation_digest"])
-            db.execute(
-                "insert into skill_evaluation_v2 values(?,?,?,?,?,?,?,?,?)",
-                (
-                    value,
-                    evaluation.revision_digest,
-                    evaluation.plan_digest,
-                    evaluation.state,
-                    evaluation.trials,
-                    evaluation.evaluator_ref,
-                    evaluation.verifier_ref,
-                    _time(now),
-                    raw,
-                ),
-            )
+            value = self._record_evaluation_tx(db, evaluation, now=now)
             db.commit()
+        return value
+
+    def _record_evaluation_tx(
+        self,
+        db: sqlite3.Connection,
+        evaluation: SkillEvaluationV2,
+        *,
+        now: dt.datetime,
+    ) -> str:
+        body = evaluation.body() | {"created_at": _time(now)}
+        raw, value = _body(body)
+        exists = db.execute(
+            "select 1 from skill_revision_v2 where revision_digest=?",
+            (evaluation.revision_digest,),
+        ).fetchone()
+        if exists is None:
+            raise PolicyViolation("Skill evaluation needs persisted revision")
+        replay = db.execute(
+            "select evaluation_digest,body_json from skill_evaluation_v2 "
+            "where revision_digest=? and plan_digest=?",
+            (evaluation.revision_digest, evaluation.plan_digest),
+        ).fetchall()
+        if len(replay) > 1:
+            raise PolicyViolation("Skill evaluation replay identity ambiguous")
+        if replay:
+            try:
+                stored = json.loads(str(replay[0]["body_json"]))
+            except json.JSONDecodeError as exc:
+                raise PolicyViolation("Skill evaluation stored body malformed") from exc
+            if not isinstance(stored, dict) or digest(stored) != str(
+                replay[0]["evaluation_digest"]
+            ):
+                raise PolicyViolation("Skill evaluation stored replay digest drift")
+            if isinstance(stored, dict):
+                stored.pop("created_at", None)
+            if canonical_json(stored) != canonical_json(evaluation.body()):
+                raise PolicyViolation("Skill evaluation exact replay drift")
+            return str(replay[0]["evaluation_digest"])
+        db.execute(
+            "insert into skill_evaluation_v2 values(?,?,?,?,?,?,?,?,?)",
+            (
+                value,
+                evaluation.revision_digest,
+                evaluation.plan_digest,
+                evaluation.state,
+                evaluation.trials,
+                evaluation.evaluator_ref,
+                evaluation.verifier_ref,
+                _time(now),
+                raw,
+            ),
+        )
         return value
 
     def record_review(
@@ -772,53 +785,218 @@ class SQLiteSkillLifecycle:
             )
             if reviewer_job_id in {evaluator_job_id, verifier_job_id}:
                 raise PolicyViolation("Skill v2 review operational job must be independent")
-            body = {
-                "schema": "zekam-personal-skill-review/v2",
-                "revision_digest": revision_digest,
-                "evaluation_digest": evaluation_digest,
-                "reviewer_ref": reviewer_ref,
-                "reviewer_evidence_digest": reviewer_evidence_digest,
-                "reviewer_execution_identity": reviewer_execution_identity,
-                "approved": approved,
-                "reason": reason,
-                "created_at": _time(now),
-                "grants_authority": False,
-            }
-            raw, value = _body(body)
-            replay = db.execute(
-                "select review_digest,body_json from skill_review_v2 "
-                "where revision_digest=? and evaluation_digest=? and reviewer_ref=?",
-                (revision_digest, evaluation_digest, reviewer_ref),
-            ).fetchall()
-            if len(replay) > 1:
-                raise PolicyViolation("Skill review replay identity ambiguous")
-            if replay:
-                try:
-                    stored = json.loads(str(replay[0]["body_json"]))
-                except json.JSONDecodeError as exc:
-                    raise PolicyViolation("Skill review stored body malformed") from exc
-                stored.pop("created_at", None)
-                expected = dict(body)
-                expected.pop("created_at", None)
-                if canonical_json(stored) != canonical_json(expected):
-                    raise PolicyViolation("Skill review exact replay drift")
-                db.rollback()
-                return str(replay[0]["review_digest"])
-            db.execute(
-                "insert into skill_review_v2 values(?,?,?,?,?,?,?,?)",
-                (
-                    value,
-                    revision_digest,
-                    evaluation_digest,
-                    reviewer_ref,
-                    int(approved),
-                    reason,
-                    _time(now),
-                    raw,
-                ),
+            value = self._record_review_tx(
+                db,
+                revision_digest,
+                evaluation_digest,
+                reviewer_ref=reviewer_ref,
+                reviewer_evidence_digest=reviewer_evidence_digest,
+                reviewer_execution_identity=reviewer_execution_identity,
+                approved=approved,
+                reason=reason,
+                now=now,
             )
             db.commit()
         return value
+
+    def _record_review_tx(
+        self,
+        db: sqlite3.Connection,
+        revision_digest: str,
+        evaluation_digest: str,
+        *,
+        reviewer_ref: str,
+        reviewer_evidence_digest: str,
+        reviewer_execution_identity: str,
+        approved: bool,
+        reason: str,
+        now: dt.datetime,
+    ) -> str:
+        body = {
+            "schema": "zekam-personal-skill-review/v2",
+            "revision_digest": revision_digest,
+            "evaluation_digest": evaluation_digest,
+            "reviewer_ref": reviewer_ref,
+            "reviewer_evidence_digest": reviewer_evidence_digest,
+            "reviewer_execution_identity": reviewer_execution_identity,
+            "approved": approved,
+            "reason": reason,
+            "created_at": _time(now),
+            "grants_authority": False,
+        }
+        raw, value = _body(body)
+        replay = db.execute(
+            "select review_digest,body_json from skill_review_v2 "
+            "where revision_digest=? and evaluation_digest=? and reviewer_ref=?",
+            (revision_digest, evaluation_digest, reviewer_ref),
+        ).fetchall()
+        if len(replay) > 1:
+            raise PolicyViolation("Skill review replay identity ambiguous")
+        if replay:
+            try:
+                stored = json.loads(str(replay[0]["body_json"]))
+            except json.JSONDecodeError as exc:
+                raise PolicyViolation("Skill review stored body malformed") from exc
+            if not isinstance(stored, dict) or digest(stored) != str(replay[0]["review_digest"]):
+                raise PolicyViolation("Skill review stored replay digest drift")
+            stored.pop("created_at", None)
+            expected = dict(body)
+            expected.pop("created_at", None)
+            if canonical_json(stored) != canonical_json(expected):
+                raise PolicyViolation("Skill review exact replay drift")
+            return str(replay[0]["review_digest"])
+        db.execute(
+            "insert into skill_review_v2 values(?,?,?,?,?,?,?,?)",
+            (
+                value,
+                revision_digest,
+                evaluation_digest,
+                reviewer_ref,
+                int(approved),
+                reason,
+                _time(now),
+                raw,
+            ),
+        )
+        return value
+
+    def record_native_projection(
+        self,
+        *,
+        home: Path,
+        plan: dict[str, Any],
+        binding: Any,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+        now: dt.datetime,
+    ) -> dict[str, Any]:
+        """Consume real native evidence under an exact live projection claim.
+
+        This adapter records non-promotable observations only. Existing legacy
+        evaluator/reviewer operation checks are not relaxed or relabeled.
+        """
+        from zekam.application.canonical_job_runtime import canonical_job_key
+        from zekam.application.local_runtime import LocalJobBinding
+        from zekam.application.skill_native_projection import (
+            OPERATION,
+            build_native_projection_plan,
+        )
+        from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+
+        if (
+            type(binding) is not LocalJobBinding
+            or binding.project_id != plan["project_id"]
+            or binding.plan_digest != plan["plan_digest"]
+        ):
+            raise PolicyViolation("Skill native projection exact binding required")
+        if self.operational_path.resolve(strict=True) != (
+            home / "state" / "operational.db"
+        ).resolve(strict=True) or self.learning_path.resolve(strict=True) != (
+            home / "state" / "learning.db"
+        ).resolve(strict=True):
+            raise PolicyViolation("Skill native projection home/store identity mismatch")
+        current, evaluation, review = build_native_projection_plan(
+            home,
+            project_id=binding.project_id,
+            evaluator_ref=plan["evaluator_job_id"],
+            verifier_ref=plan["verifier_job_id"],
+            reviewer_ref=plan["reviewer_job_id"],
+        )
+        if (
+            canonical_json(current) != canonical_json(plan)
+            or evaluation.activatable
+            or evaluation.state == "improved"
+            or review["approved"] is not False
+        ):
+            raise PolicyViolation("Incomplete native evidence cannot promote a skill")
+        runtime = SQLiteLocalRuntimeStore(self.operational_path, existing_only=True)
+        key = canonical_job_key(binding.binding_digest, OPERATION, plan["plan_digest"])
+        snapshot = runtime.job_snapshot(key)
+        if snapshot is None or runtime.job_binding(snapshot["job_id"]) != binding:
+            raise PolicyViolation("Skill native projection own canonical claim required")
+        expected_payload = {
+            "operation": OPERATION,
+            "input_digest": plan["plan_digest"],
+            "work_binding_digest": binding.binding_digest,
+        }
+        expected_effect = digest(
+            {
+                "operation": OPERATION,
+                "binding": binding.binding_digest,
+                "input": plan["plan_digest"],
+            }
+        )
+        # A short operational writer fence prevents reclaim while both learning
+        # rows commit. All source reads and model work finish before this fence.
+        with closing(
+            sqlite3.connect(
+                f"{self.operational_path.resolve().as_uri()}?mode=rw", uri=True, timeout=5.0
+            )
+        ) as operational:
+            operational.execute("pragma busy_timeout=5000")
+            operational.execute("begin immediate")
+            rows = operational.execute(
+                "select j.state,j.payload_json,j.fencing_counter,c.operation,c.effect_digest,"
+                "c.fencing_token,l.fencing_token,l.expires_at,r.id from local_job j "
+                "join local_effect_claim c on c.job_id=j.id "
+                "join local_lease l on l.id=c.lease_id and l.job_id=j.id "
+                "left join local_effect_receipt r on r.claim_id=c.id where j.id=?",
+                (snapshot["job_id"],),
+            ).fetchall()
+            if len(rows) != 1:
+                raise PolicyViolation("Skill native projection single live claim required")
+            row = rows[0]
+            expires = dt.datetime.fromisoformat(str(row[7]).replace("Z", "+00:00"))
+            if (
+                row[0] != "running"
+                or canonical_json(json.loads(str(row[1]))) != canonical_json(expected_payload)
+                or row[3] != OPERATION
+                or row[4] != expected_effect
+                or not (row[2] == row[5] == row[6])
+                or expires.tzinfo is None
+                or expires <= dt.datetime.now(dt.UTC)
+                or row[8] is not None
+            ):
+                raise PolicyViolation("Skill native projection live claim/fence drift")
+            candidate = self.evaluation_revision(
+                plan["revision_digest"], allowed_scopes=allowed_scopes
+            )
+            project = operational.execute(
+                "select id from project where slug=? and status='active'",
+                (candidate["scope"]["ref"],),
+            ).fetchall()
+            if (
+                len(project) != 1
+                or project[0][0] != binding.project_id
+                or candidate["package_digest"] != plan["package_digest"]
+            ):
+                raise PolicyViolation("Skill native projection candidate project/package mismatch")
+            with closing(self._connect()) as learning:
+                learning.execute("begin immediate")
+                evaluation_digest = self._record_evaluation_tx(learning, evaluation, now=now)
+                review_digest = self._record_review_tx(
+                    learning,
+                    evaluation.revision_digest,
+                    evaluation_digest,
+                    reviewer_ref=review["reviewer_ref"],
+                    reviewer_evidence_digest=review["reviewer_evidence_digest"],
+                    reviewer_execution_identity=review["reviewer_execution_identity"],
+                    approved=False,
+                    reason=review["reason"],
+                    now=now,
+                )
+                learning.commit()
+            operational.rollback()
+        return {
+            "schema": "zekam-skill-native-projection-result/v1",
+            "plan": plan,
+            "evaluation_digest": evaluation_digest,
+            "review_digest": review_digest,
+            "state": evaluation.state,
+            "approved": False,
+            "activatable": False,
+            "provider_calls": 0,
+            "grants_authority": False,
+        }
 
     def require_revision_scope(
         self,
