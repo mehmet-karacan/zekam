@@ -48,6 +48,13 @@
   ve sayisini tasir. Testler CALISTIRILMADI; graph metadata, parser/resolver ve
   native kabul matrisi acik.
 
+- Gorev 4 WP-04.01/05: `DiscoveryReport` bounded metadata envanteri icin
+  canonical `inventory_digest` uretir; project knowledge index plani ve JSON
+  cikti kimligine bu digest baglanir. Icerik tree digest'i ayni kalsa da
+  ignored/generated/binary/eligibility metadata drift'i stale plan olarak
+  gorunur. Testler CALISTIRILMADI; parser/secret, incremental publication ve
+  native kabul matrisi acik.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak

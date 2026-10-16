@@ -474,6 +474,26 @@ class DiscoveryReport:
             sorted(item.relative_path for item in self.inventory if item.kind is FileKind.FILE)
         )
 
+    @property
+    def inventory_digest(self) -> str:
+        """Deterministic digest of bounded metadata, status and stop reason."""
+        return digest(
+            {
+                "schema": "zekam-discovery-inventory/v1",
+                "status": self.inventory_status.value,
+                "stop_reason": (
+                    self.inventory_stop_reason.value
+                    if self.inventory_stop_reason is not None
+                    else None
+                ),
+                "bytes": self.inventory_bytes,
+                "entries": [
+                    item.as_dict()
+                    for item in sorted(self.inventory, key=lambda entry: entry.relative_path)
+                ],
+            }
+        )
+
     def skipped_by(self, reason: SkipReason) -> tuple[SkippedPath, ...]:
         return tuple(item for item in self.skipped if item.reason is reason)
 
@@ -516,6 +536,7 @@ class DiscoveryReport:
                 "entry_count": self.inventory_count,
                 "entries_by_kind": {kind.value: count for kind, count in counts.items()},
                 "bytes": self.inventory_bytes,
+                "digest": self.inventory_digest,
             },
         }
 
