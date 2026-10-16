@@ -19,6 +19,11 @@ dosyasını başka bağlamda (üst dizin, JIT) görmesi mümkündür; vaat edile
 kapsam dışında kendiliğinden kurulup çalışmamasıdır. `00_BASLA.md` ve `DEVAM_PROTOKOLU.md`
 Zekam Work/devam/recovery işinde açılır; her oturumda yüklenmez.
 
+Proje-yerel ince giriş planı Zekam çalışma alanı işaretçisi doğrulanmadığında
+`inert=true` ve `inert_reason=workspace-marker-missing-or-invalid` döndürür.
+Bu neden plan/effect/receipt zincirinde taşınır; hedef dosya listesi boş kalır ve
+plan kendi başına kurulum yetkisi vermez.
+
 ## Policy v2: `cli.integrations`
 
 `cli.integrations` yalnız **kullanıcı-geneli yönetilen** Zekam girişini (instruction, hook,

@@ -420,6 +420,7 @@ class ProjectLocalEntryPlan:
     inert: bool
     files: tuple[ProjectLocalEntryFilePlan, ...]
     conflicts: tuple[ProjectLocalEntryConflict, ...] = ()
+    inert_reason: str | None = None
 
     @property
     def changes_required(self) -> bool:
@@ -458,9 +459,7 @@ def _is_zekam_workspace_root(project_root: Path) -> bool:
 
 
 def _assert_project_local_target(project_root: Path, path: Path) -> None:
-    if not path.is_absolute() or (
-        project_root not in path.parents and path.parent != project_root
-    ):
+    if not path.is_absolute() or (project_root not in path.parents and path.parent != project_root):
         raise ConfigurationError("Project entry hedefi proje koku altinda olmali")
     current = project_root
     for segment in path.relative_to(project_root).parts[:-1]:
@@ -525,9 +524,7 @@ def plan_project_local_entry(
         try:
             entry_dir.relative_to(project_root)
         except ValueError as exc:
-            raise ConfigurationError(
-                "Project entry alt dizini proje koku icinde olmali"
-            ) from exc
+            raise ConfigurationError("Project entry alt dizini proje koku icinde olmali") from exc
     for path in (entry_dir, *entry_dir.parents):
         if _unsafe(path):
             raise ConfigurationError("Project entry dizini symlink/reparse olamaz")
@@ -535,7 +532,12 @@ def plan_project_local_entry(
             raise ConfigurationError("Project entry dizini regular directory olmali")
 
     if not _is_zekam_workspace_root(project_root):
-        return ProjectLocalEntryPlan(project_root=project_root, inert=True, files=())
+        return ProjectLocalEntryPlan(
+            project_root=project_root,
+            inert=True,
+            files=(),
+            inert_reason="workspace-marker-missing-or-invalid",
+        )
 
     expected_canonical = project_root / PROJECT_ENTRY_CANONICAL_SOURCE
     if not expected_canonical.is_file() or _unsafe(expected_canonical):
@@ -562,9 +564,7 @@ def plan_project_local_entry(
         elif collect_conflicts:
             conflicts.append(outcome)
         else:
-            raise ManagedInstructionConflict(
-                "Proje girisi sahiplik drift", reason=outcome.reason
-            )
+            raise ManagedInstructionConflict("Proje girisi sahiplik drift", reason=outcome.reason)
     return ProjectLocalEntryPlan(
         project_root=project_root,
         inert=False,
@@ -664,6 +664,7 @@ def project_entry_intent_document(plan: ProjectLocalEntryPlan) -> dict[str, obje
     return {
         "project_root": str(plan.project_root),
         "inert": plan.inert,
+        "inert_reason": plan.inert_reason,
         "files": [
             {
                 "client_id": item.client_id,
@@ -690,9 +691,7 @@ def project_entry_plan_digest(plan: ProjectLocalEntryPlan) -> str:
     return digest(project_entry_intent_document(plan))
 
 
-def project_entry_plan_document(
-    plan: ProjectLocalEntryPlan, *, apply: bool
-) -> dict[str, object]:
+def project_entry_plan_document(plan: ProjectLocalEntryPlan, *, apply: bool) -> dict[str, object]:
     """CLI icin salt-okunur, provider'siz plan JSON govdesi.
 
     `plan_digest` yalnizca stabil intent govdesi uzerinden alinir; `action`
@@ -754,14 +753,13 @@ def project_entry_receipt(plan: ProjectLocalEntryPlan) -> dict[str, object]:
     for item in plan.files:
         current = read_instruction_text(item.path)
         if _lf(current) != _lf(item.content):
-            raise ConfigurationError(
-                "Project entry terminal readback drift; receipt kanitlanamadi"
-            )
+            raise ConfigurationError("Project entry terminal readback drift; receipt kanitlanamadi")
     body: dict[str, object] = {
         "schema": "zekam-project-local-entry-receipt/v1",
         "plan_digest": project_entry_plan_digest(plan),
         "project_root": str(plan.project_root),
         "inert": plan.inert,
+        "inert_reason": plan.inert_reason,
         "state": "inert-noop" if plan.inert else "applied-and-read-back",
         "files": [
             {
