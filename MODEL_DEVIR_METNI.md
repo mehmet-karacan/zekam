@@ -1,6 +1,8 @@
-# Model devir metni - 16 Ekim 2026 07:40 checkpoint
+# Model devir metni - 16 Ekim 2026 17:45 checkpoint
 
 ## Guncel devam notu
+
+17:45 checkpoint: gelistirme durduruldu. Kullanici devam et demeden surdurme. Mevcut goal ve birikmis sureyi sifirlama; yeni goal olusturma. Son gelistirme HEAD 58cf14a, remote readback eslesti. Tam durum ve devam promptu docs/CHECKPOINT_2026-10-16_1745.md icindedir. Testler CALISTIRILMADI.
 
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
