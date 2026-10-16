@@ -1345,22 +1345,17 @@ def _local_query_binding(
     qualification.  WP3 removes that: the accepted, bounded synthetic fixture
     identity (same contract used by the remote canonical probe) is reused, so a
     normal answer query does no corpus chunking / document embedding / indexing.
-    The local provider is rebuilt per query (no remote/external call; the Mac BGE
-    model runs loopback), and its fingerprint must still match the canonical
-    dimension so qualification stays exact.
+    The local provider is rebuilt per query (no remote/external call; the pinned
+    multilingual-e5-small ONNX model runs through CPU execution), and its
+    fingerprint must still match the canonical dimension so qualification stays
+    exact.
     """
     if knowledge.embedding_route is not EmbeddingRoute.LOCAL:
         raise ConfigurationError("Local query binding route drift")
     _assert_canonical_knowledge_profile(knowledge)
     record_qualification()
     del home, ledger_path, project_id
-    # Keep the legacy helper call shape for explicit BGE bindings; the E5 route
-    # carries KnowledgeSettings so the pinned model can be selected explicitly.
-    local = (
-        _build_local_query_embedding(knowledge)
-        if knowledge.embedding_model_ref == LOCAL_MODEL_ID
-        else _build_local_query_embedding()
-    )
+    local = _build_local_query_embedding(knowledge)
     accepted_model_refs = {
         local.profile.exact_model_id,
         f"openai/{local.profile.exact_model_id}",
@@ -1394,28 +1389,13 @@ def _local_query_binding(
 def _build_local_query_embedding(knowledge: KnowledgeSettings | None = None) -> _LocalQueryBinding:
     """Build and verify the configured local binding from a bounded fixture.
 
-    Uses :data:`_LOCAL_QUALIFICATION_FIXTURE` (a fixed, project-independent source
-    probe pair) so the query path never needs real project chunks.  Mirrors the
-    verified local binding shape (provider, profile, policy).
+    Uses the fixed public E5 probe pair so the query path never needs real project
+    chunks. Mirrors the verified local binding shape (provider, profile, policy).
     """
-    if knowledge is not None and knowledge.embedding_model_ref == LOCAL_MODEL_ID:
-        local = build_verified_local_e5_embedding()
-        return _LocalQueryBinding(local.provider, local.profile, local.policy)
-    if knowledge.embedding_model_ref != MODEL_ID:
-        raise ConfigurationError("Local embedding model desteklenmiyor")
-    if _runtime_platform() != "darwin":
-        raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
-    provider = build_local_bge_provider(default_mac_bge_configuration())
-    result = provider.probe(_LOCAL_QUALIFICATION_FIXTURE)
-    policy = EmbeddingPolicy(DataClassification.LOCAL_ONLY, result.profile.profile_digest)
-    if not provider.health().healthy:
-        raise ValidationFailed("Verified local embedding provider health gecemedi")
-
-    return _LocalQueryBinding(
-        provider=provider,
-        profile=result.profile,
-        policy=policy,
-    )
+    if knowledge is not None:
+        _assert_canonical_knowledge_profile(knowledge)
+    local = build_verified_local_e5_embedding()
+    return _LocalQueryBinding(local.provider, local.profile, local.policy)
 
 
 def project_embedding_route(home: Path) -> EmbeddingRoute:
@@ -1425,22 +1405,16 @@ def project_embedding_route(home: Path) -> EmbeddingRoute:
 
 
 def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
-    bge_profile = (
-        knowledge.embedding_profile_id == "bge-m3-dense-v1"
-        and knowledge.embedding_dimension == VECTOR_DIMENSION
-    )
     e5_profile = (
         knowledge.embedding_profile_id == "multilingual-e5-small-dense-v1"
+        and knowledge.embedding_route is EmbeddingRoute.LOCAL
         and knowledge.embedding_model_ref == LOCAL_MODEL_ID
         and knowledge.embedding_dimension == LOCAL_VECTOR_DIMENSION
     )
-    if (not bge_profile and not e5_profile) or knowledge.embedding_distance != "cosine":
-        raise ConfigurationError("Project RAG canonical embedding profili desteklenmiyor")
-    if (
-        knowledge.embedding_model_ref == LOCAL_MODEL_ID
-        and knowledge.embedding_route is not EmbeddingRoute.LOCAL
-    ):
-        raise ConfigurationError("Local E5 embedding route remote olamaz")
+    if not e5_profile or knowledge.embedding_distance != "cosine":
+        raise ConfigurationError(
+            "Project RAG yalniz yerel multilingual-e5-small profiliyle calisir"
+        )
 
 
 def _knowledge_binding(knowledge: KnowledgeSettings) -> dict[str, object]:
