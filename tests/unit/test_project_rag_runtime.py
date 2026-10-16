@@ -946,9 +946,9 @@ def test_query_rejects_state_generation_identity_drift_before_provider_call(
     monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
     monkeypatch.setattr(
         runtime,
-        "_provider",
+        "_local_query_binding",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("provider must not be called on binding drift")
+            AssertionError("local provider must not be called on binding drift")
         ),
     )
 
