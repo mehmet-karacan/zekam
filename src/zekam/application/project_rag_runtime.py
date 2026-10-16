@@ -1081,11 +1081,9 @@ def _project_plan(
         expected_tree_digest=discovery.tree_digest,
         embedding_candidates=embedding_candidates,
         allow_remote_source=allow_remote_source,
-        local_model_ref=(
-            knowledge.embedding_model_ref if knowledge is not None else LOCAL_MODEL_ID
-        ),
+        local_model_ref=(knowledge.embedding_model_ref if knowledge is not None else MODEL_ID),
         local_dimension=(
-            knowledge.embedding_dimension if knowledge is not None else LOCAL_VECTOR_DIMENSION
+            knowledge.embedding_dimension if knowledge is not None else VECTOR_DIMENSION
         ),
         **({"check_budget": check_budget} if check_budget is not None else {}),
     )
@@ -1329,7 +1327,13 @@ def _local_query_binding(
     _assert_canonical_knowledge_profile(knowledge)
     record_qualification()
     del home, ledger_path, project_id
-    local = _build_local_query_embedding(knowledge)
+    # Keep the legacy helper call shape for explicit BGE bindings; the E5 route
+    # carries KnowledgeSettings so the pinned model can be selected explicitly.
+    local = (
+        _build_local_query_embedding(knowledge)
+        if knowledge.embedding_model_ref == LOCAL_MODEL_ID
+        else _build_local_query_embedding()
+    )
     accepted_model_refs = {
         local.profile.exact_model_id,
         f"openai/{local.profile.exact_model_id}",
@@ -1360,14 +1364,14 @@ def _local_query_binding(
     )
 
 
-def _build_local_query_embedding(knowledge: KnowledgeSettings) -> _LocalQueryBinding:
+def _build_local_query_embedding(knowledge: KnowledgeSettings | None = None) -> _LocalQueryBinding:
     """Build and verify the configured local binding from a bounded fixture.
 
     Uses :data:`_LOCAL_QUALIFICATION_FIXTURE` (a fixed, project-independent source
     probe pair) so the query path never needs real project chunks.  Mirrors the
     verified local binding shape (provider, profile, policy).
     """
-    if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
+    if knowledge is not None and knowledge.embedding_model_ref == LOCAL_MODEL_ID:
         local = build_verified_local_e5_embedding()
         return _LocalQueryBinding(local.provider, local.profile, local.policy)
     if knowledge.embedding_model_ref != MODEL_ID:
