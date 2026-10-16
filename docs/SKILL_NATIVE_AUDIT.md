@@ -71,6 +71,11 @@ activatable=false korunur. Audit receipt'i legacy evaluator/verifier/review
 receipt operation'ina yeniden etiketlenmez. SkillEvaluationV2 producer ve gercek
 kalite/native invocation kabul kapilari halen aciktir.
 
+Local exact evaluator icin ayri canonical aggregate receipt'i
+`skill aggregate-record/report` ile uretilir; ayrintilar
+`docs/SKILL_MEASURED_AGGREGATE.md` icindedir. Native verifier receipt'i bu yeni
+evaluator receipt'inin yerine gecmez.
+
 Regresyon kaynaklari canonical trial -> verifier -> reviewer -> report zincirini,
 same-model/variant reddini, remote authorization, prior ret sonucu, unsupported
 preference, invalid bool, reused session, artifact kaybi ve generic worker ayrimini

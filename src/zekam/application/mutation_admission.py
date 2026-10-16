@@ -394,6 +394,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("skill", "review-record"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("skill", "trial-run"): MutationAdmissionExemption.CONTROL_PLANE,
     ("skill", "audit-run"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("skill", "aggregate-record"): MutationAdmissionExemption.CONTROL_PLANE,
     ("memory", "upgrade-apply-shadow"): MutationAdmissionExemption.BOOTSTRAP,
     ("memory", "hook-upgrade-apply"): MutationAdmissionExemption.CONTROL_PLANE,
     ("memory", "hydration-apply"): MutationAdmissionExemption.HYDRATION,

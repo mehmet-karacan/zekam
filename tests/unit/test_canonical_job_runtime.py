@@ -135,6 +135,7 @@ def test_generic_consumer_cannot_take_index_or_measurement_jobs(world):
         "skill.trial",
         "skill.audit.verify",
         "skill.audit.review",
+        "skill.evaluation.aggregate",
     ):
         world.runtime.enqueue(
             idempotency_key=operation, payload={"operation": operation}, binding=world.binding

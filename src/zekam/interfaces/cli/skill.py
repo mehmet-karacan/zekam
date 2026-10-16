@@ -30,6 +30,11 @@ from zekam.application.skill_packages import (
 )
 from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
 from zekam.application.skill_audits import build_skill_audit_plan, read_skill_audit, run_skill_audit
+from zekam.application.skill_measured_aggregate import (
+    build_measured_aggregate_plan,
+    read_measured_aggregate,
+    run_measured_aggregate,
+)
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
 from zekam.application.skill_trial_aggregation import aggregate_skill_trials
 from zekam.application.unit_test_provider_profile import load_batch_provider_profile
@@ -923,6 +928,103 @@ def audit_report_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Skill audit terminal kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("aggregate-record")
+def aggregate_record_command(
+    revision_digest: Annotated[str, typer.Argument()],
+    trial: Annotated[list[str], typer.Option("--trial")],
+    case_file: Annotated[list[Path], typer.Option("--case-file")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Record a real local evaluator result under a canonical Work claim/receipt."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        candidate = lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        if not 1 <= len(trial) <= 100 or not 1 <= len(case_file) <= 100:
+            raise PolicyViolation("Skill aggregate record bounded trial/case list required")
+        cases = tuple(load_trial_case(path) for path in case_file)
+        plan, _preview = build_measured_aggregate_plan(
+            resolved_home,
+            references=tuple(trial),
+            cases=cases,
+            project_id=registered.id,
+            revision_digest=revision_digest,
+            package_digest=str(candidate["package_digest"]),
+        )
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if binding is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Skill aggregate record exact Work/plan binding required")
+
+        def validate_inputs():
+            if lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes) != candidate:
+                raise PolicyViolation("Skill aggregate record candidate scope/body drift")
+            if canonical_json([load_trial_case(path) for path in case_file]) != canonical_json(
+                cases
+            ):
+                raise PolicyViolation("Skill aggregate record case file drift")
+
+        _emit(
+            run_measured_aggregate(
+                resolved_home,
+                binding=binding,
+                plan=plan,
+                cases=cases,
+                validate_inputs=validate_inputs,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill aggregate record kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("aggregate-report")
+def aggregate_report_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Reopen a scoped evaluator receipt and regrade its retained case/source chain."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        _emit(read_measured_aggregate(resolved_home, reference, project_id=registered.id))
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill aggregate terminal kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

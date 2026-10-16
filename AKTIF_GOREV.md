@@ -1730,6 +1730,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   decision kapilari eklendi. Ret ve eksik preference kaniti kabul diye yukseltilmez.
   Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek upstream bagimsizligi, kalite
   evidence producer ve native invocation kabul kapilari halen acik.
+
+  16 Ekim 2026 canonical evaluator: aggregate-record/report gercek local grader'i
+  reserved Work/Run claim/checkpoint/receipt'e baglar. Bounded case/oracle snapshot
+  CAS'ta korunur; source receipt/native artifact regrade ve exact result readback
+  yapilir. Basarisiz olcum evaluator completed diye kalite basarisina yukseltilmez.
+  Regresyon kaynaklari hazir, CALISTIRILMADI. SkillEvaluationV2 projection ve tam
+  kalite/independence/provenance kabul kapilari acik kalir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
