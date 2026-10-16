@@ -46,7 +46,8 @@
   boyunca junction/symlink/reparse parent kabul edilmez. Proje yerel ince giris
   marker'i `.ai` ve `PROJE_MANIFESTI.yaml` icin ayni regular/reparse kontrolunu
   uygular. Yeni regresyon kaynaklari eklendi, AST/diff kontrolleri yapildi;
-  pytest CALISTIRILMADI. Commitler: `6cbd2d2`, `af55982`, `44c0afc`.
+  pytest CALISTIRILMADI. Commitler: `6cbd2d2`, `af55982`, `44c0afc`,
+  `5b9ccd8`, `7b739bf`, `8c84bad`.
 
 - 17 Ekim 2026 kaynak denetimi: onceki "compose_agent_gateway generic
   digest-flag" acigi artik gecerli degil. `unit_test_runtime.py` gercek
