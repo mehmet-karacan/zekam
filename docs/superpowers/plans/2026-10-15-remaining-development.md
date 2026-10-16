@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-06.04 source head: site/issue/attachment origin prefix'i canonical active note query'sine, ayni version timestamp/plan dedup'a ve generated update/archive/supersedes akisina baglandi. Effect oncesi head CAS ve terminal producer/receipt/resolution kapisi eklendi. Historical archive replay current sayilmaz. Regresyon kodu hazir, CALISTIRILMADI. Legacy source adoption, incremental vector/index publication ve canli kabul halen acik.
+
 - Gorev 4 WP-06.04 knowledge publication: Jira mapping -> canonical project scope, fresh source pins ve generated reference, mevcut knowledge.create claim/receipt akisina CLI plan/apply ile baglandi. Exact completed replay note/receipt/resolution readback yapar; ready/attempt=0 enqueue recovery duzeltildi. Yerel SQLite/file/search/replay/drift/recovery regresyon kaynaklari hazir, CALISTIRILMADI. Remote-source head/supersession/incremental index bagi ve gercek client/ACL kabul acik.
 
 - Gorev 4 WP-06.04 ek read: yerlesik MCP'ye exact issue/attachment/metadata digest ile bounded same-origin/path download, once/sonra metadata kontrolu, gercek byte hash, parser locator ve secret/PII kapisi eklendi. TXT/Markdown/DOCX/dijital PDF desteklenir; no-OCR profili ayri, raw bytes saklanmaz. Regresyon kodu hazir, CALISTIRILMADI. Canonical project knowledge publication ve gercek client/ACL kabul acik.

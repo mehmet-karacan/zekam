@@ -85,6 +85,7 @@ def jira_attachment_plan_command(
             issue_key=issue_key,
             attachment_id=attachment_id,
             metadata_digest=metadata_digest,
+            files=KnowledgeFileStore(build_context(home=home).home),
         )
     except (RuntimeError, OSError, ZekamError) as exc:
         reason = type(exc).__name__ if isinstance(exc, OSError) else str(exc)

@@ -2198,6 +2198,74 @@ class SQLiteOperationalUnitOfWork:
         )
         return tuple(_row_knowledge_note(row) for row in rows)
 
+    def knowledge_reference_head(
+        self, *, project_id: str, portable_prefix: str, require_terminal: bool = False
+    ) -> KnowledgeNoteRecord | None:
+        project_id = _canonical_uuid(project_id, "Knowledge project")
+        portable_prefix = validate_portable_relative(portable_prefix, "Knowledge reference prefix")
+        rows = (
+            self._db()
+            .execute(
+                "select * from knowledge_note where project_id=? and owner_scope=? "
+                "and authorship='generated' and note_kind='reference' and state='active' "
+                "and portable_ref>=? and portable_ref<? order by portable_ref limit 2",
+                (project_id, f"project:{project_id}", portable_prefix, portable_prefix + "\uffff"),
+            )
+            .fetchall()
+        )
+        if len(rows) > 1:
+            raise PolicyViolation(
+                "Knowledge reference active head belirsiz; reconciliation gerekli"
+            )
+        head = None if not rows else _row_knowledge_note(rows[0])
+        if head is not None and require_terminal:
+            producers = (
+                self._db()
+                .execute(
+                    "select j.payload_json,c.effect_digest,r.status receipt_status,"
+                    "rr.outcome resolution_outcome from local_job j "
+                    "join local_effect_claim c on c.job_id=j.id "
+                    "left join local_effect_receipt r on r.claim_id=c.id "
+                    "left join local_recovery_case rc on rc.effect_claim_id=c.id and rc.job_id=j.id "
+                    "left join local_recovery_resolution rr on rr.recovery_case_id=rc.id "
+                    "where j.state='completed' and json_extract(j.payload_json,'$.project_id')=? "
+                    "and json_extract(j.payload_json,'$.target_ref')=? "
+                    "and json_extract(j.payload_json,'$.target_content_digest')=? "
+                    "and c.operation=json_extract(j.payload_json,'$.operation') "
+                    "order by j.created_at,j.id limit 2",
+                    (project_id, head.portable_ref, head.content_digest),
+                )
+                .fetchall()
+            )
+            if len(producers) != 1:
+                raise PolicyViolation("Knowledge reference terminal producer eksik veya belirsiz")
+            producer = producers[0]
+            payload = json.loads(producer["payload_json"])
+            expected = digest(
+                {
+                    "operation": payload["operation"],
+                    "plan_digest": payload["plan_digest"],
+                    "source_note_id": payload["source_note_id"],
+                    "target_ref": payload["target_ref"],
+                    "target_content_digest": payload["target_content_digest"],
+                }
+            )
+            if (
+                producer["effect_digest"] != expected
+                or not head.materialized
+                or payload.get("owner_scope") != head.owner_scope
+                or payload.get("project_slug") != head.project_slug
+                or payload.get("authorship") != "generated"
+                or payload["operation"] not in {"knowledge.create", "knowledge.update"}
+                or not (
+                    producer["receipt_status"] == "completed"
+                    or producer["receipt_status"] in {None, "unknown"}
+                    and producer["resolution_outcome"] == "completed"
+                )
+            ):
+                raise PolicyViolation("Knowledge reference terminal producer effect drift")
+        return head
+
     def get_knowledge_note(self, reference: str) -> KnowledgeNoteRecord:
         reference = _required_text(reference, "Knowledge note reference")
         if len(reference.encode("utf-8")) > 1024:

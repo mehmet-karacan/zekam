@@ -146,3 +146,35 @@ enqueue/unknown-receipt recovery regresyon kaynaklari eklendi, CALISTIRILMADI.
 Canli kurumsal read/import yapilmadi. Yeni plan farkli bir generated reference
 revision'i uretebilir; mevcut remote-source head/supersession ve incremental
 index baginin tamamlanmasi ile gercek client/ACL kabul kaniti halen aciktir.
+
+## Kaynak basi, tekrar ve supersession
+
+Yeni import origin kimligi site + numeric issue ID + attachment ID'den turetilir.
+Operational note ref prefix'i bu kimlige baglidir. Head, Markdown'dan degil scope'u
+tam eslesen active/generated/reference canonical note satirindan cozulur; iki head
+varsa reconciliation gerekir. Query scope ve ref araligi LIMIT'ten once uygulanir.
+
+Ayni observed source revision yeni generation timestamp uretmez: mevcut manifested
+notun timestamp'i digest readback ile tekrar kullanilir. Ayni plan/payload/idempotency
+key'e donulur. Degisen source digest yeni immutable ref'e gider; exact onceki note
+ID/content/state plan'a pin edilir. Lease/effect claim sonrasi head CAS tekrar
+dogrulanir; stale plan yeni head'i ezemez.
+
+Generated reference update mevcut atomik relation/archive DB yolunu kullanir.
+Eski dosya archive'a alinir ve verified supersedes relation'i eklenir. Normal
+knowledge search yalniz active kaydi getirir. Onceki planin completed replay'i
+archive dosyasini readback yapabilir; is_current_reference=false tasir. Historical
+receipt yeni source versiyonunu aktif yapmaz.
+
+Yeni bir revision'in predecessor'i yalniz materialized note varligi ile onaylanmaz.
+Canonical completed producer job, exact claim effect ve completed receipt veya
+completed recovery resolution dogrulanir. Unknown/unresolved producer head'i
+once recovery ister. Producer lookup tek scope/ref query'sidir; buyuk local job
+gecmisinde JSON predicate performansi final kabulde olculecektir.
+
+Bu gelistirmede schema veya kullanici DB migration'i yapilmadi. Eski import
+planlari/source origin bagi olmayan legacy notlar otomatik authority/head'e
+yukseltilmez; canonical mutation status tarihsel kaniti okumaya devam eder.
+Legacy source adoption/reconciliation ayri exact inceleme gerektirir. Yeni
+head/dedup/update/stale/unknown-producer regresyon kaynaklari hazir,
+CALISTIRILMADI. Incremental vector/index publication ve canli kabul aciktir.

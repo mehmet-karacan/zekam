@@ -1172,6 +1172,15 @@ oncesi ready enqueue recovery duzeltildi; unknown receipt degistirilmeden resolv
 proof gorunur. Regresyon kodu hazir, CALISTIRILMADI. Remote-source head/supersession,
 incremental index ve gercek client/ACL kabul kaniti acik.
 
+**16 Ekim 2026 — WP-06.04 source head/supersession:** Site/issue/attachment
+origin'i operational ref prefix'ine baglandi. Ayni observed source revision
+generation timestamp/plan'i tekrar kullanir; degisen revision exact predecessor
+ID/digest/state ve head CAS ile generated update/archive/supersedes yoluna girer.
+Predecessor terminal producer effect/receipt/resolution olmadan onaylanmaz.
+Tarihsel archive replay current reference sayilmaz. Regresyon kodu hazir,
+CALISTIRILMADI. Legacy source adoption/reconciliation, incremental index/vector
+publication ve canli kabul kaniti halen acik.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

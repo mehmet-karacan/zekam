@@ -16,6 +16,7 @@ from zekam.application.knowledge_file_plane import (
     assert_public_safe_projection,
     generated_note_bytes,
     note_content_digest,
+    validate_generated_note,
 )
 from zekam.application.markdown_knowledge_mutation import (
     KnowledgeMutationPlan,
@@ -27,6 +28,7 @@ from zekam.application.operational_store import OperationalStore
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
+from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
 _SOURCE_SCHEMA = "zekam-jira-knowledge-source/v1"
 
@@ -45,6 +47,8 @@ def build_jira_knowledge_plan(
     metadata_digest: str,
     generated_at: str | None = None,
     environ: dict[str, str] | None = None,
+    files: KnowledgeFileStore | None = None,
+    recovery_body: dict[str, Any] | None = None,
 ) -> KnowledgeMutationPlan:
     project = _project(store, project_ref)
     resolution = resolve_jira_issue(issue_key)
@@ -79,6 +83,41 @@ def build_jira_knowledge_plan(
         "parser_profile_digest": observation["parser_profile_digest"],
         "mapping_digest": resolution.mapping_digest,
     }
+    provenance = observation["issue_provenance"]
+    site = provenance["source_ref"].split(":")[1]
+    parse_digest("sha256:" + site)
+    source["origin_digest"] = digest(
+        {"site": site, "issue_id": provenance["issue_id"], "attachment_id": attachment_id}
+    )
+    prefix = f"projeler/{project.slug}/knowledge/generated/reference/jira-{source['origin_digest'][7:39]}-"
+    target = prefix + digest(source)[7:39] + ".md"
+    with store.unit_of_work() as uow:
+        head = uow.knowledge_reference_head(project_id=project.id, portable_prefix=prefix)
+    previous = head if head is not None and head.portable_ref != target else None
+    if previous is not None and recovery_body is None:
+        with store.unit_of_work() as uow:
+            terminal_head = uow.knowledge_reference_head(
+                project_id=project.id, portable_prefix=prefix, require_terminal=True
+            )
+        if terminal_head is None or terminal_head.id != previous.id:
+            raise PolicyViolation("Jira reference head planning sirasinda degisti")
+    if head is not None and head.portable_ref == target and generated_at is None:
+        if files is None:
+            raise PolicyViolation("Existing Jira reference generation timestamp readback ister")
+        current_payload = files.read_note(
+            KnowledgeNoteManifest(
+                owner_scope=head.owner_scope,
+                project_slug=project.slug,
+                note_kind=head.note_kind,
+                authorship=head.authorship,
+                classification=KnowledgeClassification(head.classification),
+                portable_ref=head.portable_ref,
+                content_digest=head.content_digest,
+                state=head.state,
+            )
+        )
+        stamp = validate_generated_note(current_payload)["generated_at"]
+    operation = "knowledge.update" if previous is not None else "knowledge.create"
     for key in (
         "metadata_digest",
         "read_result_digest",
@@ -123,16 +162,16 @@ def build_jira_knowledge_plan(
     )
     assert_public_safe_projection(payload, relative_path="jira/generated-reference.md")
     content = note_content_digest(payload)
-    target = f"projeler/{project.slug}/knowledge/generated/reference/jira-{issue_key.lower()}-{attachment_id}-{content[7:23]}.md"
     body = {
         "schema": PLAN_SCHEMA,
-        "operation": "knowledge.create",
+        "operation": operation,
         "project_id": project.id,
         "project_slug": project.slug,
         "owner_scope": owner_scope,
-        "source_note_id": None,
-        "expected_source_digest": None,
-        "expected_source_state": None,
+        "source_note_id": previous.id if previous is not None else None,
+        "expected_source_digest": previous.content_digest if previous is not None else None,
+        "expected_source_state": previous.state if previous is not None else None,
+        "reference_prefix": prefix,
         "target_ref": target,
         "target_content_digest": content,
         "note_kind": "reference",
@@ -144,10 +183,18 @@ def build_jira_knowledge_plan(
         "generated_at": stamp,
         "grants_authority": False,
     }
+    if recovery_body is not None:
+        for field in (
+            "operation",
+            "source_note_id",
+            "expected_source_digest",
+            "expected_source_state",
+        ):
+            body[field] = recovery_body[field]
+        operation = body["operation"]
     exact = digest(body)
     return KnowledgeMutationPlan(
-        body
-        | {"plan_digest": exact, "idempotency_key": f"knowledge:create:{exact}", "dry_run": True},
+        body | {"plan_digest": exact, "idempotency_key": f"{operation}:{exact}", "dry_run": True},
         payload,
     )
 
@@ -176,6 +223,7 @@ def load_jira_knowledge_plan(path: Path) -> dict[str, Any]:
         "project_slug",
         "owner_scope",
         "source_note_id",
+        "reference_prefix",
         "expected_source_digest",
         "expected_source_state",
         "target_ref",
@@ -203,11 +251,11 @@ def load_jira_knowledge_plan(path: Path) -> dict[str, Any]:
     if (
         digest(stable) != document["plan_digest"]
         or document["schema"] != PLAN_SCHEMA
-        or document["operation"] != "knowledge.create"
+        or document["operation"] not in {"knowledge.create", "knowledge.update"}
         or document["authorship"] != "generated"
         or document["grants_authority"] is not False
         or document["dry_run"] is not True
-        or document["idempotency_key"] != f"knowledge:create:{document['plan_digest']}"
+        or document["idempotency_key"] != f"{document['operation']}:{document['plan_digest']}"
     ):
         raise PolicyViolation("Jira knowledge plan identity drift")
     source = document["jira_source"]
@@ -224,6 +272,7 @@ def load_jira_knowledge_plan(path: Path) -> dict[str, Any]:
             "normalized_digest",
             "parser_profile_digest",
             "mapping_digest",
+            "origin_digest",
         }
         or source["schema"] != _SOURCE_SCHEMA
     ):
@@ -238,6 +287,7 @@ def load_jira_knowledge_plan(path: Path) -> dict[str, Any]:
         "normalized_digest",
         "parser_profile_digest",
         "mapping_digest",
+        "origin_digest",
     ):
         parse_digest(source[key])
     return document
@@ -260,7 +310,7 @@ def apply_jira_knowledge_plan(
     if (
         body["plan_digest"] != expected_plan_digest
         or digest(stable) != expected_plan_digest
-        or body["idempotency_key"] != f"knowledge:create:{expected_plan_digest}"
+        or body["idempotency_key"] != f"{body['operation']}:{expected_plan_digest}"
     ):
         raise PolicyViolation("Jira knowledge exact plan digest ister")
     project = _project(store, body["project_id"])
@@ -306,9 +356,24 @@ def apply_jira_knowledge_plan(
                 portable_ref=note.portable_ref,
                 content_digest=note.content_digest,
                 state=note.state,
-            )
+            ),
+            relative_ref=note.archived_ref if note.state == "archived" else None,
         )
-        return status | {"replayed": True}
+        return status | {
+            "replayed": True,
+            "publication_state": note.state,
+            "is_current_reference": note.state == "active",
+        }
+    recovery_body = None
+    if status is not None and status["state"] == "recovery-required":
+        snapshot = SQLiteLocalRuntimeStore(
+            home / "state/operational.db", existing_only=True
+        ).job_snapshot(body["idempotency_key"])
+        if snapshot is None or canonical_json(snapshot["payload"]) != canonical_json(
+            body | {"dry_run": False}
+        ):
+            raise PolicyViolation("Jira reference recovery canonical plan drift")
+        recovery_body = body
     source = body["jira_source"]
     current = build_jira_knowledge_plan(
         store,
@@ -318,6 +383,8 @@ def apply_jira_knowledge_plan(
         metadata_digest=source["metadata_digest"],
         generated_at=body["generated_at"],
         environ=environ,
+        files=files,
+        recovery_body=recovery_body,
     )
     if canonical_json(current.body) != canonical_json(body):
         raise PolicyViolation("Jira knowledge source/plan drift; fresh reviewed plan gerekli")

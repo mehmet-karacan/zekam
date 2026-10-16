@@ -347,6 +347,25 @@ def _perform_mutation(
     recovering: bool,
 ) -> dict[str, Any]:
     operation = str(plan.body["operation"])
+    if plan.body.get("reference_prefix") is not None:
+        with store.unit_of_work() as uow:
+            head = uow.knowledge_reference_head(
+                project_id=plan.body["project_id"],
+                portable_prefix=plan.body["reference_prefix"],
+                require_terminal=plan.body["source_note_id"] is not None and not recovering,
+            )
+        expected = plan.body["source_note_id"]
+        same_target = (
+            head is not None
+            and head.portable_ref == plan.body["target_ref"]
+            and head.content_digest == plan.body["target_content_digest"]
+        )
+        if (head is None and expected is not None) or (
+            head is not None
+            and head.id != expected
+            and not (same_target and (recovering or expected is None))
+        ):
+            raise PolicyViolation("Knowledge reference head CAS drift")
     source: KnowledgeNoteRecord | None = None
     if plan.body["source_note_id"] is not None:
         with store.unit_of_work() as uow:
@@ -384,11 +403,11 @@ def _perform_mutation(
     if plan.payload is None or plan.body["target_ref"] is None:
         raise ValidationFailed("Knowledge mutation target payload eksik")
     if plan.body.get("authorship") == "generated" and (
-        operation != "knowledge.create"
+        operation not in {"knowledge.create", "knowledge.update"}
         or plan.body["note_kind"] != "reference"
         or plan.body["project_id"] is None
     ):
-        raise PolicyViolation("Generated knowledge mutation scoped reference create ister")
+        raise PolicyViolation("Generated knowledge mutation scoped reference create/update ister")
     manifest = KnowledgeNoteManifest(
         owner_scope=str(plan.body["owner_scope"]),
         project_slug=plan.body["project_slug"],

@@ -32,6 +32,10 @@ def _setup(tmp_path, monkeypatch):
     observation = {
         "schema": "zekam-jira-attachment-read/v1",
         "issue_key": "DEMO-42",
+        "issue_provenance": {
+            "source_ref": "jira:" + "a" * 64 + ":issue:10042:response:" + "b" * 64,
+            "issue_id": "10042",
+        },
         "attachment": {"id": "123", "content_digest": digest("bytes"), "content_read": True},
         "normalized_digest": digest("normalized"),
         "parser_profile_digest": digest("parser"),
@@ -174,3 +178,110 @@ def test_unknown_receipt_recovers_materialized_note_and_replay_uses_resolution(
     assert replay["state"] == "completed" and replay["replayed"]
     assert replay["effects"][0]["receipt_status"] == "unknown"
     assert replay["effects"][0]["resolution_outcome"] == "completed"
+
+
+def test_unchanged_version_reuses_plan_and_changed_version_supersedes_previous_note(
+    tmp_path, monkeypatch
+):
+    home, store, files, project, first, _, observation = _setup(tmp_path, monkeypatch)
+    initial = subject.apply_jira_knowledge_plan(
+        store, files, home, first.body, expected_plan_digest=first.plan_digest
+    )
+    repeated = subject.build_jira_knowledge_plan(
+        store,
+        project_ref=project.id,
+        issue_key="DEMO-42",
+        attachment_id="123",
+        metadata_digest=digest("metadata"),
+        files=files,
+    )
+    assert repeated.body == first.body and repeated.payload == first.payload
+    observation["normalized_digest"] = digest("new normalized")
+    observation["attachment"]["content_digest"] = digest("new bytes")
+    observation["units"][0]["text"] = "Changed behavior specification"
+    second = subject.build_jira_knowledge_plan(
+        store,
+        project_ref=project.id,
+        issue_key="DEMO-42",
+        attachment_id="123",
+        metadata_digest=digest("metadata"),
+        files=files,
+    )
+    assert second.body["operation"] == "knowledge.update"
+    assert second.body["source_note_id"] == initial["result"]["note_id"]
+    updated = subject.apply_jira_knowledge_plan(
+        store, files, home, second.body, expected_plan_digest=second.plan_digest
+    )
+    assert updated["state"] == "completed"
+    with store.unit_of_work() as uow:
+        active = uow.list_knowledge_notes(project_id=project.id)
+        old = uow.get_knowledge_note(initial["result"]["note_id"])
+        found = search_markdown_knowledge(uow, files, "Changed behavior", project_id=project.id)
+    assert len(active) == 1 and old.state == "archived" and found["count"] == 1
+    assert updated["result"]["predecessor_note_id"] == old.id
+    historical = subject.apply_jira_knowledge_plan(
+        store, files, home, first.body, expected_plan_digest=first.plan_digest
+    )
+    assert historical["replayed"] and historical["publication_state"] == "archived"
+    assert historical["is_current_reference"] is False
+
+
+def test_stale_predecessor_plan_cannot_replace_newer_head(tmp_path, monkeypatch):
+    home, store, files, project, first, _, observation = _setup(tmp_path, monkeypatch)
+    subject.apply_jira_knowledge_plan(
+        store, files, home, first.body, expected_plan_digest=first.plan_digest
+    )
+    observation["normalized_digest"] = digest("second normalized")
+    second = subject.build_jira_knowledge_plan(
+        store,
+        project_ref=project.id,
+        issue_key="DEMO-42",
+        attachment_id="123",
+        metadata_digest=digest("metadata"),
+        files=files,
+    )
+    observation["normalized_digest"] = digest("third normalized")
+    third = subject.build_jira_knowledge_plan(
+        store,
+        project_ref=project.id,
+        issue_key="DEMO-42",
+        attachment_id="123",
+        metadata_digest=digest("metadata"),
+        files=files,
+    )
+    subject.apply_jira_knowledge_plan(
+        store, files, home, third.body, expected_plan_digest=third.plan_digest
+    )
+    observation["normalized_digest"] = digest("second normalized")
+    with pytest.raises(PolicyViolation, match="source/plan drift"):
+        subject.apply_jira_knowledge_plan(
+            store, files, home, second.body, expected_plan_digest=second.plan_digest
+        )
+    assert not (home / second.body["target_ref"]).exists()
+
+
+def test_unresolved_producer_is_not_a_verified_predecessor(tmp_path, monkeypatch):
+    from zekam.application import markdown_knowledge_mutation as mutations
+
+    home, store, files, project, first, _, observation = _setup(tmp_path, monkeypatch)
+    perform = mutations._perform_mutation
+
+    def uncertain(*args, **kwargs):
+        perform(*args, **kwargs)
+        raise OSError("synthetic receipt interruption")
+
+    monkeypatch.setattr(mutations, "_perform_mutation", uncertain)
+    with pytest.raises(OSError):
+        subject.apply_jira_knowledge_plan(
+            store, files, home, first.body, expected_plan_digest=first.plan_digest
+        )
+    observation["normalized_digest"] = digest("new version")
+    with pytest.raises(PolicyViolation, match="terminal producer"):
+        subject.build_jira_knowledge_plan(
+            store,
+            project_ref=project.id,
+            issue_key="DEMO-42",
+            attachment_id="123",
+            metadata_digest=digest("metadata"),
+            files=files,
+        )
