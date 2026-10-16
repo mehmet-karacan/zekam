@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -17,6 +18,7 @@ DEFAULT_JIRA_BASE_URL = "https://itrack.innova.com.tr"
 DEFAULT_CONFLUENCE_BASE_URL = "https://ftaconfluence.innova.com.tr"
 MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_PAGE_START = 1_000_000
+MAX_ISSUE_ATTACHMENTS = 200
 
 TOOLS = (
     {
@@ -111,6 +113,19 @@ class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise RuntimeError("API duplicate JSON key")
+        document[key] = value
+    return document
+
+
+def _reject_json_constant(_: str) -> None:
+    raise RuntimeError("API nonfinite JSON")
+
+
 def api_get(
     base_url: str,
     path: str,
@@ -134,12 +149,16 @@ def api_get(
             payload = response.read(MAX_API_RESPONSE_BYTES + 1)
             if len(payload) > MAX_API_RESPONSE_BYTES:
                 raise RuntimeError("API response bounded limit exceeded")
-            return json.loads(payload.decode("utf-8"))
+            return json.loads(
+                payload.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
     except urllib.error.HTTPError as exc:
         # Never include response body, URL, token or upstream exception text.
         raise RuntimeError(f"API HTTP {exc.code}; retry_allowed=false") from None
     except Exception as exc:
-        raise RuntimeError(f"API istegi basarisiz: {type(exc).__name__}") from exc
+        raise RuntimeError(f"API istegi basarisiz: {type(exc).__name__}") from None
 
 
 def _text_result(value: Any) -> dict[str, Any]:
@@ -153,6 +172,167 @@ def _bounded_int(
     if type(value) is not int or not minimum <= value <= maximum:
         raise RuntimeError(f"{name} bounded tamsayi olmali")
     return value
+
+
+def _jira_key(value: Any) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[A-Z][A-Z0-9]{1,15}-[0-9]{1,7}", value) is None:
+        raise RuntimeError("Exact Jira issue key gerekli")
+    return value
+
+
+def _numeric_id(value: Any) -> str:
+    if not isinstance(value, str) or not value.isascii() or not value.isdigit() or len(value) > 32:
+        raise RuntimeError("Jira bounded numeric identity gerekli")
+    return value
+
+
+def _jira_provenance(base: str, row: Any) -> dict[str, Any]:
+    if not isinstance(row, dict) or not isinstance(row.get("fields"), dict):
+        raise RuntimeError("Jira issue response gecersiz")
+    key, issue_id = _jira_key(row.get("key")), _numeric_id(row.get("id"))
+    updated = row["fields"].get("updated")
+    if not isinstance(updated, str) or len(updated) > 64:
+        raise RuntimeError("Jira updated revision evidence gerekli")
+    try:
+        timestamp = dt.datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError("Jira updated revision evidence gecersiz") from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise RuntimeError("Jira updated timezone gerekli")
+    response_digest = digest(row)
+    return {
+        "source_ref": f"jira:{digest(base)[7:]}:issue:{issue_id}:response:{response_digest[7:]}",
+        "issue_id": issue_id,
+        "issue_key": key,
+        "updated": updated,
+        "locator": base + "/browse/" + key,
+        "response_digest": response_digest,
+        "revision_kind": "observed-updated-and-response-digest",
+        "permission_evidence": "authenticated-response-only",
+        "grants_authority": False,
+    }
+
+
+def _jira_search_page(base: str, value: Any, *, start: int, limit: int, jql: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or not isinstance(value.get("issues"), list):
+        raise RuntimeError("Jira search response gecersiz")
+    rows = value["issues"]
+    total, returned_limit = value.get("total"), value.get("maxResults")
+    if (
+        type(value.get("startAt")) is not int
+        or value["startAt"] != start
+        or type(total) is not int
+        or total < 0
+        or type(returned_limit) is not int
+        or not 1 <= returned_limit <= limit
+        or len(rows) > returned_limit
+        or start + len(rows) > max(start, total)
+    ):
+        raise RuntimeError("Jira pagination scope/size drift")
+    provenance = [_jira_provenance(base, row) for row in rows]
+    if len({item["issue_id"] for item in provenance}) != len(rows) or len(
+        {item["issue_key"] for item in provenance}
+    ) != len(rows):
+        raise RuntimeError("Jira pagination duplicate issue identity")
+    next_start = start + len(rows)
+    has_more = next_start < total
+    if has_more and not rows:
+        raise RuntimeError("Jira pagination ilerlemiyor")
+    cursor_blocked = has_more and next_start > MAX_PAGE_START
+    return value | {
+        "_zekam": {
+            "read_only": True,
+            "grants_authority": False,
+            "query_digest": digest({"site": base, "jql": jql}),
+            "provenance": provenance,
+            "pagination": {
+                "start": start,
+                "limit": limit,
+                "returned": len(rows),
+                "total_visible": total,
+                "has_more": has_more,
+                "next_start": next_start if has_more and not cursor_blocked else None,
+                "continuation_blocked": "cursor-limit" if cursor_blocked else None,
+                "consistent_snapshot": False,
+            },
+        }
+    }
+
+
+def _jira_issue_snapshot(base: str, value: Any, *, key: str) -> dict[str, Any]:
+    provenance = _jira_provenance(base, value)
+    if provenance["issue_key"] != key:
+        raise RuntimeError("Jira issue identity drift")
+    attachments = value["fields"].get("attachment")
+    if not isinstance(attachments, list) or len(attachments) > MAX_ISSUE_ATTACHMENTS:
+        raise RuntimeError("Jira attachment metadata eksik veya bounded sinir disi")
+    items = []
+    seen = set()
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            raise RuntimeError("Jira attachment metadata gecersiz")
+        attachment_id = _numeric_id(attachment.get("id"))
+        size = attachment.get("size")
+        filename, media_type = attachment.get("filename"), attachment.get("mimeType")
+        if (
+            attachment_id in seen
+            or type(size) is not int
+            or size < 0
+            or not isinstance(filename, str)
+            or not 1 <= len(filename) <= 512
+            or filename in {".", ".."}
+            or any(ord(char) < 32 or char in "/\\" for char in filename)
+            or not isinstance(media_type, str)
+            or not 1 <= len(media_type) <= 128
+            or any(ord(char) < 32 for char in media_type)
+        ):
+            raise RuntimeError("Jira attachment metadata identity/size drift")
+        seen.add(attachment_id)
+        # This digest describes metadata, never downloaded bytes. Avoid author,
+        # thumbnail and arbitrary server-provided download URL in the projection.
+        metadata = {
+            "id": attachment_id,
+            "filename": filename,
+            "size": size,
+            "media_type": media_type,
+        }
+        metadata_digest = digest(metadata)
+        items.append(
+            metadata
+            | {
+                "source_ref": f"jira:{digest(base)[7:]}:issue:{provenance['issue_id']}:attachment:{attachment_id}:metadata:{metadata_digest[7:]}",
+                "locator": base + "/rest/api/2/attachment/" + attachment_id,
+                "metadata_digest": metadata_digest,
+                "content_digest": None,
+                "content_read": False,
+                "grants_authority": False,
+            }
+        )
+    projection = value | {
+        "fields": value["fields"]
+        | {
+            "attachment": [
+                {
+                    "id": item["id"],
+                    "filename": item["filename"],
+                    "size": item["size"],
+                    "mimeType": item["media_type"],
+                }
+                for item in items
+            ]
+        }
+    }
+    return projection | {
+        "_zekam": {
+            "read_only": True,
+            "grants_authority": False,
+            "provenance": provenance,
+            "attachments": items,
+            "comments_complete": False,
+            "attachment_content_imported": False,
+            "projection_digest": digest(projection),
+        }
+    }
 
 
 def _confluence_provenance(base: str, row: Any) -> dict[str, Any]:
@@ -247,34 +427,44 @@ def call_tool(
         if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 8192:
             raise RuntimeError(f"{field} bounded metin olmali")
     if name == "jira_search":
+        start = _bounded_int(args, "start_at", 0, MAX_PAGE_START)
+        limit = _bounded_int(args, "max_results", 10, 50, 1)
         return _text_result(
-            api_get(
+            _jira_search_page(
                 jira,
-                "/rest/api/2/search",
-                "JIRA_API_TOKEN",
-                {
-                    "jql": str(args["jql"]),
-                    "maxResults": _bounded_int(args, "max_results", 10, 50, 1),
-                    "startAt": _bounded_int(args, "start_at", 0, MAX_PAGE_START),
-                    "fields": "summary,status,assignee,issuetype,project,updated",
-                },
-                environ=env,
+                api_get(
+                    jira,
+                    "/rest/api/2/search",
+                    "JIRA_API_TOKEN",
+                    {
+                        "jql": str(args["jql"]),
+                        "maxResults": limit,
+                        "startAt": start,
+                        "fields": "summary,status,assignee,issuetype,project,updated",
+                    },
+                    environ=env,
+                ),
+                start=start,
+                limit=limit,
+                jql=args["jql"],
             )
         )
     if name == "jira_get_issue":
-        key = args.get("issue_key")
-        if not isinstance(key, str) or re.fullmatch(r"[A-Z][A-Z0-9]{1,15}-[0-9]{1,7}", key) is None:
-            raise RuntimeError("Exact Jira issue key gerekli")
+        key = _jira_key(args.get("issue_key"))
         return _text_result(
-            api_get(
+            _jira_issue_snapshot(
                 jira,
-                f"/rest/api/2/issue/{key}",
-                "JIRA_API_TOKEN",
-                {
-                    "fields": "summary,status,description,assignee,reporter,issuetype,"
-                    "project,priority,labels,comment,updated"
-                },
-                environ=env,
+                api_get(
+                    jira,
+                    f"/rest/api/2/issue/{key}",
+                    "JIRA_API_TOKEN",
+                    {
+                        "fields": "summary,status,description,assignee,reporter,issuetype,"
+                        "project,priority,labels,comment,updated,attachment"
+                    },
+                    environ=env,
+                ),
+                key=key,
             )
         )
     if name == "confluence_search":

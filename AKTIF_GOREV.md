@@ -1146,6 +1146,15 @@ Regresyon kodu hazir, CALISTIRILMADI. Canli izin paritesi, Jira attachment
 revision ve proje knowledge publication baglantisi halen acik;
 `docs/ATLASSIAN_OKUMA_KANITI.md`.
 
+**16 Ekim 2026 — WP-06.04 Jira issue/ek metadata bagi:** Search sayfasi
+offset/size/total/duplicate ve site/JQL kimligini dogrular; non-snapshot ve
+bounded next cursor ayrimi gorunur. Issue exact key/ID/updated/response ve
+locator provenance tasir. Ek metadata unique ID/size/filename/mime sinirindan
+gecer; author ve untrusted download URL projection'dan cikarilir. Metadata
+digest'i content hash sayilmaz; indirme/import yapilmadi. HTTP strict JSON ve
+ham cause suppression eklendi. Regresyon kodu hazir, CALISTIRILMADI. Yetkili
+download/parser/secret/canonical knowledge publication ve canli ACL kabulu acik.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

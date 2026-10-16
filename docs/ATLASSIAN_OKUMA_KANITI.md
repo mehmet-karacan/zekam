@@ -42,3 +42,37 @@ paritesi final kabul asamasinda dogrulanmalidir.
 
 Regresyon kodu `tests/unit/test_atlassian_read_evidence.py` icinde hazirlandi.
 Kullanici karariyla CALISTIRILMADI; final toplu test asamasini bekler.
+
+## Jira issue ve attachment metadata bagi
+
+Jira search yaniti artik startAt, maxResults, total ve returned row sayisini
+dogrular; duplicate issue ID/key ve ilerlemeyen bos sayfa reddedilir. Cikti kendi
+site/JQL digest'ini, next_start ve has_more bilgisini tasir. Cursor limiti
+asilinca has_more saklanir, continuation_blocked gorunur. Degisebilen offset
+search bir transaction snapshot'i gibi sunulmaz: consistent_snapshot=false.
+
+Issue read, istenen exact key ile donen key'i eslestirir. Site, numeric issue ID,
+timezone-aware updated, authenticated response digest ve locator provenance'a
+baglanir. Updated bir monoton Jira revision sayaci olarak sunulmaz.
+
+Attachment alani explicit istenir; eksik alan bos liste varsayilmaz. En fazla
+200 unique numeric ID icin filename, size ve mime metadata'si dogrulanir. Yeni
+projection author, thumbnail ve server-provided content URL alanlarini tasimaz.
+Locator configured base + API attachment ID'den kurulur. Metadata degisimi kendi
+digest'ini degistirir; bu content digest DEGILDIR. content_digest=null,
+content_read=false ve attachment_content_imported=false kalir. Projection digest
+ile upstream response digest ayri alanlardir. Comments complete iddiasi yoktur.
+
+HTTP JSON duplicate-key/nonfinite/strict UTF-8 kontrolunden gecer; hata cause'u
+upstream ham response/credential'i disari tasimaz. Otomatik retry, attachment
+download, knowledge publication veya Work receipt uretilmez. Gercek yetkili
+download -> content hash -> parser/secret -> scoped canonical knowledge publication
+baglantisi ve canli ACL kabulu halen aciktir.
+
+Regresyon kaynaklari mevcut test_atlassian_read_evidence.py dosyasina eklendi,
+CALISTIRILMADI. Canli Jira/Confluence cagrisi yapilmadi.
+
+Birincil Jira Server/Data Center kaynaklari:
+
+- https://developer.atlassian.com/server/jira/platform/rest/v11002/api-group-search
+- https://developer.atlassian.com/server/jira/platform/rest/v10000/api-group-issue/

@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-06.04 Jira read: exact issue key/site/updated/response provenance, bounded attachment metadata projection ve search offset/size/duplicate/next gate eklendi. Upstream/projection/metadata digest ayridir; attachment bytes veya comments complete iddiasi uretilmez. HTTP strict JSON ve raw cause suppression baglandi. Regresyon kodu hazir, CALISTIRILMADI. Yetkili attachment download -> parser/secret -> canonical project knowledge publication ve canli ACL kabul acik.
+
 - Gorev 5 WP-09 provider profili: strict bounded secret-free endpoint/scope/model alias projection plan/run/job/native kimligine baglandi. Secilen provider/model disinda config aktarilmaz; yerlesik compatible paket ve deny izinleri korunur. Loopback literal IP + private data/state/cache, remote HTTPS + explicit onay/butce; ayni upstream alias reddi eklendi. Profil/parser/local adapter/plan drift regresyon kaynaklari hazir, CALISTIRILMADI. Gercek native/credential provisioning/tool-denial ve bagimsiz verifier kabul kaniti acik.
 
 - Gorev 5 WP-09 modeller: iki explicit builder/verifier model secimi, uc verifying specialty icin ayri adapter, plan digest'inde ortak remote-call butcesi ve canonical job input'ta verifier bagi eklendi. Native model/profile binding context ve assignment/invocation kimliklerine de dahil. Ayni model/variant/provider etiketi ayrimi fail-closed; model planinda bagimsizlik kanitlanmis sayilmaz. CLI/model/specialty/digest/canonical kimlik regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili ve gercek bagimsiz kabul acik.
