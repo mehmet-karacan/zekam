@@ -40,6 +40,13 @@
 
 ## Yurutme kaydi
 
+- 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
+  kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
+  cagri, qualification, gercek vector publication ve performans adimlari
+  kullanici yeni yerel modeli hazir oldugunu bildirene kadar calistirilmayacak.
+  Bu alanlar gelistirme veya kabul basarisi sayilmayacak; embedding disi kaynak
+  ve control katmanlari bagimsiz ilerleyebilir. Testler final toplu asamada.
+
 - 16 Ekim 2026 WP-07.01..04 lease readback: Canonical bound-job ozetleri owner,
   token ve fencing degerlerini disari cikarmadan lease varlik durumunu tasiyor.
   Running job'da lease yoklugu ve terminal/recovery job'da lease kalintisi resume
