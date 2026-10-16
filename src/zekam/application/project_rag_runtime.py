@@ -96,6 +96,7 @@ from zekam.application.request_routing import (
 )
 from zekam.application.source_discovery import (
     DiscoveryReport,
+    DiscoveryPolicy,
     InventoryStatus,
     discover,
     resolve_source_root,
@@ -713,6 +714,68 @@ def _git_source_freshness_signal(
     }
 
 
+def _metadata_inventory_freshness_signal(
+    root: Path,
+    *,
+    declared_digest: str,
+) -> dict[str, Any]:
+    """Recompute only bounded metadata for ignored/generated path drift.
+
+    Git status intentionally omits ignored paths, while the source inventory
+    records their path/type/size metadata.  A content-free discovery pass keeps
+    query freshness correct without re-reading eligible file bodies or scanning
+    secrets.  Partial/invalid observations fail closed as ``unknown``.
+    """
+
+    try:
+        parse_digest(declared_digest)
+        discovery = discover(
+            root,
+            policy=DiscoveryPolicy(read_content=False, scan_secrets=False),
+        )
+    except (OSError, subprocess.SubprocessError, ZekamError, ValueError):
+        return {"metadata_inventory_unknown": True}
+    if discovery.truncated or discovery.inventory_status is not InventoryStatus.COMPLETE:
+        return {
+            "metadata_inventory_unknown": True,
+            "metadata_inventory_status": discovery.inventory_status.value,
+        }
+    current_digest = discovery.metadata_inventory_digest
+    return {
+        "metadata_inventory_digest": current_digest,
+        "metadata_inventory_current": current_digest == declared_digest,
+    }
+
+
+def _metadata_inventory_freshness_for_query(
+    state: dict[str, Any],
+    source_root: Path,
+) -> tuple[list[str], dict[str, Any]]:
+    """Compare the indexed metadata inventory without touching providers."""
+
+    declared = state.get("repository_metadata_inventory_digest")
+    if declared is None:
+        # Newer states carry this cheap signal alongside the full inventory
+        # digest.  A state carrying only the full digest predates this reader;
+        # do not claim freshness without a comparable metadata snapshot.
+        if "repository_inventory_digest" in state:
+            return ["project-source-inventory-freshness-unknown"], {
+                "metadata_inventory_unknown": True
+            }
+        return [], {}
+    if not isinstance(declared, str):
+        return ["project-source-inventory-freshness-unknown"], {"metadata_inventory_unknown": True}
+    observations = _metadata_inventory_freshness_signal(
+        source_root,
+        declared_digest=declared,
+    )
+    if observations.get("metadata_inventory_unknown"):
+        return ["project-source-inventory-freshness-unknown"], observations
+    if not observations.get("metadata_inventory_current", False):
+        return ["project-source-inventory-stale"], observations
+    return [], observations
+
+
 def _indexed_source_paths(state: dict[str, Any]) -> frozenset[str]:
     """Return the set of indexed source relative paths recorded at index time."""
     paths = frozenset(_indexed_source_digests(state))
@@ -786,8 +849,21 @@ def _source_freshness_for_query(
                 if indexed_digest is not None and current_digest != indexed_digest:
                     reasons.append("project-source-content-stale")
                     break
+        if not reasons:
+            inventory_reasons, inventory_observations = _metadata_inventory_freshness_for_query(
+                state, source_root
+            )
+            reasons.extend(inventory_reasons)
+            observations.update(inventory_observations)
         return reasons, observations
-    return _directory_freshness_for_query(state, source_root)
+    reasons, observations = _directory_freshness_for_query(state, source_root)
+    if not reasons:
+        inventory_reasons, inventory_observations = _metadata_inventory_freshness_for_query(
+            state, source_root
+        )
+        reasons.extend(inventory_reasons)
+        observations.update(inventory_observations)
+    return reasons, observations
 
 
 def _directory_freshness_for_query(
@@ -1020,6 +1096,7 @@ def _plan_document(
         "source_revision": plan.source_revision,
         "tree_digest": plan.tree_digest,
         "inventory_digest": discovery.inventory_digest,
+        "metadata_inventory_digest": discovery.metadata_inventory_digest,
         "plan_digest": digest(
             {
                 "repository_plan_digest": plan.plan_digest,
@@ -2140,6 +2217,15 @@ def _publish_rag_state_pending(
     expected_source_identity = source_identity_digest(project_id, source_revision, tree_digest)
     if result.get("source_identity_digest") != expected_source_identity:
         raise PolicyViolation("Project RAG pending source identity drift")
+    for digest_key in (
+        "repository_inventory_digest",
+        "repository_metadata_inventory_digest",
+    ):
+        digest_value = result.get(digest_key)
+        if digest_value is not None:
+            if not isinstance(digest_value, str):
+                raise PolicyViolation("Project RAG pending inventory digest drift")
+            parse_digest(digest_value)
     parse_digest(staged_generation_digest)
     if expected_current_digest is not None:
         parse_digest(expected_current_digest)
@@ -3315,6 +3401,7 @@ def _index(
         "repository_source_revision": bound_plan.source_revision,
         "repository_tree_digest": bound_plan.tree_digest,
         "repository_inventory_digest": bound_plan.discovery.inventory_digest,
+        "repository_metadata_inventory_digest": bound_plan.discovery.metadata_inventory_digest,
         "source_revision": combined_revision,
         "tree_digest": combined_tree_digest,
         "source_identity_digest": source_identity_digest(
@@ -3654,6 +3741,8 @@ def build_index_job_plan(
         ),
         "source_revision": revision,
         "tree_digest": discovery.tree_digest,
+        "inventory_digest": discovery.inventory_digest,
+        "metadata_inventory_digest": discovery.metadata_inventory_digest,
         "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
         "provider_config_digest": provider_config_digest,
         "oracle_config": oracle_config,

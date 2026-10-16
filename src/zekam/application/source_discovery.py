@@ -494,6 +494,37 @@ class DiscoveryReport:
             }
         )
 
+    @property
+    def metadata_inventory_digest(self) -> str:
+        """Return a content-free digest for bounded inventory freshness checks.
+
+        ``inventory_digest`` also binds content-derived eligibility and text
+        classification.  Query freshness needs a cheaper signal that can be
+        recomputed with ``read_content=False`` while still catching ignored or
+        generated path/type/size drift.  The full inventory digest remains the
+        source identity; this digest is only an observational freshness signal.
+        """
+        return digest(
+            {
+                "schema": "zekam-discovery-metadata-inventory/v1",
+                "status": self.inventory_status.value,
+                "stop_reason": (
+                    self.inventory_stop_reason.value
+                    if self.inventory_stop_reason is not None
+                    else None
+                ),
+                "bytes": self.inventory_bytes,
+                "entries": [
+                    {
+                        "path": item.relative_path,
+                        "kind": item.kind.value,
+                        "size_bytes": item.size_bytes,
+                    }
+                    for item in sorted(self.inventory, key=lambda entry: entry.relative_path)
+                ],
+            }
+        )
+
     def skipped_by(self, reason: SkipReason) -> tuple[SkippedPath, ...]:
         return tuple(item for item in self.skipped if item.reason is reason)
 
@@ -537,6 +568,7 @@ class DiscoveryReport:
                 "entries_by_kind": {kind.value: count for kind, count in counts.items()},
                 "bytes": self.inventory_bytes,
                 "digest": self.inventory_digest,
+                "metadata_digest": self.metadata_inventory_digest,
             },
         }
 

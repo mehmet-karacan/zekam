@@ -334,6 +334,7 @@ class ProjectIndexPlan:
             "source_revision": self.source_revision,
             "tree_digest": self.tree_digest,
             "inventory_digest": self.discovery.inventory_digest,
+            "metadata_inventory_digest": self.discovery.metadata_inventory_digest,
             "selected_file_count": self.selected_file_count,
             "unit_count": self.document.unit_count,
             "chunk_count": len(self.chunks),
