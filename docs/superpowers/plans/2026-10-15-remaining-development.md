@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-06.05 history scope: root commit read-only diff-tree --root ile actual additions'a baglandi; hardcoded empty-tree yok, SHA-256 kimlik destegi var. First-parent basis, subject truncation/match, binary unavailable ve omitted/redacted/truncated partial propagation eklendi. Offline gercek Git/regresyon kaynaklari hazir, CALISTIRILMADI; native/issue/full WP kabul acik. docs/ISSUE_GIT_GECMISI_KAPSAMI.md.
+
 - Gorev 6 WP-12.06 source traceability: explicit current WP input scope REQ/CAP -> WP ve declared test path -> tracked hash/AST declaration bagi eklendi. Exact authority satiri, missing/unmapped kaynaklar ve null run/evidence/execution commit korunur; free prose/historical passed kabul olmaz. Canonical catalog + traceability.json + manifest/ZIP/readback ayni graph'i tasir. Regresyon kaynaklari hazir, test/generator/verify CALISTIRILMADI; gercek release chain/receipt/native/independent review kapilari acik.
 
 - Gorev 6 WP-12.04 disk readback: export writer captured canonical bytes'e karsi persisted dosyalari yeniden okur; --verify guncel source catalog'dan exact dosya/hash/ZIP eslestirir. Imported manifest path yetkisi vermez; bounded missing/extra/link/tamper ve stale source reddi eklendi, unzip yoktur. Readback runtime/acceptance authority degildir. Regresyon kaynaklari hazir, test/generator/verify CALISTIRILMADI; genel WP kabul acik.

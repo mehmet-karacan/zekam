@@ -24,6 +24,8 @@ WP-12.06 explicit task REQ/CAP->WP->test source traceability eklendi; exact sati
 tracked hash ve AST declaration bagli, missing/unmapped kayitlar gorunur. Ayri
 traceability.json canonical catalog/manifest/ZIP/readback kapsamindadir. Gercek
 run/evidence/execution commit null, release chain incomplete kalir.
+WP-06.05 actual history root diff ve partial kapsam dogrulugu gelistirildi;
+docs/ISSUE_GIT_GECMISI_KAPSAMI.md. Regresyonlar CALISTIRILMADI.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

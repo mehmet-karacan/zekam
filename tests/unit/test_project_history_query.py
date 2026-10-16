@@ -131,10 +131,39 @@ def test_history_redacts_secret_before_hunk_character_truncation(
     assert "--no-textconv" in command
 
 
-def test_history_redacts_subject_before_character_truncation(tmp_path: Path) -> None:
+def test_history_redacts_subject_before_character_truncation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(history, "_diff_files", lambda *_args: (0, ()))
     synthetic = "gh" + "p_" + "a" * 36
     subject = "SKYRSM-5659 " + "x" * (history.MAX_SUBJECT_CHARS - 20) + " " + synthetic
     entry = "a" * 40 + "\x1f\x1f2026-10-15T00:00:00+00:00\x1f" + subject
     result = history._commit(tmp_path, entry, "SKYRSM-5659")
     assert result.subject_redacted
     assert result.subject == "[redacted: secret-pattern]"
+
+
+def test_root_history_uses_bounded_read_only_diff_tree_without_empty_tree_hash(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def read(_root, *args):
+        calls.append(args)
+        if "--name-status" in args:
+            return "A\0first.txt\0"
+        return "diff --git a/first.txt b/first.txt\n@@ -0,0 +1 @@\n+first\n"
+
+    monkeypatch.setattr(history, "run_read_only", read)
+    count, files = history._diff_files(tmp_path, None, "a" * 64)
+    assert count == 1 and files[0].hunks.endswith("+first")
+    assert all(args[0] == "diff-tree" and "--root" in args for args in calls)
+    assert all("--no-ext-diff" in args and "--no-textconv" in args for args in calls)
+    assert calls[-1][-2:] == ("--", ":(literal)first.txt")
+
+
+def test_long_subject_key_is_matched_before_display_truncation(tmp_path, monkeypatch):
+    monkeypatch.setattr(history, "_diff_files", lambda *_args: (0, ()))
+    entry = "a" * 40 + "\x1f\x1f2026-10-15T00:00:00+00:00\x1f" + "x" * 310 + " SKYRSM-5659"
+    commit = history._commit(tmp_path, entry, "SKYRSM-5659")
+    assert commit.matched_in == "subject"
+    assert commit.subject_truncated and commit.partial
+    assert len(commit.subject) == history.MAX_SUBJECT_CHARS

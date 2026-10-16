@@ -46,6 +46,7 @@ READ_ONLY_COMMANDS: Final[frozenset[str]] = frozenset(
         "symbolic-ref",
         "cat-file",
         "diff",
+        "diff-tree",
         "for-each-ref",
     }
 )

@@ -111,9 +111,11 @@ def test_truncated_history_is_partial_not_a_complete_claim(repo: Path) -> None:
 def test_diff_files_are_bounded_and_counted(repo: Path) -> None:
     files = {f"g{index}_txt": f"{index}\n" for index in range(MAX_DIFF_FILES + 2)}
     _commit(repo, "SKYRSM-5659 cok dosya", **files)
-    commit = query_issue_history(repo, "SKYRSM-5659").commits[0]
+    result = query_issue_history(repo, "SKYRSM-5659")
+    commit = result.commits[0]
     assert commit.files_total == MAX_DIFF_FILES + 2
     assert len(commit.files) == MAX_DIFF_FILES
+    assert result.partial and commit.partial
 
 
 @pytest.mark.unit
@@ -122,6 +124,30 @@ def test_secret_looking_diff_content_is_redacted(repo: Path) -> None:
     entry = query_issue_history(repo, "SKYRSM-5659").commits[0].files[0]
     assert entry.redacted is True
     assert entry.hunks is None
+    assert entry.diff_state == "redacted"
+    assert query_issue_history(repo, "SKYRSM-5659").partial is True
+
+
+@pytest.mark.unit
+def test_binary_diff_is_unavailable_and_propagates_partial(repo: Path) -> None:
+    (repo / "asset.bin").write_bytes(b"\x00\x01binary\x00")
+    _git(repo, "add", "asset.bin")
+    _git(repo, "commit", "-m", "SKYRSM-5659 binary asset")
+    result = query_issue_history(repo, "SKYRSM-5659")
+    file = result.commits[0].files[0]
+    assert file.hunks is None and file.diff_state == "binary-unavailable"
+    assert result.partial and result.commits[0].partial
+
+
+@pytest.mark.unit
+def test_hunk_budget_limit_is_partial_at_the_top_level(repo: Path, monkeypatch) -> None:
+    from zekam.application import project_history_query as subject
+
+    monkeypatch.setattr(subject, "MAX_HUNK_CHARS", 20)
+    _commit(repo, "SKYRSM-5659 large addition", a_txt="long safe content\n" * 20)
+    result = query_issue_history(repo, "SKYRSM-5659")
+    assert result.commits[0].files[0].truncated
+    assert result.partial and result.as_dict()["partial"]
 
 
 @pytest.mark.unit
@@ -144,7 +170,7 @@ def test_turkish_characters_survive_the_git_read(repo: Path) -> None:
 
 
 @pytest.mark.unit
-def test_root_commit_has_no_diff_claim(repo: Path) -> None:
+def test_root_commit_reports_actual_addition_against_empty_tree(repo: Path) -> None:
     root = tmp_root = repo.parent / "root-only"
     root.mkdir()
     _git(root, "init", "-b", "main")
@@ -153,8 +179,11 @@ def test_root_commit_has_no_diff_claim(repo: Path) -> None:
     _git(root, "commit", "-m", "SKYRSM-5659 ilk")
     commit = query_issue_history(tmp_root, "SKYRSM-5659").commits[0]
     assert commit.parents == ()
-    assert commit.files_total is None
-    assert commit.files == ()
+    assert commit.files_total == 1
+    assert commit.files[0].path == "a.txt" and commit.files[0].status == "A"
+    assert "+x" in commit.files[0].hunks
+    assert commit.as_dict()["diff_basis"] == "empty-tree"
+    assert commit.partial is False
 
 
 @pytest.mark.unit

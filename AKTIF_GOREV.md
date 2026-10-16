@@ -1092,6 +1092,14 @@ halen gereklidir. Regresyon kodu hazir, CALISTIRILMADI; kabul/kapanis yoktur.
 - [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
 - [ ] **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
 
+  16 Ekim 2026 Git history scope: root commit gercek read-only diff-tree --root
+  yoluna alindi; first-parent merge bagi raporda explicit. Omitted file/hunk,
+  redacted/binary-unavailable ve truncated subject overall partial'a yansir;
+  uzun subject key'i display truncation'dan once cozulur. SHA-256 kimlik ve
+  literal path/no external diff sinirlari korunur. Regresyon kaynaklari hazir,
+  CALISTIRILMADI; gercek native/issue ve genel kabul kapilari aciktir.
+  Ayrinti: `docs/ISSUE_GIT_GECMISI_KAPSAMI.md`.
+
 **Üretilen sözleşme/çıktı:** `SourceRelationship` exact/inferred/unresolved ayrımı, source-edge provenance ve scoped remote read kayıtları. Öneri `tests/integration/test_odi_project_lineage.py`, `tests/e2e/test_issue_document_code_context.py`.
 
 **Kabul ve negatif testler:** Testler: gerçek/sanitized 11g fixture, unresolved ref, sahte edge reddi, Oracle metadata-only, cross-project ACL, Jira 401/403/404/429/pagination, changed attachment, XML secret ve stale graph.

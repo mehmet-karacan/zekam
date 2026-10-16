@@ -27,7 +27,7 @@ MAX_HUNK_CHARS: Final = 6000
 _ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9]{1,15}-[0-9]{1,7}$")
 _FIELD_SEPARATOR = "\x1f"
 _RECORD_SEPARATOR = "\x1e"
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +38,14 @@ class HistoryFile:
     truncated: bool
     redacted: bool
 
+    @property
+    def diff_state(self) -> str:
+        if self.redacted:
+            return "redacted"
+        if self.hunks is None:
+            return "omitted" if self.truncated else "binary-unavailable"
+        return "text" if self.hunks else "metadata-only"
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "path": self.path,
@@ -45,6 +53,7 @@ class HistoryFile:
             "hunks": self.hunks,
             "truncated": self.truncated,
             "redacted": self.redacted,
+            "diff_state": self.diff_state,
         }
 
 
@@ -60,6 +69,17 @@ class HistoryCommit:
     subject_redacted: bool
     files_total: int | None
     files: tuple[HistoryFile, ...]
+    subject_truncated: bool = False
+
+    @property
+    def partial(self) -> bool:
+        return (
+            self.subject_redacted
+            or self.subject_truncated
+            or self.files_total is None
+            or self.files_total > len(self.files)
+            or any(item.truncated or item.redacted or item.hunks is None for item in self.files)
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -71,8 +91,11 @@ class HistoryCommit:
             "is_merge": self.is_merge,
             "matched_in": self.matched_in,
             "subject_redacted": self.subject_redacted,
+            "subject_truncated": self.subject_truncated,
             "files_total": self.files_total,
             "files": [item.as_dict() for item in self.files],
+            "diff_basis": "empty-tree" if not self.parents else "first-parent",
+            "partial": self.partial,
         }
 
 
@@ -86,7 +109,7 @@ class IssueHistory:
 
     @property
     def partial(self) -> bool:
-        return self.shallow or self.truncated_commits
+        return self.shallow or self.truncated_commits or any(item.partial for item in self.commits)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -173,16 +196,14 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
             skip_placeholder_lines=False,
         )
     )
-    subject = subject[:MAX_SUBJECT_CHARS]
     # `--grep` govdede de arar; anahtar subject'te yoksa bunu acikca isaretle.
     key_pattern = re.compile(rf"(^|[^A-Za-z0-9_-]){re.escape(key)}([^A-Za-z0-9_-]|$)")
     matched_in = "subject" if key_pattern.search(subject) else "body"
+    subject_truncated = len(subject) > MAX_SUBJECT_CHARS
+    subject = subject[:MAX_SUBJECT_CHARS]
     if subject_redacted:
         subject = "[redacted: secret-pattern]"
-    files_total: int | None = None
-    files: tuple[HistoryFile, ...] = ()
-    if parents:
-        files_total, files = _diff_files(root, parents[0], sha)
+    files_total, files = _diff_files(root, parents[0] if parents else None, sha)
     return HistoryCommit(
         commit=sha,
         parents=parents,
@@ -194,20 +215,21 @@ def _commit(root: Path, entry: str, key: str) -> HistoryCommit:
         subject_redacted=subject_redacted,
         files_total=files_total,
         files=files,
+        subject_truncated=subject_truncated,
     )
 
 
-def _diff_files(root: Path, parent: str, sha: str) -> tuple[int, tuple[HistoryFile, ...]]:
+def _diff_files(root: Path, parent: str | None, sha: str) -> tuple[int, tuple[HistoryFile, ...]]:
     # `-z`: dosya adlari tirnaklanmaz/octal-escape edilmez (Turkce ve ozel karakterler).
     listing = run_read_only(
         root,
-        "diff",
+        "diff" if parent is not None else "diff-tree",
         "--name-status",
         "-z",
         "--no-renames",
         "--no-ext-diff",
         "--no-textconv",
-        parent,
+        *((parent,) if parent is not None else ("--root", "--no-commit-id", "-r")),
         sha,
     )
     tokens = [item for item in listing.split("\0") if item]
@@ -234,24 +256,26 @@ def _diff_files(root: Path, parent: str, sha: str) -> tuple[int, tuple[HistoryFi
 
 
 def _hunks(
-    root: Path, parent: str, sha: str, path: str, line_budget: int
+    root: Path, parent: str | None, sha: str, path: str, line_budget: int
 ) -> tuple[str | None, bool, bool, int]:
     if line_budget <= 0:
         return None, True, False, 0
     text = run_read_only(
         root,
-        "diff",
+        "diff" if parent is not None else "diff-tree",
         "--unified=0",
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
         "--no-renames",
-        parent,
+        *((parent,) if parent is not None else ("--root", "--no-commit-id", "-r", "--patch")),
         sha,
         "--",
         f":(literal){path}",
     )
     lines = text.splitlines()
+    if any(line.startswith(("Binary files ", "GIT binary patch")) for line in lines):
+        return None, False, False, 0
     # Dosya basligi (diff --git/index/---/+++) atilir; hunk ilk `@@` satirinda baslar.
     start = next((index for index, line in enumerate(lines) if line.startswith("@@")), len(lines))
     body = lines[start:]
