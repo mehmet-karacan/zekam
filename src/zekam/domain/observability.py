@@ -123,6 +123,7 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
             "skill audit-run",
             "skill aggregate-record",
             "skill evaluation-from-audits",
+            "skill invocation-record",
         )
     ),
     *(
@@ -133,6 +134,7 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
             "skill aggregate-report",
             "skill evaluation-report",
             "skill native-binding",
+            "skill invocation-report",
         )
     ),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),

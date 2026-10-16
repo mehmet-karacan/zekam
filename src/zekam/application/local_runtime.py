@@ -38,6 +38,7 @@ RESERVED_JOB_OPERATIONS = (
     "skill.audit.review",
     "skill.evaluation.aggregate",
     "skill.evaluation.native-project",
+    "skill.invocation.native-record",
 )
 _RUNTIME_KIND = re.compile(r"[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*")
 

@@ -1548,6 +1548,41 @@ class SQLiteSkillLifecycle:
         allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
         now: dt.datetime,
     ) -> str:
+        with closing(self._connect()) as db:
+            db.execute("begin immediate")
+            value = self._record_invocation_state_tx(
+                db,
+                revision_digest,
+                package_digest=package_digest,
+                work_ref=work_ref,
+                run_ref=run_ref,
+                agent_ref=agent_ref,
+                client_id=client_id,
+                harness_digest=harness_digest,
+                state=state,
+                previous_invocation_digest=previous_invocation_digest,
+                allowed_scopes=allowed_scopes,
+                now=now,
+            )
+            db.commit()
+        return value
+
+    def _record_invocation_state_tx(
+        self,
+        db: sqlite3.Connection,
+        revision_digest: str,
+        *,
+        package_digest: str,
+        work_ref: str,
+        run_ref: str,
+        agent_ref: str,
+        client_id: str,
+        harness_digest: str,
+        state: SkillInvocationState,
+        previous_invocation_digest: str | None,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+        now: dt.datetime,
+    ) -> str:
         for value in (revision_digest, package_digest, harness_digest):
             parse_digest(value)
         for label, value in (
@@ -1558,85 +1593,235 @@ class SQLiteSkillLifecycle:
         ):
             _text(value, label)
         previous_state: SkillInvocationState | None = None
-        with closing(self._connect()) as db:
-            db.execute("begin immediate")
-            canonical_scopes = self._canonical_scopes(allowed_scopes)
-            clauses = " or ".join("(r.scope_kind=? and r.scope_ref=?)" for _ in canonical_scopes)
-            scope_parameters = [
-                value for kind, reference in canonical_scopes for value in (str(kind), reference)
-            ]
-            revision = db.execute(
-                "select r.package_digest,e.body_json as activation_body_json,"
-                "e.event_digest,e.revision_digest,e.action "
-                "from skill_revision_v2 r "
-                "join skill_activation_event_v2 e on e.revision_digest=r.revision_digest "
-                "where r.revision_digest=? and ("
-                + clauses
-                + ") and e.action='active' and not exists("
-                "select 1 from skill_activation_event_v2 n "
-                "where n.previous_event_digest=e.event_digest)",
-                (revision_digest, *scope_parameters),
+        canonical_scopes = self._canonical_scopes(allowed_scopes)
+        clauses = " or ".join("(r.scope_kind=? and r.scope_ref=?)" for _ in canonical_scopes)
+        scope_parameters = [
+            value for kind, reference in canonical_scopes for value in (str(kind), reference)
+        ]
+        revision = db.execute(
+            "select r.package_digest,e.body_json as activation_body_json,"
+            "e.event_digest,e.revision_digest,e.action "
+            "from skill_revision_v2 r "
+            "join skill_activation_event_v2 e on e.revision_digest=r.revision_digest "
+            "where r.revision_digest=? and (" + clauses + ") and e.action='active' and not exists("
+            "select 1 from skill_activation_event_v2 n "
+            "where n.previous_event_digest=e.event_digest)",
+            (revision_digest, *scope_parameters),
+        ).fetchone()
+        if (
+            revision is None
+            or str(revision[0]) != package_digest
+            or not self._activation_event_effective(revision)
+        ):
+            raise PolicyViolation("Skill invocation exact revision/package binding required")
+        if previous_invocation_digest is not None:
+            parse_digest(previous_invocation_digest)
+            previous = db.execute(
+                "select state,revision_digest,package_digest,work_ref,run_ref,agent_ref,"
+                "client_id,harness_digest "
+                "from skill_invocation_v2 where invocation_digest=?",
+                (previous_invocation_digest,),
             ).fetchone()
-            if (
-                revision is None
-                or str(revision[0]) != package_digest
-                or not self._activation_event_effective(revision)
+            if previous is None or tuple(previous)[1:] != (
+                revision_digest,
+                package_digest,
+                work_ref,
+                run_ref,
+                agent_ref,
+                client_id,
+                harness_digest,
             ):
-                raise PolicyViolation("Skill invocation exact revision/package binding required")
-            if previous_invocation_digest is not None:
-                parse_digest(previous_invocation_digest)
-                previous = db.execute(
-                    "select state,revision_digest,package_digest,work_ref,run_ref,agent_ref,"
-                    "client_id,harness_digest "
-                    "from skill_invocation_v2 where invocation_digest=?",
-                    (previous_invocation_digest,),
-                ).fetchone()
-                if previous is None or tuple(previous)[1:] != (
-                    revision_digest,
-                    package_digest,
-                    work_ref,
-                    run_ref,
-                    agent_ref,
-                    client_id,
-                    harness_digest,
-                ):
-                    raise ConcurrencyConflict("Skill invocation predecessor drift")
-                previous_state = SkillInvocationState(str(previous["state"]))
-            assert_invocation_transition(previous_state, state)
-            body = {
-                "schema": "zekam-skill-invocation/v2",
-                "revision_digest": revision_digest,
-                "package_digest": package_digest,
-                "work_ref": work_ref,
-                "run_ref": run_ref,
-                "agent_ref": agent_ref,
-                "client_id": client_id,
-                "harness_digest": harness_digest,
-                "state": str(state),
-                "previous_invocation_digest": previous_invocation_digest,
-                "observed_at": _time(now),
-                "grants_authority": False,
-            }
-            raw, value = _body(body)
-            db.execute(
-                "insert into skill_invocation_v2 values(?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    value,
-                    revision_digest,
-                    package_digest,
-                    work_ref,
-                    run_ref,
-                    agent_ref,
-                    client_id,
-                    harness_digest,
-                    str(state),
-                    previous_invocation_digest,
-                    _time(now),
-                    raw,
-                ),
-            )
-            db.commit()
+                raise ConcurrencyConflict("Skill invocation predecessor drift")
+            previous_state = SkillInvocationState(str(previous["state"]))
+        assert_invocation_transition(previous_state, state)
+        body = {
+            "schema": "zekam-skill-invocation/v2",
+            "revision_digest": revision_digest,
+            "package_digest": package_digest,
+            "work_ref": work_ref,
+            "run_ref": run_ref,
+            "agent_ref": agent_ref,
+            "client_id": client_id,
+            "harness_digest": harness_digest,
+            "state": str(state),
+            "previous_invocation_digest": previous_invocation_digest,
+            "observed_at": _time(now),
+            "grants_authority": False,
+        }
+        raw, value = _body(body)
+        db.execute(
+            "insert into skill_invocation_v2 values(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                value,
+                revision_digest,
+                package_digest,
+                work_ref,
+                run_ref,
+                agent_ref,
+                client_id,
+                harness_digest,
+                str(state),
+                previous_invocation_digest,
+                _time(now),
+                raw,
+            ),
+        )
         return value
+
+    def record_native_invocation(
+        self,
+        *,
+        home: Path,
+        plan: dict[str, Any],
+        binding: Any,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+    ) -> dict[str, Any]:
+        """Atomically consume one native load under its own canonical recording claim."""
+        from zekam.application.canonical_job_runtime import canonical_job_key
+        from zekam.application.local_runtime import LocalJobBinding
+        from zekam.application.composition import build_context
+        from zekam.application.skill_native_invocation import (
+            OPERATION,
+            STATES,
+            build_native_invocation_plan,
+        )
+        from zekam.application.project_rag_runtime import resolve_project_source
+        from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+
+        context = build_context(home=home)
+        if (
+            type(binding) is not LocalJobBinding
+            or binding.project_id != plan["project_id"]
+            or binding.plan_digest != plan["plan_digest"]
+            or self.operational_path.resolve(strict=True)
+            != context.settings.database.sqlite_path(context.home).resolve(strict=True)
+            or self.learning_path.resolve(strict=True)
+            != (context.home / "state" / "learning.db").resolve(strict=True)
+            or plan["states"] != [str(state) for state in STATES]
+            or plan["host_attested"] is not False
+            or plan["skill_effect_verified"] is not False
+            or digest({k: v for k, v in plan.items() if k != "plan_digest"}) != plan["plan_digest"]
+        ):
+            raise PolicyViolation("Native invocation exact home/Work/observation binding required")
+        if len(allowed_scopes) != 1 or allowed_scopes[0][0] is not SkillScopeKind.PROJECT:
+            raise PolicyViolation("Native invocation exact project recording scope required")
+        current = build_native_invocation_plan(
+            home,
+            lifecycle=self,
+            event_id=plan["native_event_id"],
+            project_root=resolve_project_source(home, allowed_scopes[0][1]),
+            allowed_scopes=allowed_scopes,
+        )
+        if canonical_json(current) != canonical_json(plan):
+            raise PolicyViolation(
+                "Native invocation source changed before recording claim consumption"
+            )
+        runtime = SQLiteLocalRuntimeStore(self.operational_path, existing_only=True)
+        snapshot = runtime.job_snapshot(
+            canonical_job_key(binding.binding_digest, OPERATION, plan["plan_digest"])
+        )
+        if snapshot is None or runtime.job_binding(snapshot["job_id"]) != binding:
+            raise PolicyViolation("Native invocation own canonical recording claim required")
+        payload = {
+            "operation": OPERATION,
+            "input_digest": plan["plan_digest"],
+            "work_binding_digest": binding.binding_digest,
+        }
+        effect = digest(
+            {
+                "operation": OPERATION,
+                "binding": binding.binding_digest,
+                "input": plan["plan_digest"],
+            }
+        )
+        with closing(
+            sqlite3.connect(
+                f"{self.operational_path.resolve().as_uri()}?mode=rw", uri=True, timeout=5.0
+            )
+        ) as operational:
+            operational.execute("begin immediate")
+            rows = operational.execute(
+                "select j.state,j.payload_json,j.fencing_counter,c.operation,c.effect_digest,"
+                "c.fencing_token,l.fencing_token,l.expires_at,r.id from local_job j "
+                "join local_effect_claim c on c.job_id=j.id "
+                "join local_lease l on l.id=c.lease_id and l.job_id=j.id "
+                "left join local_effect_receipt r on r.claim_id=c.id where j.id=?",
+                (snapshot["job_id"],),
+            ).fetchall()
+            if len(rows) != 1:
+                raise PolicyViolation("Native invocation single recording claim required")
+            row = rows[0]
+            expires = dt.datetime.fromisoformat(str(row[7]).replace("Z", "+00:00"))
+            if (
+                row[0] != "running"
+                or canonical_json(json.loads(str(row[1]))) != canonical_json(payload)
+                or row[3] != OPERATION
+                or row[4] != effect
+                or not (row[2] == row[5] == row[6])
+                or expires.tzinfo is None
+                or expires <= dt.datetime.now(dt.UTC)
+                or row[8] is not None
+            ):
+                raise PolicyViolation("Native invocation live claim/fence drift")
+            active = self.require_active_package(
+                plan["managed_binding"]["package_digest"], allowed_scopes=allowed_scopes
+            )
+            project = operational.execute(
+                "select id from project where slug=? and status='active'", (active["scope_ref"],)
+            ).fetchall()
+            if (
+                len(project) != 1
+                or project[0][0] != binding.project_id
+                or active["revision_digest"] != plan["managed_binding"]["revision_digest"]
+                or active["activation_event_digest"]
+                != plan["managed_binding"]["activation_event_digest"]
+            ):
+                raise PolicyViolation("Native invocation active scope/revision drift")
+            observed_at = dt.datetime.fromisoformat(
+                plan["native_observed_at"].replace("Z", "+00:00")
+            )
+            values = []
+            with closing(self._connect()) as learning:
+                learning.execute("begin immediate")
+                if (
+                    learning.execute(
+                        "select 1 from skill_invocation_v2 where agent_ref=? limit 1",
+                        (plan["agent_ref"],),
+                    ).fetchone()
+                    is not None
+                ):
+                    raise ConcurrencyConflict(
+                        "Native call observation already recorded; exact replay or recovery required"
+                    )
+                previous = None
+                for state in STATES:
+                    previous = self._record_invocation_state_tx(
+                        learning,
+                        active["revision_digest"],
+                        package_digest=plan["managed_binding"]["package_digest"],
+                        work_ref=binding.work_item_id,
+                        run_ref=binding.run_id,
+                        agent_ref=plan["agent_ref"],
+                        client_id="opencode",
+                        harness_digest=plan["harness_digest"],
+                        state=state,
+                        previous_invocation_digest=previous,
+                        allowed_scopes=allowed_scopes,
+                        now=observed_at,
+                    )
+                    values.append(previous)
+                learning.commit()
+            operational.rollback()
+        return {
+            "schema": "zekam-native-skill-invocation-result/v1",
+            "plan": plan,
+            "invocation_digests": values,
+            "state": "unverified",
+            "skill_effect_verified": False,
+            "host_attested": False,
+            "provider_calls": 0,
+            "grants_authority": False,
+        }
 
     def record_outcome(
         self,
