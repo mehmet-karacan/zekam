@@ -69,6 +69,21 @@ MAX_CHUNK_CHARACTERS = 6000
 MAX_XML_ELEMENTS = 16_384
 MAX_XML_DEPTH = 256
 
+
+def _source_identity_digest(project_id: UUID | str, source_revision: str, tree_digest: str) -> str:
+    return str(
+        digest(
+            {
+                "schema": "zekam-project-source-identity/v1",
+                "project_id": str(project_id),
+                "logical_source": "repository",
+                "source_revision": source_revision,
+                "tree_digest": tree_digest,
+            }
+        )
+    )
+
+
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _SUPPORTED_SUFFIXES = frozenset(
     {
@@ -143,11 +158,18 @@ class ProjectIndexPlan:
     skipped_encoding: int
 
     @property
+    def source_identity_digest(self) -> str:
+        """Project/logical-source/revision identity, distinct from content digest."""
+
+        return _source_identity_digest(self.project_id, self.source_revision, self.tree_digest)
+
+    @property
     def plan_digest(self) -> str:
         return str(
             digest(
                 {
                     "project_id": str(self.project_id),
+                    "source_identity_digest": self.source_identity_digest,
                     "source_revision": self.source_revision,
                     "tree_digest": self.tree_digest,
                     "document_digest": self.document.content_digest,
@@ -164,6 +186,7 @@ class ProjectIndexPlan:
             "schema": "zekam-project-source-index-plan/v1",
             "project_id": str(self.project_id),
             "project_slug": self.project_slug,
+            "source_identity_digest": self.source_identity_digest,
             "source_revision": self.source_revision,
             "tree_digest": self.tree_digest,
             "selected_file_count": self.selected_file_count,
@@ -1167,9 +1190,12 @@ def build_project_index_plan(
     if not units:
         raise ValidationFailed("Indekslenebilir kaynak icerigi bulunamadi")
     manifest_document = {
-        "schema": "zekam-project-source-manifest/v1",
+        "schema": "zekam-project-source-manifest/v2",
         "project_id": str(project_id),
         "project_slug": project_slug,
+        "source_identity_digest": _source_identity_digest(
+            project_id, source_revision, expected_tree_digest
+        ),
         "source_revision": source_revision,
         "tree_digest": expected_tree_digest,
         "files": manifest_files,
@@ -1189,6 +1215,9 @@ def build_project_index_plan(
         parser_ref=INDEXER_VERSION,
         parser_version="1",
         parser_profile={
+            "source_identity_digest": _source_identity_digest(
+                project_id, source_revision, expected_tree_digest
+            ),
             "tree_digest": expected_tree_digest,
             "source_revision": source_revision,
             "source_access": "read-only",
