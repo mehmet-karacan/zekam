@@ -58,7 +58,9 @@ def _private_boundary(home):
     return path
 
 
-def build_trust_enrollment_plan(home: Path, raw: bytes, *, project_id: str) -> dict:
+def _enrollment_plan(
+    home: Path, raw: bytes, *, project_id: str, own_write_completed: bool = False
+) -> dict:
     if str(UUID(project_id)) != project_id:
         raise PolicyViolation("Publication enrollment canonical project UUID required")
     registry, realm, _roles = parse_publication_registry(raw)
@@ -77,7 +79,7 @@ def build_trust_enrollment_plan(home: Path, raw: bytes, *, project_id: str) -> d
             "Publication enrollment current settings/active config/registry drift"
         )
     path = _private_boundary(home)
-    if path.exists():
+    if path.exists() and not own_write_completed:
         raise PolicyViolation(
             "Publication enrollment cannot adopt or overwrite an existing registry"
         )
@@ -97,6 +99,10 @@ def build_trust_enrollment_plan(home: Path, raw: bytes, *, project_id: str) -> d
         "grants_authority": False,
     }
     return body | {"plan_digest": digest(body)}
+
+
+def build_trust_enrollment_plan(home: Path, raw: bytes, *, project_id: str) -> dict:
+    return _enrollment_plan(home, raw, project_id=project_id)
 
 
 def _owner(plan, binding):
@@ -191,15 +197,23 @@ def enroll_publication_trust(
             raise PolicyViolation("Publication enrollment completed result drift")
         return replay
 
+    own_write_completed = False
+
     def validate():
         validate_inputs()
-        rebuilt = build_trust_enrollment_plan(
-            home, canonical_bytes(plan["registry"]), project_id=plan["project_id"]
+        rebuilt = _enrollment_plan(
+            home,
+            canonical_bytes(plan["registry"]),
+            project_id=plan["project_id"],
+            own_write_completed=own_write_completed,
         )
         if canonical_bytes(rebuilt) != canonical_bytes(plan):
             raise PolicyViolation("Publication enrollment current plan drift")
+        if own_write_completed:
+            _read_effect(home, plan)
 
     def execute(cancel):
+        nonlocal own_write_completed
         validate()
         if cancel.is_set():
             raise PolicyViolation("Publication enrollment cancelled before write")
@@ -221,6 +235,7 @@ def enroll_publication_trust(
             stream.flush()
             os.fsync(stream.fileno())
         _read_effect(home, plan)
+        own_write_completed = True
         return expected_result()
 
     result = run_canonical_job(

@@ -35,6 +35,10 @@ aktif pin ve Work/plan claim altinda exclusive private yeni dosya, fsync/readbac
 exact receipt ve no-write completed replay. Existing target/rotation benimsenmez;
 gercek signing key ownership/rotation, actual test/verifier producer ve native
 enforcement halen acik. Regresyonlar CALISTIRILMADI; kullanici home'una yazilmadi.
+Enrollment'in ortak runtime post-effect callback uyumsuzlugu kaynak incelemesiyle
+duzeltildi: pre-phase absent, process-local own-write sonrasi exact file readback.
+Post-effect drift kabul edilmez; regresyonlar CALISTIRILMADI. Rotasyon siradaki
+tasarlanan bagdir; henuz uygulanmis sayilmaz.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

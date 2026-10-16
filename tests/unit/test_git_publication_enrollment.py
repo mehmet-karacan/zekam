@@ -204,3 +204,26 @@ def test_interrupted_write_does_not_get_adopted_by_a_second_attempt(enrollment, 
     with pytest.raises(PolicyViolation):
         _enroll(f)
     assert f.path.read_bytes() == before
+
+
+def test_pre_and_post_effect_admission_distinguish_own_completed_write(enrollment):
+    f = enrollment
+    observations = []
+    result = _enroll(f, validate=lambda: observations.append(f.path.exists()))
+    assert observations[0] is False and observations[-1] is True
+    assert result["file_readback_verified"] is True
+    assert f.runtime.job_snapshot(result["canonical_job_id"])["state"] == "completed"
+
+
+def test_post_effect_file_drift_prevents_terminal_success(enrollment):
+    f = enrollment
+
+    def drift():
+        if f.path.exists():
+            with f.path.open("ab") as stream:
+                stream.write(b" ")
+
+    with pytest.raises(PolicyViolation, match="registry readback drift"):
+        _enroll(f, validate=drift)
+    with pytest.raises(PolicyViolation):
+        _enroll(f)

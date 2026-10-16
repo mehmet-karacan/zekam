@@ -130,6 +130,13 @@ regresyon kaynaklari hazirlandi. Kullanici talimatiyla CALISTIRILMADI. Bu kaynak
 gelistirmesi kullanici home/config/anahtarini degistirmedi; canli enrollment,
 provider veya yayin cagrisi yapilmadi.
 
+Canonical runtime admission callback'i effect oncesinde ve sonrasinda cagirir.
+Enrollment bunu process-local own_write_completed durumuyla ayirir: once
+target absent, kendi fsync/readback'inden sonra exact target content zorunludur.
+Bu durum disaridan plan/CLI ile secilemez; baslamis baska is veya existing dosya
+adoption izni vermez. Post-effect config, pin, plan veya file drift terminal
+basariyi engeller. Bu callback regression kodu hazir, CALISTIRILMADI.
+
 Operational v9 `SQLiteGitPublicationLedger` gercek mevcut DB'de imzali kanit,
 approval, consumption ve revocation tablolarini append-only tutar. Guvenilen
 producer verifier capability'leri host composition tarafindan verilir; store

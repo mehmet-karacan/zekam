@@ -488,6 +488,12 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
   public schema ve trust-plan/trust-enroll CLI eklendi. Regresyon kaynaklari hazir,
   CALISTIRILMADI; gercek signer/key ownership/rotation, test/verifier producer ve
   native enforcement kabulleri aciktir. Kullanici home'una yazma yapilmadi.
+
+  Enrollment post-effect callback kaynak incelemesinde duzeltildi: own-write
+  phase yalniz process-local olarak tutulur; canonical runtime'in son admission'i
+  absent target yerine kendi fsync/readback icerigini ister. Config/pin ve file
+  drift terminal basariyi engeller; existing adoption/retry izni dogmaz. Yeni
+  regresyonlar CALISTIRILMADI; genel kabul ve rotasyon aciktir.
 - [x] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
 - [x] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
 
