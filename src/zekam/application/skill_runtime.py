@@ -37,6 +37,16 @@ class SkillRuntimeSigner:
         value = hmac.digest(self.__key, canonical_json(body).encode(), "sha256").hex()
         return f"hmac-sha256:{value}"
 
+    @property
+    def key_binding_digest(self) -> str:
+        """Public domain-separated binding; never returns key or receipt seal."""
+        return digest(
+            {
+                "schema": "zekam-skill-key-binding/v1",
+                "binding": hmac.digest(self.__key, b"zekam-skill-key-binding/v1", "sha256").hex(),
+            }
+        )
+
 
 class SkillRuntimeVerifier:
     """Verification-only capability; it never exposes or returns a valid seal."""

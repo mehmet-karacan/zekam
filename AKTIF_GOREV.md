@@ -1703,6 +1703,14 @@ restore ayrimi eklenir; eski bundle'a cohort kaniti yakistirilmaz. Race/aktif
 sahip/drift/deadline regresyon kodu hazir, CALISTIRILMADI. Gercek cihaz restore,
 continuity ve performans kabulleri halen acik; WP-11 kapanmadi.
 
+**16 Ekim 2026 — WP-11 receipt key devamligi:** Signed skill claim/usage
+varsa snapshot manifest'i private key yerine domain-separated binding digest'i
+tasir. Restore ayri verilen private key dosyasini bu bage gore yeni private
+hedefe aktarir; eksik/yanlis key ile yeni rastgele key uretip devam etmez.
+Skill journal `runtime/local-effects` agaci da backup kapsamindadir. Legacy
+signed bundle binding'sizse ayri recovery gerekir. Key transfer ve imza
+readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
+
 ### WP-12 — Bütünleşik Kullanıcı Kabulü, Paket Ve Yaşayan Mimari
 
 **Bağımlılık/onay:** WP-02..WP-11 tamam veya açık blokajlı; final kapı her zorunlu bağı kapatır.  

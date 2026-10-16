@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-11 receipt key: signed skill claim/usage bagina public key-binding digest, ayri private key dosyasindan exclusive restore ve journal tree backup eklendi. Key bundle'a konulmaz; eksik/yanlis key yeni rastgele authority ile maskelenmez. Key/HMAC readback ve backup/restore regresyon kodu hazir, CALISTIRILMADI. Legacy signed bundle recovery ve gercek kabul acik.
+
 - Gorev 6 WP-11 cohort: existing operational quiescence, provider unresolved-effect reddi, bounded tum-DB writer fence ve regular file boundary digest baglandi. Manifest/restore versioned cohort ayrimi tasir; eski bundle kaniti yukseltilmez. Lock release/aktif sahip/drift/deadline regresyon kodu hazir, CALISTIRILMADI. Gercek restore/continuity/performance kabul kapilari acik.
 
 - Gorev 6 WP-11.03: local bundle v2 exact owned proje SQLite dosyalarini online backup/DELETE/integrity/FK yoluna alir. V1 read/restore ayrimi, public trust dosyasi ve portable path siniri eklendi. WAL/restore/opaque CAS/v1 regresyon kodu hazir, CALISTIRILMADI. Cross-store snapshot ve gercek restore kabulu acik.

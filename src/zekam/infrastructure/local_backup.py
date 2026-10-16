@@ -11,12 +11,17 @@ import stat
 import tempfile
 import time
 from collections.abc import Iterator
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from zekam.application.composition import build_context
-from zekam.domain.canonical import canonical_json, digest
+from zekam.application.skill_runtime import (
+    SKILL_EXECUTE_OPERATION,
+    SKILL_VERIFY_OPERATION,
+    SkillRuntimeSigner,
+)
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.local_core_services import (
     LocalCoreServices,
@@ -30,6 +35,10 @@ from zekam.infrastructure.local_file_security import (
     restrict_private_tree,
 )
 from zekam.infrastructure.sqlite.operational_schema import _assert_quiescent
+from zekam.infrastructure.skill_receipt_authority import (
+    restore_skill_runtime_authority,
+    skill_runtime_key_binding,
+)
 
 LEGACY_BUNDLE_SCHEMA = "zekam-local-backup-bundle/v1"
 BUNDLE_SCHEMA = "zekam-local-backup-bundle/v2"
@@ -64,6 +73,7 @@ _TREES = (
     "runtime/spool",
     "runtime/outbox",
     "runtime/recovery",
+    "runtime/local-effects",
 )
 _FILES = (
     "config.yaml",
@@ -503,7 +513,35 @@ def _directories(
     return tuple(result)
 
 
-def _capture_cohort(sources: tuple[tuple[str, Path, str], ...], staging: Path) -> dict[str, Any]:
+def _skill_key_required(operational: sqlite3.Connection, learning: sqlite3.Connection) -> bool:
+    return (
+        operational.execute(
+            "select 1 from local_effect_claim where operation in (?,?) limit 1",
+            (SKILL_EXECUTE_OPERATION, SKILL_VERIFY_OPERATION),
+        ).fetchone()
+        is not None
+        or learning.execute("select 1 from skill_usage limit 1").fetchone() is not None
+    )
+
+
+def _snapshot_skill_key_required(root: Path) -> bool:
+    with closing(
+        sqlite3.connect(f"{(root / 'state/operational.db').as_uri()}?mode=ro&immutable=1", uri=True)
+    ) as operational:
+        with closing(
+            sqlite3.connect(
+                f"{(root / 'state/learning.db').as_uri()}?mode=ro&immutable=1", uri=True
+            )
+        ) as learning:
+            return _skill_key_required(operational, learning)
+
+
+def _capture_cohort(
+    sources: tuple[tuple[str, Path, str], ...],
+    staging: Path,
+    *,
+    key_authority: SkillRuntimeSigner | None = None,
+) -> dict[str, Any]:
     """Fence all DB writers, reject live effects, then capture one bounded cohort."""
     deadline = time.monotonic() + MAX_SNAPSHOT_WINDOW_SECONDS
     databases = sorted(
@@ -545,6 +583,11 @@ def _capture_cohort(sources: tuple[tuple[str, Path, str], ...], staging: Path) -
             if operational is None:
                 raise PolicyViolation("Backup operational cohort source missing")
             _assert_quiescent(operational, require_terminal_close=True)
+            key_bindings = {}
+            if _skill_key_required(operational, held["state/learning.db"]):
+                if type(key_authority) is not SkillRuntimeSigner:
+                    raise PolicyViolation("Backup skill receipt key binding required")
+                key_bindings["skill-runtime"] = key_authority.key_binding_digest
             # No source transaction is changed; closing the fence connections rolls back.
             files = {
                 relative: _sha256(path, deadline=deadline)
@@ -563,12 +606,15 @@ def _capture_cohort(sources: tuple[tuple[str, Path, str], ...], staging: Path) -
                 raise PolicyViolation("Backup snapshot window exceeded")
     except sqlite3.DatabaseError as exc:
         raise PolicyViolation("Backup snapshot writer fence unavailable") from exc
-    return {
+    result = {
         "schema": "zekam-quiescent-sqlite-cohort/v1",
         "database_paths": sorted(held),
         "regular_file_digests": files,
         "grants_authority": False,
     }
+    if key_bindings:
+        result["verification_key_bindings"] = key_bindings
+    return result
 
 
 def create_bundle(services: LocalCoreServices, home: Path, destination: Path) -> dict[str, Any]:
@@ -597,7 +643,9 @@ def create_bundle(services: LocalCoreServices, home: Path, destination: Path) ->
             assert type(mode) is int
             path.mkdir(parents=True, exist_ok=True, mode=mode)
             os.chmod(path, mode)
-        cohort = _capture_cohort(sources, staging)
+        cohort = _capture_cohort(
+            sources, staging, key_authority=getattr(services, "skill_runtime_signer", None)
+        )
         for relative, source, kind in sources:
             info = _regular(source)
             mode = _portable_file_mode(info)
@@ -796,13 +844,29 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         if (
             not isinstance(cohort, dict)
             or set(cohort)
-            != {"schema", "database_paths", "regular_file_digests", "grants_authority"}
+            not in (
+                {"schema", "database_paths", "regular_file_digests", "grants_authority"},
+                {
+                    "schema",
+                    "database_paths",
+                    "regular_file_digests",
+                    "grants_authority",
+                    "verification_key_bindings",
+                },
+            )
             or cohort["schema"] != "zekam-quiescent-sqlite-cohort/v1"
             or cohort["grants_authority"] is not False
             or cohort["database_paths"] != expected_databases
             or cohort["regular_file_digests"] != expected_files
         ):
             raise PolicyViolation("Backup snapshot cohort manifest drift")
+        bindings = cohort.get("verification_key_bindings", {})
+        if not isinstance(bindings, dict) or set(bindings) not in (set(), {"skill-runtime"}):
+            raise PolicyViolation("Backup verification key binding shape invalid")
+        if "skill-runtime" in bindings:
+            if not isinstance(bindings["skill-runtime"], str):
+                raise PolicyViolation("Backup verification key binding digest invalid")
+            parse_digest(bindings["skill-runtime"])
     actual_files: list[str] = []
     actual_directory_names: list[str] = []
     for path, is_directory in _walk_tree_entries(bundle):
@@ -833,10 +897,20 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
     return document
 
 
-def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
+def restore_bundle(
+    bundle: Path, target: Path, *, skill_key_file: Path | None = None
+) -> dict[str, Any]:
     """Restore to a new disposable target and atomically publish it."""
 
     document = verify_bundle(bundle)
+    key_required = _snapshot_skill_key_required(bundle)
+    bindings = document.get("capture_contract", {}).get("verification_key_bindings", {})
+    if key_required and (skill_key_file is None or "skill-runtime" not in bindings):
+        raise PolicyViolation("Restore skill receipt verification key and pinned binding required")
+    if key_required:
+        assert skill_key_file is not None
+        if skill_runtime_key_binding(skill_key_file) != bindings["skill-runtime"]:
+            raise PolicyViolation("Skill runtime restore key binding mismatch")
     target = _destination(target)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=target.parent))
     restrict_private_tree(staging)
@@ -850,6 +924,13 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             _copy_regular(bundle / relative, staging / relative, int(entry["mode"]))
             if entry["kind"] == "sqlite":
                 _validate_bundle_sqlite(relative, staging / relative)
+        if key_required:
+            assert skill_key_file is not None
+            restore_skill_runtime_authority(
+                skill_key_file,
+                staging / "state" / "skill-receipt.key",
+                expected_binding_digest=bindings["skill-runtime"],
+            )
         for directory in sorted(
             (item for item, is_directory in _walk_tree_entries(staging) if is_directory),
             key=lambda item: item.as_posix(),
@@ -877,6 +958,7 @@ def restore_bundle(bundle: Path, target: Path) -> dict[str, Any]:
             "bundle_schema": document["schema"],
             "project_sqlite_snapshot_contract": document["schema"] == BUNDLE_SCHEMA,
             "quiescent_cohort_contract": "capture_contract" in document,
+            "verification_keys_restored": ["skill-runtime"] if key_required else [],
             "grants_authority": False,
         }
     except BaseException:

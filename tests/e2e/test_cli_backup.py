@@ -234,6 +234,73 @@ def test_bundle_snapshot_window_expiry_leaves_no_partial_target(
     assert not list(destination.parent.glob(".expired-window.*"))
 
 
+def test_bundle_signed_receipt_dependency_requires_separate_pinned_key(
+    home_root: Path, tmp_path: Path
+) -> None:
+    from zekam.application.skill_runtime import SKILL_EXECUTE_OPERATION
+    from zekam.domain.errors import PolicyViolation
+    from zekam.infrastructure.skill_receipt_authority import load_or_create_skill_runtime_authority
+
+    _prepare(home_root)
+    services = LocalCoreServices.from_context(build_context(home=str(home_root)))
+    # Synthetic signed receipt dependency; this is not a skill qualification run.
+    effect = {"fixture": "key-dependent-receipt"}
+    job, _ = services.runtime.enqueue(
+        idempotency_key="fixture-key-dependency",
+        payload={"operation": SKILL_EXECUTE_OPERATION, "effect": effect},
+    )
+    work = services.runtime.claim_next(
+        owner_id="key-fixture",
+        owner_pid=os.getpid(),
+        owner_token="fixture-key-owner",
+        lease_seconds=30,
+        supported_operations=(SKILL_EXECUTE_OPERATION,),
+        job_id=job.id,
+    )
+    assert work is not None
+    claim, _ = services.runtime.claim_effect(
+        work,
+        operation=SKILL_EXECUTE_OPERATION,
+        effect_digest=digest(effect),
+        idempotency_key="fixture-key-claim",
+    )
+    unsigned = {"schema": "fixture-key-dependent-receipt/v1"}
+    evidence = digest(
+        unsigned | {"runtime_attestation": services.skill_runtime_signer.attest(unsigned)}
+    )
+    services.runtime.record_receipt(claim, status="completed", evidence_digest=evidence)
+    services.runtime.finish(work, state="completed", evidence_digest=evidence)
+    journal = home_root / "runtime/local-effects/fixture.jsonl"
+    journal.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    journal.write_text("fixture journal evidence\n", encoding="utf-8")
+    journal.chmod(0o600)
+    bundle = (tmp_path / "signed-bundle").resolve()
+    document = local_backup.create_bundle(services, home_root, bundle)
+    assert "state/skill-receipt.key" not in {entry["path"] for entry in document["entries"]}
+    assert "runtime/local-effects/fixture.jsonl" in {entry["path"] for entry in document["entries"]}
+    assert document["capture_contract"]["verification_key_bindings"] == {
+        "skill-runtime": services.skill_runtime_signer.key_binding_digest
+    }
+    target = (tmp_path / "signed-restored").resolve()
+    with pytest.raises(PolicyViolation, match="verification key"):
+        local_backup.restore_bundle(bundle, target)
+    assert not target.exists()
+    wrong = tmp_path / "wrong-key-root"
+    wrong.mkdir(mode=0o700)
+    wrong_file = wrong / "skill-receipt.key"
+    load_or_create_skill_runtime_authority(wrong_file)
+    with pytest.raises(PolicyViolation, match="binding mismatch"):
+        local_backup.restore_bundle(bundle, target, skill_key_file=wrong_file)
+    assert not target.exists()
+    receipt = local_backup.restore_bundle(
+        bundle, target, skill_key_file=home_root / "state/skill-receipt.key"
+    )
+    assert receipt["verification_keys_restored"] == ["skill-runtime"]
+    _, verifier = load_or_create_skill_runtime_authority(target / "state/skill-receipt.key")
+    assert verifier.matches_receipt_digest(unsigned, evidence)
+    assert (target / "runtime/local-effects/fixture.jsonl").read_bytes() == journal.read_bytes()
+
+
 def test_manifest_is_created_and_verified(home_root: Path) -> None:
     store = _prepare(home_root)
     store.put(b"rapor icerigi", media_type="text/plain")

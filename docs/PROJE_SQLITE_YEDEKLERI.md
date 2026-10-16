@@ -57,6 +57,31 @@ Regresyon kodu `tests/e2e/test_cli_backup.py` icinde acik WAL, committed satir,
 verify/restore, opaque CAS bytes, trust dosyasi ve v1 ayrimi icin hazirlandi.
 Testler CALISTIRILMADI; final toplu asamayi bekler. Bu gelistirmede kullanici
 home'u, gercek DB veya backup hedefi acilmadi; gercek restore kabul kaniti yoktur.
+## Receipt dogrulama anahtarinin devamligi
+
+Backup signed skill execute/verify claim'i veya usage kaydi gorurse,
+`capture_contract.verification_key_bindings.skill-runtime` icinde yalniz
+domain-separated public binding digest'i saklar. Private key bytes, HMAC seal
+ve credential bundle'a veya manifest'e yazilmaz. Skill execution/verification
+icin kullanilan `runtime/local-effects` journal agaci data kapsamindadir.
+
+Bu bag mevcutsa `backup restore ... --skill-key-file <private-key-file>` gerekir.
+Anahtar eski home'un `state/skill-receipt.key` dosyasindan veya ayni private
+malzemenin ayri guvenli saklama yerinden acikca verilir. Restore bounded,
+private/link-free kaynagi salt okunur okur; kaynak yoksa anahtar olusturmaz.
+Binding eslesmezse yeni hedef yayinlanmaz. Eslesen malzeme yalniz yeni hedef
+home'un private state credential dosyasina exclusive yazilir ve tekrar okunur.
+Mevcut hedef key overwrite edilmez; raw key metadata/receipt'e cikmaz.
+
+Restored composition bu anahtari kullanir; signed kayitlar varken yeni rastgele
+key ile sessiz devam etmez. Receipt `verification_keys_restored` alaninda yalniz
+mantiksal anahtar turunu raporlar. Signed kaydi olan eski bundle binding metadata
+tasimiyorsa ayri dogrulanmis recovery gerekir; legacy byte hash'i key kaniti
+sayilmaz. Key-dependent kaydi olmayan home eski yeni-key davranisini korur.
+
+Key transfer ve restore sonrasi HMAC readback fixture'lari eklenmistir;
+gercek kullanici receipt kabulunun yerine gecmez. Testler CALISTIRILMADI.
+
 Ek regresyon kaynaklari; butun DB writer fence'lerinin birlikte tutulmasi ve
 sonra birakilmasi, aktif sahibin degismemesi, sinir sonrasi regular file drift
 ve snapshot deadline sonrasi partial hedefin kalmamasi senaryolarini kapsar.

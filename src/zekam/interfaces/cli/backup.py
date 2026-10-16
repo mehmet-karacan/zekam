@@ -110,9 +110,7 @@ def verify_command(
     assert_local_effect_admission(("backup", "verify"))
     try:
         if bundle is not None:
-            if read_bounded_bytes(
-                manifest_path, max_bytes=16 * 1024 * 1024
-            ) != read_bounded_bytes(
+            if read_bounded_bytes(manifest_path, max_bytes=16 * 1024 * 1024) != read_bounded_bytes(
                 bundle.absolute() / "MANIFEST.json", max_bytes=16 * 1024 * 1024
             ):
                 raise ValueError("Bundle manifest path does not match the bundle")
@@ -127,9 +125,7 @@ def verify_command(
                 )
             )
             return
-        manifest = _decode(
-            json.loads(read_bounded_text(manifest_path, max_bytes=16 * 1024 * 1024))
-        )
+        manifest = _decode(json.loads(read_bounded_text(manifest_path, max_bytes=16 * 1024 * 1024)))
         result = verify_manifest(manifest, _store(home))
     except (OSError, KeyError, ValueError) as exc:
         error_console.print(f"[red]Hata:[/red] manifest okunamadi ({type(exc).__name__})")
@@ -147,12 +143,22 @@ def verify_command(
 def restore_command(
     bundle: Annotated[Path, typer.Argument(help="Dogrulanmis tam yedek dizini")],
     target: Annotated[Path, typer.Argument(help="Yeni, mevcut olmayan hedef home")],
+    skill_key_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--skill-key-file", help="Receipt dogrulamasi icin ayri private anahtar dosyasi"
+        ),
+    ] = None,
 ) -> None:
     """Verify and atomically restore a complete bundle to a new target."""
 
     assert_local_effect_admission(("backup", "restore"))
     try:
-        receipt = restore_bundle(bundle.absolute(), target.absolute())
+        receipt = restore_bundle(
+            bundle.absolute(),
+            target.absolute(),
+            skill_key_file=skill_key_file.absolute() if skill_key_file is not None else None,
+        )
     except (OSError, ValueError, ZekamError) as exc:
         error_console.print(f"[red]Hata:[/red] restore basarisiz ({type(exc).__name__})")
         raise typer.Exit(EXIT_RUNTIME_ERROR) from exc
