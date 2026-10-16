@@ -127,6 +127,7 @@ _SUFFIXES: dict[str, SourceFormat] = {
     ".txt": SourceFormat.TXT,
     ".docx": SourceFormat.DOCX,
     ".pdf": SourceFormat.PDF,
+    ".xml": SourceFormat.XML,
     ".png": SourceFormat.PNG,
     ".jpg": SourceFormat.JPEG,
     ".jpeg": SourceFormat.JPEG,
@@ -137,6 +138,7 @@ _SUFFIXES: dict[str, SourceFormat] = {
 _TEXT_MEDIA_TYPES: dict[SourceFormat, str] = {
     SourceFormat.TXT: "text/plain",
     SourceFormat.MARKDOWN: "text/markdown",
+    SourceFormat.XML: "application/xml",
 }
 
 

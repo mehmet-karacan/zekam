@@ -746,6 +746,12 @@ ayri kalir.
 - [ ] **WP-04.05** — ZIP'te traversal, symlink, entry count/byte/ratio limitleri; XML'de DTD/external entity/network expansion reddi; belgede çalışabilir macro/script yürütmeme sınırlarını uygula.
 - [ ] **WP-04.06** — Proje+logical source+revision kimliğini koru. Aynı adlı farklı dosya, aynı içeriğin başka proje kopyası ve gerçek rename olayları farklı sözleşmeler taşısın; kaynak dosyaya yazma yapma.
 
+  16 Ekim 2026 XML parser kaynak dilimi: bounded stdlib Expat parser'i DTD/external
+  entity ve yapi limitlerini reddeder; element yolu ve satir locator'i tasiyan
+  normalize birimler uretilir. `.xml` uzanti/MIME ve Jira read-only attachment
+  route'u parser router'a baglandi. Test CALISTIRILMADI; belge kalite ve native
+  kabul kapilari acik.
+
 **Üretilen sözleşme/çıktı:** `FileInventoryRecord`, `EligibilityDecision`, `SourceVersion`, locator'lı `ContentUnit` mevcut tiplerle uzlaştırılır. Öneri `tests/integration/test_project_artifact_ingestion.py`, `tests/security/test_sensitive_config_metadata.py`.
 
 **Kabul ve negatif testler:** Testler: kaynak/generated aynı uzantı, gitignore metadata korunumu, nested dependency ağacı, UTF-8/BOM, büyük/şifreli/bozuk belge, archive bomb/XXE, same-name/different-content, source drift ve kaynakta sıfır mutation.

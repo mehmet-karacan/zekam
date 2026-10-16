@@ -483,6 +483,7 @@ def _read_jira_attachment(
     formats = {
         "txt": (SourceFormat.TXT, {"text/plain"}),
         "md": (SourceFormat.MARKDOWN, {"text/plain", "text/markdown"}),
+        "xml": (SourceFormat.XML, {"application/xml", "text/xml"}),
         "docx": (
             SourceFormat.DOCX,
             {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},

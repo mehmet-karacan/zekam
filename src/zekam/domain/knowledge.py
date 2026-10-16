@@ -46,6 +46,7 @@ DENY_PATTERNS = (
 class SourceFormat(StrEnum):
     DOCX = "docx"
     PDF = "pdf"
+    XML = "xml"
     TXT = "txt"
     MARKDOWN = "markdown"
     PNG = "png"

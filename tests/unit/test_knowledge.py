@@ -234,6 +234,7 @@ def test_parser_router_cevrimdisi_formatlari_tanir_bilinmeyeni_metin_saymaz() ->
         SourceFormat.MARKDOWN,
         SourceFormat.DOCX,
         SourceFormat.PDF,
+        SourceFormat.XML,
         SourceFormat.PNG,
         SourceFormat.JPEG,
         SourceFormat.TIFF,

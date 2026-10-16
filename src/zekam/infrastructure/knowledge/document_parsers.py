@@ -48,6 +48,10 @@ MAX_DOCX_XML_ELEMENTS = 16_384
 MAX_DOCX_XML_DEPTH = 256
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_PDF_PAGES = 1_000
+MAX_XML_ELEMENTS = 16_384
+MAX_XML_DEPTH = 128
+MAX_XML_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_XML_PATH_BYTES = 4 * 1024
 
 _PDFIUM_PERMISSIVE_BUILD_LICENSE_FILES = frozenset(
     {
@@ -73,6 +77,7 @@ _PDFIUM_PERMISSIVE_BUILD_LICENSE_FILES = frozenset(
 _MEDIA_TYPES: dict[SourceFormat, str] = {
     SourceFormat.DOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     SourceFormat.PDF: "application/pdf",
+    SourceFormat.XML: "application/xml",
     SourceFormat.PNG: "image/png",
     SourceFormat.JPEG: "image/jpeg",
     SourceFormat.TIFF: "image/tiff",
@@ -356,6 +361,118 @@ class DocxParser:
                 block_index += 1
         if not units:
             raise ValidationFailed("DOCX normalize edilebilir icerik tasimiyor")
+        return tuple(units)
+
+
+@dataclass(frozen=True, slots=True)
+class XmlParser:
+    """DTD'siz, bounded XML parser'i; metni element path'iyle konumlar."""
+
+    parser_ref: str = "zekam.parser.xml"
+    parser_version: str = "1"
+
+    @property
+    def parser_profile(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-parser-profile/v1",
+            "adapter": self.parser_ref,
+            "adapter_version": self.parser_version,
+            "xml_engine": "python-expat",
+            "locator": "element-path+line",
+            "limits": {
+                "elements": MAX_XML_ELEMENTS,
+                "depth": MAX_XML_DEPTH,
+                "output_bytes": MAX_XML_OUTPUT_BYTES,
+                "path_bytes": MAX_XML_PATH_BYTES,
+            },
+            "dtd": "rejected",
+            "external_entities": "rejected",
+        }
+
+    def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
+        if type(payload) is not bytes or not payload or len(payload) > MAX_DOCUMENT_BYTES:
+            raise ValidationFailed("XML girdisi bounded bytes olmali")
+
+        parser = expat.ParserCreate()
+        stack: list[dict[str, Any]] = []
+        units: list[ContentUnit] = []
+        element_count = 0
+        output_bytes = 0
+
+        def reject_doctype(*_args: object) -> None:
+            raise PolicyViolation("XML DTD veya entity deklarasyonu tasiyor")
+
+        def reject_external(*_args: object) -> int:
+            raise PolicyViolation("XML external entity tasiyor")
+
+        def start_element(name: str, _attributes: dict[str, str]) -> None:
+            nonlocal element_count
+            element_count += 1
+            if element_count > MAX_XML_ELEMENTS:
+                raise PolicyViolation("XML element sinirini asiyor")
+            if len(stack) >= MAX_XML_DEPTH:
+                raise PolicyViolation("XML derinlik sinirini asiyor")
+            stack.append(
+                {
+                    "name": name,
+                    "line_start": parser.CurrentLineNumber,
+                    "text": [],
+                }
+            )
+            path = "/" + "/".join(str(item["name"]) for item in stack)
+            if len(path.encode("utf-8")) > MAX_XML_PATH_BYTES:
+                raise PolicyViolation("XML element yolu sinirini asiyor")
+
+        def character_data(value: str) -> None:
+            nonlocal output_bytes
+            if not stack or not value:
+                return
+            output_bytes += len(value.encode("utf-8"))
+            if output_bytes > MAX_XML_OUTPUT_BYTES:
+                raise PolicyViolation("XML normalize cikti sinirini asiyor")
+            stack[-1]["text"].append(value)
+
+        def end_element(_name: str) -> None:
+            if not stack:
+                raise ValidationFailed("XML element yigin yapisi gecersiz")
+            frame = stack.pop()
+            text = "".join(frame["text"]).strip()
+            if not text:
+                return
+            path = "/" + "/".join(str(item["name"]) for item in (*stack, frame))
+            if len(path.encode("utf-8")) > MAX_XML_PATH_BYTES:
+                raise PolicyViolation("XML element yolu sinirini asiyor")
+            units.append(
+                ContentUnit(
+                    unit_id=f"xml-{len(units)}",
+                    kind=UnitKind.PARAGRAPH,
+                    text=text,
+                    locator=Locator(
+                        object_name=path,
+                        block_index=len(units),
+                        line_start=int(frame["line_start"]),
+                        line_end=max(int(frame["line_start"]), parser.CurrentLineNumber),
+                    ),
+                    order=len(units),
+                )
+            )
+
+        parser.StartDoctypeDeclHandler = reject_doctype
+        parser.EntityDeclHandler = reject_doctype
+        parser.ExternalEntityRefHandler = reject_external
+        parser.StartElementHandler = start_element
+        parser.CharacterDataHandler = character_data
+        parser.EndElementHandler = end_element
+        try:
+            parser.Parse(payload, True)
+        except PolicyViolation:
+            raise
+        except (expat.ExpatError, UnicodeError):
+            raise ValidationFailed("XML yapisi gecersiz") from None
+        if stack:
+            raise ValidationFailed("XML element yigin yapisi gecersiz")
+        if not units:
+            raise ValidationFailed("XML normalize edilebilir icerik tasimiyor")
         return tuple(units)
 
 
@@ -799,6 +916,7 @@ def offline_document_parsers() -> dict[SourceFormat, Any]:
     return {
         SourceFormat.DOCX: DocxParser(),
         SourceFormat.PDF: PdfParser(),
+        SourceFormat.XML: XmlParser(),
         SourceFormat.PNG: TesseractOcrParser(SourceFormat.PNG),
         SourceFormat.JPEG: TesseractOcrParser(SourceFormat.JPEG),
         SourceFormat.TIFF: TesseractOcrParser(SourceFormat.TIFF),

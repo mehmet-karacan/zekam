@@ -15,7 +15,7 @@ from zekam.application.knowledge_parsers import default_router
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator, SourceFormat, UnitKind
 from zekam.infrastructure.knowledge import document_parsers
-from zekam.infrastructure.knowledge.document_parsers import DocxParser, PdfParser
+from zekam.infrastructure.knowledge.document_parsers import DocxParser, PdfParser, XmlParser
 
 pytestmark = pytest.mark.unit
 
@@ -209,10 +209,40 @@ def test_default_router_declares_every_offline_document_format() -> None:
     assert {
         SourceFormat.DOCX,
         SourceFormat.PDF,
+        SourceFormat.XML,
         SourceFormat.PNG,
         SourceFormat.JPEG,
         SourceFormat.TIFF,
     } <= supported
+
+
+def test_xml_parser_preserves_element_path_and_line_locator() -> None:
+    units = XmlParser().parse(
+        b"<root>\n  <title>Baslik</title>\n  <item><name>Deger</name></item>\n</root>"
+    )
+    assert [unit.text for unit in units] == ["Baslik", "Deger"]
+    assert units[0].locator.object_name == "/root/title"
+    assert units[0].locator.line_start == 2
+    assert units[1].locator.object_name == "/root/item/name"
+    assert units[1].locator.line_start == 3
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'<!DOCTYPE root [<!ENTITY x "boom">]><root>&x;</root>',
+        b'<!DOCTYPE root SYSTEM "https://example.invalid/root.dtd"><root/>',
+    ],
+)
+def test_xml_parser_rejects_dtd_and_external_entities(payload: bytes) -> None:
+    with pytest.raises(PolicyViolation, match="DTD|external entity"):
+        XmlParser().parse(payload)
+
+
+def test_xml_parser_rejects_bounded_depth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(document_parsers, "MAX_XML_DEPTH", 2)
+    with pytest.raises(PolicyViolation, match="derinlik"):
+        XmlParser().parse(b"<a><b><c>metin</c></b></a>")
 
 
 def test_pdf_without_optional_permissive_dependency_fails_closed() -> None:
