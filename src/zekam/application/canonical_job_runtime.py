@@ -142,6 +142,7 @@ def run_canonical_job(
         "publication.trust.enroll",
         "publication.trust.rotate",
         "publication.test.attest",
+        "publication.verification.attest",
         "publication.review",
         "project.index",
         "test.measure",
@@ -197,7 +198,12 @@ def run_canonical_job(
         + (
             ("canonical-global:publication-trust",)
             if operation
-            in {"publication.trust.enroll", "publication.trust.rotate", "publication.test.attest"}
+            in {
+                "publication.trust.enroll",
+                "publication.trust.rotate",
+                "publication.test.attest",
+                "publication.verification.attest",
+            }
             else ()
         ),
     )

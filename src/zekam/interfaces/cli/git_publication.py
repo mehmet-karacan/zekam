@@ -473,6 +473,29 @@ def test_evidence_command(
         raise fail_from(exc) from exc
 
 
+@app.command("verification-evidence")
+def verification_evidence_command(
+    producer_reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Tamamlanmis trusted verifier producer kanitini okur; imzalamaz."""
+    from zekam.application.git_publication_verifier_producer import read_verifier_producer_result
+
+    try:
+        context = _context(home)
+        console.print_json(
+            json.dumps(
+                read_verifier_producer_result(context.home, producer_reference), ensure_ascii=False
+            )
+        )
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication verifier producer receipt okunamadi")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
 @app.command("import-evidence")
 def evidence_command(
     input_file: Annotated[Path, typer.Argument()],
@@ -481,6 +504,16 @@ def evidence_command(
 ) -> None:
     try:
         document = _read(input_file)
+        if document.get("schema") == "zekam-publication-verification-producer-export/v1":
+            from zekam.application.git_publication_verifier_producer import (
+                read_verifier_producer_result,
+            )
+
+            context = _context(home)
+            actual = read_verifier_producer_result(context.home, document["producer_job_id"])
+            if canonical_json(document) != canonical_json(actual):
+                raise ValidationFailed("Publication verifier producer export drift")
+            document = actual["envelope"]
         if document.get("schema") == "zekam-publication-test-producer-export/v1":
             # Export metadata is never authority. Read the actual completed job
             # again and compare the complete export before admitting its envelope.
