@@ -397,6 +397,22 @@ def test_inventory_records_binary_and_generated_metadata(sample_project: Path) -
     assert "gpu-ui/tsconfig.tsbuildinfo" not in indexed
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows'ta FIFO olusturulamiyor")
+def test_inventory_records_special_file_as_other_without_partial(tmp_path: Path) -> None:
+    root = tmp_path / "kaynak"
+    root.mkdir()
+    os.mkfifo(root / "kanal")
+
+    report = discover(root)
+
+    entry = next(item for item in report.inventory if item.relative_path == "kanal")
+    assert entry.kind is FileKind.OTHER
+    assert entry.skip_reason is SkipReason.UNSUPPORTED_TYPE
+    assert report.inventory_status is InventoryStatus.COMPLETE
+    assert report.inventory_stop_reason is None
+    assert report.files == ()
+
+
 def test_inventory_traversed_directories_are_recorded(sample_project: Path) -> None:
     report = discover(sample_project)
     dirs = {

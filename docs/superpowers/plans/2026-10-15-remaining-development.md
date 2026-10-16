@@ -317,6 +317,12 @@
   mevcut boyut/ratio sinirlari korunur. Regresyon kaynaklari hazir,
   test CALISTIRILMADI.
 
+- 16 Ekim 2026 WP-04.01 discovery ozel dosya metadata'si: FIFO, cihaz, socket ve
+  diger normal olmayan kaynak girdileri `FileKind.OTHER` olarak envanterde
+  korunur; `unsupported-type` eligibility karariyla icerik disinda kalir ve tek
+  basina discovery'yi partial yapmaz. Regresyon kaynagi hazir,
+  test CALISTIRILMADI.
+
 - 16 Ekim 2026 WP-12.05 yerel hedef planlari: Kaynak mimari export'una ayni katalogdan Miro Mermaid ve GitBook Markdown/traceability yerel planlari eklendi. Catalog/source ve input digest'leri, tool usage, yapilmayan kontroller, drift metodu ve remote/yayin false kapilari korunur. Test CALISTIRILMADI; gercek import/yayin ve kabul aciktir.
 
 - Gorev 3 publication CLI composition: config-pinned public trust loader, strict plan/evidence/approval codec, native CLI plan/import/status/revoke/apply ve mutation admission baglandi. Imzali import exact replay idempotent; tarihsel completed apply yeni remote/trust islemi yapmaz. Regresyon kodu hazir, CALISTIRILMADI. Gercek producer enrollment/receipt producer ve native host enforcement kabulleri acik.

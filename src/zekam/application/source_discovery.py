@@ -91,6 +91,7 @@ class SkipReason(StrEnum):
     UNREADABLE = "unreadable"
     LIMIT_REACHED = "limit-reached"
     CONTENT_DISABLED = "content-disabled"
+    UNSUPPORTED_TYPE = "unsupported-type"
 
 
 class FileKind(StrEnum):
@@ -99,6 +100,7 @@ class FileKind(StrEnum):
     FILE = "file"
     DIRECTORY = "directory"
     SYMLINK = "symlink"
+    OTHER = "other"
 
 
 class InventoryStatus(StrEnum):
@@ -1108,7 +1110,25 @@ def discover(
             try:
                 file_stat = resolved.stat()
                 if not stat_module.S_ISREG(file_stat.st_mode):
-                    raise OSError("Duzenli dosya degil")
+                    # FIFO, device, socket and other special nodes belong in
+                    # the metadata inventory, but can never become content
+                    # eligible or trigger a blocking "unreadable" partial.
+                    size = int(file_stat.st_size)
+                    skipped.append(
+                        SkippedPath(
+                            entry_relative,
+                            SkipReason.UNSUPPORTED_TYPE,
+                            "duzenli dosya olmayan girdi",
+                        )
+                    )
+                    if builder.add(
+                        entry_relative,
+                        FileKind.OTHER,
+                        size,
+                        skip_reason=SkipReason.UNSUPPORTED_TYPE,
+                    ):
+                        break
+                    continue
                 size = file_stat.st_size
             except OSError:
                 skipped.append(SkippedPath(entry_relative, SkipReason.UNREADABLE, "stat basarisiz"))

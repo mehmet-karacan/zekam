@@ -758,6 +758,11 @@ ayri kalir.
   tutulur. Symlink/hardlink, traversal ve mevcut boyut/ratio sinirlari korunur.
   Regresyon kaynaklari hazir, test CALISTIRILMADI.
 
+  16 Ekim 2026 discovery ozel dosya metadata'si: FIFO, cihaz, socket ve diger
+  normal olmayan kaynak girdileri `FileKind.OTHER` olarak envanterde korunur;
+  `unsupported-type` eligibility karariyla icerik disinda kalir ve tek basina
+  discovery'yi partial yapmaz. Regresyon kaynagi hazir, test CALISTIRILMADI.
+
 **Üretilen sözleşme/çıktı:** `FileInventoryRecord`, `EligibilityDecision`, `SourceVersion`, locator'lı `ContentUnit` mevcut tiplerle uzlaştırılır. Öneri `tests/integration/test_project_artifact_ingestion.py`, `tests/security/test_sensitive_config_metadata.py`.
 
 **Kabul ve negatif testler:** Testler: kaynak/generated aynı uzantı, gitignore metadata korunumu, nested dependency ağacı, UTF-8/BOM, büyük/şifreli/bozuk belge, archive bomb/XXE, same-name/different-content, source drift ve kaynakta sıfır mutation.
