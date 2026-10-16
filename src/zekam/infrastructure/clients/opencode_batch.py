@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -205,6 +206,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
     objects: ObjectStore | None = None
     network_authorized: bool = False
     provider_profile: BatchProviderProfile | None = None
+    cancel: threading.Event | None = None
 
     @property
     def execution_binding_digest(self) -> str:
@@ -304,6 +306,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                     max_output_bytes=4096,
                 ),
                 cwd=temporary,
+                **({"cancel": self.cancel} if self.cancel is not None else {}),
             )
             if version.result.timed_out:
                 return result("timeout", version.result.exit_code, timeout=True)
@@ -345,6 +348,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 ),
                 cwd=cwd,
                 stdin=prompt,
+                **({"cancel": self.cancel} if self.cancel is not None else {}),
             )
         if output.result.timed_out:
             return result("timeout", output.result.exit_code, timeout=True)
@@ -378,6 +382,7 @@ def opencode_batch_adapter(
     model_id: str | None,
     network_authorized: bool = False,
     provider_profile: BatchProviderProfile | None = None,
+    cancel: threading.Event | None = None,
 ) -> OpenCodeBatchAdapter:
     return OpenCodeBatchAdapter(
         descriptor=ClientDescriptor(
@@ -393,4 +398,5 @@ def opencode_batch_adapter(
         model_id=model_id,
         network_authorized=network_authorized,
         provider_profile=provider_profile,
+        cancel=cancel,
     )

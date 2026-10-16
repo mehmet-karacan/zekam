@@ -255,6 +255,15 @@ def test_recorded_evidence_cannot_substitute_for_execution_receipts(tmp_path: Pa
     revision = lifecycle.propose_revision(
         _revision(digest("package")), _origins(operational), now=NOW
     )
+    candidate = lifecycle.evaluation_revision(
+        revision, allowed_scopes=((SkillScopeKind.PROJECT, "project-a"),)
+    )
+    assert candidate["package_digest"] == digest("package")
+    assert digest(candidate) == revision
+    with pytest.raises(PolicyViolation, match="scope"):
+        lifecycle.evaluation_revision(
+            revision, allowed_scopes=((SkillScopeKind.PROJECT, "project-b"),)
+        )
     fabricated = SkillEvaluationV2(
         revision,
         digest("fabricated-plan"),

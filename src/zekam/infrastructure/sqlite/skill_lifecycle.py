@@ -836,6 +836,33 @@ class SQLiteSkillLifecycle:
         if row is None or (SkillScopeKind(row[0]), row[1]) not in scopes:
             raise PolicyViolation("Skill revision scope mismatch")
 
+    def evaluation_revision(
+        self,
+        revision_digest: str,
+        *,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+    ) -> dict[str, object]:
+        """Read a scoped candidate without pretending it is already active."""
+        self.require_revision_scope(revision_digest, allowed_scopes=allowed_scopes)
+        with closing(self._connect(read_only=True)) as db:
+            row = db.execute(
+                "select body_json,package_digest from skill_revision_v2 where revision_digest=?",
+                (revision_digest,),
+            ).fetchone()
+        if row is None:
+            raise PolicyViolation("Skill evaluation revision missing")
+        try:
+            body = json.loads(str(row["body_json"]))
+            if (
+                not isinstance(body, dict)
+                or digest(body) != revision_digest
+                or body.get("package_digest") != row["package_digest"]
+            ):
+                raise PolicyViolation("Skill evaluation revision/package drift")
+        except (ValueError, TypeError) as exc:
+            raise PolicyViolation("Skill evaluation revision malformed") from exc
+        return body
+
     def activation_plan(
         self,
         revision_digest: str,

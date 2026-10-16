@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-10.03 paired trial producer: skill trial-run exact candidate package/case/model/config/root planini canonical Work/Run skill.trial job'una ve gercek OpenCode batch assignment-first dispatch'ine baglar. Iki fresh session baseline/candidate, oracle builder'dan gizli local exact JSON grade ve gercek elapsed/native kimlik raporu eklendi. Native adapter cancel forwarding ve reserved-worker reddi eklendi. Regresyon kaynaklari hazir, CALISTIRILMADI. Aggregate 5 tekrar/holdout provenance, bagimsiz verifier/reviewer ve SkillEvaluationV2 producer baglantisi halen acik; docs/SKILL_PAIRED_TRIALS.md.
+
 - Gorev 5 WP-10.03 receipt consumption: exact bounded evaluation/review input codec, scoped preview/apply ve ayri canonical recording claim/receipt CLI'a baglandi. Existing evaluator/verifier/reviewer terminal kaniti zorunlu; recording receipt execution yerine gecmez. Completed replay salt okunur hash/dokuman esitlemesi yapar, kayip ledger'i yeniden yazmaz. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek skill evaluation/reviewer producer, model bagimsizligi ve native invocation kabul kapilari acik.
 
 - Gorev 4 WP-05/06 reference index: terminal scoped active note snapshot, bounded Markdown chunks ve batch producer proof mevcut project index cache/journal/combined generation yoluna baglandi. Canonical plan pin ve yayin oncesi drift; query/citation current note/file readback ve import source-kind/policy ayrimi eklendi. SQLite/vector/cache/supersession/pin/research negatif regresyon kaynaklari hazir, CALISTIRILMADI. Legacy adoption, gercek client/ACL/performans kabul kapilari acik; docs/CANONICAL_REFERENCE_INDEX.md.

@@ -63,3 +63,7 @@ aktif etmez. Gercek skill evaluation/reviewer producer, model bagimsizligi ve
 native invocation kabul kapilari halen aciktir. Sabit evolution fixture harness'i
 gercek skill davranis olcumu olarak kullanilmaz. CLI/local worker/replay ve yanlis
 receipt-operation regresyon kaynaklari hazir; testler CALISTIRILMADI.
+
+Gercek instruction-only paired native trial yolu `skill trial-run` ile
+eklendi; kapsam ve kalan evaluation/verifier/reviewer baglari
+`docs/SKILL_PAIRED_TRIALS.md` icindedir. Trial tek basina activation kaniti degildir.

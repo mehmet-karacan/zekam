@@ -53,6 +53,15 @@ def test_skill_evidence_record_requires_local_effect_admission(command: str) -> 
     assert not DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": False}).mutating
 
 
+def test_skill_trial_has_explicit_canonical_control_plane_admission() -> None:
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
+        ("skill", "trial-run"), {"apply": True}
+    )
+    assert admission.mutating
+    assert admission.exemption is MutationAdmissionExemption.CONTROL_PLANE
+    assert not admission.grants_authority
+
+
 def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:
     runner = CliRunner()
     home = tmp_path / "home"

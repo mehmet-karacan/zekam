@@ -1,4 +1,4 @@
-"""Provider-free personal-skill lifecycle and managed projection CLI."""
+"""Personal-skill lifecycle, explicit bounded trials and managed projections."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import typer
 
@@ -29,6 +29,8 @@ from zekam.application.skill_packages import (
     projection_receipt,
 )
 from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
+from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
+from zekam.application.unit_test_provider_profile import load_batch_provider_profile
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.personal_skill import (
@@ -39,10 +41,14 @@ from zekam.domain.personal_skill import (
     SkillScopeKind,
 )
 from zekam.domain.skill_package import SkillPackage
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 from zekam.infrastructure.local_runtime_effects import LocalJournalOutboxPublisher
 from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.sqlite.skill_lifecycle import SQLiteSkillLifecycle, activation_effect_body
+from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
+from zekam.interfaces.cli.work_binding import resolve_optional_work_binding, work_binding_document
 
 app = typer.Typer(name="skill", help="Kisisel skill katalogu ve guvenli paket yasam dongusu")
 
@@ -635,6 +641,116 @@ def evaluate_command(revision_digest: Annotated[str, typer.Argument()]) -> None:
         _emit(body | {"plan_digest": digest(body)})
     except ZekamError as exc:
         typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("trial-run")
+def trial_run_command(
+    revision_digest: Annotated[str, typer.Argument()],
+    package_root: Annotated[Path, typer.Option("--package-root")],
+    case_file: Annotated[Path, typer.Option("--case-file")],
+    model: Annotated[str, typer.Option("--model")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    provider_profile: Annotated[Path | None, typer.Option("--provider-profile")] = None,
+    executable: Annotated[str, typer.Option("--opencode")] = "opencode",
+    timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=10, max=600)] = 180,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    authorize_remote: Annotated[bool, typer.Option("--authorize-remote")] = False,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    realm_id: Annotated[str | None, typer.Option("--realm-id")] = None,
+    coordinator_id: Annotated[str | None, typer.Option("--coordinator-assignment-id")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan or run one real paired trial; the local oracle is never disclosed."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        context = build_context(home=home)
+        store = SQLiteOperationalStore(lifecycle.operational_path)
+        with store.unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        source_root = resolve_project_source(resolved_home, scopes[0][1])
+        package = SkillPackage.read_directory(package_root.resolve(strict=True))
+        case = load_trial_case(case_file)
+        profile = load_batch_provider_profile(provider_profile)
+        binary = resolve_opencode_executable(executable)
+        objects = LocalContentAddressedStore(resolved_home / context.settings.object_store_relative)
+
+        def validate_inputs() -> None:
+            current = lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes)
+            if current["package_digest"] != package.package_digest:
+                raise PolicyViolation("Skill trial candidate/package binding drift")
+            if (
+                SkillPackage.read_directory(package_root.resolve(strict=True)).package_digest
+                != package.package_digest
+            ):
+                raise PolicyViolation("Skill trial package changed after plan")
+            if digest(load_trial_case(case_file)) != digest(case):
+                raise PolicyViolation("Skill trial case changed after plan")
+            if resolve_project_source(resolved_home, scopes[0][1]) != source_root:
+                raise PolicyViolation("Skill trial source root drift")
+            current_profile = load_batch_provider_profile(provider_profile)
+            if current_profile != profile:
+                raise PolicyViolation("Skill trial provider profile drift")
+
+        validate_inputs()
+        plan = build_skill_trial_plan(
+            revision_digest=revision_digest,
+            package=package,
+            case=case,
+            project_id=registered.id,
+            model_id=model,
+            executable=binary,
+            objects=objects,
+            provider_profile=profile,
+            timeout_seconds=timeout_seconds,
+            source_root=source_root,
+        )
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if plan_digest != plan["plan_digest"] or binding is None:
+            raise PolicyViolation(
+                "Skill trial exact plan digest and canonical Work binding required"
+            )
+        _emit(
+            run_skill_trial(
+                resolved_home,
+                binding=binding,
+                package=package,
+                case=case,
+                plan=plan,
+                root=source_root,
+                executable=binary,
+                realm_id=UUID(realm_id or ""),
+                coordinator_id=UUID(coordinator_id or ""),
+                validate_inputs=validate_inputs,
+                authorize_remote=authorize_remote,
+                provider_profile=profile,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill trial bounded girdi/kimlik okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 
