@@ -1819,6 +1819,12 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
  Regression kaynagi hazir, CALISTIRILMADI; catalog revision/model config ve
  gercek provider kabul kaniti acik.
 
+**16 Ekim 2026 — WP-11.03 backup manifest kapisi:** ArtifactEntry digest ve boyut
+ alanlari kurulusta dogrulanir; BackupManifest schema, timezone, configuration
+ digesti ve tekil artifact kimliklerini fail-closed kontrol eder. Bozuk manifest
+ restore/verify akisina gecemez. Regression kaynagi hazir, CALISTIRILMADI; online
+ snapshot, ownership ve gercek restore kabul matrisi acik.
+
 ### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
 
 **Bağımlılık/onay:** WP-03/07/08.  

@@ -61,6 +61,13 @@
   ilerleyemez. Regression kaynagi guncellendi, testler CALISTIRILMADI; catalog
   revision/model config ve gercek provider kabul kaniti acik.
 
+- 16 Ekim 2026 WP-11.03 backup manifest kapisi: ArtifactEntry digest ve boyut
+  alanlari kurulusta dogrulanir; BackupManifest schema, timezone, configuration
+  digesti ve tekil artifact kimliklerini fail-closed kontrol eder. Bozuk
+  manifest restore/verify akisina gecemez. Regression kaynagi guncellendi,
+  testler CALISTIRILMADI; online snapshot, ownership ve gercek restore kabul
+  matrisi acik.
+
 - 16 Ekim 2026 WP-07.01..04 lease readback: Canonical bound-job ozetleri owner,
   token ve fencing degerlerini disari cikarmadan lease varlik durumunu tasiyor.
   Running job'da lease yoklugu ve terminal/recovery job'da lease kalintisi resume

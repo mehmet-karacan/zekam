@@ -16,6 +16,7 @@ from zekam.application.backup import (
     verify_manifest,
 )
 from zekam.domain.canonical import DIGEST_PREFIX
+from zekam.domain.errors import ValidationFailed
 from zekam.infrastructure.storage.local_cas import CONTENT_SUFFIX, LocalContentAddressedStore
 
 pytestmark = pytest.mark.unit
@@ -139,3 +140,12 @@ def test_empty_store_produces_valid_empty_manifest(store: LocalContentAddressedS
     assert manifest.artifacts == ()
     assert manifest.total_bytes == 0
     assert verify_manifest(manifest, store).is_valid
+
+
+def test_artifact_entry_rejects_invalid_digest_and_negative_size() -> None:
+    from zekam.application.backup import ArtifactEntry
+
+    with pytest.raises(ValidationFailed, match="Digest"):
+        ArtifactEntry(digest="invalid", size_bytes=0, media_type=None)
+    with pytest.raises(ValidationFailed, match="boyutu"):
+        ArtifactEntry(digest=DIGEST_PREFIX + "a" * 64, size_bytes=-1, media_type=None)

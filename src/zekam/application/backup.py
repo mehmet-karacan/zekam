@@ -21,7 +21,8 @@ from typing import Any
 
 from zekam import __version__
 from zekam.application.object_store import ObjectStore
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
+from zekam.domain.errors import ValidationFailed
 from zekam.domain.identity import PRODUCT
 
 BACKUP_MANIFEST_SCHEMA = "zekam-backup-manifest/v1"
@@ -61,6 +62,15 @@ class ArtifactEntry:
     size_bytes: int
     media_type: str | None
 
+    def __post_init__(self) -> None:
+        parse_digest(self.digest)
+        if type(self.size_bytes) is not int or self.size_bytes < 0:
+            raise ValidationFailed("Backup artifact boyutu negatif olmayan tamsayi olmali")
+        if self.media_type is not None and (
+            type(self.media_type) is not str or not self.media_type.strip()
+        ):
+            raise ValidationFailed("Backup artifact media type metin olmali")
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "digest": self.digest,
@@ -81,6 +91,19 @@ class BackupManifest:
     artifacts: tuple[ArtifactEntry, ...]
     configuration_digest: str
     manifest_digest: str
+
+    def __post_init__(self) -> None:
+        if self.schema != BACKUP_MANIFEST_SCHEMA:
+            raise ValidationFailed("Desteklenmeyen backup manifest semasi")
+        if type(self.product) is not str or not self.product.strip():
+            raise ValidationFailed("Backup manifest product bos olamaz")
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            raise ValidationFailed("Backup manifest zamani timezone-aware olmali")
+        parse_digest(self.configuration_digest)
+        if self.manifest_digest:
+            parse_digest(self.manifest_digest)
+        if len({entry.digest for entry in self.artifacts}) != len(self.artifacts):
+            raise ValidationFailed("Backup manifest artifact digestleri tekil olmali")
 
     @property
     def total_bytes(self) -> int:
