@@ -1865,6 +1865,14 @@ native invocation ve kabul kaniti acik. `docs/SKILL_YASAM_DONGUSU_CLI.md`.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
+**16 Ekim 2026 - salt okunur composition, test bekliyor:** Doctor/cognitive,
+local-core/scheduler/control plan ve backup source okumasinda constructor key
+provisioning veya runtime config insert yapmaz. Mevcut private key create=False
+ile okunur; eksik key yenisiyle degistirilmez. Paused/disabled tick worker
+hazirligindan once doner. Unit/CLI regresyon kaynaklari hazir, CALISTIRILMADI.
+Explicit init/prepare/worker ve signed backup binding kapilari korunur; WP
+kabulu bu kaynak dilimiyle kapatilmaz.
+
 **16 Ekim 2026 - native scheduler kabulunun bootstrap bagi, test bekliyor:**
 Iki-cevrim kabul kontrolu raw son bootstrap satiri yerine dogrulanmis control
 zinciri/receipt/admission/grant ve guncel supervisor plan/status bagini kullanir.

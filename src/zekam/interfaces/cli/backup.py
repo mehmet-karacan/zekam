@@ -69,7 +69,9 @@ def create_command(
         context = build_context(home=home)
         if bundle is not None:
             bundle_document = create_bundle(
-                LocalCoreServices.from_context(context), context.home, bundle.absolute()
+                LocalCoreServices.from_context(context, read_only=True),
+                context.home,
+                bundle.absolute(),
             )
             encoded = json.dumps(bundle_document, ensure_ascii=False, sort_keys=True)
             if output is None:

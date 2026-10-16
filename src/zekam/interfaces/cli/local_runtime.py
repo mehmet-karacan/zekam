@@ -55,7 +55,9 @@ def _store(home: str | None) -> SQLiteLocalRuntimeStore:
     context = build_context(home=home)
     if context.settings.database.backend is not PersistenceBackend.SQLITE:
         raise PolicyViolation("Local runtime yalniz fresh SQLite operational authority kullanir")
-    return SQLiteLocalRuntimeStore(context.settings.database.sqlite_path(context.home))
+    return SQLiteLocalRuntimeStore(
+        context.settings.database.sqlite_path(context.home), existing_only=True
+    )
 
 
 def _service(
@@ -77,12 +79,11 @@ def _service(
         core.operational,
         KnowledgeFileStore(context.home),
     )
-    skill_executor = TrustedJournalSkillExecutor(
-        core.learning, effects_root, core.skill_runtime_signer
-    )
-    skill_verifier = TrustedJournalSkillVerifier(
-        core.learning, effects_root, core.skill_runtime_signer
-    )
+    signer = core.skill_runtime_signer
+    if signer is None:
+        raise PolicyViolation("Local worker mevcut skill runtime authority ister")
+    skill_executor = TrustedJournalSkillExecutor(core.learning, effects_root, signer)
+    skill_verifier = TrustedJournalSkillVerifier(core.learning, effects_root, signer)
     service = LocalRuntimeService(
         store,
         effect_dispatcher=LocalEffectDispatcher(
@@ -203,7 +204,7 @@ def tick_command(
 
     try:
         pid, token = _identity()
-        store, service, core = _service(home)
+        core = LocalCoreServices.from_context(build_context(home=home), read_only=True)
         control = core.improvement.evolution_control_status()
         if control["state"] in {"paused", "disabled"}:
             console.print_json(
@@ -223,6 +224,7 @@ def tick_command(
                 )
             )
             return
+        store, service, core = _service(home)
         recovered_outbox = service.startup_outbox(process_incarnation_token)
         pre_delivered = 0
         for _ in range(8):

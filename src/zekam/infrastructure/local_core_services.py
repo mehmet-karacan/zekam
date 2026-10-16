@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from zekam.application.composition import ApplicationContext
-from zekam.application.skill_runtime import SkillRuntimeSigner
+from zekam.application.skill_runtime import SkillRuntimeSigner, SkillRuntimeVerifier
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ConfigurationError
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
@@ -19,6 +19,7 @@ from zekam.infrastructure.local_file_security import (
     restrict_private_tree,
 )
 from zekam.infrastructure.skill_receipt_authority import (
+    load_existing_skill_runtime_authority,
     load_or_create_skill_runtime_authority,
 )
 from zekam.infrastructure.sqlite.local_continuity_source_authority import (
@@ -211,24 +212,37 @@ class LocalCoreServices:
     routing: SQLiteLocalEvidenceRouter
     analytics: LocalAnalyticsStore
     improvement: SQLiteLocalImprovementStore
-    skill_runtime_signer: SkillRuntimeSigner
+    skill_runtime_signer: SkillRuntimeSigner | None
     skills: SQLiteSkillLifecycle
 
     @classmethod
-    def from_context(cls, context: ApplicationContext) -> LocalCoreServices:
+    def from_context(
+        cls, context: ApplicationContext, *, read_only: bool = False
+    ) -> LocalCoreServices:
+        if type(read_only) is not bool:
+            raise ConfigurationError("Local core read_only bool olmali")
         home = context.home
         operational_path = context.settings.database.sqlite_path(home)
         learning_path = home / "state" / "learning.db"
         registry_path = home / "modeller" / "registry" / "models.db"
         benchmark_path = home / "benchmarklar" / "benchmark.db"
         routing_path = home / "modeller" / "routing" / "routing.db"
-        skill_runtime_signer, skill_runtime_verifier = load_or_create_skill_runtime_authority(
-            home / "state" / "skill-receipt.key"
-        )
+        skill_runtime_signer: SkillRuntimeSigner | None = None
+        skill_runtime_verifier: SkillRuntimeVerifier | None = None
+        authority_path = home / "state" / "skill-receipt.key"
+        if read_only:
+            if authority_path.exists() or authority_path.is_symlink():
+                skill_runtime_signer, skill_runtime_verifier = (
+                    load_existing_skill_runtime_authority(authority_path)
+                )
+        else:
+            skill_runtime_signer, skill_runtime_verifier = load_or_create_skill_runtime_authority(
+                authority_path
+            )
         return cls(
             operational_path=operational_path,
             operational=SQLiteOperationalStore(operational_path),
-            runtime=SQLiteLocalRuntimeStore(operational_path),
+            runtime=SQLiteLocalRuntimeStore(operational_path, existing_only=read_only),
             learning=SQLiteLocalLearning(
                 learning_path,
                 operational_path=operational_path,

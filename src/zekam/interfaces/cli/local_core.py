@@ -26,7 +26,7 @@ def status_command(
     """Operational, learning, model, benchmark, routing and analytics state."""
 
     try:
-        document = LocalCoreServices.from_context(build_context(home=home)).status(
+        document = LocalCoreServices.from_context(build_context(home=home), read_only=True).status(
             semantic_analytics=True
         )
     except ZekamError as exc:

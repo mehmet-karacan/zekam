@@ -122,6 +122,14 @@ def load_or_create_skill_runtime_authority(
     return SkillRuntimeSigner(payload), SkillRuntimeVerifier(payload)
 
 
+def load_existing_skill_runtime_authority(
+    path: Path,
+) -> tuple[SkillRuntimeSigner, SkillRuntimeVerifier]:
+    """Load existing private material without provisioning or rotating a key."""
+    payload = _load_skill_runtime_key(path, create=False)
+    return SkillRuntimeSigner(payload), SkillRuntimeVerifier(payload)
+
+
 def skill_runtime_key_binding(path: Path) -> str:
     """Read existing protected material and return only its public binding."""
     return SkillRuntimeSigner(_load_skill_runtime_key(path, create=False)).key_binding_digest

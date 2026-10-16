@@ -22,7 +22,7 @@ error_console = Console(stderr=True)
 
 
 def _services(home: str | None) -> LocalCoreServices:
-    return LocalCoreServices.from_context(build_context(home=home))
+    return LocalCoreServices.from_context(build_context(home=home), read_only=True)
 
 
 @app.command("status")

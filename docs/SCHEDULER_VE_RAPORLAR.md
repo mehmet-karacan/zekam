@@ -49,3 +49,22 @@ gercek toplam sifirdir; store/schema yoklugu bos tablo yerine gecmez.
 
 Regresyon kaynaklari `tests/unit/test_evolution_usage.py` icinde hazirlandi,
 kullanici karariyla CALISTIRILMADI. Native scheduler ve genel WP kabulu aciktir.
+
+## Salt okunur composition (16 Ekim 2026, test bekliyor)
+
+Doctor/cognitive kontrolleri, local-core status, scheduler status/report/rebuild
+hazirligi, evolution control plan'i ve backup kaynak okumasinda servis composition
+`read_only=True` kullanir. Operational runtime mevcut schema/config ister;
+eksik config'i constructor eklemez. Mevcut private skill receipt key varsa
+create=False ile okunur, yoksa yenisi olusturulmaz veya rotate edilmez. Signed
+backup mevcut key binding zorunlulugunu korur; eksik key yerine yeni rastgele
+materyal gecmez. Local runtime status/recovery de mevcut runtime'i acar.
+
+Paused/disabled tick worker/effect/signing-key hazirligindan once doner. Bu flag
+yalniz composition kurulumundaki otomatik yazmayi kaldirir; sonraki yetkili
+effect metotlari icin claim/admission yerine gecmez. Explicit init/prepare ve
+yetkili worker'in kurulum yolu ayridir. Core schema sagligi skill key veya full
+capability kabulunun kaniti degildir.
+
+Unit ve CLI regresyon kaynaklari `test_local_core_read_only.py` ve
+`test_cli_read_only_setup.py` icinde hazirlandi; CALISTIRILMADI.

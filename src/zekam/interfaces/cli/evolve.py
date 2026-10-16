@@ -139,7 +139,7 @@ def _control_document(
     home: str | None, operation: str
 ) -> tuple[SQLiteLocalImprovementStore, dict[str, object]]:
     context = build_context(home=home)
-    store = LocalCoreServices.from_context(context).improvement
+    store = LocalCoreServices.from_context(context, read_only=True).improvement
     current = store.evolution_control_status()
     target = {"pause": "paused", "resume": "observing", "disable": "disabled"}[operation]
     body: dict[str, object] = {

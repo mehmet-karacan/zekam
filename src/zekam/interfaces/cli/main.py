@@ -991,7 +991,9 @@ def doctor(
         if prepare and (apply or plan_digest is not None):
             raise PolicyViolation("--hazirla, --uygula veya --plan-digest ile birlikte kullanilmaz")
         if repair_plan or apply or prepare:
-            local_services = LocalCoreServices.from_context(context)
+            local_services = LocalCoreServices.from_context(
+                context, read_only=not (apply or prepare)
+            )
             selected_plan = local_services.repair_plan()
         automatic_results: list[dict[str, object]] = []
         if prepare:

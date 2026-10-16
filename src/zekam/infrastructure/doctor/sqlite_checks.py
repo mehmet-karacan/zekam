@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from zekam.application.capability_inventory import capability_readiness
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
+from zekam.domain.errors import ZekamError
 from zekam.infrastructure.sqlite.operational_schema import (
     RUNTIME_SCHEMA_VERSIONS,
     SCHEMA_DIGESTS,
@@ -107,7 +108,27 @@ class LocalCoreStoresCheck:
     def run(self) -> CheckResult:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
-        snapshot = LocalCoreServices.from_context(self.context).status(semantic_analytics=True)
+        try:
+            snapshot = LocalCoreServices.from_context(self.context, read_only=True).status(
+                semantic_analytics=True
+            )
+        except ZekamError:
+            return CheckResult(
+                self.check_id,
+                self.category,
+                CheckStatus.FAILED,
+                "Local core mevcut runtime/config ile salt okunur acilamadi",
+                evidence={"read_only": True, "grants_authority": False},
+                findings=(
+                    Finding(
+                        code="sqlite.local-core-composition-unavailable",
+                        severity=Severity.ERROR,
+                        title="Local core mevcut runtime/config istiyor",
+                        detail="Eksik veya gecersiz store/config otomatik olusturulmadi.",
+                        next_action="Operational durumu ve explicit hazirlama planini inceleyin.",
+                    ),
+                ),
+            )
         databases = snapshot.get("databases")
         analytics = snapshot.get("analytics")
         if not isinstance(databases, Mapping) or not isinstance(analytics, Mapping):

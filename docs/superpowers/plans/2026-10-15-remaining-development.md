@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-11 read-only composition: doctor/cognitive/local-core/scheduler/control-plan/backup source yollarinda key provisioning ve runtime config insert kaldirildi. Mevcut private key create=False ile okunur; missing key rotate edilmez. Paused/disabled tick worker hazirligindan once doner; explicit init/prepare/worker yolu korunur. Unit/CLI regresyon kaynaklari hazir, CALISTIRILMADI. Native/signed restore ve genel WP kabul kapilari acik; docs/SCHEDULER_VE_RAPORLAR.md.
+
 - Gorev 5/6 WP-10.05 radar claim/replay: schema/campaign writer claim sonrasina tasindi; admission reddi store olusturmaz, claim sonrasi init kesintisi recovery-required kalir. Replay missing store'u yeniden kurmaz; exact project/stage/plan/tek claim/receipt/terminal ve campaign readback'i zorunlu. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek campaign/tournament ve genel WP kapilari acik; docs/RADAR_RUNBOOK.md.
 
 - Gorev 5/6 WP-10.05 radar read siniri: status/report/candidates, analyse-plan ve scheduler read-only handler mevcut DB'yi mode=ro/query_only ile acar; constructor schema install/migration etkisi bu yollardan kaldirildi. Version/digest/path drift reddi ve missing store needs-discovery/unknown ayrimi eklendi. Yetkili run writer yolu korunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek campaign/tournament ve genel WP kabul kapilari acik; docs/RADAR_RUNBOOK.md.

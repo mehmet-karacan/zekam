@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from zekam.application.diagnostics import CheckResult, CheckStatus, Finding, Severity
+from zekam.domain.errors import ZekamError
 from zekam.infrastructure.doctor.core_checks import _git_repository_value
 
 if TYPE_CHECKING:
@@ -107,7 +108,7 @@ class MemoryHygieneCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             learning_path = services.learning.path
             with closing(_readonly(learning_path)) as db:
                 db.row_factory = sqlite3.Row
@@ -131,7 +132,7 @@ class MemoryHygieneCheck:
                 hygiene = db.execute(
                     "select finding, count(*) as n from hygiene_proposal group by finding"
                 ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "learning store okunamadi")
 
         hygiene_counts: dict[str, int] = {}
@@ -227,13 +228,13 @@ class KnowledgeHealthCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             operational_path = services.operational_path
             with closing(_readonly(operational_path)) as db:
                 db.row_factory = sqlite3.Row
                 note_rows = db.execute("select * from knowledge_note").fetchall()
                 artifact_rows = db.execute("select * from artifact_ref").fetchall()
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "operational store okunamadi")
 
         notes = tuple(_row_knowledge_note(row) for row in note_rows)
@@ -309,7 +310,7 @@ class SkillIntegrityCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             with closing(_readonly(services.learning.path)) as db:
                 db.row_factory = sqlite3.Row
                 total = _query_scalar(db, "select count(*) from skill_manifest")
@@ -337,7 +338,7 @@ class SkillIntegrityCheck:
                     "where not exists (select 1 from skill_activation a "
                     "where a.manifest_digest=m.manifest_digest)",
                 )
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "learning store okunamadi")
 
         findings: list[Finding] = []
@@ -396,14 +397,14 @@ class ContinuityFreshnessCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             with closing(_readonly(services.operational_path)) as db:
                 db.row_factory = sqlite3.Row
                 open_runs = db.execute(
                     "select id,status from run where status in ('planned','running','unknown')"
                 ).fetchall()
                 checkpoints = _query_scalar(db, "select count(*) from checkpoint")
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "operational store okunamadi")
 
         open_run_ids = [str(row["id"]) for row in open_runs]
@@ -460,7 +461,7 @@ class SourceDigestCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             with closing(_readonly(services.operational_path)) as db:
                 db.row_factory = sqlite3.Row
                 rows = db.execute(
@@ -468,7 +469,7 @@ class SourceDigestCheck:
                     "order by captured_at desc limit ?",
                     (_SOURCE_DRIFT_LIMIT,),
                 ).fetchall()
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "operational store okunamadi")
 
         latest = rows[0] if rows else None
@@ -533,7 +534,7 @@ class LearningBacklogCheck:
         from zekam.infrastructure.local_core_services import LocalCoreServices
 
         try:
-            services = LocalCoreServices.from_context(self.context)
+            services = LocalCoreServices.from_context(self.context, read_only=True)
             learning_path = services.learning.path
             improvement_path = services.improvement.path
             with closing(_readonly(learning_path)) as db:
@@ -574,7 +575,7 @@ class LearningBacklogCheck:
                         "pending_rollout": pending_rollout,
                         "recovery_rollout": recovery_rollout,
                     }
-        except (OSError, sqlite3.DatabaseError):
+        except (OSError, sqlite3.DatabaseError, ZekamError):
             return _unavailable(self.check_id, "learning store okunamadi")
 
         findings: list[Finding] = []
