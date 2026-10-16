@@ -164,6 +164,7 @@ _INDEX_IDENTITIES = {
     "SnpJoin": "IJoin",
     "SnpTxtHeader": "ITxt",
     "SnpPop": "IPop",
+    "SnpPackage": "IPackage",
     "SnpTrt": "ITrt",
 }
 _FORBIDDEN_CLASSES = frozenset(

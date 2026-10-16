@@ -15,3 +15,5 @@ Tek descriptor/hash, tek byte UTF-8/UTF-16 declaration, element/depth/object/byt
 ## Lineage kimlik butunlugu
 
 Smart XML tek-kayit indekslerinde ayni sinif/kimlige ait celisen allowlist kayitlari lineage oncesinde reddedilir; celisen tekrar Field de reddedilir. Ozdes kayit ve composite relation parent tekrarlarini engellemez. Chunk profile sanitizer v2 ile eslendi. Regresyon kaynaklari hazir, CALISTIRILMADI; native/WP kabulu acik.
+
+Scenario package referans indeksi de IPackage celiski kontrolune dahildir; parametreli regresyon kaynagi ayni listeyi kapsar. CALISTIRILMADI.
