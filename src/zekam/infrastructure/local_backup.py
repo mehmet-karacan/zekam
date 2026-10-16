@@ -380,7 +380,7 @@ def _project_sqlite_path(relative: str) -> bool:
         or (
             len(parts) == 5
             and parts[:2] == ("knowledge-index", "vector")
-            and parts[2] in {"opencode-bge-m3", "multilingual-e5-small-onnx-int8"}
+            and parts[2] == "multilingual-e5-small-onnx-int8"
             and parts[4] in {"knowledge.sqlite3", "vector-cache.sqlite3"}
         )
         or (

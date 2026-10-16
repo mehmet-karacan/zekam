@@ -42,6 +42,10 @@ from zekam.application.odi11g_smart_export import (
 )
 from zekam.application.opencode_embedding import default_opencode_config_file
 from zekam.application.project_history_query import query_issue_history
+from zekam.application.project_rag_legacy_cleanup import (
+    apply_legacy_index_cleanup,
+    plan_legacy_index_cleanup,
+)
 from zekam.application.project_rag_runtime import (
     DEFAULT_INDEX_TIMEOUT_SECONDS,
     DEFAULT_REMOTE_CALL_LIMIT,
@@ -665,6 +669,48 @@ def status_command(
     else:
         console.print(
             f"{result['project_slug']}\t{result['state']}\tchunks={result.get('chunk_count', 0)}"
+        )
+
+
+@app.command("purge-legacy-index")
+def purge_legacy_index_command(
+    project: Annotated[str | None, typer.Option("--project", help="Opsiyonel proje slug")]
+    = None,
+    apply: Annotated[bool, typer.Option("--uygula")]
+    = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")]
+    = None,
+    output_json: Annotated[bool, typer.Option("--json")]
+    = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)]
+    = None,
+) -> None:
+    """Eski BGE derived indekslerini exact plan ile kalici olarak kaldirir."""
+
+    try:
+        resolved_home = resolve_home(home)
+        plan = plan_legacy_index_cleanup(resolved_home, project_slug=project)
+        if not apply:
+            document = plan.as_dict()
+        else:
+            if plan_digest is None:
+                raise PolicyViolation("Legacy index apply exact --plan-digest ister")
+            document = apply_legacy_index_cleanup(
+                plan, expected_plan_digest=plan_digest
+            ).as_dict()
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+    if output_json:
+        _print_json(document)
+    elif not apply:
+        console.print(
+            f"legacy={len(document['candidates'])} plan={document['plan_digest']} "
+            "--uygula ve --plan-digest ile silme uygulanir"
+        )
+    else:
+        console.print(
+            f"Silinen legacy proje={len(document['deleted_projects'])} "
+            f"dosya={document['deleted_file_count']} bayt={document['deleted_bytes']}"
         )
 
 

@@ -48,8 +48,11 @@ cosine'dir. Yeni SQLite vector yolu:
 
 Model/provider digesti, prefix sozlesmesi ve vector boyutu index generation
 kimligine baglanir. Cache ve SQLite vec0 semasi provider boyutuna gore acilir;
-E5 icin batch limiti akista 4'e indirilir. Eski BGE yolu yalniz acikca eski profil
-secildiginde `opencode-bge-m3` dizininde tutulur.
+E5 icin batch limiti akista 4'e indirilir. Eski BGE production indeksi yeni E5
+akisina otomatik tasinmaz veya okunmaz. Varsa yalniz exact plan ile
+`zekam project purge-legacy-index --json` komutundan alinan digest ve `--uygula`
+ile `knowledge-index/vector/opencode-bge-m3/<proje>/` altindan silinir; E5
+dizinine dokunulmaz.
 
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
 aktif production index bulunmadi. Bu nedenle ilgisiz SQLite veritabanlarina

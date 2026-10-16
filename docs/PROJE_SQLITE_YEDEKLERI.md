@@ -6,8 +6,13 @@ konumlari online SQLite backup API'siyle self-contained snapshot olarak alir:
 - `projeler/<proje>/runtime/provider-ledger.sqlite3`
 - `knowledge-index/vector/multilingual-e5-small-onnx-int8/<proje>/knowledge.sqlite3`
 - `knowledge-index/vector/multilingual-e5-small-onnx-int8/<proje>/vector-cache.sqlite3`
-- Legacy indexes under `knowledge-index/vector/opencode-bge-m3/<proje>/` remain readable.
 - `knowledge-index/graph/<proje>/code-graph.sqlite3`
+
+`knowledge-index/vector/opencode-bge-m3/<proje>/` legacy production agaci yeni
+E5 akisinin parcasi degildir ve backup'a alinmaz. Varsa once
+`zekam project purge-legacy-index --json` ile exact plan uretilir; plan digest'i
+ve `--uygula` verilmeden silme yapilmaz. E5 vector/cache dosyalari bu temizlikten
+etkilenmez.
 
 Bu dosyalar dosya kopyasi yoluna girmez. WAL'deki committed veri SQLite backup
 API'siyle gorulur; hedef DELETE journal modunda kapanir. Kaynak sidecar dosyalari
