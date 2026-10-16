@@ -161,6 +161,26 @@ def _private_regular(path: Path) -> bool:
     return stat.S_ISREG(metadata.st_mode) and not _is_link_or_reparse(metadata)
 
 
+def _private_install_file(root: Path, relative: str) -> bool:
+    """Require every install path component to stay inside a private tree."""
+
+    path = root / relative
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    cursor = root
+    for part in parts[:-1]:
+        cursor = cursor / part
+        try:
+            metadata = cursor.lstat()
+        except OSError:
+            return False
+        if not stat.S_ISDIR(metadata.st_mode) or _is_link_or_reparse(metadata):
+            return False
+    return _private_regular(path)
+
+
 def _is_link_or_reparse(metadata: os.stat_result) -> bool:
     return stat.S_ISLNK(metadata.st_mode) or bool(
         int(getattr(metadata, "st_file_attributes", 0)) & 0x400
@@ -213,7 +233,7 @@ def _assert_model_files(configuration: LocalE5Configuration) -> tuple[dict[str, 
     manifest = _read_manifest(configuration.manifest_path, configuration)
     for relative in _REQUIRED_INSTALL_FILES:
         path = root / relative
-        if not _private_regular(path):
+        if not _private_install_file(root, relative):
             raise ConfigurationError(f"Local E5 dosyasi regular olmali: {relative}")
         try:
             path.relative_to(root)

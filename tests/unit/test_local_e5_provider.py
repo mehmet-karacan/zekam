@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -119,6 +120,17 @@ def test_manifest_requires_the_complete_pinned_file_set(tmp_path) -> None:
 
     with pytest.raises(subject.ConfigurationError, match="dosya kumesi"):
         subject._read_manifest(manifest_path, subject.LocalE5Configuration(tmp_path))
+
+
+def test_install_file_rejects_a_reparse_parent(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        os.symlink(outside, tmp_path / "onnx", target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink olusturulamadi: {exc}")
+
+    assert not subject._private_install_file(tmp_path, subject.MODEL_FILE)
 
 
 def test_mask_aware_pooling_returns_normalized_384_vectors(
