@@ -273,6 +273,8 @@ class ModelGateway:
         effect: Callable[[GatewayInvocationPermit], ProviderCallResult],
         loop_attempt_id: UUID | None = None,
     ) -> tuple[UUID, ProviderCallResult]:
+        if manifest.provider_ref != call.provider_ref:
+            raise PolicyViolation("Model gateway provider_ref manifest ile provider call uyusmuyor")
         if manifest.payload_digest != call.payload_digest:
             raise PolicyViolation("Model gateway manifest payload digest mismatch")
         if (

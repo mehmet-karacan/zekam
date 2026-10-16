@@ -55,6 +55,12 @@
   Regression kaynagi guncellendi, testler CALISTIRILMADI; gercek native child
   host capability ve kabul kaniti acik.
 
+- 16 Ekim 2026 WP-08.04 provider kimligi kapisi: Model gateway invoke, manifest
+  provider_ref degerini gercek ProviderCall provider_ref ile effect ve attempt
+  kaydindan once eslestirir. Prefix drift ledger veya provider effect'e
+  ilerleyemez. Regression kaynagi guncellendi, testler CALISTIRILMADI; catalog
+  revision/model config ve gercek provider kabul kaniti acik.
+
 - 16 Ekim 2026 WP-07.01..04 lease readback: Canonical bound-job ozetleri owner,
   token ve fencing degerlerini disari cikarmadan lease varlik durumunu tasiyor.
   Running job'da lease yoklugu ve terminal/recovery job'da lease kalintisi resume

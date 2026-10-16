@@ -277,6 +277,38 @@ def test_gateway_trace_records_final_provider_request_and_response() -> None:
     assert trace.events[1]["payload"] == {"output": "ok"}
 
 
+def test_gateway_rejects_provider_ref_drift_before_attempt_or_effect() -> None:
+    repository = _GatewayRepository()
+    gateway = ModelGateway(
+        repository=cast(Any, repository),
+        source_label=GatewaySourceLabel.PROVIDER_CONTRACT,
+    )
+    call = ProviderCall("provider:x", "endpoint:x", "invoke", "request-1", {"input": "x"})
+    item = _manifest(
+        provider_ref="provider:y",
+        payload_digest=call.payload_digest,
+        model_visible_payload_digest=call.payload_digest,
+    )
+    called = False
+
+    def effect(_permit: object) -> ProviderCallResult:
+        nonlocal called
+        called = True
+        raise AssertionError("effect cagrilmamali")
+
+    with pytest.raises(PolicyViolation, match="provider_ref"):
+        gateway.invoke(
+            item,
+            claim_id=uuid4(),
+            authorization=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            call=call,
+            effect=effect,
+        )
+
+    assert repository.attempt_values is None
+    assert called is False
+
+
 def test_gateway_enforce_rejects_envelopeless_manifest_before_effect() -> None:
     repository = _GatewayRepository(GatewayMode.ENFORCE)
     gateway = ModelGateway(repository=repository, source_label=GatewaySourceLabel.PROVIDER_CONTRACT)  # type: ignore[arg-type]

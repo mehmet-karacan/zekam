@@ -1813,6 +1813,12 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
  adapter etkisinden once reddedilir. Regression kaynagi hazir,
  CALISTIRILMADI; gercek native child host kabul kaniti acik.
 
+**16 Ekim 2026 — WP-08.04 provider kimligi kapisi:** Model gateway invoke,
+ manifest provider_ref degerini gercek ProviderCall provider_ref ile attempt veya
+ effect oncesinde eslestirir. Prefix drift ledger/provider etkisine ilerleyemez.
+ Regression kaynagi hazir, CALISTIRILMADI; catalog revision/model config ve
+ gercek provider kabul kaniti acik.
+
 ### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
 
 **Bağımlılık/onay:** WP-03/07/08.  
