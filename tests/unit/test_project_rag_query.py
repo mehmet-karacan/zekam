@@ -18,6 +18,7 @@ from zekam.application.embedding_provider import (
     EmbeddingReceipt,
 )
 from zekam.application.retrieval_service import ChunkView
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.knowledge import Locator
@@ -33,18 +34,18 @@ def _embedding_profile() -> EmbeddingProfile:
         display_name="Local test semantic provider",
         provider_kind=EmbeddingProviderKind.LOCAL,
         provider_identity_digest=digest("provider"),
-        exact_model_id="BAAI/bge-m3",
+        exact_model_id="intfloat/multilingual-e5-small",
         model_revision_fingerprint=digest("revision"),
-        dimension=4,
+        dimension=LOCAL_E5_DIMENSION,
         vector_dtype="float32",
         normalized=True,
         distance_metric="cosine",
-        query_prefix="",
-        passage_prefix="",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
         preprocessor_digest=digest("preprocessor"),
         tokenizer_digest=digest("tokenizer"),
         batch_policy_digest=digest("batch"),
-        device_scope="darwin-arm64:mps",
+        device_scope="windows-x86_64:cpu",
         data_classification_allowlist=(DataClassification.PUBLIC,),
         verified_at="2026-09-02T00:00:00Z",
         probe_evidence_digest=evidence,
@@ -60,7 +61,7 @@ class FakeSemanticProvider:
 
     def embed_query(self, text: str, policy: EmbeddingPolicy) -> EmbeddingBatch:
         self.profile.assert_policy(policy)
-        vector = (1.0, 0.0, 0.0, 0.0)
+        vector = (1.0,) + (0.0,) * (LOCAL_E5_DIMENSION - 1)
         return EmbeddingBatch(
             (vector,),
             EmbeddingReceipt(
@@ -69,7 +70,7 @@ class FakeSemanticProvider:
                 input_digest=digest(text),
                 output_digest=digest(vector),
                 vector_count=1,
-                dimension=4,
+                dimension=LOCAL_E5_DIMENSION,
                 latency_ms=1,
                 provider_call_count=1,
             ),
@@ -94,9 +95,9 @@ class FakeProjectRepository:
     def active_project_embedding_profile(self):  # type: ignore[no-untyped-def]
         return {
             "profile_id": UUID("00000000-0000-0000-0000-000000000222"),
-            "model_ref": "local-test",
-            "dimension": 4,
-            "query_prefix": "",
+            "model_ref": "intfloat/multilingual-e5-small",
+            "dimension": LOCAL_E5_DIMENSION,
+            "query_prefix": "query: ",
             "profile_digest": digest("profile"),
             "provider_profile_digest": self.profile_digest,
             "source_content_digest": digest("source"),

@@ -369,7 +369,7 @@ def test_project_index_allows_source_only_without_database_authorization(
     monkeypatch.setattr(
         cli.project_commands,
         "project_embedding_route",
-        lambda _home: EmbeddingRoute.REMOTE,
+        lambda _home: EmbeddingRoute.LOCAL,
     )
     result = CliRunner().invoke(
         cli.app,
@@ -377,7 +377,6 @@ def test_project_index_allows_source_only_without_database_authorization(
             "project",
             "index",
             "sky-ui",
-            "--authorize-remote-source",
             "--home",
             str(tmp_path),
             "--json",
@@ -388,7 +387,7 @@ def test_project_index_allows_source_only_without_database_authorization(
     assert json.loads(result.output)["database_access"] == "disabled"
     assert observed["project"] == "sky-spring-ui"
     assert observed["oracle_config"] is None
-    assert observed["authorize_remote_source"] is True
+    assert observed["authorize_remote_source"] is False
     assert observed["timeout_seconds"] == 1800.0
     assert observed["max_remote_provider_calls"] == 256
 
@@ -398,7 +397,6 @@ def test_project_index_allows_source_only_without_database_authorization(
             "project",
             "index",
             "sky-ui",
-            "--authorize-remote-source",
             "--timeout-seconds",
             "45",
             "--max-provider-calls",

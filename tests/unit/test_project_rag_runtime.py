@@ -24,7 +24,7 @@ from zekam.application.provider_adapter import (
 )
 from zekam.application.source_discovery import DiscoveryPolicy, discover
 from zekam.domain.canonical import digest, digest_of_bytes
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk
 
@@ -288,7 +288,7 @@ def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
         chunks=(_batch_chunk(0), _batch_chunk(1)),
         skipped_unsupported=0,
         skipped_encoding=0,
-        embedding_profile=SimpleNamespace(model_ref=runtime.MODEL_ID, dimension=1024),
+        embedding_profile=SimpleNamespace(model_ref=runtime.MODEL_ID, dimension=384),
         embedding_route=SimpleNamespace(
             sanitized=lambda: {"kind": "local-provider", "model_ref": runtime.MODEL_ID}
         ),
@@ -305,7 +305,7 @@ def test_plan_document_counts_and_labels_sanitized_odi_metadata() -> None:
     assert result["source_chunk_count"] == 2
     assert result["odi_chunk_count"] == 3
     assert result["chunk_count"] == 5
-    assert result["estimated_provider_calls"] == 1
+    assert result["estimated_provider_calls"] == 2
     assert result["odi_access"] == "sanitized-metadata"
 
 
@@ -337,12 +337,12 @@ def test_runtime_plan_records_the_real_qualified_remote_route(tmp_path: Path) ->
     assert plan.embedding_profile.model_ref == knowledge.embedding_model_ref
 
 
-def test_remote_provider_refuses_calls_without_explicit_service_authorization(
+def test_noncanonical_remote_profile_rejected_before_authorization(
     tmp_path: Path,
 ) -> None:
     knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
 
-    with pytest.raises(PolicyViolation, match="explicit authorization"):
+    with pytest.raises(ConfigurationError, match="yerel multilingual-e5-small"):
         runtime._provider(
             tmp_path,
             tmp_path / "ledger.sqlite3",
@@ -358,14 +358,13 @@ def test_local_provider_route_does_not_require_remote_config_or_authorization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     profile = SimpleNamespace(
-        exact_model_id="BAAI/bge-m3",
-        dimension=1024,
+        exact_model_id="intfloat/multilingual-e5-small",
+        dimension=384,
         profile_digest=digest("local-profile"),
         probe_evidence_digest=digest("local-probe"),
     )
     local = SimpleNamespace(provider=object(), policy=object(), profile=profile)
-    monkeypatch.setattr(runtime, "_runtime_platform", lambda: "darwin")
-    monkeypatch.setattr(runtime, "build_verified_mac_embedding", lambda _chunks: local)
+    monkeypatch.setattr(runtime, "build_verified_local_e5_embedding", lambda: local)
     knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
 
     binding = runtime._provider(
@@ -382,10 +381,15 @@ def test_local_provider_route_does_not_require_remote_config_or_authorization(
     assert binding.remote_provider_used is False
 
 
-def test_local_provider_route_fails_closed_outside_macos(tmp_path: Path) -> None:
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
+def test_legacy_local_bge_profile_fails_closed(tmp_path: Path) -> None:
+    knowledge = KnowledgeSettings(
+        embedding_profile_id="bge-m3-dense-v1",
+        embedding_route=EmbeddingRoute.LOCAL,
+        embedding_model_ref="BAAI/bge-m3",
+        embedding_dimension=1024,
+    )
 
-    with pytest.raises(PolicyViolation, match="yalniz macOS"):
+    with pytest.raises(ConfigurationError, match="yerel multilingual-e5-small"):
         runtime._provider(
             tmp_path,
             tmp_path / "ledger.sqlite3",
@@ -397,29 +401,24 @@ def test_local_provider_route_fails_closed_outside_macos(tmp_path: Path) -> None
         )
 
 
-def test_remote_provider_uses_canonical_config_provider_and_model(
+def test_noncanonical_remote_provider_does_not_load_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    observed: dict[str, object] = {}
     knowledge = KnowledgeSettings(
         embedding_route=EmbeddingRoute.REMOTE,
         remote_provider_id="reviewed-provider",
         embedding_model_ref="reviewed/model",
     )
 
-    def stop_after_config(  # type: ignore[no-untyped-def]
-        _path, *, provider_id, selected_model_id, inventory
-    ):
-        observed.update(
-            provider_id=provider_id,
-            selected_model_id=selected_model_id,
-            inventory=inventory,
-        )
-        raise ValidationFailed("stop-after-config-binding")
+    monkeypatch.setattr(
+        runtime,
+        "load_opencode_embedding_configuration",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("noncanonical remote config must not load")
+        ),
+    )
 
-    monkeypatch.setattr(runtime, "load_opencode_embedding_configuration", stop_after_config)
-
-    with pytest.raises(ValidationFailed, match="stop-after-config-binding"):
+    with pytest.raises(ConfigurationError, match="yerel multilingual-e5-small"):
         runtime._provider(
             tmp_path,
             tmp_path / "ledger.sqlite3",
@@ -430,8 +429,6 @@ def test_remote_provider_uses_canonical_config_provider_and_model(
             remote_authorized=True,
         )
 
-    assert observed["provider_id"] == "reviewed-provider"
-    assert observed["selected_model_id"] == "reviewed/model"
 
 
 def test_successful_query_persists_scoped_verification_timestamp(
@@ -456,10 +453,10 @@ def test_successful_query_persists_scoped_verification_timestamp(
         "repository_source_revision": repository_revision,
         "repository_tree_digest": repository_tree,
         "odi_source_digest": None,
-        "embedding_profile_id": "bge-m3-dense-v1",
-        "embedding_route": "remote",
+        "embedding_profile_id": "multilingual-e5-small-dense-v1",
+        "embedding_route": "local",
         "knowledge_binding_digest": runtime._knowledge_binding_digest(
-            KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+            KnowledgeSettings()
         ),
         "generation_digest": digest("generation"),
         "source_revision": digest("combined-revision"),
@@ -478,7 +475,7 @@ def test_successful_query_persists_scoped_verification_timestamp(
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    knowledge = KnowledgeSettings()
     monkeypatch.setattr(
         runtime,
         "load_settings",
@@ -491,11 +488,11 @@ def test_successful_query_persists_scoped_verification_timestamp(
         policy=cast(Any, object()),
         ledger={},
         probe={"probe_evidence_digest": digest("probe")},
-        route=EmbeddingRoute.REMOTE,
-        remote_provider_used=True,
+        route=EmbeddingRoute.LOCAL,
+        remote_provider_used=False,
         probe_call_count=2,
     )
-    monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+    monkeypatch.setattr(runtime, "_local_query_binding", lambda *_args, **_kwargs: binding)
 
     class _Index:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -538,7 +535,7 @@ def test_successful_query_persists_scoped_verification_timestamp(
         "verified-project",
         tmp_path / "opencode.json",
         "where?",
-        authorize_remote_query=True,
+        authorize_remote_query=False,
     )
 
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
@@ -574,10 +571,10 @@ def test_wp7_query_runtime_propagates_retrieval_only_semantics(
         "repository_source_revision": repository_revision,
         "repository_tree_digest": repository_tree,
         "odi_source_digest": None,
-        "embedding_profile_id": "bge-m3-dense-v1",
-        "embedding_route": "remote",
+        "embedding_profile_id": "multilingual-e5-small-dense-v1",
+        "embedding_route": "local",
         "knowledge_binding_digest": runtime._knowledge_binding_digest(
-            KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+            KnowledgeSettings()
         ),
         "generation_digest": digest("generation"),
         "source_revision": digest("combined-revision"),
@@ -596,7 +593,7 @@ def test_wp7_query_runtime_propagates_retrieval_only_semantics(
     monkeypatch.setattr(runtime, "_existing_runtime_paths", lambda *_: paths)
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    knowledge = KnowledgeSettings()
     monkeypatch.setattr(
         runtime,
         "load_settings",
@@ -609,11 +606,11 @@ def test_wp7_query_runtime_propagates_retrieval_only_semantics(
         policy=cast(Any, object()),
         ledger={},
         probe={"probe_evidence_digest": digest("probe")},
-        route=EmbeddingRoute.REMOTE,
-        remote_provider_used=True,
+        route=EmbeddingRoute.LOCAL,
+        remote_provider_used=False,
         probe_call_count=2,
     )
-    monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+    monkeypatch.setattr(runtime, "_local_query_binding", lambda *_args, **_kwargs: binding)
 
     class _Index:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -661,7 +658,7 @@ def test_wp7_query_runtime_propagates_retrieval_only_semantics(
         "verified-project",
         tmp_path / "opencode.json",
         "where?",
-        authorize_remote_query=True,
+        authorize_remote_query=False,
     )
 
     # Legacy state preserved and WP7 additive fields pass through untouched.
@@ -682,7 +679,7 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
     home = tmp_path / "home"
     home.mkdir()
     project_id = uuid4()
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    knowledge = KnowledgeSettings()
     old_verified_at = "2026-09-01T00:00:00Z"
     project_root = home / "project"
     state_path = project_root / "runtime" / "rag-state.json"
@@ -727,11 +724,11 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
         policy=cast(Any, object()),
         ledger={},
         probe={"probe_evidence_digest": digest("probe")},
-        route=EmbeddingRoute.REMOTE,
-        remote_provider_used=True,
+        route=EmbeddingRoute.LOCAL,
+        remote_provider_used=False,
         probe_call_count=2,
     )
-    monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+    monkeypatch.setattr(runtime, "_local_query_binding", lambda *_args, **_kwargs: binding)
 
     class _Index:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -774,7 +771,7 @@ def test_degraded_query_does_not_overwrite_verified_receipt(
         "degraded-project",
         tmp_path / "opencode.json",
         "where?",
-        authorize_remote_query=True,
+        authorize_remote_query=False,
     )
 
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
@@ -798,7 +795,7 @@ def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
     state_path.parent.mkdir(parents=True)
     index_path.parent.mkdir()
     index_path.write_bytes(b"")
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    knowledge = KnowledgeSettings()
     state_path.write_text(
         json.dumps(
             {
@@ -830,9 +827,9 @@ def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
     monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
     monkeypatch.setattr(
         runtime,
-        "_provider",
+        "_local_query_binding",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("remote provider must not be called")
+            runtime.ConfigurationError("test local E5 provider disabled")
         ),
     )
 
@@ -865,7 +862,7 @@ def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
             return {
                 "state": "lexical-only-degraded",
                 "searched_channels": ["exact", "lexical"],
-                "degraded_reason": "remote-query-not-authorized",
+                "degraded_reason": "embedding-provider-unavailable:ConfigurationError",
                 "generation_digest": digest("generation"),
                 "provider_profile_digest": digest("provider-profile"),
                 "stale_reasons": [],
@@ -892,7 +889,7 @@ def test_stale_project_source_queries_pinned_snapshot_without_remote_call(
         "project-source-revision-stale",
         "project-source-tree-stale",
     }
-    assert observed["dense_disabled_reason"] == "remote-query-not-authorized"
+    assert observed["dense_disabled_reason"] == "embedding-provider-unavailable:ConfigurationError"
 
 
 @pytest.mark.parametrize(
@@ -914,7 +911,7 @@ def test_query_rejects_state_generation_identity_drift_before_provider_call(
     state_path.parent.mkdir(parents=True)
     index_path.parent.mkdir()
     index_path.write_bytes(b"")
-    knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    knowledge = KnowledgeSettings()
     generation_identity = {
         "generation_digest": digest("generation"),
         "source_revision": digest("indexed-source"),
@@ -1786,97 +1783,11 @@ def test_read_surfaces_reject_acl_drift_without_runtime_self_heal(
         )
 
 
-def test_warm_query_does_not_repeat_provider_qualification_probe(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """B01 WP1 regression: expected to FAIL on baseline, PASS after WP2.
-
-    A warm, already-qualified provider identity must NOT re-run the probe for a
-    second authorized query.  On the current baseline ``_provider`` calls
-    ``provider.probe(fixture)`` unconditionally on every call, so a second warm
-    query probes again.  WP2 separates qualification from query use; after WP2
-    two warm ``_provider`` calls over the same accepted identity run the probe
-    exactly once.
-    """
-    import zekam.infrastructure.query_measurement as qm
-    from zekam.domain.security import DataClassification
+def test_noncanonical_remote_provider_skips_qualification_probe(tmp_path: Path) -> None:
+    """Remote qualification cannot be reached from the canonical project path."""
 
     knowledge = KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
-    probe_runs: list[int] = []
-
-    class _FakeRemoteProvider:
-        def __init__(self, configuration, executor, *, dimension, max_batch_size, document_journal):
-            del executor, dimension, max_batch_size, document_journal
-            self._configuration = configuration
-            self._profile_digest = digest("provider-profile")
-
-        def probe(self, _fixture):
-            probe_runs.append(1)
-            return SimpleNamespace(
-                profile=SimpleNamespace(
-                    profile_digest=self._profile_digest,
-                    model_revision_fingerprint=digest("revision"),
-                    provider_identity_digest=digest("provider"),
-                    exact_model_id=knowledge.embedding_model_ref,
-                    dimension=knowledge.embedding_dimension,
-                    vector_dtype="float32",
-                    normalized=True,
-                    distance_metric="cosine",
-                    query_prefix="",
-                    passage_prefix="",
-                    preprocessor_digest=digest("pre"),
-                    tokenizer_digest=digest("tok"),
-                    batch_policy_digest=digest("batch"),
-                    device_scope="windows:x64:opencode",
-                    data_classification_allowlist=(DataClassification.PUBLIC,),
-                    verified_at="2026-09-02T00:00:00Z",
-                    probe_evidence_digest=digest("probe"),
-                    validate_vector=lambda _vector: None,
-                ),
-                semantic_margin=0.4,
-                positive_score=0.7,
-                negative_score=0.3,
-                max_repeat_delta=0.0001,
-                max_batch_delta=0.0001,
-                batch_cosine=0.9999,
-                latency_ms=1,
-                evidence_digest=digest("probe"),
-                provider_call_count=2,
-            )
-
-    monkeypatch.setattr(runtime, "OpenCodeRemoteEmbeddingProvider", _FakeRemoteProvider)
-    monkeypatch.setattr(runtime, "ProcessIsolatedJsonProviderTransport", lambda *_, **__: object())
-    monkeypatch.setattr(runtime, "LiveProcessClient", lambda *_a, **_k: object())
-    monkeypatch.setattr(runtime, "RuntimeOpenCodeEmbeddingExecutor", lambda _invocation: object())
-    monkeypatch.setattr(runtime, "RuntimeProviderContractRunner", lambda *a, **k: object())
-    monkeypatch.setattr(runtime, "load_inventory", lambda *_: object())
-
-    class _FakeHost:
-        def register(self, _work):
-            return None
-
-        def summary(self):
-            return {
-                "schema": "zekam-local-provider-ledger-summary/v1",
-                "provider_calls": 0,
-                "durable_remote_effects": 0,
-            }
-
-    monkeypatch.setattr(runtime, "SQLiteProviderLedgerHost", lambda *_a, **_k: _FakeHost())
-
-    def _load_config(*_args, **_kwargs):
-        return SimpleNamespace(
-            provider_id="litellm",
-            canonical_model_id="openai/BAAI/bge-m3",
-            selected_model_id=knowledge.embedding_model_ref,
-            credential_locator="OPENCODE_LITELLM_KEY",
-            embedding_endpoint="https://models.example.test/v1/embeddings",
-            endpoint_identity=SimpleNamespace(identity_digest=digest("endpoint")),
-        )
-
-    monkeypatch.setattr(runtime, "load_opencode_embedding_configuration", _load_config)
-
-    with qm.scope():
+    with pytest.raises(ConfigurationError, match="yerel multilingual-e5-small"):
         runtime._provider(
             tmp_path,
             tmp_path / "ledger.sqlite3",
@@ -1886,21 +1797,6 @@ def test_warm_query_does_not_repeat_provider_qualification_probe(
             knowledge,
             remote_authorized=True,
         )
-        # Second warm query over the same accepted provider identity.  A cached
-        # qualification must NOT probe again.
-        runtime._provider(
-            tmp_path,
-            tmp_path / "ledger2.sqlite3",
-            tmp_path / "opencode.json",
-            uuid4(),
-            (),
-            knowledge,
-            remote_authorized=True,
-        )
-
-    # Regression: the warm second query must not repeat the probe.  On baseline
-    # two probes ran (qualification ran twice); WP2 must make it exactly one.
-    assert len(probe_runs) == 1
 
 
 def _git_repo(root: Path, files: dict[str, str]) -> None:
@@ -2039,21 +1935,21 @@ def test_wp3_warm_local_query_skips_corpus_plan(
     monkeypatch.setattr(runtime, "_rag_scope_is_private", lambda _paths: True)
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_, **__: None)
     monkeypatch.setattr(runtime, "load_settings", lambda **_: SimpleNamespace(knowledge=knowledge))
-    monkeypatch.setattr(runtime, "_runtime_platform", lambda: "darwin")
-
     class _LocalBinding:
         provider = SimpleNamespace(
             describe=lambda: SimpleNamespace(profile_digest=digest("local-profile"))
         )
         profile = SimpleNamespace(
-            exact_model_id="BAAI/bge-m3",
-            dimension=1024,
+            exact_model_id="intfloat/multilingual-e5-small",
+            dimension=384,
             profile_digest=digest("local-profile"),
             probe_evidence_digest=digest("local-probe"),
         )
         policy = object()
 
-    monkeypatch.setattr(runtime, "_build_local_query_embedding", lambda: _LocalBinding())
+    monkeypatch.setattr(
+        runtime, "_build_local_query_embedding", lambda _knowledge=None: _LocalBinding()
+    )
 
     # The plan must NOT be built: make _project_plan fail loudly if called.
     monkeypatch.setattr(
@@ -2460,14 +2356,14 @@ def test_wp0501_legacy_cache_row_is_not_reused_without_scope(tmp_path: Path) -> 
 #
 # Contract under test:
 #   runtime._embedding_batches(chunks: tuple[Chunk, ...], batch_size: int)
-#   - at most 64 chunks per batch regardless of batch_size
+#   - at most 4 chunks per batch regardless of batch_size
 #   - at most 8192 total tokens per batch
 #   - at most 512 KiB JSON text payload per batch
 #   - a single text over 256 KiB (UTF-8) is a ValidationFailed
 #   - chunk order is preserved and the input is not modified
 # ---------------------------------------------------------------------------
 
-EMBEDDING_BATCH_MAX_ITEMS = 64
+EMBEDDING_BATCH_MAX_ITEMS = 4
 EMBEDDING_BATCH_TOKEN_LIMIT = 8192
 EMBEDDING_BATCH_PAYLOAD_LIMIT = 512 * 1024
 EMBEDDING_TEXT_LIMIT = 256 * 1024
@@ -2485,13 +2381,13 @@ def _batch_chunk(index: int, *, text: str = "x", token_count: int = 1) -> Chunk:
     )
 
 
-def test_embedding_batches_caps_small_chunks_at_max_64_items() -> None:
-    chunks = tuple(_batch_chunk(index) for index in range(70))
+def test_embedding_batches_caps_small_chunks_at_max_4_items() -> None:
+    chunks = tuple(_batch_chunk(index) for index in range(10))
     texts_before = [chunk.text for chunk in chunks]
 
     batches = runtime._embedding_batches(chunks, EMBEDDING_BATCH_MAX_ITEMS)
 
-    assert [len(batch) for batch in batches] == [EMBEDDING_BATCH_MAX_ITEMS, 6]
+    assert [len(batch) for batch in batches] == [EMBEDDING_BATCH_MAX_ITEMS, 4, 2]
     flattened = tuple(chunk for batch in batches for chunk in batch)
     assert flattened == chunks
     assert all(first is second for first, second in zip(flattened, chunks, strict=True))
@@ -2559,10 +2455,10 @@ def test_embedding_batches_counts_json_escape_expansion() -> None:
         _batch_chunk(0, text="\\" * 150_000),
         _batch_chunk(1, text="\\" * 150_000),
     )
-    assert [len(batch) for batch in runtime._embedding_batches(chunks, 64)] == [1, 1]
+    assert [len(batch) for batch in runtime._embedding_batches(chunks, 4)] == [1, 1]
 
 
-@pytest.mark.parametrize("batch_size", [0, 65, True])
+@pytest.mark.parametrize("batch_size", [0, 5, True])
 def test_embedding_batches_rejects_invalid_item_limit(batch_size: int) -> None:
     with pytest.raises(ValidationFailed):
         runtime._embedding_batches((_batch_chunk(0),), batch_size)
