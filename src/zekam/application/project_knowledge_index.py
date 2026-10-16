@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import datetime as dt
 import hashlib
+import json
 import math
 import re
 import stat
@@ -82,6 +83,32 @@ def _source_identity_digest(project_id: UUID | str, source_revision: str, tree_d
             }
         )
     )
+
+
+def _assert_plan_source_identity(plan: ProjectIndexPlan) -> None:
+    """Ensure manifest/profile cannot be reassociated with another source plan."""
+
+    try:
+        manifest = json.loads(plan.manifest.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PolicyViolation("Indeks manifest source identity JSON olmali") from exc
+    if not isinstance(manifest, dict):
+        raise PolicyViolation("Indeks manifest source identity nesne olmali")
+    expected = {
+        "schema": "zekam-project-source-manifest/v2",
+        "project_id": str(plan.project_id),
+        "project_slug": plan.project_slug,
+        "source_identity_digest": plan.source_identity_digest,
+        "source_revision": plan.source_revision,
+        "tree_digest": plan.tree_digest,
+    }
+    if any(manifest.get(key) != value for key, value in expected.items()):
+        raise PolicyViolation("Indeks manifest source identity drift")
+    profile = plan.document.parser_profile
+    if not isinstance(profile, dict) or profile.get("source_identity_digest") != (
+        plan.source_identity_digest
+    ):
+        raise PolicyViolation("Indeks document source identity drift")
 
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -1298,6 +1325,7 @@ def apply_project_index(
     """
 
     moment = now or dt.datetime.now(dt.UTC)
+    _assert_plan_source_identity(plan)
     if plan.embedding_route.kind is EmbeddingRouteKind.QUALIFIED_REMOTE:
         raise PolicyViolation(
             "Remote project embedding yalniz ayri exact provider authorization akisi ile uygulanir"

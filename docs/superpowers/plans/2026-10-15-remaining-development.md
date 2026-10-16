@@ -108,6 +108,7 @@
 - Gorev 2 WP-07.04 ortak Run projection: `work resume`, `work show`, dogal dil Work status ve `workspace_resume` ayni bounded `run_document` yardimcisini kullanir; fingerprint alanlari yuzeyler arasinda kaybolmaz. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 3 WP-02.01 inert provenance: Zekam disi proje-yerel ince giris plani `inert_reason=workspace-marker-missing-or-invalid` ile plan/effect/receipt readback'inde kapsam disi kalma nedenini tasir; dosya hedefi ve yazim yine bos kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 4 WP-04.06 source identity: Proje indeks plan/manifest/parser profile `project_id + logical_source + source_revision + tree_digest` digestini ayri identity olarak tasir; content digest ile karistirilmaz ve plan digestine baglanir. Ayni icerigin farkli projelerde eslesmesi veya slug degisimi tek source kimligi sayilmaz. Regresyon kaynagi hazir, CALISTIRILMADI.
+- Gorev 4 WP-04.06 source identity apply gate: Index apply, manifest v2 ve normalized parser profile kimligini planin project/revision/tree identity'siyle tekrar eslestirir; reassociation drift fail-closed kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 
