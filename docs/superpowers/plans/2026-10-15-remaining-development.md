@@ -40,6 +40,14 @@
 
 ## Yurutme kaydi
 
+- 17 Ekim 2026 yerel E5 runtime guvenligi: kurulum manifesti artik sabitlenen
+  yedi dosyanin tamamini source revision, boyut, SHA256 ve upstream SHA bagiyla
+  yeniden okur; model agirligi beklenen SHA256 ile tekrar eslesir. Model yolu
+  boyunca junction/symlink/reparse parent kabul edilmez. Proje yerel ince giris
+  marker'i `.ai` ve `PROJE_MANIFESTI.yaml` icin ayni regular/reparse kontrolunu
+  uygular. Yeni regresyon kaynaklari eklendi, AST/diff kontrolleri yapildi;
+  pytest CALISTIRILMADI. Commitler: `6cbd2d2`, `af55982`, `44c0afc`.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari
