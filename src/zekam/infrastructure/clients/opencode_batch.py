@@ -7,6 +7,7 @@ retains assignment-first dispatch and applies validated test patches separately.
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 import threading
@@ -36,8 +37,13 @@ from zekam.domain.clients import (
 )
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.sandbox import ProcessSpec
+from zekam.domain.skill_package import SkillPackage
 from zekam.infrastructure.clients.adapters import SubprocessClientAdapter
 from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
+from zekam.infrastructure.local_file_security import (
+    path_or_parent_is_link_or_reparse,
+    restrict_private_tree,
+)
 from zekam.infrastructure.process import runner
 
 MAX_CONTEXT_BYTES = 200_000
@@ -73,6 +79,37 @@ def _identifier(value: Any) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", value):
         raise ValidationFailed("OpenCode batch event identity gecersiz")
     return value
+
+
+def _canonical_native_skill(package: SkillPackage) -> SkillPackage:
+    if type(package) is not SkillPackage:
+        raise PolicyViolation("Native skill exact validated package required")
+    canonical = SkillPackage.parse(package.name, package.files)
+    if (
+        canonical.package_digest != package.package_digest
+        or canonical.semantic_digest != package.semantic_digest
+        or canonical.safe_projection_files() != package.safe_projection_files()
+    ):
+        raise PolicyViolation("Native skill metadata/content drift")
+    return canonical
+
+
+def _native_runtime_root(root: Path | None) -> Path:
+    if (
+        not isinstance(root, Path)
+        or not root.is_absolute()
+        or not root.is_dir()
+        or path_or_parent_is_link_or_reparse(root)
+    ):
+        raise PolicyViolation("Native skill requires an explicit real external runtime directory")
+    resolved = root.resolve(strict=True)
+    if resolved.is_relative_to(Path.home().resolve()) or any(
+        part.casefold() in {"users", "home"} for part in resolved.parts
+    ):
+        raise PolicyViolation(
+            "Native skill runtime path must not expose user-home identity to the model"
+        )
+    return resolved
 
 
 def parse_batch_events(raw: bytes) -> dict[str, Any]:
@@ -134,6 +171,10 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
         # reasoning is deliberately neither collected nor persisted.
     if not finished or session is None or message is None or text is None:
         raise ValidationFailed("OpenCode batch incomplete event stream")
+    return _final_document(text, session, message)
+
+
+def _final_document(text: str, session: str, message: str) -> dict[str, Any]:
     document = _json(text)
     if set(document) != {"result", "body"} or not isinstance(document["body"], dict):
         raise ValidationFailed("OpenCode batch result/body sozlesmesi gecersiz")
@@ -148,7 +189,11 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
 
 
 def batch_config(
-    profile: BatchProviderProfile | None = None, *, model_id: str | None = None
+    profile: BatchProviderProfile | None = None,
+    *,
+    model_id: str | None = None,
+    native_skill: SkillPackage | None = None,
+    skill_root: str | None = None,
 ) -> str:
     deny = [{"action": "*", "resource": "*", "effect": "deny"}]
     document: dict[str, Any] = {
@@ -169,6 +214,26 @@ def batch_config(
             ]
         },
     }
+    if native_skill is not None:
+        native_skill = _canonical_native_skill(native_skill)
+        allow = {"action": "skill", "resource": native_skill.name, "effect": "allow"}
+        document["permissions"] = [*deny, allow]
+        document["agents"][_AGENT].update(
+            steps=2,
+            permissions=[*deny, allow],
+            system=f"Call the skill tool exactly once with id {native_skill.name}. Then return only the requested JSON. No other tools.",
+        )
+        document["skills"] = [skill_root or "$PRIVATE_NATIVE_SKILL_ROOT"]
+        document["experimental"]["policies"].extend(
+            [
+                {"action": "tool.use", "resource": f"skill:{native_skill.name}", "effect": "allow"},
+                {
+                    "action": "integration.use",
+                    "resource": f"skill:{native_skill.name}",
+                    "effect": "allow",
+                },
+            ]
+        )
     if profile is not None:
         if model_id is None:
             raise PolicyViolation("Batch provider config exact model ister")
@@ -207,6 +272,20 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
     network_authorized: bool = False
     provider_profile: BatchProviderProfile | None = None
     cancel: threading.Event | None = None
+    native_skill: SkillPackage | None = None
+    native_runtime_root: Path | None = None
+
+    def __post_init__(self) -> None:
+        SubprocessClientAdapter.__post_init__(self)
+        if self.native_skill is not None:
+            object.__setattr__(self, "native_skill", _canonical_native_skill(self.native_skill))
+            object.__setattr__(
+                self, "native_runtime_root", _native_runtime_root(self.native_runtime_root)
+            )
+        elif self.native_runtime_root is not None:
+            raise PolicyViolation(
+                "Native runtime directory requires an explicit native skill profile"
+            )
 
     @property
     def execution_binding_digest(self) -> str:
@@ -215,7 +294,23 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 "schema": "zekam-opencode-batch-execution/v1",
                 "descriptor": self.descriptor.descriptor_digest,
                 "model": self.model_id,
-                "profile": batch_config(self.provider_profile, model_id=self.model_id),
+                "profile": batch_config(
+                    self.provider_profile, model_id=self.model_id, native_skill=self.native_skill
+                ),
+                **(
+                    {"native_skill_package_digest": self.native_skill.package_digest}
+                    if self.native_skill is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "native_runtime_root_digest": digest(
+                            os.path.normcase(str(self.native_runtime_root))
+                        )
+                    }
+                    if self.native_skill is not None
+                    else {}
+                ),
                 "network_authorized": self.network_authorized,
             }
         )
@@ -259,7 +354,20 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             context_doc = _json(context.decode("utf-8", errors="strict"))
         except UnicodeDecodeError as exc:
             raise ValidationFailed("OpenCode batch CAS UTF-8 olmali") from exc
-        if find_secret_value({"instruction": instruction_text, "context": context_doc}) is not None:
+        if (
+            find_secret_value(
+                {
+                    "instruction": instruction_text,
+                    "context": context_doc,
+                    **(
+                        {"native_skill": self.native_skill.instructions}
+                        if self.native_skill is not None
+                        else {}
+                    ),
+                }
+            )
+            is not None
+        ):
             raise PolicyViolation("OpenCode batch prompt secret degeri tasiyor")
         prompt = canonical_bytes(
             {
@@ -284,11 +392,18 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 failure_category=category,
             )
 
-        if Path(tempfile.gettempdir()).resolve().is_relative_to(cwd.resolve()):
+        temp_root = (
+            _native_runtime_root(self.native_runtime_root)
+            if self.native_skill is not None
+            else Path(tempfile.gettempdir()).resolve()
+        )
+        if temp_root.is_relative_to(cwd.resolve()):
             raise PolicyViolation("OpenCode batch temp source kokunde olamaz")
         # These are temporary runtime controls, never a project clone or source
         # tree. No prompt/config file is written in the source checkout.
-        with tempfile.TemporaryDirectory(prefix="zekam-opencode-batch-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="zekam-opencode-batch-", dir=temp_root
+        ) as directory:
             temporary = Path(directory).resolve()
             if temporary.is_relative_to(cwd.resolve()):
                 raise PolicyViolation("OpenCode batch temp source kokunde olamaz")
@@ -296,7 +411,21 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             private_home = temporary / "home"
             config_dir.mkdir()
             private_home.mkdir()
-            config_content = batch_config(self.provider_profile, model_id=self.model_id)
+            if self.native_skill is not None:
+                restrict_private_tree(temporary)
+            skill_directory = None
+            if self.native_skill is not None:
+                skill_directory = config_dir / "skills" / self.native_skill.name
+                for relative, payload in self.native_skill.safe_projection_files().items():
+                    target = skill_directory / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(payload)
+            config_content = batch_config(
+                self.provider_profile,
+                model_id=self.model_id,
+                native_skill=self.native_skill,
+                skill_root=str(config_dir / "skills") if self.native_skill is not None else None,
+            )
             if len(config_content.encode("utf-8")) > 24576:
                 raise ValidationFailed("OpenCode batch config bounded siniri asildi")
             version = runner.run(
@@ -350,6 +479,22 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 stdin=prompt,
                 **({"cancel": self.cancel} if self.cancel is not None else {}),
             )
+            if (
+                self.native_skill is not None
+                and output.result.succeeded
+                and not output.result.truncated
+            ):
+                from zekam.infrastructure.clients.opencode_skill_protocol import (
+                    parse_native_skill_events,
+                )
+
+                assert skill_directory is not None
+                try:
+                    native_document = parse_native_skill_events(
+                        output.stdout, package=self.native_skill, skill_directory=skill_directory
+                    )
+                except (ValidationFailed, PolicyViolation):
+                    return result("invalid-native-skill-result", output.result.exit_code)
         if output.result.timed_out:
             return result("timeout", output.result.exit_code, timeout=True)
         if time.monotonic() > deadline:
@@ -359,7 +504,11 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
         if output.result.exit_code != 0:
             return result("process-exit", output.result.exit_code)
         try:
-            document = parse_batch_events(output.stdout)
+            document = (
+                native_document
+                if self.native_skill is not None
+                else parse_batch_events(output.stdout)
+            )
         except (ValidationFailed, PolicyViolation):
             return result("invalid-native-batch-result", output.result.exit_code)
         assert self.objects is not None
@@ -383,6 +532,8 @@ def opencode_batch_adapter(
     network_authorized: bool = False,
     provider_profile: BatchProviderProfile | None = None,
     cancel: threading.Event | None = None,
+    native_skill: SkillPackage | None = None,
+    native_runtime_root: Path | None = None,
 ) -> OpenCodeBatchAdapter:
     return OpenCodeBatchAdapter(
         descriptor=ClientDescriptor(
@@ -399,4 +550,6 @@ def opencode_batch_adapter(
         network_authorized=network_authorized,
         provider_profile=provider_profile,
         cancel=cancel,
+        native_skill=native_skill,
+        native_runtime_root=native_runtime_root,
     )
