@@ -114,6 +114,7 @@ def test_uow_persists_project_source_work_run_step_and_checkpoint(tmp_path: Path
             checkpoint_digest=digest(checkpoint_payload),
             payload=checkpoint_payload,
         )
+        assert checkpoint.source_snapshot_id == snapshot.id
         uow.commit()
 
     restarted = SQLiteOperationalStore(path)
