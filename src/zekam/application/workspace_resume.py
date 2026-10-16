@@ -13,7 +13,7 @@ from zekam.application.project_knowledge_index import source_identity_digest
 from zekam.application.run_readback import run_document
 from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import digest, parse_digest
-from zekam.domain.errors import ConfigurationError, PolicyViolation
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.work import OPEN_STATES
 from zekam.infrastructure.local_file_security import private_regular
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -67,7 +67,7 @@ def _rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict[str,
     """Proje RAG ozeti; tek bir projenin bozuk/buyuk state'i tum resume'u dusurmez."""
     try:
         return _read_rag_summary(home, project_id=project_id, project_slug=project_slug)
-    except PolicyViolation as exc:
+    except (PolicyViolation, ValidationFailed) as exc:
         # Gorunur kalir: state attention-required, neden kodu ile; ilgisiz projeler etkilenmez.
         return {"state": "attention-required", "reason": _bounded(exc, limit=120)}
 
