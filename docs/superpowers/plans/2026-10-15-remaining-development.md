@@ -110,6 +110,7 @@
 - Gorev 3 WP-02.01 inert provenance: Zekam disi proje-yerel ince giris plani `inert_reason=workspace-marker-missing-or-invalid` ile plan/effect/receipt readback'inde kapsam disi kalma nedenini tasir; dosya hedefi ve yazim yine bos kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 4 WP-04.06 source identity: Proje indeks plan/manifest/parser profile `project_id + logical_source + source_revision + tree_digest` digestini ayri identity olarak tasir; content digest ile karistirilmaz ve plan digestine baglanir. Ayni icerigin farkli projelerde eslesmesi veya slug degisimi tek source kimligi sayilmaz. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 4 WP-04.06 source identity apply gate: Index apply, manifest v2 ve normalized parser profile kimligini planin project/revision/tree identity'siyle tekrar eslestirir; reassociation drift fail-closed kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
+- Gorev 2/4 WP-07.02 source identity plan bagi: Canonical `project.index` Run plan ve RAG plan projection ayni `project_id + source_revision + tree_digest` source identity digestini tasir; Work/Run binding'de cross-project veya eski source reassociation gorunur kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 

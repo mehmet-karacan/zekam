@@ -71,7 +71,7 @@ MAX_XML_ELEMENTS = 16_384
 MAX_XML_DEPTH = 256
 
 
-def _source_identity_digest(project_id: UUID | str, source_revision: str, tree_digest: str) -> str:
+def source_identity_digest(project_id: UUID | str, source_revision: str, tree_digest: str) -> str:
     return str(
         digest(
             {
@@ -188,7 +188,7 @@ class ProjectIndexPlan:
     def source_identity_digest(self) -> str:
         """Project/logical-source/revision identity, distinct from content digest."""
 
-        return _source_identity_digest(self.project_id, self.source_revision, self.tree_digest)
+        return source_identity_digest(self.project_id, self.source_revision, self.tree_digest)
 
     @property
     def plan_digest(self) -> str:
@@ -1220,7 +1220,7 @@ def build_project_index_plan(
         "schema": "zekam-project-source-manifest/v2",
         "project_id": str(project_id),
         "project_slug": project_slug,
-        "source_identity_digest": _source_identity_digest(
+        "source_identity_digest": source_identity_digest(
             project_id, source_revision, expected_tree_digest
         ),
         "source_revision": source_revision,
@@ -1242,7 +1242,7 @@ def build_project_index_plan(
         parser_ref=INDEXER_VERSION,
         parser_version="1",
         parser_profile={
-            "source_identity_digest": _source_identity_digest(
+            "source_identity_digest": source_identity_digest(
                 project_id, source_revision, expected_tree_digest
             ),
             "tree_digest": expected_tree_digest,

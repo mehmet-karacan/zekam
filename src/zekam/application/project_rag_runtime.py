@@ -73,7 +73,11 @@ from zekam.application.oracle_metadata_index import (
     build_oracle_metadata_index_plan,
     load_project_oracle_datasource,
 )
-from zekam.application.project_knowledge_index import ProjectIndexPlan, build_project_index_plan
+from zekam.application.project_knowledge_index import (
+    ProjectIndexPlan,
+    build_project_index_plan,
+    source_identity_digest,
+)
 from zekam.application.provider_adapter import (
     ProviderCallCancelled,
     ProviderDeadlineExceeded,
@@ -1012,6 +1016,7 @@ def _plan_document(
         "schema": "zekam-project-rag-plan/v1",
         "project_id": str(plan.project_id),
         "project_slug": plan.project_slug,
+        "source_identity_digest": plan.source_identity_digest,
         "source_revision": plan.source_revision,
         "tree_digest": plan.tree_digest,
         "plan_digest": digest(
@@ -3580,6 +3585,9 @@ def build_index_job_plan(
         "operation": "project.index",
         "project_id": str(project_id),
         "project_slug": slug,
+        "source_identity_digest": source_identity_digest(
+            project_id, revision, discovery.tree_digest
+        ),
         "source_revision": revision,
         "tree_digest": discovery.tree_digest,
         "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
