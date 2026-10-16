@@ -75,7 +75,10 @@ class BoundGitPushTransport:
         state = "unknown"
         try:
             state = wait_for(
-                process, time.monotonic() + self.timeout_seconds, reader.overflow, cancel
+                process,
+                time.monotonic() + self.timeout_seconds,
+                reader.overflow,
+                cancel=cancel,
             )
             if state != "exited":
                 raise PolicyViolation("Git publication process kesildi; recovery gerekli")
