@@ -627,6 +627,10 @@ def build_embedded_project_generation(
         plan,
         embedding_profile=replace(
             plan.embedding_profile,
+            model_ref=profile.exact_model_id,
+            dimension=profile.dimension,
+            query_prefix=profile.query_prefix,
+            passage_prefix=profile.passage_prefix,
             provider_profile_digest=profile.profile_digest,
         ),
     )

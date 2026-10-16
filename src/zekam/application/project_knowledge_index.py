@@ -72,8 +72,10 @@ from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 NON_SEMANTIC_BASELINE_MODEL_REF = "baseline/feature-hashing-v1-non-semantic"
 NON_SEMANTIC_BASELINE_DIMENSION = 1024
-REAL_EMBEDDING_MODEL_REF = "openai/BAAI/bge-m3"
-REAL_EMBEDDING_DIMENSION = 1024
+REAL_EMBEDDING_MODEL_REF = "intfloat/multilingual-e5-small"
+REAL_EMBEDDING_DIMENSION = 384
+E5_QUERY_PREFIX = "query: "
+E5_PASSAGE_PREFIX = "passage: "
 INDEXER_VERSION = "zekam-project-source-indexer/v6"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
@@ -83,6 +85,14 @@ MAX_PROJECT_EMBED_BATCH_SIZE = 8
 MAX_PROJECT_EMBED_TEXT_BYTES = 256 * 1024
 MAX_PROJECT_EMBED_BATCH_TOKENS = 8_192
 MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
+
+
+def embedding_prefixes_for_model(model_ref: str) -> tuple[str, str]:
+    """Return the exact text prefixes owned by the selected embedding model."""
+
+    if model_ref == REAL_EMBEDDING_MODEL_REF:
+        return E5_QUERY_PREFIX, E5_PASSAGE_PREFIX
+    return "", ""
 
 
 def source_identity_digest(
@@ -1389,10 +1399,13 @@ def build_project_index_plan(
         local_dimension=local_dimension,
         remote_source_allowed=allow_remote_source,
     )
+    query_prefix, passage_prefix = embedding_prefixes_for_model(embedding_route.model_ref)
     embedding_profile = EmbeddingProfile(
         model_ref=embedding_route.model_ref,
         dimension=embedding_route.dimension,
         distance="cosine",
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
     )
     chunks = tuple(
         Chunk(

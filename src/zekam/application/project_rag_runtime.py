@@ -1,10 +1,12 @@
-"""Canonical project source/Oracle metadata -> OpenCode BGE-M3 -> hybrid RAG.
+"""Canonical project source/Oracle metadata -> local E5 -> hybrid RAG.
 
 The source project is never mutated. Discovery excludes ignored, binary, oversized,
 unsafe and secret-bearing files. Remote disclosure requires an explicit CLI flag;
 vectors are cached durably under ``ZEKAM_HOME`` so an interrupted indexing run
-resumes by exact chunk, content and provider-profile identity.  Connection secrets
-remain process-memory-only and are never persisted or embedded.
+resumes by exact chunk, content and provider-profile identity. The default route is
+the pinned local multilingual-e5-small ONNX CPU provider; the legacy BGE route
+remains available only when explicitly configured. Connection secrets remain
+process-memory-only and are never persisted or embedded.
 """
 
 from __future__ import annotations
@@ -108,7 +110,7 @@ from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, pars
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.realm import DEFAULT_REALM_SLUG
-from zekam.domain.retrieval import Chunk
+from zekam.domain.retrieval import Chunk, EmbeddingProfile as IndexEmbeddingProfile
 from zekam.domain.security import (
     Authorization,
     AuthorizationScope,
@@ -1079,13 +1081,30 @@ def _project_plan(
         expected_tree_digest=discovery.tree_digest,
         embedding_candidates=embedding_candidates,
         allow_remote_source=allow_remote_source,
-        local_model_ref=(knowledge.embedding_model_ref if knowledge is not None else MODEL_ID),
+        local_model_ref=(
+            knowledge.embedding_model_ref if knowledge is not None else LOCAL_MODEL_ID
+        ),
         local_dimension=(
-            knowledge.embedding_dimension if knowledge is not None else VECTOR_DIMENSION
+            knowledge.embedding_dimension if knowledge is not None else LOCAL_VECTOR_DIMENSION
         ),
         **({"check_budget": check_budget} if check_budget is not None else {}),
     )
     return discovery, plan
+
+
+def _bind_index_embedding_profile(
+    profile: IndexEmbeddingProfile, provider: EmbeddingProfile
+) -> IndexEmbeddingProfile:
+    """Bind the index plan to the verified provider's model and preprocessing."""
+
+    return replace(
+        profile,
+        model_ref=provider.exact_model_id,
+        dimension=provider.dimension,
+        query_prefix=provider.query_prefix,
+        passage_prefix=provider.passage_prefix,
+        provider_profile_digest=provider.profile_digest,
+    )
 
 
 def _plan_document(
@@ -1393,6 +1412,11 @@ def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
         knowledge.embedding_dimension,
     ) not in supported or knowledge.embedding_distance != "cosine":
         raise ConfigurationError("Project RAG canonical embedding profili desteklenmiyor")
+    if (
+        knowledge.embedding_model_ref == LOCAL_MODEL_ID
+        and knowledge.embedding_route is not EmbeddingRoute.LOCAL
+    ):
+        raise ConfigurationError("Local E5 embedding route remote olamaz")
 
 
 def _knowledge_binding(knowledge: KnowledgeSettings) -> dict[str, object]:
@@ -3124,18 +3148,12 @@ def _index(
         raise PolicyViolation("Local embedding route plan/effect drift")
     bound_plan = replace(
         plan,
-        embedding_profile=replace(
-            plan.embedding_profile,
-            provider_profile_digest=profile.profile_digest,
-        ),
+        embedding_profile=_bind_index_embedding_profile(plan.embedding_profile, profile),
     )
     bound_oracle_plan = (
         replace(
             oracle_plan,
-            embedding_profile=replace(
-                oracle_plan.embedding_profile,
-                provider_profile_digest=profile.profile_digest,
-            ),
+            embedding_profile=_bind_index_embedding_profile(oracle_plan.embedding_profile, profile),
         )
         if oracle_plan is not None
         else None

@@ -22,6 +22,7 @@ from zekam.application.knowledge_parsers import default_router
 from zekam.application.project_knowledge_index import (
     REAL_EMBEDDING_DIMENSION,
     REAL_EMBEDDING_MODEL_REF,
+    embedding_prefixes_for_model,
 )
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
@@ -645,10 +646,13 @@ def build_oracle_metadata_index_plan(
         overlap_tokens=0,
         keep_code_whole=True,
     )
+    query_prefix, passage_prefix = embedding_prefixes_for_model(REAL_EMBEDDING_MODEL_REF)
     embedding_profile = EmbeddingProfile(
         model_ref=REAL_EMBEDDING_MODEL_REF,
         dimension=REAL_EMBEDDING_DIMENSION,
         distance="cosine",
+        query_prefix=query_prefix,
+        passage_prefix=passage_prefix,
     )
 
     def stable_chunk_suffix(unit: ContentUnit) -> str:
