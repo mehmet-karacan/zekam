@@ -42,6 +42,7 @@ class KnowledgeIndexRecord:
     content_digest: str
     chunk_order: int
     vector: tuple[float, ...]
+    vector_dimension: int = KNOWLEDGE_VECTOR_DIMENSION
 
     def __post_init__(self) -> None:
         if (
@@ -61,10 +62,13 @@ class KnowledgeIndexRecord:
             raise ValidationFailed("Knowledge record text bounded non-empty olmali")
         if type(self.chunk_order) is not int or self.chunk_order < 0:
             raise ValidationFailed("Knowledge chunk order non-negative integer olmali")
-        if len(self.vector) != KNOWLEDGE_VECTOR_DIMENSION or any(
-            type(value) is not float or not math.isfinite(value) for value in self.vector
+        if (
+            type(self.vector_dimension) is not int
+            or not 1 <= self.vector_dimension <= 4096
+            or len(self.vector) != self.vector_dimension
+            or any(type(value) is not float or not math.isfinite(value) for value in self.vector)
         ):
-            raise ValidationFailed("Knowledge vector exact finite float1024 olmali")
+            raise ValidationFailed("Knowledge vector exact finite bounded float olmali")
         norm = math.sqrt(sum(value * value for value in self.vector))
         if not math.isclose(norm, 1.0, rel_tol=1e-4, abs_tol=1e-4):
             raise ValidationFailed("Knowledge vector normalized olmali")

@@ -51,7 +51,10 @@ from zekam.application.reference_corpus import (
     REFERENCE_PARSER,
     collect_reference_corpus,
 )
-from zekam.application.local_embedding_composition import build_verified_mac_embedding
+from zekam.application.local_embedding_composition import (
+    build_verified_local_e5_embedding,
+    build_verified_mac_embedding,
+)
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.model_health_service import ProbeUnavailable
 from zekam.application.model_registry import load_inventory
@@ -183,6 +186,7 @@ def _read_rag_runtime_text(path: Path, *, label: str) -> str:
 
 
 MODEL_ID = "openai/BAAI/bge-m3"
+LOCAL_MODEL_ID = "intfloat/multilingual-e5-small"
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
 MAX_INDEX_TIMEOUT_SECONDS = 7200.0
 DEFAULT_REMOTE_CALL_LIMIT = 256
@@ -191,6 +195,7 @@ MAX_EMBED_BATCH_TOKENS = 8_192
 MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
 VECTOR_DIMENSION = 1024
+LOCAL_VECTOR_DIMENSION = 384
 MAX_FRESHNESS_FILE_BYTES = 2 * 1024 * 1024
 
 # ----------------------------------------------------------------------
@@ -1143,8 +1148,9 @@ def _runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
     issues = HomeLayout(root).verify()
     if issues:
         raise PolicyViolation(f"ZEKAM_HOME layout gecersiz: {issues[0].kind}")
+    index_model_dir = _index_model_dir(root)
     project_root = HomeLayout(root).ensure_project(project_slug)
-    index_root = root / "knowledge-index" / "vector" / "opencode-bge-m3" / project_slug
+    index_root = root / "knowledge-index" / "vector" / index_model_dir / project_slug
     manifest_root = root / "knowledge-index" / "manifests" / project_slug
     for directory in (project_root, index_root, manifest_root):
         directory.mkdir(parents=True, exist_ok=True)
@@ -1174,7 +1180,7 @@ def _existing_runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
         raise PolicyViolation(f"ZEKAM_HOME layout gecersiz: {issues[0].kind}")
     # Keep the lexical path so the scoped validator can detect junction/symlink aliases.
     project_root = root / "projeler" / project_slug
-    index_root = root / "knowledge-index" / "vector" / "opencode-bge-m3" / project_slug
+    index_root = root / "knowledge-index" / "vector" / _index_model_dir(root) / project_slug
     manifest_root = root / "knowledge-index" / "manifests" / project_slug
     return {
         "home": root,
@@ -1186,6 +1192,19 @@ def _existing_runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
         "ledger": project_root / "runtime" / "provider-ledger.sqlite3",
         "state": project_root / "runtime" / "rag-state.json",
     }
+
+
+def _index_model_dir(home: Path) -> str:
+    """Keep legacy BGE indexes addressable while isolating the local E5 index."""
+
+    knowledge = load_settings(home=home).knowledge
+    if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
+        return "multilingual-e5-small-onnx-int8"
+    return "opencode-bge-m3"
+
+
+def _index_dimension(home: Path) -> int:
+    return load_settings(home=home).knowledge.embedding_dimension
 
 
 def _scoped_path_is_private(root: Path, path: Path, *, directory: bool) -> bool:
@@ -1289,11 +1308,9 @@ def _local_query_binding(
     if knowledge.embedding_route is not EmbeddingRoute.LOCAL:
         raise ConfigurationError("Local query binding route drift")
     _assert_canonical_knowledge_profile(knowledge)
-    if _runtime_platform() != "darwin":
-        raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
     record_qualification()
     del home, ledger_path, project_id
-    local = _build_local_query_embedding()
+    local = _build_local_query_embedding(knowledge)
     accepted_model_refs = {
         local.profile.exact_model_id,
         f"openai/{local.profile.exact_model_id}",
@@ -1324,13 +1341,20 @@ def _local_query_binding(
     )
 
 
-def _build_local_query_embedding() -> _LocalQueryBinding:
-    """Build and verify the local BGE binding from the bounded synthetic fixture.
+def _build_local_query_embedding(knowledge: KnowledgeSettings) -> _LocalQueryBinding:
+    """Build and verify the configured local binding from a bounded fixture.
 
     Uses :data:`_LOCAL_QUALIFICATION_FIXTURE` (a fixed, project-independent source
     probe pair) so the query path never needs real project chunks.  Mirrors the
     verified local binding shape (provider, profile, policy).
     """
+    if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
+        local = build_verified_local_e5_embedding()
+        return _LocalQueryBinding(local.provider, local.profile, local.policy)
+    if knowledge.embedding_model_ref != MODEL_ID:
+        raise ConfigurationError("Local embedding model desteklenmiyor")
+    if _runtime_platform() != "darwin":
+        raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
     provider = build_local_bge_provider(default_mac_bge_configuration())
     result = provider.probe(_LOCAL_QUALIFICATION_FIXTURE)
     policy = EmbeddingPolicy(DataClassification.LOCAL_ONLY, result.profile.profile_digest)
@@ -1351,11 +1375,23 @@ def project_embedding_route(home: Path) -> EmbeddingRoute:
 
 
 def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
+    supported = {
+        (
+            "bge-m3-dense-v1",
+            MODEL_ID,
+            VECTOR_DIMENSION,
+        ),
+        (
+            "multilingual-e5-small-dense-v1",
+            LOCAL_MODEL_ID,
+            LOCAL_VECTOR_DIMENSION,
+        ),
+    }
     if (
-        knowledge.embedding_profile_id != "bge-m3-dense-v1"
-        or knowledge.embedding_dimension != VECTOR_DIMENSION
-        or knowledge.embedding_distance != "cosine"
-    ):
+        knowledge.embedding_profile_id,
+        knowledge.embedding_model_ref,
+        knowledge.embedding_dimension,
+    ) not in supported or knowledge.embedding_distance != "cosine":
         raise ConfigurationError("Project RAG canonical embedding profili desteklenmiyor")
 
 
@@ -1401,10 +1437,15 @@ def _provider(
 ) -> _EmbeddingBinding:
     _assert_canonical_knowledge_profile(knowledge)
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
-        if _runtime_platform() != "darwin":
-            raise PolicyViolation("Local BGE embedding route yalniz macOS cihazinda desteklenir")
         record_qualification()
-        local = build_verified_mac_embedding(chunks)
+        if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
+            local = build_verified_local_e5_embedding()
+        else:
+            if _runtime_platform() != "darwin":
+                raise PolicyViolation(
+                    "Local BGE embedding route yalniz macOS cihazinda desteklenir"
+                )
+            local = build_verified_mac_embedding(chunks)
         accepted_model_refs = {
             local.profile.exact_model_id,
             f"openai/{local.profile.exact_model_id}",
@@ -1728,10 +1769,10 @@ def _vector_blob(vector: tuple[float, ...]) -> bytes:
     return struct.pack(f"<{len(vector)}f", *vector)
 
 
-def _vector_from_blob(blob: bytes) -> tuple[float, ...]:
-    if len(blob) != VECTOR_DIMENSION * 4:
+def _vector_from_blob(blob: bytes, *, dimension: int) -> tuple[float, ...]:
+    if len(blob) != dimension * 4:
         raise ValidationFailed("Vector cache dimension drift")
-    return tuple(float(value) for value in struct.unpack(f"<{VECTOR_DIMENSION}f", blob))
+    return tuple(float(value) for value in struct.unpack(f"<{dimension}f", blob))
 
 
 def _embed_documents_with_retry(
@@ -1849,6 +1890,8 @@ def _cached_vectors(
     connection: sqlite3.Connection,
     chunks: tuple[Chunk, ...],
     scope_by_chunk: dict[str, str],
+    *,
+    dimension: int = VECTOR_DIMENSION,
 ) -> dict[str, tuple[float, ...]]:
     """Load reusable vectors with bounded set reads and deterministic aliases.
 
@@ -1919,7 +1962,7 @@ def _cached_vectors(
         blob = bytes(row["vector_blob"])
         if digest_of_bytes(blob) != str(row["vector_digest"]):
             raise PolicyViolation("Vector cache digest drift")
-        result[chunk.chunk_id] = _vector_from_blob(blob)
+        result[chunk.chunk_id] = _vector_from_blob(blob, dimension=dimension)
 
     if pending_aliases:
         # Alias writes are committed together.  This keeps the connection free
@@ -2279,7 +2322,9 @@ def _publish_rag_state_pending(
             raise PolicyViolation("Project RAG pending private ACL ister")
         if not paths["index"].is_file():
             raise PolicyViolation("Project RAG pending publish index bulunamadi")
-        with SQLiteKnowledgeIndex(paths["index"]) as index:
+        with SQLiteKnowledgeIndex(
+            paths["index"], dimension=_index_dimension(paths["home"])
+        ) as index:
             generation = index.publish_staged_generation(
                 project_id, staged_generation_digest, expected_current_digest
             )
@@ -2404,7 +2449,9 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
         ):
             raise PolicyViolation("Project RAG pending source identity drift")
         try:
-            with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+            with SQLiteKnowledgeIndex(
+                paths["index"], read_only=True, dimension=_index_dimension(paths["home"])
+            ) as index:
                 try:
                     current = index.generation(project_id)
                 except ValidationFailed:
@@ -2625,7 +2672,9 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
     state = json.loads(_read_rag_runtime_text(paths["state"], label="status state"))
     if not isinstance(state, dict) or state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG status state project binding drift")
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=_index_dimension(paths["home"])
+    ) as index:
         generation = index.generation(str(project_id))
         integrity = index.readiness(str(project_id))
     if state.get("generation_digest") != generation.generation_digest:
@@ -2714,7 +2763,9 @@ def read_project_citation(
     paths = _existing_runtime_paths(home, slug)
     if not _rag_scope_is_private(paths):
         raise PolicyViolation("Project RAG scoped ACL/identity drift")
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=_index_dimension(paths["home"])
+    ) as index:
         generation = index.generation(project_id)
         selected_generation = generation_digest or generation.generation_digest
         views = index.views(
@@ -2802,6 +2853,7 @@ def _oracle_source_records(
     generation_scope_digest: str,
     start_order: int,
     vectors: dict[str, tuple[float, ...]],
+    vector_dimension: int,
 ) -> tuple[KnowledgeIndexRecord, ...]:
     by_locator = {
         f"{item.owner}.{item.object_name}:{item.object_type}": item
@@ -2826,6 +2878,7 @@ def _oracle_source_records(
                 content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
                 chunk_order=start_order + chunk.order,
                 vector=vectors[chunk.chunk_id],
+                vector_dimension=vector_dimension,
             )
         )
     return tuple(records)
@@ -3117,7 +3170,7 @@ def _index(
             )
     connection = _cache(paths["cache"])
     try:
-        vectors = _cached_vectors(connection, chunks, scope_by_chunk)
+        vectors = _cached_vectors(connection, chunks, scope_by_chunk, dimension=profile.dimension)
         cache_hits = len(vectors)
         missing = tuple(chunk for chunk in chunks if chunk.chunk_id not in vectors)
         provider_batches = 0
@@ -3295,6 +3348,7 @@ def _index(
             content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
             chunk_order=chunk.order,
             vector=vectors[chunk.chunk_id],
+            vector_dimension=profile.dimension,
         )
         for chunk in bound_plan.chunks
     )
@@ -3305,6 +3359,7 @@ def _index(
             generation_scope_digest=generation_chunk_scope_digest,
             start_order=len(source_records),
             vectors=vectors,
+            vector_dimension=profile.dimension,
         )
         if bound_oracle_plan is not None
         else ()
@@ -3322,6 +3377,7 @@ def _index(
             content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
             chunk_order=len(source_records) + len(oracle_records) + chunk.order,
             vector=vectors[chunk.chunk_id],
+            vector_dimension=profile.dimension,
         )
         for chunk in (odi_plan.chunks if odi_plan is not None else ())
     )
@@ -3337,13 +3393,18 @@ def _index(
             content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
             chunk_order=len(source_records) + len(oracle_records) + len(odi_records) + chunk.order,
             vector=vectors[chunk.chunk_id],
+            vector_dimension=profile.dimension,
         )
         for chunk in references.chunks
     )
     records = source_records + oracle_records + odi_records + reference_records
     # Stage the complete index without changing the queryable ready generation.
     _check_index_budget(cancel, deadline_monotonic)
-    with SQLiteKnowledgeIndex(paths["index"], create=not paths["index"].exists()) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"],
+        create=not paths["index"].exists(),
+        dimension=profile.dimension,
+    ) as index:
         try:
             previous_generation = index.generation(str(project_id))
         except ValidationFailed:
@@ -3439,7 +3500,7 @@ def _index(
         "probe": binding.probe,
         "ledger": binding.ledger,
         "index_integrity": integrity,
-        "index_ref": f"knowledge-index/vector/opencode-bge-m3/{project_slug}/knowledge.sqlite3",
+        "index_ref": paths["index"].relative_to(paths["home"]).as_posix(),
         "project_projection_ref": projection_path.relative_to(paths["home"]).as_posix(),
         "source_mutated": False,
         "row_data_included": False,
@@ -3527,7 +3588,9 @@ def _query(
     ) == _knowledge_binding_digest(knowledge)
     if not profile_binding_current and "embedding-config-unsupported" not in stale_reasons:
         stale_reasons.append("embedding-config-stale")
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=_index_dimension(paths["home"])
+    ) as index:
         generation = index.generation(str(project_id))
         if (
             state.get("generation_digest") != generation.generation_digest

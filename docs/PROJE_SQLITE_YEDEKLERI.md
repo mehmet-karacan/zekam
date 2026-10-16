@@ -4,8 +4,9 @@ WP-11.03 local bundle v2, core SQLite store'larina ek olarak su Zekam-owned
 konumlari online SQLite backup API'siyle self-contained snapshot olarak alir:
 
 - `projeler/<proje>/runtime/provider-ledger.sqlite3`
-- `knowledge-index/vector/opencode-bge-m3/<proje>/knowledge.sqlite3`
-- `knowledge-index/vector/opencode-bge-m3/<proje>/vector-cache.sqlite3`
+- `knowledge-index/vector/multilingual-e5-small-onnx-int8/<proje>/knowledge.sqlite3`
+- `knowledge-index/vector/multilingual-e5-small-onnx-int8/<proje>/vector-cache.sqlite3`
+- Legacy indexes under `knowledge-index/vector/opencode-bge-m3/<proje>/` remain readable.
 - `knowledge-index/graph/<proje>/code-graph.sqlite3`
 
 Bu dosyalar dosya kopyasi yoluna girmez. WAL'deki committed veri SQLite backup

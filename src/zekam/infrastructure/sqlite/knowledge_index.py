@@ -152,15 +152,25 @@ class SQLiteKnowledgeIndex:
     An active WAL/journal must be resolved by its writer, never by this reader.
     """
 
-    def __init__(self, path: Path, *, create: bool = False, read_only: bool = False) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        create: bool = False,
+        read_only: bool = False,
+        dimension: int = VECTOR_DIMENSION,
+    ) -> None:
         if type(create) is not bool or type(read_only) is not bool:
             raise ValidationFailed("Knowledge index create/read_only must be exact booleans")
+        if type(dimension) is not int or not 1 <= dimension <= 4096:
+            raise ValidationFailed("Knowledge index dimension pozitif ve bounded olmali")
         if read_only and create:
             raise ConfigurationError("Knowledge read-only index cannot create a schema")
         if not isinstance(path, Path) or not path.is_absolute() or path.name in {"", ".", ".."}:
             raise ConfigurationError("Knowledge index path absolute file olmali")
         self.path = path
         self._read_only = read_only
+        self._vector_dimension = dimension
         self._journal_mode = (
             "wal"
             if assess_sqlite_wal_safety(sqlite3.sqlite_version).safe_for_multi_connection_wal
@@ -354,7 +364,7 @@ class SQLiteKnowledgeIndex:
                 vector_dimension integer not null
             ) strict;
             insert or ignore into metadata values (1,{SCHEMA_VERSION},'sqlite-fts5+sqlite-vec',
-                                                   {VECTOR_DIMENSION});
+                                                   {self._vector_dimension});
             create table if not exists generation (
                 generation_digest text primary key,
                 project_id text not null,
@@ -401,7 +411,7 @@ class SQLiteKnowledgeIndex:
             );
             create virtual table if not exists chunk_vector using vec0(
                 id text primary key,
-                embedding float[{VECTOR_DIMENSION}],
+                embedding float[{self._vector_dimension}],
                 generation_digest text partition key,
                 project_id text partition key
             );
@@ -416,7 +426,7 @@ class SQLiteKnowledgeIndex:
         if row is None or tuple(row) != (
             SCHEMA_VERSION,
             "sqlite-fts5+sqlite-vec",
-            VECTOR_DIMENSION,
+            self._vector_dimension,
         ):
             raise ConfigurationError("Knowledge index schema/engine drift")
         # Deep integrity (quick_check + foreign_key_check, O(N)) is expensive.
@@ -448,7 +458,7 @@ class SQLiteKnowledgeIndex:
             _DEEP_VALIDATED_READ_FILES[_trusted_file_identity] = (
                 SCHEMA_VERSION,
                 "sqlite-fts5+sqlite-vec",
-                VECTOR_DIMENSION,
+                self._vector_dimension,
             )
         required_columns = {
             "generation": (
@@ -590,6 +600,8 @@ class SQLiteKnowledgeIndex:
             for record in records
         ):
             raise ValidationFailed("Knowledge generation tek project/revision ister")
+        if any(record.vector_dimension != self._vector_dimension for record in records):
+            raise ValidationFailed("Knowledge generation vector dimension drift")
         if len({record.chunk_id for record in records}) != len(records):
             raise ValidationFailed("Knowledge generation duplicate chunk id tasiyor")
         for value in (
@@ -795,6 +807,8 @@ class SQLiteKnowledgeIndex:
             for record in records
         ):
             raise ValidationFailed("Knowledge generation tek project/revision ister")
+        if any(record.vector_dimension != self._vector_dimension for record in records):
+            raise ValidationFailed("Knowledge generation vector dimension drift")
         if len({record.chunk_id for record in records}) != len(records):
             raise ValidationFailed("Knowledge generation duplicate chunk id tasiyor")
         for value in (
@@ -1278,7 +1292,9 @@ class SQLiteKnowledgeIndex:
     ) -> tuple[ScoredHit, ...]:
         if limit < 1:
             return ()
-        if len(vector) != VECTOR_DIMENSION or any(not math.isfinite(value) for value in vector):
+        if len(vector) != self._vector_dimension or any(
+            not math.isfinite(value) for value in vector
+        ):
             raise ValidationFailed("Knowledge dense query vector invalid")
         generation = self._pinned_generation(project_id, generation_digest)
         rows = self._connection.execute(

@@ -130,11 +130,11 @@ class RuntimeSettings:
 class KnowledgeSettings:
     """Bilgi duzlemi varsayilanlari."""
 
-    embedding_profile_id: str = "bge-m3-dense-v1"
-    embedding_route: EmbeddingRoute = EmbeddingRoute.REMOTE
+    embedding_profile_id: str = "multilingual-e5-small-dense-v1"
+    embedding_route: EmbeddingRoute = EmbeddingRoute.LOCAL
     remote_provider_id: str = "litellm"
-    embedding_model_ref: str = "openai/BAAI/bge-m3"
-    embedding_dimension: int = 1024
+    embedding_model_ref: str = "intfloat/multilingual-e5-small"
+    embedding_dimension: int = 384
     embedding_distance: str = "cosine"
 
     def __post_init__(self) -> None:
@@ -633,16 +633,16 @@ def load_settings(
     try:
         knowledge = KnowledgeSettings(
             embedding_profile_id=str(
-                knowledge_document.get("embedding_profile_id", "bge-m3-dense-v1")
+                knowledge_document.get("embedding_profile_id", "multilingual-e5-small-dense-v1")
             ),
             embedding_route=EmbeddingRoute(
-                str(knowledge_document.get("embedding_route", EmbeddingRoute.REMOTE.value))
+                str(knowledge_document.get("embedding_route", EmbeddingRoute.LOCAL.value))
             ),
             remote_provider_id=str(knowledge_document.get("remote_provider_id", "litellm")),
             embedding_model_ref=str(
-                knowledge_document.get("embedding_model_ref", "openai/BAAI/bge-m3")
+                knowledge_document.get("embedding_model_ref", "intfloat/multilingual-e5-small")
             ),
-            embedding_dimension=int(knowledge_document.get("embedding_dimension", 1024)),
+            embedding_dimension=int(knowledge_document.get("embedding_dimension", 384)),
             embedding_distance=str(knowledge_document.get("embedding_distance", "cosine")),
         )
     except (TypeError, ValueError) as exc:

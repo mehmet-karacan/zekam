@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
-from zekam.application.config import core_root
+from zekam.application.config import core_root, load_settings
 from zekam.application.fresh_bootstrap import OPERATIONAL_RELATIVE_PATH
 from zekam.application.home import assert_separated_from_core
 from zekam.application.knowledge_plane_service import KnowledgePlaneService
@@ -77,6 +77,19 @@ class LocalContinuityArguments:
             raise ValidationFailed("Local continuity requires 1..8 explicit source paths")
         if any(not isinstance(path, str) or not path for path in self.source_paths):
             raise ValidationFailed("Local continuity source paths must be nonempty text")
+
+
+def _index_dimension(home: Path, index_path: Path) -> int:
+    """Resolve the vector width from the canonical index path or home config."""
+
+    model_dirs = {
+        "opencode-bge-m3": 1024,
+        "multilingual-e5-small-onnx-int8": 384,
+    }
+    for part in reversed(index_path.parts):
+        if part in model_dirs:
+            return model_dirs[part]
+    return load_settings(home=home).knowledge.embedding_dimension
 
 
 def _report(operation: str, **body: Any) -> dict[str, Any]:
@@ -167,7 +180,11 @@ class LocalContinuityRuntime:
         self._check_current()
         index = None
         if self.arguments.index_path is not None:
-            index = SQLiteKnowledgeIndex(self.arguments.index_path, read_only=True)
+            index = SQLiteKnowledgeIndex(
+                self.arguments.index_path,
+                read_only=True,
+                dimension=_index_dimension(self.arguments.home, self.arguments.index_path),
+            )
         try:
             composed = compose_local_startup(
                 self.environment, self.binding, self._source(), index=index

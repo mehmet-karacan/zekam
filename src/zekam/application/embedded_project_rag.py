@@ -663,6 +663,7 @@ def build_embedded_project_generation(
             content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
             chunk_order=chunk.order,
             vector=vectors[chunk.chunk_id],
+            vector_dimension=profile.dimension,
         )
         for chunk in bound_plan.chunks
     )

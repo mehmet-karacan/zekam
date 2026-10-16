@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from zekam.application.embedding_provider import (
+    EmbeddingProvider,
     EmbeddingPolicy,
     EmbeddingProbeFixture,
     EmbeddingProfile,
@@ -19,6 +20,10 @@ from zekam.infrastructure.embedding.infinity_bge import (
     build_local_bge_provider,
     default_mac_bge_configuration,
 )
+from zekam.infrastructure.embedding.onnx_e5 import (
+    LocalOnnxE5Provider,
+    build_local_e5_provider,
+)
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 _MAX_CANDIDATES = 32
@@ -27,9 +32,25 @@ _MAX_PROBE_CHARACTERS = 12_000
 
 @dataclass(frozen=True, slots=True)
 class VerifiedLocalEmbeddingBinding:
-    provider: LocalInfinityBGEProvider
+    provider: EmbeddingProvider
     profile: EmbeddingProfile
     policy: EmbeddingPolicy
+
+
+_E5_PROBE_QUERY = "database connection pool configuration"
+_E5_PROBE_POSITIVE = "configure the database connection pool size"
+_E5_PROBE_NEGATIVE = "optimize image compression quality"
+_E5_PROBE_FIXTURE = EmbeddingProbeFixture(
+    query=_E5_PROBE_QUERY,
+    positive_passage=_E5_PROBE_POSITIVE,
+    negative_passage=_E5_PROBE_NEGATIVE,
+    source_refs=("synthetic/query", "synthetic/positive"),
+    source_digests=(
+        digest_of_bytes(_E5_PROBE_POSITIVE.encode("utf-8")),
+        digest_of_bytes(_E5_PROBE_NEGATIVE.encode("utf-8")),
+    ),
+    classification=DataClassification.LOCAL_ONLY,
+)
 
 
 def _terms(value: str) -> frozenset[str]:
@@ -103,4 +124,25 @@ def build_verified_mac_embedding(
     policy = EmbeddingPolicy(classification, result.profile.profile_digest)
     if not provider.health().healthy:
         raise ValidationFailed("Verified local embedding provider health gecemedi")
+    return VerifiedLocalEmbeddingBinding(provider, result.profile, policy)
+
+
+def build_verified_local_e5_embedding(
+    *, classification: DataClassification = DataClassification.LOCAL_ONLY
+) -> VerifiedLocalEmbeddingBinding:
+    """Build and probe the pinned Windows CPU E5 provider with public text only."""
+
+    provider: LocalOnnxE5Provider = build_local_e5_provider()
+    fixture = EmbeddingProbeFixture(
+        query=_E5_PROBE_FIXTURE.query,
+        positive_passage=_E5_PROBE_FIXTURE.positive_passage,
+        negative_passage=_E5_PROBE_FIXTURE.negative_passage,
+        source_refs=_E5_PROBE_FIXTURE.source_refs,
+        source_digests=_E5_PROBE_FIXTURE.source_digests,
+        classification=classification,
+    )
+    result = provider.probe(fixture)
+    policy = EmbeddingPolicy(classification, result.profile.profile_digest)
+    if not provider.health().healthy:
+        raise ValidationFailed("Verified local E5 embedding provider health gecemedi")
     return VerifiedLocalEmbeddingBinding(provider, result.profile, policy)
