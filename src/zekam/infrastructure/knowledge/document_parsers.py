@@ -489,9 +489,10 @@ def _tessdata_digests(executable: str, languages: tuple[str, ...]) -> dict[str, 
         model = root / f"{language}.traineddata"
         if not model.is_file():
             raise ConfigurationError(f"Tesseract dili bulunamadi: {language}")
-        found[language] = "sha256:" + hashlib.sha256(
-            read_bounded_bytes(model, max_bytes=64 * 1024 * 1024)
-        ).hexdigest()
+        found[language] = (
+            "sha256:"
+            + hashlib.sha256(read_bounded_bytes(model, max_bytes=64 * 1024 * 1024)).hexdigest()
+        )
     return found
 
 
@@ -699,6 +700,7 @@ class PdfParser:
     dpi: int = 300
     parser_ref: str = "zekam.parser.pdfium"
     parser_version: str = "1"
+    allow_ocr: bool = True
 
     @staticmethod
     def _module() -> Any:
@@ -713,7 +715,7 @@ class PdfParser:
     @property
     def parser_profile(self) -> dict[str, Any]:
         module = self._module()
-        return {
+        profile = {
             "schema": "zekam-parser-profile/v1",
             "adapter": self.parser_ref,
             "adapter_version": self.parser_version,
@@ -723,6 +725,9 @@ class PdfParser:
             "ocr_languages": list(self.ocr_languages),
             "bbox_space": "normalized-top-left-0..1",
         }
+        if not self.allow_ocr:
+            profile["ocr_allowed"] = False
+        return profile
 
     def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
         if len(payload) > MAX_DOCUMENT_BYTES or not payload.startswith(b"%PDF-"):
@@ -752,6 +757,8 @@ class PdfParser:
                         )
                     )
                     continue
+                if not self.allow_ocr:
+                    raise PolicyViolation("PDF OCR bu read-only parser profilinde yetkili degil")
                 bitmap = page.render(scale=self.dpi / 72.0)
                 image = bitmap.to_pil()
                 with io.BytesIO() as stream:

@@ -12,13 +12,16 @@ import urllib.parse
 import urllib.request
 from typing import Any, TextIO
 
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_bytes, digest, digest_of_bytes, parse_digest
 
 DEFAULT_JIRA_BASE_URL = "https://itrack.innova.com.tr"
 DEFAULT_CONFLUENCE_BASE_URL = "https://ftaconfluence.innova.com.tr"
 MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_PAGE_START = 1_000_000
 MAX_ISSUE_ATTACHMENTS = 200
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+MAX_ATTACHMENT_UNITS = 256
+MAX_ATTACHMENT_TEXT_BYTES = 384 * 1024
 
 TOOLS = (
     {
@@ -46,6 +49,20 @@ TOOLS = (
             "type": "object",
             "properties": {"issue_key": {"type": "string"}},
             "required": ["issue_key"],
+        },
+    },
+    {
+        "name": "jira_read_attachment",
+        "description": "Exact issue/ek metadata digest'iyle eki bounded okur; parser/secret/PII kontrolunden gecen locator'li metni verir. Knowledge yazmaz.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_key": {"type": "string"},
+                "attachment_id": {"type": "string"},
+                "expected_metadata_digest": {"type": "string"},
+            },
+            "required": ["issue_key", "attachment_id", "expected_metadata_digest"],
+            "additionalProperties": False,
         },
     },
     {
@@ -124,6 +141,29 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _reject_json_constant(_: str) -> None:
     raise RuntimeError("API nonfinite JSON")
+
+
+class _AttachmentRedirectHandler(_SameOriginRedirectHandler):
+    def __init__(self, allowed_paths: tuple[str, ...]):
+        super().__init__()
+        self.allowed_paths = allowed_paths
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urlsplit(newurl)
+        path = target.path
+        if target.query or target.fragment:
+            raise urllib.error.HTTPError(
+                newurl, code, "attachment redirect query refused", headers, fp
+            )
+        if not any(path == root or path.startswith(root + "/") for root in self.allowed_paths):
+            raise urllib.error.HTTPError(
+                newurl, code, "attachment redirect scope refused", headers, fp
+            )
+        if any(part in {".", ".."} for part in urllib.parse.unquote(path).split("/")):
+            raise urllib.error.HTTPError(
+                newurl, code, "attachment redirect path refused", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def api_get(
@@ -335,6 +375,168 @@ def _jira_issue_snapshot(base: str, value: Any, *, key: str) -> dict[str, Any]:
     }
 
 
+def _attachment_payload(base: str, attachment: dict[str, Any], *, environ: dict[str, str]) -> bytes:
+    """Download only the exact same-site attachment URL bound by issue metadata."""
+    content = attachment.get("content")
+    if not isinstance(content, str) or not content or len(content) > 8192:
+        raise RuntimeError("Jira attachment content locator gerekli")
+    try:
+        source, target = urllib.parse.urlsplit(base), urllib.parse.urlsplit(content)
+        same_origin = (target.scheme, target.hostname, target.port) == (
+            source.scheme,
+            source.hostname,
+            source.port,
+        )
+    except ValueError:
+        raise RuntimeError("Jira attachment content locator gecersiz") from None
+    attachment_id = _numeric_id(attachment.get("id"))
+    expected_paths = (
+        source.path + "/secure/attachment/" + attachment_id,
+        source.path + "/rest/api/2/attachment/content/" + attachment_id,
+    )
+    if (
+        not same_origin
+        or target.scheme != "https"
+        or target.username is not None
+        or target.password is not None
+        or target.query
+        or target.fragment
+        or not any(
+            target.path == path or target.path.startswith(path + "/") for path in expected_paths
+        )
+        or any(part in {".", ".."} for part in urllib.parse.unquote(target.path).split("/"))
+    ):
+        raise RuntimeError("Jira attachment content locator scope drift")
+    token = environ.get("JIRA_API_TOKEN")
+    if not token:
+        raise RuntimeError("JIRA_API_TOKEN ortam degiskeni bulunamadi")
+    size = attachment["size"]
+    if type(size) is not int or not 1 <= size <= MAX_ATTACHMENT_BYTES:
+        raise RuntimeError("Jira attachment boyut siniri asildi veya ek bos")
+    request = urllib.request.Request(
+        content,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/octet-stream",
+            "Accept-Encoding": "identity",
+        },
+    )
+    try:
+        with urllib.request.build_opener(_AttachmentRedirectHandler(expected_paths)).open(
+            request, timeout=45
+        ) as response:
+            encoding = response.headers.get("Content-Encoding", "identity")
+            if encoding.casefold() != "identity":
+                raise RuntimeError("Jira attachment HTTP encoding desteklenmiyor")
+            media_type = (
+                response.headers.get("Content-Type", "").split(";", 1)[0].strip().casefold()
+            )
+            if media_type not in {attachment["mimeType"].casefold(), "application/octet-stream"}:
+                raise RuntimeError("Jira attachment HTTP content type drift")
+            length = response.headers.get("Content-Length")
+            if length is not None and (
+                not length.isascii() or not length.isdigit() or int(length) != size
+            ):
+                raise RuntimeError("Jira attachment HTTP length drift")
+            payload = response.read(min(size, MAX_ATTACHMENT_BYTES) + 1)
+            if len(payload) != size:
+                raise RuntimeError("Jira attachment byte size drift")
+            return payload
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Attachment HTTP {exc.code}; retry_allowed=false") from None
+    except Exception as exc:
+        raise RuntimeError(f"Jira attachment read basarisiz: {type(exc).__name__}") from None
+
+
+def _read_jira_attachment(
+    base: str, args: dict[str, Any], *, environ: dict[str, str]
+) -> dict[str, Any]:
+    from zekam.application.knowledge_file_plane import assert_public_safe_projection
+    from zekam.application.knowledge_parsers import default_router
+    from zekam.application.unit_test_secret_scan import find_secret_value
+    from zekam.domain.knowledge import SourceFormat
+    from zekam.infrastructure.knowledge.document_parsers import PdfParser
+
+    if set(args) != {"issue_key", "attachment_id", "expected_metadata_digest"}:
+        raise RuntimeError("Jira attachment read exact argumanlar ister")
+    key, attachment_id = _jira_key(args["issue_key"]), _numeric_id(args["attachment_id"])
+    expected = args["expected_metadata_digest"]
+    parse_digest(expected)
+
+    def snapshot():
+        row = api_get(
+            base,
+            f"/rest/api/2/issue/{key}",
+            "JIRA_API_TOKEN",
+            {"fields": "updated,attachment"},
+            environ=environ,
+        )
+        view = _jira_issue_snapshot(base, row, key=key)
+        matches = [item for item in view["_zekam"]["attachments"] if item["id"] == attachment_id]
+        if len(matches) != 1 or matches[0]["metadata_digest"] != expected:
+            raise RuntimeError("Jira attachment issue ownership/metadata drift")
+        return row, view, matches[0]
+
+    before, _, metadata = snapshot()
+    original = next(item for item in before["fields"]["attachment"] if item["id"] == attachment_id)
+    extension = metadata["filename"].rsplit(".", 1)[-1].casefold()
+    formats = {
+        "txt": (SourceFormat.TXT, {"text/plain"}),
+        "md": (SourceFormat.MARKDOWN, {"text/plain", "text/markdown"}),
+        "docx": (
+            SourceFormat.DOCX,
+            {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+        ),
+        "pdf": (SourceFormat.PDF, {"application/pdf"}),
+    }
+    if extension not in formats or metadata["media_type"].casefold() not in formats[extension][1]:
+        raise RuntimeError("Jira attachment format/mime desteklenmiyor")
+    payload = _attachment_payload(base, original, environ=environ)
+    after, after_view, _ = snapshot()
+    if before["id"] != after["id"] or before["fields"]["updated"] != after["fields"]["updated"]:
+        raise RuntimeError("Jira issue attachment read sirasinda degisti")
+    router = default_router()
+    router.parsers[SourceFormat.PDF] = PdfParser(allow_ocr=False)
+    parser = router.resolve(formats[extension][0])
+    units = parser.parse(payload)
+    if not 1 <= len(units) <= MAX_ATTACHMENT_UNITS:
+        raise RuntimeError("Jira attachment normalized unit siniri asildi")
+    normalized = [item.body() for item in units]
+    normalized_bytes = canonical_bytes(normalized)
+    if (
+        len(normalized_bytes) > MAX_ATTACHMENT_TEXT_BYTES
+        or find_secret_value(normalized) is not None
+    ):
+        raise RuntimeError("Jira attachment text bounded/secret kontrolunu gecemedi")
+    assert_public_safe_projection(normalized_bytes, relative_path="jira/attachment-normalized.json")
+    content_digest = digest_of_bytes(payload)
+    parser_profile = parser.parser_profile
+    result = {
+        "schema": "zekam-jira-attachment-read/v1",
+        "issue_key": key,
+        "issue_provenance": after_view["_zekam"]["provenance"],
+        "attachment": metadata
+        | {
+            "content_digest": content_digest,
+            "content_read": True,
+            "source_ref": f"jira:{digest(base)[7:]}:issue:{before['id']}:attachment:{attachment_id}:content:{content_digest[7:]}",
+        },
+        "parser_ref": parser.parser_ref,
+        "parser_version": parser.parser_version,
+        "parser_profile_digest": digest(parser_profile),
+        "units": normalized,
+        "normalized_digest": digest_of_bytes(normalized_bytes),
+        "source_kind": "untrusted-reference",
+        "knowledge_imported": False,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    assert_public_safe_projection(
+        canonical_bytes(result), relative_path="jira/attachment-read.json"
+    )
+    return result
+
+
 def _confluence_provenance(base: str, row: Any) -> dict[str, Any]:
     if (
         not isinstance(row, dict)
@@ -467,6 +669,8 @@ def call_tool(
                 key=key,
             )
         )
+    if name == "jira_read_attachment":
+        return _text_result(_read_jira_attachment(jira, args, environ=env))
     if name == "confluence_search":
         start = _bounded_int(args, "start", 0, MAX_PAGE_START)
         limit = _bounded_int(args, "limit", 10, 50, 1)
@@ -522,7 +726,7 @@ def response_for(request: dict[str, Any]) -> dict[str, Any] | None:
         result: dict[str, Any] = {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "innova-atlassian-local", "version": "1.1.0"},
+            "serverInfo": {"name": "innova-atlassian-local", "version": "1.2.0"},
         }
     elif method == "notifications/initialized":
         return None

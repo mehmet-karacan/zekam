@@ -76,3 +76,37 @@ Birincil Jira Server/Data Center kaynaklari:
 
 - https://developer.atlassian.com/server/jira/platform/rest/v11002/api-group-search
 - https://developer.atlassian.com/server/jira/platform/rest/v10000/api-group-issue/
+
+## Yetkili ek okuma ve parser bagi
+
+`jira_read_attachment` issue key, attachment ID ve onceki `jira_get_issue`
+ciktisindaki expected_metadata_digest ile calisir. Native assistant bu degerleri
+arac ciktisindan cozer; kullanicidan JSON/digest yazmasi beklenmez. Bu salt-okunur
+tool knowledge/import veya execution yetkisi vermez.
+
+Ek ayni issue'da indirme oncesi ve sonrasi aranir; metadata digest, issue numeric
+ID veya updated drift'i reddedilir. Server-provided content URL yalniz configured
+HTTPS origin ve exact attachment path'indeyse kullanilir. Redirect diger origin,
+ayni origin'deki baska API, traversal veya query/fragment hedefine gidemez.
+HTTP status kodu korunur; credential/URL/body hata ciktisina eklenmez. Her HTTP
+istegi 45 saniye socket timeout tasir; bu tum parser islemine wall-clock deadline
+kaniti degildir.
+
+Ek boyutu 8 MiB, normalize cikti 256 unit ve 384 KiB ile sinirlidir. Metadata ve
+HTTP byte/content-length/content-type/encoding bagi kontrol edilir. TXT/Markdown,
+DOCX ve dijital PDF mevcut parser'larla locator'li ContentUnit'e doner. PdfParser
+bu yolda allow_ocr=false kullanir; taranmis PDF'de render/OCR sureci baslatmaz.
+Desteklenmeyen MIME/format TXT varsayilmaz. OCR default davranisi diger mevcut
+yetkili ingestion yollarinda korunur; no-OCR profili ayri profile digest tasir.
+
+Normalize metin ve tum sonuc secret/PII kontrolunden gecmeden tool'a donmez. Ham
+binary, upstream author/download URL ve ham transcript artifact'i saklanmaz.
+Gercek downloaded byte hash'i content_digest'e; metadata/projection/normalized
+hash'ler kendi alanlarina baglanir. Kaynak untrusted-reference kalir,
+knowledge_imported=false ve grants_authority=false tasir. Ekin icerigindeki
+talimatlar host/Work yetkisi olamaz.
+
+Bu kaynak gelistirmesinde canli download yapilmadi. Transport/metadata race,
+cross-origin/path, secret/PII, MIME/size ve PDF no-OCR regresyon kodlari eklendi;
+CALISTIRILMADI. Canonical project knowledge publication, gercek endpoint/client
+akisi ve ACL kabulu halen aciktir.

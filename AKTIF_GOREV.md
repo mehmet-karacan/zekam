@@ -1155,6 +1155,14 @@ digest'i content hash sayilmaz; indirme/import yapilmadi. HTTP strict JSON ve
 ham cause suppression eklendi. Regresyon kodu hazir, CALISTIRILMADI. Yetkili
 download/parser/secret/canonical knowledge publication ve canli ACL kabulu acik.
 
+**16 Ekim 2026 — WP-06.04 ek indirme/parser bagi:** `jira_read_attachment`
+exact issue/ek/metadata digest ile read-only bounded download yapar; same-origin
+ve exact path, once/sonra issue/metadata ve HTTP byte/MIME/encoding kontrolleri
+uygulanir. Gercek content hash, parser locator/profile ve normalize digest doner.
+Secret/PII sonucu reddedilir; raw binary saklanmaz. PDF bu yolda OCR/render
+baslatmaz; TXT/Markdown/DOCX/dijital PDF desteklenir. Regresyon kodu hazir,
+CALISTIRILMADI. Canonical knowledge publication ve gercek client/ACL kabulu acik.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

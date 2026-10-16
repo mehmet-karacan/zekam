@@ -91,6 +91,7 @@ def test_builtin_server_lists_only_read_tools() -> None:
     assert names == [
         "jira_search",
         "jira_get_issue",
+        "jira_read_attachment",
         "confluence_search",
         "confluence_get_page",
     ]
