@@ -404,6 +404,7 @@ def test_generic_consumer_cannot_take_index_or_measurement_jobs(world):
         "publication.evidence.bind",
         "publication.review",
         "project.index",
+        "project.odi-bind",
         "test.measure",
         "skill.trial",
         "skill.audit.verify",

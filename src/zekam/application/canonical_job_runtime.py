@@ -146,6 +146,7 @@ def run_canonical_job(
         "publication.evidence.bind",
         "publication.review",
         "project.index",
+        "project.odi-bind",
         "test.measure",
         "test.run",
         "continuity.resume",

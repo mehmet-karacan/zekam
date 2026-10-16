@@ -12,9 +12,13 @@ import pytest
 from typer.testing import CliRunner
 
 from zekam.application.home import HomeLayout
+from zekam.domain.canonical import digest
+from zekam.application.canonical_job_runtime import canonical_job_key
+from zekam.application.odi11g_binding_runtime import _input
+from zekam.application.local_runtime import LocalJobBinding
 from zekam.domain.errors import LayoutError
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
-from zekam.infrastructure.sqlite.operational_schema import bootstrap
+from zekam.infrastructure.sqlite.operational_schema import bootstrap_v7
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import main as cli
 
@@ -25,13 +29,59 @@ def _home(tmp_path: Path) -> Path:
     layout = HomeLayout(tmp_path / ".zekam").ensure()
     layout.ensure_project("gpu")
     database = layout.root / "state" / "operational.db"
-    bootstrap(database)
+    bootstrap_v7(database)
     SQLiteLocalRuntimeStore(database)
     with SQLiteOperationalStore(database).unit_of_work() as uow:
+        uow.activate_config(
+            config_digest=digest({}), task_digest=digest("fixture-task"), sanitized_config={}
+        )
         project = uow.create_project(slug="gpu", display_name="GPU")
         uow.add_project_alias(project_id=project.id, alias="skyrsm-5077")
         uow.commit()
     return layout.root
+
+
+def _admit_binding(home, plan):
+    with SQLiteOperationalStore(home / "state/operational.db").unit_of_work() as uow:
+        config = uow.activate_config(
+            config_digest=digest({}), task_digest=digest("fixture-task"), sanitized_config={}
+        )
+        project = uow.resolve_project(plan["project_id"])
+        source = uow.bind_source(
+            project_id=project.id, portable_ref="source:odi-fixture", source_kind="directory"
+        )
+        snapshot = uow.capture_source_snapshot(
+            source_binding_id=source.id,
+            revision_ref=plan["source_snapshot_contract"]["revision_ref"],
+            tree_digest=plan["tree_digest"],
+            content_digest=plan["source_snapshot_contract"]["content_digest"],
+            config_digest=config.config_digest,
+        )
+        work = uow.create_work(
+            project_id=project.id, kind="task", title="ODI fixture", state="ready"
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=plan["plan_digest"],
+            budget={"seconds": 120},
+            source_snapshot_id=snapshot.id,
+        )
+        uow.commit()
+    return LocalJobBinding(
+        project.id,
+        work.id,
+        work.revision,
+        run.id,
+        config.id,
+        config.config_digest,
+        run.plan_digest,
+        source_snapshot_id=snapshot.id,
+    )
+
+
+def _run_args(binding):
+    return ["--run-id", binding.run_id, "--work-revision", str(binding.work_revision)]
 
 
 def _bundle(tmp_path: Path) -> Path:
@@ -70,6 +120,7 @@ def test_odi_preflight_and_binding_are_digest_bound_and_never_enable_embedding(
     )
     assert dry.exit_code == 0, dry.output
     plan = json.loads(dry.output)
+    binding_run = _admit_binding(home, plan)
     assert plan["accepted"] is True
     assert plan["embedding_ready"] is False
     assert plan["provider_calls_performed"] == 0
@@ -87,6 +138,7 @@ def test_odi_preflight_and_binding_are_digest_bound_and_never_enable_embedding(
             str(home),
             "--plan-digest",
             plan["plan_digest"],
+            *_run_args(binding_run),
             "--uygula",
             "--json",
         ],
@@ -111,6 +163,7 @@ def test_odi_preflight_and_binding_are_digest_bound_and_never_enable_embedding(
             str(home),
             "--plan-digest",
             plan["plan_digest"],
+            *_run_args(binding_run),
             "--uygula",
             "--json",
         ],
@@ -118,8 +171,8 @@ def test_odi_preflight_and_binding_are_digest_bound_and_never_enable_embedding(
     assert replay.exit_code == 0, replay.output
     replayed = json.loads(replay.output)
     assert replayed["replayed"] is True
-    assert replayed["attempt_count"] == 1
-    assert replayed["effects"][0]["receipt_id"] is not None
+    assert replayed["canonical_receipt_verified"] is True
+    assert replayed["current_binding_verified"] is True
 
 
 def test_odi_preflight_rejects_repository_topology_and_xml_entities(tmp_path: Path) -> None:
@@ -199,6 +252,7 @@ def test_odi_binding_rejects_baglantilar_junction(tmp_path: Path) -> None:
     )
     assert dry.exit_code == 0, dry.output
     plan = json.loads(dry.output)
+    binding_run = _admit_binding(home, plan)
     binding_parent = home / "projeler" / "gpu" / "baglantilar"
     binding_parent.rmdir()
     redirected = tmp_path / "redirected"
@@ -225,6 +279,7 @@ def test_odi_binding_rejects_baglantilar_junction(tmp_path: Path) -> None:
             str(home),
             "--plan-digest",
             plan["plan_digest"],
+            *_run_args(binding_run),
             "--uygula",
             "--json",
         ],
@@ -233,7 +288,7 @@ def test_odi_binding_rejects_baglantilar_junction(tmp_path: Path) -> None:
     assert not (redirected / "odi11g.json").exists()
 
 
-def test_odi_binding_recovers_same_plan_after_completed_receipt_fault(
+def test_odi_binding_receipt_fault_requires_explicit_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     home = _home(tmp_path)
@@ -245,6 +300,7 @@ def test_odi_binding_recovers_same_plan_after_completed_receipt_fault(
     )
     assert dry.exit_code == 0, dry.output
     plan = json.loads(dry.output)
+    binding_run = _admit_binding(home, plan)
     original_receipt = SQLiteLocalRuntimeStore.record_receipt
     failed_completed = False
 
@@ -272,22 +328,27 @@ def test_odi_binding_recovers_same_plan_after_completed_receipt_fault(
         str(home),
         "--plan-digest",
         plan["plan_digest"],
+        *_run_args(binding_run),
         "--uygula",
         "--json",
     ]
     failed = runner.invoke(cli.app, args)
     assert failed.exit_code != 0
     runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
-    snapshot = runtime.job_snapshot(f"odi11g:{plan['plan_digest']}")
+    snapshot = runtime.job_snapshot(
+        canonical_job_key(
+            binding_run.binding_digest, "project.odi-bind", _input(plan["plan_digest"])
+        )
+    )
     assert snapshot is not None
     assert snapshot["state"] == "recovery-required"
     assert (home / plan["binding_ref"]).is_file()
 
-    recovered = runner.invoke(cli.app, args)
-    assert recovered.exit_code == 0, recovered.output
-    result = json.loads(recovered.output)
-    assert result["state"] == "completed"
-    assert result["recovered"] is True
+    before = (home / plan["binding_ref"]).read_bytes()
+    retry = runner.invoke(cli.app, args)
+    assert retry.exit_code != 0
+    assert (home / plan["binding_ref"]).read_bytes() == before
+    assert runtime.job_snapshot(snapshot["job_id"])["state"] == "recovery-required"
 
 
 def _smart_export(path: Path) -> Path:

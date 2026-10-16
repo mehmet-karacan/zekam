@@ -17,15 +17,13 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.secret_detection import scan_text
-from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
+from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import validate_slug
-from zekam.infrastructure.knowledge_files import KnowledgeFileStore
-from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
-PLAN_SCHEMA = "zekam-odi11g-export-plan/v1"
-BINDING_SCHEMA = "zekam-project-local-odi11g-binding/v1"
+PLAN_SCHEMA = "zekam-odi11g-export-plan/v2"
+BINDING_SCHEMA = "zekam-project-local-odi11g-binding/v2"
 RESULT_SCHEMA = "zekam-odi11g-export-binding-result/v1"
 OPERATION = "project.odi-bind"
 _MAX_FILES = 20_000
@@ -244,6 +242,17 @@ def build_odi11g_export_plan(
         "binding_ref": f"projeler/{slug}/baglantilar/odi11g.json",
         "source_root_digest": digest_of_bytes(str(root).encode("utf-8")),
         "tree_digest": digest(entries),
+        "source_snapshot_contract": {
+            "revision_ref": digest(entries),
+            "tree_digest": digest(entries),
+            "content_digest": digest(
+                {
+                    "format": "odi11g-export",
+                    "tree_digest": digest(entries),
+                    "source_root_digest": digest_of_bytes(str(root).encode("utf-8")),
+                }
+            ),
+        },
         "file_count": len(entries),
         "total_bytes": total,
         "sections": sorted(observed_sections),
@@ -261,156 +270,11 @@ def build_odi11g_export_plan(
 
 
 def bind_odi11g_export(
-    *, home: Path, plan: Odi11gExportPlan, expected_plan_digest: str
+    *, home: Path, plan: Odi11gExportPlan, expected_plan_digest: str, work_binding=None
 ) -> dict[str, Any]:
-    """Persist one exact local-only binding behind a claim and terminal receipt."""
+    """Write only through the canonical Work/Run/claim/checkpoint/receipt boundary."""
+    from zekam.application.odi11g_binding_runtime import bind_canonical_odi_export
 
-    if expected_plan_digest != plan.plan_digest:
-        raise PolicyViolation("ODI binding exact plan digest ister")
-    if plan.body["accepted"] is not True:
-        raise PolicyViolation("ODI export preflight issue tasiyor; binding reddedildi")
-    current = build_odi11g_export_plan(
-        home=home,
-        project_id=str(plan.body["project_id"]),
-        project_slug=str(plan.body["project_slug"]),
-        export_root=plan.root,
+    return bind_canonical_odi_export(
+        home=home, plan=plan, expected_plan_digest=expected_plan_digest, work_binding=work_binding
     )
-    if current.plan_digest != plan.plan_digest:
-        raise PolicyViolation("ODI export plan sonrasi degisti")
-    runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
-    document = {
-        "schema": BINDING_SCHEMA,
-        "project_id": plan.body["project_id"],
-        "project_slug": plan.body["project_slug"],
-        "source_root": str(plan.root),
-        "source_root_digest": plan.body["source_root_digest"],
-        "tree_digest": plan.body["tree_digest"],
-        "file_count": plan.body["file_count"],
-        "files": plan.body["files"],
-        "plan_digest": plan.plan_digest,
-        "embedding_ready": False,
-        "embedding_blocker": plan.body["embedding_blocker"],
-        "local_only": True,
-    }
-    job_payload = dict(plan.body) | {"dry_run": False}
-    job, created = runtime.enqueue(
-        idempotency_key=f"odi11g:{plan.plan_digest}", payload=job_payload, max_attempts=1
-    )
-    if not created:
-        snapshot = runtime.job_snapshot(job.id)
-        if snapshot is None:
-            raise PolicyViolation("ODI binding replay job bulunamadi")
-        if snapshot["state"] == "recovery-required":
-            KnowledgeFileStore(home).write_private_binding(
-                str(plan.body["binding_ref"]),
-                (canonical_json(document) + "\n").encode("utf-8"),
-            )
-            evidence = digest(
-                {
-                    "operation": OPERATION,
-                    "plan_digest": plan.plan_digest,
-                    "binding_digest": digest(document),
-                    "recovery": True,
-                }
-            )
-            resolutions: list[str] = []
-            for case in runtime.recovery_cases(open_only=True):
-                if case.job_id == job.id:
-                    resolution = runtime.resolve_recovery(
-                        case.id, outcome="completed", evidence_digest=evidence
-                    )
-                    resolutions.append(resolution.id)
-            if not resolutions:
-                raise PolicyViolation("ODI binding recovery case bulunamadi")
-            recovered = runtime.reconcile_recovery(job.id)
-            body = {
-                "schema": RESULT_SCHEMA,
-                "job_id": job.id,
-                "plan_digest": plan.plan_digest,
-                "binding_ref": plan.body["binding_ref"],
-                "binding_digest": digest(document),
-                "tree_digest": plan.body["tree_digest"],
-                "state": recovered.state,
-                "embedding_ready": False,
-                "embedding_blocker": plan.body["embedding_blocker"],
-                "recovery_resolution_ids": resolutions,
-                "replayed": True,
-                "recovered": True,
-                "grants_authority": False,
-            }
-            return body | {"result_digest": digest(body)}
-        return {
-            "schema": RESULT_SCHEMA,
-            "job_id": job.id,
-            "plan_digest": plan.plan_digest,
-            "state": snapshot["state"],
-            "replayed": True,
-            "attempt_count": snapshot["attempt_count"],
-            "effects": snapshot["effects"],
-            "grants_authority": False,
-        }
-    token = os.urandom(32).hex()
-    work = runtime.claim_next(
-        owner_id=f"odi11g-{os.getpid()}",
-        owner_pid=os.getpid(),
-        owner_token=token,
-        lease_seconds=120,
-        resources=(f"project:{plan.body['project_id']}:odi11g",),
-        supported_operations=(OPERATION,),
-        job_id=job.id,
-    )
-    if work is None:
-        raise PolicyViolation("ODI binding job claim edilemedi")
-    effect, effect_created = runtime.claim_effect(
-        work,
-        operation=OPERATION,
-        effect_digest=digest(
-            {
-                "operation": OPERATION,
-                "plan_digest": plan.plan_digest,
-                "binding_ref": plan.body["binding_ref"],
-            }
-        ),
-        idempotency_key=f"odi11g:{plan.plan_digest}:effect",
-    )
-    if not effect_created:
-        runtime.finish(work, state="recovery-required")
-        raise PolicyViolation("ODI binding effect replay; silent redispatch yasak")
-    try:
-        KnowledgeFileStore(home).write_private_binding(
-            str(plan.body["binding_ref"]), (canonical_json(document) + "\n").encode("utf-8")
-        )
-        evidence = digest(
-            {
-                "operation": OPERATION,
-                "plan_digest": plan.plan_digest,
-                "binding_digest": digest(document),
-            }
-        )
-        receipt = runtime.record_receipt(effect, status="completed", evidence_digest=evidence)
-        runtime.finish(work, state="completed", evidence_digest=evidence)
-    except Exception as exc:
-        failure = digest(
-            {"operation": OPERATION, "status": "unknown", "error_type": type(exc).__name__}
-        )
-        try:
-            runtime.record_receipt(effect, status="unknown", evidence_digest=failure)
-            runtime.finish(work, state="recovery-required")
-        except Exception:
-            pass
-        raise
-    body = {
-        "schema": RESULT_SCHEMA,
-        "job_id": job.id,
-        "plan_digest": plan.plan_digest,
-        "binding_ref": plan.body["binding_ref"],
-        "binding_digest": digest(document),
-        "tree_digest": plan.body["tree_digest"],
-        "state": "completed",
-        "embedding_ready": False,
-        "embedding_blocker": plan.body["embedding_blocker"],
-        "receipt_id": receipt.id,
-        "replayed": False,
-        "grants_authority": False,
-    }
-    return body | {"result_digest": digest(body)}

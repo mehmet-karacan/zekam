@@ -416,6 +416,8 @@ def odi_bind_command(
     project: Annotated[str, typer.Argument(help="Proje slug veya alias")],
     source: Annotated[Path, typer.Argument(help="ODI 11g export bundle koku")],
     expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    run_id: Annotated[UUID | None, typer.Option("--run-id")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
@@ -430,10 +432,24 @@ def odi_bind_command(
         else:
             if expected_plan_digest is None:
                 raise PolicyViolation("ODI binding --plan-digest ister")
+            if run_id is None or work_revision is None:
+                raise PolicyViolation("ODI binding canonical --run-id ve --work-revision ister")
+            from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+
+            runtime = SQLiteLocalRuntimeStore(
+                resolve_home(home) / "state/operational.db", existing_only=True
+            )
+            binding = runtime.resolve_work_binding(
+                run_id=str(run_id),
+                work_revision=work_revision,
+                project_id=plan.body["project_id"],
+                plan_digest=expected_plan_digest,
+            )
             document = bind_odi11g_export(
                 home=resolve_home(home),
                 plan=plan,
                 expected_plan_digest=expected_plan_digest,
+                work_binding=binding,
             )
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -441,6 +457,24 @@ def odi_bind_command(
         _print_json(document)
     else:
         _print_json(document)
+
+
+@app.command("odi-binding-source")
+def odi_binding_source_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Tamamlanmis canonical ODI binding receipt'ini salt okunur dogrular."""
+    from zekam.application.odi11g_binding_runtime import read_odi_binding_source
+
+    try:
+        _print_json(read_odi_binding_source(resolve_home(home), reference))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        from zekam.domain.errors import ValidationFailed
+
+        raise fail_from(ValidationFailed("ODI binding canonical source okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
 
 
 @app.command("odi-smart-import")
