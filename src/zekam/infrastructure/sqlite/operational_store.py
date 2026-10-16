@@ -1664,6 +1664,8 @@ class SQLiteOperationalUnitOfWork:
             " s.source_binding_id,s.revision_ref source_revision_ref,s.tree_digest source_tree_digest,"
             " s.content_digest source_content_digest,s.config_digest source_config_digest,"
             " json_extract(jobs.payload_json,'$.work_binding_digest') payload_binding_digest,"
+            " case when exists(select 1 from local_lease lease"
+            " where lease.job_id=jobs.id) then 'present' else 'absent' end lease_state,"
             f" exists({current}) canonical_inputs_current"
             " from local_job_binding b join local_job jobs on jobs.id=b.local_job_id"
             " left join source_snapshot s on s.id=b.source_snapshot_id"
@@ -1733,6 +1735,9 @@ class SQLiteOperationalUnitOfWork:
                     "binding_digest": binding.binding_digest,
                     "job_id": str(row["local_job_id"]),
                     "job_state": str(row["state"]),
+                    # Only lease presence is public readback.  Owner/token and
+                    # fencing fields stay inside the canonical worker boundary.
+                    "lease_state": str(row["lease_state"]),
                     "attempt_count": int(row["attempt_count"]),
                     "terminal_evidence_digest": row["terminal_evidence_digest"],
                     "canonical_inputs_current": bool(row["canonical_inputs_current"]),

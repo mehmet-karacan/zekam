@@ -31,8 +31,29 @@ def execution_guard(bound_jobs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             or not isinstance(item.get("canonical_inputs_current"), bool)
             for item in jobs
         )
+        # Canonical SQLite readback now exposes only the presence state of the
+        # lease.  Owner ids, tokens and fencing values never leave the store.
+        # Older adapters may omit this additive field; their existing bounded
+        # guard remains usable, while a malformed supplied value is fail-closed.
+        lease_states = [item.get("lease_state") for item in jobs if "lease_state" in item]
+        invalid_lease_state = any(value not in {"absent", "present"} for value in lease_states)
+        lease_shape_drift = any(
+            value == "absent"
+            and item.get("job_state") == "running"
+            or value == "present"
+            and item.get("job_state")
+            in {"ready", "recovery-required", "completed", "failed", "cancelled", "quarantined"}
+            for item, value in ((item, item.get("lease_state")) for item in jobs)
+            if "lease_state" in item
+        )
         stale_binding = any(item.get("canonical_inputs_current") is False for item in jobs)
-        if unknown_shape or missing_receipts or "recovery-required" in states:
+        if (
+            unknown_shape
+            or invalid_lease_state
+            or lease_shape_drift
+            or missing_receipts
+            or "recovery-required" in states
+        ):
             status = "recovery-required"
             next_safe_action = (
                 "Receipt/lease zincirini kanonik recovery ile uzlastir; effect tekrarlama."

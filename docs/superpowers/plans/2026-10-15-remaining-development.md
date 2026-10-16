@@ -40,6 +40,13 @@
 
 ## Yurutme kaydi
 
+- 16 Ekim 2026 WP-07.01..04 lease readback: Canonical bound-job ozetleri owner,
+  token ve fencing degerlerini disari cikarmadan lease varlik durumunu tasiyor.
+  Running job'da lease yoklugu ve terminal/recovery job'da lease kalintisi resume
+  execution guard tarafinda recovery-required olarak durduruluyor; eski adapter'larin
+  additive alani vermedigi durumda mevcut bounded guard korunuyor. Testler
+  CALISTIRILMADI; grant yeniden edinimi ve gercek race/crash kabulu final kapida.
+
 - Gorev 4 WP-04.01/06.03: Code graph build plani bounded metadata envanterini
   (yol, tur, boyut ve eligibility durumu) kaynak dosya manifestinden ayri
   tasir. Denied/generated/linkli/okunamayan girdiler content okumadan planda
