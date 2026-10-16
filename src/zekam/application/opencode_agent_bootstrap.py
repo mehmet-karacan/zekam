@@ -50,7 +50,7 @@ def _require_regular_directory(path: Path, label: str) -> None:
         raise ConfigurationError(f"{label} regular directory olmali")
 
 
-_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v5
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v6
 import { tool } from "@opencode-ai/plugin"
 import { renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises"
@@ -473,7 +473,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       // Never spread the native error/result: even error.name/code can carry
       // untrusted text. Only a fixed content-free category crosses the CLI.
       await emit("tool.execute.after", {
-        sessionID: sessionID(input), agent: input.agent, modelID: input.modelID,
+        sessionID: sessionID(input), agent: input.agent, modelID: input.nativeSkillModelRef ?? input.modelID,
         tool: input.tool, resource, status, errorCategory, taskLabel: input.nativeSkillLoadLabel,
       })
     },
@@ -490,6 +490,35 @@ export default {
     if (typeof directory !== "string") return
     const hooks = await ZekamLifecycle({ directory })
     if (!hooks || Object.keys(hooks).length === 0) return
+
+    // A session default can drift between requests. Only an exact native
+    // assistant step/message association may supply the invoking model.
+    const nativeSteps = new Map()
+    const nativeKey = (session, message) => JSON.stringify([session, message])
+    const rememberStep = (event) => {
+      if (event?.type !== "session.step.started") return
+      const data = event?.data ?? event?.properties ?? {}
+      if (![data.sessionID, data.assistantMessageID].every(
+        (value) => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(value),
+      )) return
+      const model = data.model
+      const key = nativeKey(data.sessionID, data.assistantMessageID)
+      const agent = typeof data.agent === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(data.agent) ? data.agent : undefined
+      let ref
+      if (model && typeof model.providerID === "string" && typeof model.id === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(model.providerID) &&
+          /^[A-Za-z0-9][A-Za-z0-9_./:-]*$/.test(model.id) &&
+          (model.variant === undefined || typeof model.variant === "string" &&
+            /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/.test(model.variant))) {
+        const candidate = `${model.providerID}/${model.id}${model.variant === undefined ? "" : `#${model.variant}`}`
+        if (candidate.length <= 160) ref = candidate
+      }
+      const previous = nativeSteps.get(key)
+      if (!agent || previous && (previous.ref !== ref || previous.agent !== agent)) {
+        nativeSteps.set(key, { ambiguous: true })
+      } else if (!previous?.ambiguous) nativeSteps.set(key, { ref, agent })
+      if (nativeSteps.size > 256) nativeSteps.delete(nativeSteps.keys().next().value)
+    }
 
     const nativeSkillLoad = async (event) => {
       if (event.tool !== "skill" || event.status !== "completed" || !context?.skill?.list) return {}
@@ -537,11 +566,15 @@ export default {
             binding.invocation_observed !== false || binding.provider_calls !== 0 ||
             ![binding.revision_digest, binding.package_digest].every(isDigest) ||
             !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(binding.export_job_id ?? "")) return {}
-        const label = "native-skill-load/v1:" + JSON.stringify({
+        const step = nativeSteps.get(nativeKey(event.sessionID, message))
+        const modelRef = step && !step.ambiguous && step.agent === event.agent ? step.ref : undefined
+        const label = (modelRef ? "native-skill-load/v2:" : "native-skill-load/v1:") + JSON.stringify({
           j: binding.export_job_id, r: binding.revision_digest.slice(7), p: binding.package_digest.slice(7),
           b: instruction.slice(7), c: hash(call), m: hash(message),
+          ...(modelRef ? { u: hash(modelRef) } : {}),
         })
-        return label.length <= 500 ? { nativeSkillResource: resource, nativeSkillLoadLabel: label } : {}
+        return label.length <= 500 ? { nativeSkillResource: resource, nativeSkillLoadLabel: label,
+          ...(modelRef ? { nativeSkillModelRef: modelRef } : {}) } : {}
       } catch {
         // Optional observation must not block native skill loading or invent a binding.
         return {}
@@ -557,6 +590,10 @@ export default {
         try {
           for await (const event of eventStream) {
             const properties = event?.data ?? event?.properties ?? {}
+            rememberStep(event)
+            if (event?.type === "session.deleted") {
+              for (const key of nativeSteps.keys()) if (JSON.parse(key)[0] === properties.sessionID) nativeSteps.delete(key)
+            }
             await hooks.event?.({ event: { type: event?.type, properties } })
           }
         } catch (error) {
@@ -916,6 +953,7 @@ LEGACY_LIFECYCLE_PLUGIN_DIGESTS = frozenset(
         "sha256:9a1ab03cf2537f3dc92384eac21d990dd62bbc11bee8c842069f2b662071b37d",
         "sha256:10065faebb57d29c02c01d66f03d16dbed041378c7b514f83e66d74bcbb25078",
         "sha256:639ed48fead05acec5628f285cf9f4c104c6241da00a23bf12155386afc136d2",
+        "sha256:6616adff486941277d9d2d4aab4f5ffb9225ce8f56912518b4232ce5899e083b",
     )
 )
 

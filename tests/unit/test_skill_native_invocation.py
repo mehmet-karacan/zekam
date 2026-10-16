@@ -336,6 +336,70 @@ def test_report_retains_historical_observation_after_deactivation_without_rewrit
         )
 
 
+def test_exact_native_step_model_is_pinned_without_claiming_independence(world, native_load):
+    f = native_load
+    model = "provider/builder#extra-high"
+    fields = json.loads(f.event.task_label.removeprefix("native-skill-load/v1:"))
+    fields["u"] = digest_of_bytes(model.encode())[7:]
+    event = f.emit(
+        model_ref=model,
+        task_label="native-skill-load/v2:" + json.dumps(fields, separators=(",", ":")),
+    )
+    plan = subject.build_native_invocation_plan(
+        world.home,
+        lifecycle=f.lifecycle,
+        event_id=event.event_id,
+        project_root=f.root,
+        allowed_scopes=f.scopes,
+    )
+    assert plan["invoking_model_ref"] == model
+    assert plan["invoking_model_provenance"] == "native-step-message"
+    assert plan["host_attested"] is False
+    result = subject.run_native_invocation(
+        world.home,
+        lifecycle=f.lifecycle,
+        plan=plan,
+        binding=_binding(world, plan),
+        project_root=f.root,
+        allowed_scopes=f.scopes,
+    )
+    assert result["state"] == "unverified"
+    assert result["skill_effect_verified"] is False
+
+
+@pytest.mark.parametrize("model", [None, "provider/different#extra-high", "provider/builder#"])
+def test_native_model_v2_label_rejects_missing_changed_and_invalid_model(world, native_load, model):
+    f = native_load
+    fields = json.loads(f.event.task_label.removeprefix("native-skill-load/v1:"))
+    fields["u"] = digest_of_bytes(b"provider/builder#extra-high")[7:]
+    event = f.emit(
+        model_ref=model,
+        task_label="native-skill-load/v2:" + json.dumps(fields, separators=(",", ":")),
+    )
+    with pytest.raises(PolicyViolation):
+        subject.build_native_invocation_plan(
+            world.home,
+            lifecycle=f.lifecycle,
+            event_id=event.event_id,
+            project_root=f.root,
+            allowed_scopes=f.scopes,
+        )
+
+
+def test_legacy_label_does_not_promote_unbound_model_metadata(world, native_load):
+    f = native_load
+    event = f.emit(model_ref="provider/session-default#extra-high")
+    plan = subject.build_native_invocation_plan(
+        world.home,
+        lifecycle=f.lifecycle,
+        event_id=event.event_id,
+        project_root=f.root,
+        allowed_scopes=f.scopes,
+    )
+    assert plan["invoking_model_ref"] is None
+    assert plan["invoking_model_provenance"] == "unavailable"
+
+
 def test_foreign_project_cannot_read_recording_receipt(world, native_load):
     from uuid import uuid4
 

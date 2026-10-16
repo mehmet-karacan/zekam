@@ -25,6 +25,32 @@ from zekam.domain.errors import ValidationFailed
 NOW = dt.datetime(2026, 8, 23, 12, 0, tzinfo=dt.UTC)
 
 
+def test_native_model_variant_is_bounded_metadata_without_widening_other_ids(
+    tmp_path: Path,
+) -> None:
+    model = "provider/model#extra-high+v2"
+    event = record_event(
+        tmp_path,
+        event_type="tool.execute.after",
+        session_id="ses_variant",
+        tool="skill",
+        status="completed",
+        model_ref=model,
+        now=NOW,
+    )
+    assert event.model_ref == model
+    assert recent_events(tmp_path, quarantine_invalid=False)[0]["model_ref"] == model
+    with pytest.raises(ValidationFailed):
+        record_event(
+            tmp_path,
+            event_type="tool.execute.after",
+            session_id="ses#invalid",
+            tool="skill",
+            status="completed",
+            now=NOW,
+        )
+
+
 def test_interrupted_tool_is_model_independent_resume_evidence(tmp_path: Path) -> None:
     event = record_event(
         tmp_path,

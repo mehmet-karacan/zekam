@@ -164,7 +164,22 @@ if (Bun.env.RUN_V2_SETUP === "1") {
   }
   if (Bun.env.RUN_V2_SKILL === "1") {
     const native = { sessionID: "native-skill", id: "native-call-private", messageID: "native-message-private",
-      tool: "skill", input: { id: "native-example" } }
+      agent: "agent-builder", tool: "skill", input: { id: "native-example" } }
+    const modelMode = Bun.env.NATIVE_STEP_MODEL
+    if (modelMode) {
+      const step = { sessionID: modelMode === "other-session" ? "other-session" : native.sessionID,
+        assistantMessageID: modelMode === "other-message" ? "other-message" : native.messageID,
+        agent: modelMode === "other-agent" ? "other-agent" : native.agent,
+        model: {providerID: "provider", id: "builder", variant: "extra-high"},
+        content: "private-step-content-sentinel" }
+      if (modelMode === "invalid") step.model.id = "private model with spaces"
+      push({ type: "session.step.started", data: step })
+      if (modelMode === "conflict") push({ type: "session.step.started", data: {
+        ...step, model: {providerID: "provider", id: "different"} } })
+      if (modelMode === "model-switch") push({ type: "session.model.selected", data: {
+        sessionID: native.sessionID, model: {providerID: "provider", id: "later-default"} } })
+      await Bun.sleep(50)
+    }
     await callbacks["tool:execute.before"](native)
     const content = `<skill_content name="native-example">\\n# Skill: native-example\\n\\n${skillBody}\\n\\nBase directory for this skill: ${dirname(skillPath)}\\nRelative paths in this skill are relative to this base directory.\\n<skill_files>\\n</skill_files>\\n</skill_content>`
     await callbacks["tool:execute.after"]({ ...native, status: "completed",
@@ -438,6 +453,61 @@ def test_v2_native_skill_load_attaches_only_resolved_content_free_observation(
         "c": hashlib.sha256(b"native-call-private").hexdigest(),
         "m": hashlib.sha256(b"native-message-private").hexdigest(),
     }
+
+
+@pytest.mark.parametrize(
+    "mode,known",
+    [
+        ("exact", True),
+        ("model-switch", True),
+        ("other-message", False),
+        ("other-session", False),
+        ("other-agent", False),
+        ("conflict", False),
+        ("invalid", False),
+    ],
+)
+def test_native_model_identity_comes_only_from_exact_step_message(
+    tmp_path: Path, mode: str, known: bool
+) -> None:
+    runner, executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "native-model.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=executable,
+        RUN_V2_SETUP="1",
+        RUN_V2_SKILL="1",
+        NATIVE_STEP_MODEL=mode,
+        ZEKAM_CAPTURE=str(capture),
+    )
+    assert result.returncode == 0, result.stderr
+    raw = capture.read_text(encoding="utf-8")
+    calls = [json.loads(line) for line in raw.splitlines()]
+    after = [
+        call
+        for call in calls
+        if "--type" in call
+        and call[call.index("--type") + 1] == "tool.execute.after"
+        and call[call.index("--session") + 1] == "native-skill"
+    ]
+    assert len(after) == 1
+    label = after[0][after[0].index("--task-label") + 1]
+    assert len(label) <= 500
+    assert "private-step-content-sentinel" not in raw
+    assert "later-default" not in raw
+    if not known:
+        assert label.startswith("native-skill-load/v1:")
+        assert "--model" not in after[0]
+        return
+    assert label.startswith("native-skill-load/v2:")
+    model = after[0][after[0].index("--model") + 1]
+    assert model == "provider/builder#extra-high"
+    assert (
+        json.loads(label.removeprefix("native-skill-load/v2:"))["u"]
+        == hashlib.sha256(model.encode()).hexdigest()
+    )
 
 
 def _native_opencode() -> Path:

@@ -22,6 +22,7 @@ from zekam.domain.identifiers import new_uuid7
 SCHEMA_V1 = "zekam-opencode-lifecycle-event/v1"
 SCHEMA = "zekam-opencode-lifecycle-event/v2"
 _ID = re.compile(r"^[A-Za-z0-9_./:-]{1,160}$")
+_MODEL_REF = re.compile(r"^[A-Za-z0-9_./:#\-+]{1,160}$")
 _EVENTS = frozenset(
     {
         "session.created",
@@ -101,7 +102,8 @@ def _bounded(value: str | None, *, label: str, maximum: int = 160) -> str | None
     if value is None:
         return None
     cleaned = value.strip()
-    if not cleaned or len(cleaned) > maximum or not _ID.fullmatch(cleaned):
+    pattern = _MODEL_REF if label == "model_ref" else _ID
+    if not cleaned or len(cleaned) > maximum or not pattern.fullmatch(cleaned):
         raise ValidationFailed(f"OpenCode lifecycle {label} gecersiz")
     return cleaned
 

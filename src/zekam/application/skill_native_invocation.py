@@ -22,6 +22,7 @@ from zekam.application.opencode_lifecycle import recent_events
 from zekam.application.skill_evidence import _constant, _pairs
 from zekam.application.skill_trial_aggregation import _object
 from zekam.application.config import load_settings
+from zekam.application.unit_test_models import validate_model_id
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.personal_skill import SkillInvocationState, SkillScopeKind
@@ -91,12 +92,15 @@ def build_native_invocation_plan(
         or event.get("status") != "completed"
         or event.get("error_category") is not None
         or type(label) is not str
-        or not label.startswith("native-skill-load/v1:")
+        or not label.startswith(("native-skill-load/v1:", "native-skill-load/v2:"))
     ):
         raise PolicyViolation("Native invocation requires completed bound skill load")
+    version = 2 if label.startswith("native-skill-load/v2:") else 1
+    prefix = f"native-skill-load/v{version}:"
+    keys = {"j", "r", "p", "b", "c", "m"} | ({"u"} if version == 2 else set())
     try:
         observed = json.loads(
-            label.removeprefix("native-skill-load/v1:"),
+            label.removeprefix(prefix),
             object_pairs_hook=_pairs,
             parse_constant=_constant,
         )
@@ -104,14 +108,27 @@ def build_native_invocation_plan(
         raise PolicyViolation("Native invocation strict load label required") from exc
     if (
         not isinstance(observed, dict)
-        or set(observed) != {"j", "r", "p", "b", "c", "m"}
+        or set(observed) != keys
         or any(
             type(observed[k]) is not str or _HEX.fullmatch(observed[k]) is None
-            for k in ("r", "p", "b", "c", "m")
+            for k in keys - {"j"}
         )
         or not _canonical_uuid(observed["j"])
     ):
         raise PolicyViolation("Native invocation exact bounded load identities required")
+    model_ref = None
+    if version == 2:
+        model_ref = validate_model_id(event.get("model_ref"))
+        if (
+            len(model_ref) > 160
+            or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.:-]*/[A-Za-z0-9][A-Za-z0-9_./:-]*(?:#[A-Za-z0-9][A-Za-z0-9_.+\-]*)?",
+                model_ref,
+            )
+            is None
+            or digest_of_bytes(model_ref.encode("utf-8")) != "sha256:" + observed["u"]
+        ):
+            raise PolicyViolation("Native invocation exact step model binding drift")
     resource = event.get("resource")
     if type(resource) is not str or len(resource.split("/")) != 4:
         raise PolicyViolation("Native invocation managed resource required")
@@ -162,6 +179,8 @@ def build_native_invocation_plan(
         "states": [str(s) for s in STATES],
         "observation_kind": "native-instruction-tool-completion",
         "host_attested": False,
+        "invoking_model_ref": model_ref,
+        "invoking_model_provenance": "native-step-message" if model_ref else "unavailable",
         "work_association": "explicit-recording",
         "skill_effect_verified": False,
         "provider_calls": 0,
