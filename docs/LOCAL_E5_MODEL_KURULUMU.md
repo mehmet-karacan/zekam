@@ -36,8 +36,8 @@ sorgularinda daha dusuk gecikme sagladigi icin secildi; quantization batch farki
 bounded toleransla kabul edilir.
 
 Tam repository test paketi ve gercek proje yeniden indeksleme, gelistirme
-asamalarinin son dogrulama kapisinda calistirilir. Bu belgeye o kapinin terminal
-kaniti ve makineye ozel performans olcumleri eklenecektir.
+asamalarinin son dogrulama kapisinda calistirilir. Son toplu kosunun terminal
+kaniti ve makineye ozel performans olcumu bu belgenin son bolumundedir.
 
 ## Zekam entegrasyonu
 

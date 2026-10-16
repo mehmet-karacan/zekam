@@ -1,7 +1,7 @@
 """Canonical project source/Oracle metadata -> local E5 -> hybrid RAG.
 
 The source project is never mutated. Discovery excludes ignored, binary, oversized,
-unsafe and secret-bearing files. Remote disclosure requires an explicit CLI flag;
+unsafe and secret-bearing files. External embedding disclosure is disabled;
 vectors are cached durably under ``ZEKAM_HOME`` so an interrupted indexing run
 resumes by exact chunk, content and provider-profile identity. The route is pinned
 to the local multilingual-e5-small ONNX CPU provider. Legacy BGE indexes and
