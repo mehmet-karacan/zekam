@@ -113,6 +113,15 @@ def default_local_e5_configuration() -> LocalE5Configuration:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         root = Path(local_app_data) / "Zekam" / "models" / MODEL_REPOSITORY.replace("/", "-")
+    elif os.name == "nt":
+        root = (
+            Path.home()
+            / "AppData"
+            / "Local"
+            / "Zekam"
+            / "models"
+            / MODEL_REPOSITORY.replace("/", "-")
+        )
     else:
         root = (
             Path.home()
