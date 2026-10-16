@@ -35,12 +35,12 @@ from zekam.application.embedding_provider import (
     EmbeddingReceipt,
 )
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.knowledge import Locator
 from zekam.domain.security import DataClassification
 from zekam.infrastructure.sqlite.knowledge_index import (
     MAX_RECORDS_PER_GENERATION,
-    VECTOR_DIMENSION,
     SQLiteKnowledgeIndex,
 )
 
@@ -162,9 +162,9 @@ def _chunk_file(file_path: Path, root: Path) -> tuple[SourceChunk, ...]:
 def _vector_for_chunk(seed: str) -> tuple[float, ...]:
     """Deterministic, normalized fixture vector (provider-free)."""
     h = hash(seed) & 0x7FFFFFFF
-    idx_a = h % VECTOR_DIMENSION
-    idx_b = (h * 7 + 3) % VECTOR_DIMENSION
-    values = [0.0] * VECTOR_DIMENSION
+    idx_a = h % LOCAL_E5_DIMENSION
+    idx_b = (h * 7 + 3) % LOCAL_E5_DIMENSION
+    values = [0.0] * LOCAL_E5_DIMENSION
     values[idx_a] = 1.0
     values[idx_b] = 0.25
     norm = math.sqrt(sum(value * value for value in values))
@@ -189,14 +189,14 @@ class _DeterministicProvider:
             display_name="Real keys deterministic fixture",
             provider_kind=EmbeddingProviderKind.LOCAL,
             provider_identity_digest=digest("real-keys-provider"),
-            exact_model_id="BAAI/bge-m3",
+            exact_model_id="intfloat/multilingual-e5-small",
             model_revision_fingerprint=digest("real-keys-revision"),
-            dimension=VECTOR_DIMENSION,
+            dimension=LOCAL_E5_DIMENSION,
             vector_dtype="float32",
             normalized=True,
             distance_metric="cosine",
-            query_prefix="",
-            passage_prefix="",
+            query_prefix="query: ",
+            passage_prefix="passage: ",
             preprocessor_digest=digest("preprocessor"),
             tokenizer_digest=digest("tokenizer"),
             batch_policy_digest=digest("batch"),
@@ -228,7 +228,7 @@ class _DeterministicProvider:
                 input_digest=digest(text),
                 output_digest=digest(vector),
                 vector_count=1,
-                dimension=VECTOR_DIMENSION,
+                dimension=LOCAL_E5_DIMENSION,
                 latency_ms=1,
                 provider_call_count=1,
             ),
@@ -245,7 +245,7 @@ class _DeterministicProvider:
                 input_digest=digest(texts),
                 output_digest=digest(vectors),
                 vector_count=len(texts),
-                dimension=VECTOR_DIMENSION,
+                dimension=LOCAL_E5_DIMENSION,
                 latency_ms=1,
                 provider_call_count=1,
             ),
@@ -263,7 +263,9 @@ def _build_index(
     root: Path,
 ) -> SQLiteKnowledgeIndex:
     """Build a SQLiteKnowledgeIndex by chunking source files."""
-    index = SQLiteKnowledgeIndex(tmp_path / "real_keys.sqlite3", create=True)
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "real_keys.sqlite3", create=True, dimension=LOCAL_E5_DIMENSION
+    )
 
     source_digests: dict[str, str] = {}
     for file_path in files:
@@ -292,6 +294,7 @@ def _build_index(
                     content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
                     chunk_order=chunk_order,
                     vector=_vector_for_chunk(chunk.chunk_id),
+                    vector_dimension=LOCAL_E5_DIMENSION,
                 )
             )
             chunk_order += 1

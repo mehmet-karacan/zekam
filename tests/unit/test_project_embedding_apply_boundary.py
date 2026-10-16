@@ -22,7 +22,11 @@ from zekam.application.embedding_provider import (
     verify_document_embedding_batch,
 )
 from zekam.application.local_embedding_composition import project_embedding_probe_fixture
-from zekam.application.project_knowledge_index import apply_project_index, build_project_index_plan
+from zekam.application.project_knowledge_index import (
+    LOCAL_E5_DIMENSION,
+    apply_project_index,
+    build_project_index_plan,
+)
 from zekam.application.source_discovery import discover
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
@@ -33,22 +37,22 @@ pytestmark = pytest.mark.unit
 
 def _profile() -> EmbeddingProfile:
     return EmbeddingProfile(
-        profile_id="local-bge-test",
-        display_name="Local BGE test",
+        profile_id="local-e5-test",
+        display_name="Local multilingual-e5-small test",
         provider_kind=EmbeddingProviderKind.LOCAL,
         provider_identity_digest=digest("provider"),
-        exact_model_id="BAAI/bge-m3",
+        exact_model_id="intfloat/multilingual-e5-small",
         model_revision_fingerprint=digest("revision"),
-        dimension=1024,
+        dimension=LOCAL_E5_DIMENSION,
         vector_dtype="float32",
         normalized=True,
         distance_metric="cosine",
-        query_prefix="",
-        passage_prefix="",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
         preprocessor_digest=digest("preprocessor"),
         tokenizer_digest=digest("tokenizer"),
         batch_policy_digest=digest("batch"),
-        device_scope="darwin-arm64:mps",
+        device_scope="windows-x86_64:cpu",
         data_classification_allowlist=(DataClassification.LOCAL_ONLY,),
         verified_at="2026-09-02T00:00:00Z",
         probe_evidence_digest=digest("probe"),

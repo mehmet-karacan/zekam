@@ -35,11 +35,11 @@ from zekam.application.embedding_provider import (
 )
 from zekam.application.home import HomeLayout
 from zekam.application.knowledge_index import KnowledgeGeneration, KnowledgeIndexRecord
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.knowledge import Locator
 from zekam.domain.security import DataClassification
 from zekam.infrastructure.sqlite.knowledge_index import (
-    VECTOR_DIMENSION,
     SQLiteKnowledgeIndex,
 )
 
@@ -53,7 +53,7 @@ TREE_B = digest("tree-b")
 
 
 def _vector(primary: int) -> tuple[float, ...]:
-    values = [0.0] * VECTOR_DIMENSION
+    values = [0.0] * LOCAL_E5_DIMENSION
     values[primary] = 1.0
     norm = math.sqrt(sum(value * value for value in values))
     return tuple(value / norm for value in values)
@@ -71,6 +71,7 @@ def _record(chunk_id: str, *, path: str, text: str, revision: str) -> KnowledgeI
         content_digest=digest_of_bytes(text.encode("utf-8")),
         chunk_order=0,
         vector=_vector(0),
+        vector_dimension=LOCAL_E5_DIMENSION,
     )
 
 
@@ -106,7 +107,13 @@ def _paths(tmp_path: Path) -> dict[str, Path]:
 
     home = tmp_path / "home"
     project_root = home / "projeler" / "rag-project"
-    index_root = home / "knowledge-index" / "vector" / "opencode-bge-m3" / "rag-project"
+    index_root = (
+        home
+        / "knowledge-index"
+        / "vector"
+        / "multilingual-e5-small-onnx-int8"
+        / "rag-project"
+    )
     manifest_root = home / "knowledge-index" / "manifests" / "rag-project"
     state = project_root / "runtime" / "rag-state.json"
     for directory in (project_root / "runtime", index_root, manifest_root):
@@ -142,7 +149,9 @@ def _ready_and_staged(
 
     records_a = _records(REV_A, "docs/karar/adr-0001.md", "eski uretilmis icerik")
     records_b = _records(REV_B, "docs/karar/adr-0002.md", "yeni uretilmis icerik")
-    with SQLiteKnowledgeIndex(paths["index"], create=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], create=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         staged_a = _stage(index, records_a, revision=REV_A, tree=TREE_A)
         index.publish_staged_generation(PROJECT_ID, staged_a.generation_digest, None)
         staged_b = _stage(index, records_b, revision=REV_B, tree=TREE_B)
@@ -170,18 +179,18 @@ def _init_git_source(root: Path, files: dict[str, str] | None = None) -> None:
 
 def _test_embedding_profile() -> EmbeddingProfile:
     return EmbeddingProfile(
-        profile_id="local-bge-integration-test",
-        display_name="Local BGE integration test",
+        profile_id="local-e5-integration-test",
+        display_name="Local multilingual-e5-small integration test",
         provider_kind=EmbeddingProviderKind.LOCAL,
         provider_identity_digest=digest("provider"),
-        exact_model_id="BAAI/bge-m3",
+        exact_model_id="intfloat/multilingual-e5-small",
         model_revision_fingerprint=digest("model-revision"),
-        dimension=VECTOR_DIMENSION,
+        dimension=384,
         vector_dtype="float32",
         normalized=True,
         distance_metric="cosine",
-        query_prefix="",
-        passage_prefix="",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
         preprocessor_digest=digest("preprocessor"),
         tokenizer_digest=digest("tokenizer"),
         batch_policy_digest=digest("batch"),
@@ -267,7 +276,7 @@ def _run_index(
         project_slug,
         None,
         None,
-        batch_size=8,
+        batch_size=4,
     )
 
 
@@ -338,7 +347,9 @@ def test_runtime_recovers_completed_slot_before_rebatching_after_cache_crash(
 
 
 def _ready_chunk_paths(index_path: Path, project_id: Any) -> tuple[str, ...]:
-    with SQLiteKnowledgeIndex(index_path, read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        index_path, read_only=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         generation = index.generation(str(project_id))
         connection = _read_only_connection(index_path)
         try:
@@ -373,7 +384,7 @@ def test_head_revision_change_reuses_document_embedding_cache(
         project_slug,
         None,
         None,
-        batch_size=8,
+        batch_size=4,
     )
     _, plan = runtime._project_plan(
         source_root,
@@ -401,7 +412,7 @@ def test_head_revision_change_reuses_document_embedding_cache(
         project_slug,
         None,
         None,
-        batch_size=8,
+        batch_size=4,
     )
 
     assert provider.document_calls == 1
@@ -528,7 +539,9 @@ def test_staged_generation_keeps_old_ready_pointer(tmp_path: Path) -> None:
     """Staging must not touch ``current_generation`` nor the ready generation."""
 
     paths = _paths(tmp_path)
-    with SQLiteKnowledgeIndex(paths["index"], create=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], create=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         staged_a = _stage(
             index, _records(REV_A, "docs/a.md", "eski icerik"), revision=REV_A, tree=TREE_A
         )
@@ -621,7 +634,9 @@ def test_crash_after_db_cas_is_recovered_from_pending(
     assert recovery["pending_cleared"] is True
     assert json.loads(paths["state"].read_text(encoding="utf-8")) == _result(staged_b)
     assert not pending_path.exists()
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         assert index.generation(PROJECT_ID).generation_digest == staged_b.generation_digest
 
 
@@ -699,7 +714,9 @@ def test_crash_before_cas_keeps_old_ready_pointer(
     )
     assert published["state_written"] is True
     assert published["pending_cleared"] is True
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         assert index.generation(PROJECT_ID).generation_digest == staged_b.generation_digest
     assert json.loads(paths["state"].read_text(encoding="utf-8")) == _result(staged_b)
     assert not runtime._rag_pending_path(paths["state"]).exists()
@@ -804,7 +821,9 @@ def test_staged_manifest_tampering_prevents_database_publication(tmp_path: Path)
             staged_b.generation_digest,
             publication=publication,
         )
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         assert index.generation(PROJECT_ID).generation_digest == staged_a.generation_digest
 
 
@@ -842,5 +861,7 @@ def test_foreign_project_projection_rejects_before_cas(tmp_path: Path, existing:
             publication=publication,
         )
     assert target.read_bytes() == existing
-    with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
+    with SQLiteKnowledgeIndex(
+        paths["index"], read_only=True, dimension=LOCAL_E5_DIMENSION
+    ) as index:
         assert index.generation(PROJECT_ID).generation_digest == staged_a.generation_digest

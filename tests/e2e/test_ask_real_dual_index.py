@@ -5,8 +5,8 @@
 ve gercek coklu indeks fixture'i olmadigini acikca belirtir. Bu suite o boslugu
 doldurur:
 
-* Iki kayitli proje icin GERCEK, okunabilir yerel RAG indeksi
-  (``SQLiteKnowledgeIndex``: FTS5 + sqlite-vec, 1024 boyut) kurulur.
+* Iki kayitli proje icin GERCEK, okunabilir yerel E5 RAG indeksi
+  (``SQLiteKnowledgeIndex``: FTS5 + sqlite-vec, 384 boyut) kurulur.
 * ``zekam ask "<karsilastirma>"`` CLI'i, hicbir saglayici/model cagrisi ve
   indeksleme baslatilmadan, iki AYRI scoped sonuc dondurur.
 * Her sonucun ``project_id``'si ve citation'i dogru, proje-baglidir; iki indeks
@@ -14,13 +14,12 @@ doldurur:
 * ``project_rag_status``/``query_registered_project`` (``project_rag_runtime``)
   alt katmani mock EDILMEZ; gercek yol calisir.
 
-Neden lexical-only (degraded)? Varsayilan ``remote`` embedding route'i
-yetkilendirilmeden (``--authorize-remote-query`` verilmeden) calisir ve local BGE
-route'u yalniz macOS'ta desteklenir. Bu nedenle gercek yol, saglayicisiz
+Neden lexical-only (degraded)? Bu fixture, canonical yerel E5 saglayicisini
+bilerek kullanilamaz hale getirir. Bu nedenle gercek yol, saglayicisiz
 ``exact`` + ``lexical`` (FTS5) kanallariyla, acikca ``lexical-only-degraded``
-etiketli kanit dondurur; dense/remote/local saglayici hic cagrilmaz. Bu, gercek
-indeksin salt okunur okundugunun ve sorgunun indekslemeden once/sonra indeks
-icerigini degistirmediginin kanididir.
+etiketli kanit dondurur; dense saglayici hic cagrilmaz. Bu, gercek indeksin salt
+okunur okundugunun ve sorgunun indekslemeden once/sonra indeks icerigini
+degistirmediginin kanididir.
 """
 
 from __future__ import annotations
@@ -37,13 +36,12 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import load_settings
 from zekam.application.home import HomeLayout
 from zekam.application.knowledge_index import KnowledgeIndexRecord
-from zekam.application.project_knowledge_index import source_identity_digest
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION, source_identity_digest
 from zekam.application.project_rag_runtime import project_rag_status
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.knowledge import Locator
 from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite.knowledge_index import (
-    KNOWLEDGE_VECTOR_DIMENSION,
     SQLiteKnowledgeIndex,
 )
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
@@ -79,7 +77,7 @@ SOURCE_CONTENT: dict[str, str] = {
 }
 
 
-def _normalized_vector(dimension: int = KNOWLEDGE_VECTOR_DIMENSION) -> tuple[float, ...]:
+def _normalized_vector(dimension: int = LOCAL_E5_DIMENSION) -> tuple[float, ...]:
     """Deterministik, normalize, secili profile boyutunda vektor.
 
     dense kanali bu testte devre disidir (saglayicisiz), ancak indeksin
@@ -174,15 +172,14 @@ def _build_dual_home(tmp_path: Path) -> Path:
 
     home = tmp_path / "zekam-home"
     layout = HomeLayout(home).ensure()
-    # Bu fixture legacy remote lexical kontratini sinar; uretim varsayilani
-    # local E5 olarak kalir, fixture profili ise acikca BGE ile sabitlenir.
+    # Bu fixture yerel E5 profiliyle lexical-only sorgu kontratini sinar.
     (home / "config.yaml").write_text(
         """knowledge:
-  embedding_profile_id: bge-m3-dense-v1
-  embedding_route: remote
+  embedding_profile_id: multilingual-e5-small-dense-v1
+  embedding_route: local
   remote_provider_id: litellm
-  embedding_model_ref: openai/BAAI/bge-m3
-  embedding_dimension: 1024
+  embedding_model_ref: intfloat/multilingual-e5-small
+  embedding_dimension: 384
   embedding_distance: cosine
 """,
         encoding="utf-8",
@@ -221,10 +218,9 @@ def _build_dual_home(tmp_path: Path) -> Path:
 def _block_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Her saglayici/model ve ag cagrisini fail-closed bozucuyla degistirir.
 
-    Gercek offline gercek-indeks yolu ``remote`` route'unda yetkilendirilmedigi
-    icin dense/remote/local saglayiciyi ASLA kullanmaz; bu cagrilari bozucu
-    yapariz ki gercek yolun salt okunur FTS5/lexical kanit dondurdugu
-    (indekslemeden/saglayicidan bagimsiz) kanitlansin.
+    Gercek offline fixture yerel E5 route'unda provider'i bilerek kullanilamaz
+    hale getirir; bu cagrilari bozucu yapariz ki gercek yolun salt okunur
+    FTS5/lexical kanit dondurdugu (indekslemeden/modelden bagimsiz) kanitlansin.
     """
 
     def _forbidden(*_args: object, **_kwargs: object) -> None:
@@ -233,7 +229,11 @@ def _block_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket.socket, "connect", _forbidden)
     monkeypatch.setattr(socket, "create_connection", _forbidden)
     monkeypatch.setattr(runtime, "_provider", _forbidden)
-    monkeypatch.setattr(runtime, "_local_query_binding", _forbidden)
+
+    def _local_unavailable(*_args: object, **_kwargs: object) -> None:
+        raise runtime.ConfigurationError("test local E5 provider disabled")
+
+    monkeypatch.setattr(runtime, "_local_query_binding", _local_unavailable)
 
 
 @pytest.fixture()
@@ -294,11 +294,11 @@ def test_ask_real_dual_index_fans_out_two_scoped_results(
         # Scope kararindaki project_id ile gercek index'teki proje baglantisi uyumlu.
         assert entry["project_id"] == project_ids[slug]
         assert answer["project_id"] == project_ids[slug]
-        # Saglayicisiz, salt okunur kanit: remote hic kullanilmadi.
+        # Model bilerek devre disi; salt okunur lexical kanit korunur.
         assert answer["state"] == "lexical-only-degraded"
         assert answer["remote_provider_used"] is False
-        assert answer["embedding_route"] == "remote"
-        assert answer["degraded_reason"] == "remote-query-not-authorized"
+        assert answer["embedding_route"] == "local"
+        assert answer["degraded_reason"] == "embedding-provider-unavailable:ConfigurationError"
         assert answer["searched_channels"] == ["exact", "lexical"]
         # Gercek FTS5 citation: projeye ozgu, dogru scope'ta.
         citations = answer["citations"]

@@ -14,6 +14,7 @@ from zekam.application import jira_knowledge_import as imports
 from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.application.reference_corpus import collect_reference_corpus, REFERENCE_PATH_PREFIX
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.infrastructure.sqlite.knowledge_index import SQLiteKnowledgeIndex
@@ -60,7 +61,9 @@ def test_index_includes_terminal_reference_reuses_cache_and_removes_superseded_v
     updated = _run_index(source, home, UUID(project.id), project.slug)
     assert updated["generation_digest"] != indexed["generation_digest"]
     with SQLiteKnowledgeIndex(
-        runtime._runtime_paths(home, project.slug)["index"], read_only=True
+        runtime._runtime_paths(home, project.slug)["index"],
+        read_only=True,
+        dimension=LOCAL_E5_DIMENSION,
     ) as index:
         hits = index.lexical(
             project.id, "uniquephrase", limit=10, generation_digest=updated["generation_digest"]
@@ -108,6 +111,6 @@ def test_canonical_reference_pin_rejects_new_corpus_before_provider(tmp_path, mo
             project.slug,
             None,
             None,
-            batch_size=8,
+            batch_size=4,
             expected_reference_snapshot_digest=empty.snapshot_digest,
         )

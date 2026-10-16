@@ -28,17 +28,14 @@ from zekam.application.embedding_provider import (
     EmbeddingReceipt,
 )
 from zekam.application.knowledge_index import KnowledgeIndexRecord
-from zekam.application.project_knowledge_index import build_project_index_plan
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION, build_project_index_plan
 from zekam.application.source_discovery import discover
 from zekam.domain.canonical import digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator
 from zekam.domain.retrieval import AnswerKind, GenerationState, RetrievalState
 from zekam.domain.security import DataClassification
-from zekam.infrastructure.sqlite.knowledge_index import (
-    VECTOR_DIMENSION,
-    SQLiteKnowledgeIndex,
-)
+from zekam.infrastructure.sqlite.knowledge_index import SQLiteKnowledgeIndex
 
 pytestmark = pytest.mark.unit
 
@@ -49,7 +46,7 @@ PATH = "belgeler/kararlar/ADR-0006.md"
 
 
 def _vector(slot: int = 0) -> tuple[float, ...]:
-    values = [0.0] * VECTOR_DIMENSION
+    values = [0.0] * LOCAL_E5_DIMENSION
     values[slot] = 1.0
     norm = math.sqrt(sum(value * value for value in values))
     return tuple(value / norm for value in values)
@@ -57,22 +54,22 @@ def _vector(slot: int = 0) -> tuple[float, ...]:
 
 def _profile() -> EmbeddingProfile:
     return EmbeddingProfile(
-        profile_id="local-bge-test",
-        display_name="Local BGE test",
+        profile_id="local-e5-test",
+        display_name="Local multilingual-e5-small test",
         provider_kind=EmbeddingProviderKind.LOCAL,
         provider_identity_digest=digest("provider"),
-        exact_model_id="BAAI/bge-m3",
+        exact_model_id="intfloat/multilingual-e5-small",
         model_revision_fingerprint=digest("revision"),
-        dimension=VECTOR_DIMENSION,
+        dimension=LOCAL_E5_DIMENSION,
         vector_dtype="float32",
         normalized=True,
         distance_metric="cosine",
-        query_prefix="",
-        passage_prefix="",
+        query_prefix="query: ",
+        passage_prefix="passage: ",
         preprocessor_digest=digest("preprocessor"),
         tokenizer_digest=digest("tokenizer"),
         batch_policy_digest=digest("batch"),
-        device_scope="darwin-arm64:mps",
+        device_scope="windows-x86_64:cpu",
         data_classification_allowlist=(DataClassification.LOCAL_ONLY,),
         verified_at="2026-09-02T00:00:00Z",
         probe_evidence_digest=digest("probe"),
@@ -118,7 +115,7 @@ class QueryProvider:
                 input_digest=digest(text),
                 output_digest=digest(vectors),
                 vector_count=1,
-                dimension=VECTOR_DIMENSION,
+                dimension=LOCAL_E5_DIMENSION,
                 latency_ms=1,
                 provider_call_count=1,
             ),
@@ -140,7 +137,7 @@ class QueryProvider:
                 input_digest=digest(texts),
                 output_digest=digest(vectors),
                 vector_count=len(texts),
-                dimension=VECTOR_DIMENSION,
+                dimension=LOCAL_E5_DIMENSION,
                 latency_ms=1,
                 provider_call_count=1,
             ),
@@ -158,7 +155,9 @@ def _rag(
     object_name: str | None = None,
     text: str = "ADR-0006 idempotent dosya ice aktarma SHA-256 ile tekrar engeller.",
 ) -> tuple[SQLiteKnowledgeIndex, EmbeddedProjectRAG]:
-    index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "knowledge.sqlite3", create=True, dimension=LOCAL_E5_DIMENSION
+    )
     index.build_generation(
         (
             KnowledgeIndexRecord(
@@ -177,6 +176,7 @@ def _rag(
                 content_digest=digest_of_bytes(text.encode("utf-8")),
                 chunk_order=0,
                 vector=_vector(),
+                vector_dimension=LOCAL_E5_DIMENSION,
             ),
         ),
         project_id=PROJECT,
@@ -204,7 +204,9 @@ def _rag_multi(
     tmp_path: Path, provider: QueryProvider, *, text_a: str, text_b: str
 ) -> tuple[SQLiteKnowledgeIndex, EmbeddedProjectRAG]:
     """Build a generation with two distinct chunks to exercise multi-citation."""
-    index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "knowledge.sqlite3", create=True, dimension=LOCAL_E5_DIMENSION
+    )
     index.build_generation(
         (
             KnowledgeIndexRecord(
@@ -218,6 +220,7 @@ def _rag_multi(
                 content_digest=digest_of_bytes(text_a.encode("utf-8")),
                 chunk_order=0,
                 vector=_vector(),
+                vector_dimension=LOCAL_E5_DIMENSION,
             ),
             KnowledgeIndexRecord(
                 chunk_id="chunk-b",
@@ -232,6 +235,7 @@ def _rag_multi(
                 content_digest=digest_of_bytes(text_b.encode("utf-8")),
                 chunk_order=1,
                 vector=_vector(),
+                vector_dimension=LOCAL_E5_DIMENSION,
             ),
         ),
         project_id=PROJECT,
@@ -587,7 +591,7 @@ def test_generation_provider_failure_cannot_replace_current_generation(
         expected_tree_digest=report.tree_digest,
     )
     path = tmp_path / "knowledge-build.sqlite3"
-    with SQLiteKnowledgeIndex(path, create=True) as index:
+    with SQLiteKnowledgeIndex(path, create=True, dimension=LOCAL_E5_DIMENSION) as index:
         stable = index.build_generation(
             (
                 KnowledgeIndexRecord(
@@ -601,6 +605,7 @@ def test_generation_provider_failure_cannot_replace_current_generation(
                     content_digest=digest_of_bytes(b"STABLE_OLD"),
                     chunk_order=0,
                     vector=_vector(),
+                    vector_dimension=LOCAL_E5_DIMENSION,
                 ),
             ),
             project_id=str(project_id),
@@ -628,7 +633,7 @@ def test_concurrent_reindex_cannot_mix_pinned_generation_and_citation(
 ) -> None:
     provider = QueryProvider()
     index, rag = _rag(tmp_path, provider)
-    second = SQLiteKnowledgeIndex(index.path)
+    second = SQLiteKnowledgeIndex(index.path, dimension=LOCAL_E5_DIMENSION)
     replacement_path = "belgeler/kararlar/ADR-0006-rev-b.md"
 
     def activate_replacement() -> None:
@@ -646,6 +651,7 @@ def test_concurrent_reindex_cannot_mix_pinned_generation_and_citation(
                     content_digest=digest_of_bytes(text.encode("utf-8")),
                     chunk_order=0,
                     vector=_vector(),
+                    vector_dimension=LOCAL_E5_DIMENSION,
                 ),
             ),
             project_id=PROJECT,
@@ -1043,7 +1049,9 @@ def _rag_same_file(
     tmp_path: Path, provider: QueryProvider, texts: tuple[str, ...]
 ) -> tuple[SQLiteKnowledgeIndex, EmbeddedProjectRAG]:
     """Ayni kaynak dosyasinin ardisik chunk'lari (sinif govdesi iki parcaya bolunmus)."""
-    index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "knowledge.sqlite3", create=True, dimension=LOCAL_E5_DIMENSION
+    )
     records = tuple(
         KnowledgeIndexRecord(
             chunk_id=f"same-{order}",
@@ -1058,6 +1066,7 @@ def _rag_same_file(
             content_digest=digest_of_bytes(text.encode("utf-8")),
             chunk_order=order,
             vector=_vector(),
+            vector_dimension=LOCAL_E5_DIMENSION,
         )
         for order, text in enumerate(texts)
     )
