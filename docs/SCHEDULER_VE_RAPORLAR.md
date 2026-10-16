@@ -27,3 +27,25 @@ belirsiz outbox durumlarını mevcut recovery kurallarıyla uzlaştırır. Analy
 iki rapor ve rebuild receipt üretip `CURRENT` işaretçisini atomik yayımlar.
 `report` bu zinciri tekrar doğrular; eksik, bozuk veya stale bir parçayı rapor diye
 sunmaz. Bu projeksiyonların hiçbiri yürütme yetkisi vermez.
+
+## Evolution kullanim olcumunun kapsami (16 Ekim 2026, test bekliyor)
+
+`evolve report` icindeki `actual_usage` yalniz kayitli child terminal tuketimini
+toplar (`scope=recorded-child-terminals`); acik reservation veya halen calisan
+isin final maliyeti oldugunu iddia etmez. Unknown effect sonucu ayri sayilir;
+bagimsiz terminal readback'te kayitli tuketim varsa bu sayilar korunur.
+Store/schema yoksa, okuma hataliysa veya 10.000 terminal siniri asilirsa
+`available=false`, olcumler `null` olur. Bilinen bos tablo sifir tuketimdir.
+Model bucket sayi/toplami terminal sayi/toplamiyla ayni snapshot'ta eslesmelidir.
+Budget usage da ayni availability ve scope'u tasir; rapor grant vermez.
+
+Evaluation before/after ornegi en fazla son 100 kayittir. Evaluation body strict
+JSON ve digest ile okunur; eksik/yanlis tipte/negatif olcum sifira cevrilmez.
+`evaluations_coverage` gercek toplam kayit sayisi, dahil edilen kayitlar, bilinmeyen
+olcumler ve ornek toplamini ayri gosterir. Ornek tum retained ledger'i kapsamiyorsa
+ledger geneli `evaluations` toplamlari `null` kalir. Gecerli ornekte tek bir metrik
+eksikse yalniz o metrigin kesin toplami bilinmez. Gecerli bos evaluation tablosunda
+gercek toplam sifirdir; store/schema yoklugu bos tablo yerine gecmez.
+
+Regresyon kaynaklari `tests/unit/test_evolution_usage.py` icinde hazirlandi,
+kullanici karariyla CALISTIRILMADI. Native scheduler ve genel WP kabulu aciktir.

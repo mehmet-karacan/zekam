@@ -18,6 +18,11 @@ from typing import Any, Final
 
 from zekam.application.active_task_contract import ActiveTaskContract
 from zekam.application.composition import ApplicationContext
+from zekam.application.evolution_usage import (
+    evaluation_usage as _evaluation_usage,
+    read_evaluation_body,
+    summarize_evaluation_usage,
+)
 from zekam.application.opencode_spool import inspect_spool
 from zekam.application.package_acceptance import build_package_manifest
 from zekam.domain.canonical import digest, parse_digest
@@ -598,36 +603,43 @@ def effective_evolution_state(plan: dict[str, Any], report: dict[str, Any]) -> s
 
 
 def _operational_usage(database: Path) -> dict[str, Any]:
-    usage = {
-        "provider_calls": 0,
-        "tokens": 0,
-        "duration_seconds": 0,
-        "cost_micros": 0,
-        "disk_bytes": 0,
-    }
+    from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
+
+    fields = ("provider_calls", "tokens", "duration_seconds", "cost_micros", "disk_bytes")
     result: dict[str, Any] = {
         "available": False,
-        "terminal_runs": 0,
-        "unknown_runs": 0,
+        "scope": "recorded-child-terminals",
+        "measurement_state": "unavailable",
+        "terminal_runs": None,
+        "unknown_runs": None,
         "model_refs": (),
         "usage_by_model": (),
-        **usage,
+        **dict.fromkeys(fields),
     }
     if not database.is_file():
-        return result
+        return result | {"reason": "operational-store-missing"}
+    if path_or_parent_is_link_or_reparse(database):
+        return result | {"reason": "operational-store-identity-invalid"}
     try:
         with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
+            connection.execute("begin")
             present = connection.execute(
                 "select 1 from sqlite_master where type='table' and name='evolution_child_terminal'"
             ).fetchone()
             if present is None:
-                return result
+                return result | {"reason": "terminal-schema-missing"}
             row = connection.execute(
                 "select count(*),sum(case when status='unknown' then 1 else 0 end),"
                 "coalesce(sum(provider_calls),0),coalesce(sum(tokens),0),"
                 "coalesce(sum(duration_seconds),0),coalesce(sum(cost_micros),0),"
-                "coalesce(sum(disk_bytes),0) from evolution_child_terminal"
+                "coalesce(sum(disk_bytes),0) from (select status,provider_calls,tokens,"
+                "duration_seconds,cost_micros,disk_bytes from evolution_child_terminal "
+                "limit 10001)"
             ).fetchone()
+            # Do not load an unbounded terminal/model list or expose a partial
+            # model census as if it covered the aggregate.
+            if row is None or int(row[0]) > 10_000:
+                return result | {"reason": "terminal-read-budget-exceeded"}
             attestation = connection.execute(
                 "select 1 from sqlite_master where type='table' "
                 "and name='evolution_runtime_attestation'"
@@ -643,15 +655,23 @@ def _operational_usage(database: Path) -> dict[str, Any]:
                     "on a.authorization_digest=r.authorization_digest "
                     "and a.plan_digest=r.plan_digest "
                     "order by t.reservation_id"
-                ).fetchall()
+                )
             else:
                 usage_rows = connection.execute(
                     "select status,provider_calls,tokens,duration_seconds,cost_micros,"
                     "disk_bytes,null from evolution_child_terminal "
                     "order by reservation_id"
-                ).fetchall()
+                )
             buckets: dict[str, dict[str, int | str]] = {}
+            read_count = 0
             for terminal in usage_rows:
+                read_count += 1
+                if read_count > 10_000:
+                    return result | {"reason": "terminal-read-budget-exceeded"}
+                if terminal[0] not in {"completed", "failed", "unknown"} or any(
+                    type(value) is not int or value < 0 for value in terminal[1:6]
+                ):
+                    return result | {"reason": "terminal-usage-invalid"}
                 status = str(terminal[0])
                 model_ref = str(terminal[6]).strip() if terminal[6] is not None else ""
                 model_ref = model_ref or "unknown"
@@ -680,9 +700,18 @@ def _operational_usage(database: Path) -> dict[str, Any]:
             usage_by_model = tuple(
                 {key: bucket[key] for key in bucket} for _, bucket in sorted(buckets.items())
             )
+            if sum(int(bucket["terminal_runs"]) for bucket in buckets.values()) != int(row[0]):
+                return result | {"reason": "terminal-model-coverage-invalid"}
+            if any(
+                sum(int(bucket[name]) for bucket in buckets.values()) != row[index]
+                for index, name in enumerate(fields, start=2)
+            ):
+                return result | {"reason": "terminal-usage-total-drift"}
         assert row is not None
         return {
             "available": True,
+            "scope": "recorded-child-terminals",
+            "measurement_state": "recorded",
             "terminal_runs": int(row[0]),
             "unknown_runs": int(row[1] or 0),
             "model_refs": model_refs,
@@ -693,8 +722,8 @@ def _operational_usage(database: Path) -> dict[str, Any]:
             "cost_micros": int(row[5]),
             "disk_bytes": int(row[6]),
         }
-    except sqlite3.Error:
-        return result | {"read_error": True}
+    except (sqlite3.Error, ValueError, TypeError, OverflowError):
+        return result | {"read_error": True, "reason": "terminal-read-failed"}
 
 
 def _capture_gap_summary(home: Path) -> dict[str, Any]:
@@ -1011,9 +1040,11 @@ def build_evolution_report(
     }
     candidates: list[dict[str, object]] = []
     evaluation_pairs: list[dict[str, object]] = []
+    evaluation_source_available = False
     if database.is_file():
         try:
             with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
+                connection.execute("begin")
                 connection.row_factory = sqlite3.Row
                 table_names = {
                     str(row[0])
@@ -1052,6 +1083,7 @@ def build_evolution_report(
                         ).fetchone()[0]
                     )
                 if "improvement_evaluation" in table_names:
+                    evaluation_source_available = True
                     state_rows = dict(
                         connection.execute(
                             "select state,count(*) from improvement_evaluation group by state"
@@ -1109,18 +1141,14 @@ def build_evolution_report(
                     for row in connection.execute(
                         "select e.evaluation_digest,e.candidate_digest,"
                         "c.baseline_aggregate_digest,e.after_aggregate_digest,"
-                        "e.state,e.finished_at,e.body_json from improvement_evaluation e "
+                        "e.state,e.finished_at,case when length(cast(e.body_json as blob))"
+                        "<=1048576 then e.body_json else null end from improvement_evaluation e "
                         "join improvement_candidate c "
                         "on c.candidate_digest=e.candidate_digest "
-                        "order by e.finished_at desc limit 100"
+                        "order by e.finished_at desc,e.evaluation_digest desc limit 100"
                     ):
-                        try:
-                            evaluation_body = json.loads(str(row[6]))
-                        except json.JSONDecodeError:
-                            continue
-                        if not isinstance(evaluation_body, dict) or digest(evaluation_body) != str(
-                            row[0]
-                        ):
+                        evaluation_body = read_evaluation_body(row[6], str(row[0]))
+                        if evaluation_body is None:
                             continue
                         evaluation_pairs.append(
                             {
@@ -1131,31 +1159,22 @@ def build_evolution_report(
                                 "baseline_values": evaluation_body.get("baseline_values", {}),
                                 "current_values": evaluation_body.get("current_values", {}),
                                 "progress": evaluation_body.get("progress", {}),
-                                "actual_usage": {
-                                    "provider_calls": int(
-                                        evaluation_body.get("actual_provider_calls", 0)
-                                    ),
-                                    "tokens": int(evaluation_body.get("actual_tokens", 0)),
-                                    "cost_micros": int(
-                                        evaluation_body.get("actual_cost_micros", 0)
-                                    ),
-                                },
+                                "actual_usage": _evaluation_usage(evaluation_body),
                                 "state": str(row[4]),
                                 "finished_at": str(row[5]),
                             }
                         )
         except sqlite3.Error:
             counts["prepared_unsettled"] = -1
+            evaluation_source_available = False
     ledger_state = "recovery-required" if counts["prepared_unsettled"] != 0 else "observing"
     current_plan = plan or build_evolution_plan(context)
     actual_usage = _operational_usage(context.settings.database.sqlite_path(context.home))
-    evaluation_usage = {"provider_calls": 0, "tokens": 0, "cost_micros": 0}
-    for pair in evaluation_pairs:
-        pair_usage = pair.get("actual_usage")
-        if not isinstance(pair_usage, dict):
-            continue
-        for name in evaluation_usage:
-            evaluation_usage[name] += int(pair_usage.get(name, 0))
+    evaluation_usage, evaluation_coverage = summarize_evaluation_usage(
+        evaluation_pairs,
+        total=counts["evaluations"],
+        source_available=evaluation_source_available,
+    )
     body: dict[str, Any] = {
         "schema": "zekam-evolution-report/v1",
         "ledger_state": ledger_state,
@@ -1171,7 +1190,8 @@ def build_evolution_report(
             "recovered": counts["recovered"],
             "rolled_back": counts["legacy_rollbacks"],
         },
-        "actual_usage": actual_usage | {"evaluations": evaluation_usage},
+        "actual_usage": actual_usage
+        | {"evaluations": evaluation_usage, "evaluations_coverage": evaluation_coverage},
         "budget": {
             "limits": current_plan["permissions"]["budget_limits"],
             "usage": {
@@ -1185,6 +1205,8 @@ def build_evolution_report(
                 )
             },
             "source": "operational-authority-ledger",
+            "available": actual_usage["available"],
+            "scope": actual_usage["scope"],
         },
         "capture_gaps": _capture_gap_summary(context.home),
         "native_acceptance": current_plan.get("native_acceptance", {}),

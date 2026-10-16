@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-11 kullanim raporu: eksik operational/evaluation olcumleri sifir yerine unknown/null; recorded terminal scope ve budget availability eklendi. Bounded 10.000 terminal census/model totals ayni read snapshot'inda eslesir. Son 100 evaluation ornegi tum ledger geneli toplam diye sunulmaz; strict bounded body/digest, metrik tipleri ve coverage metadata baglandi. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek scheduler/kabul ve diger WP kapilari acik; docs/SCHEDULER_VE_RAPORLAR.md.
+
 - Gorev 5/6 WP-10/11 evolution control: status ve append admission ortak bounded full-chain JSON/hash/column/ordinal/predecessor dogrulamasina baglandi. Resume/enable historical evidence butunlugu kontrol edilir; guncel trusted grant verifier korunur. Bozuk/oversize gecmis partial head uretmez; yeni append commit edilmez, runtime degraded/setup durumu running'e donusmez. Regresyon kaynaklari hazir, CALISTIRILMADI. Native kabul, usage olcum dogrulugu ve genel WP kapilari acik; docs/OTONOM_EVOLUTION_RUNBOOK.md.
 
 - Gorev 5 WP-10.03 native outcome recording: actual verifier terminal report/receipt'i ayri reserved recording live claim/fence altinda immutable skill_outcome_v2 satirina baglandi. Legacy operation kapisi korunur; recording receipt verifier yerine gecmez. Unverified journal unique outcome satirini doldurmaz; exact replay/readback kayip row'u yeniden yaratmaz. Regresyon kaynaklari hazir, CALISTIRILMADI. Native kaynak zinciri eklendi; gercek host/full quality/preference/provenance ve genel WP kabul kapilari halen acik; docs/SKILL_NATIVE_OUTCOME_RECORDING.md.

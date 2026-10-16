@@ -1853,6 +1853,13 @@ native invocation ve kabul kaniti acik. `docs/SKILL_YASAM_DONGUSU_CLI.md`.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
+**16 Ekim 2026 - kullanim raporu olcum kapsami, test bekliyor:** Eksik store/schema
+ve gecersiz olcumler sifir yerine null/available=false olarak raporlanir.
+Operational toplam yalniz kayitli terminal kapsamindadir; bounded census/model
+toplamlari ayni snapshot'ta eslesir. Son 100 evaluation ornegi tum ledger toplamiyla
+karistirilmaz; coverage ve bilinmeyen metrikler gorunur, strict JSON/hash korunur.
+Regresyon kaynaklari hazir, CALISTIRILMADI. Native kabul ve WP kapanisi aciktir.
+
 **16 Ekim 2026 - evolution control butunlugu, test bekliyor:** Status ve writer
 ayni bounded retained-chain okuyucusunu kullanir; strict JSON/body/hash/kolon,
 ordinal ve predecessor bagi dogrulanir. Historical resume/enable evidence
