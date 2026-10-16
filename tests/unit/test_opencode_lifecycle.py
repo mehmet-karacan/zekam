@@ -92,6 +92,83 @@ def test_tool_after_alone_clears_active_tool(tmp_path: Path) -> None:
     assert session["last_tool"] == "bash"
 
 
+@pytest.mark.parametrize(
+    "native_status,expected,category",
+    [
+        ("error", "failed", "native-tool-error"),
+        ("failed", "failed", "native-tool-error"),
+        ("cancelled", "interrupted", "native-tool-cancelled"),
+        (None, "interrupted", "native-tool-status-unknown"),
+        ("unknown", "interrupted", "native-tool-status-unknown"),
+    ],
+)
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "session.idle",
+        "session.compacting",
+        "session.compacted",
+        "session.deleted",
+        "session.checkpoint",
+    ],
+)
+def test_native_tool_failure_or_unknown_is_not_rewritten_as_checkpoint_success(
+    tmp_path: Path,
+    native_status: str | None,
+    expected: str,
+    category: str,
+    tail: str,
+) -> None:
+    record_event(
+        tmp_path, event_type="tool.execute.before", session_id="ses_fail", tool="skill", now=NOW
+    )
+    record_event(
+        tmp_path,
+        event_type="tool.execute.after",
+        session_id="ses_fail",
+        tool="skill",
+        status=native_status,
+        now=NOW + dt.timedelta(seconds=1),
+    )
+    record_event(
+        tmp_path, event_type=tail, session_id="ses_fail", now=NOW + dt.timedelta(seconds=2)
+    )
+    result = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=3))
+    session = result["sessions"][0]
+    assert session["status"] == expected
+    assert session["error_category"] == category
+    assert session["active_tool"] is None
+    assert "sessiz retry" in session["next_safe_action"]
+    assert result["failed_count" if expected == "failed" else "interrupted_count"] == 1
+
+
+def test_later_observed_native_retry_has_its_own_status(tmp_path: Path) -> None:
+    for index, (kind, status) in enumerate(
+        [
+            ("tool.execute.before", None),
+            ("tool.execute.after", "error"),
+            ("session.idle", None),
+            ("tool.execute.before", None),
+            ("tool.execute.after", "completed"),
+            ("session.idle", None),
+        ]
+    ):
+        record_event(
+            tmp_path,
+            event_type=kind,
+            session_id="ses_retry",
+            tool="skill" if kind.startswith("tool.") else None,
+            status=status,
+            now=NOW + dt.timedelta(seconds=index),
+        )
+    result = resume_projection(tmp_path, now=NOW + dt.timedelta(seconds=9))
+    assert result["failed_count"] == 0
+    assert result["sessions"][0]["status"] == "checkpointed"
+    assert result["sessions"][0]["error_category"] is None
+    assert result["sessions"][0]["next_safe_action"] is None
+    assert any(event["status"] == "error" for event in recent_events(tmp_path))
+
+
 def test_recent_pending_tool_is_active_and_sanitized(tmp_path: Path) -> None:
     record_event(
         tmp_path,
@@ -293,9 +370,7 @@ def test_event_file_count_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyP
     root.mkdir(parents=True)
     (root / "one.json").write_text("{}", encoding="utf-8")
     (root / "two.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        "zekam.application.opencode_lifecycle.MAX_LIFECYCLE_EVENT_FILES", 1
-    )
+    monkeypatch.setattr("zekam.application.opencode_lifecycle.MAX_LIFECYCLE_EVENT_FILES", 1)
 
     with pytest.raises(ValidationFailed, match="event dosya siniri"):
         recent_events(tmp_path)

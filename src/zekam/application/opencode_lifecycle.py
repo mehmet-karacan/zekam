@@ -54,10 +54,13 @@ def lifecycle_client_instance_id(home: Path) -> str:
     root.mkdir(parents=True, exist_ok=True)
     path = root / "client-instance-id"
     if path.is_file():
-        return _bounded(
-            _read_json_text(path, maximum=MAX_LIFECYCLE_ACK_BYTES, label="client_instance_id"),
-            label="client_instance_id",
-        ) or ""
+        return (
+            _bounded(
+                _read_json_text(path, maximum=MAX_LIFECYCLE_ACK_BYTES, label="client_instance_id"),
+                label="client_instance_id",
+            )
+            or ""
+        )
     value = f"opencode-{new_uuid7()}"
     descriptor, temporary = tempfile.mkstemp(prefix=".client-instance-", dir=root)
     try:
@@ -704,8 +707,7 @@ def resume_projection(
         key=lambda item: (
             str(item["session_id"]),
             item.get("sequence")
-            if isinstance(item.get("sequence"), int)
-            and not isinstance(item.get("sequence"), bool)
+            if isinstance(item.get("sequence"), int) and not isinstance(item.get("sequence"), bool)
             else 0,
             str(item["occurred_at"]),
             str(item["event_id"]),
@@ -751,11 +753,33 @@ def resume_projection(
             current["active_tool"] = tool_name
             current["last_resource"] = event.get("resource")
             current["status"] = "running"
+            if str(current.get("error_category") or "").startswith("native-tool-"):
+                current["next_safe_action"] = None
+            current["error_category"] = None
         elif event["event_type"] == "tool.execute.after":
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
             current["last_tool"] = _safe_tool_name(event.get("tool"))
-            current["status"] = event.get("status") or "running"
+            status = event.get("status")
+            if status == "completed":
+                current["status"] = "completed"
+                if str(current.get("error_category") or "").startswith("native-tool-"):
+                    current["next_safe_action"] = None
+                current["error_category"] = None
+            elif status in {"error", "failed"}:
+                current["status"] = "failed"
+                current["error_category"] = "native-tool-error"
+            else:
+                current["status"] = "interrupted"
+                current["error_category"] = (
+                    "native-tool-cancelled"
+                    if status == "cancelled"
+                    else "native-tool-status-unknown"
+                )
+            if current["status"] in {"failed", "interrupted"}:
+                current["next_safe_action"] = (
+                    f"{current['last_tool']} sonucunu dogrula; sessiz retry yapma"
+                )
         elif event["event_type"] == "session.error":
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
@@ -764,18 +788,21 @@ def resume_projection(
         elif event["event_type"] == "session.checkpoint":
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
-            current["status"] = "checkpointed"
+            if current["status"] not in {"failed", "interrupted"}:
+                current["status"] = "checkpointed"
             current["completed_summary"] = event.get("completed_summary")
             current["pending_summary"] = event.get("pending_summary")
-            current["next_safe_action"] = event.get("next_action")
+            if current["status"] not in {"failed", "interrupted"}:
+                current["next_safe_action"] = event.get("next_action")
         elif event["event_type"] in {"session.idle", "session.compacted", "session.compacting"}:
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
-            current["status"] = "checkpointed"
+            if current["status"] not in {"failed", "interrupted"}:
+                current["status"] = "checkpointed"
         elif event["event_type"] == "session.deleted":
             pending = pending_tools.pop(session_id, None)
             current["active_tool"] = None
-            if current["status"] == "failed":
+            if current["status"] in {"failed", "interrupted"}:
                 continue
             if pending is not None:
                 current["status"] = "interrupted"

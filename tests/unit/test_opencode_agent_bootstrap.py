@@ -168,7 +168,7 @@ def test_apply_installs_global_agents_and_preserves_provider_configuration(tmp_p
     assert "session.error" in plugin.read_text(encoding="utf-8")
     assert '"--task-label"' not in plugin.read_text(encoding="utf-8")
     plugin_body = plugin.read_text(encoding="utf-8")
-    assert plugin_body.startswith("// zekam-managed-plugin/v3")
+    assert plugin_body.startswith("// zekam-managed-plugin/v4")
     assert "opencode-plugin-spool" in plugin_body
     assert '"experimental.session.compacting"' in plugin_body
     assert '"experimental.chat.system.transform"' in plugin_body
@@ -341,7 +341,7 @@ def test_legacy_managed_lifecycle_plugin_is_updated(tmp_path: Path) -> None:
     apply_opencode_agent_bootstrap(plan, authorized_plan_digest=plan.plan_digest)
 
     body = plugin.read_text(encoding="utf-8")
-    assert body.startswith("// zekam-managed-plugin/v3")
+    assert body.startswith("// zekam-managed-plugin/v4")
     assert "opencode-plugin-spool" in body
     assert body.index("isZekamWorkspace(directory)") < body.index("mkdir(quarantine")
 

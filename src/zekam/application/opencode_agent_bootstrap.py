@@ -50,7 +50,7 @@ def _require_regular_directory(path: Path, label: str) -> None:
         raise ConfigurationError(f"{label} regular directory olmali")
 
 
-_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v3
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v4
 import { tool } from "@opencode-ai/plugin"
 import { renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises"
@@ -452,11 +452,29 @@ export const ZekamLifecycle = async ({ directory }) => {
       pending.set(input.callID ?? `${input.sessionID}:${input.tool}`, resource)
       await emit("tool.execute.before", { ...input, resource })
     },
-    "tool.execute.after": async (input) => {
+    "tool.execute.after": async (input, output) => {
       const key = input.callID ?? `${input.sessionID}:${input.tool}`
       const resource = pending.get(key)
       pending.delete(key)
-      await emit("tool.execute.after", { ...input, resource, status: "completed" })
+      // V2 reports both completed and error through the same hook. A missing
+      // discriminator is not success. V1 supplies its successful output as the
+      // second argument; recognize only that documented result shape.
+      const legacyResult = input.status === undefined && output &&
+        typeof output.title === "string" && typeof output.output === "string" &&
+        output.metadata && typeof output.metadata === "object" &&
+        !Array.isArray(output.metadata)
+      const status = input.status === "completed" || legacyResult ? "completed" :
+        ["error", "failed"].includes(input.status) ? "failed" :
+        input.status === "cancelled" ? "cancelled" : "unknown"
+      const errorCategory = status === "completed" ? undefined :
+        status === "failed" ? "native-tool-error" :
+        status === "cancelled" ? "native-tool-cancelled" : "native-tool-status-unknown"
+      // Never spread the native error/result: even error.name/code can carry
+      // untrusted text. Only a fixed content-free category crosses the CLI.
+      await emit("tool.execute.after", {
+        sessionID: sessionID(input), agent: input.agent, modelID: input.modelID,
+        tool: input.tool, resource, status, errorCategory,
+      })
     },
   }
 }
@@ -835,6 +853,7 @@ LEGACY_LIFECYCLE_PLUGIN_DIGESTS = frozenset(
         "sha256:113679a7df42958c24c1abcac4d44924c9deb97b466a4558dfe8e888eef9a90c",
         "sha256:3fd4e6c4177b82f6ddb51d3534624a66c9c2775550d6a5ce4f633c6454793990",
         "sha256:9a1ab03cf2537f3dc92384eac21d990dd62bbc11bee8c842069f2b662071b37d",
+        "sha256:10065faebb57d29c02c01d66f03d16dbed041378c7b514f83e66d74bcbb25078",
     )
 )
 
@@ -1107,9 +1126,7 @@ def plan_opencode_agent_bootstrap(
     plugin_path = plugins_path / "zekam-lifecycle.js"
     plugin_exists = plugin_path.exists()
     plugin_body = (
-        _read_bootstrap_text(plugin_path, label="lifecycle plugin")
-        if plugin_path.is_file()
-        else ""
+        _read_bootstrap_text(plugin_path, label="lifecycle plugin") if plugin_path.is_file() else ""
     )
     plugin_matches = plugin_body == _LIFECYCLE_PLUGIN
     plugin_managed = plugin_body.startswith(_MANAGED_PLUGIN_MARKER_PREFIX)

@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 
 from zekam.application.opencode_agent_bootstrap import opencode_template_bundle
+from zekam.domain.errors import ZekamError
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 
 pytestmark = pytest.mark.e2e
 
@@ -127,9 +129,13 @@ if (Bun.env.RUN_V2_SETUP === "1") {
   await callbacks["tool:execute.before"]({
     sessionID: "v2-tool", callID: "v2-call", tool: "read", input: { filePath: "README.md" },
   })
-  await callbacks["tool:execute.after"]({
+  const after = {
     sessionID: "v2-tool", callID: "v2-call", tool: "read",
-  })
+    result: { title: "secret-result-sentinel", output: "private-result-sentinel", metadata: {} },
+    error: { name: "private-error-name-sentinel", code: "private-error-code-sentinel", message: "private-error-message-sentinel" },
+  }
+  if (Bun.env.TOOL_AFTER_STATUS !== "missing") after.status = Bun.env.TOOL_AFTER_STATUS ?? "completed"
+  await callbacks["tool:execute.after"](after)
   push({ type: "session.created", data: { sessionID: "v2-created" } })
   push({ type: "session.deleted", data: { sessionID: "v2-deleted" } })
   await Bun.sleep(250)
@@ -146,6 +152,15 @@ if (Bun.env.RUN_V2_SETUP === "1") {
 const count = Number(Bun.env.EMIT_COUNT ?? "1")
 const prefix = Bun.env.SESSION_PREFIX ?? "runtime"
 const plugin = await ZekamLifecycle({ directory: process.cwd() })
+if (Bun.env.RUN_V1_TOOL_AFTER === "1") {
+  const input = { sessionID: "v1-tool", callID: "v1-call", tool: "read" }
+  await plugin["tool.execute.before"](input, { args: { filePath: "README.md" } })
+  const output = Bun.env.LEGACY_AFTER_OUTPUT === "valid"
+    ? { title: "private-title-sentinel", output: "private-output-sentinel", metadata: {} }
+    : undefined
+  await plugin["tool.execute.after"](input, output)
+  process.exit(0)
+}
 if (Bun.env.EXPECT_INACTIVE === "1") process.exit(Object.keys(plugin).length === 0 ? 0 : 5)
 const results = await Promise.allSettled(
   Array.from({ length: count }, (_, index) => plugin.event({
@@ -242,17 +257,89 @@ def test_v2_setup_registers_hooks_and_forwards_lifecycle_events(tmp_path: Path) 
     } <= event_types
 
 
+@pytest.mark.parametrize(
+    "native_status,expected,category",
+    [
+        ("completed", "completed", None),
+        ("error", "failed", "native-tool-error"),
+        ("missing", "unknown", "native-tool-status-unknown"),
+        ("future-status", "unknown", "native-tool-status-unknown"),
+        ("cancelled", "cancelled", "native-tool-cancelled"),
+    ],
+)
+def test_v2_tool_after_uses_native_status_without_error_or_result_text(
+    tmp_path: Path,
+    native_status: str,
+    expected: str,
+    category: str | None,
+) -> None:
+    runner, executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "outcome-calls.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=executable,
+        RUN_V2_SETUP="1",
+        ZEKAM_CAPTURE=str(capture),
+        TOOL_AFTER_STATUS=native_status,
+    )
+    assert result.returncode == 0, result.stderr
+    raw = capture.read_text(encoding="utf-8")
+    calls = [json.loads(line) for line in raw.splitlines()]
+    after = [
+        call
+        for call in calls
+        if "--type" in call and call[call.index("--type") + 1] == "tool.execute.after"
+    ]
+    assert len(after) == 1
+    assert after[0][after[0].index("--status") + 1] == expected
+    if category is None:
+        assert "--error-category" not in after[0]
+    else:
+        assert after[0][after[0].index("--error-category") + 1] == category
+    assert "sentinel" not in raw
+
+
+@pytest.mark.parametrize("shape,expected", [("valid", "completed"), ("missing", "unknown")])
+def test_v1_after_requires_observed_success_result_without_persisting_content(
+    tmp_path: Path,
+    shape: str,
+    expected: str,
+) -> None:
+    runner, executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "v1-calls.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=executable,
+        RUN_V1_TOOL_AFTER="1",
+        LEGACY_AFTER_OUTPUT=shape,
+        ZEKAM_CAPTURE=str(capture),
+    )
+    assert result.returncode == 0, result.stderr
+    raw = capture.read_text(encoding="utf-8")
+    calls = [json.loads(line) for line in raw.splitlines()]
+    after = [
+        call
+        for call in calls
+        if "--type" in call and call[call.index("--type") + 1] == "tool.execute.after"
+    ]
+    assert len(after) == 1
+    assert after[0][after[0].index("--status") + 1] == expected
+    assert "sentinel" not in raw
+
+
 def _native_opencode() -> Path:
     configured = os.environ.get("OPENCODE_EXECUTABLE")
     found = configured or shutil.which("opencode")
     if found is None:
         pytest.skip("OpenCode runtime bulunamadi")
-    candidate = Path(found)
-    if candidate.suffix.casefold() in {".bat", ".cmd", ".ps1"}:
-        candidate = candidate.parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
-    if not candidate.is_file():
-        pytest.skip(f"OpenCode native executable unavailable: {candidate}")
-    return candidate.resolve()
+    try:
+        return resolve_opencode_executable(found)
+    except (OSError, ZekamError):
+        pytest.skip("OpenCode direct executable unavailable")
 
 
 def _free_loopback_port() -> int:
@@ -438,12 +525,9 @@ def test_real_opencode_process_loads_plugin_and_emits_provider_free_lifecycle(
         while time.monotonic() < deadline:
             if capture.is_file():
                 calls = [
-                    json.loads(line)
-                    for line in capture.read_text(encoding="utf-8").splitlines()
+                    json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()
                 ]
-                event_types = {
-                    call[call.index("--type") + 1] for call in calls if "--type" in call
-                }
+                event_types = {call[call.index("--type") + 1] for call in calls if "--type" in call}
                 if {"session.created", "session.deleted"} <= event_types:
                     break
             time.sleep(0.1)

@@ -1,12 +1,12 @@
 {
-  "agent_template_digest": "sha256:20f4bca0d3f09ef3f5377b7b54ca3dc3c88a3d0abc9a0bea3f8a6d58f6e53dca",
+  "agent_template_digest": "sha256:bc982fd9f42057fa43498aa3f4f66f488e1b3906eb06c14aa423ac2167766154",
   "build_provenance_digest": "sha256:9cab223c268a67ec069549b5fbcd53b15d8866dce276e720e93d91c50668eddc",
   "config_bundle_digest": "sha256:37b0e93dda8f7fe673839c26d929d54a1a725b79c6b274f1656722c9418eb2ce",
   "entrypoints": [
     "zekam"
   ],
   "local_schema_bundle_digest": "sha256:8ac6c881dbaf84488cbdd8b96658b92d871474fdc6a75ec90b33a40a9d94d8ba",
-  "package_source_bundle_digest": "sha256:3ddda7a59a1bcdfe4d69c5a5c2a1a08af083d2a3afa6a2474ceed5fb848fb028",
+  "package_source_bundle_digest": "sha256:218b39aa0512f33e62074eb7c363cefafffc2b102535e310f455f1e9f1253fa7",
   "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
   "python": ">=3.12",
   "schema": "zekam-package-manifest/v3",
