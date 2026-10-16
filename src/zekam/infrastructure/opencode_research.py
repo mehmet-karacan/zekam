@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import subprocess
 import threading
 import time
@@ -18,6 +16,7 @@ if TYPE_CHECKING:
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 from zekam.infrastructure.process.bounded_stream import (
     BoundedReader,
     finish_pipes,
@@ -412,24 +411,7 @@ class OpenCodeResearchAdapter:
 
 
 def _resolve_executable(value: str) -> str:
-    """Resolve npm's Windows shim to its real binary without invoking a shell."""
-
-    resolved = shutil.which(value)
-    if resolved is None:
-        candidate = Path(value)
-        if candidate.is_file():
-            resolved = str(candidate.resolve())
-    if resolved is None:
-        raise ValidationFailed("OpenCode executable bulunamadi")
-    path = Path(resolved).resolve(strict=True)
-    if path.suffix.casefold() in {".cmd", ".bat", ".ps1"}:
-        target = path.parent / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
-        if path.stem.casefold() != "opencode" or not target.is_file():
-            raise PolicyViolation("OpenCode shell shim guvenli binary'ye cozumlenemedi")
-        path = target.resolve(strict=True)
-    if path.suffix.casefold() != ".exe" and os.name == "nt":
-        raise PolicyViolation("Windows OpenCode adapter direct executable ister")
-    return str(path)
+    return str(resolve_opencode_executable(value))
 
 
 def validate_opencode_research_result(

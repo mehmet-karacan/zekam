@@ -1,0 +1,39 @@
+# OpenCode binary cozumleme
+
+Arastirma ve explicit test gelistirme CLI yollarinin executable secimi ortak
+`infrastructure/clients/opencode_executable.py` resolver'ina baglidir.
+
+- PATH'teki komut veya explicit dosya cozumlenir; shell calistirilmaz.
+- Windows `.cmd`, `.bat`, `.ps1` shim'i bounded UTF-8 olarak okunur.
+- Shim'in isaret ettigi `@opencode/cli` veya eski `opencode-ai` npm paketinin
+  `bin/opencode.exe` dosyasi secilir. Ikisi kuruluysa shim'in referansi belirleyicidir.
+- Bilinmeyen/iki paketli shim, eksik direct binary veya Windows'ta executable
+  olmayan sonuc reddedilir. Diger eski kuruluma sessiz fallback yapilmaz.
+- `opencode` ve `opencode2` npm alias'lari desteklenir.
+
+16 Ekim 2026 kaynak incelemesinde kurulu paket `@opencode/cli` 2.0.29 idi.
+`run --help` salt okunur ciktisi `run --format json`, `--standalone`,
+`--model`, `--agent` arayuzunu gosterdi. Bu okuma model cagrisi degildir.
+Resolver bir surum/capability veya tool-denial guvenlik kaniti uretmez.
+
+## Acik native adapter baglantisi
+
+Genel `SubprocessClientAdapter` icin kullanilan assignment/digest flag'leri
+gercek OpenCode `run` protokolu degildir. CAS instruction/context okuma,
+native JSON event parsing, bounded stdin prompt ve effect oncesi tool-denial
+baglantisi tamamlanmadan bu generic adapter gercek batch kabulu sayilamaz.
+
+V2 config'te `permissions` ve `policies` vardir. Built-in `plan` agent'i tum
+shell/tool effect'lerini yasaklamaz. Noninteractive permission reject de default
+allow tool'lari engellemez. `--auto` kullanilmaz. V1 ortam degiskeninin V2'de
+ayni semantigi oldugu varsayilmaz; private server/config yolu kaynakla baglanmalidir.
+
+Birincil kaynaklar:
+
+- https://github.com/anomalyco/opencode/tree/v2/packages/cli/src/run
+- https://github.com/anomalyco/opencode/blob/v2/packages/core/src/config.ts
+- https://opencode.ai/v2/docs/permissions/
+- https://opencode.ai/v2/docs/config/
+
+Resolver regresyon kodu eklendi; testler kullanici talimatiyla CALISTIRILMADI.
+Canli provider/model, Maven veya kullanici ayari degisikligi yapilmadi.

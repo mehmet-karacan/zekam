@@ -1607,6 +1607,12 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
 
 **Kabul ve negatif testler:** Testler: multi-module, same class name, existing tests preserved, zero tests, stale JaCoCo, failed build, no-progress, model switch resume, rounding threshold ve protected production/build digest.
 
+**16 Ekim 2026 — WP-09/08 executable cozumleme gelistirmesi:** Arastirma ve
+test CLI ortak shell-free resolver'a baglandi; @opencode/cli ve eski
+opencode-ai npm shim referansindan secilir. Eksik/belirsiz shim reddedilir.
+Regresyon kodu hazir, CALISTIRILMADI. Gercek native run/event/CAS ve effect
+oncesi tool-denial halen acik; `docs/OPENCODE_BINARY_COZUMLEME.md`.
+
 **16 Ekim 2026 — WP-09/08 process boundary gelistirmesi:** Genel process
 runner stdout/stderr sinirini capture sonunda degil akis sirasinda uygular;
 overflow, timeout, cancel ve Ctrl+C owned child group/Job ve pipe temizligine

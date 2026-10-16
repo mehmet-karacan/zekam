@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -55,6 +54,7 @@ from zekam.domain.unit_test_engineering import (
     UnitTestStopReason,
     UnitTestTerminal,
 )
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 from zekam.infrastructure.sqlite.code_graph import SQLiteCodeGraphStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
@@ -1111,13 +1111,7 @@ def evidence_command(
 
 
 def _resolve_opencode_executable() -> Path:
-    found = shutil.which("opencode")
-    if found is None:
-        raise OSError("OpenCode executable PATH'te yok")
-    path = Path(found).resolve(strict=True)
-    if not path.is_file():
-        raise OSError("OpenCode executable regular dosya degil")
-    return path
+    return resolve_opencode_executable()
 
 
 def _record_control(
