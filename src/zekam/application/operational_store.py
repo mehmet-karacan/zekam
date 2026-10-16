@@ -70,6 +70,12 @@ class RunRecord:
     terminal_receipt_digest: str | None = None
     source_snapshot_id: str | None = None
     config_revision_id: str | None = None
+    source_revision_ref: str | None = None
+    source_binding_id: str | None = None
+    source_tree_digest: str | None = None
+    source_content_digest: str | None = None
+    source_config_digest: str | None = None
+    config_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

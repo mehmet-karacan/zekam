@@ -42,6 +42,10 @@ optimistic transaction ve commit kapisinda kalir.
 `recent_events` ve `runs` alanlari Work'in canonical event/run zincirini; Run ozetleri
 `source_snapshot_id` ve `config_revision_id` alanlarini koruyarak planin baglandigi
 kaynak snapshot ve config revizyonunu gosterebilir.
+Run ozetlerindeki `fingerprints` alani ayni read snapshot'inda source binding,
+revision ref, tree/content/config digestleri ile config revision digestini tasir.
+`complete=false` veya `consistent=false` ise devam eden istemci bu Run'i yeniden
+dogrulamadan efekt baslatamaz; bu alanlar salt okunur bir revalidation sinyalidir.
 `bound_jobs`
 alanlari ise project, Work revision, Run, step, source snapshot, config ve plan
 digest bagini gosterir. Bu gorunum yeni lease veya grant uretmez. Efekt baslatmadan

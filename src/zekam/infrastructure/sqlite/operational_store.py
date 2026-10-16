@@ -257,6 +257,31 @@ def _row_work(row: Any) -> OperationalWorkRecord:
     )
 
 
+def _row_run(row: Any) -> RunRecord:
+    """Map a Run row and its optional canonical source/config fingerprints."""
+
+    keys = set(row.keys()) if hasattr(row, "keys") else set()
+
+    def optional(name: str) -> Any:
+        return row[name] if name in keys else None
+
+    return RunRecord(
+        row["id"],
+        row["work_item_id"],
+        row["status"],
+        row["plan_digest"],
+        row["terminal_receipt_digest"],
+        row["source_snapshot_id"],
+        row["config_revision_id"],
+        optional("source_revision_ref"),
+        optional("source_binding_id"),
+        optional("source_tree_digest"),
+        optional("source_content_digest"),
+        optional("source_config_digest"),
+        optional("config_digest"),
+    )
+
+
 def _row_knowledge_note(row: Any) -> KnowledgeNoteRecord:
     return KnowledgeNoteRecord(
         str(row["id"]),
@@ -989,9 +1014,13 @@ class SQLiteOperationalUnitOfWork:
         """
         connection = self._db()
         row = connection.execute(
-            "select id, work_item_id, source_snapshot_id, config_revision_id, status, "
-            "plan_digest, terminal_receipt_digest"
-            " from run where id=?",
+            "select r.id, r.work_item_id, r.source_snapshot_id, r.config_revision_id, r.status, "
+            "r.plan_digest, r.terminal_receipt_digest, s.revision_ref source_revision_ref, "
+            "s.source_binding_id source_binding_id, s.tree_digest source_tree_digest, "
+            "s.content_digest source_content_digest, s.config_digest source_config_digest, "
+            "c.config_digest config_digest from run r "
+            "left join source_snapshot s on s.id=r.source_snapshot_id "
+            "left join config_revision c on c.id=r.config_revision_id where r.id=?",
             (run_id,),
         ).fetchone()
         if row is None:
@@ -1033,6 +1062,12 @@ class SQLiteOperationalUnitOfWork:
             terminal_receipt_digest,
             row["source_snapshot_id"],
             row["config_revision_id"],
+            row["source_revision_ref"],
+            row["source_binding_id"],
+            row["source_tree_digest"],
+            row["source_content_digest"],
+            row["source_config_digest"],
+            row["config_digest"],
         )
 
     def add_run_step(
@@ -1165,29 +1200,23 @@ class SQLiteOperationalUnitOfWork:
         rows = (
             self._db()
             .execute(
-                "select id,work_item_id,source_snapshot_id,config_revision_id,status,"
-                "plan_digest,terminal_receipt_digest "
-                "from run where work_item_id=? order by created_at "
+                "select r.id,r.work_item_id,r.source_snapshot_id,r.config_revision_id,r.status,"
+                "r.plan_digest,r.terminal_receipt_digest,s.revision_ref source_revision_ref,"
+                "s.source_binding_id source_binding_id,s.tree_digest source_tree_digest,"
+                "s.content_digest source_content_digest,s.config_digest source_config_digest,"
+                "c.config_digest config_digest from run r "
+                "left join source_snapshot s on s.id=r.source_snapshot_id "
+                "left join config_revision c on c.id=r.config_revision_id "
+                "where r.work_item_id=? order by r.created_at "
                 + ordering
-                + ",id "
+                + ",r.id "
                 + ordering
                 + limit_clause,
                 (work_item_id, *extra),
             )
             .fetchall()
         )
-        return tuple(
-            RunRecord(
-                row["id"],
-                row["work_item_id"],
-                row["status"],
-                row["plan_digest"],
-                row["terminal_receipt_digest"],
-                row["source_snapshot_id"],
-                row["config_revision_id"],
-            )
-            for row in rows
-        )
+        return tuple(_row_run(row) for row in rows)
 
     def list_runs_limited_batch(
         self, work_item_ids: tuple[str, ...], *, limit: int
@@ -1208,30 +1237,26 @@ class SQLiteOperationalUnitOfWork:
             self._db()
             .execute(
                 "with ranked as ("
-                "select id,work_item_id,source_snapshot_id,config_revision_id,status,"
-                "plan_digest,terminal_receipt_digest,"
-                "row_number() over (partition by work_item_id order by created_at desc,id desc) as rn "
-                "from run where work_item_id in ("
+                "select r.id,r.work_item_id,r.source_snapshot_id,r.config_revision_id,r.status,"
+                "r.plan_digest,r.terminal_receipt_digest,s.revision_ref source_revision_ref,"
+                "s.source_binding_id source_binding_id,s.tree_digest source_tree_digest,"
+                "s.content_digest source_content_digest,s.config_digest source_config_digest,"
+                "c.config_digest config_digest,"
+                "row_number() over (partition by r.work_item_id order by r.created_at desc,r.id desc) as rn "
+                "from run r left join source_snapshot s on s.id=r.source_snapshot_id "
+                "left join config_revision c on c.id=r.config_revision_id where r.work_item_id in ("
                 + placeholders
                 + ")) select id,work_item_id,source_snapshot_id,config_revision_id,status,"
-                "plan_digest,terminal_receipt_digest from ranked where rn<=? "
+                "plan_digest,terminal_receipt_digest,source_revision_ref,source_binding_id,"
+                "source_tree_digest,source_content_digest,source_config_digest,config_digest "
+                "from ranked where rn<=? "
                 "order by work_item_id,rn",
                 (*work_item_ids, limit),
             )
             .fetchall()
         )
         for row in rows:
-            result[row["work_item_id"]].append(
-                RunRecord(
-                    row["id"],
-                    row["work_item_id"],
-                    row["status"],
-                    row["plan_digest"],
-                    row["terminal_receipt_digest"],
-                    row["source_snapshot_id"],
-                    row["config_revision_id"],
-                )
-            )
+            result[row["work_item_id"]].append(_row_run(row))
         return {key: tuple(value) for key, value in result.items()}
 
     def assert_bound_job_current(self, job_id: str) -> None:
@@ -1723,24 +1748,21 @@ class SQLiteOperationalUnitOfWork:
         row = (
             self._db()
             .execute(
-                "select id, work_item_id, source_snapshot_id, config_revision_id, status, "
-                "plan_digest, terminal_receipt_digest"
-                " from run where id = ?",
+                "select r.id, r.work_item_id, r.source_snapshot_id, r.config_revision_id, r.status, "
+                "r.plan_digest, r.terminal_receipt_digest, s.revision_ref source_revision_ref, "
+                "s.source_binding_id source_binding_id, s.tree_digest source_tree_digest, "
+                "s.content_digest source_content_digest, s.config_digest source_config_digest, "
+                "c.config_digest config_digest from run r "
+                "left join source_snapshot s on s.id=r.source_snapshot_id "
+                "left join config_revision c on c.id=r.config_revision_id "
+                "where r.id = ?",
                 (run_id,),
             )
             .fetchone()
         )
         if row is None:
             raise ValidationFailed("Run bulunamadi")
-        return RunRecord(
-            row["id"],
-            row["work_item_id"],
-            row["status"],
-            row["plan_digest"],
-            row["terminal_receipt_digest"],
-            row["source_snapshot_id"],
-            row["config_revision_id"],
-        )
+        return _row_run(row)
 
     def list_checkpoints(
         self, run_id: str, *, limit: int | None = None
