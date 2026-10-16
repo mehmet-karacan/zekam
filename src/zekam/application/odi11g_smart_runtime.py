@@ -153,6 +153,12 @@ def _copy_private(plan, cancel):
                 or _sha256_file(_regular_file(plan.destination)[0]) != plan.body["source_digest"]
             ):
                 raise PolicyViolation("ODI Smart concurrent destination conflict") from None
+        else:
+            # Drop the staging link before the readback.  The private-file
+            # predicate deliberately requires a single link; keeping the
+            # staging name alive would make a successful Windows hard-link
+            # publication fail its own ownership proof.
+            temporary.unlink()
         if (
             not private_regular(plan.destination)
             or _sha256_file(_regular_file(plan.destination)[0]) != plan.body["source_digest"]

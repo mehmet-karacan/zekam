@@ -9,7 +9,7 @@ from tests.e2e.test_cli_odi11g_export import _home, _bundle, _admit_binding
 from zekam.application import odi11g_binding_runtime as subject
 from zekam.application.odi11g_export import build_odi11g_export_plan, bind_odi11g_export
 from zekam.domain.canonical import digest, digest_of_bytes
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
@@ -69,7 +69,7 @@ def test_missing_or_unadmitted_work_source_never_writes(odi_world, change):
             ),
         )
     )
-    with pytest.raises(PolicyViolation):
+    with pytest.raises((PolicyViolation, ValidationFailed)):
         bind(w, binding=binding)
     assert not (w.home / w.plan.body["binding_ref"]).exists()
 

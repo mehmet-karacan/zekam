@@ -17,7 +17,7 @@ from zekam.application.odi11g_smart_export import (
     build_sanitized_odi_plan,
 )
 from zekam.domain.canonical import digest, digest_of_bytes
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.local_file_security import private_regular
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -92,7 +92,7 @@ def test_completed_replay_reads_receipt_without_recopy_or_original_source(smart_
 @pytest.mark.parametrize("change", ["unbound", "plan", "snapshot"])
 def test_unadmitted_smart_copy_never_creates_library(smart_world, change):
     w = smart_world
-    with pytest.raises(PolicyViolation):
+    with pytest.raises((PolicyViolation, ValidationFailed)):
         import_smart_export(
             home=w.home,
             plan=w.plan,

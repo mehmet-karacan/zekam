@@ -49,6 +49,9 @@ def _operational(path: Path) -> Path:
         for slug in ("project-a", "project-b", "zekam"):
             uow.create_project(slug=slug, display_name=slug)
         uow.commit()
+    # Skill effects reopen the local runtime in read-only/admitted mode; seed
+    # the immutable runtime capacity exactly as a writable startup does.
+    SQLiteLocalRuntimeStore(operational)
     return operational
 
 

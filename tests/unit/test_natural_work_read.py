@@ -59,8 +59,8 @@ def test_work_read_is_scoped_bounded_and_does_not_write(tmp_path: Path) -> None:
     bootstrap_v8(database)
     store = SQLiteOperationalStore(database)
     with store.unit_of_work() as uow:
-        a = uow.create_project(slug="a", display_name="A")
-        b = uow.create_project(slug="b", display_name="B")
+        a = uow.create_project(slug="aa", display_name="A")
+        b = uow.create_project(slug="bb", display_name="B")
         work = uow.create_work(
             project_id=a.id, kind="task", title="A", state="ready", external_number="17"
         )
@@ -78,7 +78,7 @@ def test_work_read_is_scoped_bounded_and_does_not_write(tmp_path: Path) -> None:
         uow.commit()
     before = database.read_bytes()
     with store.unit_of_work() as uow:
-        report = read_work_request(uow, WorkReadRequest("17", "history"), project_ref="a")
+        report = read_work_request(uow, WorkReadRequest("17", "history"), project_ref="aa")
         assert report["work"]["id"] == work.id
         assert len(report["events"]) == 100
         assert report["events"][-1]["revision"] == work.revision
@@ -90,9 +90,9 @@ def test_work_read_is_scoped_bounded_and_does_not_write(tmp_path: Path) -> None:
         assert report["bound_jobs_scope"] == "exact-work"
         assert report["bound_job_limit"] == 50
         with pytest.raises(ValidationFailed):
-            read_work_request(uow, WorkReadRequest(work.id, "show"), project_ref="b")
+            read_work_request(uow, WorkReadRequest(work.id, "show"), project_ref="bb")
         with pytest.raises(ValidationFailed):
-            read_work_request(uow, WorkReadRequest("17", "close"), project_ref="a")
+            read_work_request(uow, WorkReadRequest("17", "close"), project_ref="aa")
     assert database.read_bytes() == before
 
 

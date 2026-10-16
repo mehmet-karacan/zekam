@@ -592,7 +592,7 @@ def evidence_command(
         )
         _envelope(document, expected)
         if apply:
-            _context, _trust, ledger = _components(home)
+            _component_context, _trust, ledger = _components(home)
             ledger.record_evidence(
                 evidence,
                 source_job_id=document["source_job_id"],

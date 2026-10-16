@@ -21,7 +21,11 @@ from zekam.application.local_runtime_service import (
 )
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
-from zekam.infrastructure.local_file_security import private_directory, private_regular
+from zekam.infrastructure.local_file_security import (
+    private_directory,
+    private_regular,
+    restrict_private_tree,
+)
 
 LOCAL_JOURNAL_OPERATIONS = ("local.append-journal/v1",)
 MAINTENANCE_RECONCILE_OPERATION = "maintenance.reconcile/v1"
@@ -381,15 +385,29 @@ class _PinnedJournalDirectory:
 
         parent = self.root
         if not parent.exists():
-            if not private_directory(parent.parent):
+            missing: list[Path] = []
+            ancestor = parent
+            while not ancestor.exists():
+                if ancestor == Path(ancestor.anchor):
+                    raise PolicyViolation("Local outbox root parent must be private and physical")
+                missing.append(ancestor)
+                ancestor = ancestor.parent
+            if not private_directory(ancestor):
                 raise PolicyViolation("Local outbox root parent must be private and physical")
-            parent.mkdir()
+            for candidate in reversed(missing):
+                with suppress(FileExistsError):
+                    candidate.mkdir()
+                    restrict_private_tree(candidate)
         if not private_directory(parent):
             raise PolicyViolation("Local outbox root must be private and physical")
         for part in parts[:-1]:
             parent = parent / part
+            created = False
             with suppress(FileExistsError):
                 parent.mkdir()
+                created = True
+            if created:
+                restrict_private_tree(parent)
             if not private_directory(parent):
                 raise PolicyViolation("Local outbox parent reparse or ACL drift")
         target = parent / parts[-1]
