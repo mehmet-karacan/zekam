@@ -190,8 +190,8 @@ def _read_rag_runtime_text(path: Path, *, label: str) -> str:
         raise PolicyViolation(f"Project RAG {label} UTF-8 olmali") from exc
 
 
-MODEL_ID = "openai/BAAI/bge-m3"
 LOCAL_MODEL_ID = "intfloat/multilingual-e5-small"
+MODEL_ID = LOCAL_MODEL_ID
 DEFAULT_INDEX_TIMEOUT_SECONDS = 1800.0
 MAX_INDEX_TIMEOUT_SECONDS = 7200.0
 DEFAULT_REMOTE_CALL_LIMIT = 256
@@ -199,8 +199,9 @@ MAX_REMOTE_CALL_LIMIT = 4096
 MAX_EMBED_BATCH_TOKENS = 8_192
 MAX_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 PROVIDER_ID = "litellm"
-VECTOR_DIMENSION = 1024
 LOCAL_VECTOR_DIMENSION = 384
+VECTOR_DIMENSION = LOCAL_VECTOR_DIMENSION
+PROJECT_EMBED_BATCH_SIZE = LOCAL_E5_MAX_BATCH_SIZE
 MAX_FRESHNESS_FILE_BYTES = 2 * 1024 * 1024
 
 # ----------------------------------------------------------------------
@@ -1867,8 +1868,9 @@ def _embedding_batches(
 ) -> tuple[tuple[Chunk, ...], ...]:
     """Plan bounded document batches in stable order before provider effects."""
 
-    if type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH_SIZE:
-        raise ValidationFailed("Embedding batch sayi siniri gecersiz")
+    batch_limit = PROJECT_EMBED_BATCH_SIZE if model_id == LOCAL_MODEL_ID else MAX_BATCH_SIZE
+    if type(batch_size) is not int or not 1 <= batch_size <= batch_limit:
+        raise ValidationFailed(f"Embedding batch sayi 1..{batch_limit} araliginda olmali")
     fixed_bytes = len(
         json.dumps(
             {"model": model_id, "input": [], "encoding_format": "float"},
@@ -1913,7 +1915,7 @@ def _cached_vectors(
     chunks: tuple[Chunk, ...],
     scope_by_chunk: dict[str, str],
     *,
-    dimension: int = VECTOR_DIMENSION,
+    dimension: int = LOCAL_VECTOR_DIMENSION,
 ) -> dict[str, tuple[float, ...]]:
     """Load reusable vectors with bounded set reads and deterministic aliases.
 
@@ -3814,7 +3816,7 @@ def build_index_job_plan(
     *,
     oracle_config: str | None = None,
     opencode_config: Path | None = None,
-    batch_size: int = MAX_BATCH_SIZE,
+    batch_size: int = PROJECT_EMBED_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
     timeout_seconds: float = DEFAULT_INDEX_TIMEOUT_SECONDS,
@@ -3824,8 +3826,10 @@ def build_index_job_plan(
 
     deadline = _new_index_deadline(timeout_seconds)
     _validate_remote_call_limit(max_remote_provider_calls)
-    if type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH_SIZE:
-        raise ValidationFailed("Batch size 1..64 araliginda olmali")
+    if type(batch_size) is not int or not 1 <= batch_size <= PROJECT_EMBED_BATCH_SIZE:
+        raise ValidationFailed(
+            f"Batch size 1..{PROJECT_EMBED_BATCH_SIZE} araliginda olmali"
+        )
     slug = validate_slug(project_slug)
     root = resolve_project_source(home, slug)
     project_id = _registered_project(home, slug)
@@ -3891,7 +3895,7 @@ def index_registered_project(
     *,
     oracle_config: str | None = None,
     opencode_config: Path | None = None,
-    batch_size: int = MAX_BATCH_SIZE,
+    batch_size: int = PROJECT_EMBED_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
     authorize_remote_source: bool = False,
     cancel: threading.Event | None = None,
@@ -3955,8 +3959,10 @@ def index_registered_project(
         )
     deadline_monotonic = _new_index_deadline(timeout_seconds)
     _validate_remote_call_limit(max_remote_provider_calls)
-    if not 1 <= batch_size <= MAX_BATCH_SIZE:
-        raise ValidationFailed("Batch size 1..64 araliginda olmali")
+    if not 1 <= batch_size <= PROJECT_EMBED_BATCH_SIZE:
+        raise ValidationFailed(
+            f"Batch size 1..{PROJECT_EMBED_BATCH_SIZE} araliginda olmali"
+        )
     root = resolve_project_source(resolved_home, slug)
     project_id = _registered_project(resolved_home, slug)
     route = project_embedding_route(resolved_home)
@@ -4001,7 +4007,7 @@ def main() -> int:
             command.add_argument("--oracle-config")
             command.add_argument("--authorize-remote-source", action="store_true")
             command.add_argument("--authorize-database-metadata", action="store_true")
-            command.add_argument("--batch-size", type=int, default=MAX_BATCH_SIZE)
+            command.add_argument("--batch-size", type=int, default=PROJECT_EMBED_BATCH_SIZE)
             command.add_argument(
                 "--timeout-seconds", type=float, default=DEFAULT_INDEX_TIMEOUT_SECONDS
             )
@@ -4048,8 +4054,10 @@ def main() -> int:
             raise PolicyViolation("Remote source disclosure explicit authorization ister")
         if args.oracle_config is not None and not args.authorize_database_metadata:
             raise PolicyViolation("Database metadata disclosure explicit authorization ister")
-        if not 1 <= args.batch_size <= MAX_BATCH_SIZE:
-            raise ValidationFailed("Batch size 1..64 araliginda olmali")
+        if not 1 <= args.batch_size <= PROJECT_EMBED_BATCH_SIZE:
+            raise ValidationFailed(
+                f"Batch size 1..{PROJECT_EMBED_BATCH_SIZE} araliginda olmali"
+            )
         _validate_remote_call_limit(args.max_provider_calls)
         result = _index(
             source_root,
