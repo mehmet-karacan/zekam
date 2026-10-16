@@ -1019,6 +1019,7 @@ def _plan_document(
         "source_identity_digest": plan.source_identity_digest,
         "source_revision": plan.source_revision,
         "tree_digest": plan.tree_digest,
+        "inventory_digest": discovery.inventory_digest,
         "plan_digest": digest(
             {
                 "repository_plan_digest": plan.plan_digest,
@@ -3313,6 +3314,7 @@ def _index(
         "status": "passed",
         "repository_source_revision": bound_plan.source_revision,
         "repository_tree_digest": bound_plan.tree_digest,
+        "repository_inventory_digest": bound_plan.discovery.inventory_digest,
         "source_revision": combined_revision,
         "tree_digest": combined_tree_digest,
         "source_identity_digest": source_identity_digest(

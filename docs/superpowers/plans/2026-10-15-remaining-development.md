@@ -86,6 +86,11 @@
   canonical manifest digestini degistirir; eski generation current kalmaz.
   Testler CALISTIRILMADI.
 
+- Gorev 4 WP-05.04: Project RAG plan ve index sonucu readback ciktilari
+  repository `inventory_digest` alanini acikca tasiyor. Generation scope ve
+  manifest baginin raporlanan metadata kimligiyle denetlenebilirligi saglandi.
+  Testler CALISTIRILMADI.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak
