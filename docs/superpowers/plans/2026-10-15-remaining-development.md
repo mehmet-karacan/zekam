@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-10.03 trial aggregate: v2 plan/result'a repetition/instruction hash/gercek dispatch envelope eklendi; her tekrar ayri claimed sample. Scoped terminal Work/checkpoint/receipt/CAS ve assignment/invocation/result zinciri yeniden okunup gercek prompt/native artifact local oracle ile tekrar gradelenir. Alias/sample/session dedup, mixed conditions reddi, ayri development/holdout ve equal-case descriptive metrics baglandi. En az bes holdout pair; process/protocol hata ve per-case regression korunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Bagimsiz verifier/reviewer ve SkillEvaluationV2 producer halen acik.
+
 - Gorev 5 WP-10.03 paired trial producer: skill trial-run exact candidate package/case/model/config/root planini canonical Work/Run skill.trial job'una ve gercek OpenCode batch assignment-first dispatch'ine baglar. Iki fresh session baseline/candidate, oracle builder'dan gizli local exact JSON grade ve gercek elapsed/native kimlik raporu eklendi. Native adapter cancel forwarding ve reserved-worker reddi eklendi. Regresyon kaynaklari hazir, CALISTIRILMADI. Aggregate 5 tekrar/holdout provenance, bagimsiz verifier/reviewer ve SkillEvaluationV2 producer baglantisi halen acik; docs/SKILL_PAIRED_TRIALS.md.
 
 - Gorev 5 WP-10.03 receipt consumption: exact bounded evaluation/review input codec, scoped preview/apply ve ayri canonical recording claim/receipt CLI'a baglandi. Existing evaluator/verifier/reviewer terminal kaniti zorunlu; recording receipt execution yerine gecmez. Completed replay salt okunur hash/dokuman esitlemesi yapar, kayip ledger'i yeniden yazmaz. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek skill evaluation/reviewer producer, model bagimsizligi ve native invocation kabul kapilari acik.

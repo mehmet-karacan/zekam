@@ -87,6 +87,7 @@ def build_skill_trial_plan(
     provider_profile: BatchProviderProfile | None = None,
     timeout_seconds: int = 180,
     source_root: Path,
+    repetition: int = 0,
 ) -> dict[str, Any]:
     validate_model_id(model_id)
     parse_digest(revision_digest)
@@ -95,6 +96,8 @@ def build_skill_trial_plan(
     _validate_case(case)
     if type(timeout_seconds) is not int or not 10 <= timeout_seconds <= 600:
         raise ValidationFailed("Skill paired trial timeout 10..600 required")
+    if type(repetition) is not int or not 0 <= repetition <= 99:
+        raise ValidationFailed("Skill trial repetition 0..99 required")
     # This harness measures instructions, never claims to execute package scripts.
     if len(package.instructions.encode("utf-8")) > 16_384:
         raise ValidationFailed("Skill trial bounded instruction body required")
@@ -110,7 +113,7 @@ def build_skill_trial_plan(
         network_authorized=remote,
     )
     body = {
-        "schema": "zekam-skill-paired-trial-plan/v1",
+        "schema": "zekam-skill-paired-trial-plan/v2",
         "revision_digest": revision_digest,
         "package_digest": package.package_digest,
         "project_id": project_id,
@@ -122,6 +125,8 @@ def build_skill_trial_plan(
         "model_id": model_id,
         "execution_binding_digest": adapter.execution_binding_digest,
         "instruction_contract_digest": digest_of_bytes(_INSTRUCTION.encode("utf-8")),
+        "candidate_instruction_digest": digest_of_bytes(package.instructions.encode("utf-8")),
+        "repetition": repetition,
         "profile": "instruction-only-exact-json/v1",
         "tools": "deny-all",
         "baseline": "without-skill-instructions",
@@ -129,7 +134,7 @@ def build_skill_trial_plan(
         "remote_disclosure_required": remote,
         "timeout_seconds_per_call": timeout_seconds,
         "order": ["baseline", "candidate"]
-        if int(digest(case)[-1], 16) % 2 == 0
+        if (int(digest(case)[-1], 16) + repetition) % 2 == 0
         else ["candidate", "baseline"],
         "oracle_disclosed_to_builder": False,
         "activatable": False,
@@ -208,6 +213,7 @@ def _invoke_trial(
         "assignment_id": str(assignment_id),
         "invocation_id": str(invocation_id),
         "dispatch_result_digest": result.result_digest,
+        "dispatch_result": result.as_dict(),
         "outcome": str(result.outcome),
         "elapsed_ns": elapsed_ns,
         "artifact_digest": None,
@@ -271,6 +277,7 @@ def run_skill_trial(
         provider_profile=provider_profile,
         timeout_seconds=plan["timeout_seconds_per_call"],
         source_root=root,
+        repetition=plan["repetition"],
     )
     if canonical_json(rebuilt) != canonical_json(plan):
         raise PolicyViolation("Skill trial current input/plan drift")
@@ -311,13 +318,13 @@ def run_skill_trial(
         identities = [
             item["native_identity"] for item in observations.values() if item["native_identity"]
         ]
-        if len(set(identities)) != len(identities):
+        if len({identity.split(":")[1] for identity in identities}) != len(identities):
             raise PolicyViolation("Skill trial native session reused across paired conditions")
         oracle = digest(case["expected_output"])
         for item in observations.values():
             item["exact_match"] = item["valid_output"] and item["output_digest"] == oracle
         return {
-            "schema": "zekam-skill-paired-trial-result/v1",
+            "schema": "zekam-skill-paired-trial-result/v2",
             "plan": plan,
             "plan_digest": plan["plan_digest"],
             "revision_digest": plan["revision_digest"],

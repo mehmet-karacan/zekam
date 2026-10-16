@@ -173,14 +173,15 @@ def test_trial_plan_drift_and_remote_authorization_precede_effect(world, tmp_pat
         assert db.execute("select count(*) from local_job").fetchone()[0] == 0
 
 
-def test_reused_native_session_requires_recovery(world, tmp_path, monkeypatch):
+@pytest.mark.parametrize("different_messages", [False, True])
+def test_reused_native_session_requires_recovery(world, tmp_path, monkeypatch, different_messages):
     root, package, case, plan = _inputs(tmp_path, world.binding.project_id)
     binding = _binding(world, plan)
 
     def invoke(**kwargs):
         return {
             "condition": kwargs["condition"],
-            "native_identity": "opencode:same:message",
+            "native_identity": f"opencode:same:{kwargs['condition'] if different_messages else 'message'}",
             "valid_output": True,
             "output_digest": digest(7),
         }

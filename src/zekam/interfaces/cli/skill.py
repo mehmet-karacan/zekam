@@ -30,6 +30,7 @@ from zekam.application.skill_packages import (
 )
 from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
+from zekam.application.skill_trial_aggregation import aggregate_skill_trials
 from zekam.application.unit_test_provider_profile import load_batch_provider_profile
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ZekamError
@@ -654,6 +655,7 @@ def trial_run_command(
     provider_profile: Annotated[Path | None, typer.Option("--provider-profile")] = None,
     executable: Annotated[str, typer.Option("--opencode")] = "opencode",
     timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=10, max=600)] = 180,
+    repetition: Annotated[int, typer.Option("--repetition", min=0, max=99)] = 0,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
     authorize_remote: Annotated[bool, typer.Option("--authorize-remote")] = False,
@@ -709,6 +711,7 @@ def trial_run_command(
             provider_profile=profile,
             timeout_seconds=timeout_seconds,
             source_root=source_root,
+            repetition=repetition,
         )
         binding = resolve_optional_work_binding(
             resolved_home,
@@ -751,6 +754,41 @@ def trial_run_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Skill trial bounded girdi/kimlik okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("trial-aggregate")
+def trial_aggregate_command(
+    revision_digest: Annotated[str, typer.Argument()],
+    trial: Annotated[list[str], typer.Option("--trial")],
+    case_file: Annotated[list[Path], typer.Option("--case-file")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Read actual scoped terminal trials and regrade their output artifacts."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        candidate = lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        if not 1 <= len(trial) <= 100 or not 1 <= len(case_file) <= 100:
+            raise PolicyViolation("Skill aggregate bounded trial/case list required")
+        _emit(
+            aggregate_skill_trials(
+                resolved_home,
+                references=tuple(trial),
+                cases=tuple(load_trial_case(path) for path in case_file),
+                project_id=registered.id,
+                revision_digest=revision_digest,
+                package_digest=str(candidate["package_digest"]),
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill aggregate kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

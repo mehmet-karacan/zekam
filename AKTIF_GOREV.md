@@ -1717,6 +1717,12 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   canonical Work/Run claim/receipt `skill trial-run` yoluna baglandi. Cancel forwarding,
   plan/root/package/case drift ve reserved-worker kapisi eklendi. Regresyon kodu hazir,
   CALISTIRILMADI. Aggregate/verifier/reviewer ve gercek kabul kapilari acik.
+
+  16 Ekim 2026 trial aggregate: v2 repetition ve dispatch envelope bagi, terminal
+  canonical receipt/CAS/assignment zincirinden local regrade, duplicate sample/session
+  ve mixed-condition reddi eklendi. Development/holdout ayri; bes holdout pair esigi,
+  per-case regression ve basarisiz ornekler korunur. Regresyon kaynaklari hazir,
+  CALISTIRILMADI. Bagimsiz verifier/reviewer ve lifecycle producer acik kalir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

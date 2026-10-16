@@ -80,3 +80,44 @@ Regresyon kaynaklari canonical DB claim/receipt, native event/CAS adapter,
 oracle isolation, paired result/replay, plan drift, remote authorization,
 duplicate session, reserved worker ve cancel forwarding yollarini kapsar.
 Testler CALISTIRILMADI; tum gelistirmelerden sonraki final asamayi bekler.
+
+## Canonical toplama ve tekrarlar
+
+`--repetition 0..99` ayni vakanin ayri yurutmesini plan/claim/assignment
+kimligine baglar. Kosul sirasi tekrarlarla degisir; ayni tekrar cached replay'dir.
+Plan/result v2, candidate instruction digest'ini ve gercek dispatch envelope'unu
+tasir. V1 receipt'leri degistirilmez ve bu aggregate yoluna otomatik yukseltilmez.
+
+`zekam skill trial-aggregate <revision> --trial <terminal-job-ref> ...
+--case-file <vaka> ... --project <proje>` salt okunur calisir. Her benzersiz vaka
+bir kez verilir. Liste en fazla 100 trial ve 100 vakadir. Ajan terminal job
+referanslarini canonical ciktidan kendisi cozer. Kullanici report JSON'u veya
+modelin yazdigi basari etiketi kanit kabul edilmez.
+
+Job'un gercek Work/project binding'i, completion checkpoint/artifact/claim/receipt,
+CAS result hash'i, exact v2 plan, assignment/invocation/result kayitlari ve native
+output artifact'i tekrar okunur. Gercek prompt'ta vaka input'u ve condition'a
+uygun instructions yeniden dogrulanir; oracle context'e sokulamaz. Grader
+valid_output/output_digest/exact_match alanlarini tekrar hesaplar. Owned timing
+ve diger sistem sayaclari PII taramasi diye rastgele reddedilmez; disaridan gelen
+prompt/model artifact'lari ayrica secret/PII kapisindan yeniden gecer.
+
+Ayni job'un UUID/idempotency alias'lari, ayni vaka/tekrar'in farkli Run'lardaki
+kopyalari ve farkli message ID altinda bile ayni native session tekrar sayilmaz.
+Project/revision/package, kaynak koku, model, config, harness, tools veya sure
+butcesi farkli trial'lar birlestirilmez. Eksik/corrupt artifact ve degisen oracle
+reddedilir. Siralama aggregate digest'ini degistirmez.
+
+Sonuc development ve holdout partition'larini ayri hesaplar. Her vaka kendi
+tekrarlarinin ortalamasiyla, partition icinde her vaka esit agirlikla raporlanir;
+cok tekrar edilen tek vaka diger vakayi ezmez. En az bes holdout pair gerekir;
+development ciftleri bu esigi doldurmaz. Herhangi bir holdout vakasinda exact
+match gerilemesi `regressed` verir. Process/protocol basarisizligi `failed`
+olarak korunur; kotu ornekler denominator'dan atilmaz.
+
+`comparison_state` olculen exact JSON karsilastirmasidir. Unique vaka ve tekrar
+sayilari aciktir; belirsizlik descriptive-only'dir, guven araligi veya genelleme
+kalitesi uydurulmaz. Caller-supplied holdout etiketi bagimsiz dataset provenance'i
+olmaz. Aggregate sifir provider cagrisi yapar, `independent_verification=false`
+ve `activatable=false` tasir. Farkli verifier/reviewer yurutmesi ve lifecycle
+producer baglantisi halen aciktir. Yeni regresyon kaynaklari da CALISTIRILMADI.
