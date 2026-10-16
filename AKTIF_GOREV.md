@@ -929,6 +929,14 @@ CALISTIRILMADI. Bu dilim yeni kabul veya WP kapanisi uretmez;
 
 **İncelenecek/değişecek konumlar:** `project_rag_runtime.py`, `project_knowledge_index.py`, `embedding_provider.py`, `embedding_routing.py`, `knowledge_index.py`, `embedded_project_rag.py`, `retrieval_service.py`, `infrastructure/sqlite/knowledge_index.py` ve mevcut provider ledger/cache.
 
+**17 Ekim 2026 - yerel E5 uretim siniri:** Proje RAG runtime'i ve local
+continuity artik yalniz pinned multilingual-e5-small ONNX CPU profilini kabul
+ediyor; legacy BGE ayari veya index yolu fail-closed reddediliyor. Backup v2
+source census'i eski `opencode-bge-m3` agacini bundle'a almayacak sekilde
+sinirlandi. Eski derived index varsa once `purge-legacy-index` exact plan ve
+receipt zinciriyle temizlenmeli; kullanici home'unda silme islemi bu dilimde
+calistirilmadi. Testler final asamaya ertelendi.
+
 - [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
 - [x] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
 - [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.

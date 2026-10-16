@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.client_lifecycle_spool import ClientLifecycleSpool
-from zekam.application.config import core_root, load_settings
+from zekam.application.config import EmbeddingRoute, core_root, load_settings
 from zekam.application.fresh_bootstrap import OPERATIONAL_RELATIVE_PATH
 from zekam.application.home import assert_separated_from_core
 from zekam.application.knowledge_plane_service import KnowledgePlaneService
@@ -91,6 +91,7 @@ def _index_dimension(home: Path, index_path: Path) -> int:
     knowledge = load_settings(home=home).knowledge
     if (
         knowledge.embedding_profile_id != "multilingual-e5-small-dense-v1"
+        or knowledge.embedding_route is not EmbeddingRoute.LOCAL
         or knowledge.embedding_model_ref != "intfloat/multilingual-e5-small"
         or knowledge.embedding_dimension != 384
         or knowledge.embedding_distance != "cosine"
