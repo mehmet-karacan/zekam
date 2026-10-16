@@ -2116,6 +2116,13 @@ def _publish_rag_state_pending(
         raise PolicyViolation("Project RAG pending project binding drift")
     if result.get("generation_digest") != staged_generation_digest:
         raise PolicyViolation("Project RAG pending generation binding drift")
+    source_revision = result.get("source_revision")
+    tree_digest = result.get("tree_digest")
+    if not isinstance(source_revision, str) or not isinstance(tree_digest, str):
+        raise PolicyViolation("Project RAG pending source/tree binding drift")
+    expected_source_identity = source_identity_digest(project_id, source_revision, tree_digest)
+    if result.get("source_identity_digest") != expected_source_identity:
+        raise PolicyViolation("Project RAG pending source identity drift")
     parse_digest(staged_generation_digest)
     if expected_current_digest is not None:
         parse_digest(expected_current_digest)
@@ -2150,6 +2157,7 @@ def _publish_rag_state_pending(
             "expected_current_digest": expected_current_digest,
             "source_revision": result.get("source_revision"),
             "tree_digest": result.get("tree_digest"),
+            "source_identity_digest": result.get("source_identity_digest"),
             "result": result,
         }
         payloads = None
@@ -2275,6 +2283,7 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
             or result.get("generation_digest") != staged_generation_digest
             or pending.get("source_revision") != result.get("source_revision")
             or pending.get("tree_digest") != result.get("tree_digest")
+            or pending.get("source_identity_digest") != result.get("source_identity_digest")
         ):
             raise PolicyViolation("Project RAG pending generation/project binding drift")
         source_revision = result.get("source_revision")
@@ -2283,6 +2292,10 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
             raise PolicyViolation("Project RAG pending source/tree binding drift")
         parse_digest(source_revision)
         parse_digest(tree_digest)
+        if result.get("source_identity_digest") != source_identity_digest(
+            project_id, source_revision, tree_digest
+        ):
+            raise PolicyViolation("Project RAG pending source identity drift")
         try:
             with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
                 try:
@@ -2536,6 +2549,9 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
         "odi_lineage_edge_count": state.get("odi_lineage_edge_count", 0),
         "source_revision": generation.source_revision,
         "tree_digest": generation.tree_digest,
+        "source_identity_digest": source_identity_digest(
+            project_id, generation.source_revision, generation.tree_digest
+        ),
         "provider_profile_digest": generation.provider_profile_digest,
         "embedding_profile_id": state.get("embedding_profile_id"),
         "embedding_route": state.get("embedding_route"),
@@ -3260,6 +3276,9 @@ def _index(
         "repository_tree_digest": bound_plan.tree_digest,
         "source_revision": combined_revision,
         "tree_digest": combined_tree_digest,
+        "source_identity_digest": source_identity_digest(
+            project_id, combined_revision, combined_tree_digest
+        ),
         "source_files": [
             {"path": item.relative_path, "content_digest": item.content_digest}
             for item in bound_plan.discovery.files
@@ -3329,6 +3348,12 @@ def _query(
     state = json.loads(_read_rag_runtime_text(paths["state"], label="query state"))
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
+    recorded_source_identity = state.get("source_identity_digest")
+    if recorded_source_identity is not None:
+        if recorded_source_identity != source_identity_digest(
+            project_id, str(state.get("source_revision", "")), str(state.get("tree_digest", ""))
+        ):
+            raise PolicyViolation("Project RAG state source identity drift")
     stale_reasons: list[str] = []
     references = collect_reference_corpus(home, str(project_id), project_slug)
     if state.get("reference_snapshot_digest") != references.snapshot_digest and (
@@ -3481,6 +3506,9 @@ def _query(
             payload=(canonical_json(state) + "\n").encode("utf-8"),
         )
     return result | {
+        "source_identity_digest": source_identity_digest(
+            project_id, str(state["source_revision"]), str(state["tree_digest"])
+        ),
         "probe_evidence_digest": binding.probe["probe_evidence_digest"],
         "embedding_route": binding.route.value,
         "remote_provider_used": binding.remote_provider_used,
