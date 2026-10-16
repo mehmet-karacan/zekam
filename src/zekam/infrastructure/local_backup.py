@@ -83,6 +83,7 @@ _FILES = (
     "config/git-publication-trust.json",
 )
 _SIDECAR_SUFFIXES = ("-journal", "-wal", "-shm")
+_LEGACY_VECTOR_PREFIX = ("knowledge-index", "vector", "opencode-bge-m3")
 _DATABASE_NAMES = {
     "state/operational.db": "operational",
     "state/learning.db": "learning",
@@ -295,7 +296,9 @@ def _snapshot_database(
     _sync_file(target)
 
 
-def _walk_tree_files(root: Path) -> Iterator[Path]:
+def _walk_tree_files(
+    root: Path, *, excluded_prefixes: tuple[tuple[str, ...], ...] = ()
+) -> Iterator[Path]:
     """Yield private tree files without following links or buffering a full tree."""
 
     pending = [root]
@@ -314,6 +317,12 @@ def _walk_tree_files(root: Path) -> Iterator[Path]:
                         )
                         if stat.S_ISLNK(info.st_mode) or is_reparse:
                             raise PolicyViolation("Backup source tree cannot contain links")
+                        relative_parts = target.relative_to(root).parts
+                        if any(
+                            relative_parts[: len(prefix)] == prefix
+                            for prefix in excluded_prefixes
+                        ):
+                            continue
                         if entry.is_dir(follow_symlinks=False):
                             directory_count += 1
                             if directory_count > MAX_DIRECTORIES:
@@ -391,6 +400,12 @@ def _project_sqlite_path(relative: str) -> bool:
     )
 
 
+def _is_legacy_vector_path(relative: str) -> bool:
+    """Keep retired BGE production vectors out of local-only backup bundles."""
+
+    return PurePosixPath(relative).parts[: len(_LEGACY_VECTOR_PREFIX)] == _LEGACY_VECTOR_PREFIX
+
+
 def _load_backup_sqlite_extension(relative: str, db: sqlite3.Connection) -> None:
     if _project_sqlite_path(relative) and PurePosixPath(relative).name == "knowledge.sqlite3":
         import sqlite_vec
@@ -452,7 +467,10 @@ def _sources(
             continue
         if root.is_symlink() or not root.is_dir():
             raise PolicyViolation("Backup source tree invalid")
-        for path in _walk_tree_files(root):
+        excluded = (
+            (_LEGACY_VECTOR_PREFIX[1], _LEGACY_VECTOR_PREFIX[2]),
+        ) if root_name == "knowledge-index" else ()
+        for path in _walk_tree_files(root, excluded_prefixes=excluded):
             relative = path.relative_to(home).as_posix()
             if relative in database_set or relative.endswith(_SIDECAR_SUFFIXES):
                 continue
@@ -489,7 +507,9 @@ def _assert_source_census_unchanged(
 
 
 def _allowed_regular_path(relative: str) -> bool:
-    return relative in _FILES or any(relative.startswith(f"{root}/") for root in _TREES)
+    return not _is_legacy_vector_path(relative) and (
+        relative in _FILES or any(relative.startswith(f"{root}/") for root in _TREES)
+    )
 
 
 def _directories(
