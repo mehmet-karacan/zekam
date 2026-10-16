@@ -53,6 +53,10 @@ def enrollment(trust_home):
             project_id=project.id, kind="task", title="Registry enrollment", state="ready"
         )
         uow.commit()
+    # The read-only runtime constructor requires the immutable operational
+    # runtime admission row to exist, just as a normal writable startup would
+    # have created it before this enrollment flow is opened.
+    SQLiteLocalRuntimeStore(home / "state/operational.db")
     plan = subject.build_trust_enrollment_plan(
         home, canonical_bytes(registry), project_id=project.id
     )

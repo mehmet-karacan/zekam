@@ -58,13 +58,20 @@ def publication_plan_from_body(body: dict[str, Any]) -> GitPublicationPlan:
 
 def publication_evidence_from_body(body: dict[str, Any]) -> GitPublicationEvidence:
     try:
+        recorded_at = body["recorded_at"]
+        if isinstance(recorded_at, dt.datetime):
+            parsed_recorded_at = recorded_at
+        elif isinstance(recorded_at, str):
+            parsed_recorded_at = dt.datetime.fromisoformat(recorded_at)
+        else:
+            raise TypeError("recorded_at must be datetime or ISO text")
         evidence = GitPublicationEvidence(
             body["kind"],
             body["subject_digest"],
             UUID(body["execution_id"]),
             UUID(body["executor_id"]),
             body["passed"],
-            dt.datetime.fromisoformat(body["recorded_at"]),
+            parsed_recorded_at,
         )
         _same(body, evidence.body())
         return evidence

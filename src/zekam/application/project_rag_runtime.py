@@ -3905,13 +3905,16 @@ def index_registered_project(
             "max_remote_provider_calls": max_remote_provider_calls,
         }
 
-        approved_references: list[str] = []
+        approved_references: list[str | None] = []
 
         def validate_inputs() -> None:
             plan = build_index_job_plan(resolved_home, slug, **options)
             if plan["plan_digest"] != work_binding.plan_digest:
                 raise PolicyViolation("Canonical index plan binding drift")
-            approved_references[:] = [plan["reference_snapshot_digest"]]
+            # Older persisted index plans may not carry the optional
+            # reference snapshot binding.  Keep replay compatible while
+            # binding it whenever the current plan provides one.
+            approved_references[:] = [plan.get("reference_snapshot_digest")]
             validate_bound_source(
                 resolved_home,
                 work_binding,

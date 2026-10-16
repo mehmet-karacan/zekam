@@ -49,9 +49,10 @@ def test_core_default_file_exists_and_parses(home_root: Path) -> None:
     assert "core-default" in settings.sources
     assert settings.database.name == "zekam"
     assert settings.database.backend is PersistenceBackend.SQLITE
-    assert settings.knowledge.embedding_dimension == 1024
-    assert settings.knowledge.embedding_profile_id == "bge-m3-dense-v1"
-    assert settings.knowledge.embedding_route is EmbeddingRoute.REMOTE
+    assert settings.knowledge.embedding_dimension == 384
+    assert settings.knowledge.embedding_profile_id == "multilingual-e5-small-dense-v1"
+    assert settings.knowledge.embedding_route is EmbeddingRoute.LOCAL
+    assert settings.knowledge.embedding_model_ref == "intfloat/multilingual-e5-small"
     assert settings.knowledge.remote_provider_id == "litellm"
     assert settings.knowledge.embedding_distance == "cosine"
     assert settings.diagnostic_trace.enabled is False

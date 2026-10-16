@@ -545,6 +545,13 @@ def apply_graph_build(
     """Extract every planned file and atomically publish a new generation."""
     expected = plan.plan_digest
     parse_digest(expected)
+    # Classify a source removed after planning as an unreadable source before
+    # comparing the broader metadata inventory.  This preserves the precise
+    # typed failure for a missing planned file while retaining inventory drift
+    # detection for other changes.
+    for relative_path, _content_digest in plan.file_manifests:
+        if not (source_root / relative_path).exists():
+            _read_source_bytes(source_root, Path(relative_path))
     if plan.metadata_inventory:
         current_metadata = _discover_graph_metadata(source_root, extractor)
         if current_metadata != plan.metadata_inventory:

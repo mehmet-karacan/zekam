@@ -322,9 +322,14 @@ class ArchiveInspector:
                     raise PolicyViolation("arsiv girdi adi tutarsiz")
                 stream.seek(central_cursor)
                 high_mode = mode >> 16
-                if high_mode and stat.S_ISLNK(high_mode):
+                # DOS/Windows ZIP writers commonly put only permission bits
+                # (for example 0o600) in the high half of external_attr.  A
+                # non-zero value alone therefore does not mean that the entry
+                # is a Unix special file; inspect the type bits instead.
+                file_type = stat.S_IFMT(high_mode)
+                if file_type == stat.S_IFLNK:
                     entry_kind = "link"
-                elif high_mode and not stat.S_ISREG(high_mode) and not stat.S_ISDIR(high_mode):
+                elif file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
                     # FIFO/device/socket/unknown Unix file types are never safe
                     # archive content.  Reject them before any future extractor
                     # could materialize an effectful filesystem node.

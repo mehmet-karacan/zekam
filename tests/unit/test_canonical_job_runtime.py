@@ -806,10 +806,11 @@ def test_canonical_source_plan_uses_execution_modes_module_scope(
 
 
 def _completion_fixture_with_incomplete_proof(world, defect):
+    import datetime as dt
     import os
     from uuid import uuid4
 
-    from zekam.domain.canonical import canonical_bytes
+    from zekam.domain.canonical import canonical_bytes, canonical_json
 
     operation = "project.index"
     input_digest = digest("input")
@@ -863,6 +864,33 @@ def _completion_fixture_with_incomplete_proof(world, defect):
     if defect in changes:
         key, value = changes[defect]
         payload[key] = value
+
+    def record_legacy_checkpoint(uow, *, run_id, sequence, value):
+        """Insert deliberately malformed legacy proof for replay validation."""
+
+        if defect not in {"grant", "oversized", "oversized-duplicate"}:
+            uow.record_checkpoint(
+                run_id=run_id,
+                sequence=sequence,
+                checkpoint_digest=digest(value),
+                payload=value,
+                source_snapshot_id=world.binding.source_snapshot_id,
+            )
+            return
+        uow._db().execute(
+            "insert into checkpoint(id, run_id, sequence, source_snapshot_id, "
+            "checkpoint_digest, payload_json, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid4()),
+                run_id,
+                sequence,
+                world.binding.source_snapshot_id,
+                digest(value),
+                canonical_json(value),
+                dt.datetime.now(dt.UTC).isoformat(),
+            ),
+        )
+
     with world.store.unit_of_work() as uow:
         if defect != "artifact-missing":
             uow.register_artifact(
@@ -882,24 +910,12 @@ def _completion_fixture_with_incomplete_proof(world, defect):
                     source_snapshot_id=world.binding.source_snapshot_id,
                 )
                 run_id = other.id
-            uow.record_checkpoint(
-                run_id=run_id,
-                sequence=1,
-                checkpoint_digest=digest(payload),
-                payload=payload,
-                source_snapshot_id=world.binding.source_snapshot_id,
-            )
+            record_legacy_checkpoint(uow, run_id=run_id, sequence=1, value=payload)
             if defect in {"duplicate", "oversized-duplicate"}:
                 extra = payload | {
                     "extra": "x" * 17000 if defect == "oversized-duplicate" else "duplicate"
                 }
-                uow.record_checkpoint(
-                    run_id=run_id,
-                    sequence=2,
-                    checkpoint_digest=digest(extra),
-                    payload=extra,
-                    source_snapshot_id=world.binding.source_snapshot_id,
-                )
+                record_legacy_checkpoint(uow, run_id=run_id, sequence=2, value=extra)
         uow.commit()
     world.runtime.record_receipt(claim, status="completed", evidence_digest=artifact.digest)
     world.runtime.finish(work, state="completed", evidence_digest=artifact.digest)
