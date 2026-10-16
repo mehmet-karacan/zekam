@@ -428,6 +428,15 @@ class SQLiteUnitTestLedger:
         ).fetchall()
         return tuple(_attempt_from_row(row) for row in rows)
 
+    def get_attempt(self, attempt_id: str) -> UnitTestAttempt | None:
+        """Read one immutable attempt without loading the entire request history."""
+
+        row = self._db.execute(
+            "select body_json,idempotency_key from unit_test_attempt where attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        return None if row is None else _attempt_from_row(row)
+
     def get_attempt_receipt(self, attempt_id: str) -> AttemptReceiptRecord | None:
         row = self._db.execute(
             "select status, evidence_digest from unit_test_attempt_receipt where attempt_id=?",

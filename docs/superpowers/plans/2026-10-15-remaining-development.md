@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 3/5 WP-02.03/WP-09.05: Native test source-evidence okuyucusu canonical job/checkpoint/CAS -> request/attempt/receipt -> measurement/binding/candidate tree baglarini salt okunur dogrular. Nondefault execution key, failed sonuc, bounded strict JSON ve kolon/body drift regresyon kaynaklari eklendi; CALISTIRILMADI. Tarihsel freshness guncel kaynak veya ham rapor/quality kaniti degildir; signing/publication authority false kalir. Ayrinti docs/NATIVE_TEST_KANIT_KAYNAGI.md. Immutable raw report, exact publication subject, independent verifier ve signer ownership baglari acik.
+
 - Gorev 3 WP-02.03 public registry rotation: onceki full canonical receipt lineage/head, old approval signature/window ve yeni admitted config pin exact Work/claim'e baglandi. Global registry lease, bounded terminal census, no reset/fork/unknown adoption, private staging/fsync/atomic replace ve post-effect readback/complete replay eklendi. Strict public CLI JSON, trust-source/rotation-plan/rotate yuzeyleri ve gercek SQLite/CAS regresyon kaynaklari hazir, CALISTIRILMADI. Signing key provisioning/ownership, actual test/verifier producer ve native enforcement kabulleri acik; docs/PUBLIC_REGISTRY_ROTASYONU.md.
 
 - Gorev 3 enrollment post-effect admission duzeltmesi: ortak canonical runtime callback'i yazma sonrasinda tekrar cagirdigi icin target-absent kontrolu kendi tamamlanan yazmasini reddediyordu. Process-local own-write phase ile once absent, sonra exact fsync/readback icerigi dogrulanir; current config/pin/callback ve foreign-existing reddi korunur. Pre/post ve post-effect drift regresyon kaynaklari hazir, CALISTIRILMADI.

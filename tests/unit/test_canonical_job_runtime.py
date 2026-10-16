@@ -18,6 +18,182 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 
+def _native_source_fixture(world, *, failed=False, execution_key="nondefault-measurement"):
+    """Synthetic measurer; real native ledger, canonical checkpoint and CAS writes."""
+    from zekam.application.unit_test_loop_state import EnvironmentObservation, MeasuredRun
+    from zekam.application.unit_test_measurement import (
+        MeasurementBinding,
+        MeasurementScope,
+        MeasurementEvidence,
+        RunStatus,
+        TestRunKind,
+        ToolchainIdentity,
+        FreshnessVerdict,
+        assemble_measurement,
+    )
+    from zekam.domain.unit_test_engineering import CoverageMetric, CoverageObservation
+
+    request = measurement.native_request(
+        UnitTestRequest.with_defaults(
+            project_id=world.binding.project_id,
+            source_binding_id=world.source.id,
+            source_revision=world.observed.source_revision,
+            source_files=("src/main/A.java",),
+            percent="80",
+            budget=UnitTestBudget(3, 60, 180),
+            work_item_id=world.binding.work_item_id,
+            run_id=world.binding.run_id,
+            source_snapshot_id=world.binding.source_snapshot_id,
+        )
+    )
+    observed = EnvironmentObservation(
+        world.observed.source_revision,
+        world.observed.production_digests,
+        world.observed.build_config_digest,
+        digest("launcher"),
+    )
+
+    def measure(request, *, attempt_id, run_id, candidate_digest, **_kwargs):
+        bound = MeasurementBinding(
+            request.request_digest,
+            attempt_id,
+            run_id,
+            MeasurementScope.UNIT,
+            request.source_revision,
+            tuple(observed.production_digests.items()),
+            (("A.class", digest("class")),),
+            candidate_digest,
+            observed.build_config_digest,
+            world.binding.plan_digest,
+            ToolchainIdentity("mvn", observed.launcher_digest, "3.9", "21", "21", ()),
+            (("surefire:TEST-A.xml", digest("synthetic-report")),),
+        )
+        evidence = MeasurementEvidence(
+            RunStatus.COMPLETED,
+            1 if failed else 0,
+            TestRunKind.FAILED if failed else TestRunKind.PASSED,
+            (("executed", 1), ("passed", 0 if failed else 1), ("failed", int(failed))),
+            (
+                CoverageObservation.measured(
+                    "src/main/A.java", CoverageMetric.LINE, covered=9, missed=1
+                ),
+            ),
+        )
+        return MeasuredRun(
+            record=assemble_measurement(request, bound, evidence, freshness=FreshnessVerdict.FRESH)
+        )
+
+    objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
+    ports = measurement.NativeMeasurementPorts(
+        ledger=measurement._ShortTransactionLedger(world.store),
+        objects=objects,
+        measurer=SimpleNamespace(measure=measure),
+        environment=SimpleNamespace(observe=lambda: observed),
+        test_tree=lambda: {"src/test/ATest.java": digest("test")},
+        plan_digest=world.binding.plan_digest,
+    )
+    return measurement.measure_native_job(
+        request,
+        ports,
+        home=world.home,
+        work_binding=world.binding,
+        execution_key=execution_key,
+    )
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_native_source_reader_receipt_chain_does_not_claim_quality_or_authority(world, failed):
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    result = _native_source_fixture(world, failed=failed)
+    report = read_native_measurement_source(world.home, result["canonical_job_id"])
+    assert report["canonical_receipt_verified"] and report["attempt_receipt_verified"]
+    assert report["attempt_state"] == ("failed" if failed else "completed")
+    assert report["outcome"] == ("tests-failed" if failed else "target-met")
+    assert report["build_exit_code"] == int(failed)
+    assert report["execution_id"] == world.binding.run_id
+    for field in (
+        "current_source_verified",
+        "raw_reports_verified",
+        "independent_quality_verified",
+        "publication_authorized",
+        "grants_authority",
+    ):
+        assert report[field] is False
+    snapshot = world.runtime.job_snapshot(result["canonical_job_id"])
+    assert read_native_measurement_source(world.home, snapshot["idempotency_key"]) == report
+
+
+def test_native_source_reader_rejects_unrelated_completed_job(world):
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    result = run(world, lambda _cancel: {"passed": True})
+    with pytest.raises(PolicyViolation, match="test.measure"):
+        read_native_measurement_source(world.home, result["canonical_job_id"])
+
+
+def test_native_source_reader_rejects_missing_attempt_cas(world):
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    result = _native_source_fixture(world)
+    objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
+    objects._paths(result["evidence_digest"])[0].unlink()
+    with pytest.raises((OSError, NotFound)):
+        read_native_measurement_source(world.home, result["canonical_job_id"])
+
+
+def test_native_source_reader_rejects_result_to_attempt_drift(world):
+    from zekam.application.unit_test_source_evidence import _linked_measurement
+
+    result = _native_source_fixture(world)
+    objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
+    import json
+
+    with world.store.unit_of_work() as uow:
+        ledger = uow.unit_test_ledger()
+        attempt = ledger.get_attempt(result["attempt_id"])
+        request = ledger.get_request(result["request_digest"])
+        receipt = ledger.get_attempt_receipt(attempt.attempt_id)
+        observations = ledger.list_observations(attempt.attempt_id)
+    envelope = json.loads(objects.get(receipt.evidence_digest))
+    candidate = json.loads(objects.get(attempt.candidate_digest))
+    for field, bad in (
+        ("ordinal", True),
+        ("build_exit_code", 1),
+        ("freshness", "stale"),
+        ("test_counts", {"passed": 999}),
+    ):
+        with pytest.raises(PolicyViolation):
+            _linked_measurement(
+                result | {field: bad},
+                envelope,
+                candidate,
+                request=request,
+                attempt=attempt,
+                receipt=receipt,
+                observations=observations,
+            )
+
+
+@pytest.mark.parametrize("raw", [b'{"a":1,"a":2}', b'{"a":NaN}', b"[]"])
+def test_native_source_reader_requires_strict_object_json(world, raw):
+    from zekam.application.unit_test_source_evidence import _object
+
+    objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
+    key = objects.put(raw, media_type="application/json").digest
+    with pytest.raises(PolicyViolation):
+        _object(objects, key)
+
+
+def test_native_source_reader_enforces_object_read_budget_before_get(world, monkeypatch):
+    from zekam.application import unit_test_source_evidence as source
+
+    result = _native_source_fixture(world)
+    monkeypatch.setattr(source, "MAX_BYTES", 1)
+    with pytest.raises(PolicyViolation, match="read budget"):
+        source.read_native_measurement_source(world.home, result["canonical_job_id"])
+
+
 @pytest.fixture
 def world(tmp_path):
     home = HomeLayout(tmp_path / "home").ensure().root

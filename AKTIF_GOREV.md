@@ -559,6 +559,8 @@ yolunu kullanir. Source/realm/config farki yeni yayini reddeder. Regresyon kodu
 hazir, testler CALISTIRILMADI. Gercek native producer enrollment/receipt producer
 ve host indirect shell enforcement kabulu acik; kullanici home'una yazilmadi.
 
+**16 Ekim 2026 native test kanit kaynagi gelistirmesi:** Native test source-evidence okuyucusu canonical job/checkpoint/CAS -> request/attempt/receipt -> measurement/binding/candidate tree baglarini salt okunur dogrular. Nondefault execution key, failed sonuc, bounded strict JSON ve kolon/body drift regresyon kaynaklari eklendi; CALISTIRILMADI. Tarihsel freshness guncel kaynak veya ham rapor/quality kaniti degildir; signing/publication authority false kalir. Ayrinti docs/NATIVE_TEST_KANIT_KAYNAGI.md. Immutable raw report, exact publication subject, independent verifier ve signer ownership baglari acik.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  

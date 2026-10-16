@@ -2,6 +2,8 @@
 
 ## Guncel devam notu
 
+Native test source-evidence okuyucusu canonical job/checkpoint/CAS -> request/attempt/receipt -> measurement/binding/candidate tree baglarini salt okunur dogrular. Nondefault execution key, failed sonuc, bounded strict JSON ve kolon/body drift regresyon kaynaklari eklendi; CALISTIRILMADI. Tarihsel freshness guncel kaynak veya ham rapor/quality kaniti degildir; signing/publication authority false kalir. Ayrinti docs/NATIVE_TEST_KANIT_KAYNAGI.md. Immutable raw report, exact publication subject, independent verifier ve signer ownership baglari acik.
+
 Kullanici checkpoint sonrasinda devam et dedi; kaynak gelistirmesi suruyor.
 Asagidaki 07:40 duraklama bolumu tarihsel snapshot'tir. Yeni canonical tournament
 selection dilimi actual paired sources -> local regrade/no-progress -> tek

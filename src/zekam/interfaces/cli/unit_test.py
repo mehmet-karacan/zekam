@@ -1128,6 +1128,23 @@ def _evidence_summary(
     return summary
 
 
+@app.command("source-evidence")
+def source_evidence_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Canonical test.measure job/attempt/measurement zincirini salt okunur dogrular."""
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    try:
+        context = build_context(home=home)
+        document = read_native_measurement_source(context.home, reference)
+    except (OSError, TypeError, ValueError, KeyError, ZekamError) as exc:
+        _finish(gate_document("environment-missing", reasons=(str(exc),)), EXIT_RUNTIME)
+        return
+    _emit(document)
+
+
 @app.command("evidence")
 def evidence_command(
     request_digest: Annotated[str, typer.Argument()],
