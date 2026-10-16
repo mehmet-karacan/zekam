@@ -41,3 +41,7 @@ ayrinti `ODI_SMART_CANONICAL_IMPORT.md`. Directory binding metadata yolunun tek
 basina ODI indeksini veya WP'yi tamamladigi soylenmez.
 SQLite/CAS/XML/private file ve CLI regresyon kaynaklari hazir, CALISTIRILMADI.
 Tum testler tum gelistirmeler sonrasindaki final asamadadir.
+
+## Reddedilen dosya fingerprint siniri
+
+ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.

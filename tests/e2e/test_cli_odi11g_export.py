@@ -553,3 +553,24 @@ def test_smart_export_rejects_doctype_after_the_first_four_kib(
 
     assert result.exit_code == 77
     assert "DTD/entity" in result.output
+
+
+def test_odi_preflight_withholds_public_raw_hash_for_blocked_sensitive_file(tmp_path):
+    from zekam.domain.canonical import digest_of_bytes
+
+    home = _home(tmp_path)
+    bundle = _bundle(tmp_path)
+    raw = b'<Objects><Object class="SnpConnect"><Field name="password">synthetic-test-value</Field></Object></Objects>'
+    (bundle / "topology" / "physical.xml").write_bytes(raw)
+    result = CliRunner().invoke(
+        cli.app,
+        ["project", "odi-preflight", "gpu", str(bundle), "--home", str(home), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output)
+    assert plan["accepted"] is False
+    entry = next(item for item in plan["files"] if item["path"] == "topology/physical.xml")
+    assert entry["content_digest"] is None
+    assert digest_of_bytes(raw) not in result.output
+    assert "synthetic-test-value" not in result.output
+    assert any(item["content_digest"] for item in plan["files"] if item["section"] == "design")

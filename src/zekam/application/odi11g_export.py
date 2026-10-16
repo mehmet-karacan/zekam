@@ -209,6 +209,7 @@ def build_odi11g_export_plan(
         total += len(raw)
         if total > _MAX_TOTAL_BYTES:
             raise ValidationFailed("ODI export toplam 256 MiB sinirini asiyor")
+        policy_issues_before = len(issues)
         forbidden = next((token for token in _FORBIDDEN_OBJECTS if token in lowered), None)
         if forbidden is not None:
             issues.append({"code": "forbidden-repository-object", "path": relative})
@@ -225,7 +226,9 @@ def build_odi11g_export_plan(
             {
                 "path": relative,
                 "size_bytes": len(raw),
-                "content_digest": digest_of_bytes(raw),
+                "content_digest": (
+                    digest_of_bytes(raw) if len(issues) == policy_issues_before else None
+                ),
                 "section": section,
                 "object_kinds": kinds,
                 "encrypted": encrypted,
