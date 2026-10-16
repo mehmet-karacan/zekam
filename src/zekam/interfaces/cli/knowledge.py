@@ -19,6 +19,11 @@ from rich.table import Table
 
 from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.composition import build_context
+from zekam.application.jira_knowledge_import import (
+    apply_jira_knowledge_plan,
+    build_jira_knowledge_plan,
+    load_jira_knowledge_plan,
+)
 from zekam.application.knowledge_file_plane import note_content_digest
 from zekam.application.knowledge_ingestion import (
     ArchiveInspector,
@@ -60,6 +65,59 @@ from zekam.interfaces.cli.session import (
 app = typer.Typer(name="knowledge", help="Knowledge Plane islemleri", no_args_is_help=True)
 console = Console()
 _LOCAL_REALM_ID = str(uuid5(NAMESPACE_URL, "zekam://realm/yerel"))
+
+
+@app.command("jira-attachment-plan")
+def jira_attachment_plan_command(
+    project: Annotated[str, typer.Option("--project")],
+    issue_key: Annotated[str, typer.Option("--issue-key")],
+    attachment_id: Annotated[str, typer.Option("--attachment-id")],
+    metadata_digest: Annotated[str, typer.Option("--metadata-digest")],
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Yetkili eki okur; kaynak ve proje digest'lerine bagli publication plani uretir."""
+    try:
+        store = sqlite_operational_store(home, DEFAULT_REALM_SLUG)
+        assert store is not None
+        plan = build_jira_knowledge_plan(
+            store,
+            project_ref=project,
+            issue_key=issue_key,
+            attachment_id=attachment_id,
+            metadata_digest=metadata_digest,
+        )
+    except (RuntimeError, OSError, ZekamError) as exc:
+        reason = type(exc).__name__ if isinstance(exc, OSError) else str(exc)
+        raise fail("Jira knowledge plan olusturulamadi: " + reason) from None
+    console.print_json(json.dumps(plan.body, ensure_ascii=False))
+
+
+@app.command("jira-attachment-apply")
+def jira_attachment_apply_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Fresh kaynak readback ve canonical claim/receipt ile generated reference yayimlar."""
+    try:
+        body = load_jira_knowledge_plan(plan_file)
+        if not apply:
+            console.print_json(json.dumps(body, ensure_ascii=False))
+            return
+        if expected_plan_digest is None:
+            raise PolicyViolation("Jira knowledge apply exact --plan-digest ister")
+        store = sqlite_operational_store(home, DEFAULT_REALM_SLUG)
+        assert store is not None
+        root = build_context(home=home).home
+        result = apply_jira_knowledge_plan(
+            store, KnowledgeFileStore(root), root, body, expected_plan_digest=expected_plan_digest
+        )
+    except (RuntimeError, OSError, ZekamError) as exc:
+        reason = type(exc).__name__ if isinstance(exc, OSError) else str(exc)
+        raise fail("Jira knowledge apply reddedildi: " + reason) from None
+    console.print_json(json.dumps(result, ensure_ascii=False))
+
 
 #: Uzantidan format cikarimi; bilinmeyen uzanti tahmin edilmez.
 _SUFFIXES: dict[str, SourceFormat] = {
@@ -113,9 +171,11 @@ def _parse_vector(value: str) -> tuple[float, ...]:
 def _materialize_once(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path.exists():
-        if path.is_symlink() or not path.is_file() or read_bounded_bytes(
-            path, max_bytes=max(1, len(payload))
-        ) != payload:
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or read_bounded_bytes(path, max_bytes=max(1, len(payload))) != payload
+        ):
             raise ValidationFailed("Knowledge materialization replay drift")
         return
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)

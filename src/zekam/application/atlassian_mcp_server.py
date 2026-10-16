@@ -560,6 +560,27 @@ def _confluence_provenance(base: str, row: Any) -> dict[str, Any]:
     }
 
 
+def read_jira_attachment(
+    *,
+    issue_key: str,
+    attachment_id: str,
+    expected_metadata_digest: str,
+    environ: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Application entry point; same guarded read used by the read-only MCP tool."""
+    env = dict(os.environ) if environ is None else environ
+    base = _base_url(env, "JIRA_BASE_URL", DEFAULT_JIRA_BASE_URL)
+    return _read_jira_attachment(
+        base,
+        {
+            "issue_key": issue_key,
+            "attachment_id": attachment_id,
+            "expected_metadata_digest": expected_metadata_digest,
+        },
+        environ=env,
+    )
+
+
 def _confluence_page(base: str, value: Any, *, start: int, limit: int) -> dict[str, Any]:
     if not isinstance(value, dict) or not isinstance(value.get("results"), list):
         raise RuntimeError("Confluence search response gecersiz")

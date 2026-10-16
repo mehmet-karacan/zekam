@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-06.04 knowledge publication: Jira mapping -> canonical project scope, fresh source pins ve generated reference, mevcut knowledge.create claim/receipt akisina CLI plan/apply ile baglandi. Exact completed replay note/receipt/resolution readback yapar; ready/attempt=0 enqueue recovery duzeltildi. Yerel SQLite/file/search/replay/drift/recovery regresyon kaynaklari hazir, CALISTIRILMADI. Remote-source head/supersession/incremental index bagi ve gercek client/ACL kabul acik.
+
 - Gorev 4 WP-06.04 ek read: yerlesik MCP'ye exact issue/attachment/metadata digest ile bounded same-origin/path download, once/sonra metadata kontrolu, gercek byte hash, parser locator ve secret/PII kapisi eklendi. TXT/Markdown/DOCX/dijital PDF desteklenir; no-OCR profili ayri, raw bytes saklanmaz. Regresyon kodu hazir, CALISTIRILMADI. Canonical project knowledge publication ve gercek client/ACL kabul acik.
 
 - Gorev 4 WP-06.04 Jira read: exact issue key/site/updated/response provenance, bounded attachment metadata projection ve search offset/size/duplicate/next gate eklendi. Upstream/projection/metadata digest ayridir; attachment bytes veya comments complete iddiasi uretilmez. HTTP strict JSON ve raw cause suppression baglandi. Regresyon kodu hazir, CALISTIRILMADI. Yetkili attachment download -> parser/secret -> canonical project knowledge publication ve canli ACL kabul acik.

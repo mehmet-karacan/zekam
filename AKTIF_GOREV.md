@@ -1163,6 +1163,15 @@ Secret/PII sonucu reddedilir; raw binary saklanmaz. PDF bu yolda OCR/render
 baslatmaz; TXT/Markdown/DOCX/dijital PDF desteklenir. Regresyon kodu hazir,
 CALISTIRILMADI. Canonical knowledge publication ve gercek client/ACL kabulu acik.
 
+**16 Ekim 2026 — WP-06.04 canonical knowledge publication:** Jira mapping
+hedef registered project ID ile eslestirilir; fresh source/read/parser digest'leri
+ve generation timestamp plan/apply'a pin edilir. Generated reference mevcut
+knowledge.create job/lease/effect/receipt ile kaydedilir; user note sayilmaz.
+Completed replay network yerine note/receipt/resolution readback yapar. Ilk lease
+oncesi ready enqueue recovery duzeltildi; unknown receipt degistirilmeden resolved
+proof gorunur. Regresyon kodu hazir, CALISTIRILMADI. Remote-source head/supersession,
+incremental index ve gercek client/ACL kabul kaniti acik.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

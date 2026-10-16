@@ -110,3 +110,39 @@ Bu kaynak gelistirmesinde canli download yapilmadi. Transport/metadata race,
 cross-origin/path, secret/PII, MIME/size ve PDF no-OCR regresyon kodlari eklendi;
 CALISTIRILMADI. Canonical project knowledge publication, gercek endpoint/client
 akisi ve ACL kabulu halen aciktir.
+
+## Canonical proje knowledge publication
+
+`knowledge jira-attachment-plan --project ... --issue-key ... --attachment-id ...
+--metadata-digest ...` yetkili read yolunu kullanip salt-okunur bir mutation plani
+uretir. Issue -> proje mapping'i canonical registered project ID ile eslesmeden
+remote read baslamaz. Mapping, metadata, byte/normalized/parser ve tum read result
+digest'leri plana baglanir. Generation timestamp planda sabittir; apply yeni bir
+timestamp uydurup payload'i degistirmez.
+
+Native assistant plan JSON'unu kaynak repo disinda tutar. Kullaniciya teknik
+digest/JSON yazdirmaz. `knowledge jira-attachment-apply <plan-file>` yalniz preview
+yapar; `--uygula --plan-digest <exact>` mevcut canonical knowledge.create local
+job/lease/effect claim/terminal receipt yoluna gider. Bu control-plane CLI mevcut
+scope/claim kapisini kullanir; Markdown veya tool output authority uretmez.
+
+Apply oncesi ek tekrar okunur; proje mapping, source ve plan drift'i effect
+claim'den once reddedilir. Cikti proje kapsaminda generated/reference Markdown'dir;
+user-authored belge gibi kaydedilmez. Kaynak metni quote bloklarinda, locator ve
+provenance ile untrusted reference olarak tasinir. Secret/PII kapisi tekrar uygulanir.
+Canonical note kaydi ve dosya materialization ayni mevcut claim/receipt mekanizmasina
+baglidir. Knowledge search dosyayi digest readback ile gorebilir; vector/embedding
+cagrisi veya index aktivasyonu bu receipt'e eklenmez.
+
+Ayni exact completed plan replay'i network'e gitmeden receipt/resolution ve note
+readback yapar. Bozuk/kayip dosya basari gibi sunulmaz. Enqueue sonrasi ilk lease
+alinmadan kesilen ready/attempt=0 knowledge job'i ayni key ile devam edebilir;
+running veya belirsiz effect sessizce yeniden dispatch edilmez. Unknown receipt
+recovery'de orijinal receipt degistirilmez; canonical completed resolution ayri
+readback alanlarinda gorunur.
+
+Yerel SQLite/file/receipt/search/replay, source drift, cross-project mapping ve
+enqueue/unknown-receipt recovery regresyon kaynaklari eklendi, CALISTIRILMADI.
+Canli kurumsal read/import yapilmadi. Yeni plan farkli bir generated reference
+revision'i uretebilir; mevcut remote-source head/supersession ve incremental
+index baginin tamamlanmasi ile gercek client/ACL kabul kaniti halen aciktir.

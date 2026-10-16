@@ -309,7 +309,14 @@ def _status(runtime: SQLiteLocalRuntimeStore, reference: str) -> dict[str, Any]:
         raise ValidationFailed("Job reference knowledge mutation degil")
     effects = snapshot["effects"]
     state = str(snapshot["state"])
-    if any(item["receipt_id"] is None for item in effects) and state != "running":
+    if (
+        any(
+            item["receipt_status"] in {None, "unknown"}
+            and item.get("resolution_outcome") != "completed"
+            for item in effects
+        )
+        and state != "running"
+    ):
         state = "recovery-required"
     body = {
         "schema": STATUS_SCHEMA,
@@ -376,11 +383,17 @@ def _perform_mutation(
         }
     if plan.payload is None or plan.body["target_ref"] is None:
         raise ValidationFailed("Knowledge mutation target payload eksik")
+    if plan.body.get("authorship") == "generated" and (
+        operation != "knowledge.create"
+        or plan.body["note_kind"] != "reference"
+        or plan.body["project_id"] is None
+    ):
+        raise PolicyViolation("Generated knowledge mutation scoped reference create ister")
     manifest = KnowledgeNoteManifest(
         owner_scope=str(plan.body["owner_scope"]),
         project_slug=plan.body["project_slug"],
         note_kind=str(plan.body["note_kind"]),
-        authorship="user",
+        authorship=str(plan.body.get("authorship", "user")),
         classification=KnowledgeClassification(str(plan.body["classification"])),
         portable_ref=str(plan.body["target_ref"]),
         content_digest=str(plan.body["target_content_digest"]),
@@ -530,9 +543,12 @@ def apply_knowledge_mutation(
         snapshot = runtime.job_snapshot(job.id)
         if snapshot is not None and snapshot["state"] == "recovery-required":
             return _recover_mutation(store, files, runtime, plan, snapshot)
-        replay = _status(runtime, job.id)
-        replay["replayed"] = True
-        return replay
+        if not (
+            snapshot is not None and snapshot["state"] == "ready" and snapshot["attempt_count"] == 0
+        ):
+            replay = _status(runtime, job.id)
+            replay["replayed"] = True
+            return replay
     owner_token = os.urandom(32).hex()
     operation = str(plan.body["operation"])
     resources = [f"knowledge:{plan.body['owner_scope']}"]

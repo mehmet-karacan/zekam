@@ -340,6 +340,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("doctor",): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "ingest"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "create"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("knowledge", "jira-attachment-apply"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "update"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "archive"): MutationAdmissionExemption.CONTROL_PLANE,
     ("knowledge", "restore"): MutationAdmissionExemption.CONTROL_PLANE,

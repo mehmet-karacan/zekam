@@ -282,8 +282,11 @@ class SQLiteLocalRuntimeStore:
             job = _job(row[0])
             effects = connection.execute(
                 "select c.id,c.operation,c.effect_digest,c.claimed_at,r.id receipt_id,"
-                "r.status receipt_status,r.evidence_digest,r.created_at receipt_created_at "
+                "r.status receipt_status,r.evidence_digest,r.created_at receipt_created_at,"
+                "rr.id resolution_id,rr.outcome resolution_outcome,rr.evidence_digest resolution_evidence_digest "
                 "from local_effect_claim c left join local_effect_receipt r on r.claim_id=c.id "
+                "left join local_recovery_case rc on rc.effect_claim_id=c.id and rc.job_id=c.job_id "
+                "left join local_recovery_resolution rr on rr.recovery_case_id=rc.id "
                 "where c.job_id=? order by c.claimed_at,c.id",
                 (job.id,),
             ).fetchall()
@@ -335,6 +338,9 @@ class SQLiteLocalRuntimeStore:
                             if item["receipt_created_at"] is None
                             else str(item["receipt_created_at"])
                         ),
+                        "resolution_id": item["resolution_id"],
+                        "resolution_outcome": item["resolution_outcome"],
+                        "resolution_evidence_digest": item["resolution_evidence_digest"],
                     }
                     for item in effects
                 ],
