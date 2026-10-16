@@ -240,6 +240,7 @@ class ProcessSpec:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     env: tuple[tuple[str, str], ...] = ()
     max_output_bytes: int = MAX_OUTPUT_BYTES
+    stdin_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not self.argv:
@@ -258,6 +259,8 @@ class ProcessSpec:
             raise ValidationFailed(f"timeout 1..{MAX_TIMEOUT_SECONDS} araliginda olmali")
         if not 1 <= self.max_output_bytes <= MAX_OUTPUT_BYTES:
             raise ValidationFailed("cikti siniri gecersiz")
+        if self.stdin_digest is not None:
+            parse_digest(self.stdin_digest)
         seen: set[str] = set()
         for name, value in self.env:
             if not name or not name.replace("_", "").isalnum():
@@ -273,12 +276,15 @@ class ProcessSpec:
         return self.argv[0]
 
     def body(self) -> dict[str, Any]:
-        return {
+        document = {
             "argv": list(self.argv),
             "timeout_seconds": self.timeout_seconds,
             "env_names": sorted(name for name, _ in self.env),
             "max_output_bytes": self.max_output_bytes,
         }
+        if self.stdin_digest is not None:
+            document["stdin_digest"] = self.stdin_digest
+        return document
 
     @property
     def spec_digest(self) -> str:

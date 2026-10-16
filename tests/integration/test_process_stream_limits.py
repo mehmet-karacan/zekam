@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.canonical import digest_of_bytes
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.sandbox import ProcessSpec
 from zekam.infrastructure.process import runner
 
@@ -85,3 +86,117 @@ def test_precancel_starts_no_process(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
     with pytest.raises(PolicyViolation, match="iptal"):
         runner.run(ProcessSpec(argv=(sys.executable, "-c", "pass")), cwd=tmp_path, cancel=event)
+
+
+def test_stdin_larger_than_pipe_and_windows_argv_is_delivered_exactly(tmp_path: Path) -> None:
+    payload = (b"private-context\n" * 15000) + b"end"
+    output = runner.run(
+        ProcessSpec(
+            argv=(
+                sys.executable,
+                "-c",
+                "import sys,hashlib; print('sha256:'+hashlib.sha256(sys.stdin.buffer.read()).hexdigest())",
+            ),
+            stdin_digest=digest_of_bytes(payload),
+            timeout_seconds=10,
+        ),
+        cwd=tmp_path,
+        stdin=payload,
+    )
+    assert output.result.succeeded
+    assert output.stdout.strip().decode() == digest_of_bytes(payload)
+    assert b"private-context" not in output.stdout
+
+
+def test_child_not_reading_stdin_cannot_block_timeout(tmp_path: Path) -> None:
+    payload = b"x" * runner.MAX_STDIN_BYTES
+    output = runner.run(
+        ProcessSpec(
+            argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+            stdin_digest=digest_of_bytes(payload),
+            timeout_seconds=1,
+        ),
+        cwd=tmp_path,
+        stdin=payload,
+    )
+    assert output.result.timed_out
+    assert output.result.duration_ms < 10000
+
+
+@pytest.mark.parametrize("interruption", ["cancel", "keyboard"])
+def test_blocked_stdin_is_cleaned_on_interruption(tmp_path, monkeypatch, interruption):
+    payload = b"x" * runner.MAX_STDIN_BYTES
+    trees = []
+    start = runner.start_process_tree
+    cancel = threading.Event()
+    wait = runner.wait_for
+
+    def capture(*args, **kwargs):
+        tree = start(*args, **kwargs)
+        trees.append(tree)
+        return tree
+
+    def interrupt(process, deadline, *overflow, **kwargs):
+        if interruption == "keyboard":
+            raise KeyboardInterrupt()
+        cancel.set()
+        return wait(process, deadline, *overflow, **kwargs)
+
+    monkeypatch.setattr(runner, "start_process_tree", capture)
+    monkeypatch.setattr(runner, "wait_for", interrupt)
+    with pytest.raises(KeyboardInterrupt if interruption == "keyboard" else PolicyViolation):
+        runner.run(
+            ProcessSpec(
+                argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                stdin_digest=digest_of_bytes(payload),
+            ),
+            cwd=tmp_path,
+            stdin=payload,
+            cancel=cancel,
+        )
+    assert trees[0].process.poll() is not None
+    assert trees[0].process.stdin.closed
+
+
+def test_stdin_digest_drift_rejected_before_process(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        runner, "start_process_tree", lambda *a, **kw: pytest.fail("unexpected child")
+    )
+    with pytest.raises(PolicyViolation, match="digest"):
+        runner.run(
+            ProcessSpec(argv=(sys.executable, "-c", "pass"), stdin_digest=digest_of_bytes(b"old")),
+            cwd=tmp_path,
+            stdin=b"new",
+        )
+
+
+def test_output_is_drained_while_large_input_is_written(tmp_path):
+    payload = b"x" * runner.MAX_STDIN_BYTES
+    output = runner.run(
+        ProcessSpec(
+            argv=(
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(b'y'*262144); sys.stdout.buffer.flush(); print(len(sys.stdin.buffer.read()))",
+            ),
+            stdin_digest=digest_of_bytes(payload),
+            timeout_seconds=10,
+        ),
+        cwd=tmp_path,
+        stdin=payload,
+    )
+    assert output.result.succeeded
+    assert output.stdout.endswith(b"262144\n") or output.stdout.endswith(b"262144\r\n")
+
+
+def test_oversized_input_is_rejected_before_child_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        runner, "start_process_tree", lambda *a, **kw: pytest.fail("unexpected child")
+    )
+    payload = b"x" * (runner.MAX_STDIN_BYTES + 1)
+    with pytest.raises(ValidationFailed, match="bounded"):
+        runner.run(
+            ProcessSpec(argv=(sys.executable, "-c", "pass"), stdin_digest=digest_of_bytes(payload)),
+            cwd=tmp_path,
+            stdin=payload,
+        )

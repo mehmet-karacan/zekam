@@ -1613,6 +1613,12 @@ opencode-ai npm shim referansindan secilir. Eksik/belirsiz shim reddedilir.
 Regresyon kodu hazir, CALISTIRILMADI. Gercek native run/event/CAS ve effect
 oncesi tool-denial halen acik; `docs/OPENCODE_BINARY_COZUMLEME.md`.
 
+**16 Ekim 2026 — WP-09/08 stdin gelistirmesi:** Optional girdi digest'i process
+spec'e baglandi; bounded CAS prompt icin concurrent raw-fd stdin yazimi ve
+timeout/cancel/tree cleanup eklendi. Prompt argv'ye konulmaz; eksik teslim normal
+sonuc sayilmaz. Regresyon kodu hazir, CALISTIRILMADI. Native adapter baglantisi
+ve gercek kabul acik; `docs/PROCESS_AKIS_SINIRLARI.md`.
+
 **16 Ekim 2026 — WP-09/08 process boundary gelistirmesi:** Genel process
 runner stdout/stderr sinirini capture sonunda degil akis sirasinda uygular;
 overflow, timeout, cancel ve Ctrl+C owned child group/Job ve pipe temizligine

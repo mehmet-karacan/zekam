@@ -36,3 +36,19 @@ CLI protokolunu kullaniyor. Bu protokolun kurulu OpenCode native run/event/promp
 akisina ve CAS icerigine baglanmasi siradaki uygulama acigidir; fixture basarisi
 gercek OpenCode modeli veya unit-test engineering kabulu sayilmaz. Native Maven
 measurement yolu bu model adapter'ini kullanmaz.
+
+## Digest-bound stdin
+
+`ProcessSpec.stdin_digest` istege bagli girdinin hash'ini process spec'e baglar.
+Eski stdin'siz spec digest'leri degismez. `runner.run(stdin=...)` yalniz bounded
+bytes kabul eder; boyut/digest hatasini child baslamadan reddeder. Prompt ham metni
+argv, ProcessSpec veya ProcessResult kaydina eklenmez.
+
+Stdin ayri thread'de raw fd uzerinden yazilir; stdout/stderr ayni anda drain
+edilir. Caller pipe yazisinda bloklanmaz. Timeout/cancel/Ctrl+C mevcut owned
+process-tree cleanup'a gider. Normal cikista tam teslim edilmeyen girdi sonuc
+olarak kabul edilmez. Stdin ust siniri 262144 byte'tir.
+
+Bu parca OpenCode batch icin Windows argv sinirini asmadan CAS context tasima
+zeminidir. Native run/event parsing ve config tool-denial baglantisi ayrica
+gereklidir. Yerel Python child regresyon kaynaklari eklendi; CALISTIRILMADI.

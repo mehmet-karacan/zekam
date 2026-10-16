@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-09/08 stdin: optional digest-bound bounded input, concurrent raw-fd writer ve ortak timeout/cancel/tree cleanup eklendi; prompt argv/spec kaydina girmez. Windows argv/pipe siniri, simultaneous output, blocked-reader timeout/interrupt ve pre-start drift/size regresyon kodu hazir, CALISTIRILMADI. Native adapter bu tasimaya baglanacak; gercek kabul halen acik.
+
 - Gorev 5 WP-09/08 executable: arastirma ve test CLI ortak shell-free npm resolver'a baglandi. Kurulu @opencode/cli ile eski opencode-ai ayrimi shim referansindan yapilir; missing/ambiguous shim fail-closed. Regresyon kaynaklari hazir, CALISTIRILMADI. Native run/event/CAS + V2 effect-oncesi tool-denial baglantisi acik; docs/OPENCODE_BINARY_COZUMLEME.md.
 
 - Gorev 5 WP-09/08 process: stream-time output cap, timeout/cancel/Ctrl+C ve owned descendant cleanup; strict client JSON/UTF8 ve observed exit-status baglandi. Yerel child/forged-result regresyon kodu hazir, CALISTIRILMADI. Siradaki exact kaynak acigi: compose_agent_gateway explicit OpenCode batch'i generic digest-flag protokolunden gercek native run/event + CAS prompt adapter'ine baglamak; native Maven measurement bundan ayridir.
