@@ -623,6 +623,10 @@ def build_embedded_project_generation(
         not in {profile.exact_model_id, f"openai/{profile.exact_model_id}"}
     ):
         raise PolicyViolation("Embedded project plan/provider drift")
+    provider_batch_limit = getattr(embedding_provider, "max_batch_size", 8)
+    if type(provider_batch_limit) is not int or provider_batch_limit < 1:
+        raise ValidationFailed("Embedded provider batch limiti gecersiz")
+    effective_batch_size = min(8, provider_batch_limit)
     bound_plan = replace(
         plan,
         embedding_profile=replace(
@@ -638,8 +642,8 @@ def build_embedded_project_generation(
         item.relative_path: item.content_digest for item in bound_plan.discovery.files
     }
     vectors: dict[str, tuple[float, ...]] = {}
-    for offset in range(0, len(bound_plan.chunks), 8):
-        chunks = bound_plan.chunks[offset : offset + 8]
+    for offset in range(0, len(bound_plan.chunks), effective_batch_size):
+        chunks = bound_plan.chunks[offset : offset + effective_batch_size]
         batch = embedding_provider.embed_documents(
             tuple(chunk.text for chunk in chunks), embedding_policy
         )

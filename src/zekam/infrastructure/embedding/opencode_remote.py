@@ -267,6 +267,12 @@ class OpenCodeRemoteEmbeddingProvider:
             raise ConfigurationError(EmbeddingDegradedState.PROFILE_STALE.value)
         return self._profile
 
+    @property
+    def max_batch_size(self) -> int:
+        """Expose the configured provider batch bound to generic callers."""
+
+        return self._max_batch_size
+
     def _prepare(
         self,
         texts: tuple[str, ...],

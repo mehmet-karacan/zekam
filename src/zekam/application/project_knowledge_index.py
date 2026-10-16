@@ -1505,8 +1505,12 @@ def apply_project_index(
     # NaN or dimension drift therefore cannot leave a half-activated generation.
     vectors: dict[str, tuple[float, ...]] = {}
     provider_calls = 0
+    provider_batch_limit = getattr(embedding_provider, "max_batch_size", batch_size)
+    if type(provider_batch_limit) is not int or provider_batch_limit < 1:
+        raise ValidationFailed("Embedding provider batch limiti gecersiz")
+    effective_batch_size = min(batch_size, provider_batch_limit)
     for chunk_batch in _project_embedding_batches(
-        plan.chunks, batch_size=batch_size, model_id=plan.embedding_profile.model_ref
+        plan.chunks, batch_size=effective_batch_size, model_id=plan.embedding_profile.model_ref
     ):
         _check_project_embedding_budget(cancel, deadline_monotonic)
         texts = tuple(chunk.text for chunk in chunk_batch)

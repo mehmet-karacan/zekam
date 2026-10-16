@@ -3121,6 +3121,10 @@ def _index(
     provider = binding.provider
     policy = binding.policy
     profile = provider.describe()
+    provider_batch_limit = getattr(provider, "max_batch_size", batch_size)
+    if type(provider_batch_limit) is not int or provider_batch_limit < 1:
+        raise ValidationFailed("Embedding provider batch limiti gecersiz")
+    effective_batch_size = min(batch_size, provider_batch_limit)
     if binding.route is EmbeddingRoute.REMOTE:
         candidate = EmbeddingRouteCandidate(
             model_ref=profile.exact_model_id,
@@ -3227,7 +3231,7 @@ def _index(
             # Exact candidates include warm cache entries: an old completed batch
             # may already be cached while its input manifest is still absent.
             for candidate in _embedding_batches(
-                chunks, batch_size, model_id=profile.exact_model_id
+                chunks, effective_batch_size, model_id=profile.exact_model_id
             ):
                 _check_index_budget(cancel, deadline_monotonic)
                 bind_completed(tuple(chunk.text for chunk in candidate), policy)
@@ -3251,7 +3255,9 @@ def _index(
                 reconciled_chunks += 1
                 reconciled_batches += 1
             missing = tuple(chunk for chunk in missing if chunk.chunk_id not in vectors)
-        for batch in _embedding_batches(missing, batch_size, model_id=profile.exact_model_id):
+        for batch in _embedding_batches(
+            missing, effective_batch_size, model_id=profile.exact_model_id
+        ):
             _check_index_budget(cancel, deadline_monotonic)
             texts = tuple(chunk.text for chunk in batch)
             embedded = _embed_documents_with_retry(
@@ -3514,6 +3520,8 @@ def _index(
         "reconciled_chunks": reconciled_chunks,
         "reconciled_batches": reconciled_batches,
         "provider_batch_concurrency": 1,
+        "requested_batch_size": batch_size,
+        "effective_batch_size": effective_batch_size,
         "provider_batches": provider_batches,
         "probe": binding.probe,
         "ledger": binding.ledger,

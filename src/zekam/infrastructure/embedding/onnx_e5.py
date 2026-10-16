@@ -266,6 +266,12 @@ class LocalOnnxE5Provider:
     def runtime_version(self) -> str:
         return self._runtime_version
 
+    @property
+    def max_batch_size(self) -> int:
+        """Expose the bounded batch policy to generic indexing callers."""
+
+        return self._configuration.max_batch_size
+
     def describe(self) -> EmbeddingProfile:
         if self._profile is None:
             raise ConfigurationError(EmbeddingDegradedState.PROFILE_STALE.value)
