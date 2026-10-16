@@ -2014,6 +2014,13 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
   generator CALISTIRILMADI; runtime/native/full release kabul kapilari aciktir.
   Ayrinti: `docs/KANONIK_MIMARI_EXPORT.md`.
 
+  16 Ekim 2026 mimari disk readback: writer captured canonical girdiye karsi
+  yazdigi dosyalari yeniden okur; ayri --verify yolu guncel kaynak kataloguna
+  karsi alti exact dosyayi dogrular. Paket manifest'i path/icerik authority olmaz;
+  missing/extra/link/tamper/stale source ve ZIP degisikligi reddedilir. Salt
+  okunur kontrol runtime/test/acceptance basarisi uretmez. Regresyon kaynaklari
+  hazir, test/generator/verify CALISTIRILMADI; WP ve final kabul aciktir.
+
 - [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
 - [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
 

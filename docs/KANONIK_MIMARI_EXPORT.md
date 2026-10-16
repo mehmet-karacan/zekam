@@ -44,6 +44,28 @@ HTML/Mermaid render motoru veya yeni arac kurulumu gerekmez. Mermaid kaynak
 olarak teslim edilir. GitBook/Miro login, yayin veya uzak API cagrisi yapilmaz;
 bundle yerel export girdisidir, provider'in kabul ettigi import formati iddiasi yoktur.
 
+## Dosyadan yeniden okuma
+
+`python scripts/export_source_architecture.py --verify <mevcut-repo-disi-mutlak-klasor>`
+
+Bu salt okunur yol guncel tracked kaynak katalogunu yeniden kurar ve beklenen
+alti dosyanin exact bytes'ini bounded olarak diskten okur. Paket manifest'i path,
+dosya listesi veya allocation yetkisi vermez. Fazla/eksik dosya, dizin, link/reparse,
+source/HEAD drift veya degisen herhangi bir belge basari sayilmaz. Degistirilen
+dosya icin manifest hash'ini tekrar yazmak paketi gecerli yapmaz. ZIP unzip
+edilmez; ayni canonical girdiden uretilen exact archive bytes'i ile karsilastirilir.
+
+Writer da her dosya yazildiktan sonra ayni captured girdiye karsi disk readback'i
+yapar; readback basarisizsa basari raporu donmez. Readback sonrasi degisen kaynak
+veya commit icin eski paket guncel kabul edilmez; yeni hedefte yeniden export
+gerekir. `file_readback_verified` yalniz bu dosya kapsamidir; runtime_verified,
+acceptance_verified, published ve grants_authority false kalir. Bu kontrol mevcut
+paketleri onarmaz, yeni model cagrisi/test/migration veya uzak yayin yapmaz.
+
+Readback kodu ve tampered manifest/ZIP/belge, eksik/fazla entry, stale source ve
+writer readback failure regresyon kaynaklari eklendi. Kullanici talimatiyla test
+ve gercek generator/verify kosusu CALISTIRILMADI; final asamada yapilacak.
+
 ## Kabul siniri ve sonraki kapilar
 
 Markdown checkbox'i `document_checked`, kaynak declaration olarak kaydedilir;

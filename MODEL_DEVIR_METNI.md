@@ -18,7 +18,9 @@ WP-12.04/05 kaynak mimarisi catalog/export ureticisi eklendi: current task recor
 AST interface/literal table/test declaration ve source hashes tek girdidir.
 Yerel Markdown/HTML/Mermaid/manifest/ZIP yalniz repo-disi yeni hedefe uretilebilir;
 runtime/kabul authority degildir. Ayrinti docs/KANONIK_MIMARI_EXPORT.md.
-Test/generator CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
+Mimari writer disk readback ve --verify current source/file/hash/ZIP dogrulamasi
+eklendi; imported manifest authority olmaz, stale/tampered/incomplete paket ret.
+Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu
 uretilmedi. Hedef araci paused gorunuyor; API resume desteklemiyor, yeni hedef

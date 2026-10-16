@@ -10,10 +10,12 @@ import ast
 import html
 import io
 import json
+import os
 import re
 import subprocess
 import tomllib
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 from zekam.application.active_task_contract import ActiveTaskContract
@@ -386,6 +388,58 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
     return files | {"architecture.zip": archive.getvalue()}
 
 
+def _verify_export_files(destination: Path, expected: Mapping[str, bytes]) -> None:
+    """Compare bounded persisted bytes, including ZIP, without extracting it.
+
+    Never trust an imported manifest to choose paths or allocate a decompression
+    budget. Expected names and bytes come from the source-generated catalog.
+    """
+    if path_or_parent_is_link_or_reparse(destination) or not destination.is_dir():
+        raise PolicyViolation("Architecture readback requires a real export directory")
+    names = set()
+    with os.scandir(destination) as entries:
+        for entry in entries:
+            if len(names) >= len(expected) or entry.name not in expected:
+                raise ValidationFailed("Architecture export unexpected directory entry")
+            names.add(entry.name)
+    if names != set(expected):
+        raise ValidationFailed("Architecture export file inventory incomplete")
+    for name, raw in expected.items():
+        path = destination / name
+        if path_or_parent_is_link_or_reparse(path) or not path.is_file():
+            raise PolicyViolation("Architecture export readback file missing or linked")
+        actual = read_bounded_bytes(path, max_bytes=len(raw))
+        if actual != raw:
+            raise ValidationFailed("Architecture export byte/hash/source drift")
+
+
+def verify_architecture_export(root: Path, destination: Path) -> dict:
+    """Read only: bind all export bytes to a fresh current source inventory."""
+    if not destination.is_absolute():
+        raise PolicyViolation("Architecture readback requires an explicit absolute directory")
+    if path_or_parent_is_link_or_reparse(root) or path_or_parent_is_link_or_reparse(destination):
+        raise PolicyViolation("Architecture readback source/export cannot be linked")
+    root = root.resolve(strict=True)
+    destination = destination.resolve(strict=True)
+    if destination.is_relative_to(root) or root.is_relative_to(destination):
+        raise PolicyViolation("Architecture readback export must be outside the checkout")
+    catalog = build_architecture_catalog(root)
+    expected = render_architecture_bundle(catalog)
+    _verify_export_files(destination, expected)
+    return {
+        "schema": "zekam-architecture-export-readback/v1",
+        "catalog_digest": catalog["catalog_digest"],
+        "source_revision": catalog["source_revision"],
+        "scope": "current-tracked-source-and-exact-export-bytes",
+        "files": {name: digest_of_bytes(raw) for name, raw in sorted(expected.items())},
+        "file_readback_verified": True,
+        "runtime_verified": False,
+        "acceptance_verified": False,
+        "published": False,
+        "grants_authority": False,
+    }
+
+
 def export_architecture(root: Path, destination: Path) -> dict:
     if path_or_parent_is_link_or_reparse(root):
         raise PolicyViolation("Architecture source root cannot be linked")
@@ -414,6 +468,7 @@ def export_architecture(root: Path, destination: Path) -> dict:
             with target.open("xb") as stream:
                 created.append(target)
                 stream.write(raw)
+        _verify_export_files(destination, files)
     except OSError:
         for target in reversed(created):
             target.unlink()
@@ -423,5 +478,6 @@ def export_architecture(root: Path, destination: Path) -> dict:
         "catalog_digest": catalog["catalog_digest"],
         "files": {name: digest_of_bytes(raw) for name, raw in sorted(files.items())},
         "published": False,
+        "file_readback_verified": True,
         "grants_authority": False,
     }

@@ -163,3 +163,73 @@ def test_source_mutation_during_inventory_is_rejected(checkout, monkeypatch):
     monkeypatch.setattr(subject, "_python_records", mutate)
     with pytest.raises(PolicyViolation, match="content changed"):
         subject.build_architecture_catalog(checkout)
+
+
+def test_persisted_readback_is_source_bound_and_never_runtime_acceptance(checkout, tmp_path):
+    destination = tmp_path / "verified-export"
+    written = subject.export_architecture(checkout, destination)
+    before = {path.name: path.read_bytes() for path in destination.iterdir()}
+    report = subject.verify_architecture_export(checkout, destination)
+    assert report["file_readback_verified"] is True
+    assert report["catalog_digest"] == written["catalog_digest"]
+    assert report["files"] == written["files"]
+    assert report["runtime_verified"] is False and report["acceptance_verified"] is False
+    assert report["published"] is False and report["grants_authority"] is False
+    assert {path.name: path.read_bytes() for path in destination.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "catalog.json",
+        "manifest.json",
+        "architecture.md",
+        "architecture.html",
+        "architecture.mmd",
+        "architecture.zip",
+    ],
+)
+def test_persisted_readback_rejects_every_changed_or_rehashed_bundle_member(
+    checkout, tmp_path, name
+):
+    destination = tmp_path / "tampered-export"
+    subject.export_architecture(checkout, destination)
+    path = destination / name
+    path.write_bytes(path.read_bytes() + b" ")
+    if name not in {"manifest.json", "architecture.zip"}:
+        manifest_path = destination / "manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        manifest["files"][name] = digest_of_bytes(path.read_bytes())
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises((PolicyViolation, ValidationFailed, OSError)):
+        subject.verify_architecture_export(checkout, destination)
+
+
+@pytest.mark.parametrize("change", ["missing", "extra", "directory", "source"])
+def test_persisted_readback_rejects_incomplete_extra_and_stale_source(checkout, tmp_path, change):
+    destination = tmp_path / "incomplete-export"
+    subject.export_architecture(checkout, destination)
+    if change == "missing":
+        (destination / "architecture.html").unlink()
+    elif change == "extra":
+        (destination / "unexpected.json").write_text("{}", encoding="utf-8")
+    elif change == "directory":
+        (destination / "architecture.html").unlink()
+        (destination / "architecture.html").mkdir()
+    else:
+        (checkout / "tests/test_example.py").write_text(
+            "def test_new_revision(): pass\n", encoding="utf-8"
+        )
+    with pytest.raises((PolicyViolation, ValidationFailed, OSError)):
+        subject.verify_architecture_export(checkout, destination)
+
+
+def test_export_cannot_report_success_without_its_own_disk_readback(
+    checkout, tmp_path, monkeypatch
+):
+    def reject(*_args):
+        raise ValidationFailed("readback rejected")
+
+    monkeypatch.setattr(subject, "_verify_export_files", reject)
+    with pytest.raises(ValidationFailed, match="readback rejected"):
+        subject.export_architecture(checkout, tmp_path / "failed-export")
