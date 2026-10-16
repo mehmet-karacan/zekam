@@ -39,6 +39,7 @@ from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import canonical_bytes, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import ValidationFailed, ZekamError
 from zekam.domain.identifiers import new_uuid7
+from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
@@ -199,6 +200,8 @@ def read_source_state(source_root: Path) -> dict[str, Any]:
         raise NativeContinuityError("source-root-absolute-required")
     if ".." in source_root.parts or not source_root.is_dir():
         raise NativeContinuityError("source-root-invalid")
+    if path_or_parent_is_link_or_reparse(source_root):
+        raise NativeContinuityError("source-root-link-or-reparse")
     resolved = source_root.resolve(strict=True)
     toplevel = _git(resolved, "rev-parse", "--show-toplevel").strip()
     if not toplevel or not _same_path(Path(toplevel), resolved):
@@ -847,9 +850,7 @@ def _session_checkpoint_verdict(
         if any(item["sequence"] > deleted_sequence for item in events):
             return {"state": "integrity-error", "reason": "event-after-session-delete"}
         interstitial = [
-            item
-            for item in after
-            if checkpoint_sequence < item["sequence"] < deleted_sequence
+            item for item in after if checkpoint_sequence < item["sequence"] < deleted_sequence
         ]
         if interstitial:
             return {"state": "event-after-checkpoint", "event_count": len(interstitial)}
