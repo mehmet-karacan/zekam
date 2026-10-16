@@ -57,7 +57,6 @@ from zekam.application.reference_corpus import (
 )
 from zekam.application.local_embedding_composition import (
     build_verified_local_e5_embedding,
-    build_verified_mac_embedding,
 )
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.model_health_service import ProbeUnavailable
@@ -121,10 +120,6 @@ from zekam.domain.security import (
     SecretRef,
 )
 from zekam.domain.work import EffectKind
-from zekam.infrastructure.embedding.infinity_bge import (
-    build_local_bge_provider,
-    default_mac_bge_configuration,
-)
 from zekam.infrastructure.embedding.opencode_remote import (
     MAX_BATCH_SIZE,
     MAX_TEXT_BYTES,
@@ -1342,7 +1337,7 @@ def _local_query_binding(
     """Local-route query binding WITHOUT full corpus plan chunking (WP3-A).
 
     Previously the query path called ``_project_plan`` to build the whole corpus
-    plan/chunks and fed them into ``build_verified_mac_embedding`` for
+    plan/chunks and fed them into the local provider for
     qualification.  WP3 removes that: the accepted, bounded synthetic fixture
     identity (same contract used by the remote canonical probe) is reused, so a
     normal answer query does no corpus chunking / document embedding / indexing.
@@ -1439,12 +1434,6 @@ def _knowledge_binding_digest(knowledge: KnowledgeSettings) -> str:
     return str(digest(_knowledge_binding(knowledge)))
 
 
-def _runtime_platform() -> str:
-    """Keep platform policy runtime-evaluated for cross-OS package builds."""
-
-    return str(sys.platform)
-
-
 def _provider(
     home: Path,
     ledger_path: Path,
@@ -1461,14 +1450,7 @@ def _provider(
     _assert_canonical_knowledge_profile(knowledge)
     if knowledge.embedding_route is EmbeddingRoute.LOCAL:
         record_qualification()
-        if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
-            local = build_verified_local_e5_embedding()
-        else:
-            if _runtime_platform() != "darwin":
-                raise PolicyViolation(
-                    "Local BGE embedding route yalniz macOS cihazinda desteklenir"
-                )
-            local = build_verified_mac_embedding(chunks)
+        local = build_verified_local_e5_embedding()
         accepted_model_refs = {
             local.profile.exact_model_id,
             f"openai/{local.profile.exact_model_id}",
