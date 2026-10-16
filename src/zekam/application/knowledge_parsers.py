@@ -7,17 +7,59 @@ uretir. Bir format icin parser yoksa sessizce metin varsayilmaz; islem reddedili
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.canonical import canonical_bytes
 from zekam.domain.knowledge import (
     ContentUnit,
     Locator,
     SourceFormat,
     UnitKind,
+    MAX_DOCUMENT_BYTES,
 )
+
+MAX_PROVIDER_BLOCKS = 16_384
+MAX_PROVIDER_OUTPUT_BYTES = 16 * 1024 * 1024
+
+
+def _provider_payload(payload):
+    if type(payload) is not bytes or len(payload) > MAX_DOCUMENT_BYTES:
+        raise PolicyViolation("Belge provider girdisi bounded bytes olmali")
+
+
+def _provider_blocks(blocks):
+    if isinstance(blocks, (str, bytes, Mapping)):
+        raise ValidationFailed("Belge provider blok dizisi ister")
+    try:
+        iterator = iter(blocks)
+    except TypeError:
+        raise ValidationFailed("Belge provider blok dizisi ister") from None
+    for index, block in enumerate(iterator):
+        if index >= MAX_PROVIDER_BLOCKS:
+            raise PolicyViolation("Belge provider blok sayisi sinirini asiyor; partial kabul yok")
+        if not isinstance(block, Mapping):
+            raise ValidationFailed("Belge provider blogu nesne olmali")
+        text = block.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValidationFailed("Belge provider text alani gercek metin olmali")
+        if len(text) > MAX_PROVIDER_OUTPUT_BYTES:
+            raise PolicyViolation("Belge provider metin boyutu sinirini asiyor")
+        yield index, block
+
+
+def _provider_output_size(unit, consumed):
+    try:
+        consumed += len(canonical_bytes(unit.body()))
+    except UnicodeError:
+        raise ValidationFailed("Belge provider UTF-8 metin ister") from None
+    if consumed > MAX_PROVIDER_OUTPUT_BYTES:
+        raise PolicyViolation("Belge provider normalize cikti sinirini asiyor; partial kabul yok")
+    return consumed
+
 
 #: Markdown baslik satiri.
 _HEADING = re.compile(r"^(#{1,6})\s+(?P<text>\S.*)$")
@@ -369,8 +411,16 @@ class OcrParser:
 
     provider: Callable[[bytes], tuple[dict[str, Any], ...]]
     parser_ref: str = "zekam.parser.ocr"
-    parser_version: str = "1"
+    parser_version: str = "2"
     minimum_confidence: float = 0.0
+
+    def __post_init__(self):
+        if (
+            type(self.minimum_confidence) not in {int, float}
+            or not 0 <= self.minimum_confidence <= 1
+            or not math.isfinite(self.minimum_confidence)
+        ):
+            raise ValidationFailed("OCR minimum confidence finite 0..1 sayisi olmali")
 
     @property
     def parser_profile(self) -> dict[str, Any]:
@@ -378,31 +428,33 @@ class OcrParser:
             "schema": "zekam-parser-profile/v1",
             "adapter": self.parser_ref,
             "minimum_confidence": self.minimum_confidence,
+            "max_blocks": MAX_PROVIDER_BLOCKS,
+            "max_output_bytes": MAX_PROVIDER_OUTPUT_BYTES,
         }
 
     def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
+        _provider_payload(payload)
         units: list[ContentUnit] = []
-        for index, block in enumerate(self.provider(payload)):
+        consumed = 0
+        for index, block in _provider_blocks(self.provider(payload)):
             missing = {"text", "page", "bbox", "confidence"} - set(block)
             if missing:
                 raise ValidationFailed(f"OCR blogu eksik alan tasiyor: {sorted(missing)}")
-            confidence = float(block["confidence"])
-            if confidence < self.minimum_confidence:
-                continue
-            corners = tuple(float(value) for value in block["bbox"])
-            if len(corners) != 4:
-                raise ValidationFailed("OCR bbox dort deger ister")
-            bbox = (corners[0], corners[1], corners[2], corners[3])
-            units.append(
-                ContentUnit(
-                    unit_id=f"ocr-{index}",
-                    kind=UnitKind.OCR_BLOCK,
-                    text=str(block["text"]),
-                    locator=Locator(page=int(block["page"]), bbox=bbox),
-                    order=len(units),
-                    confidence=confidence,
-                )
+            confidence = block["confidence"]
+            bbox = block["bbox"]
+            if not isinstance(bbox, (tuple, list)) or len(bbox) != 4:
+                raise ValidationFailed("OCR bbox dort gercek koordinat ister")
+            unit = ContentUnit(
+                unit_id=f"ocr-{index}",
+                kind=UnitKind.OCR_BLOCK,
+                text=block["text"],
+                locator=Locator(page=block["page"], bbox=tuple(bbox)),
+                order=len(units),
+                confidence=confidence,
             )
+            consumed = _provider_output_size(unit, consumed)
+            if confidence >= self.minimum_confidence:
+                units.append(unit)
         if not units:
             raise ValidationFailed("OCR sonucu bos")
         return tuple(units)
@@ -419,7 +471,14 @@ class StructuredDocumentParser:
     provider: Callable[[bytes], tuple[dict[str, Any], ...]]
     source_format: SourceFormat
     parser_ref: str = "zekam.parser.structured"
-    parser_version: str = "1"
+    parser_version: str = "2"
+
+    def __post_init__(self):
+        if not isinstance(self.source_format, SourceFormat) or self.source_format not in {
+            SourceFormat.DOCX,
+            SourceFormat.PDF,
+        }:
+            raise ValidationFailed("Yapili belge provider'i exact DOCX/PDF formati ister")
 
     @property
     def parser_profile(self) -> dict[str, Any]:
@@ -427,26 +486,35 @@ class StructuredDocumentParser:
             "schema": "zekam-parser-profile/v1",
             "adapter": self.parser_ref,
             "source_format": str(self.source_format),
+            "max_blocks": MAX_PROVIDER_BLOCKS,
+            "max_output_bytes": MAX_PROVIDER_OUTPUT_BYTES,
         }
 
     def parse(self, payload: bytes) -> tuple[ContentUnit, ...]:
+        _provider_payload(payload)
         units: list[ContentUnit] = []
-        for index, block in enumerate(self.provider(payload)):
+        consumed = 0
+        for index, block in _provider_blocks(self.provider(payload)):
             if "text" not in block or "kind" not in block:
                 raise ValidationFailed("yapili blok text ve kind ister")
-            kind = UnitKind(str(block["kind"]))
+            if not isinstance(block["kind"], str):
+                raise ValidationFailed("Yapili belge kind alani bilinen metin olmali")
+            try:
+                kind = UnitKind(block["kind"])
+            except ValueError:
+                raise ValidationFailed("Yapili belge kind alani bilinmiyor") from None
             locator = self._locator(block)
             if locator.is_empty:
                 raise ValidationFailed("yapili blok locator ister")
-            units.append(
-                ContentUnit(
-                    unit_id=f"doc-{index}",
-                    kind=kind,
-                    text=str(block["text"]),
-                    locator=locator,
-                    order=len(units),
-                )
+            unit = ContentUnit(
+                unit_id=f"doc-{index}",
+                kind=kind,
+                text=block["text"],
+                locator=locator,
+                order=len(units),
             )
+            consumed = _provider_output_size(unit, consumed)
+            units.append(unit)
         if not units:
             raise ValidationFailed("yapili belge bos")
         return tuple(units)
@@ -459,10 +527,20 @@ class StructuredDocumentParser:
             not isinstance(page, int) or isinstance(page, bool) or page < 1
         ):
             raise ValidationFailed("PDF blogu pozitif tam sayi sayfa locator ister")
-        heading = tuple(block.get("heading_path", ()))
+        heading = block.get("heading_path", ())
+        if (
+            not isinstance(heading, (tuple, list))
+            or len(heading) > 64
+            or any(not isinstance(value, str) or len(value) > 512 for value in heading)
+        ):
+            raise ValidationFailed("Yapili belge baslik yolu bounded metin dizisi ister")
+        bbox = block.get("bbox")
+        if bbox is not None and (not isinstance(bbox, (tuple, list)) or len(bbox) != 4):
+            raise ValidationFailed("Yapili belge bbox koordinat dizisi ister")
         return Locator(
             page=page if page is not None else None,
-            heading_path=heading,
+            bbox=None if bbox is None else tuple(bbox),
+            heading_path=tuple(heading),
             block_index=block.get("block_index"),
         )
 

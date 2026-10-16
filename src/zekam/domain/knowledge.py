@@ -8,6 +8,7 @@ kalmis ingestion aktif surum uretmez.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -192,15 +193,30 @@ class Locator:
     video_id: str | None = None
 
     def __post_init__(self) -> None:
-        if self.page is not None and self.page < 1:
-            raise ValidationFailed("sayfa numarasi 1'den kucuk olamaz")
+        for value, minimum, label in (
+            (self.page, 1, "sayfa"),
+            (self.block_index, 0, "blok indeksi"),
+            (self.line_start, 1, "satir baslangici"),
+            (self.line_end, 1, "satir bitisi"),
+            (self.timestamp_start_ms, 0, "timestamp baslangici"),
+            (self.timestamp_end_ms, 0, "timestamp bitisi"),
+        ):
+            if value is not None and (type(value) is not int or value < minimum):
+                raise ValidationFailed(f"{label} gercek ve sinirli tamsayi olmali")
+        if not isinstance(self.heading_path, (tuple, list)) or any(
+            not isinstance(value, str) or not value.strip() for value in self.heading_path
+        ):
+            raise ValidationFailed("baslik yolu metin bilesenlerinden olusmali")
         if self.bbox is not None:
-            if len(self.bbox) != 4:
+            if not isinstance(self.bbox, (tuple, list)) or len(self.bbox) != 4:
                 raise ValidationFailed("bbox dort deger ister")
             if self.page is None:
                 raise ValidationFailed("bbox sayfa bilgisi olmadan anlamsizdir")
             x0, y0, x1, y1 = self.bbox
-            if not all(0.0 <= value <= 1.0 for value in self.bbox):
+            if not all(
+                type(value) in {int, float} and 0.0 <= value <= 1.0 and math.isfinite(value)
+                for value in self.bbox
+            ):
                 raise ValidationFailed("bbox normalize 0..1 araliginda olmali")
             if x1 <= x0 or y1 <= y0:
                 raise ValidationFailed("bbox sol-ust/sag-alt sirasi gecersiz")
@@ -282,13 +298,17 @@ class ContentUnit:
     confidence: float | None = None
 
     def __post_init__(self) -> None:
-        if not self.text.strip():
+        if not isinstance(self.text, str) or not self.text.strip():
             raise ValidationFailed("icerik birimi bos olamaz")
-        if self.order < 0:
+        if type(self.order) is not int or self.order < 0:
             raise ValidationFailed("sira negatif olamaz")
-        if self.locator.is_empty:
+        if not isinstance(self.locator, Locator) or self.locator.is_empty:
             raise ValidationFailed("locator'siz icerik birimi kabul edilmez")
-        if self.confidence is not None and not 0.0 <= self.confidence <= 1.0:
+        if self.confidence is not None and (
+            type(self.confidence) not in {int, float}
+            or not 0.0 <= self.confidence <= 1.0
+            or not math.isfinite(self.confidence)
+        ):
             raise ValidationFailed("confidence 0..1 araliginda olmali")
         if self.kind is UnitKind.OCR_BLOCK and self.confidence is None:
             raise ValidationFailed("OCR birimi confidence ister")

@@ -903,6 +903,8 @@ veya tum agac degismezlik kaniti degildir. Regresyon kodu hazir,
 CALISTIRILMADI. Bu dilim yeni kabul veya WP kapanisi uretmez;
 `docs/PROJE_ENVANTER_DEVAM.md`.
 
+**16 Ekim 2026 belge provider locator gelistirmesi:** Belge provider locator sozlesmesi sikilastirildi: OCR int/float/str ve structured text str donusumlerinin sahte citation/metin uretme yolu kaldirildi. Ortak Locator page/line/block/timestamp gercek int, bbox finite numeric ve ContentUnit text/order/confidence turleri dogrulanir. OCR threshold oncesi tam validation; structured exact DOCX/PDF enum, heading bounds ve PDF bbox korunumu eklendi. 16384 blok/16 MiB normalize cikti butcesi filtered bloklari da kapsar, cap+1 partial kabul edilmez. Generic parser surumu 2; valid serialized body bicimi degismedi. Regresyon kaynaklari hazir, CALISTIRILMADI. WP/native kaynak/secret/provenance kabul kapilari acik. Ayrinti docs/BELGE_PROVIDER_LOCATOR_SOZLESMESI.md.
+
 ### WP-05 — Artımlı Embedding, Atomik İndeks Ve Hızlı RAG
 
 **Bağımlılık/onay:** WP-04; model/host bağları WP-08'le bütünleşir.  
