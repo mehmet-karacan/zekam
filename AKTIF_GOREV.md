@@ -1623,6 +1623,13 @@ degisen model eski sonuc kimligiyle cakismaz.
 Regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili ve
 gercek bagimsiz verifier/native kabul kaniti acik.
 
+**16 Ekim 2026 — WP-09 provider profili:** Bounded strict secret-free provider
+projection plan/run/job/native execution digest'lerine baglandi. Literal loopback
+IP icin private XDG data/state/cache, remote HTTPS icin explicit network/model
+onayi ve ortak butce; secilen model/endpoint disinda config alinmaz. Ayni upstream
+model alias'i verifier sayilmaz. Regresyon kaynaklari hazir, CALISTIRILMADI.
+Gercek native/credential provisioning/tool-denial/bagimsiz verifier kabulu acik.
+
 **16 Ekim 2026 — WP-09/08 executable cozumleme gelistirmesi:** Arastirma ve
 test CLI ortak shell-free resolver'a baglandi; @opencode/cli ve eski
 opencode-ai npm shim referansindan secilir. Eksik/belirsiz shim reddedilir.

@@ -15,7 +15,9 @@ def validate_model_id(value: str) -> str:
         or not 1 <= len(value) <= 256
         or value != value.strip()
         or value.startswith("-")
-        or any(ord(char) < 33 for char in value)
+        or any(
+            ord(char) < 33 or ord(char) == 127 or 0xD800 <= ord(char) <= 0xDFFF for char in value
+        )
         or "/" not in value
         or not all(value.split("/", 1))
         or scan_text(value, relative_path="unit-test/model-id")
@@ -39,7 +41,11 @@ def validate_batch_models(builder: str | None, verifier: str | None) -> None:
 
 
 def batch_model_plan(
-    builder: str | None, verifier: str | None, max_remote_calls: int
+    builder: str | None,
+    verifier: str | None,
+    max_remote_calls: int,
+    *,
+    remote_required: bool = True,
 ) -> dict[str, Any]:
     models: dict[str, str | None] = {"builder": None, "verifier": None}
     blockers: list[str] = []
@@ -56,7 +62,10 @@ def batch_model_plan(
             validate_batch_models(builder, verifier)
         except PolicyViolation:
             blockers.append("verifier-model-not-distinct")
-    if type(max_remote_calls) is not int or not 1 <= max_remote_calls <= 10000:
+    if (
+        type(max_remote_calls) is not int
+        or not (1 if remote_required else 0) <= max_remote_calls <= 10000
+    ):
         blockers.append("remote-call-budget-missing-or-invalid")
     return {
         "schema": "zekam-test-batch-models/v1",

@@ -19,6 +19,10 @@ from zekam.application.unit_test_intent import (
 )
 from zekam.application.unit_test_loop_state import LedgerLoopControl
 from zekam.application.unit_test_models import batch_model_plan, validate_batch_models
+from zekam.application.unit_test_provider_profile import (
+    BatchProviderProfile,
+    load_batch_provider_profile,
+)
 from zekam.application.unit_test_outcome import (
     EXIT_CLARIFICATION,
     EXIT_ENVIRONMENT_MISSING,
@@ -239,6 +243,7 @@ def _plan_document(
     native: bool = False,
     verifier_model: str | None = None,
     max_remote_calls: int = 0,
+    provider_profile: BatchProviderProfile | None = None,
 ) -> dict[str, object]:
     document: dict[str, object] = {
         "schema": "zekam-unit-test-plan/v1",
@@ -262,7 +267,25 @@ def _plan_document(
         ],
     }
     if not native:
-        selection = batch_model_plan(model, verifier_model, max_remote_calls)
+        remote_required = True
+        profile_invalid = False
+        if provider_profile is not None:
+            remote_required = any(
+                item.network_scope == "remote" for item in provider_profile.providers
+            )
+            if model is not None and verifier_model is not None:
+                try:
+                    remote_required = provider_profile.validate_selection(model, verifier_model)
+                except PolicyViolation:
+                    profile_invalid = True
+        selection = batch_model_plan(
+            model, verifier_model, max_remote_calls, remote_required=remote_required
+        )
+        if provider_profile is not None:
+            selection["provider_profile"] = provider_profile.summary()
+        if profile_invalid:
+            selection["blockers"].append("provider-model-selection-invalid")
+            selection["binding_status"] = "incomplete"
         document["agent_execution"] = selection
         # Invalid model strings (including credentials) must not be echoed.
         document["model_requested"] = selection["models"]["builder"]
@@ -300,6 +323,7 @@ def plan_command(
     policy: Annotated[str | None, typer.Option("--policy")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     verifier_model: Annotated[str | None, typer.Option("--verifier-model")] = None,
+    provider_profile: Annotated[str | None, typer.Option("--provider-profile")] = None,
     max_remote_calls: Annotated[int, typer.Option("--max-remote-calls", min=0, max=10000)] = 0,
     max_attempts: Annotated[int, typer.Option("--max-attempts")] = 3,
     process_timeout_seconds: Annotated[int, typer.Option("--process-timeout-seconds")] = 600,
@@ -356,6 +380,10 @@ def plan_command(
         graph_generation_digest=graph_generation_digest,
         native=native,
     )
+    try:
+        parsed_profile = None if native else load_batch_provider_profile(provider_profile)
+    except (OSError, ZekamError) as exc:
+        _finish(gate_document("policy-violation", reasons=(str(exc),)), EXIT_POLICY)
     execution = _execution_plan(
         project_root, _native_modules(target_module) if native else tuple(target_module or ())
     )
@@ -367,6 +395,7 @@ def plan_command(
         native=native,
         verifier_model=verifier_model,
         max_remote_calls=max_remote_calls,
+        provider_profile=parsed_profile,
     )
     if canonical_source:
         try:
@@ -518,6 +547,7 @@ def run_command(
     policy: Annotated[str | None, typer.Option("--policy")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
     verifier_model: Annotated[str | None, typer.Option("--verifier-model")] = None,
+    provider_profile: Annotated[str | None, typer.Option("--provider-profile")] = None,
     max_attempts: Annotated[int, typer.Option("--max-attempts")] = 3,
     process_timeout_seconds: Annotated[int, typer.Option("--process-timeout-seconds")] = 600,
     total_elapsed_seconds: Annotated[int, typer.Option("--total-elapsed-seconds")] = 1800,
@@ -598,6 +628,10 @@ def run_command(
         source_snapshot_id=source_snapshot_id,
         graph_generation_digest=graph_generation_digest,
     )
+    try:
+        parsed_profile = load_batch_provider_profile(provider_profile)
+    except (OSError, ZekamError) as exc:
+        _finish(gate_document("policy-violation", reasons=(str(exc),)), EXIT_POLICY)
     execution = _execution_plan(project_root, tuple(target_module or ()))
     expected = _plan_document(
         request,
@@ -606,6 +640,7 @@ def run_command(
         execution=execution,
         verifier_model=verifier_model,
         max_remote_calls=max_remote_calls,
+        provider_profile=parsed_profile,
     )
     if expected["plan_digest"] != plan_digest:
         _finish(
@@ -623,7 +658,14 @@ def run_command(
         )
     try:
         validate_batch_models(model, verifier_model)
-        if max_remote_calls < 1:
+        remote_required = (
+            True
+            if parsed_profile is None
+            else parsed_profile.validate_selection(model, verifier_model)
+        )
+        if remote_required != remote_model:
+            raise PolicyViolation("Batch provider scope ile remote model beyani uyusmuyor")
+        if remote_required and max_remote_calls < 1:
             raise PolicyViolation("Batch explicit remote call budget ister")
         parsed_realm = UUID(realm_id or "")
         parsed_project = UUID(project_uuid or "")
@@ -652,6 +694,7 @@ def run_command(
             remote_model=remote_model,
             model_id=model,
             verifier_model_id=verifier_model,
+            provider_profile=parsed_profile,
             plan_id=parsed_plan,
             step_id=step_id,
         )

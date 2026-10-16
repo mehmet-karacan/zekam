@@ -9,9 +9,8 @@ measurement bu yoldan bagimsizdir; OpenCode/model/provider gerektirmez.
 2. Instruction/context CAS metadata boyutu ve gercek byte/digest'i tekrar
    dogrulanir. Secret degerli prompt provider'a gonderilmez.
 3. Exact builder/verifier provider/model ve remote/network onayi gerekir. Default provider
-   secilmez. Kisitli profilde custom global provider tanimlari alinmaz; local
-   provider profili baglantisi halen aciktir. Local istegi remote cagrisiymis
-   gibi calistirarak bu bosluk gizlenmez.
+   secilmez. Kisitli profilde custom global config alinmaz; istege bagli reviewed
+   provider projection kullanilir. Local istek remote cagrisiymis gibi calismaz.
 4. Direct executable `--version` probe'u yalniz 2.0.29 protokolunu kabul eder.
    Baska surum provider cagrisi baslatmadan gorunur failure olur. Probe ve
    prompt hazirligi assignment timeout butcesinden duser.
@@ -58,16 +57,54 @@ etiketini degistirmek bagimsiz verifier kabul edilmez. Bu kontrol gercek model
 alias'larinin/catalog'un ve calisma bagimsizliginin kabul kaniti yerine gecmez.
 Plan `independent_verification_proven=false` tasir.
 
-Ortak limit rol farki olmadan mevcut loop sayacinda uygulanir; verifier cagrisi
+`--provider-profile` strict bounded JSON ile endpoint, network scope ve alias ->
+upstream model eslemesi tasir; secret, env/credential, headers, plugin/package
+ve izin alanlari kabul edilmez. Endpoint ve model degisimi plan/job/native
+execution binding'e yansir. Ayni upstream modelin iki alias'i bagimsizlik sayilmaz.
+
+```json
+{
+  "schema": "zekam-test-provider-profile/v1",
+  "providers": [{
+    "id": "gpu",
+    "endpoint": "http://127.0.0.1:8000/v1",
+    "scope": "loopback",
+    "models": {"builder": "qwen-coder", "verifier": "glm-review"}
+  }]
+}
+```
+
+Profile girdi dosyasi 16 KiB, provider sayisi 8 ve provider basina model sayisi
+32 ile sinirlidir. Template/interpolation reddedilir. Loopback literal IP ister;
+hostname/DNS varsayimi yapilmaz. Diger scope yalniz HTTPS ve explicit remote/network
+onayi ile calisir. Karma profilde iki secimin herhangi biri remote ise tum gateway
+remote butceye girer. Yerel modelin loopback service tarafindan nasil calistirildigi
+endpoint siniflandirmasiyla kanitlanmis olmaz.
+
+Adapter yalniz secilen provider/model'i yerlesik
+`@opencode/ai/providers/openai-compatible` paketiyle aktarir. Arbitrary npm/file
+paketi yuklemez; model discovery plugin'leri ve diger provider'lar kapatilir.
+Loopback'te XDG data/state/cache gecici bos dizinlere baglanir; kullanici auth
+store'u devralinmaz. Remote credential gerekiyorsa ayni explicit provider ID icin
+OpenCode'un kendi auth store'u kullanilir; profil credential kopyalamaz.
+Key'in yalniz legacy global config'te bulundugu kurulum sessizce iceri alinmaz.
+
+Ortak remote limit rol farki olmadan mevcut loop sayacinda uygulanir; verifier cagrisi
 ayri sinirsiz butce kullanmaz. Bu sayac provider HTTP request/token/cost olcumu
-degildir. Native olcum plani modellerden ve bu limitten bagimsiz kalir.
+degildir. Tum secimler loopback ise sifir remote-call butcesi gecerlidir;
+yerel dongunun attempt/time/output limitleri korunur. Native olcum plani
+modellerden ve bu limitten bagimsiz kalir.
 
 Regresyon fixture kaynaklari yazildi, CALISTIRILMADI. Canli model/provider ve
-Maven calistirilmadi. Bu asama WP-09 kapanisi degildir. Custom/local provider
-profili ve gercek native tool-denial/end-to-end/bagimsiz verifier kabul kaniti
+Maven calistirilmadi. Bu asama WP-09 kapanisi degildir. Gercek native
+tool-denial/end-to-end/bagimsiz verifier/credential provisioning kabul kaniti
 halen gereklidir.
 
 Birincil kaynak: https://github.com/anomalyco/opencode/tree/v2/packages/cli/src/run
 ve ayni repodaki packages/cli/src/server-process.ts, packages/schema/src/config,
 packages/core/src/config.ts. V2 policy alani experimental.policies'dir;
 ust seviye policies alani varsayilmamistir.
+
+Provider alanlari ve yerlesik paket:
+https://opencode.ai/v2/docs/providers . XDG izolasyonu kaynak bagi:
+packages/util/src/global-roots.ts.

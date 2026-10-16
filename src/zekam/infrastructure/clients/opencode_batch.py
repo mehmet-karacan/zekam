@@ -16,6 +16,7 @@ from typing import Any
 
 from zekam.application.object_store import ObjectStore
 from zekam.application.unit_test_models import validate_model_id
+from zekam.application.unit_test_provider_profile import BatchProviderProfile
 from zekam.application.unit_test_secret_scan import find_secret_value
 from zekam.domain.canonical import (
     canonical_bytes,
@@ -145,28 +146,51 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
     return document
 
 
-def batch_config() -> str:
+def batch_config(
+    profile: BatchProviderProfile | None = None, *, model_id: str | None = None
+) -> str:
     deny = [{"action": "*", "resource": "*", "effect": "deny"}]
-    return canonical_json(
-        {
-            "snapshots": False,
-            "permissions": deny,
-            "agents": {
-                _AGENT: {
-                    "mode": "primary",
-                    "steps": 1,
-                    "system": "Return only the requested JSON. Use supplied context only. No tools.",
-                    "permissions": deny,
-                }
-            },
-            "experimental": {
-                "policies": [
-                    {"action": "tool.use", "resource": "*", "effect": "deny"},
-                    {"action": "integration.use", "resource": "*", "effect": "deny"},
-                ]
-            },
+    document: dict[str, Any] = {
+        "snapshots": False,
+        "permissions": deny,
+        "agents": {
+            _AGENT: {
+                "mode": "primary",
+                "steps": 1,
+                "system": "Return only the requested JSON. Use supplied context only. No tools.",
+                "permissions": deny,
+            }
+        },
+        "experimental": {
+            "policies": [
+                {"action": "tool.use", "resource": "*", "effect": "deny"},
+                {"action": "integration.use", "resource": "*", "effect": "deny"},
+            ]
+        },
+    }
+    if profile is not None:
+        if model_id is None:
+            raise PolicyViolation("Batch provider config exact model ister")
+        provider, actual = profile.resolve(model_id)
+        alias = model_id.split("/", 1)[1].split("#", 1)[0]
+        document["providers"] = {
+            provider.provider_id: {
+                "package": "@opencode/ai/providers/openai-compatible",
+                "env": [],
+                "settings": {"baseURL": provider.endpoint},
+                "models": {alias: {"modelID": actual}},
+            }
         }
-    )
+        document["plugins"] = [
+            "-opencode.provider.ollama",
+            "-opencode.provider.vllm",
+            "-opencode.provider.lmstudio",
+        ]
+        document["experimental"]["policies"] += [
+            {"action": "provider.use", "resource": "*", "effect": "deny"},
+            {"action": "provider.use", "resource": provider.provider_id, "effect": "allow"},
+        ]
+    return canonical_json(document)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +204,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
 
     objects: ObjectStore | None = None
     network_authorized: bool = False
+    provider_profile: BatchProviderProfile | None = None
 
     @property
     def execution_binding_digest(self) -> str:
@@ -188,7 +213,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 "schema": "zekam-opencode-batch-execution/v1",
                 "descriptor": self.descriptor.descriptor_digest,
                 "model": self.model_id,
-                "profile": batch_config(),
+                "profile": batch_config(self.provider_profile, model_id=self.model_id),
                 "network_authorized": self.network_authorized,
             }
         )
@@ -215,7 +240,13 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
         if self.model_id is None or "/" not in self.model_id or self.model_id.startswith("-"):
             raise PolicyViolation("OpenCode batch explicit provider/model ister")
         validate_model_id(self.model_id)
-        if not self.network_authorized:
+        provider = (
+            None
+            if self.provider_profile is None
+            else self.provider_profile.resolve(self.model_id)[0]
+        )
+        remote = provider is None or provider.network_scope == "remote"
+        if remote and not self.network_authorized:
             raise PolicyViolation(
                 "OpenCode V2 batch builtin provider icin explicit remote/network onayi ister"
             )
@@ -263,6 +294,9 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             private_home = temporary / "home"
             config_dir.mkdir()
             private_home.mkdir()
+            config_content = batch_config(self.provider_profile, model_id=self.model_id)
+            if len(config_content.encode("utf-8")) > 24576:
+                raise ValidationFailed("OpenCode batch config bounded siniri asildi")
             version = runner.run(
                 ProcessSpec(
                     argv=(executable, "--version"),
@@ -282,9 +316,15 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
                 ("OPENCODE_CONFIG_DIR", str(config_dir)),
                 ("OPENCODE_TEST_HOME", str(private_home)),
                 ("OPENCODE_CONFIG_PROJECT_DISABLE", "1"),
-                ("OPENCODE_CONFIG_CONTENT", batch_config()),
+                ("OPENCODE_CONFIG_CONTENT", config_content),
                 ("OPENCODE_DISABLE_MODELS_FETCH", "1"),
             )
+            if not remote:
+                env += (
+                    ("XDG_DATA_HOME", str(temporary / "data")),
+                    ("XDG_STATE_HOME", str(temporary / "state")),
+                    ("XDG_CACHE_HOME", str(temporary / "cache")),
+                )
             output = runner.run(
                 ProcessSpec(
                     argv=(
@@ -332,7 +372,12 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
 
 
 def opencode_batch_adapter(
-    executable: str, *, objects: ObjectStore, model_id: str | None, network_authorized: bool = False
+    executable: str,
+    *,
+    objects: ObjectStore,
+    model_id: str | None,
+    network_authorized: bool = False,
+    provider_profile: BatchProviderProfile | None = None,
 ) -> OpenCodeBatchAdapter:
     return OpenCodeBatchAdapter(
         descriptor=ClientDescriptor(
@@ -347,4 +392,5 @@ def opencode_batch_adapter(
         objects=objects,
         model_id=model_id,
         network_authorized=network_authorized,
+        provider_profile=provider_profile,
     )

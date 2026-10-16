@@ -32,6 +32,7 @@ from zekam.application.unit_test_agents import (
 )
 from zekam.application.unit_test_ledger import UnitTestLedger
 from zekam.application.unit_test_models import validate_batch_models, validate_model_id
+from zekam.application.unit_test_provider_profile import BatchProviderProfile
 from zekam.application.unit_test_loop import UnitTestLoopService
 from zekam.application.unit_test_loop_state import (
     ControlSignal,
@@ -104,6 +105,7 @@ class UnitTestRuntimeBinding:
     plan_id: UUID | None = None
     step_id: str | None = None
     verifier_model_id: str | None = None
+    provider_profile: BatchProviderProfile | None = None
 
     def __post_init__(self) -> None:
         for name in ("project_root", "object_store_root", "lock_dir", "opencode_executable"):
@@ -252,6 +254,14 @@ def compose_agent_gateway(
     """Yalniz acik OpenCode batch yolu icin agent gateway; native yol bunu cagirmaz."""
 
     validate_batch_models(binding.model_id, binding.verifier_model_id)
+    if binding.provider_profile is not None:
+        remote = binding.provider_profile.validate_selection(
+            binding.model_id, binding.verifier_model_id
+        )
+        if remote != binding.remote_model:
+            raise PolicyViolation("Batch provider scope ile remote model beyani uyusmuyor")
+        if remote and not binding.allow_network:
+            raise PolicyViolation("Remote batch provider explicit network onayi ister")
     index = CasRecordIndex(index_objects)
     assignments = CasAssignmentStore(
         index,
@@ -263,12 +273,14 @@ def compose_agent_gateway(
         objects=index_objects,
         model_id=binding.model_id,
         network_authorized=binding.allow_network and binding.remote_model,
+        provider_profile=binding.provider_profile,
     )
     verifier = opencode_batch_adapter(
         str(binding.opencode_executable),
         objects=index_objects,
         model_id=binding.verifier_model_id,
         network_authorized=binding.allow_network and binding.remote_model,
+        provider_profile=binding.provider_profile,
     )
     adapters = {
         specialty: verifier if specialty in VERIFYING else adapter for specialty in AgentSpecialty
@@ -1029,6 +1041,9 @@ def unit_test_job_input_digest(
             "assignment_id": str(binding.coordinator_assignment_id),
             "model_id": binding.model_id,
             "verifier_model_id": binding.verifier_model_id,
+            "provider_profile_digest": None
+            if binding.provider_profile is None
+            else binding.provider_profile.profile_digest,
             "remote_model": binding.remote_model,
             "plan_id": str(binding.plan_id) if binding.plan_id else None,
             "step_id": binding.step_id,

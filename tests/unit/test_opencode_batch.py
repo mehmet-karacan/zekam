@@ -244,3 +244,44 @@ def test_corrupt_cas_rejected_before_cli_start(tmp_path, monkeypatch):
     monkeypatch.setattr(subject.runner, "run", lambda *a, **kw: pytest.fail("unexpected process"))
     with pytest.raises(ValidationFailed, match="CAS"):
         adapter.dispatch(request, cwd=tmp_path, permit=permit)
+
+
+def test_loopback_profile_uses_empty_private_data_without_remote_permission(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from zekam.application.unit_test_provider_profile import BatchProvider, BatchProviderProfile
+
+    adapter, request, permit = _setup(tmp_path)
+    profile = BatchProviderProfile(
+        (
+            BatchProvider(
+                "zekam-batch-local",
+                "http://127.0.0.1:8000/v1",
+                "loopback",
+                (("builder", "qwen-coder"),),
+            ),
+        )
+    )
+    adapter = replace(
+        adapter,
+        model_id="zekam-batch-local/builder",
+        provider_profile=profile,
+        network_authorized=False,
+    )
+    monkeypatch.setattr(subject, "resolve_opencode_executable", lambda value: value)
+    captured = []
+
+    def run(spec, **kwargs):
+        if spec.argv[-1] == "--version":
+            return _output(spec, b"2.0.29\n")
+        env = dict(spec.env)
+        assert not Path(env["XDG_DATA_HOME"]).exists()
+        assert not Path(env["XDG_STATE_HOME"]).exists()
+        captured.append(env["XDG_DATA_HOME"])
+        config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+        assert set(config["providers"]) == {"zekam-batch-local"}
+        return _output(spec, _stream(_events()))
+
+    monkeypatch.setattr(subject.runner, "run", run)
+    result = adapter.dispatch(request, cwd=tmp_path, permit=permit)
+    assert result.is_success and len(captured) == 1
+    assert not Path(captured[0]).exists()
