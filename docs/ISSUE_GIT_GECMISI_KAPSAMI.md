@@ -22,6 +22,11 @@ Bu sonuc issue label'li commit'lerin bounded historical kanitidir. Issue API'si,
 tum branch'ler, butun issue kapsam degisiklikleri veya guncel davranis kabulu
 sayilmaz. Git history sonucu issue yazma veya Work kapanisi yetkisi vermez.
 
+Dogal dil `zekam ask` exact issue anahtari ve degisiklik/gecmis ifadesini birlikte
+tasidiginda bu ayni local history okuyucusuna yonlenir. Proje explicit verilirse
+scope exact projeye sabitlenir; birden fazla olasi proje varsa clarification
+verilir. Bu yol provider veya index cagrisi yapmaz ve `read_only=true` tasir.
+
 Root addition, real binary Git diff, file/hunk truncation propagation, secret
 redaction, long subject ve root SHA-256 command projection regresyon kaynaklari
 hazirlandi. Testler kullanici talimatiyla CALISTIRILMADI; final toplu asamada

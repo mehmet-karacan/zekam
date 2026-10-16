@@ -1316,6 +1316,12 @@ dogrudan CLI yolunda exact Work icin bounded bound job ve source snapshot alanla
 salt okunur olarak verir; `exact-work`, truncation ve authority bayraklari aciktir.
 E2E regresyon kaynagi hazirlandi, testler CALISTIRILMADI; Work kabul matrisi aciktir.
 
+**16 Ekim 2026 WP-06.05 dogal dil history baglantisi:** Exact Jira anahtari ve
+degisiklik/gecmis ifadesi birlikte geldiginde `zekam ask`, bounded local Git
+history/diff okuyucusuna yonlenir. Explicit proje exact scope'u korur; coklu
+proje belirsizliginde clarification verilir; provider/index cagrisi yapilmaz.
+E2E regresyon kaynagi hazirlandi, testler CALISTIRILMADI; native/live kabul aciktir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

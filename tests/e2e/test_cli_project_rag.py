@@ -16,6 +16,7 @@ from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import main as cli
+from zekam.application.request_routing import RequestRoute
 
 
 def _gpu_fusion_home(tmp_path: Path) -> Path:
@@ -123,6 +124,62 @@ def test_ask_routes_exact_question_and_wraps_retrieval(
     assert document["retrieval"]["state"] == "answered"
     assert document["retrieval"]["searched_channels"] == ["exact", "lexical", "dense"]
     assert observed["question"] == "GPU_USER.LOG_REPORT_CREATION:TABLE nedir?"
+
+
+def test_ask_issue_history_uses_bounded_local_git_route(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home = _gpu_fusion_home(tmp_path)
+    source = tmp_path / "gpu-fusion-source"
+    source.mkdir()
+    route = RequestRoute(
+        "selected",
+        "jira-history",
+        "project-history",
+        None,
+        ("gpu-fusion",),
+        (),
+        ("researcher",),
+        ("jira-key-resolved", "history-question"),
+        (),
+        (),
+        "GPU-42",
+        "sha256:" + "a" * 64,
+        "sha256:" + "b" * 64,
+    )
+    monkeypatch.setattr(cli, "route_request", lambda *_args, **_kwargs: route)
+    monkeypatch.setattr(cli, "resolve_project_source", lambda *_args: source)
+    monkeypatch.setattr(
+        cli,
+        "query_issue_history",
+        lambda *_args: type(
+            "History",
+            (),
+            {"as_dict": lambda self: {"commit_count": 1, "commits": [], "partial": False}},
+        )(),
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "ask",
+            "GPU-42 hangi commitlerde degisti?",
+            "--project",
+            "gpu-fusion",
+            "--home",
+            str(home),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    assert document["schema"] == "zekam-ask-project-history/v1"
+    assert document["route"] == "project-history"
+    assert document["project_ref"] == "gpu-fusion"
+    assert document["jira_issue_key"] == "GPU-42"
+    assert document["provider_calls"] == 0
+    assert document["read_only"] is True
 
 
 def test_project_status_and_source_root_are_exposed(

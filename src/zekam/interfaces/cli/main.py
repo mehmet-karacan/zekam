@@ -40,6 +40,7 @@ from zekam.application.natural_request_scope import (
 )
 from zekam.application.natural_work_read import WorkReadRequest, parse_work_read, read_work_request
 from zekam.application.opencode_embedding import default_opencode_config_file
+from zekam.application.project_history_query import query_issue_history
 from zekam.application.project_rag_runtime import (
     AskProjectUnresolved,
     query_registered_project,
@@ -305,6 +306,80 @@ def _natural_request_scope(
     )
     scope = resolve_natural_request_scope(route, registered_project_refs=registered_refs)
     return scope, registered_refs
+
+
+def _ask_project_history(
+    resolved_home: Path,
+    question: str,
+    *,
+    explicit_project: str | None,
+    output_json: bool,
+) -> bool:
+    """Route exact Jira history questions to bounded local Git evidence."""
+
+    if not re.search(
+        r"(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,15}-[0-9]{1,7}(?![A-Za-z0-9])", question, re.I
+    ):
+        return False
+    if not re.search(
+        r"(?i)(?<!\w)(?:degisiklik|değişiklik|degisti|değişti|commit|diff|gecmis|geçmiş|hangi kod)",
+        question,
+    ):
+        return False
+    registered_refs = _registered_project_refs(resolved_home)
+    route = route_request(
+        question,
+        catalog=load_project_families(),
+        registered_projects=tuple(RegisteredProject(ref) for ref in sorted(registered_refs)),
+    )
+    if route.status != "selected" or route.intent != "jira-history" or route.jira_issue_key is None:
+        return False
+    scope = resolve_natural_request_scope(
+        route,
+        registered_project_refs=registered_refs,
+        explicit_project_ref=explicit_project,
+    )
+    if scope.status != "selected" or len(scope.project_refs) != 1:
+        document = {
+            "schema": "zekam-ask-project-history/v1",
+            "status": "clarification-required",
+            "question": "Bu Jira gecmisini hangi Zekam projesiyle eslestirelim?",
+            "project_refs": list(scope.project_refs),
+            "jira_issue_key": route.jira_issue_key,
+            "provider_calls": 0,
+            "index_triggered": False,
+            "read_only": True,
+            "grants_authority": False,
+        }
+        if output_json:
+            _print_json(document)
+        else:
+            console.print(document["question"])
+        raise typer.Exit(EXIT_CLARIFICATION)
+    project_ref = scope.project_refs[0]
+    source_root = resolve_project_source(resolved_home, project_ref)
+    history = query_issue_history(source_root, route.jira_issue_key).as_dict()
+    document = {
+        "schema": "zekam-ask-project-history/v1",
+        "status": "reported",
+        "route": "project-history",
+        "project_ref": project_ref,
+        "jira_issue_key": route.jira_issue_key,
+        "history": history,
+        "provider_calls": 0,
+        "index_triggered": False,
+        "read_only": True,
+        "grants_authority": False,
+    }
+    if output_json:
+        _print_json(document)
+    else:
+        console.print(
+            f"{project_ref}: {route.jira_issue_key} icin {history['commit_count']} bounded commit"
+        )
+        for commit in history["commits"]:
+            console.print(f"{commit['commit'][:8]}\t{commit['subject']}")
+    return True
 
 
 def _clarification_question(exc: AskProjectUnresolved) -> str:
@@ -864,6 +939,13 @@ def ask(
                 explicit_project=project,
                 output_json=output_json,
             )
+            return
+        if _ask_project_history(
+            resolved_home,
+            question,
+            explicit_project=project,
+            output_json=output_json,
+        ):
             return
         if project is None:
             natural_scope, registered_refs = _natural_request_scope(resolved_home, question)
