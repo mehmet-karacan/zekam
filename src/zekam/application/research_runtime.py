@@ -20,6 +20,7 @@ from zekam.application.knowledge_file_plane import (
 from zekam.application.local_runtime import LocalJobBinding, validate_dispatch_binding
 from zekam.application.markdown_knowledge import show_markdown_knowledge
 from zekam.application.operational_store import OperationalStore
+from zekam.application.project_knowledge_index import source_identity_digest
 from zekam.application.project_rag_runtime import (
     project_rag_source_freshness,
     project_rag_status,
@@ -163,6 +164,10 @@ def build_research_run_plan(
         "question": question_contract.body(),
         "question_digest": question_contract.question_digest,
         "source_revision": rag["source_revision"],
+        "tree_digest": rag["tree_digest"],
+        "source_identity_digest": source_identity_digest(
+            project.id, str(rag["source_revision"]), str(rag["tree_digest"])
+        ),
         "generation_digest": rag["generation_digest"],
         "retrieval": {
             "maximum_remote_query_operations": 1,
@@ -684,6 +689,8 @@ def run_research(
         "run_digest": plan.run_digest,
         "project_id": plan.project_id,
         "source_revision": plan.body["source_revision"],
+        "tree_digest": plan.body["tree_digest"],
+        "source_identity_digest": plan.body["source_identity_digest"],
         "generation_digest": plan.body["generation_digest"],
         "maximum_remote_query_operations": 1,
         "maximum_model_agent_calls": 3,
@@ -750,6 +757,15 @@ def run_research(
         live_source_revision = live_rag.get("source_revision")
         if not isinstance(live_source_revision, str) or not live_source_revision.strip():
             raise PolicyViolation("Research live source revision eksik")
+        live_tree_digest = live_rag.get("tree_digest")
+        if not isinstance(live_tree_digest, str) or not live_tree_digest.strip():
+            raise PolicyViolation("Research live tree digest eksik")
+        if plan.body.get("tree_digest") != live_tree_digest:
+            raise PolicyViolation("Research live tree drift")
+        if plan.body.get("source_identity_digest") != source_identity_digest(
+            plan.project_id, live_source_revision, live_tree_digest
+        ):
+            raise PolicyViolation("Research live source identity drift")
         if live_rag.get("generation_digest") != plan.body["generation_digest"]:
             raise PolicyViolation("Research live retrieval generation drift")
         live_intent_digest = digest(
