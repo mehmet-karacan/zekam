@@ -29,7 +29,12 @@ docs/ISSUE_GIT_GECMISI_KAPSAMI.md. Regresyonlar CALISTIRILMADI.
 Publication registry trust pin'i typed Settings/sanitized active config/provenance
 yoluna baglandi; CLI current settings/active registry drift'ini reddeder. Persistent
 pin ve CLI preference icin dotted/nested session bypass reddi eklendi. Actual
-key/enrollment/receipt producer halen acik; testler CALISTIRILMADI.
+key/receipt producer halen acik; testler CALISTIRILMADI.
+Ilk public registry enrollment canonical producer/CLI eklendi: mevcut kalici/
+aktif pin ve Work/plan claim altinda exclusive private yeni dosya, fsync/readback,
+exact receipt ve no-write completed replay. Existing target/rotation benimsenmez;
+gercek signing key ownership/rotation, actual test/verifier producer ve native
+enforcement halen acik. Regresyonlar CALISTIRILMADI; kullanici home'una yazilmadi.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

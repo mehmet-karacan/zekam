@@ -139,6 +139,7 @@ def run_canonical_job(
     """
 
     if operation not in {
+        "publication.trust.enroll",
         "project.index",
         "test.measure",
         "test.run",

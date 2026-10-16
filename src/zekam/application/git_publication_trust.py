@@ -32,13 +32,28 @@ class PublicationTrust:
     verifiers: Mapping[str, Mapping[UUID, ReceiptVerifier]]
 
 
-def load_publication_trust(home: Path) -> PublicationTrust:
-    """Read only; never create keys, activate config or adopt a caller's trust file."""
-    path = home / "config" / "git-publication-trust.json"
-    if path_or_parent_is_link_or_reparse(path) or not private_regular(path):
-        raise ConfigurationError("Publication trusted producer registry hazir/private degil")
+def _unique(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _strict_json(raw):
+    def reject(_value):
+        raise ValueError("nonfinite JSON")
+
+    return json.loads(raw, object_pairs_hook=_unique, parse_constant=reject)
+
+
+def parse_publication_registry(raw: bytes) -> tuple[dict, UUID, dict]:
+    """Pure public-key schema validation shared by enrollment and trust reads."""
     try:
-        document = json.loads(read_bounded_bytes(path, max_bytes=32 * 1024))
+        if type(raw) is not bytes or len(raw) > 32 * 1024:
+            raise ValueError("bounded bytes")
+        document = _strict_json(raw.decode("utf-8", errors="strict"))
         if (
             not isinstance(document, dict)
             or set(document) != {"schema", "revision", "realm_id", "producers"}
@@ -77,14 +92,21 @@ def load_publication_trust(home: Path) -> PublicationTrust:
             )
         if any(not producers for producers in roles.values()):
             raise ValueError("role")
-    except (OSError, ValueError, TypeError, KeyError) as exc:
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError, UnicodeError) as exc:
         raise ConfigurationError(
             "Publication registry bounded public-key sozlesmesine uymuyor"
         ) from exc
+    return document, realm_id, roles
+
+
+def publication_config_anchor(home: Path) -> tuple[str, str, str]:
+    """Read only: the one existing active config's exact public registry pin."""
     connection = _connect(home / "state" / "operational.db", read_only=True)
     try:
         rows = connection.execute(
-            "select id,config_digest,sanitized_json from config_revision where active=1 limit 2"
+            "select id,config_digest,case when length(cast(sanitized_json as blob))<=4194304 "
+            "then sanitized_json else null end as sanitized_json "
+            "from config_revision where active=1 limit 2"
         ).fetchall()
     finally:
         connection.close()
@@ -92,23 +114,43 @@ def load_publication_trust(home: Path) -> PublicationTrust:
         raise ConfigurationError("Publication exact aktif config revision ister")
     row = rows[0]
     try:
-        config = json.loads(row["sanitized_json"])
+        config = _strict_json(row["sanitized_json"])
         if not isinstance(config, dict):
             raise ValueError("config")
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise ConfigurationError("Publication active config object sozlesmesine uymuyor") from exc
-    observed_digest = digest(document)
     publication = config.get("git_publication", {})
     if (
         digest(config) != row["config_digest"]
         or not isinstance(publication, dict)
-        or publication.get("trust_digest") != observed_digest
+        or set(publication) != {"trust_digest"}
+        or type(publication.get("trust_digest")) is not str
     ):
+        raise PolicyViolation("Publication registry active config trust digest drift")
+    from zekam.domain.canonical import parse_digest
+
+    parse_digest(publication["trust_digest"])
+    return row["id"], row["config_digest"], publication["trust_digest"]
+
+
+def load_publication_trust(home: Path) -> PublicationTrust:
+    """Read only; never create keys, activate config or adopt a caller's trust file."""
+    path = home / "config" / "git-publication-trust.json"
+    if path_or_parent_is_link_or_reparse(path) or not private_regular(path):
+        raise ConfigurationError("Publication trusted producer registry hazir/private degil")
+    try:
+        raw = read_bounded_bytes(path, max_bytes=32 * 1024)
+    except OSError as exc:
+        raise ConfigurationError("Publication registry bounded read unavailable") from exc
+    document, realm_id, roles = parse_publication_registry(raw)
+    config_id, config_digest, pin = publication_config_anchor(home)
+    observed_digest = digest(document)
+    if pin != observed_digest:
         raise PolicyViolation("Publication registry active config trust digest drift")
     return PublicationTrust(
         realm_id,
-        row["id"],
-        row["config_digest"],
+        config_id,
+        config_digest,
         observed_digest,
         MappingProxyType({role: MappingProxyType(values) for role, values in roles.items()}),
     )

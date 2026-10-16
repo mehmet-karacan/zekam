@@ -16,6 +16,11 @@ from zekam.application.canonical_job_runtime import replay_canonical_job
 from zekam.application.composition import build_context
 from zekam.application.git_publication import GitPublicationPlan, GitPublicationService
 from zekam.application.git_publication_trust import load_publication_trust
+from zekam.application.git_publication_enrollment import (
+    build_trust_enrollment_plan,
+    enroll_publication_trust,
+    load_trust_enrollment_plan,
+)
 from zekam.application.git_publication_wire import (
     publication_authorization_from_body,
     publication_evidence_from_body,
@@ -38,6 +43,90 @@ from zekam.interfaces.cli.session import HOME_HELP, fail_from
 
 app = typer.Typer(name="publication", help="Imzali canonical Git yayini", no_args_is_help=True)
 console = Console()
+
+
+@app.command("trust-plan")
+def trust_plan_command(
+    registry_file: Annotated[Path, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Read a reviewed public registry and the existing admitted persistent pin."""
+    try:
+        context = _context(home)
+        slug = resolve_registered_project(context.home, project)
+        with SQLiteOperationalStore(
+            context.settings.database.sqlite_path(context.home)
+        ).unit_of_work() as uow:
+            registered = uow.resolve_project(slug)
+        plan = build_trust_enrollment_plan(
+            context.home,
+            read_bounded_bytes(registry_file, max_bytes=32 * 1024),
+            project_id=registered.id,
+        )
+        console.print_json(json.dumps(plan))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication enrollment registry input unavailable")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("trust-enroll")
+def trust_enroll_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    run_id: Annotated[UUID | None, typer.Option("--run-id")] = None,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Initial public registry only; exact canonical Work/claim/receipt, no keys."""
+    try:
+        context = _context(home)
+        plan = load_trust_enrollment_plan(plan_file)
+        if not apply:
+            rebuilt = build_trust_enrollment_plan(
+                context.home,
+                canonical_json(plan["registry"]).encode(),
+                project_id=plan["project_id"],
+            )
+            if canonical_json(rebuilt) != canonical_json(plan):
+                raise PolicyViolation("Publication enrollment preview plan drift")
+            console.print_json(
+                json.dumps({"plan": plan, "apply": False, "grants_authority": False})
+            )
+            return
+        if run_id is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Publication enrollment exact Work/plan apply binding required")
+        store = SQLiteOperationalStore(context.settings.database.sqlite_path(context.home))
+        with store.unit_of_work() as uow:
+            work = uow.get_work(uow.get_run(str(run_id)).work_item_id)
+        runtime = SQLiteLocalRuntimeStore(
+            context.settings.database.sqlite_path(context.home), existing_only=True
+        )
+        binding = runtime.resolve_work_binding(
+            run_id=str(run_id),
+            work_revision=work.revision if work_revision is None else work_revision,
+            project_id=plan["project_id"],
+            plan_digest=plan_digest,
+        )
+
+        def validate():
+            if canonical_json(load_trust_enrollment_plan(plan_file)) != canonical_json(plan):
+                raise PolicyViolation("Publication enrollment plan file drift")
+
+        result = enroll_publication_trust(
+            context.home, plan=plan, binding=binding, validate_inputs=validate
+        )
+        console.print_json(json.dumps(result))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication enrollment plan/readback unavailable")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
 
 
 def _read(path: Path) -> dict:

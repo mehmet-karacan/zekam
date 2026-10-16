@@ -479,6 +479,15 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
   pin session/nested/dotted-key ile degistirilemez; unconfigured durumda registry
   veya signer uretilmez. Regresyon kaynaklari hazir, CALISTIRILMADI. Actual
   provisioning/enrollment, receipt producer ve native guard kabulleri aciktir.
+
+  16 Ekim 2026 ilk public enrollment producer: incelenmis public registry mevcut
+  kalici/aktif config pin'ine, exact Work/Run/plan'a ve reserved canonical
+  publication.trust.enroll claim/checkpoint/receipt'e baglandi. Exclusive private
+  yeni dosya ve exact readback; existing target adoption/overwrite ve silent
+  rotation yoktur. Completed replay kayip/drift dosyayi onarmaz. Ortak strict
+  public schema ve trust-plan/trust-enroll CLI eklendi. Regresyon kaynaklari hazir,
+  CALISTIRILMADI; gercek signer/key ownership/rotation, test/verifier producer ve
+  native enforcement kabulleri aciktir. Kullanici home'una yazma yapilmadi.
 - [x] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
 - [x] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
 

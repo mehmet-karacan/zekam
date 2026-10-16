@@ -21,6 +21,7 @@ RUNTIME_OUTBOX_KINDS = (
     "job.quarantined",
 )
 RESERVED_JOB_OPERATIONS = (
+    "publication.trust.enroll",
     "git.push",
     "project.index",
     "test.measure",

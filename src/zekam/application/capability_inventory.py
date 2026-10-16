@@ -49,7 +49,7 @@ CAPABILITIES: tuple[Capability, ...] = (
             "CLAUDE.md (@AGENTS.md)",
             "GEMINI.md (@AGENTS.md)",
             "integration status/sync (legacy global cleanup plan)",
-            "git publication plan/status/import-evidence/import-approval/revoke/apply",
+            "git publication trust-plan/trust-enroll/plan/status/import-evidence/import-approval/revoke/apply",
         ),
         (),
         (

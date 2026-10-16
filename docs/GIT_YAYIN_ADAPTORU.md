@@ -96,6 +96,40 @@ producer enrollment, config aktivasyonu veya yayin yetkisi degildir. Gercek
 Settings -> sanitized active SQLite config -> registry loader/CLI composition
 ve malformed/session/drift regresyon kaynaklari hazir; CALISTIRILMADI.
 
+## Ilk public registry enrollment
+
+`git publication trust-plan <registry-file> --project <kayitli-proje>` incelenmis
+public producer metadata'sini mevcut kalici Settings ve aktif canonical config
+pin'iyle eslestirir. Registry semasi loader ile ortaktir; strict bounded JSON,
+duplicate/nonfinite reddi, distinct ID/public key ve uc rol zorunludur. Bu yol
+secret/private key uretmez veya okumaz. Pin'in config'te bulunmasi tek basina
+config revision aktivasyonu, Work veya yayin izni sayilmaz; bunlar mevcut
+otoritelerden gelir.
+
+`git publication trust-enroll <plan-file>` preview'dur. `--uygula`, exact
+`--plan-digest` ve `--run-id` ile mevcut canonical Work/Run ve admitted config'e
+bagli `publication.trust.enroll` claim/checkpoint/receipt yolu calisir. Gerekirse
+historical binding icin `--work-revision` explicit secilebilir. Apply generic
+worker'a verilemez. Public registry yalniz ilk revision ve sabit
+`config/git-publication-trust.json` hedefindedir; existing/private olmayan/link
+hedef benimsenmez veya uzerine yazilmaz. Yeni config dizini gerekirse claim
+sonrasi private kurulur; mevcut dizinin ACL'i sessizce degistirilmez.
+
+Exclusive private file creation, flush/fsync ve exact disk readback sonrasi
+canonical terminal receipt uretilebilir. Completed replay kendi receipt/CAS ve
+exact registry dosyasini okur; eksik/drift dosyayi yeniden yaratmaz, current
+config'i degistirmez veya yeni signer/yayin authority'si uretmez. Baslamis fakat
+receipt'siz is tekrar yazilmaz; explicit recovery gerekir. Ilk enrollment
+rotasyon, signer provisioning veya producer'in gercek execution/model
+bagimsizligi kaniti degildir. Signing key ownership/rotation ve gercek test/
+verifier producer kabulleri aciktir.
+
+SQLite/CAS live claim-oncesi yazma reddi, completed replay/missing file,
+foreign Work/config drift, existing target, strict schema ve rotation reddi
+regresyon kaynaklari hazirlandi. Kullanici talimatiyla CALISTIRILMADI. Bu kaynak
+gelistirmesi kullanici home/config/anahtarini degistirmedi; canli enrollment,
+provider veya yayin cagrisi yapilmadi.
+
 Operational v9 `SQLiteGitPublicationLedger` gercek mevcut DB'de imzali kanit,
 approval, consumption ve revocation tablolarini append-only tutar. Guvenilen
 producer verifier capability'leri host composition tarafindan verilir; store

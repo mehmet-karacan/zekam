@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 3 WP-02.03 ilk public registry enrollment: ortak strict public schema, existing settings/active config pin, exact Work/Run/plan ve reserved publication.trust.enroll claim/checkpoint/receipt CLI'a baglandi. Exclusive private yeni dosya, fsync/readback, no-adopt/no-overwrite/no-silent-rotation ve completed replay missing/drift reddi eklendi. Gercek SQLite/CAS regresyon kaynaklari hazir, CALISTIRILMADI; kullanici home/anahtar degisikligi yok. Signing key ownership/rotation, actual test/verifier producer ve native enforcement kabulleri acik.
+
 - Gorev 3 WP-02.03 publication config: optional strict public trust_digest normal Settings/sanitized active revision/provenance yoluna baglandi; CLI loaded pin/active registry eslesmesi ister. Empty/null/extra/dotted config ve session pin/CLI preference bypass reddi eklendi; unconfigured varsayilan degismez, key/registry uretilmez. Actual Settings->SQLite->trust/CLI regresyon kaynaklari hazir, CALISTIRILMADI. Producer enrollment/receipt ve native enforcement kabulleri acik.
 
 - Gorev 4 WP-06.05 history scope: root commit read-only diff-tree --root ile actual additions'a baglandi; hardcoded empty-tree yok, SHA-256 kimlik destegi var. First-parent basis, subject truncation/match, binary unavailable ve omitted/redacted/truncated partial propagation eklendi. Offline gercek Git/regresyon kaynaklari hazir, CALISTIRILMADI; native/issue/full WP kabul acik. docs/ISSUE_GIT_GECMISI_KAPSAMI.md.
