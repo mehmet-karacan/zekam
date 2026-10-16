@@ -73,6 +73,13 @@
   `ProviderCallQuotaExceeded` sinifina bagladi; generic policy mesaji yerine
   canonical quota sinyali korunuyor. Testler CALISTIRILMADI.
 
+- Gorev 4 WP-05.04: Project source identity artik bounded discovery
+  `inventory_digest` alanini da tasiyor. Manifest ve normalized document
+  parser profile ayni metadata kimligiyle baglandi; ignored/generated veya
+  eligibility metadata degisimi yalniz content tree ayni kalsa bile stale plan
+  olarak gorunur. Testler CALISTIRILMADI; incremental publication kabul kapisi
+  acik.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak

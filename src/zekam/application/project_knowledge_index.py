@@ -57,7 +57,7 @@ from zekam.application.source_discovery import (
     InventoryStatus,
     discover,
 )
-from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
+from zekam.domain.canonical import canonical_json, digest, digest_of_bytes, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import (
     ContentUnit,
@@ -85,18 +85,23 @@ MAX_PROJECT_EMBED_BATCH_TOKENS = 8_192
 MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 
 
-def source_identity_digest(project_id: UUID | str, source_revision: str, tree_digest: str) -> str:
-    return str(
-        digest(
-            {
-                "schema": "zekam-project-source-identity/v1",
-                "project_id": str(project_id),
-                "logical_source": "repository",
-                "source_revision": source_revision,
-                "tree_digest": tree_digest,
-            }
-        )
-    )
+def source_identity_digest(
+    project_id: UUID | str,
+    source_revision: str,
+    tree_digest: str,
+    inventory_digest: str | None = None,
+) -> str:
+    body: dict[str, object] = {
+        "schema": "zekam-project-source-identity/v1",
+        "project_id": str(project_id),
+        "logical_source": "repository",
+        "source_revision": source_revision,
+        "tree_digest": tree_digest,
+    }
+    if inventory_digest is not None:
+        parse_digest(inventory_digest)
+        body["inventory_digest"] = inventory_digest
+    return str(digest(body))
 
 
 def _assert_plan_source_identity(plan: ProjectIndexPlan) -> None:
@@ -115,6 +120,7 @@ def _assert_plan_source_identity(plan: ProjectIndexPlan) -> None:
         "source_identity_digest": plan.source_identity_digest,
         "source_revision": plan.source_revision,
         "tree_digest": plan.tree_digest,
+        "inventory_digest": plan.discovery.inventory_digest,
     }
     if any(manifest.get(key) != value for key, value in expected.items()):
         raise PolicyViolation("Indeks manifest source identity drift")
@@ -293,7 +299,12 @@ class ProjectIndexPlan:
     def source_identity_digest(self) -> str:
         """Project/logical-source/revision identity, distinct from content digest."""
 
-        return source_identity_digest(self.project_id, self.source_revision, self.tree_digest)
+        return source_identity_digest(
+            self.project_id,
+            self.source_revision,
+            self.tree_digest,
+            self.discovery.inventory_digest,
+        )
 
     @property
     def plan_digest(self) -> str:
@@ -1328,10 +1339,11 @@ def build_project_index_plan(
         "project_id": str(project_id),
         "project_slug": project_slug,
         "source_identity_digest": source_identity_digest(
-            project_id, source_revision, expected_tree_digest
+            project_id, source_revision, expected_tree_digest, discovery.inventory_digest
         ),
         "source_revision": source_revision,
         "tree_digest": expected_tree_digest,
+        "inventory_digest": discovery.inventory_digest,
         "files": manifest_files,
     }
     manifest = canonical_json(manifest_document).encode("utf-8")
@@ -1350,10 +1362,11 @@ def build_project_index_plan(
         parser_version="1",
         parser_profile={
             "source_identity_digest": source_identity_digest(
-                project_id, source_revision, expected_tree_digest
+                project_id, source_revision, expected_tree_digest, discovery.inventory_digest
             ),
             "tree_digest": expected_tree_digest,
             "source_revision": source_revision,
+            "inventory_digest": discovery.inventory_digest,
             "source_access": "read-only",
             "secret_scan": True,
         },
