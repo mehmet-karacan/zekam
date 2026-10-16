@@ -273,8 +273,11 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 tuple(item.id for item in (*open_work[:_OPEN_WORK_LIMIT], *completed_work))
             )
             returned_work = (*open_work[:_OPEN_WORK_LIMIT], *completed_work)
+            runs_by_work = uow.list_runs_limited_batch(
+                tuple(item.id for item in returned_work), limit=_RECENT_RUN_LIMIT + 1
+            )
             for item in returned_work:
-                runs = uow.list_runs(item.id, limit=_RECENT_RUN_LIMIT + 1)
+                runs = runs_by_work.get(item.id, ())
                 recent_runs[item.id] = tuple(runs[:_RECENT_RUN_LIMIT])
                 recent_runs_truncated[item.id] = len(runs) > _RECENT_RUN_LIMIT
             bound_jobs = uow.list_bound_jobs_limited(

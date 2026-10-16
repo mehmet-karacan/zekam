@@ -1189,6 +1189,51 @@ class SQLiteOperationalUnitOfWork:
             for row in rows
         )
 
+    def list_runs_limited_batch(
+        self, work_item_ids: tuple[str, ...], *, limit: int
+    ) -> dict[str, tuple[RunRecord, ...]]:
+        """Return bounded recent Runs for many Work items in one read query."""
+
+        if not isinstance(work_item_ids, tuple) or len(work_item_ids) > 200:
+            raise ValidationFailed("Batch Work id tuple siniri asildi")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValidationFailed("Batch Run limiti 1..100 olmali")
+        if any(not isinstance(value, str) or not value.strip() for value in work_item_ids):
+            raise ValidationFailed("Batch Work id bos veya gecersiz")
+        result = {value: [] for value in work_item_ids}
+        if not work_item_ids:
+            return {key: tuple(value) for key, value in result.items()}
+        placeholders = ",".join("?" for _ in work_item_ids)
+        rows = (
+            self._db()
+            .execute(
+                "with ranked as ("
+                "select id,work_item_id,source_snapshot_id,config_revision_id,status,"
+                "plan_digest,terminal_receipt_digest,"
+                "row_number() over (partition by work_item_id order by created_at desc,id desc) as rn "
+                "from run where work_item_id in ("
+                + placeholders
+                + ")) select id,work_item_id,source_snapshot_id,config_revision_id,status,"
+                "plan_digest,terminal_receipt_digest from ranked where rn<=? "
+                "order by work_item_id,rn",
+                (*work_item_ids, limit),
+            )
+            .fetchall()
+        )
+        for row in rows:
+            result[row["work_item_id"]].append(
+                RunRecord(
+                    row["id"],
+                    row["work_item_id"],
+                    row["status"],
+                    row["plan_digest"],
+                    row["terminal_receipt_digest"],
+                    row["source_snapshot_id"],
+                    row["config_revision_id"],
+                )
+            )
+        return {key: tuple(value) for key, value in result.items()}
+
     def assert_bound_job_current(self, job_id: str) -> None:
         from zekam.infrastructure.sqlite.work_dependency_schema import current_binding_query
 

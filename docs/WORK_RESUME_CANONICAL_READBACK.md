@@ -22,6 +22,8 @@ snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 
 - En fazla 100 acik Work okunur.
 - Work basina en fazla 3 event ve 3 Run ozetlenir.
+- Resume Run penceresi acik ve yeni tamamlanan Work'ler icin tek bounded SQLite
+  batch sorgusuyla okunur; Work sayisi arttikca sorgu sayisi carpilarak buyumez.
 - Bound job penceresi en fazla 50 kayittir; `bound_jobs_truncated` sonucu bildirir.
 - Work status raporunda bound job scope'u `returned-open-work-window` olarak
   belirtilir; source snapshot varsa revision/tree/content/config digestleri korunur.
