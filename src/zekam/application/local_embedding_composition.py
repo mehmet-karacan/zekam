@@ -1,4 +1,4 @@
-"""Compose the verified Mac BGE provider from bounded real project chunks."""
+"""Compose verified local embedding providers for bounded project chunks."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def build_verified_mac_embedding(
     *,
     classification: DataClassification = DataClassification.LOCAL_ONLY,
 ) -> VerifiedLocalEmbeddingBinding:
-    """Discover, fingerprint and probe the actual loopback BGE-M3 provider."""
+    """Discover and probe the retained macOS BGE adapter for legacy callers."""
 
     provider = build_local_bge_provider(default_mac_bge_configuration())
     result = provider.probe(project_embedding_probe_fixture(chunks, classification=classification))
