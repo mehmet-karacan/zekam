@@ -40,6 +40,14 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-04.01/06.03: Code graph build plani bounded metadata envanterini
+  (yol, tur, boyut ve eligibility durumu) kaynak dosya manifestinden ayri
+  tasir. Denied/generated/linkli/okunamayan girdiler content okumadan planda
+  gorunur; metadata digest'i plan/source manifestine baglanir ve apply yeniden
+  okuyup drift varsa fail-closed durur. CLI plan/build ciktisi envanter digest
+  ve sayisini tasir. Testler CALISTIRILMADI; graph metadata, parser/resolver ve
+  native kabul matrisi acik.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak

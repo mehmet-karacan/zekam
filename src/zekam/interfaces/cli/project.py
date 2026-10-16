@@ -924,12 +924,15 @@ def graph_plan_command(
                 "source_manifest_digest": plan.source_manifest_digest,
                 "extractor_profile_digest": plan.extractor_profile_digest,
                 "file_count": len(plan.file_manifests),
+                "metadata_inventory_digest": plan.metadata_inventory_digest,
+                "metadata_count": len(plan.metadata_inventory),
                 "apply": False,
             }
         )
     else:
         console.print(
-            f"[green]Graph plan:[/green] {resolved['slug']} files={len(plan.file_manifests)}"
+            f"[green]Graph plan:[/green] {resolved['slug']} "
+            f"files={len(plan.file_manifests)} metadata={len(plan.metadata_inventory)}"
         )
         console.print(f"Plan digest: {plan.plan_digest}")
 
@@ -959,6 +962,8 @@ def graph_build_command(
                 "project": str(resolved["slug"]),
                 "plan_digest": plan.plan_digest,
                 "file_count": len(plan.file_manifests),
+                "metadata_inventory_digest": plan.metadata_inventory_digest,
+                "metadata_count": len(plan.metadata_inventory),
                 "apply": False,
                 "build_dry_run": True,
             }
@@ -974,6 +979,8 @@ def graph_build_command(
                     "schema": "zekam-project-graph-build/v1",
                     "project": str(resolved["slug"]),
                     "plan_digest": plan.plan_digest,
+                    "metadata_inventory_digest": plan.metadata_inventory_digest,
+                    "metadata_count": len(plan.metadata_inventory),
                     "generation_digest": generation.generation_digest,
                     "project_id": generation.project_id,
                     "source_revision": generation.source_revision,

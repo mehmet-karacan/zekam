@@ -19,6 +19,7 @@ drift produces a new generation that supersedes the previous one atomically.
 from __future__ import annotations
 
 import os
+import stat as stat_module
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -36,6 +37,12 @@ from zekam.domain.errors import ValidationFailed
 
 #: Maximum source file bytes the structural extractor will accept.
 MAX_GRAPH_SOURCE_BYTES: int = 4 * 1024 * 1024
+
+# Metadata discovery is bounded independently from source content reads.  The
+# graph plan must never turn a large or hostile tree into an unbounded list.
+MAX_GRAPH_METADATA_ENTRIES: int = 200_000
+MAX_GRAPH_METADATA_DIR_ENTRIES: int = 10_000
+MAX_GRAPH_METADATA_DEPTH: int = 100
 
 # Next.js emits browser bundles under these directory names.  They are build
 # output rather than authored source and can contain syntax that the bounded
@@ -174,6 +181,43 @@ class CodeGraphPort(ABC):
 
 
 @dataclass(frozen=True, slots=True)
+class GraphSourceMetadata:
+    """Bounded, content-free metadata for one graph source-tree entry."""
+
+    relative_path: str
+    kind: str
+    size_bytes: int | None
+    status: str
+
+    def __post_init__(self) -> None:
+        _safe_relative(self.relative_path)
+        if self.kind not in {"file", "directory", "symlink", "other"}:
+            raise ValidationFailed("Graph metadata turu gecersiz")
+        if self.status not in {
+            "eligible",
+            "ignored",
+            "generated",
+            "unsupported",
+            "oversized",
+            "symlink",
+            "unreadable",
+            "missing",
+            "other",
+        }:
+            raise ValidationFailed("Graph metadata durumu gecersiz")
+        if self.size_bytes is not None and self.size_bytes < 0:
+            raise ValidationFailed("Graph metadata boyutu negatif olamaz")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "path": self.relative_path,
+            "kind": self.kind,
+            "size_bytes": self.size_bytes,
+            "status": self.status,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class CodeGraphBuildPlan:
     """Frozen plan binding a build to exact source digests."""
 
@@ -186,6 +230,7 @@ class CodeGraphBuildPlan:
     extractor_profile_digest: str
     created_at: str
     file_manifests: tuple[tuple[str, str], ...]  # (relative_path, content_digest)
+    metadata_inventory: tuple[GraphSourceMetadata, ...] = ()
 
     def __post_init__(self) -> None:
         if self.schema != GENERATION_SCHEMA:
@@ -205,6 +250,27 @@ class CodeGraphBuildPlan:
             if normalized in seen:
                 raise ValidationFailed("Graph plan duplicate file iceriyor")
             seen.add(normalized)
+        metadata_seen: set[str] = set()
+        for entry in self.metadata_inventory:
+            if not isinstance(entry, GraphSourceMetadata):
+                raise ValidationFailed("Graph metadata envanter girdisi gecersiz")
+            if entry.relative_path in metadata_seen:
+                raise ValidationFailed("Graph metadata duplicate yol iceriyor")
+            metadata_seen.add(entry.relative_path)
+
+    @property
+    def metadata_inventory_digest(self) -> str:
+        return digest(
+            {
+                "schema": "zekam-graph-metadata-inventory/v1",
+                "entries": [
+                    entry.as_dict()
+                    for entry in sorted(
+                        self.metadata_inventory, key=lambda item: item.relative_path
+                    )
+                ],
+            }
+        )
 
     @property
     def plan_digest(self) -> str:
@@ -218,6 +284,7 @@ class CodeGraphBuildPlan:
                 "source_manifest_digest": self.source_manifest_digest,
                 "extractor_profile_digest": self.extractor_profile_digest,
                 "files": sorted(self.file_manifests),
+                "metadata_inventory_digest": self.metadata_inventory_digest,
             }
         )
 
@@ -278,6 +345,146 @@ def _discover_source_files(source_root: Path) -> list[Path]:
     return files
 
 
+def _metadata_entry(
+    relative_path: str,
+    *,
+    kind: str,
+    size_bytes: int | None,
+    status: str,
+) -> GraphSourceMetadata:
+    return GraphSourceMetadata(
+        relative_path=relative_path,
+        kind=kind,
+        size_bytes=size_bytes,
+        status=status,
+    )
+
+
+def _discover_graph_metadata(
+    source_root: Path,
+    extractor: CodeGraphExtractor,
+) -> tuple[GraphSourceMetadata, ...]:
+    """Collect bounded path/type/size metadata without reading file content.
+
+    Denied and generated directories are represented by their own metadata
+    entry and pruned before descent.  This keeps the graph's source ownership
+    contract aligned with its deny-tree traversal while still making skipped
+    input visible in the exact plan digest.
+    """
+
+    if not source_root.is_dir() or _is_link_or_reparse(source_root):
+        raise ValidationFailed("Graph source root dizin olmali")
+    inventory: list[GraphSourceMetadata] = []
+    pending: list[tuple[Path, int]] = [(source_root, 0)]
+    while pending:
+        directory, depth = pending.pop()
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise ValidationFailed("Graph metadata dizin okunamadi") from exc
+        if len(entries) > MAX_GRAPH_METADATA_DIR_ENTRIES:
+            raise ValidationFailed("Graph metadata dizin siniri asildi")
+        child_directories: list[Path] = []
+        for entry in entries:
+            if len(inventory) >= MAX_GRAPH_METADATA_ENTRIES:
+                raise ValidationFailed("Graph metadata envanter siniri asildi")
+            path = Path(entry.path)
+            try:
+                relative = path.relative_to(source_root).as_posix()
+            except ValueError as exc:
+                raise ValidationFailed("Graph metadata root disi yol") from exc
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                inventory.append(
+                    _metadata_entry(
+                        relative,
+                        kind="other",
+                        size_bytes=None,
+                        status="missing",
+                    )
+                )
+                continue
+            except OSError:
+                inventory.append(
+                    _metadata_entry(
+                        relative,
+                        kind="other",
+                        size_bytes=None,
+                        status="unreadable",
+                    )
+                )
+                continue
+
+            is_link = entry.is_symlink() or bool(getattr(info, "st_file_attributes", 0) & 0x400)
+            if is_link:
+                inventory.append(
+                    _metadata_entry(
+                        relative,
+                        kind="symlink",
+                        size_bytes=None,
+                        status="symlink",
+                    )
+                )
+                continue
+
+            is_directory = stat_module.S_ISDIR(info.st_mode)
+            is_file = stat_module.S_ISREG(info.st_mode)
+            parts = tuple(part.casefold() for part in PurePosixPath(relative).parts)
+            ignored = any(part in _DENIED_GRAPH_DIRS for part in parts)
+            generated = any(part in _GENERATED_GRAPH_DIRS for part in parts)
+            if is_directory:
+                status = "generated" if generated else "ignored" if ignored else "eligible"
+                inventory.append(
+                    _metadata_entry(
+                        relative,
+                        kind="directory",
+                        size_bytes=None,
+                        status=status,
+                    )
+                )
+                if ignored or generated:
+                    continue
+                if depth + 1 > MAX_GRAPH_METADATA_DEPTH:
+                    raise ValidationFailed("Graph metadata derinlik siniri asildi")
+                child_directories.append(path)
+                continue
+
+            if not is_file:
+                inventory.append(
+                    _metadata_entry(
+                        relative,
+                        kind="other",
+                        size_bytes=None,
+                        status="other",
+                    )
+                )
+                continue
+
+            if ignored:
+                status = "ignored"
+            elif generated:
+                status = "generated"
+            elif not extractor.supports(relative):
+                status = "unsupported"
+            elif int(info.st_size) > MAX_GRAPH_SOURCE_BYTES:
+                status = "oversized"
+            else:
+                status = "eligible"
+            inventory.append(
+                _metadata_entry(
+                    relative,
+                    kind="file",
+                    size_bytes=int(info.st_size),
+                    status=status,
+                )
+            )
+        pending.extend((child, depth + 1) for child in reversed(child_directories))
+    inventory.sort(key=lambda item: item.relative_path)
+    return tuple(inventory)
+
+
 def plan_graph_build(
     source_root: Path,
     *,
@@ -288,6 +495,7 @@ def plan_graph_build(
     created_at: str,
 ) -> CodeGraphBuildPlan:
     """Read-only discovery: enumerate supported files and digest the tree."""
+    metadata_inventory = _discover_graph_metadata(source_root, extractor)
     manifests: list[tuple[str, str]] = []
     for relative in _discover_source_files(source_root):
         relative_path = relative.as_posix()
@@ -302,7 +510,16 @@ def plan_graph_build(
         raise ValidationFailed("Graph plan desteklenen dosya icermiyor")
     tree_digest = digest({"schema": "zekam-graph-tree/v1", "files": sorted(manifests)})
     source_manifest_digest = digest(
-        {"schema": "zekam-graph-source-manifest/v1", "files": sorted(manifests)}
+        {
+            "schema": "zekam-graph-source-manifest/v1",
+            "files": sorted(manifests),
+            "metadata_inventory_digest": digest(
+                {
+                    "schema": "zekam-graph-metadata-inventory/v1",
+                    "entries": [entry.as_dict() for entry in metadata_inventory],
+                }
+            ),
+        }
     )
     manifests.sort()
     return CodeGraphBuildPlan(
@@ -315,6 +532,7 @@ def plan_graph_build(
         extractor_profile_digest=extractor.profile_digest,
         created_at=created_at,
         file_manifests=tuple(manifests),
+        metadata_inventory=metadata_inventory,
     )
 
 
@@ -327,6 +545,10 @@ def apply_graph_build(
     """Extract every planned file and atomically publish a new generation."""
     expected = plan.plan_digest
     parse_digest(expected)
+    if plan.metadata_inventory:
+        current_metadata = _discover_graph_metadata(source_root, extractor)
+        if current_metadata != plan.metadata_inventory:
+            raise ValidationFailed("Graph plan/source metadata envanter drift")
     files: list[GraphFile] = []
     symbols: list[GraphSymbol] = []
     edges: list[GraphEdge] = []
