@@ -243,6 +243,23 @@ def _source_evidence(work: tuple[Any, ...]) -> list[dict[str, str]]:
     return refs
 
 
+def _recent_runs_by_work(uow: Any, work: tuple[Any, ...]) -> dict[str, tuple[Any, ...]]:
+    """Read bounded Run windows in one batch, with a narrow legacy fallback."""
+
+    work_ids = tuple(item.id for item in work)
+    batch_reader = getattr(uow, "list_runs_limited_batch", None)
+    if callable(batch_reader):
+        return batch_reader(work_ids, limit=_RECENT_RUN_LIMIT + 1)
+    # Eski in-memory test doubles veya dis-adapter'ler henuz batch okuyucuyu
+    # uygulamiyorsa canonical tekil okuyucuyla geriye donuk uyumluluk korunur.
+    single_reader = getattr(uow, "list_runs", None)
+    if not callable(single_reader):
+        return {work_id: () for work_id in work_ids}
+    return {
+        work_id: tuple(single_reader(work_id, limit=_RECENT_RUN_LIMIT + 1)) for work_id in work_ids
+    }
+
+
 def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[str, Any]:
     """Build one local-only state snapshot without provider or source-tree access."""
 
@@ -273,9 +290,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 tuple(item.id for item in (*open_work[:_OPEN_WORK_LIMIT], *completed_work))
             )
             returned_work = (*open_work[:_OPEN_WORK_LIMIT], *completed_work)
-            runs_by_work = uow.list_runs_limited_batch(
-                tuple(item.id for item in returned_work), limit=_RECENT_RUN_LIMIT + 1
-            )
+            runs_by_work = _recent_runs_by_work(uow, returned_work)
             for item in returned_work:
                 runs = runs_by_work.get(item.id, ())
                 recent_runs[item.id] = tuple(runs[:_RECENT_RUN_LIMIT])

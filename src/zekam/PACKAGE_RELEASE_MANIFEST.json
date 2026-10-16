@@ -6,7 +6,7 @@
     "zekam"
   ],
   "local_schema_bundle_digest": "sha256:3c0f8aada4786e97d017a1dc71da1f42ff6532e0acda0d98032791bca98718fd",
-  "package_source_bundle_digest": "sha256:a4351d9a85e4f5f63506b51f31da1b1b46a5e065ff3529af946526d245f86ce1",
+  "package_source_bundle_digest": "sha256:5c7983d6d0d001ec4299883347f6ce226f3b74505e80ae5940fe2644693aade8",
   "protocol_schema_digest": "sha256:adde911f1444e88cdc11312cb99ec2a0dead582951b98d41da667d20e359acd7",
   "python": ">=3.12",
   "schema": "zekam-package-manifest/v3",

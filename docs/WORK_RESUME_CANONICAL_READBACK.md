@@ -24,6 +24,8 @@ snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 - Work basina en fazla 3 event ve 3 Run ozetlenir.
 - Resume Run penceresi acik ve yeni tamamlanan Work'ler icin tek bounded SQLite
   batch sorgusuyla okunur; Work sayisi arttikca sorgu sayisi carpilarak buyumez.
+- Batch API'si bulunmayan eski test/adaptor store'lari icin ayni limitli tekil
+  canonical okuyucuya dar fallback vardir; SQLite operational store batch yolunu kullanir.
 - Bound job penceresi en fazla 50 kayittir; `bound_jobs_truncated` sonucu bildirir.
 - Work status raporunda bound job scope'u `returned-open-work-window` olarak
   belirtilir; source snapshot varsa revision/tree/content/config digestleri korunur.
