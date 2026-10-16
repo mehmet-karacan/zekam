@@ -108,6 +108,7 @@ class MeasuredRun:
     report_facts: dict | None = None
     report_facts_state: str = "not-captured"
     measurement_evidence_digest: str | None = None
+    test_tree_evidence: dict | None = None
 
 
 class UnitTestMeasurer(Protocol):

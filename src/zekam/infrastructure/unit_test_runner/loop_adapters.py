@@ -105,6 +105,7 @@ class MavenUnitTestMeasurer:
             diagnostics.output_bytes,
             diagnostics.report_facts,
             diagnostics.report_facts_state,
+            test_tree_evidence=diagnostics.test_tree_evidence,
         )
 
 

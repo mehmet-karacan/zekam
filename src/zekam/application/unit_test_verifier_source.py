@@ -376,4 +376,22 @@ def read_verifier_source(home: Path, reference: str) -> dict:
         "provider_calls": 0,
         "grants_authority": False,
     }
+    tree_key = measurement.get("test_tree_evidence_digest")
+    if tree_key is not None:
+        from zekam.infrastructure.unit_test_runner.tree_evidence import validate_measured_tree
+
+        tree = _object(objects, tree_key)
+        files = validate_measured_tree(tree)
+        if tree["state"] != "stable" or any(
+            files.get(path) != value for path, value in state["accepted_files"]
+        ):
+            raise PolicyViolation("Verifier source measured full test tree/accepted patch drift")
+        body["measured_test_tree"] = {
+            "evidence_digest": tree_key,
+            "state": tree["state"],
+            "before_digest": tree["before_digest"],
+            "after_digest": tree["after_digest"],
+            "file_count": len(files),
+            "module_dirs": tree["module_dirs"],
+        }
     return body | {"report_digest": digest(body)}

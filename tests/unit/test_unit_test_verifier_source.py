@@ -80,6 +80,20 @@ def canonical_loop(world, tmp_path):
             uow.commit()
 
     h.gateway = replace(h._make_gateway(), artifact_registrar=registrar)
+    from zekam.infrastructure.unit_test_runner.tree_fingerprint import digest_test_tree
+    from zekam.infrastructure.unit_test_runner.tree_evidence import measured_tree
+
+    original_measurer = h.measurer
+
+    def measure(*args, **kwargs):
+        before = digest_test_tree(h.root, ("",))
+        measured = original_measurer.measure(*args, **kwargs)
+        return replace(
+            measured,
+            test_tree_evidence=measured_tree(before, digest_test_tree(h.root, ("",)), ("",)),
+        )
+
+    h.measurer = SimpleNamespace(measure=measure)
     runtime_binding = SimpleNamespace(
         approved_maven_plan_digest=digest("maven-plan"),
         realm_id=h.work.realm_id,
@@ -94,7 +108,11 @@ def canonical_loop(world, tmp_path):
     inputs = unit_test_job_input_body(h.request, runtime_binding, h.approvals, h.limits)
 
     def execute(_cancel):
-        service = replace(h.service(), artifact_registrar=registrar)
+        service = replace(
+            h.service(),
+            artifact_registrar=registrar,
+            test_tree=lambda: digest_test_tree(h.root, ("",)),
+        )
         outcome = service.run(h.request, approvals=h.approvals, limits=h.limits)
         return {
             "schema": "zekam-unit-test-run/v1",
@@ -132,19 +150,26 @@ def test_verifier_source_reads_actual_canonical_terminal_without_upgrading_repla
     assert report["publication_authorized"] is False
     assert report["provenance"]["model_independence"] == "unproven"
     assert report["parser_report_facts"]["state"] == "not-captured"
+    assert report["measured_test_tree"]["state"] == "stable"
     snapshot = w.world.runtime.job_snapshot(w.result["canonical_job_id"])
     assert read_verifier_source(w.world.home, snapshot["idempotency_key"]) == report
 
 
 @pytest.mark.parametrize(
     "field",
-    ["measurement_record_digest", "final_verifier_execution_digest", "terminal_evidence_digest"],
+    [
+        "measurement_record_digest",
+        "final_verifier_execution_digest",
+        "terminal_evidence_digest",
+        "measured_test_tree",
+    ],
 )
 def test_verifier_source_missing_exact_cas_never_creates_new_execution(canonical_loop, field):
     w = canonical_loop
     report = read_verifier_source(w.world.home, w.result["canonical_job_id"])
     calls = sum(adapter.calls for adapter in w.harness.adapters.values())
-    w.harness.objects._paths(report[field])[0].unlink()
+    key = report[field]["evidence_digest"] if field == "measured_test_tree" else report[field]
+    w.harness.objects._paths(key)[0].unlink()
     with pytest.raises((NotFound, OSError)):
         read_verifier_source(w.world.home, w.result["canonical_job_id"])
     assert sum(adapter.calls for adapter in w.harness.adapters.values()) == calls

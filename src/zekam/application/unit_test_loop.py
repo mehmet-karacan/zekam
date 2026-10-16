@@ -144,6 +144,7 @@ class UnitTestLoopService:
     clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC)
     monotonic: Callable[[], float] = time.monotonic
     artifact_registrar: Callable[[str, int, str], None] | None = None
+    test_tree: Callable[[], Mapping[str, str]] | None = None
 
     def run(
         self,
@@ -199,6 +200,7 @@ class _Session:
         self.control = control
         self.rd = request.request_digest
         self.state = LoopState()
+        self._measurement_trees: dict[str, dict] = {}
         self.executed = 0
         self._tick_at = service.monotonic()
 
@@ -375,6 +377,20 @@ class _Session:
         """
 
         reasons: list[str] = []
+        measured_tree = self._measurement_trees.get(record.record_digest)
+        if measured_tree is not None:
+            if measured_tree["state"] != "stable":
+                reasons.append("drift:test-tree-during-measurement")
+            elif self.s.test_tree is None:
+                reasons.append("drift:test-tree-current-unavailable")
+            else:
+                from zekam.infrastructure.unit_test_runner.tree_fingerprint import fingerprint_tree
+
+                try:
+                    if fingerprint_tree(dict(self.s.test_tree())) != measured_tree["before_digest"]:
+                        reasons.append("drift:test-tree")
+                except (OSError, ValidationFailed, PolicyViolation):
+                    reasons.append("drift:test-tree-readback-unavailable")
         observation = self.s.environment.observe()
         verdict = self._current_for(observation, record, expected_candidate)
         if verdict is not FreshnessVerdict.FRESH:
@@ -623,6 +639,15 @@ class _Session:
                     binding=record.binding.to_payload(),
                 )
                 facts_digest = self._put(run.report_facts)
+            tree_digest = None
+            if run.test_tree_evidence is not None:
+                from zekam.infrastructure.unit_test_runner.tree_evidence import (
+                    validate_measured_tree,
+                )
+
+                validate_measured_tree(run.test_tree_evidence)
+                tree_digest = self._put(run.test_tree_evidence)
+                self._measurement_trees[record.record_digest] = run.test_tree_evidence
             evidence_digest = self._put(
                 {
                     "contract": "zekam-unit-test-loop-measurement-evidence/v1",
@@ -632,6 +657,7 @@ class _Session:
                     "measurement_binding_digest": binding_digest,
                     "report_facts_digest": facts_digest,
                     "report_facts_state": run.report_facts_state,
+                    "test_tree_evidence_digest": tree_digest,
                     "grants_authority": False,
                 }
             )

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from zekam.application.unit_test_measurement import (
@@ -19,6 +19,7 @@ from zekam.application.unit_test_measurement import (
     MeasurementEvidence,
     MeasurementRecord,
     MeasurementScope,
+    MeasurementStatus,
     RunStatus,
     TestRunKind,
     ToolchainIdentity,
@@ -58,6 +59,8 @@ from zekam.infrastructure.unit_test_runner.surefire_report import (
     TestRunSummary,
     summarize,
 )
+from zekam.infrastructure.unit_test_runner.tree_fingerprint import digest_test_tree
+from zekam.infrastructure.unit_test_runner.tree_evidence import measured_tree
 
 _FORBIDDEN_PLUGINS = frozenset(
     {"failsafe", "exec", "antrun", "install", "deploy", "verifier", "invoker"}
@@ -85,6 +88,7 @@ class MeasurementDiagnostics:
     failed_cases: tuple[str, ...] = ()
     report_facts: dict | None = None
     report_facts_state: str = "not-captured"
+    test_tree_evidence: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +231,32 @@ def measure_unit_tests(
         return PlanBlocked(plan_result.status, reason, plan_result.reasons, plan_result.setup_plan)
     plan = plan_result.plan
     root = Path(plan.project_root)
+    tree_before = digest_test_tree(root, plan.modules)
+    measured_tree(tree_before, tree_before, plan.modules)
+
+    def bind_tree(record):
+        try:
+            tree_after = digest_test_tree(root, plan.modules)
+        except (OSError, ValidationFailed, PolicyViolation):
+            tree_after = None
+        tree = measured_tree(tree_before, tree_after, plan.modules)
+        if diagnostics is not None:
+            diagnostics.test_tree_evidence = tree
+        if tree["state"] != "stable":
+            if record.status not in {
+                MeasurementStatus.ACCEPTED,
+                MeasurementStatus.NO_TESTS_BASELINE,
+            }:
+                return replace(record, blockers=(*record.blockers, "test-tree:" + tree["state"]))
+            return replace(
+                record,
+                status=MeasurementStatus.UNBOUND_OR_STALE,
+                stop_reason=UnitTestStopReason.MEASUREMENT_INCOMPLETE,
+                evaluation=None,
+                blockers=(*record.blockers, "test-tree:" + tree["state"]),
+            )
+        return record
+
     run = run_maven(
         plan,
         authorization,
@@ -242,7 +272,7 @@ def measure_unit_tests(
         diagnostics.output_bytes = run.output_bytes
     empty = MeasurementEvidence(run.status, run.exit_code, TestRunKind.UNAVAILABLE, (), ())
     if run.status is not RunStatus.COMPLETED:
-        return assemble_measurement(request, None, empty)
+        return bind_tree(assemble_measurement(request, None, empty))
 
     outputs = collect_outputs(root, plan.modules, run.start_ns)
     kind, summary, module_summaries = _summarize_targets(outputs, plan.target_modules)
@@ -272,7 +302,7 @@ def measure_unit_tests(
                 )
                 class_ids.update(class_digests(root, target.module, names))
     except (ValidationFailed, OSError):
-        return assemble_measurement(request, None, empty)
+        return bind_tree(assemble_measurement(request, None, empty))
 
     # Taze XML'in beslendigi taze exec yoksa XML'in kaynagi dogrulanamaz (M07).
     unbound_xml = tuple(
@@ -340,7 +370,9 @@ def measure_unit_tests(
         missing_expected_plugins=tuple(missing),
         stale_report_paths=(*outputs.stale, *unbound_xml),
     )
-    record = assemble_measurement(request, binding, evidence, freshness=FreshnessVerdict.FRESH)
+    record = bind_tree(
+        assemble_measurement(request, binding, evidence, freshness=FreshnessVerdict.FRESH)
+    )
     if diagnostics is not None:
         from zekam.infrastructure.unit_test_runner.report_facts import (
             ParsedReportInputs,

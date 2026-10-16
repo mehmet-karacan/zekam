@@ -63,8 +63,8 @@ def test_linked_directories_are_not_followed(tmp_path: Path) -> None:
     _write(tmp_path / "proje", "src/test/java/ATest.java", "a")
     if not _link_dir(tmp_path / "proje" / "src" / "test" / "link", outside):
         pytest.skip("symlink/junction kurulamadi")
-    tree = digest_test_tree(tmp_path / "proje", [""])
-    assert list(tree) == ["src/test/java/ATest.java"]
+    with pytest.raises(ValidationFailed, match="baglanti|junction"):
+        digest_test_tree(tmp_path / "proje", [""])
 
 
 def test_linked_test_root_is_rejected(tmp_path: Path) -> None:
@@ -83,3 +83,10 @@ def test_file_count_bound_is_explicit_not_silent(tmp_path: Path) -> None:
         _write(tmp_path, f"src/test/java/T{index}.java", str(index))
     with pytest.raises(ValidationFailed, match="siniri"):
         digest_test_tree(tmp_path, [""], max_files=3)
+
+
+def test_total_byte_budget_is_explicit_not_silent(tmp_path: Path) -> None:
+    _write(tmp_path, "src/test/a.txt", "1234")
+    _write(tmp_path, "src/test/b.txt", "5678")
+    with pytest.raises(ValidationFailed, match="boyut"):
+        digest_test_tree(tmp_path, [""], max_bytes=7)

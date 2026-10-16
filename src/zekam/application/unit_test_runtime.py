@@ -333,6 +333,9 @@ def compose_unit_test_runtime(
         environment=parts.environment,
         control=control,
         artifact_registrar=artifact_registrar,
+        test_tree=lambda: digest_test_tree(
+            binding.project_root, discover_project(binding.project_root).module_dirs
+        ),
     )
     return UnitTestRuntime(loop=loop, objects=parts.objects, gateway=gateway)
 
@@ -814,6 +817,12 @@ def measure_native(
         if not observations:
             outcome = NativeOutcome.INCOMPLETE
     evaluation = record.evaluation
+    tree_evidence_digest = None
+    if run.test_tree_evidence is not None:
+        from zekam.infrastructure.unit_test_runner.tree_evidence import validate_measured_tree
+
+        validate_measured_tree(run.test_tree_evidence)
+        tree_evidence_digest = _put(ports, run.test_tree_evidence)
     report_facts_digest = None
     if run.report_facts is not None:
         from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
@@ -842,6 +851,7 @@ def measure_native(
             "authority": "observation-only",
             "report_facts_digest": report_facts_digest,
             "report_facts_state": run.report_facts_state,
+            "test_tree_evidence_digest": tree_evidence_digest,
         },
         observations,
     )

@@ -307,6 +307,26 @@ def _read_native_measurement_source(home: Path, reference: str) -> tuple:
         "provider_calls": 0,
         "grants_authority": False,
     }
+    tree_key = envelope["evidence"].get("test_tree_evidence_digest")
+    if tree_key is not None:
+        from zekam.infrastructure.unit_test_runner.tree_evidence import validate_measured_tree
+
+        tree = _object(objects, tree_key)
+        files = validate_measured_tree(tree)
+        if receipt.status.value == "completed" and (
+            tree["state"] != "stable"
+            or tree["before_digest"] != candidate["test_tree_digest"]
+            or canonical_bytes(sorted(files.items())) != canonical_bytes(candidate["files"])
+        ):
+            raise PolicyViolation("Measurement source captured full test tree drift")
+        body["measured_test_tree"] = {
+            "evidence_digest": tree_key,
+            "state": tree["state"],
+            "before_digest": tree["before_digest"],
+            "after_digest": tree["after_digest"],
+            "file_count": len(files),
+            "module_dirs": tree["module_dirs"],
+        }
     return body | {"report_digest": digest(body)}, request, record, measurement_binding, candidate
 
 
