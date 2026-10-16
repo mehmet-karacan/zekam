@@ -37,6 +37,7 @@ from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import load_settings
 from zekam.application.home import HomeLayout
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.project_knowledge_index import source_identity_digest
 from zekam.application.project_rag_runtime import project_rag_status
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.knowledge import Locator
@@ -78,8 +79,8 @@ SOURCE_CONTENT: dict[str, str] = {
 }
 
 
-def _normalized_vector() -> tuple[float, ...]:
-    """Deterministik, normalize, 1024-boyutlu vektor (sqlite-vec girdisi).
+def _normalized_vector(dimension: int = KNOWLEDGE_VECTOR_DIMENSION) -> tuple[float, ...]:
+    """Deterministik, normalize, secili profile boyutunda vektor.
 
     dense kanali bu testte devre disidir (saglayicisiz), ancak indeksin
     ``chunk_vector`` tablosuna gectigi vektor ``validate_vector`` sozlesmesini
@@ -88,8 +89,8 @@ def _normalized_vector() -> tuple[float, ...]:
     """
 
     a = 0.001
-    b = (1.0 - (KNOWLEDGE_VECTOR_DIMENSION - 1) * a * a) ** 0.5
-    return (a,) * (KNOWLEDGE_VECTOR_DIMENSION - 1) + (b,)
+    b = (1.0 - (dimension - 1) * a * a) ** 0.5
+    return (a,) * (dimension - 1) + (b,)
 
 
 def _project_ids(home: Path) -> dict[str, str]:
@@ -112,7 +113,8 @@ def _build_one_project(home: Path, slug: str, project_id: str, binding_digest: s
 
     _, status_digest, revision = runtime._git_source_state(source_root)
     tree_digest = digest(f"tree-{project_id}")
-    index_root = home / "knowledge-index" / "vector" / "opencode-bge-m3" / slug
+    knowledge = load_settings(home=home).knowledge
+    index_root = home / "knowledge-index" / "vector" / runtime._index_model_dir(home) / slug
     index_path = index_root / "knowledge.sqlite3"
     index_root.mkdir(parents=True, exist_ok=True)
     (home / "knowledge-index" / "manifests" / slug).mkdir(parents=True, exist_ok=True)
@@ -127,9 +129,12 @@ def _build_one_project(home: Path, slug: str, project_id: str, binding_digest: s
         text=content,
         content_digest=digest_of_bytes(content.encode("utf-8")),
         chunk_order=0,
-        vector=_normalized_vector(),
+        vector=_normalized_vector(knowledge.embedding_dimension),
+        vector_dimension=knowledge.embedding_dimension,
     )
-    with SQLiteKnowledgeIndex(index_path, create=True) as index:
+    with SQLiteKnowledgeIndex(
+        index_path, create=True, dimension=knowledge.embedding_dimension
+    ) as index:
         generation = index.build_generation(
             (record,),
             project_id=project_id,
@@ -148,9 +153,12 @@ def _build_one_project(home: Path, slug: str, project_id: str, binding_digest: s
         "state": "ready",
         "generation_digest": generation.generation_digest,
         "source_revision": generation.source_revision,
+        "tree_digest": generation.tree_digest,
+        "source_identity_digest": source_identity_digest(
+            project_id, generation.source_revision, generation.tree_digest
+        ),
         "repository_source_revision": revision,
         "repository_tree_digest": "sha256:" + status_digest,
-        "tree_digest": generation.tree_digest,
         "source_chunk_count": generation.chunk_count,
         "database_access": "disabled",
         "knowledge_binding_digest": binding_digest,
@@ -166,6 +174,19 @@ def _build_dual_home(tmp_path: Path) -> Path:
 
     home = tmp_path / "zekam-home"
     layout = HomeLayout(home).ensure()
+    # Bu fixture legacy remote lexical kontratini sinar; uretim varsayilani
+    # local E5 olarak kalir, fixture profili ise acikca BGE ile sabitlenir.
+    (home / "config.yaml").write_text(
+        """knowledge:
+  embedding_profile_id: bge-m3-dense-v1
+  embedding_route: remote
+  remote_provider_id: litellm
+  embedding_model_ref: openai/BAAI/bge-m3
+  embedding_dimension: 1024
+  embedding_distance: cosine
+""",
+        encoding="utf-8",
+    )
     for slug in REGISTERED:
         layout.ensure_project(slug)
 
