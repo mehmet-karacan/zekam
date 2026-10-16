@@ -300,3 +300,18 @@ Ayrintili kabul sartlari icin `AKTIF_GOREV.md` 15'e bakin.
   uygulayin.
 - Bir sonraki exact safe action status veya plan komutu ciktisinda
   belirtilir.
+# Salt okunur store siniri - 16 Ekim 2026, test bekliyor
+
+`research radar status/report/candidates`, analyse-plan inventory okuma ve
+scheduler'in salt-okunur radar.propose yolu `read_only=True` repository kullanir.
+Eksik DB veya parent olusturulmaz; schema kurulmaz veya migrate edilmez. URI
+`mode=ro` ve `query_only` yazmayi SQLite sinirinda engeller. Her baglantida mevcut
+schema version/digest okunur; eski veya drift etmis schema icin gorunur hata verilir.
+Symlink/reparse kaynak reddedilir. `RadarSchemaPort.status` da yalniz mevcut
+dosyayi `mode=ro` ile acar. Yetkili campaign run'in mevcut explicit schema/write
+yolu korunur; salt-okunur plan onun yerine gecmez.
+
+Eksik campaign icin scheduler empty/unknown aday listesi gosterebilir; dosya
+veya campaign uretmez. Analyse-plan eksik store'u needs-discovery diye bildirir.
+Bu sinir kampanya sonucunu verified veya adayi AUTO_SAFE yapmaz. Regresyon
+kaynaklari `tests/unit/test_radar_read_only.py` icinde hazir, CALISTIRILMADI.

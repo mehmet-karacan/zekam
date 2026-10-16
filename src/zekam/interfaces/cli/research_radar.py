@@ -193,7 +193,9 @@ def status_command(
 
     try:
         context = build_context(home=home)
-        repo = RadarCampaignRepository(context.home / "state" / "radar-campaigns.db")
+        repo = RadarCampaignRepository(
+            context.home / "state" / "radar-campaigns.db", read_only=True
+        )
         document = repo.campaign_status_document(campaign_id)
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -216,7 +218,9 @@ def report_command(
 
     try:
         context = build_context(home=home)
-        repo = RadarCampaignRepository(context.home / "state" / "radar-campaigns.db")
+        repo = RadarCampaignRepository(
+            context.home / "state" / "radar-campaigns.db", read_only=True
+        )
         document = repo.campaign_report_document(campaign_id)
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -237,7 +241,9 @@ def candidates_command(
 
     try:
         context = build_context(home=home)
-        repo = RadarCampaignRepository(context.home / "state" / "radar-campaigns.db")
+        repo = RadarCampaignRepository(
+            context.home / "state" / "radar-campaigns.db", read_only=True
+        )
         document = repo.candidates_document(campaign_id)
     except ZekamError as exc:
         raise fail_from(exc) from exc

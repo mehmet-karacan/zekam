@@ -19,7 +19,7 @@ from typing import Any, Protocol
 from zekam.application.local_runtime import LocalJobBinding, validate_dispatch_binding
 from zekam.application.operational_store import OperationalStore
 from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.radar_candidate import (
     EvidenceLevel,
     RadarCandidateDecision,
@@ -257,7 +257,10 @@ def build_radar_plan(
     if stage == "analyse":
         if inventory_digest is None:
             raise PolicyViolation("Analyse plan needs-discovery: inventory_digest gerekiyor")
-        repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db")
+        try:
+            repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db", read_only=True)
+        except NotFound:
+            raise PolicyViolation("Analyse plan needs-discovery: Radar store bulunamadi") from None
         inventory = repo.get_inventory_by_digest(inventory_digest)
         if inventory is None:
             raise PolicyViolation("Analyse plan stale: inventory_digest bulunamadi")

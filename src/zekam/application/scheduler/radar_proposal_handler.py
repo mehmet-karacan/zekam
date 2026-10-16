@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from zekam.domain.canonical import digest
-from zekam.domain.errors import ValidationFailed
+from zekam.domain.errors import NotFound, ValidationFailed
 from zekam.infrastructure.radar_campaign_store import RadarCampaignRepository
 
 
@@ -135,23 +135,20 @@ class RadarProposalHandler:
                 reason="radar.propose requires explicit read-only authorization",
             )
 
-        repo = RadarCampaignRepository(self._radar_db_path)
         try:
+            repo = RadarCampaignRepository(self._radar_db_path, read_only=True)
             candidates = repo.candidates_document(campaign_id)
-        except Exception as exc:
-            if "Campaign bulunamadi" in str(exc):
-                candidates = {
-                    "schema": "zekam-radar-campaign-candidates/v1",
-                    "campaign_id": campaign_id,
-                    "campaign_state": "unknown",
-                    "pattern_cards": [],
-                    "gap_cards": [],
-                    "decisions": [],
-                    "read_only": True,
-                    "grants_authority": False,
-                }
-            else:
-                raise
+        except NotFound:
+            candidates = {
+                "schema": "zekam-radar-campaign-candidates/v1",
+                "campaign_id": campaign_id,
+                "campaign_state": "unknown",
+                "pattern_cards": [],
+                "gap_cards": [],
+                "decisions": [],
+                "read_only": True,
+                "grants_authority": False,
+            }
         return RadarProposalHandlerResult(
             status="completed",
             operation=self.OPERATION,

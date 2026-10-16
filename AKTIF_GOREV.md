@@ -1811,6 +1811,12 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   passing full kalite/preference/provenance ve genel kabul kapilari aciktir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
+
+  16 Ekim 2026 radar read siniri: status/report/candidates, analyse-plan inventory
+  ve scheduler read-only handler schema kurmadan/migrate etmeden mode=ro/query_only
+  kullanir. Eksik store olusturulmaz; version/digest/path drift gorunur hata verir.
+  Yetkili run writer yolu korunur. Regresyon kaynaklari hazir, CALISTIRILMADI.
+  Gercek campaign/tournament ve genel WP kabul kapilari aciktir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.

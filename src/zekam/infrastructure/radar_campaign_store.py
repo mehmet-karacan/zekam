@@ -23,6 +23,7 @@ from zekam.domain.radar_candidate import (
     RadarGapCard,
     RadarPatternCard,
 )
+from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
 
 RADAR_SCHEMA_VERSION = 4
 
@@ -460,9 +461,13 @@ class RadarSchemaPort:
 
     @staticmethod
     def status(path: Path) -> dict[str, Any]:
-        if not path.exists():
+        if not path.is_absolute():
+            raise ConfigurationError("Radar store path absolute olmali")
+        if path_or_parent_is_link_or_reparse(path):
+            raise PolicyViolation("Radar store regular source path olmali")
+        if not path.is_file():
             return {"exists": False, "version": None}
-        connection = sqlite3.connect(str(path), timeout=5.0)
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=5.0)
         try:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
@@ -480,13 +485,47 @@ class RadarCampaignRepository:
     lock for in-memory sequencing but relies on SQLite for concurrency control.
     """
 
-    def __init__(self, path: Path) -> None:
-        RadarSchemaPort.ensure_schema(path)
+    def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
+        self._read_only = read_only
         self._lock = threading.Lock()
+        if read_only:
+            # Reading must never install or migrate the campaign database.
+            self._connect().close()
+        else:
+            RadarSchemaPort.ensure_schema(path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self._path), timeout=5.0)
+        if self._read_only:
+            if not self._path.is_absolute():
+                raise ConfigurationError("Radar store path absolute olmali")
+            if path_or_parent_is_link_or_reparse(self._path):
+                raise PolicyViolation("Radar store regular source path olmali")
+            if not self._path.is_file():
+                raise NotFound("Radar store bulunamadi")
+            try:
+                connection = sqlite3.connect(
+                    f"{self._path.as_uri()}?mode=ro", uri=True, timeout=5.0
+                )
+            except sqlite3.Error:
+                raise ValidationFailed("Radar store salt okunur acilamadi") from None
+            try:
+                connection.execute("pragma query_only = on")
+                connection.execute("begin")
+                row = connection.execute(
+                    "select version,migration_digest from radar_schema_migrations "
+                    "order by version desc limit 1"
+                ).fetchone()
+                if row is None or row != (RADAR_SCHEMA_VERSION, _MIGRATION_DIGEST):
+                    raise ValidationFailed("Radar schema migration gerekli veya digest uyumsuz")
+            except sqlite3.Error:
+                connection.close()
+                raise ValidationFailed("Radar schema salt okunur dogrulanamadi") from None
+            except Exception:
+                connection.close()
+                raise
+        else:
+            connection = sqlite3.connect(str(self._path), timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("pragma foreign_keys = on")
         connection.execute("pragma busy_timeout = 5000")
